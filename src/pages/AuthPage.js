@@ -4,7 +4,7 @@ import { supabase } from '../supabaseClient';
 
 export default function AuthPage() {
   const { signIn } = useAuth();
-  const [mode, setMode] = useState('login'); // login, setup
+  const [mode, setMode] = useState('login'); // login, setup, forgot
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
@@ -12,11 +12,14 @@ export default function AuthPage() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState('');
 
-  // Check if user arrived via an invite magic link
+  // Check if user arrived via an invite magic link or password reset
   useEffect(() => {
     const hash = window.location.hash;
     if (hash && (hash.includes('type=invite') || hash.includes('type=signup') || hash.includes('type=magiclink'))) {
       setMode('setup');
+    }
+    if (hash && hash.includes('type=recovery')) {
+      setMode('reset');
     }
 
     // Listen for auth state changes from the magic link
@@ -24,6 +27,9 @@ export default function AuthPage() {
       if (event === 'SIGNED_IN' && session?.user && !session.user.user_metadata?.full_name) {
         setMode('setup');
         setEmail(session.user.email || '');
+      }
+      if (event === 'PASSWORD_RECOVERY') {
+        setMode('reset');
       }
     });
 
@@ -85,6 +91,46 @@ export default function AuthPage() {
     }
   }
 
+  async function handleForgotPassword(e) {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+    setLoading(true);
+    try {
+      if (!email.trim()) throw new Error('Please enter your email address.');
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin,
+      });
+      if (error) throw error;
+      setSuccess('Password reset email sent! Check your inbox.');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResetPassword(e) {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+    setLoading(true);
+    try {
+      if (password.length < 6) throw new Error('Password must be at least 6 characters.');
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) throw error;
+      setSuccess('Password updated! Redirecting...');
+      setTimeout(() => {
+        window.location.hash = '';
+        window.location.reload();
+      }, 1000);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div style={styles.container}>
       <div style={styles.bg} />
@@ -101,38 +147,97 @@ export default function AuthPage() {
           <h1 style={styles.title}>Mayday Media</h1>
           <p style={styles.titleSub}>Creative</p>
           <p style={styles.subtitle}>
-            {mode === 'setup' ? 'Set up your account to get started' : 'Sign in to your workspace'}
+            {mode === 'setup' ? 'Set up your account to get started'
+              : mode === 'forgot' ? 'Enter your email to reset your password'
+              : mode === 'reset' ? 'Choose a new password'
+              : 'Sign in to your workspace'}
           </p>
         </div>
 
         {mode === 'login' && (
-          <form onSubmit={handleLogin} style={styles.form}>
-            <div style={styles.field}>
-              <label style={styles.label}>Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@company.com"
-                required
-                style={styles.input}
-              />
+          <>
+            <form onSubmit={handleLogin} style={styles.form}>
+              <div style={styles.field}>
+                <label style={styles.label}>Email</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@company.com"
+                  required
+                  style={styles.input}
+                />
+              </div>
+              <div style={styles.field}>
+                <label style={styles.label}>Password</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  minLength={6}
+                  style={styles.input}
+                />
+              </div>
+              {error && <div style={styles.error}>{error}</div>}
+              <button type="submit" disabled={loading} style={styles.button}>
+                {loading ? 'Signing in...' : 'Sign In'}
+              </button>
+            </form>
+            <p style={styles.forgotLink} onClick={() => { setMode('forgot'); setError(''); setSuccess(''); }}>
+              Forgot password?
+            </p>
+          </>
+        )}
+
+        {mode === 'forgot' && (
+          <>
+            <form onSubmit={handleForgotPassword} style={styles.form}>
+              <div style={styles.field}>
+                <label style={styles.label}>Email</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@company.com"
+                  required
+                  style={styles.input}
+                />
+              </div>
+              {error && <div style={styles.error}>{error}</div>}
+              {success && <div style={styles.success}>{success}</div>}
+              <button type="submit" disabled={loading} style={styles.button}>
+                {loading ? 'Sending...' : 'Send Reset Email'}
+              </button>
+            </form>
+            <p style={styles.forgotLink} onClick={() => { setMode('login'); setError(''); setSuccess(''); }}>
+              ← Back to sign in
+            </p>
+          </>
+        )}
+
+        {mode === 'reset' && (
+          <form onSubmit={handleResetPassword} style={styles.form}>
+            <div style={styles.setupBanner}>
+              🔒 Choose your new password
             </div>
             <div style={styles.field}>
-              <label style={styles.label}>Password</label>
+              <label style={styles.label}>New Password</label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
+                placeholder="At least 6 characters"
                 required
                 minLength={6}
                 style={styles.input}
               />
             </div>
             {error && <div style={styles.error}>{error}</div>}
+            {success && <div style={styles.success}>{success}</div>}
             <button type="submit" disabled={loading} style={styles.button}>
-              {loading ? 'Signing in...' : 'Sign In'}
+              {loading ? 'Updating...' : 'Update Password'}
             </button>
           </form>
         )}
@@ -317,5 +422,12 @@ const styles = {
     fontSize: '12px',
     color: 'rgba(255,255,255,0.35)',
     marginTop: '16px',
+  },
+  forgotLink: {
+    textAlign: 'center',
+    fontSize: '13px',
+    color: '#a5b4fc',
+    marginTop: '14px',
+    cursor: 'pointer',
   },
 };
