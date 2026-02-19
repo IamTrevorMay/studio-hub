@@ -1,31 +1,83 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../supabaseClient';
 
 export default function AuthPage() {
-  const { signIn, signUp } = useAuth();
-  const [isLogin, setIsLogin] = useState(true);
+  const { signIn } = useAuth();
+  const [mode, setMode] = useState('login'); // login, setup
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
-  const [inviteToken, setInviteToken] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState('');
 
-  async function handleSubmit(e) {
+  // Check if user arrived via an invite magic link
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash && (hash.includes('type=invite') || hash.includes('type=signup') || hash.includes('type=magiclink'))) {
+      setMode('setup');
+    }
+
+    // Listen for auth state changes from the magic link
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session?.user && !session.user.user_metadata?.full_name) {
+        setMode('setup');
+        setEmail(session.user.email || '');
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  async function handleLogin(e) {
     e.preventDefault();
     setError('');
-    setSuccess('');
     setLoading(true);
-
     try {
-      if (isLogin) {
-        await signIn(email, password);
-      } else {
-        await signUp(email, password, fullName, inviteToken);
-        setSuccess('Account created! Check your email to confirm, then sign in.');
-        setIsLogin(true);
+      await signIn(email, password);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSetup(e) {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      if (!fullName.trim()) throw new Error('Please enter your full name.');
+      if (password.length < 6) throw new Error('Password must be at least 6 characters.');
+
+      // Update the user's password (they arrived via magic link)
+      const { error: updateError } = await supabase.auth.updateUser({
+        password,
+        data: { full_name: fullName.trim() },
+      });
+      if (updateError) throw updateError;
+
+      // Update their profile
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        await supabase.from('profiles').upsert({
+          id: user.id,
+          email: user.email,
+          full_name: fullName.trim(),
+          role: 'member',
+          updated_at: new Date().toISOString(),
+        });
+
+        // Mark invitation as accepted
+        await supabase.from('invitations')
+          .update({ accepted_at: new Date().toISOString() })
+          .eq('email', user.email.toLowerCase());
       }
+
+      setSuccess('Account set up! Redirecting...');
+      // Force a page reload to pick up the new session + profile
+      setTimeout(() => window.location.reload(), 1000);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -46,95 +98,84 @@ export default function AuthPage() {
               <rect x="18" y="18" width="12" height="8" rx="2" fill="#6366f1" />
             </svg>
           </div>
-          <h1 style={styles.title}>Studio Hub</h1>
-          <p style={styles.subtitle}>Your team's creative command center</p>
+          <h1 style={styles.title}>Mayday Media</h1>
+          <p style={styles.titleSub}>Creative</p>
+          <p style={styles.subtitle}>
+            {mode === 'setup' ? 'Set up your account to get started' : 'Sign in to your workspace'}
+          </p>
         </div>
 
-        <div style={styles.tabRow}>
-          <button
-            onClick={() => { setIsLogin(true); setError(''); }}
-            style={{
-              ...styles.tab,
-              ...(isLogin ? styles.tabActive : {}),
-            }}
-          >
-            Sign In
-          </button>
-          <button
-            onClick={() => { setIsLogin(false); setError(''); }}
-            style={{
-              ...styles.tab,
-              ...(!isLogin ? styles.tabActive : {}),
-            }}
-          >
-            Join Team
-          </button>
-        </div>
+        {mode === 'login' && (
+          <form onSubmit={handleLogin} style={styles.form}>
+            <div style={styles.field}>
+              <label style={styles.label}>Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@company.com"
+                required
+                style={styles.input}
+              />
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                required
+                minLength={6}
+                style={styles.input}
+              />
+            </div>
+            {error && <div style={styles.error}>{error}</div>}
+            <button type="submit" disabled={loading} style={styles.button}>
+              {loading ? 'Signing in...' : 'Sign In'}
+            </button>
+          </form>
+        )}
 
-        <form onSubmit={handleSubmit} style={styles.form}>
-          {!isLogin && (
-            <>
-              <div style={styles.field}>
-                <label style={styles.label}>Full Name</label>
-                <input
-                  type="text"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder="Jane Smith"
-                  required
-                  style={styles.input}
-                />
-              </div>
-              <div style={styles.field}>
-                <label style={styles.label}>Invite Token</label>
-                <input
-                  type="text"
-                  value={inviteToken}
-                  onChange={(e) => setInviteToken(e.target.value)}
-                  placeholder="Paste your invitation token"
-                  required
-                  style={styles.input}
-                />
-              </div>
-            </>
-          )}
+        {mode === 'setup' && (
+          <form onSubmit={handleSetup} style={styles.form}>
+            <div style={styles.setupBanner}>
+              🎉 You've been invited! Set up your account below.
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Full Name</label>
+              <input
+                type="text"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="Jane Smith"
+                required
+                style={styles.input}
+              />
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Create Password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="At least 6 characters"
+                required
+                minLength={6}
+                style={styles.input}
+              />
+            </div>
+            {error && <div style={styles.error}>{error}</div>}
+            {success && <div style={styles.success}>{success}</div>}
+            <button type="submit" disabled={loading} style={styles.button}>
+              {loading ? 'Setting up...' : 'Complete Setup'}
+            </button>
+          </form>
+        )}
 
-          <div style={styles.field}>
-            <label style={styles.label}>Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@company.com"
-              required
-              style={styles.input}
-            />
-          </div>
-
-          <div style={styles.field}>
-            <label style={styles.label}>Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              required
-              minLength={6}
-              style={styles.input}
-            />
-          </div>
-
-          {error && <div style={styles.error}>{error}</div>}
-          {success && <div style={styles.success}>{success}</div>}
-
-          <button type="submit" disabled={loading} style={styles.button}>
-            {loading ? 'Please wait...' : isLogin ? 'Sign In' : 'Create Account'}
-          </button>
-        </form>
-
-        {!isLogin && (
+        {mode === 'login' && (
           <p style={styles.note}>
-            You need an invitation from your team admin to join.
+            Need access? Ask your team admin for an invite.
           </p>
         )}
       </div>
@@ -188,37 +229,21 @@ const styles = {
     fontSize: '26px',
     fontWeight: 700,
     color: '#ffffff',
-    margin: '0 0 6px 0',
+    margin: '0',
     letterSpacing: '-0.5px',
+    lineHeight: 1.2,
+  },
+  titleSub: {
+    fontSize: '16px',
+    fontWeight: 500,
+    color: 'rgba(255,255,255,0.45)',
+    margin: '0 0 8px 0',
+    letterSpacing: '0.5px',
   },
   subtitle: {
     fontSize: '14px',
-    color: 'rgba(255,255,255,0.45)',
+    color: 'rgba(255,255,255,0.35)',
     margin: 0,
-  },
-  tabRow: {
-    display: 'flex',
-    gap: '4px',
-    background: 'rgba(255,255,255,0.04)',
-    borderRadius: '10px',
-    padding: '4px',
-    marginBottom: '28px',
-  },
-  tab: {
-    flex: 1,
-    padding: '10px',
-    border: 'none',
-    borderRadius: '8px',
-    background: 'transparent',
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: '14px',
-    fontWeight: 500,
-    cursor: 'pointer',
-    transition: 'all 0.2s',
-  },
-  tabActive: {
-    background: 'rgba(99,102,241,0.2)',
-    color: '#a5b4fc',
   },
   form: {
     display: 'flex',
@@ -260,6 +285,16 @@ const styles = {
     marginTop: '4px',
     transition: 'opacity 0.2s',
     fontFamily: 'inherit',
+  },
+  setupBanner: {
+    padding: '12px 16px',
+    background: 'rgba(99,102,241,0.1)',
+    border: '1px solid rgba(99,102,241,0.2)',
+    borderRadius: '10px',
+    color: '#a5b4fc',
+    fontSize: '14px',
+    textAlign: 'center',
+    fontWeight: 500,
   },
   error: {
     padding: '10px 14px',

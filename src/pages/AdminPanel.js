@@ -9,6 +9,7 @@ export default function AdminPanel() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [copiedToken, setCopiedToken] = useState(null);
+  const [inviteSuccess, setInviteSuccess] = useState('');
   const [activeTab, setActiveTab] = useState('invite');
 
   useEffect(() => {
@@ -38,20 +39,29 @@ export default function AdminPanel() {
     e.preventDefault();
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('invitations')
-        .insert({
-          email: inviteEmail.toLowerCase().trim(),
-          invited_by: profile.id,
-        })
-        .select()
-        .single();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
 
-      if (error) throw error;
+      const response = await fetch(
+        `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/invite-user`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': process.env.REACT_APP_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({ email: inviteEmail.toLowerCase().trim() }),
+        }
+      );
+
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Failed to send invite');
 
       setInviteEmail('');
       fetchInvitations();
-      alert(`Invitation created! Share this token with ${data.email}:\n\n${data.token}`);
+      setInviteSuccess(`Invitation email sent to ${inviteEmail}!`);
+      setTimeout(() => setInviteSuccess(''), 5000);
     } catch (err) {
       alert('Error: ' + err.message);
     } finally {
@@ -102,7 +112,7 @@ export default function AdminPanel() {
         <>
           {/* Invite Form */}
           <div style={styles.card}>
-            <h3 style={styles.cardTitle}>Send Invitation</h3>
+            <h3 style={styles.cardTitle}>Invite a Team Member</h3>
             <form onSubmit={handleInvite} style={styles.inviteForm}>
               <input
                 type="email"
@@ -113,11 +123,12 @@ export default function AdminPanel() {
                 style={styles.input}
               />
               <button type="submit" disabled={loading} style={styles.inviteBtn}>
-                {loading ? 'Sending...' : 'Create Invite'}
+                {loading ? 'Sending...' : '✉ Send Invite'}
               </button>
             </form>
+            {inviteSuccess && <div style={styles.successMsg}>{inviteSuccess}</div>}
             <p style={styles.helpText}>
-              An invitation token will be generated. Share it with the person so they can sign up.
+              They'll receive an email with a link to set up their account.
             </p>
           </div>
 
@@ -244,6 +255,7 @@ const styles = {
     cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
   },
   helpText: { fontSize: '13px', color: 'rgba(255,255,255,0.35)', margin: 0 },
+  successMsg: { padding: '10px 14px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: '8px', color: '#86efac', fontSize: '13px', marginBottom: '10px' },
   inviteList: { display: 'flex', flexDirection: 'column', gap: '8px' },
   inviteItem: {
     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
