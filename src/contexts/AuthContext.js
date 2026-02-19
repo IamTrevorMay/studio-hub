@@ -12,7 +12,7 @@ export function AuthProvider({ children }) {
   const [authError, setAuthError] = useState(null);
   const initDone = useRef(false);
 
-  const fetchProfile = useCallback(async (userId, retries = 2) => {
+  const fetchProfile = useCallback(async (userId, retries = 3) => {
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
         const { data, error } = await supabase
@@ -22,12 +22,11 @@ export function AuthProvider({ children }) {
           .single();
 
         if (error) {
-          // If it's an auth error, try refreshing the session
           if (error.code === 'PGRST301' || error.message?.includes('JWT') || error.code === '401') {
             console.warn('Auth error fetching profile, refreshing session...');
             const { data: refreshData } = await supabase.auth.refreshSession();
             if (refreshData?.session) {
-              continue; // Retry with new token
+              continue;
             }
           }
           throw error;
@@ -38,9 +37,16 @@ export function AuthProvider({ children }) {
         return data;
       } catch (error) {
         console.error(`Profile fetch attempt ${attempt + 1} failed:`, error);
-        if (attempt === retries) {
-          setAuthError('Failed to load profile. Try refreshing the page.');
+        if (attempt < retries) {
+          await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+          continue;
         }
+        // All retries exhausted — sign out cleanly so user can re-login
+        console.warn('All profile fetch attempts failed, signing out');
+        setAuthError(null);
+        setProfile(null);
+        setUser(null);
+        await supabase.auth.signOut().catch(() => {});
       }
     }
     return null;
