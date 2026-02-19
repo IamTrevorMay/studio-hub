@@ -130,14 +130,19 @@ export function AuthProvider({ children }) {
         }
 
         if (session?.user) {
-          setUser(session.user);
-          // Only re-fetch profile on sign-in or token refresh if profile is missing
-          if (event === 'SIGNED_IN' || !profile) {
-            await fetchProfile(session.user.id);
+          if (event === 'SIGNED_IN') {
+            setUser(session.user);
+            const p = await fetchProfile(session.user.id);
+            // If profile fetch failed, don't leave user in a stuck state
+            if (!p) {
+              setUser(null);
+              setProfile(null);
+            }
+          } else if (event === 'TOKEN_REFRESHED') {
+            // Only update user ref, don't re-fetch profile
+            setUser(session.user);
           }
         } else if (event !== 'TOKEN_REFRESHED') {
-          // Don't clear user on TOKEN_REFRESHED without a session
-          // as it might be a transient state
           setUser(null);
           setProfile(null);
         }

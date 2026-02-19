@@ -4,28 +4,33 @@ import AuthPage from './pages/AuthPage';
 import AppLayout from './pages/AppLayout';
 
 function AppContent() {
-  const { user, profile, loading, authError } = useAuth();
+  const { user, profile, loading, signOut } = useAuth();
 
   if (loading) {
     return (
       <div style={styles.loading}>
         <div style={styles.loadingInner}>
           <div style={styles.spinner} />
-          <p style={styles.loadingText}>Loading Studio Hub...</p>
+          <p style={styles.loadingText}>Loading...</p>
         </div>
       </div>
     );
   }
 
-  // User is logged in but profile failed to load
+  // User is logged in but profile failed to load — offer sign out
   if (user && !profile) {
     return (
       <div style={styles.loading}>
         <div style={styles.loadingInner}>
-          <p style={styles.errorText}>{authError || 'Having trouble loading your profile...'}</p>
-          <button onClick={() => window.location.reload()} style={styles.retryBtn}>
-            Refresh Page
-          </button>
+          <p style={styles.errorText}>Having trouble loading your profile.</p>
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+            <button onClick={() => window.location.reload()} style={styles.retryBtn}>
+              Retry
+            </button>
+            <button onClick={async () => { await signOut(); window.location.reload(); }} style={{ ...styles.retryBtn, background: 'rgba(255,255,255,0.1)' }}>
+              Sign Out
+            </button>
+          </div>
         </div>
       </div>
     );
