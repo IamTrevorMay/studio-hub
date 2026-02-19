@@ -8,8 +8,8 @@ export default function AdminPanel() {
   const [teamMembers, setTeamMembers] = useState([]);
   const [inviteEmail, setInviteEmail] = useState('');
   const [loading, setLoading] = useState(false);
-  const [copiedToken, setCopiedToken] = useState(null);
   const [inviteSuccess, setInviteSuccess] = useState('');
+  const [inviteError, setInviteError] = useState('');
   const [activeTab, setActiveTab] = useState('invite');
 
   useEffect(() => {
@@ -38,6 +38,8 @@ export default function AdminPanel() {
   async function handleInvite(e) {
     e.preventDefault();
     setLoading(true);
+    setInviteSuccess('');
+    setInviteError('');
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Not authenticated');
@@ -58,21 +60,17 @@ export default function AdminPanel() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Failed to send invite');
 
+      const sentTo = inviteEmail;
       setInviteEmail('');
       fetchInvitations();
-      setInviteSuccess(`Invitation email sent to ${inviteEmail}!`);
-      setTimeout(() => setInviteSuccess(''), 5000);
+      setInviteSuccess(`✉ Invitation email sent to ${sentTo}!`);
+      setTimeout(() => setInviteSuccess(''), 8000);
     } catch (err) {
-      alert('Error: ' + err.message);
+      setInviteError(err.message);
+      setTimeout(() => setInviteError(''), 8000);
     } finally {
       setLoading(false);
     }
-  }
-
-  function copyToken(token) {
-    navigator.clipboard.writeText(token);
-    setCopiedToken(token);
-    setTimeout(() => setCopiedToken(null), 2000);
   }
 
   async function handleRoleChange(userId, newRole) {
@@ -127,44 +125,35 @@ export default function AdminPanel() {
               </button>
             </form>
             {inviteSuccess && <div style={styles.successMsg}>{inviteSuccess}</div>}
+            {inviteError && <div style={styles.errorMsg}>{inviteError}</div>}
             <p style={styles.helpText}>
               They'll receive an email with a link to set up their account.
             </p>
           </div>
 
-          {/* Pending Invitations */}
+          {/* Invitation History */}
           <div style={styles.card}>
-            <h3 style={styles.cardTitle}>Invitations</h3>
+            <h3 style={styles.cardTitle}>Invitation History</h3>
             {invitations.length === 0 ? (
               <p style={styles.emptyText}>No invitations sent yet.</p>
             ) : (
               <div style={styles.inviteList}>
                 {invitations.map(inv => {
-                  const isExpired = new Date(inv.expires_at) < new Date();
                   const isAccepted = !!inv.accepted_at;
                   return (
                     <div key={inv.id} style={styles.inviteItem}>
                       <div style={styles.inviteInfo}>
                         <div style={styles.inviteEmail}>{inv.email}</div>
                         <div style={styles.inviteMeta}>
-                          Created {new Date(inv.created_at).toLocaleDateString()}
-                          {' · '}
-                          {isAccepted
-                            ? <span style={{ color: '#22c55e' }}>Accepted</span>
-                            : isExpired
-                              ? <span style={{ color: '#ef4444' }}>Expired</span>
-                              : <span style={{ color: '#f59e0b' }}>Pending</span>
-                          }
+                          Sent {new Date(inv.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                         </div>
                       </div>
-                      {!isAccepted && !isExpired && (
-                        <button
-                          onClick={() => copyToken(inv.token)}
-                          style={styles.copyBtn}
-                        >
-                          {copiedToken === inv.token ? '✓ Copied' : 'Copy Token'}
-                        </button>
-                      )}
+                      <div style={{
+                        ...styles.statusBadge,
+                        ...(isAccepted ? styles.statusAccepted : styles.statusPending),
+                      }}>
+                        {isAccepted ? '✓ Joined' : '● Pending'}
+                      </div>
                     </div>
                   );
                 })}
@@ -255,7 +244,16 @@ const styles = {
     cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
   },
   helpText: { fontSize: '13px', color: 'rgba(255,255,255,0.35)', margin: 0 },
-  successMsg: { padding: '10px 14px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: '8px', color: '#86efac', fontSize: '13px', marginBottom: '10px' },
+  successMsg: {
+    padding: '10px 14px', background: 'rgba(34,197,94,0.1)',
+    border: '1px solid rgba(34,197,94,0.2)', borderRadius: '8px',
+    color: '#86efac', fontSize: '13px', marginBottom: '10px',
+  },
+  errorMsg: {
+    padding: '10px 14px', background: 'rgba(239,68,68,0.1)',
+    border: '1px solid rgba(239,68,68,0.2)', borderRadius: '8px',
+    color: '#fca5a5', fontSize: '13px', marginBottom: '10px',
+  },
   inviteList: { display: 'flex', flexDirection: 'column', gap: '8px' },
   inviteItem: {
     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -265,11 +263,17 @@ const styles = {
   inviteInfo: { flex: 1 },
   inviteEmail: { fontSize: '14px', fontWeight: 600, color: '#e2e8f0' },
   inviteMeta: { fontSize: '12px', color: 'rgba(255,255,255,0.35)', marginTop: '2px' },
-  copyBtn: {
-    padding: '6px 14px', background: 'rgba(99,102,241,0.12)',
-    border: '1px solid rgba(99,102,241,0.2)', borderRadius: '6px',
-    color: '#a5b4fc', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
-    fontFamily: 'inherit', whiteSpace: 'nowrap',
+  statusBadge: {
+    padding: '4px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 600,
+    whiteSpace: 'nowrap',
+  },
+  statusPending: {
+    background: 'rgba(245,158,11,0.1)', color: '#fbbf24',
+    border: '1px solid rgba(245,158,11,0.2)',
+  },
+  statusAccepted: {
+    background: 'rgba(34,197,94,0.1)', color: '#86efac',
+    border: '1px solid rgba(34,197,94,0.2)',
   },
   emptyText: { color: 'rgba(255,255,255,0.35)', fontSize: '14px', margin: 0 },
   teamList: { display: 'flex', flexDirection: 'column', gap: '6px' },
