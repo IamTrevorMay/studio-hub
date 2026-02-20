@@ -190,17 +190,27 @@ export default function Resources() {
         return `<p>${line}</p>`;
       }).join('');
     } else if (doc.file_type === 'docx') {
-      // For DOCX, we'd need mammoth.js - for now just extract as plain text note
-      html = '<p><em>DOCX content imported. Original formatting may vary.</em></p>';
+      // DOCX files: extract readable text content
       try {
-        const mammoth = await import('mammoth');
         const arrayBuffer = await fileData.arrayBuffer();
-        const result = await mammoth.convertToHtml({ arrayBuffer });
-        html = result.value;
+        const uint8 = new Uint8Array(arrayBuffer);
+        // Simple extraction: find text between XML tags
+        const decoder = new TextDecoder('utf-8', { fatal: false });
+        const raw = decoder.decode(uint8);
+        // DOCX is a zip containing XML - extract visible text patterns
+        const textParts = [];
+        const regex = /<w:t[^>]*>([^<]+)<\/w:t>/g;
+        let match;
+        while ((match = regex.exec(raw)) !== null) {
+          textParts.push(match[1]);
+        }
+        if (textParts.length > 0) {
+          html = textParts.join(' ').split(/\s{2,}/).map(p => `<p>${p.trim()}</p>`).join('');
+        } else {
+          html = '<p><em>Could not extract text from DOCX. You can edit this document manually.</em></p>';
+        }
       } catch (err) {
-        console.warn('mammoth not available, using basic import');
-        const text = await fileData.text();
-        html = `<p>${text.replace(/[^\x20-\x7E\n]/g, '').split('\n').filter(l => l.trim()).join('</p><p>')}</p>`;
+        html = '<p><em>Could not extract text from DOCX. You can edit this document manually.</em></p>';
       }
     }
 
