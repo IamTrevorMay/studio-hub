@@ -9,12 +9,14 @@ import AdminPanel from './AdminPanel';
 import Ideation from './Ideation';
 import Reviews from './Reviews';
 import Resources from './Resources';
+import Analytics from './Analytics';
 
 const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard', icon: DashboardIcon },
   { key: 'projects', label: 'Projects', icon: ProjectsIcon },
   { key: 'ideation', label: 'Ideation', icon: IdeationIcon },
   { key: 'resources', label: 'Resources', icon: ResourcesIcon },
+  { key: 'analytics', label: 'Analytics', icon: AnalyticsIcon },
   { key: 'reviews', label: 'Reviews', icon: ReviewsIcon },
   { key: 'calendar', label: 'Calendar', icon: CalendarIcon },
   { key: 'channels', label: 'Channels', icon: ChannelsIcon },
@@ -39,6 +41,7 @@ export default function AppLayout() {
       case 'calendar': return <Calendar onNavigate={navigateTo} />;
       case 'ideation': return <Ideation initialConceptId={navTarget} onConceptOpened={() => setNavTarget(null)} />;
       case 'resources': return <Resources />;
+      case 'analytics': return <Analytics />;
       case 'reviews': return <Reviews />;
       case 'channels': return <Channels />;
       case 'messages': return <Messages />;
@@ -210,6 +213,14 @@ function IdeationIcon({ active }) {
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
       <path d="M10 2a5 5 0 013 9v2a1 1 0 01-1 1H8a1 1 0 01-1-1v-2a5 5 0 013-9z" />
       <path d="M8 16h4M9 18h2" />
+    </svg>
+  );
+}
+
+function AnalyticsIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <path d="M3 17V10M8 17V7M13 17V4M18 17V1" strokeLinecap="round" />
     </svg>
   );
 }
