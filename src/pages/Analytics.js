@@ -1,60 +1,137 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 
+// ═══════════════════════════════════════════════
+// Platform Definitions
+// ═══════════════════════════════════════════════
 const PLATFORMS = [
-  { key: 'youtube_trevormay', label: 'Trevor May Baseball', icon: '🎬', color: '#ff0000', channel: 'trevormay' },
-  { key: 'youtube_moremayday', label: 'More Mayday', icon: '🎬', color: '#ff4444', channel: 'moremayday' },
-  { key: 'tiktok', label: 'IamTrevorMay TikTok', icon: '🎵', color: '#00f2ea' },
-  { key: 'facebook', label: 'Trevor May Facebook', icon: '📘', color: '#1877f2' },
-  { key: 'instagram', label: 'trevmay65 Instagram', icon: '📸', color: '#e4405f' },
-  { key: 'substack', label: 'Mayday Substack', icon: '📰', color: '#ff6719' },
+  { key: 'youtube_trevormay', label: 'Trevor May Baseball', icon: '🎬', color: '#ff0000', table: 'analytics_youtube', channel: 'trevormay' },
+  { key: 'youtube_moremayday', label: 'More Mayday', icon: '🎬', color: '#ff4444', table: 'analytics_youtube', channel: 'moremayday' },
+  { key: 'tiktok', label: 'IamTrevorMay TikTok', icon: '🎵', color: '#00f2ea', table: 'analytics_tiktok' },
+  { key: 'facebook', label: 'Trevor May Facebook', icon: '📘', color: '#1877f2', table: 'analytics_facebook' },
+  { key: 'instagram', label: 'trevmay65 Instagram', icon: '📸', color: '#e4405f', table: 'analytics_instagram' },
+  { key: 'substack', label: 'Mayday Substack', icon: '📰', color: '#ff6719', table: 'analytics_substack' },
 ];
 
+// Column definitions per platform — ordered logically
+const PLATFORM_COLUMNS = {
+  youtube: [
+    { key: 'video_title', label: 'Video', type: 'text', sticky: true },
+    { key: 'publish_date', label: 'Published', type: 'date' },
+    { key: 'views', label: 'Views', type: 'number' },
+    { key: 'engaged_views', label: 'Engaged views', type: 'number' },
+    { key: 'impressions', label: 'Impressions', type: 'number' },
+    { key: 'impressions_ctr', label: 'CTR (%)', type: 'percent' },
+    { key: 'watch_time_hours', label: 'Watch time (hrs)', type: 'decimal' },
+    { key: 'average_view_duration_seconds', label: 'Avg view duration', type: 'duration' },
+    { key: 'average_percentage_viewed', label: 'Avg % viewed', type: 'percent' },
+    { key: 'stayed_to_watch_pct', label: 'Stayed to watch (%)', type: 'percent' },
+    { key: 'subscribers', label: 'Subscribers', type: 'number' },
+    { key: 'post_subscribers', label: 'Post subs', type: 'number' },
+    { key: 'estimated_revenue', label: 'Revenue ($)', type: 'currency' },
+    { key: 'ad_revenue', label: 'Ad revenue ($)', type: 'currency' },
+    { key: 'adsense_revenue', label: 'AdSense ($)', type: 'currency' },
+    { key: 'watch_page_ads_revenue', label: 'Watch page ads ($)', type: 'currency' },
+    { key: 'youtube_premium_revenue', label: 'Premium ($)', type: 'currency' },
+    { key: 'ad_impressions', label: 'Ad impressions', type: 'number' },
+    { key: 'cpm', label: 'CPM ($)', type: 'currency' },
+    { key: 'rpm', label: 'RPM ($)', type: 'currency' },
+    { key: 'youtube_premium_views', label: 'Premium views', type: 'number' },
+    { key: 'duration_seconds', label: 'Duration', type: 'duration' },
+  ],
+  tiktok: [
+    { key: 'post_title', label: 'Post', type: 'text', sticky: true },
+    { key: 'publish_date', label: 'Published', type: 'date' },
+    { key: 'views', label: 'Views', type: 'number' },
+    { key: 'likes', label: 'Likes', type: 'number' },
+    { key: 'comments', label: 'Comments', type: 'number' },
+    { key: 'shares', label: 'Shares', type: 'number' },
+    { key: 'saves', label: 'Saves', type: 'number' },
+    { key: 'reach', label: 'Reach', type: 'number' },
+    { key: 'impressions', label: 'Impressions', type: 'number' },
+    { key: 'engagement_rate', label: 'Eng. rate (%)', type: 'percent' },
+    { key: 'average_watch_time_seconds', label: 'Avg watch time', type: 'duration' },
+    { key: 'watched_full_video_pct', label: 'Watched full (%)', type: 'percent' },
+    { key: 'followers_gained', label: 'Followers gained', type: 'number' },
+    { key: 'profile_views', label: 'Profile views', type: 'number' },
+    { key: 'duration_seconds', label: 'Duration', type: 'duration' },
+  ],
+  facebook: [
+    { key: 'post_title', label: 'Post', type: 'text', sticky: true },
+    { key: 'publish_date', label: 'Published', type: 'date' },
+    { key: 'post_type', label: 'Type', type: 'text' },
+    { key: 'reach', label: 'Reach', type: 'number' },
+    { key: 'impressions', label: 'Impressions', type: 'number' },
+    { key: 'engaged_users', label: 'Engaged users', type: 'number' },
+    { key: 'reactions', label: 'Reactions', type: 'number' },
+    { key: 'comments', label: 'Comments', type: 'number' },
+    { key: 'shares', label: 'Shares', type: 'number' },
+    { key: 'clicks', label: 'Clicks', type: 'number' },
+    { key: 'engagement_rate', label: 'Eng. rate (%)', type: 'percent' },
+    { key: 'video_views', label: 'Video views', type: 'number' },
+    { key: 'video_views_10s', label: '10s views', type: 'number' },
+    { key: 'average_watch_time_seconds', label: 'Avg watch time', type: 'duration' },
+    { key: 'page_followers', label: 'Page followers', type: 'number' },
+    { key: 'page_likes', label: 'Page likes', type: 'number' },
+  ],
+  instagram: [
+    { key: 'post_title', label: 'Post', type: 'text', sticky: true },
+    { key: 'publish_date', label: 'Published', type: 'date' },
+    { key: 'post_type', label: 'Type', type: 'text' },
+    { key: 'reach', label: 'Reach', type: 'number' },
+    { key: 'impressions', label: 'Impressions', type: 'number' },
+    { key: 'likes', label: 'Likes', type: 'number' },
+    { key: 'comments', label: 'Comments', type: 'number' },
+    { key: 'shares', label: 'Shares', type: 'number' },
+    { key: 'saves', label: 'Saves', type: 'number' },
+    { key: 'engagement_rate', label: 'Eng. rate (%)', type: 'percent' },
+    { key: 'plays', label: 'Plays', type: 'number' },
+    { key: 'average_watch_time_seconds', label: 'Avg watch time', type: 'duration' },
+    { key: 'followers_gained', label: 'Followers gained', type: 'number' },
+    { key: 'profile_visits', label: 'Profile visits', type: 'number' },
+  ],
+  substack: [
+    { key: 'post_title', label: 'Post', type: 'text', sticky: true },
+    { key: 'publish_date', label: 'Published', type: 'date' },
+    { key: 'total_sends', label: 'Sends', type: 'number' },
+    { key: 'opens', label: 'Opens', type: 'number' },
+    { key: 'open_rate', label: 'Open rate (%)', type: 'percent' },
+    { key: 'clicks', label: 'Clicks', type: 'number' },
+    { key: 'click_rate', label: 'Click rate (%)', type: 'percent' },
+    { key: 'likes', label: 'Likes', type: 'number' },
+    { key: 'comments', label: 'Comments', type: 'number' },
+    { key: 'restacks', label: 'Restacks', type: 'number' },
+    { key: 'new_subscribers', label: 'New subs', type: 'number' },
+    { key: 'unsubscribes', label: 'Unsubs', type: 'number' },
+    { key: 'total_subscribers', label: 'Total subs', type: 'number' },
+  ],
+};
+
+function getColumns(platformKey) {
+  if (platformKey.startsWith('youtube_')) return PLATFORM_COLUMNS.youtube;
+  return PLATFORM_COLUMNS[platformKey] || [];
+}
+
+// ═══════════════════════════════════════════════
+// Main Component
+// ═══════════════════════════════════════════════
 export default function Analytics() {
   const { profile } = useAuth();
   const [activePlatform, setActivePlatform] = useState(PLATFORMS[0].key);
-  const [platformMeta, setPlatformMeta] = useState({});
-  const [loading, setLoading] = useState(true);
+  const [platformCounts, setPlatformCounts] = useState({});
 
-  useEffect(() => {
-    fetchAllMeta();
-  }, []);
+  useEffect(() => { fetchCounts(); }, []);
 
-  async function fetchAllMeta() {
-    setLoading(true);
-    const meta = {};
-
-    // Get date ranges for each platform
+  async function fetchCounts() {
+    const counts = {};
     for (const p of PLATFORMS) {
-      const tableName = p.key.startsWith('youtube_') ? 'analytics_youtube' : `analytics_${p.key}`;
-      const isYt = p.key.startsWith('youtube_');
-
-      let query = supabase.from(tableName).select('date', { count: 'exact', head: false });
-      if (isYt) query = query.eq('channel', p.channel);
-      const { data: dates, count } = await query.order('date', { ascending: true }).limit(1);
-
-      let latestQuery = supabase.from(tableName).select('date');
-      if (isYt) latestQuery = latestQuery.eq('channel', p.channel);
-      const { data: latestDates } = await latestQuery.order('date', { ascending: false }).limit(1);
-
-      // Get last upload
-      const { data: uploads } = await supabase.from('analytics_uploads')
-        .select('created_at, filename, row_count')
-        .eq('platform', p.key)
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-      meta[p.key] = {
-        dateStart: dates?.[0]?.date || null,
-        dateEnd: latestDates?.[0]?.date || null,
-        rowCount: count || 0,
-        lastUpload: uploads?.[0] || null,
-      };
+      let query = supabase.from(p.table).select('id', { count: 'exact', head: true });
+      if (p.channel) query = query.eq('channel', p.channel);
+      const { count } = await query;
+      counts[p.key] = count || 0;
     }
-
-    setPlatformMeta(meta);
-    setLoading(false);
+    setPlatformCounts(counts);
   }
 
   const platform = PLATFORMS.find(p => p.key === activePlatform);
@@ -80,125 +157,140 @@ export default function Analytics() {
             }}
           >
             <span style={{ fontSize: '16px' }}>{p.icon}</span>
-            <span style={styles.tabLabel}>{p.label}</span>
-            {platformMeta[p.key]?.rowCount > 0 && (
+            <span>{p.label}</span>
+            {(platformCounts[p.key] || 0) > 0 && (
               <span style={{ ...styles.tabBadge, background: p.color + '22', color: p.color }}>
-                {platformMeta[p.key].rowCount}
+                {platformCounts[p.key]}
               </span>
             )}
           </button>
         ))}
       </div>
 
-      {/* Active Platform Section */}
-      <PlatformSection
-        platform={platform}
-        meta={platformMeta[activePlatform]}
-        profile={profile}
-        onDataChanged={fetchAllMeta}
-        loading={loading}
-      />
+      <PlatformView platform={platform} profile={profile} onDataChanged={fetchCounts} />
     </div>
   );
 }
 
-// ─── Platform Section ───
-function PlatformSection({ platform, meta, profile, onDataChanged, loading }) {
+// ═══════════════════════════════════════════════
+// Platform View (chart + table + upload)
+// ═══════════════════════════════════════════════
+function PlatformView({ platform, profile, onDataChanged }) {
   const [data, setData] = useState([]);
-  const [dataLoading, setDataLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState(null);
-  const [filterStart, setFilterStart] = useState('');
-  const [filterEnd, setFilterEnd] = useState('');
-  const [metricFilter, setMetricFilter] = useState('all');
-  const [availableMetrics, setAvailableMetrics] = useState([]);
-  const [showUploadHistory, setShowUploadHistory] = useState(false);
-  const [uploadHistory, setUploadHistory] = useState([]);
-  const [sortCol, setSortCol] = useState('date');
+  const [sortCol, setSortCol] = useState('views');
   const [sortDir, setSortDir] = useState('desc');
+  const [chartMetric, setChartMetric] = useState(null);
+  const [selectedRows, setSelectedRows] = useState(new Set());
   const fileInputRef = useRef(null);
+  const columns = getColumns(platform.key);
 
   useEffect(() => {
+    setSelectedRows(new Set());
+    setUploadResult(null);
+    const numCols = columns.filter(c => c.type !== 'text' && c.type !== 'date' && !c.sticky);
+    setChartMetric(numCols[0]?.key || null);
+    setSortCol(platform.key.startsWith('youtube_') ? 'views' : columns.find(c => c.type === 'number')?.key || 'publish_date');
+    setSortDir('desc');
     fetchData();
-  }, [platform.key, filterStart, filterEnd, metricFilter, sortCol, sortDir]);
+  }, [platform.key]);
 
   async function fetchData() {
-    setDataLoading(true);
-    const tableName = platform.key.startsWith('youtube_') ? 'analytics_youtube' : `analytics_${platform.key}`;
-    const isYt = platform.key.startsWith('youtube_');
-
-    let query = supabase.from(tableName).select('*');
-    if (isYt) query = query.eq('channel', platform.channel);
-    if (filterStart) query = query.gte('date', filterStart);
-    if (filterEnd) query = query.lte('date', filterEnd);
-    if (metricFilter !== 'all') query = query.eq('metric_name', metricFilter);
-    query = query.order(sortCol, { ascending: sortDir === 'asc' }).limit(500);
-
+    setLoading(true);
+    let query = supabase.from(platform.table).select('*');
+    if (platform.channel) query = query.eq('channel', platform.channel);
+    query = query.order('publish_date', { ascending: false, nullsFirst: false }).limit(500);
     const { data: rows } = await query;
     setData(rows || []);
-
-    // Fetch available metrics
-    let metricsQuery = supabase.from(tableName).select('metric_name');
-    if (isYt) metricsQuery = metricsQuery.eq('channel', platform.channel);
-    const { data: metricRows } = await metricsQuery;
-    const unique = [...new Set((metricRows || []).map(r => r.metric_name))].sort();
-    setAvailableMetrics(unique);
-
-    setDataLoading(false);
+    setLoading(false);
   }
 
-  async function fetchUploadHistory() {
-    const { data } = await supabase.from('analytics_uploads')
-      .select('*, uploader:profiles!analytics_uploads_uploaded_by_fkey(full_name)')
-      .eq('platform', platform.key)
-      .order('created_at', { ascending: false });
-    setUploadHistory(data || []);
-    setShowUploadHistory(true);
+  // Sort data
+  const sortedData = useMemo(() => {
+    if (!data.length) return [];
+    return [...data].sort((a, b) => {
+      let va = a[sortCol], vb = b[sortCol];
+      if (va === null || va === undefined) va = sortDir === 'asc' ? Infinity : -Infinity;
+      if (vb === null || vb === undefined) vb = sortDir === 'asc' ? Infinity : -Infinity;
+      if (typeof va === 'string') return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+      return sortDir === 'asc' ? va - vb : vb - va;
+    });
+  }, [data, sortCol, sortDir]);
+
+  // Chart data — top 20 by current sort, or selected rows
+  const chartData = useMemo(() => {
+    if (!chartMetric || !data.length) return [];
+    const source = selectedRows.size > 0
+      ? data.filter(r => selectedRows.has(r.id))
+      : sortedData.slice(0, 20);
+    return source
+      .filter(r => r[chartMetric] != null)
+      .map(r => ({
+        label: truncate(r.video_title || r.post_title || 'Untitled', 30),
+        value: Number(r[chartMetric]) || 0,
+      }))
+      .sort((a, b) => b.value - a.value);
+  }, [chartMetric, data, sortedData, selectedRows]);
+
+  // Summary row (totals/averages)
+  const summaryRow = useMemo(() => {
+    if (!data.length) return null;
+    const row = {};
+    const numCols = columns.filter(c => ['number', 'decimal', 'currency'].includes(c.type));
+    const avgCols = columns.filter(c => c.type === 'percent' || c.type === 'duration');
+    numCols.forEach(c => {
+      row[c.key] = data.reduce((sum, r) => sum + (Number(r[c.key]) || 0), 0);
+    });
+    avgCols.forEach(c => {
+      const vals = data.filter(r => r[c.key] != null).map(r => Number(r[c.key]));
+      row[c.key] = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+    });
+    return row;
+  }, [data, columns]);
+
+  const metricColumns = columns.filter(c => c.type !== 'text' && c.type !== 'date' && !c.sticky);
+
+  function toggleRow(id) {
+    setSelectedRows(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
   }
 
+  function handleSort(col) {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortCol(col); setSortDir('desc'); }
+  }
+
+  // ── CSV Upload ──
   async function handleCSVUpload(e) {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
     setUploadResult(null);
-
     try {
       const text = await file.text();
       const parsed = parseCSV(text);
+      if (parsed.rows.length === 0) throw new Error('No data rows found');
 
-      if (parsed.rows.length === 0) {
-        setUploadResult({ error: 'No data rows found in CSV' });
-        setUploading(false);
-        return;
-      }
+      const { rows, dateRange } = mapCSVToPlatform(platform, parsed, profile.id);
+      if (rows.length === 0) throw new Error('Could not parse any valid rows. Check CSV format.');
 
-      const { rows, dateRange } = processCSVForPlatform(platform, parsed);
-
-      if (rows.length === 0) {
-        setUploadResult({ error: 'Could not parse any valid rows. Check CSV format.' });
-        setUploading(false);
-        return;
-      }
-
-      // Insert in batches of 100
       let inserted = 0;
-      let skipped = 0;
       for (let i = 0; i < rows.length; i += 100) {
         const batch = rows.slice(i, i + 100);
-        const tableName = platform.key.startsWith('youtube_') ? 'analytics_youtube' : `analytics_${platform.key}`;
-        const { data: result, error } = await supabase.from(tableName)
-          .upsert(batch, { onConflict: getConflictKeys(platform), ignoreDuplicates: true })
+        const conflictKey = platform.key.startsWith('youtube_') ? 'channel,video_id' :
+          platform.key === 'substack' ? 'post_title' : 'post_id';
+        const { data: result, error } = await supabase.from(platform.table)
+          .upsert(batch, { onConflict: conflictKey })
           .select();
-        if (error) {
-          console.error('Batch insert error:', error);
-          skipped += batch.length;
-        } else {
-          inserted += result?.length || 0;
-          skipped += batch.length - (result?.length || 0);
-        }
+        if (error) { console.error('Batch error:', error); continue; }
+        inserted += result?.length || 0;
       }
 
-      // Log the upload
       await supabase.from('analytics_uploads').insert({
         platform: platform.key,
         filename: file.name,
@@ -208,272 +300,224 @@ function PlatformSection({ platform, meta, profile, onDataChanged, loading }) {
         uploaded_by: profile.id,
       });
 
-      setUploadResult({ success: true, inserted, skipped, total: rows.length });
+      setUploadResult({ success: true, count: inserted });
       fetchData();
       onDataChanged();
     } catch (err) {
-      console.error('Upload error:', err);
-      setUploadResult({ error: err.message || 'Upload failed' });
+      console.error(err);
+      setUploadResult({ error: err.message });
     }
-
     setUploading(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
-  const hasData = meta?.rowCount > 0;
-
   return (
-    <div style={styles.section}>
-      {/* Data Status Banner */}
-      <div style={{ ...styles.statusBanner, borderLeftColor: platform.color }}>
-        <div style={styles.statusGrid}>
-          <div style={styles.statusItem}>
-            <span style={styles.statusLabel}>Date Range</span>
-            <span style={styles.statusValue}>
-              {meta?.dateStart && meta?.dateEnd
-                ? `${formatDate(meta.dateStart)} — ${formatDate(meta.dateEnd)}`
-                : 'No data yet'}
-            </span>
+    <div>
+      {/* Upload bar */}
+      <div style={{ ...styles.uploadBar, borderLeftColor: platform.color }}>
+        <div style={styles.uploadBarLeft}>
+          <span style={{ fontSize: '20px' }}>{platform.icon}</span>
+          <div>
+            <div style={styles.uploadBarTitle}>{platform.label}</div>
+            <div style={styles.uploadBarSub}>{data.length} items loaded</div>
           </div>
-          <div style={styles.statusItem}>
-            <span style={styles.statusLabel}>Data Points</span>
-            <span style={styles.statusValue}>{meta?.rowCount?.toLocaleString() || 0}</span>
-          </div>
-          <div style={styles.statusItem}>
-            <span style={styles.statusLabel}>Last Upload</span>
-            <span style={styles.statusValue}>
-              {meta?.lastUpload
-                ? `${formatDateTime(meta.lastUpload.created_at)}`
-                : 'Never'}
-            </span>
-          </div>
-          {meta?.lastUpload && (
-            <div style={styles.statusItem}>
-              <span style={styles.statusLabel}>Last File</span>
-              <span style={styles.statusValue} title={meta.lastUpload.filename}>
-                {meta.lastUpload.filename?.length > 25
-                  ? meta.lastUpload.filename.slice(0, 25) + '...'
-                  : meta.lastUpload.filename}
-              </span>
-            </div>
-          )}
         </div>
-        <div style={styles.statusActions}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {uploadResult && (
+            <span style={{
+              fontSize: '13px', fontWeight: 500,
+              color: uploadResult.error ? '#f87171' : '#4ade80',
+            }}>
+              {uploadResult.error ? `❌ ${uploadResult.error}` : `✅ ${uploadResult.count} rows imported`}
+            </span>
+          )}
           <button
             onClick={() => fileInputRef.current?.click()}
-            style={{ ...styles.uploadBtn, background: platform.color + '22', color: platform.color, borderColor: platform.color + '44' }}
+            style={{ ...styles.uploadBtn, borderColor: platform.color + '66', color: platform.color }}
             disabled={uploading}
           >
             {uploading ? '⏳ Processing...' : '📄 Upload CSV'}
           </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".csv"
-            onChange={handleCSVUpload}
-            style={{ display: 'none' }}
-          />
-          {hasData && (
-            <button onClick={fetchUploadHistory} style={styles.historyBtn}>
-              📋 Upload History
-            </button>
-          )}
+          <input ref={fileInputRef} type="file" accept=".csv" onChange={handleCSVUpload} style={{ display: 'none' }} />
         </div>
       </div>
 
-      {/* Upload Result */}
-      {uploadResult && (
-        <div style={{
-          ...styles.resultBanner,
-          ...(uploadResult.error ? styles.resultError : styles.resultSuccess),
-        }}>
-          {uploadResult.error
-            ? `❌ ${uploadResult.error}`
-            : `✅ Imported ${uploadResult.inserted} rows (${uploadResult.skipped} duplicates skipped)`}
-          <button onClick={() => setUploadResult(null)} style={styles.resultClose}>✕</button>
+      {loading ? (
+        <p style={styles.loadingText}>Loading data...</p>
+      ) : data.length === 0 ? (
+        <div style={styles.emptyCard}>
+          <h3 style={styles.emptyTitle}>No data yet for {platform.label}</h3>
+          <p style={styles.emptyText}>Upload a CSV export to get started.</p>
+          <CSVGuide platform={platform} />
         </div>
-      )}
-
-      {/* CSV Format Help */}
-      {!hasData && (
-        <div style={styles.helpCard}>
-          <h3 style={styles.helpTitle}>📊 Getting Started with {platform.label}</h3>
-          <p style={styles.helpText}>
-            Upload a CSV file exported from {platform.key.startsWith('youtube_') ? 'YouTube Studio' : platform.label}.
-          </p>
-          <CSVFormatGuide platform={platform} />
-        </div>
-      )}
-
-      {/* Filters */}
-      {hasData && (
-        <div style={styles.filterBar}>
-          <div style={styles.filterGroup}>
-            <label style={styles.filterLabel}>From</label>
-            <input
-              type="date"
-              value={filterStart}
-              onChange={e => setFilterStart(e.target.value)}
-              style={styles.filterInput}
-            />
+      ) : (
+        <>
+          {/* ── Chart ── */}
+          <div style={styles.chartSection}>
+            <div style={styles.chartHeader}>
+              <select
+                value={chartMetric || ''}
+                onChange={e => setChartMetric(e.target.value)}
+                style={styles.chartSelect}
+              >
+                {metricColumns.map(c => (
+                  <option key={c.key} value={c.key}>{c.label}</option>
+                ))}
+              </select>
+              {selectedRows.size > 0 && (
+                <button onClick={() => setSelectedRows(new Set())} style={styles.clearSelBtn}>
+                  Clear selection ({selectedRows.size})
+                </button>
+              )}
+            </div>
+            <BarChart data={chartData} color={platform.color} />
           </div>
-          <div style={styles.filterGroup}>
-            <label style={styles.filterLabel}>To</label>
-            <input
-              type="date"
-              value={filterEnd}
-              onChange={e => setFilterEnd(e.target.value)}
-              style={styles.filterInput}
-            />
-          </div>
-          <div style={styles.filterGroup}>
-            <label style={styles.filterLabel}>Metric</label>
-            <select
-              value={metricFilter}
-              onChange={e => setMetricFilter(e.target.value)}
-              style={styles.filterSelect}
-            >
-              <option value="all">All Metrics</option>
-              {availableMetrics.map(m => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
-          </div>
-          {(filterStart || filterEnd || metricFilter !== 'all') && (
-            <button
-              onClick={() => { setFilterStart(''); setFilterEnd(''); setMetricFilter('all'); }}
-              style={styles.clearBtn}
-            >
-              Clear Filters
-            </button>
-          )}
-        </div>
-      )}
 
-      {/* Data Table */}
-      {hasData && (
-        <div style={styles.tableWrap}>
-          {dataLoading ? (
-            <p style={styles.loadingText}>Loading data...</p>
-          ) : data.length === 0 ? (
-            <p style={styles.loadingText}>No data matches your filters</p>
-          ) : (
+          {/* ── Data Table ── */}
+          <div style={styles.tableWrap}>
             <table style={styles.table}>
               <thead>
                 <tr>
-                  <SortHeader col="date" label="Date" sortCol={sortCol} sortDir={sortDir} onSort={(c, d) => { setSortCol(c); setSortDir(d); }} />
-                  <SortHeader col="metric_name" label="Metric" sortCol={sortCol} sortDir={sortDir} onSort={(c, d) => { setSortCol(c); setSortDir(d); }} />
-                  <SortHeader col="metric_value" label="Value" sortCol={sortCol} sortDir={sortDir} onSort={(c, d) => { setSortCol(c); setSortDir(d); }} />
-                  <th style={styles.th}>{getContentLabel(platform)}</th>
+                  <th style={{ ...styles.th, width: '36px', position: 'sticky', left: 0, zIndex: 3, background: '#16162a' }}></th>
+                  {columns.map(col => (
+                    <th
+                      key={col.key}
+                      style={{
+                        ...styles.th,
+                        cursor: 'pointer',
+                        ...(col.sticky ? styles.thSticky : {}),
+                        ...(col.type !== 'text' ? { textAlign: 'right' } : {}),
+                      }}
+                      onClick={() => handleSort(col.key)}
+                    >
+                      {col.label}
+                      {sortCol === col.key && <span style={{ marginLeft: '4px', color: '#a5b4fc' }}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {data.map((row, i) => (
-                  <tr key={row.id || i} style={i % 2 === 0 ? styles.trEven : {}}>
-                    <td style={styles.td}>{formatDate(row.date)}</td>
-                    <td style={styles.td}>
-                      <span style={styles.metricBadge}>{row.metric_name}</span>
+                {/* Summary row */}
+                {summaryRow && (
+                  <tr style={styles.summaryRow}>
+                    <td style={{ ...styles.td, position: 'sticky', left: 0, background: '#1a1a30', zIndex: 2 }}></td>
+                    {columns.map(col => (
+                      <td key={col.key} style={{
+                        ...styles.td, ...styles.summaryCell,
+                        ...(col.sticky ? { ...styles.tdSticky, background: '#1a1a30' } : {}),
+                        ...(col.type !== 'text' ? { textAlign: 'right' } : {}),
+                      }}>
+                        {col.sticky ? `Total (${data.length})` :
+                         col.type === 'date' ? '' :
+                         col.type === 'text' ? '' :
+                         formatCell(summaryRow[col.key], col.type)}
+                      </td>
+                    ))}
+                  </tr>
+                )}
+                {/* Data rows */}
+                {sortedData.map((row, i) => (
+                  <tr key={row.id} style={{
+                    ...(i % 2 === 0 ? styles.trEven : {}),
+                    ...(selectedRows.has(row.id) ? styles.trSelected : {}),
+                  }}>
+                    <td style={{ ...styles.td, position: 'sticky', left: 0, background: selectedRows.has(row.id) ? 'rgba(99,102,241,0.08)' : (i % 2 === 0 ? 'rgba(255,255,255,0.01)' : '#12121f'), zIndex: 2 }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedRows.has(row.id)}
+                        onChange={() => toggleRow(row.id)}
+                        style={styles.checkbox}
+                      />
                     </td>
-                    <td style={{ ...styles.td, ...styles.tdValue }}>{formatNumber(row.metric_value)}</td>
-                    <td style={styles.td}>{getContentTitle(platform, row)}</td>
+                    {columns.map(col => (
+                      <td key={col.key} style={{
+                        ...styles.td,
+                        ...(col.sticky ? { ...styles.tdSticky, background: selectedRows.has(row.id) ? 'rgba(99,102,241,0.08)' : (i % 2 === 0 ? 'rgba(255,255,255,0.01)' : '#12121f') } : {}),
+                        ...(col.type !== 'text' && col.type !== 'date' ? styles.tdValue : {}),
+                        ...(col.type !== 'text' ? { textAlign: 'right' } : {}),
+                      }}>
+                        {formatCell(row[col.key], col.type)}
+                      </td>
+                    ))}
                   </tr>
                 ))}
               </tbody>
             </table>
-          )}
-          {data.length >= 500 && (
-            <p style={styles.limitNote}>Showing first 500 rows. Use filters to narrow results.</p>
-          )}
-        </div>
+            {data.length >= 500 && (
+              <p style={styles.limitNote}>Showing first 500 items</p>
+            )}
+          </div>
+        </>
       )}
+    </div>
+  );
+}
 
-      {/* Upload History Modal */}
-      {showUploadHistory && (
-        <div style={styles.modalOverlay} onClick={() => setShowUploadHistory(false)}>
-          <div style={styles.modal} onClick={e => e.stopPropagation()}>
-            <h3 style={styles.modalTitle}>Upload History — {platform.label}</h3>
-            <div style={styles.historyList}>
-              {uploadHistory.length === 0 ? (
-                <p style={styles.loadingText}>No uploads yet</p>
-              ) : (
-                uploadHistory.map(u => (
-                  <div key={u.id} style={styles.historyItem}>
-                    <div style={styles.historyFile}>{u.filename}</div>
-                    <div style={styles.historyMeta}>
-                      {u.row_count} rows · {u.date_range_start && u.date_range_end
-                        ? `${formatDate(u.date_range_start)} — ${formatDate(u.date_range_end)}`
-                        : 'Unknown range'}
-                    </div>
-                    <div style={styles.historyMeta}>
-                      {u.uploader?.full_name} · {formatDateTime(u.created_at)}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-            <button onClick={() => setShowUploadHistory(false)} style={styles.modalClose}>Close</button>
+// ═══════════════════════════════════════════════
+// Bar Chart (pure CSS, no library)
+// ═══════════════════════════════════════════════
+function BarChart({ data, color }) {
+  if (!data.length) return <p style={styles.loadingText}>No data to chart</p>;
+  const max = Math.max(...data.map(d => d.value), 1);
+
+  return (
+    <div style={styles.chart}>
+      {data.map((d, i) => (
+        <div key={i} style={styles.chartBarGroup}>
+          <div style={styles.chartBarLabel} title={d.label}>
+            {d.label}
+          </div>
+          <div style={styles.chartBarOuter}>
+            <div style={{
+              ...styles.chartBar,
+              width: `${(d.value / max) * 100}%`,
+              background: `linear-gradient(90deg, ${color}cc, ${color}88)`,
+            }} />
+          </div>
+          <div style={styles.chartBarValue}>
+            {formatCompact(d.value)}
           </div>
         </div>
-      )}
+      ))}
     </div>
   );
 }
 
-// ─── Sort Header ───
-function SortHeader({ col, label, sortCol, sortDir, onSort }) {
-  const active = sortCol === col;
-  return (
-    <th
-      style={{ ...styles.th, cursor: 'pointer', userSelect: 'none' }}
-      onClick={() => onSort(col, active && sortDir === 'asc' ? 'desc' : 'asc')}
-    >
-      {label} {active ? (sortDir === 'asc' ? '↑' : '↓') : ''}
-    </th>
-  );
-}
-
-// ─── CSV Format Guide ───
-function CSVFormatGuide({ platform }) {
+// ═══════════════════════════════════════════════
+// CSV Guide
+// ═══════════════════════════════════════════════
+function CSVGuide({ platform }) {
   const guides = {
-    youtube_trevormay: 'Export from YouTube Studio → Analytics → Advanced Mode → Export (CSV). The system accepts the standard YouTube Studio export format with columns like Date, Views, Watch time, Subscribers, etc.',
-    youtube_moremayday: 'Same as above — export from YouTube Studio → Analytics → Advanced Mode → Export (CSV).',
-    tiktok: 'Export from TikTok Analytics (Business/Creator account) → Download data. Or export from Metricool. Expected columns: Date, Views, Likes, Comments, Shares, etc.',
-    facebook: 'Export from Meta Business Suite → Insights → Export Data (CSV). Or export from Metricool. Expected columns: Date, Reach, Impressions, Engagement, etc.',
-    instagram: 'Export from Meta Business Suite → Instagram Insights → Export. Or export from Metricool. Expected columns: Date, Impressions, Reach, Followers, etc.',
-    substack: 'Export from Substack Dashboard → Stats. Expected columns: Date, Title, Opens, Open Rate, Clicks, Subscribers, etc.',
+    youtube_trevormay: 'YouTube Studio → Analytics → Content tab → Advanced Mode → Export CSV.\nThe file should have columns like Video title, Views, Watch time, Impressions, CTR, Revenue, etc.',
+    youtube_moremayday: 'Same as above — YouTube Studio → Analytics → Content tab → Advanced Mode → Export CSV.',
+    tiktok: 'TikTok Analytics → Content → Export data. Or use Metricool CSV export.\nExpected: Post title, Views, Likes, Comments, Shares, etc.',
+    facebook: 'Meta Business Suite → Insights → Export. Or Metricool CSV.\nExpected: Post title, Reach, Impressions, Reactions, Comments, Shares, etc.',
+    instagram: 'Meta Business Suite → Instagram Insights → Export. Or Metricool CSV.\nExpected: Post title, Reach, Impressions, Likes, Comments, Shares, etc.',
+    substack: 'Substack Dashboard → Stats → Export.\nExpected: Post title, Sends, Opens, Open rate, Clicks, Subscribers, etc.',
   };
-
   return (
     <div style={styles.guideBox}>
-      <p style={styles.guideText}>{guides[platform.key]}</p>
-      <p style={styles.guideNote}>
-        💡 The system auto-detects column names from your CSV header row. Each row becomes a data point with a date, metric name, and value.
-        Duplicate data (same date + metric + content) is automatically skipped.
-      </p>
+      <pre style={styles.guideText}>{guides[platform.key]}</pre>
     </div>
   );
 }
 
-// ─── CSV Parser ───
+// ═══════════════════════════════════════════════
+// CSV Parsing
+// ═══════════════════════════════════════════════
 function parseCSV(text) {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) return { headers: [], rows: [] };
 
-  // Handle quoted fields
   function splitRow(line) {
     const result = [];
     let current = '';
     let inQuotes = false;
     for (let i = 0; i < line.length; i++) {
       const ch = line[i];
-      if (ch === '"') {
-        inQuotes = !inQuotes;
-      } else if (ch === ',' && !inQuotes) {
-        result.push(current.trim());
-        current = '';
-      } else {
-        current += ch;
-      }
+      if (ch === '"') { inQuotes = !inQuotes; }
+      else if (ch === ',' && !inQuotes) { result.push(current.trim()); current = ''; }
+      else { current += ch; }
     }
     result.push(current.trim());
     return result;
@@ -485,275 +529,290 @@ function parseCSV(text) {
     if (!lines[i].trim()) continue;
     const vals = splitRow(lines[i]);
     const row = {};
-    headers.forEach((h, idx) => {
-      row[h] = vals[idx] || '';
-    });
+    headers.forEach((h, idx) => { row[h] = vals[idx] || ''; });
     rows.push(row);
   }
-
   return { headers, rows };
 }
 
-// ─── Process CSV rows into platform-specific DB format ───
-function processCSVForPlatform(platform, parsed) {
+// ═══════════════════════════════════════════════
+// Map CSV → platform DB rows
+// ═══════════════════════════════════════════════
+function mapCSVToPlatform(platform, parsed, userId) {
+  if (platform.key.startsWith('youtube_')) return mapYouTubeCSV(platform, parsed, userId);
+  return mapGenericCSV(platform, parsed, userId);
+}
+
+// YouTube-specific mapping
+function mapYouTubeCSV(platform, parsed, userId) {
   const { headers, rows } = parsed;
   const dbRows = [];
   let minDate = null, maxDate = null;
 
-  // Find the date column
-  const dateCol = headers.find(h =>
-    /^date$/i.test(h) || /^day$/i.test(h) || /^period$/i.test(h)
-  ) || headers[0];
+  // Exact column name mapping from YouTube Studio export
+  const colMap = {
+    'Content': 'video_id',
+    'Video title': 'video_title',
+    'Video publish time': '_date',
+    'Duration': '_duration',
+    'Views': 'views',
+    'Engaged views': 'engaged_views',
+    'Watch time (hours)': 'watch_time_hours',
+    'Average view duration': '_avg_duration',
+    'Average percentage viewed (%)': 'average_percentage_viewed',
+    'Stayed to watch (%)': 'stayed_to_watch_pct',
+    'Unique viewers': 'unique_viewers',
+    'New viewers': 'new_viewers',
+    'Returning viewers': 'returning_viewers',
+    'Regular viewers': 'regular_viewers',
+    'Subscribers': 'subscribers',
+    'Post subscribers': 'post_subscribers',
+    'Impressions': 'impressions',
+    'Impressions click-through rate (%)': 'impressions_ctr',
+    'Estimated revenue (USD)': 'estimated_revenue',
+    'YouTube Premium (USD)': 'youtube_premium_revenue',
+    'YouTube ad revenue (USD)': 'ad_revenue',
+    'Watch Page ads (USD)': 'watch_page_ads_revenue',
+    'Estimated AdSense revenue (USD)': 'adsense_revenue',
+    'Ad impressions': 'ad_impressions',
+    'CPM (USD)': 'cpm',
+    'RPM (USD)': 'rpm',
+    'YouTube Premium views': 'youtube_premium_views',
+  };
 
-  // Find metric columns (everything that's not date and not a text identifier)
-  const textCols = new Set();
-  const idCols = new Set();
-
-  // Identify text/id columns
+  // Build header→dbField lookup (case-insensitive)
+  const headerMap = {};
   headers.forEach(h => {
-    const lower = h.toLowerCase();
-    if (lower === dateCol.toLowerCase()) return;
-    if (/title|name|url|link|id|description|slug|permalink|post$/i.test(lower)) {
-      if (/id$/i.test(lower) || /url|link|permalink/i.test(lower)) idCols.add(h);
-      else textCols.add(h);
+    if (colMap[h]) { headerMap[h] = colMap[h]; return; }
+    const lh = h.toLowerCase();
+    for (const [csvName, dbField] of Object.entries(colMap)) {
+      if (lh === csvName.toLowerCase()) { headerMap[h] = dbField; return; }
     }
   });
-
-  // All remaining numeric columns are metrics
-  const metricCols = headers.filter(h => {
-    if (h === dateCol) return false;
-    if (textCols.has(h) || idCols.has(h)) return false;
-    // Check first non-empty value
-    const firstVal = rows.find(r => r[h] !== '')?.[h];
-    if (firstVal === undefined) return false;
-    return !isNaN(parseNumber(firstVal));
-  });
-
-  // If no metric columns found, treat all non-date non-text cols as metrics
-  if (metricCols.length === 0) {
-    headers.forEach(h => {
-      if (h !== dateCol && !textCols.has(h) && !idCols.has(h)) metricCols.push(h);
-    });
-  }
-
-  const titleCol = [...textCols][0] || null;
-  const idCol = [...idCols][0] || null;
 
   for (const row of rows) {
-    const dateStr = parseDate(row[dateCol]);
-    if (!dateStr) continue;
+    const vidIdHeader = Object.keys(headerMap).find(h => headerMap[h] === 'video_id');
+    const vidId = vidIdHeader ? row[vidIdHeader]?.trim() : '';
+    if (!vidId || vidId.toLowerCase() === 'total') continue;
 
-    if (!minDate || dateStr < minDate) minDate = dateStr;
-    if (!maxDate || dateStr > maxDate) maxDate = dateStr;
+    const dbRow = { channel: platform.channel, uploaded_by: userId };
 
-    const title = titleCol ? row[titleCol] : null;
-    const contentId = idCol ? row[idCol] : null;
+    for (const [csvHeader, dbField] of Object.entries(headerMap)) {
+      const raw = row[csvHeader];
+      if (raw === '' || raw === undefined) continue;
 
-    for (const metricCol of metricCols) {
-      const val = parseNumber(row[metricCol]);
-      if (val === null || isNaN(val)) continue;
-
-      const dbRow = {
-        date: dateStr,
-        metric_name: metricCol,
-        metric_value: val,
-      };
-
-      // Platform-specific fields
-      if (platform.key.startsWith('youtube_')) {
-        dbRow.channel = platform.channel;
-        dbRow.video_title = title;
-        dbRow.video_id = contentId;
-      } else if (platform.key === 'tiktok') {
-        dbRow.post_title = title;
-        dbRow.post_id = contentId;
-      } else if (platform.key === 'facebook') {
-        dbRow.post_title = title;
-        dbRow.post_id = contentId;
-      } else if (platform.key === 'instagram') {
-        dbRow.post_title = title;
-        dbRow.post_id = contentId;
-      } else if (platform.key === 'substack') {
-        dbRow.post_title = title;
-        dbRow.post_url = contentId;
+      if (dbField === '_date') {
+        const d = parseDate(raw);
+        if (d) {
+          dbRow.publish_date = d;
+          if (!minDate || d < minDate) minDate = d;
+          if (!maxDate || d > maxDate) maxDate = d;
+        }
+      } else if (dbField === '_duration' || dbField === '_avg_duration') {
+        const secs = parseDuration(raw);
+        if (secs !== null) {
+          dbRow[dbField === '_duration' ? 'duration_seconds' : 'average_view_duration_seconds'] = secs;
+        }
+      } else if (dbField === 'video_id' || dbField === 'video_title') {
+        dbRow[dbField] = raw;
+      } else {
+        const num = parseNumber(raw);
+        if (num !== null) dbRow[dbField] = num;
       }
-
-      dbRows.push(dbRow);
     }
+
+    if (dbRow.video_id) dbRows.push(dbRow);
   }
 
-  return {
-    rows: dbRows,
-    dateRange: { start: minDate, end: maxDate },
-  };
+  return { rows: dbRows, dateRange: { start: minDate, end: maxDate } };
 }
 
-function getConflictKeys(platform) {
-  if (platform.key.startsWith('youtube_')) return 'channel,date,metric_name,video_id';
-  if (platform.key === 'tiktok') return 'date,metric_name,post_id';
-  if (platform.key === 'facebook') return 'date,metric_name,post_id';
-  if (platform.key === 'instagram') return 'date,metric_name,post_id';
-  if (platform.key === 'substack') return 'date,metric_name,post_title';
-  return '';
+// Generic CSV mapper for TikTok, Facebook, Instagram, Substack
+function mapGenericCSV(platform, parsed, userId) {
+  const { headers, rows } = parsed;
+  const dbRows = [];
+  let minDate = null, maxDate = null;
+  const columns = getColumns(platform.key);
+
+  function normalize(s) { return s.toLowerCase().replace(/[^a-z0-9]/g, ''); }
+  const dbColsByNorm = {};
+  columns.forEach(c => { dbColsByNorm[normalize(c.label)] = c.key; dbColsByNorm[normalize(c.key)] = c.key; });
+
+  const headerMap = {};
+  headers.forEach(h => {
+    const nh = normalize(h);
+    if (dbColsByNorm[nh]) { headerMap[h] = dbColsByNorm[nh]; return; }
+    for (const [normLabel, dbKey] of Object.entries(dbColsByNorm)) {
+      if (nh.includes(normLabel) || normLabel.includes(nh)) { headerMap[h] = dbKey; return; }
+    }
+  });
+
+  const dateHeader = headers.find(h => /date|publish|time|created/i.test(h));
+
+  for (const row of rows) {
+    const dbRow = { uploaded_by: userId };
+    if (dateHeader) {
+      const d = parseDate(row[dateHeader]);
+      if (d) {
+        dbRow.publish_date = d;
+        if (!minDate || d < minDate) minDate = d;
+        if (!maxDate || d > maxDate) maxDate = d;
+      }
+    }
+    for (const [csvHeader, dbField] of Object.entries(headerMap)) {
+      if (dbField === 'publish_date') continue;
+      const raw = row[csvHeader];
+      if (raw === '' || raw === undefined) continue;
+      const col = columns.find(c => c.key === dbField);
+      if (!col) continue;
+      if (col.type === 'text') { dbRow[dbField] = raw; }
+      else if (col.type === 'duration') { dbRow[dbField] = parseDuration(raw); }
+      else { const num = parseNumber(raw); if (num !== null) dbRow[dbField] = num; }
+    }
+    const hasContent = dbRow.post_title || dbRow.post_id || dbRow.post_url;
+    if (hasContent || dbRow.publish_date) dbRows.push(dbRow);
+  }
+
+  return { rows: dbRows, dateRange: { start: minDate, end: maxDate } };
 }
 
-function getContentLabel(platform) {
-  if (platform.key.startsWith('youtube_')) return 'Video';
-  if (platform.key === 'substack') return 'Post';
-  return 'Content';
-}
-
-function getContentTitle(platform, row) {
-  if (platform.key.startsWith('youtube_')) return row.video_title || '—';
-  if (platform.key === 'substack') return row.post_title || '—';
-  return row.post_title || '—';
-}
-
-// ─── Helpers ───
+// ═══════════════════════════════════════════════
+// Helpers
+// ═══════════════════════════════════════════════
 function parseDate(val) {
   if (!val) return null;
-  // Try ISO format first
-  const iso = new Date(val);
-  if (!isNaN(iso.getTime())) {
-    return iso.toISOString().split('T')[0];
-  }
-  // Try MM/DD/YYYY
-  const parts = val.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
-  if (parts) {
-    const year = parts[3].length === 2 ? '20' + parts[3] : parts[3];
-    return `${year}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
-  }
+  const s = String(val).trim();
+  const months = { jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12' };
+  const m = s.match(/^([A-Za-z]{3})\s+(\d{1,2}),?\s+(\d{4})$/);
+  if (m && months[m[1].toLowerCase()]) return `${m[3]}-${months[m[1].toLowerCase()]}-${m[2].padStart(2,'0')}`;
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const p = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if (p) { const y = p[3].length === 2 ? '20'+p[3] : p[3]; return `${y}-${p[1].padStart(2,'0')}-${p[2].padStart(2,'0')}`; }
+  const d = new Date(s);
+  return !isNaN(d.getTime()) ? d.toISOString().split('T')[0] : null;
+}
+
+function parseDuration(val) {
+  if (!val) return null;
+  const s = String(val).trim();
+  // Pure number = seconds already
+  if (/^\d+$/.test(s)) return Number(s);
+  const parts = s.split(':').map(Number);
+  if (parts.some(isNaN)) return null;
+  if (parts.length === 3) return parts[0]*3600 + parts[1]*60 + parts[2];
+  if (parts.length === 2) return parts[0]*60 + parts[1];
   return null;
 }
 
 function parseNumber(val) {
-  if (val === '' || val === null || val === undefined) return null;
+  if (val === '' || val == null) return null;
   const clean = String(val).replace(/[,%$]/g, '').trim();
   const num = Number(clean);
   return isNaN(num) ? null : num;
 }
 
-function formatDate(d) {
-  if (!d) return '—';
-  return new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+function formatCell(val, type) {
+  if (val === null || val === undefined || val === '') return '—';
+  switch (type) {
+    case 'number': return Number(val).toLocaleString();
+    case 'decimal': return Number(val).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    case 'percent': return Number(val).toFixed(2) + '%';
+    case 'currency': return '$' + Number(val).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    case 'duration': {
+      const secs = Math.round(Number(val));
+      const h = Math.floor(secs / 3600);
+      const m = Math.floor((secs % 3600) / 60);
+      const sec = secs % 60;
+      return h > 0 ? `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}` : `${m}:${String(sec).padStart(2,'0')}`;
+    }
+    case 'date': return new Date(val + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    default: return String(val);
+  }
 }
 
-function formatDateTime(d) {
-  if (!d) return '—';
-  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+function formatCompact(n) {
+  if (n >= 1e6) return (n/1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n/1e3).toFixed(1) + 'K';
+  if (n % 1 !== 0) return n.toFixed(2);
+  return n.toLocaleString();
 }
 
-function formatNumber(val) {
-  if (val === null || val === undefined) return '—';
-  if (Number.isInteger(val)) return val.toLocaleString();
-  return Number(val).toLocaleString(undefined, { maximumFractionDigits: 2 });
+function truncate(s, len) {
+  if (!s) return '';
+  return s.length > len ? s.slice(0, len) + '...' : s;
 }
 
-// ─── Styles ───
+// ═══════════════════════════════════════════════
+// Styles
+// ═══════════════════════════════════════════════
 const styles = {
   page: { padding: '32px 40px' },
   topBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' },
   pageTitle: { fontSize: '28px', fontWeight: 700, color: '#ffffff', margin: '0 0 4px 0', letterSpacing: '-0.5px' },
   pageSubtitle: { fontSize: '14px', color: 'rgba(255,255,255,0.4)', margin: 0 },
-
-  tabBar: { display: 'flex', gap: '4px', marginBottom: '24px', overflowX: 'auto', paddingBottom: '2px', borderBottom: '1px solid rgba(255,255,255,0.06)' },
+  tabBar: { display: 'flex', gap: '2px', marginBottom: '24px', overflowX: 'auto', borderBottom: '1px solid rgba(255,255,255,0.06)' },
   tab: {
     display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 16px', background: 'none', border: 'none',
     borderBottom: '2px solid transparent', color: 'rgba(255,255,255,0.45)', fontSize: '13px', fontWeight: 500,
-    cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', transition: 'all 0.15s',
+    cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
   },
   tabActive: { color: '#ffffff', borderBottomWidth: '2px', borderBottomStyle: 'solid' },
-  tabLabel: {},
   tabBadge: { fontSize: '11px', padding: '2px 7px', borderRadius: '10px', fontWeight: 600 },
-
-  section: { marginTop: '8px' },
-
-  statusBanner: {
-    background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)',
-    borderLeft: '3px solid', borderRadius: '12px', padding: '20px 24px', marginBottom: '20px',
+  uploadBar: {
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px',
+    padding: '16px 20px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)',
+    borderLeft: '3px solid', borderRadius: '12px', marginBottom: '20px',
   },
-  statusGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '16px' },
-  statusItem: { display: 'flex', flexDirection: 'column', gap: '4px' },
-  statusLabel: { fontSize: '11px', fontWeight: 600, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.5px' },
-  statusValue: { fontSize: '15px', fontWeight: 600, color: '#e2e8f0' },
-  statusActions: { display: 'flex', gap: '8px', flexWrap: 'wrap' },
+  uploadBarLeft: { display: 'flex', alignItems: 'center', gap: '12px' },
+  uploadBarTitle: { fontSize: '15px', fontWeight: 700, color: '#fff' },
+  uploadBarSub: { fontSize: '12px', color: 'rgba(255,255,255,0.35)' },
   uploadBtn: {
-    padding: '9px 18px', border: '1px solid', borderRadius: '8px', fontSize: '13px', fontWeight: 600,
-    cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
+    padding: '9px 18px', background: 'rgba(255,255,255,0.04)', border: '1px solid',
+    borderRadius: '8px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
   },
-  historyBtn: {
-    padding: '9px 18px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: '8px', color: 'rgba(255,255,255,0.5)', fontSize: '13px', fontWeight: 500,
-    cursor: 'pointer', fontFamily: 'inherit',
-  },
-
-  resultBanner: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px',
-    borderRadius: '10px', marginBottom: '16px', fontSize: '13px', fontWeight: 500,
-  },
-  resultSuccess: { background: 'rgba(34,197,94,0.1)', color: '#4ade80', border: '1px solid rgba(34,197,94,0.2)' },
-  resultError: { background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' },
-  resultClose: { background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: '16px', padding: '0 4px' },
-
-  helpCard: {
-    background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.1)',
-    borderRadius: '14px', padding: '32px', textAlign: 'center',
-  },
-  helpTitle: { fontSize: '18px', fontWeight: 700, color: '#ffffff', margin: '0 0 8px 0' },
-  helpText: { fontSize: '14px', color: 'rgba(255,255,255,0.5)', margin: '0 0 16px 0' },
-  guideBox: { background: 'rgba(255,255,255,0.03)', borderRadius: '10px', padding: '16px', textAlign: 'left' },
-  guideText: { fontSize: '13px', color: 'rgba(255,255,255,0.55)', margin: '0 0 10px 0', lineHeight: 1.6 },
-  guideNote: { fontSize: '12px', color: 'rgba(255,255,255,0.35)', margin: 0, lineHeight: 1.5 },
-
-  filterBar: { display: 'flex', gap: '12px', alignItems: 'flex-end', marginBottom: '20px', flexWrap: 'wrap' },
-  filterGroup: { display: 'flex', flexDirection: 'column', gap: '4px' },
-  filterLabel: { fontSize: '11px', fontWeight: 600, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.5px' },
-  filterInput: {
+  loadingText: { padding: '40px', textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: '14px' },
+  emptyCard: { background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.1)', borderRadius: '14px', padding: '40px', textAlign: 'center' },
+  emptyTitle: { fontSize: '18px', fontWeight: 700, color: '#fff', margin: '0 0 8px' },
+  emptyText: { fontSize: '14px', color: 'rgba(255,255,255,0.45)', margin: '0 0 20px' },
+  guideBox: { display: 'inline-block', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', padding: '16px 20px', textAlign: 'left' },
+  guideText: { fontSize: '13px', color: 'rgba(255,255,255,0.5)', margin: 0, fontFamily: 'inherit', whiteSpace: 'pre-wrap', lineHeight: 1.6 },
+  // Chart
+  chartSection: { background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', padding: '20px', marginBottom: '20px' },
+  chartHeader: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' },
+  chartSelect: {
     padding: '8px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: '8px', color: '#fff', fontSize: '13px', fontFamily: 'inherit', outline: 'none',
   },
-  filterSelect: {
-    padding: '8px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: '8px', color: '#fff', fontSize: '13px', fontFamily: 'inherit', outline: 'none', minWidth: '160px',
+  clearSelBtn: {
+    padding: '6px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '6px', color: 'rgba(255,255,255,0.5)', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit',
   },
-  clearBtn: {
-    padding: '8px 14px', background: 'none', border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: '8px', color: 'rgba(255,255,255,0.4)', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit',
-  },
-
+  chart: { display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '420px', overflowY: 'auto' },
+  chartBarGroup: { display: 'grid', gridTemplateColumns: '200px 1fr 80px', gap: '8px', alignItems: 'center' },
+  chartBarLabel: { fontSize: '12px', color: 'rgba(255,255,255,0.5)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' },
+  chartBarOuter: { height: '22px', background: 'rgba(255,255,255,0.03)', borderRadius: '4px', overflow: 'hidden' },
+  chartBar: { height: '100%', borderRadius: '4px', transition: 'width 0.3s ease' },
+  chartBarValue: { fontSize: '12px', fontWeight: 600, color: '#e2e8f0', fontVariantNumeric: 'tabular-nums' },
+  // Table
   tableWrap: {
     background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)',
     borderRadius: '12px', overflow: 'auto', maxHeight: '600px',
   },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: '13px' },
+  table: { width: '100%', borderCollapse: 'collapse', fontSize: '13px', minWidth: '1200px' },
   th: {
-    padding: '12px 16px', textAlign: 'left', fontWeight: 600, fontSize: '11px',
+    padding: '10px 14px', textAlign: 'left', fontWeight: 600, fontSize: '11px',
     color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px',
     borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0,
-    background: '#16162a', zIndex: 1,
+    background: '#16162a', zIndex: 1, whiteSpace: 'nowrap', userSelect: 'none',
   },
-  td: { padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,0.03)', color: 'rgba(255,255,255,0.7)' },
+  thSticky: { position: 'sticky', left: 36, zIndex: 3, background: '#16162a', minWidth: '200px', maxWidth: '300px' },
+  td: { padding: '8px 14px', borderBottom: '1px solid rgba(255,255,255,0.03)', color: 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap' },
+  tdSticky: { position: 'sticky', left: 36, zIndex: 1, maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 500, color: '#e2e8f0' },
   tdValue: { fontWeight: 600, color: '#e2e8f0', fontVariantNumeric: 'tabular-nums' },
   trEven: { background: 'rgba(255,255,255,0.01)' },
-  metricBadge: {
-    display: 'inline-block', padding: '2px 8px', background: 'rgba(99,102,241,0.1)',
-    borderRadius: '6px', fontSize: '12px', color: '#a5b4fc', fontWeight: 500,
-  },
-  limitNote: { padding: '12px 16px', fontSize: '12px', color: 'rgba(255,255,255,0.3)', textAlign: 'center' },
-  loadingText: { padding: '24px', textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: '14px' },
-
-  modalOverlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
-  modal: { background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', padding: '24px', minWidth: '400px', maxWidth: '550px', maxHeight: '70vh', overflow: 'auto' },
-  modalTitle: { fontSize: '16px', fontWeight: 700, color: '#fff', margin: '0 0 16px 0' },
-  modalClose: {
-    width: '100%', padding: '10px', background: 'none', border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: '8px', color: 'rgba(255,255,255,0.5)', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit', marginTop: '12px',
-  },
-  historyList: { display: 'flex', flexDirection: 'column', gap: '8px' },
-  historyItem: {
-    padding: '12px 14px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
-    borderRadius: '8px',
-  },
-  historyFile: { fontSize: '14px', fontWeight: 600, color: '#e2e8f0', marginBottom: '4px' },
-  historyMeta: { fontSize: '12px', color: 'rgba(255,255,255,0.35)' },
+  trSelected: { background: 'rgba(99,102,241,0.08)' },
+  summaryRow: { background: '#1a1a30' },
+  summaryCell: { fontWeight: 700, color: '#ffffff', fontSize: '13px' },
+  checkbox: { accentColor: '#6366f1', cursor: 'pointer' },
+  limitNote: { padding: '12px', fontSize: '12px', color: 'rgba(255,255,255,0.3)', textAlign: 'center' },
 };
