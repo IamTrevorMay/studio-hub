@@ -88,8 +88,10 @@ export default function DocEditor({ docId, title, docType, onBack, onSaveTemplat
     loadDoc();
   }, [docId, editor]);
 
+  const tableName = docType === 'resource_documents' ? 'resource_documents' : 'concept_documents';
+
   async function loadDoc() {
-    const { data } = await supabase.from('concept_documents')
+    const { data } = await supabase.from(tableName)
       .select('content').eq('id', docId).single();
     if (data?.content?.html && editor) {
       editor.commands.setContent(data.content.html);
@@ -101,11 +103,11 @@ export default function DocEditor({ docId, title, docType, onBack, onSaveTemplat
     if (!editor) return;
     setSaving(true);
     const html = editor.getHTML();
-    await supabase.from('concept_documents')
+    await supabase.from(tableName)
       .update({ content: { html }, updated_at: new Date().toISOString() })
       .eq('id', docId);
     setSaving(false);
-  }, [editor, docId]);
+  }, [editor, docId, tableName]);
 
   useEffect(() => {
     if (!editor || !loaded) return;
