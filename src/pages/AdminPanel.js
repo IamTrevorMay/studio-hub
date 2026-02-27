@@ -74,8 +74,38 @@ export default function AdminPanel() {
   }
 
   async function handleRoleChange(userId, newRole) {
-    await supabase.from('profiles').update({ role: newRole }).eq('id', userId);
+    const { error } = await supabase.from('profiles').update({ role: newRole }).eq('id', userId);
+    if (error) console.error('Role change failed:', error);
     fetchTeamMembers();
+  }
+
+  async function handleRemoveMember(member) {
+    if (!window.confirm(`Remove ${member.full_name} from the team? This cannot be undone.`)) return;
+    try {
+      // Delete profile (cascades will clean up assignments etc.)
+      const { error } = await supabase.from('profiles').delete().eq('id', member.id);
+      if (error) throw error;
+      // Delete the auth user via edge function
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        await fetch(
+          `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/remove-user`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`,
+              'apikey': process.env.REACT_APP_SUPABASE_ANON_KEY,
+            },
+            body: JSON.stringify({ userId: member.id }),
+          }
+        );
+      }
+      fetchTeamMembers();
+    } catch (err) {
+      console.error('Remove member failed:', err);
+      alert('Failed to remove member: ' + err.message);
+    }
   }
 
   if (!isAdmin) {
@@ -193,6 +223,15 @@ export default function AdminPanel() {
                   <option value="assistant">Assistant</option>
                   <option value="admin">Admin</option>
                 </select>
+                {member.id !== profile.id && (
+                  <button
+                    onClick={() => handleRemoveMember(member)}
+                    style={styles.removeBtn}
+                    title="Remove member"
+                  >
+                    ✕
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -303,6 +342,12 @@ const styles = {
     padding: '6px 10px', background: 'rgba(255,255,255,0.05)',
     border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px',
     color: '#fff', fontSize: '12px', fontFamily: 'inherit', outline: 'none',
+  },
+  removeBtn: {
+    padding: '6px 10px', background: 'transparent',
+    border: '1px solid rgba(239,68,68,0.3)', borderRadius: '6px',
+    color: '#ef4444', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit',
+    flexShrink: 0, transition: 'background 0.15s',
   },
   accessDenied: {
     textAlign: 'center', padding: '80px 20px', color: 'rgba(255,255,255,0.5)',
