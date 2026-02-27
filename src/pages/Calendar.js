@@ -20,15 +20,53 @@ const NETWORK_LABELS = {
   facebook: 'Facebook', twitter: 'X / Twitter', threads: 'Threads',
 };
 const NETWORK_ICONS = {
-  youtube: '▶', instagram: '◉', tiktok: '♪',
-  facebook: 'f', twitter: '𝕏', threads: '@',
+  youtube: '\u25B6', instagram: '\u25C9', tiktok: '\u266A',
+  facebook: 'f', twitter: '\uD835\uDD4F', threads: '@',
 };
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+const EVENT_TYPES = ['deadline', 'meeting', 'live_recording', 'filming', 'unavailable'];
+const EVENT_TYPE_COLORS = {
+  deadline: '#ef4444',
+  meeting: '#3b82f6',
+  live_recording: '#22c55e',
+  filming: '#f59e0b',
+  unavailable: '#6b7280',
+};
+const EVENT_TYPE_LABELS = {
+  deadline: 'Deadline',
+  meeting: 'Meeting',
+  live_recording: 'Live/Recording',
+  filming: 'Filming',
+  unavailable: 'Unavailable',
+};
+const EVENT_TYPE_ICONS = {
+  deadline: '\u23F0',
+  meeting: '\uD83D\uDC65',
+  live_recording: '\uD83D\uDD34',
+  filming: '\uD83C\uDFAC',
+  unavailable: '\uD83D\uDEAB',
+};
+
+const EMPTY_EVENT_FORM = {
+  title: '',
+  description: '',
+  event_type: 'meeting',
+  start_date: '',
+  start_time: '09:00',
+  end_date: '',
+  end_time: '10:00',
+  all_day: false,
+  location: '',
+  guests: [],
+};
 
 export default function Calendar({ onNavigate }) {
   const { profile, isAdmin } = useAuth();
   const [projects, setProjects] = useState([]);
   const [scheduledPosts, setScheduledPosts] = useState([]);
+  const [calendarEvents, setCalendarEvents] = useState([]);
+  const [hubUsers, setHubUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingPosts, setLoadingPosts] = useState(false);
   const [viewDate, setViewDate] = useState(new Date());
@@ -38,12 +76,22 @@ export default function Calendar({ onNavigate }) {
   const [activeDropdown, setActiveDropdown] = useState(null);
   const [dropdownComments, setDropdownComments] = useState([]);
   const [commentText, setCommentText] = useState('');
+  const [showEventModal, setShowEventModal] = useState(false);
+  const [eventForm, setEventForm] = useState(EMPTY_EVENT_FORM);
+  const [savingEvent, setSavingEvent] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState(null);
+  const [showGuestDropdown, setShowGuestDropdown] = useState(false);
   const dropdownRef = useRef(null);
+  const modalRef = useRef(null);
+  const guestDropdownRef = useRef(null);
 
   useEffect(() => {
     function handleClick(e) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
         setActiveDropdown(null);
+      }
+      if (guestDropdownRef.current && !guestDropdownRef.current.contains(e.target)) {
+        setShowGuestDropdown(false);
       }
     }
     document.addEventListener('mousedown', handleClick);
@@ -52,9 +100,14 @@ export default function Calendar({ onNavigate }) {
 
   useEffect(() => {
     const timeout = setTimeout(() => setLoading(false), 5000);
-    fetchProjects().finally(() => clearTimeout(timeout));
+    Promise.all([fetchProjects(), fetchCalendarEvents(), fetchHubUsers()])
+      .finally(() => clearTimeout(timeout));
     return () => clearTimeout(timeout);
   }, []);
+
+  useEffect(() => {
+    fetchCalendarEvents();
+  }, [viewDate]);
 
   const fetchMetricoolPosts = useCallback(async (start, end) => {
     setLoadingPosts(true);
@@ -104,6 +157,41 @@ export default function Calendar({ onNavigate }) {
     }
   }
 
+  async function fetchCalendarEvents() {
+    try {
+      const { start, end } = getMonthRange();
+      // Fetch events that overlap the visible month (with some buffer for prev/next month days)
+      const bufferStart = new Date(start);
+      bufferStart.setDate(bufferStart.getDate() - 7);
+      const bufferEnd = new Date(end);
+      bufferEnd.setDate(bufferEnd.getDate() + 7);
+      const { data, error } = await supabase
+        .from('calendar_events')
+        .select('*, creator:profiles!created_by(id, full_name)')
+        .gte('end_date', bufferStart.toISOString())
+        .lte('start_date', bufferEnd.toISOString())
+        .order('start_date', { ascending: true });
+      if (error) throw error;
+      setCalendarEvents(data || []);
+    } catch (err) {
+      console.error('Error fetching events:', err);
+      setCalendarEvents([]);
+    }
+  }
+
+  async function fetchHubUsers() {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, avatar_url')
+        .order('full_name', { ascending: true });
+      if (error) throw error;
+      setHubUsers(data || []);
+    } catch (err) {
+      console.error('Error fetching users:', err);
+    }
+  }
+
   async function handleStatusChange(projectId, newStatus) {
     setActiveDropdown(null);
     await supabase.from('projects').update({ status: newStatus }).eq('id', projectId);
@@ -145,8 +233,71 @@ export default function Calendar({ onNavigate }) {
   async function handleDeleteProject(projectId) {
     if (!window.confirm('Delete this project and all its data?')) return;
     await supabase.from('projects').delete().eq('id', projectId);
-    setSelectedBar(null);
+    setActiveDropdown(null);
     fetchProjects();
+  }
+
+  async function handleSaveEvent() {
+    if (!eventForm.title.trim() || !eventForm.start_date || !profile?.id) return;
+    setSavingEvent(true);
+    try {
+      const startDate = eventForm.all_day
+        ? new Date(`${eventForm.start_date}T00:00:00`)
+        : new Date(`${eventForm.start_date}T${eventForm.start_time}:00`);
+      const endDateStr = eventForm.end_date || eventForm.start_date;
+      const endDate = eventForm.all_day
+        ? new Date(`${endDateStr}T23:59:59`)
+        : new Date(`${endDateStr}T${eventForm.end_time}:00`);
+
+      const { error } = await supabase.from('calendar_events').insert({
+        title: eventForm.title.trim(),
+        description: eventForm.description.trim(),
+        event_type: eventForm.event_type,
+        start_date: startDate.toISOString(),
+        end_date: endDate.toISOString(),
+        all_day: eventForm.all_day,
+        location: eventForm.location.trim(),
+        created_by: profile.id,
+        guests: eventForm.guests,
+      });
+      if (error) throw error;
+      setShowEventModal(false);
+      setEventForm(EMPTY_EVENT_FORM);
+      fetchCalendarEvents();
+    } catch (err) {
+      console.error('Error saving event:', err);
+      alert('Failed to save event: ' + err.message);
+    } finally {
+      setSavingEvent(false);
+    }
+  }
+
+  async function handleDeleteEvent(eventId) {
+    if (!window.confirm('Delete this event?')) return;
+    try {
+      const { error } = await supabase.from('calendar_events').delete().eq('id', eventId);
+      if (error) throw error;
+      setSelectedEvent(null);
+      fetchCalendarEvents();
+    } catch (err) {
+      console.error('Error deleting event:', err);
+    }
+  }
+
+  function openNewEventModal(date) {
+    const dateStr = dk(date);
+    setEventForm({ ...EMPTY_EVENT_FORM, start_date: dateStr, end_date: dateStr });
+    setShowEventModal(true);
+    setSelectedEvent(null);
+  }
+
+  function toggleGuest(userId) {
+    setEventForm(prev => ({
+      ...prev,
+      guests: prev.guests.includes(userId)
+        ? prev.guests.filter(id => id !== userId)
+        : [...prev.guests, userId],
+    }));
   }
 
   function getMonthRange() {
@@ -181,12 +332,29 @@ export default function Calendar({ onNavigate }) {
     setViewDate(d);
   }
 
+  function getEventsForDate(date) {
+    const dayStart = new Date(date);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(date);
+    dayEnd.setHours(23, 59, 59, 999);
+    return calendarEvents.filter(ev => {
+      const evStart = new Date(ev.start_date);
+      const evEnd = new Date(ev.end_date);
+      return evStart <= dayEnd && evEnd >= dayStart;
+    });
+  }
+
+  function formatEventTime(ev) {
+    if (ev.all_day) return 'All day';
+    const d = new Date(ev.start_date);
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  }
+
   const calendarDays = getCalendarDays();
   const weeks = [];
   for (let i = 0; i < calendarDays.length; i += 7) weeks.push(calendarDays.slice(i, i + 7));
   const viewTitle = viewDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
-  // For each week, figure out which projects have bars and what row they occupy
   function getProjectBarsForWeek(week) {
     const weekStart = dk(week[0].date);
     const weekEnd = dk(week[6].date);
@@ -194,8 +362,6 @@ export default function Calendar({ onNavigate }) {
 
     projects.forEach(project => {
       if (project.deadline < weekStart || project.start_date > weekEnd) return;
-
-      // Find which day index the bar starts and ends within this week
       let startIdx = 0;
       let endIdx = 6;
       for (let i = 0; i < 7; i++) {
@@ -203,32 +369,21 @@ export default function Calendar({ onNavigate }) {
         if (project.start_date > d) startIdx = i + 1;
         if (project.deadline < d && endIdx === 6) endIdx = i - 1;
       }
-      // Clamp
       if (startIdx > 6) return;
       startIdx = Math.max(0, startIdx);
       endIdx = Math.min(6, endIdx);
       if (endIdx < startIdx) return;
-
-      // Recheck: the project must actually overlap at least one day
       const overlapStart = dk(week[startIdx].date);
       const overlapEnd = dk(week[endIdx].date);
       if (project.start_date > overlapEnd || project.deadline < overlapStart) return;
-
-      bars.push({
-        project,
-        startIdx,
-        endIdx,
-        span: endIdx - startIdx + 1,
-      });
+      bars.push({ project, startIdx, endIdx, span: endIdx - startIdx + 1 });
     });
 
-    // Sort bars by start date then by length (longer first) for row assignment
     bars.sort((a, b) => {
       if (a.startIdx !== b.startIdx) return a.startIdx - b.startIdx;
       return b.span - a.span;
     });
 
-    // Assign rows so bars don't overlap
     const rows = [];
     bars.forEach(bar => {
       let row = 0;
@@ -290,41 +445,59 @@ export default function Calendar({ onNavigate }) {
     }
   }
 
+  function handleEventClick(e, ev) {
+    e.stopPropagation();
+    setActiveTooltip(null);
+    setSelectedEvent(selectedEvent?.id === ev.id ? null : ev);
+  }
+
+  function getUserName(userId) {
+    const u = hubUsers.find(u => u.id === userId);
+    return u ? u.full_name : 'Unknown';
+  }
+
   return (
-    <div style={styles.page} onClick={() => { setActiveDropdown(null); setActiveTooltip(null); }}>
+    <div style={styles.page} onClick={() => { setActiveDropdown(null); setActiveTooltip(null); setSelectedEvent(null); }}>
       <div style={styles.topBar}>
         <div>
           <h1 style={styles.pageTitle}>Calendar</h1>
           <p style={styles.pageSubtitle}>
-            {projects.length} projects{showMetricool && scheduledPosts.length > 0 && ` · ${scheduledPosts.length} scheduled posts`}
+            {projects.length} projects
+            {calendarEvents.length > 0 && ` \u00B7 ${calendarEvents.length} events`}
+            {showMetricool && scheduledPosts.length > 0 && ` \u00B7 ${scheduledPosts.length} scheduled posts`}
           </p>
         </div>
+        <button
+          onClick={(e) => { e.stopPropagation(); openNewEventModal(new Date()); }}
+          style={styles.addEventBtn}
+        >
+          + Add Event
+        </button>
       </div>
 
       <div style={styles.controlsRow}>
         <div style={styles.navControls}>
-          <button onClick={() => navigateMonth(-1)} style={styles.navBtn}>←</button>
+          <button onClick={() => navigateMonth(-1)} style={styles.navBtn}>\u2190</button>
           <span style={styles.viewTitle}>{viewTitle}</span>
-          <button onClick={() => navigateMonth(1)} style={styles.navBtn}>→</button>
+          <button onClick={() => navigateMonth(1)} style={styles.navBtn}>\u2192</button>
           <button onClick={() => setViewDate(new Date())} style={styles.todayBtn}>Today</button>
         </div>
         <button
           onClick={(e) => { e.stopPropagation(); setShowMetricool(!showMetricool); }}
           style={{ ...styles.metricoolToggle, ...(showMetricool ? styles.metricoolToggleActive : {}) }}
         >
-          {loadingPosts ? '⟳' : '📅'} Metricool
+          {loadingPosts ? '\u27F3' : '\uD83D\uDCC5'} Metricool
         </button>
       </div>
 
       {metricoolError && showMetricool && (
         <div style={styles.errorBanner}>
           Metricool: {metricoolError}
-          <button onClick={() => setMetricoolError(null)} style={styles.errorClose}>✕</button>
+          <button onClick={() => setMetricoolError(null)} style={styles.errorClose}>\u2715</button>
         </div>
       )}
 
       <div style={styles.calendarGrid}>
-        {/* Weekday headers */}
         <div style={styles.weekdayRow}>
           {WEEKDAYS.map(day => <div key={day} style={styles.weekdayCell}>{day}</div>)}
         </div>
@@ -337,31 +510,56 @@ export default function Calendar({ onNavigate }) {
             const barAreaHeight = Math.max(0, rowCount) * 24;
             return (
               <div key={wi} style={styles.weekRow}>
-                {/* Day cells */}
                 {week.map((day, di) => {
                   const isToday = day.date.toDateString() === new Date().toDateString();
                   const dayPosts = showMetricool ? getPostsForDate(day.date) : [];
+                  const dayEvents = getEventsForDate(day.date);
                   return (
                     <div key={di} style={{
                       ...styles.dayCell,
                       opacity: day.isCurrentMonth ? 1 : 0.3,
                       background: isToday ? 'rgba(99,102,241,0.06)' : 'transparent',
                       borderRight: di < 6 ? '1px solid rgba(255,255,255,0.04)' : 'none',
-                    }}>
+                    }}
+                    onDoubleClick={(e) => { e.stopPropagation(); openNewEventModal(day.date); }}
+                    >
                       <div style={styles.dateRow}>
                         <span style={{ ...styles.dateNumber, ...(isToday ? styles.dateNumberToday : {}) }}>
                           {day.date.getDate()}
                         </span>
                       </div>
 
-                      {/* Spacer for project bars area */}
                       <div style={{ minHeight: `${barAreaHeight}px`, flexShrink: 0 }} />
+
+                      {/* Calendar events */}
+                      <div style={styles.eventsContainer}>
+                        {dayEvents.map(ev => {
+                          const color = EVENT_TYPE_COLORS[ev.event_type] || '#6b7280';
+                          const icon = EVENT_TYPE_ICONS[ev.event_type] || '\u2022';
+                          return (
+                            <div
+                              key={`ev-${ev.id}`}
+                              style={{
+                                ...styles.eventChip,
+                                background: `${color}20`,
+                                borderColor: `${color}50`,
+                              }}
+                              onClick={(e) => handleEventClick(e, ev)}
+                            >
+                              <span style={{ fontSize: '9px', flexShrink: 0 }}>{icon}</span>
+                              <span style={{ ...styles.eventChipText, color }}>
+                                {ev.title.substring(0, 16)}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
 
                       {/* Metricool posts */}
                       <div style={styles.postsContainer}>
                         {dayPosts.map(post => {
                           const color = NETWORK_COLORS[post.network] || '#666';
-                          const icon = NETWORK_ICONS[post.network] || '•';
+                          const icon = NETWORK_ICONS[post.network] || '\u2022';
                           const isPending = post.status === 'PENDING';
                           return (
                             <div
@@ -380,7 +578,7 @@ export default function Calendar({ onNavigate }) {
                               <span style={{ ...styles.postChipText, color }}>
                                 {getPostDisplayText(post).substring(0, 18)}
                               </span>
-                              {isPending && <span style={{ fontSize: '8px', flexShrink: 0 }}>⏳</span>}
+                              {isPending && <span style={{ fontSize: '8px', flexShrink: 0 }}>\u23F3</span>}
                             </div>
                           );
                         })}
@@ -389,12 +587,11 @@ export default function Calendar({ onNavigate }) {
                   );
                 })}
 
-                {/* Project bars overlay - absolutely positioned over the week row */}
+                {/* Project bars overlay */}
                 {bars.map(bar => {
                   const color = STATUS_COLORS[bar.project.status];
                   const leftPct = (bar.startIdx / 7) * 100;
                   const widthPct = (bar.span / 7) * 100;
-                  // Position bars below the date numbers (30px top for date area)
                   const topPx = 30 + bar.row * 24;
 
                   return (
@@ -424,7 +621,6 @@ export default function Calendar({ onNavigate }) {
                         {bar.project.name}
                       </span>
 
-                      {/* Status dropdown with comments */}
                       {activeDropdown === bar.project.id && (
                         <div ref={dropdownRef} style={styles.statusDropdown} onClick={(e) => e.stopPropagation()}>
                           <div style={styles.dropdownTitle}>{bar.project.name}</div>
@@ -450,7 +646,6 @@ export default function Calendar({ onNavigate }) {
                             })}
                           </div>
 
-                          {/* Comments */}
                           <div style={styles.dropdownDivider} />
                           <div style={styles.dropdownSectionLabel}>Comments</div>
                           <div style={styles.dropdownComments}>
@@ -468,7 +663,7 @@ export default function Calendar({ onNavigate }) {
                                       <button
                                         onClick={(e) => { e.stopPropagation(); handleDeleteComment(c.id, bar.project.id); }}
                                         style={styles.dropdownCommentDelete}
-                                      >✕</button>
+                                      >\u2715</button>
                                     )}
                                   </div>
                                   <span style={styles.dropdownCommentText}>{c.content}</span>
@@ -497,7 +692,7 @@ export default function Calendar({ onNavigate }) {
                               <button
                                 onClick={(e) => { e.stopPropagation(); handleDeleteProject(bar.project.id); }}
                                 style={styles.dropdownDeleteBtn}
-                              >🗑 Delete Project</button>
+                              >\uD83D\uDDD1 Delete Project</button>
                             </>
                           )}
                         </div>
@@ -522,11 +717,11 @@ export default function Calendar({ onNavigate }) {
                 <span>{STATUS_LABELS[activeTooltip.data.status]}</span>
               </div>
               <div style={styles.tooltipMeta}>
-                {activeTooltip.data.type.replace('_', ' ')}{activeTooltip.data.channel && ` · ${activeTooltip.data.channel}`}
+                {activeTooltip.data.type.replace('_', ' ')}{activeTooltip.data.channel && ` \u00B7 ${activeTooltip.data.channel}`}
               </div>
               <div style={styles.tooltipMeta}>
                 {new Date(activeTooltip.data.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                {' → '}
+                {' \u2192 '}
                 {new Date(activeTooltip.data.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
               </div>
               <div style={styles.tooltipHint}>Click to change status</div>
@@ -543,7 +738,7 @@ export default function Calendar({ onNavigate }) {
                 Scheduled: {formatPostTime(activeTooltip.data.publicationDate.dateTime)}
               </div>
               <div style={styles.tooltipMeta}>
-                {activeTooltip.data.status === 'PENDING' ? '⏳ Pending' : '✓ Published'}
+                {activeTooltip.data.status === 'PENDING' ? '\u23F3 Pending' : '\u2713 Published'}
               </div>
               {activeTooltip.data.publicUrl && <div style={styles.tooltipHint}>Click to open</div>}
             </>
@@ -551,8 +746,292 @@ export default function Calendar({ onNavigate }) {
         </div>
       )}
 
+      {/* Event detail popup */}
+      {selectedEvent && (
+        <div style={styles.modalOverlay} onClick={() => setSelectedEvent(null)}>
+          <div style={styles.eventDetailCard} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+              <div style={{
+                width: '12px', height: '12px', borderRadius: '3px',
+                background: EVENT_TYPE_COLORS[selectedEvent.event_type],
+                flexShrink: 0,
+              }} />
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#fff', flex: 1 }}>
+                {selectedEvent.title}
+              </h3>
+              <button onClick={() => setSelectedEvent(null)} style={styles.modalCloseBtn}>\u2715</button>
+            </div>
+            <div style={styles.eventDetailRow}>
+              <span style={styles.eventDetailLabel}>Type</span>
+              <span style={{ color: EVENT_TYPE_COLORS[selectedEvent.event_type], fontWeight: 600, fontSize: '13px' }}>
+                {EVENT_TYPE_ICONS[selectedEvent.event_type]} {EVENT_TYPE_LABELS[selectedEvent.event_type]}
+              </span>
+            </div>
+            <div style={styles.eventDetailRow}>
+              <span style={styles.eventDetailLabel}>When</span>
+              <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '13px' }}>
+                {selectedEvent.all_day ? 'All day' : new Date(selectedEvent.start_date).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                {' \u2013 '}
+                {selectedEvent.all_day
+                  ? new Date(selectedEvent.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                  : new Date(selectedEvent.end_date).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+                }
+              </span>
+            </div>
+            {selectedEvent.location && (
+              <div style={styles.eventDetailRow}>
+                <span style={styles.eventDetailLabel}>Location</span>
+                <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '13px' }}>{selectedEvent.location}</span>
+              </div>
+            )}
+            {selectedEvent.description && (
+              <div style={styles.eventDetailRow}>
+                <span style={styles.eventDetailLabel}>Description</span>
+                <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '13px', lineHeight: 1.4 }}>{selectedEvent.description}</span>
+              </div>
+            )}
+            {selectedEvent.guests && selectedEvent.guests.length > 0 && (
+              <div style={styles.eventDetailRow}>
+                <span style={styles.eventDetailLabel}>Guests</span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                  {selectedEvent.guests.map(gId => (
+                    <span key={gId} style={styles.guestTag}>{getUserName(gId)}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div style={styles.eventDetailRow}>
+              <span style={styles.eventDetailLabel}>Created by</span>
+              <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px' }}>
+                {selectedEvent.creator?.full_name || 'Unknown'}
+              </span>
+            </div>
+            {(selectedEvent.created_by === profile?.id || isAdmin) && (
+              <button
+                onClick={() => handleDeleteEvent(selectedEvent.id)}
+                style={styles.eventDeleteBtn}
+              >
+                Delete Event
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Add Event Modal */}
+      {showEventModal && (
+        <div style={styles.modalOverlay} onClick={() => setShowEventModal(false)}>
+          <div ref={modalRef} style={styles.eventModal} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#fff' }}>New Event</h2>
+              <button onClick={() => setShowEventModal(false)} style={styles.modalCloseBtn}>\u2715</button>
+            </div>
+
+            {/* Title */}
+            <div style={styles.formGroup}>
+              <label style={styles.formLabel}>Title *</label>
+              <input
+                value={eventForm.title}
+                onChange={(e) => setEventForm(prev => ({ ...prev, title: e.target.value }))}
+                placeholder="Add title"
+                style={styles.formInput}
+                autoFocus
+              />
+            </div>
+
+            {/* Event Type */}
+            <div style={styles.formGroup}>
+              <label style={styles.formLabel}>Event Type *</label>
+              <div style={styles.eventTypeGrid}>
+                {EVENT_TYPES.map(type => {
+                  const isActive = eventForm.event_type === type;
+                  const color = EVENT_TYPE_COLORS[type];
+                  return (
+                    <button
+                      key={type}
+                      onClick={() => setEventForm(prev => ({ ...prev, event_type: type }))}
+                      style={{
+                        ...styles.eventTypeBtn,
+                        background: isActive ? `${color}25` : 'rgba(255,255,255,0.03)',
+                        borderColor: isActive ? `${color}60` : 'rgba(255,255,255,0.08)',
+                        color: isActive ? color : 'rgba(255,255,255,0.5)',
+                      }}
+                    >
+                      <span>{EVENT_TYPE_ICONS[type]}</span>
+                      <span>{EVENT_TYPE_LABELS[type]}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* All Day toggle */}
+            <div style={styles.formGroup}>
+              <label style={{ ...styles.formLabel, display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={eventForm.all_day}
+                  onChange={(e) => setEventForm(prev => ({ ...prev, all_day: e.target.checked }))}
+                  style={{ accentColor: '#6366f1' }}
+                />
+                All day
+              </label>
+            </div>
+
+            {/* Date / Time */}
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <div style={{ ...styles.formGroup, flex: 1 }}>
+                <label style={styles.formLabel}>Start Date *</label>
+                <input
+                  type="date"
+                  value={eventForm.start_date}
+                  onChange={(e) => setEventForm(prev => ({
+                    ...prev,
+                    start_date: e.target.value,
+                    end_date: prev.end_date < e.target.value ? e.target.value : prev.end_date,
+                  }))}
+                  style={styles.formInput}
+                />
+              </div>
+              {!eventForm.all_day && (
+                <div style={{ ...styles.formGroup, flex: 1 }}>
+                  <label style={styles.formLabel}>Start Time</label>
+                  <input
+                    type="time"
+                    value={eventForm.start_time}
+                    onChange={(e) => setEventForm(prev => ({ ...prev, start_time: e.target.value }))}
+                    style={styles.formInput}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <div style={{ ...styles.formGroup, flex: 1 }}>
+                <label style={styles.formLabel}>End Date</label>
+                <input
+                  type="date"
+                  value={eventForm.end_date}
+                  min={eventForm.start_date}
+                  onChange={(e) => setEventForm(prev => ({ ...prev, end_date: e.target.value }))}
+                  style={styles.formInput}
+                />
+              </div>
+              {!eventForm.all_day && (
+                <div style={{ ...styles.formGroup, flex: 1 }}>
+                  <label style={styles.formLabel}>End Time</label>
+                  <input
+                    type="time"
+                    value={eventForm.end_time}
+                    onChange={(e) => setEventForm(prev => ({ ...prev, end_time: e.target.value }))}
+                    style={styles.formInput}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Location */}
+            <div style={styles.formGroup}>
+              <label style={styles.formLabel}>Location</label>
+              <input
+                value={eventForm.location}
+                onChange={(e) => setEventForm(prev => ({ ...prev, location: e.target.value }))}
+                placeholder="Add location"
+                style={styles.formInput}
+              />
+            </div>
+
+            {/* Description */}
+            <div style={styles.formGroup}>
+              <label style={styles.formLabel}>Description</label>
+              <textarea
+                value={eventForm.description}
+                onChange={(e) => setEventForm(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="Add description"
+                rows={3}
+                style={{ ...styles.formInput, resize: 'vertical', minHeight: '60px' }}
+              />
+            </div>
+
+            {/* Invite guests */}
+            <div style={styles.formGroup} ref={guestDropdownRef}>
+              <label style={styles.formLabel}>Invite Others</label>
+              <div
+                style={styles.guestSelector}
+                onClick={() => setShowGuestDropdown(!showGuestDropdown)}
+              >
+                {eventForm.guests.length === 0 ? (
+                  <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: '13px' }}>Select team members...</span>
+                ) : (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                    {eventForm.guests.map(gId => (
+                      <span key={gId} style={styles.guestTag}>
+                        {getUserName(gId)}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleGuest(gId); }}
+                          style={styles.guestTagRemove}
+                        >\u2715</button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {showGuestDropdown && (
+                <div style={styles.guestDropdownList}>
+                  {hubUsers.filter(u => u.id !== profile?.id).map(u => {
+                    const isSelected = eventForm.guests.includes(u.id);
+                    return (
+                      <div
+                        key={u.id}
+                        style={{
+                          ...styles.guestDropdownItem,
+                          background: isSelected ? 'rgba(99,102,241,0.12)' : 'transparent',
+                        }}
+                        onClick={() => toggleGuest(u.id)}
+                      >
+                        <div style={styles.guestDropdownAvatar}>
+                          {u.full_name?.charAt(0)?.toUpperCase() || '?'}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: '13px', color: '#fff', fontWeight: 500 }}>{u.full_name}</div>
+                          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)' }}>{u.email}</div>
+                        </div>
+                        {isSelected && <span style={{ color: '#a5b4fc', fontSize: '14px' }}>\u2713</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Save / Cancel */}
+            <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+              <button onClick={() => setShowEventModal(false)} style={styles.cancelBtn}>Cancel</button>
+              <button
+                onClick={handleSaveEvent}
+                disabled={!eventForm.title.trim() || !eventForm.start_date || savingEvent}
+                style={{
+                  ...styles.saveBtn,
+                  opacity: (!eventForm.title.trim() || !eventForm.start_date || savingEvent) ? 0.5 : 1,
+                }}
+              >
+                {savingEvent ? 'Saving...' : 'Save Event'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Legend */}
       <div style={styles.legend}>
+        <div style={styles.legendGroup}>
+          <span style={styles.legendGroupLabel}>Events:</span>
+          {Object.entries(EVENT_TYPE_COLORS).map(([type, color]) => (
+            <div key={type} style={styles.legendItem}>
+              <div style={{ ...styles.legendDot, background: color }} /><span>{EVENT_TYPE_LABELS[type]}</span>
+            </div>
+          ))}
+        </div>
         <div style={styles.legendGroup}>
           <span style={styles.legendGroupLabel}>Projects:</span>
           {Object.entries(STATUS_COLORS).map(([status, color]) => (
@@ -581,6 +1060,7 @@ const styles = {
   topBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' },
   pageTitle: { fontSize: '28px', fontWeight: 700, color: '#ffffff', margin: '0 0 4px 0', letterSpacing: '-0.5px' },
   pageSubtitle: { fontSize: '14px', color: 'rgba(255,255,255,0.4)', margin: 0 },
+  addEventBtn: { padding: '8px 18px', background: 'linear-gradient(135deg, #6366f1, #818cf8)', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', letterSpacing: '-0.2px' },
   controlsRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' },
   navControls: { display: 'flex', alignItems: 'center', gap: '12px' },
   navBtn: { width: '34px', height: '34px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', color: '#e2e8f0', fontSize: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'inherit' },
@@ -594,10 +1074,13 @@ const styles = {
   weekdayRow: { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' },
   weekdayCell: { padding: '10px', textAlign: 'center', fontSize: '12px', fontWeight: 600, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px' },
   weekRow: { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: '1px solid rgba(255,255,255,0.04)', position: 'relative', minHeight: '120px' },
-  dayCell: { padding: '4px', display: 'flex', flexDirection: 'column', minHeight: '120px' },
+  dayCell: { padding: '4px', display: 'flex', flexDirection: 'column', minHeight: '120px', cursor: 'default' },
   dateRow: { display: 'flex', justifyContent: 'flex-end', padding: '2px 4px', marginBottom: '0px' },
   dateNumber: { fontSize: '13px', fontWeight: 500, color: 'rgba(255,255,255,0.5)', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%' },
   dateNumberToday: { background: '#6366f1', color: '#ffffff', fontWeight: 700 },
+  eventsContainer: { display: 'flex', flexDirection: 'column', gap: '2px' },
+  eventChip: { display: 'flex', alignItems: 'center', gap: '3px', padding: '1px 5px', borderRadius: '4px', border: '1px solid', cursor: 'pointer', minHeight: '17px', transition: 'opacity 0.1s' },
+  eventChipText: { fontSize: '9px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 },
   postsContainer: { display: 'flex', flexDirection: 'column', gap: '2px', flex: 1 },
   postChip: { display: 'flex', alignItems: 'center', gap: '3px', padding: '1px 5px', borderRadius: '4px', border: '1px solid', cursor: 'pointer', minHeight: '17px' },
   postChipText: { fontSize: '9px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 },
@@ -628,4 +1111,26 @@ const styles = {
   legendGroupLabel: { fontSize: '11px', fontWeight: 600, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.5px' },
   legendItem: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'rgba(255,255,255,0.45)' },
   legendDot: { width: '8px', height: '8px', borderRadius: '3px' },
+  // Modal styles
+  modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, backdropFilter: 'blur(4px)' },
+  eventModal: { background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', padding: '24px', width: '480px', maxWidth: '95vw', maxHeight: '90vh', overflow: 'auto', boxShadow: '0 24px 48px rgba(0,0,0,0.5)' },
+  modalCloseBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '18px', padding: '4px 8px', borderRadius: '6px' },
+  formGroup: { marginBottom: '14px', position: 'relative' },
+  formLabel: { display: 'block', fontSize: '12px', fontWeight: 600, color: 'rgba(255,255,255,0.5)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.3px' },
+  formInput: { width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '13px', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' },
+  eventTypeGrid: { display: 'flex', flexWrap: 'wrap', gap: '6px' },
+  eventTypeBtn: { display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 12px', borderRadius: '8px', border: '1px solid', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s' },
+  cancelBtn: { flex: 1, padding: '10px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', color: 'rgba(255,255,255,0.6)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  saveBtn: { flex: 1, padding: '10px', background: 'linear-gradient(135deg, #6366f1, #818cf8)', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  guestSelector: { padding: '9px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', cursor: 'pointer', minHeight: '38px', display: 'flex', alignItems: 'center' },
+  guestDropdownList: { position: 'absolute', top: '100%', left: 0, right: 0, background: '#1e1e36', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '10px', marginTop: '4px', maxHeight: '200px', overflow: 'auto', zIndex: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.5)' },
+  guestDropdownItem: { display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', cursor: 'pointer', transition: 'background 0.1s' },
+  guestDropdownAvatar: { width: '28px', height: '28px', borderRadius: '8px', background: 'linear-gradient(135deg, #6366f1, #818cf8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700, color: '#fff', flexShrink: 0 },
+  guestTag: { display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '6px', color: '#a5b4fc', fontSize: '11px', fontWeight: 600 },
+  guestTagRemove: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '10px', padding: '0 2px' },
+  // Event detail card
+  eventDetailCard: { background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', padding: '20px', width: '400px', maxWidth: '95vw', boxShadow: '0 24px 48px rgba(0,0,0,0.5)' },
+  eventDetailRow: { display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '12px' },
+  eventDetailLabel: { fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.5px' },
+  eventDeleteBtn: { width: '100%', marginTop: '8px', padding: '9px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '8px', color: '#fca5a5', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
 };

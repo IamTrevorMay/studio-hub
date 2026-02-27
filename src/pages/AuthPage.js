@@ -3,8 +3,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../supabaseClient';
 
 export default function AuthPage() {
-  const { signIn } = useAuth();
-  const [mode, setMode] = useState('login'); // login, setup, forgot
+  const { signIn, isPasswordRecovery, clearRecovery } = useAuth();
+  const [mode, setMode] = useState('login'); // login, setup, forgot, reset
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
@@ -22,19 +22,20 @@ export default function AuthPage() {
       setMode('reset');
     }
 
-    // Listen for auth state changes from the magic link
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_IN' && session?.user && !session.user.user_metadata?.full_name) {
-        setMode('setup');
-        setEmail(session.user.email || '');
-      }
       if (event === 'PASSWORD_RECOVERY') {
         setMode('reset');
+      } else if (event === 'SIGNED_IN' && session?.user && !session.user.user_metadata?.full_name) {
+        // Only go to setup if NOT in recovery mode
+        if (!isPasswordRecovery) {
+          setMode('setup');
+          setEmail(session.user.email || '');
+        }
       }
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [isPasswordRecovery]);
 
   async function handleLogin(e) {
     e.preventDefault();
@@ -119,11 +120,14 @@ export default function AuthPage() {
       if (password.length < 6) throw new Error('Password must be at least 6 characters.');
       const { error } = await supabase.auth.updateUser({ password });
       if (error) throw error;
-      setSuccess('Password updated! Redirecting...');
+      setSuccess('Password updated! Redirecting to login...');
+      // Sign out so they log in fresh with new password
+      await supabase.auth.signOut();
+      clearRecovery();
       setTimeout(() => {
         window.location.hash = '';
         window.location.reload();
-      }, 1000);
+      }, 1500);
     } catch (err) {
       setError(err.message);
     } finally {

@@ -10,6 +10,7 @@ import Ideation from './Ideation';
 import Reviews from './Reviews';
 import Resources from './Resources';
 import Analytics from './Analytics';
+import Research from './Research';
 
 const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard', icon: DashboardIcon },
@@ -17,6 +18,7 @@ const NAV_ITEMS = [
   { key: 'ideation', label: 'Ideation', icon: IdeationIcon },
   { key: 'resources', label: 'Resources', icon: ResourcesIcon },
   { key: 'analytics', label: 'Analytics', icon: AnalyticsIcon },
+  { key: 'research', label: 'Research', icon: ResearchIcon },
   { key: 'reviews', label: 'Reviews', icon: ReviewsIcon },
   { key: 'calendar', label: 'Calendar', icon: CalendarIcon },
   { key: 'channels', label: 'Channels', icon: ChannelsIcon },
@@ -42,6 +44,7 @@ export default function AppLayout() {
       case 'ideation': return <Ideation initialConceptId={navTarget} onConceptOpened={() => setNavTarget(null)} />;
       case 'resources': return <Resources />;
       case 'analytics': return <Analytics />;
+      case 'research': return <Research />;
       case 'reviews': return <Reviews />;
       case 'channels': return <Channels />;
       case 'messages': return <Messages />;
@@ -230,6 +233,16 @@ function ResourcesIcon({ active }) {
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
       <path d="M4 4h5l2 2h5a1 1 0 011 1v8a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z" />
       <path d="M8 12h4M8 9.5h4" />
+    </svg>
+  );
+}
+
+function ResearchIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <circle cx="8" cy="8" r="5" />
+      <path d="M12 12l5 5" />
+      <path d="M6 5h4M6 8h3" />
     </svg>
   );
 }

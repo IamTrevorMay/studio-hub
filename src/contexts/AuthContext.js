@@ -10,7 +10,30 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
   const initDone = useRef(false);
+
+  // Nuclear option: wipe all auth state from the browser
+  const nukeSession = useCallback(async () => {
+    console.warn('Nuking auth session — clearing all local state');
+    setUser(null);
+    setProfile(null);
+    setAuthError(null);
+    setIsPasswordRecovery(false);
+    // Clear Supabase's localStorage entries directly
+    try {
+      const keys = Object.keys(localStorage);
+      keys.forEach(key => {
+        if (key.startsWith('sb-') && (key.includes('auth-token') || key.includes('code-verifier'))) {
+          localStorage.removeItem(key);
+        }
+      });
+    } catch (e) {
+      // localStorage might not be available
+    }
+    // Also tell Supabase to sign out (ignore errors)
+    try { await supabase.auth.signOut({ scope: 'local' }); } catch (e) {}
+  }, []);
 
   const fetchProfile = useCallback(async (userId, retries = 3) => {
     for (let attempt = 0; attempt <= retries; attempt++) {
@@ -41,36 +64,54 @@ export function AuthProvider({ children }) {
           await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
           continue;
         }
-        // All retries exhausted — sign out cleanly so user can re-login
-        console.warn('All profile fetch attempts failed, signing out');
-        setAuthError(null);
-        setProfile(null);
-        setUser(null);
-        await supabase.auth.signOut().catch(() => {});
+        // All retries exhausted — nuke session so user gets clean login screen
+        console.warn('All profile fetch attempts failed, nuking session');
+        await nukeSession();
       }
     }
     return null;
-  }, []);
+  }, [nukeSession]);
 
   useEffect(() => {
     if (initDone.current) return;
     initDone.current = true;
 
-    // Hard safety timeout
-    const timeout = setTimeout(() => {
-      console.warn('Auth init timed out, forcing load complete');
+    // Hard safety timeout — if init hangs, nuke and show login
+    const timeout = setTimeout(async () => {
+      console.warn('Auth init timed out after 4s — nuking stale session');
+      await nukeSession();
       setLoading(false);
     }, 4000);
 
     async function initAuth() {
       try {
+        // Check if this is a password recovery flow BEFORE processing session
+        const hash = window.location.hash;
+        if (hash && hash.includes('type=recovery')) {
+          setIsPasswordRecovery(true);
+          setLoading(false);
+          clearTimeout(timeout);
+          return; // Don't auto-login, let AuthPage handle recovery
+        }
+
         // First, try to get the existing session
-        const { data: { session }, error } = await supabase.auth.getSession();
+        let session, error;
+        try {
+          const result = await supabase.auth.getSession();
+          session = result.data?.session;
+          error = result.error;
+        } catch (e) {
+          // getSession itself threw (e.g., corrupt token, lock timeout)
+          console.error('getSession threw:', e);
+          await nukeSession();
+          setLoading(false);
+          clearTimeout(timeout);
+          return;
+        }
 
         if (error) {
           console.error('getSession error:', error);
-          setUser(null);
-          setProfile(null);
+          await nukeSession();
           setLoading(false);
           clearTimeout(timeout);
           return;
@@ -85,19 +126,24 @@ export function AuthProvider({ children }) {
           if (timeLeft < 60) {
             // Token is about to expire or already expired, refresh it
             console.log('Token expiring soon, refreshing...');
-            const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
-            if (refreshError || !refreshData?.session) {
-              console.error('Token refresh failed:', refreshError);
-              // Clear the bad session
-              await supabase.auth.signOut();
-              setUser(null);
-              setProfile(null);
+            try {
+              const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+              if (refreshError || !refreshData?.session) {
+                console.error('Token refresh failed:', refreshError);
+                await nukeSession();
+                setLoading(false);
+                clearTimeout(timeout);
+                return;
+              }
+              setUser(refreshData.session.user);
+              await fetchProfile(refreshData.session.user.id);
+            } catch (e) {
+              console.error('Token refresh threw:', e);
+              await nukeSession();
               setLoading(false);
               clearTimeout(timeout);
               return;
             }
-            setUser(refreshData.session.user);
-            await fetchProfile(refreshData.session.user.id);
           } else {
             setUser(session.user);
             await fetchProfile(session.user.id);
@@ -108,8 +154,7 @@ export function AuthProvider({ children }) {
         }
       } catch (err) {
         console.error('Auth init error:', err);
-        setUser(null);
-        setProfile(null);
+        await nukeSession();
       } finally {
         setLoading(false);
         clearTimeout(timeout);
@@ -123,9 +168,22 @@ export function AuthProvider({ children }) {
       async (event, session) => {
         console.log('Auth event:', event);
 
+        if (event === 'PASSWORD_RECOVERY') {
+          // User clicked a password reset link — do NOT log them in
+          setIsPasswordRecovery(true);
+          setLoading(false);
+          return;
+        }
+
         if (event === 'SIGNED_OUT') {
           setUser(null);
           setProfile(null);
+          setIsPasswordRecovery(false);
+          return;
+        }
+
+        // During password recovery, block SIGNED_IN from auto-loading the app
+        if (isPasswordRecovery) {
           return;
         }
 
@@ -133,13 +191,12 @@ export function AuthProvider({ children }) {
           if (event === 'SIGNED_IN') {
             setUser(session.user);
             const p = await fetchProfile(session.user.id);
-            // If profile fetch failed, don't leave user in a stuck state
             if (!p) {
+              // fetchProfile already nuked session, just clean up
               setUser(null);
               setProfile(null);
             }
           } else if (event === 'TOKEN_REFRESHED') {
-            // Only update user ref, don't re-fetch profile
             setUser(session.user);
           }
         } else if (event !== 'TOKEN_REFRESHED') {
@@ -153,7 +210,7 @@ export function AuthProvider({ children }) {
       clearTimeout(timeout);
       subscription.unsubscribe();
     };
-  }, [fetchProfile]);
+  }, [fetchProfile, nukeSession]);
 
   async function signIn(email, password) {
     const { data, error } = await supabase.auth.signInWithPassword({
@@ -201,10 +258,7 @@ export function AuthProvider({ children }) {
   }
 
   async function signOut() {
-    setUser(null);
-    setProfile(null);
-    const { error } = await supabase.auth.signOut();
-    if (error) console.error('Sign out error:', error);
+    await nukeSession();
   }
 
   async function updateProfile(updates) {
@@ -222,16 +276,27 @@ export function AuthProvider({ children }) {
 
   // Helper for child components to ensure they have a fresh session
   async function ensureSession() {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return null;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return null;
 
-    const expiresAt = session.expires_at;
-    const now = Math.floor(Date.now() / 1000);
-    if (expiresAt - now < 60) {
-      const { data } = await supabase.auth.refreshSession();
-      return data?.session || null;
+      const expiresAt = session.expires_at;
+      const now = Math.floor(Date.now() / 1000);
+      if (expiresAt - now < 60) {
+        const { data } = await supabase.auth.refreshSession();
+        return data?.session || null;
+      }
+      return session;
+    } catch (e) {
+      console.error('ensureSession failed:', e);
+      return null;
     }
-    return session;
+  }
+
+  // Call after password reset completes to allow normal login flow
+  function clearRecovery() {
+    setIsPasswordRecovery(false);
+    window.location.hash = '';
   }
 
   const value = {
@@ -239,6 +304,8 @@ export function AuthProvider({ children }) {
     profile,
     loading,
     authError,
+    isPasswordRecovery,
+    clearRecovery,
     signIn,
     signUp,
     signOut,

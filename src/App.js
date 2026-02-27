@@ -4,7 +4,7 @@ import AuthPage from './pages/AuthPage';
 import AppLayout from './pages/AppLayout';
 
 function AppContent() {
-  const { user, profile, loading, signOut } = useAuth();
+  const { user, profile, loading, signOut, isPasswordRecovery } = useAuth();
 
   if (loading) {
     return (
@@ -34,6 +34,11 @@ function AppContent() {
         </div>
       </div>
     );
+  }
+
+  // During password recovery, always show AuthPage (reset form)
+  if (isPasswordRecovery) {
+    return <AuthPage />;
   }
 
   return user && profile ? <AppLayout /> : <AuthPage />;
