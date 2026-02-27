@@ -190,6 +190,7 @@ export default function AdminPanel() {
                   style={styles.roleSelect}
                 >
                   <option value="member">Member</option>
+                  <option value="assistant">Assistant</option>
                   <option value="admin">Admin</option>
                 </select>
               </div>

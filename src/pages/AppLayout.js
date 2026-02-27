@@ -26,7 +26,7 @@ const NAV_ITEMS = [
 ];
 
 export default function AppLayout() {
-  const { profile, signOut, isAdmin } = useAuth();
+  const { profile, signOut, isAdmin, isAssistant } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [navTarget, setNavTarget] = useState(null);

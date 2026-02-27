@@ -312,6 +312,7 @@ export function AuthProvider({ children }) {
     updateProfile,
     ensureSession,
     isAdmin: profile?.role === 'admin',
+    isAssistant: profile?.role === 'assistant',
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

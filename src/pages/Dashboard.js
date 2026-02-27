@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
@@ -22,12 +22,46 @@ const STATUS_LABELS = {
 };
 
 export default function Dashboard() {
-  const { profile, updateProfile } = useAuth();
+  const { profile, updateProfile, isAdmin, isAssistant } = useAuth();
   const { safeQuery } = useSupabaseQuery();
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(profile?.title || '');
+
+  // Itinerary state
+  const [itineraryItems, setItineraryItems] = useState([]);
+  const [itineraryLoading, setItineraryLoading] = useState(false);
+  const [newItemText, setNewItemText] = useState('');
+  const [editingItemId, setEditingItemId] = useState(null);
+  const [editingItemText, setEditingItemText] = useState('');
+
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  const fetchItinerary = useCallback(async () => {
+    if (!profile?.id) return;
+    setItineraryLoading(true);
+    try {
+      let query = supabase
+        .from('daily_itinerary')
+        .select(isAdmin ? '*, creator:profiles!created_by(full_name)' : '*')
+        .eq('target_date', todayStr)
+        .order('created_at', { ascending: true });
+
+      if (!isAdmin) {
+        query = query.eq('created_by', profile.id);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      setItineraryItems(data || []);
+    } catch (err) {
+      console.error('Error fetching itinerary:', err);
+      setItineraryItems([]);
+    } finally {
+      setItineraryLoading(false);
+    }
+  }, [profile?.id, isAdmin, todayStr]);
 
   useEffect(() => {
     if (!profile?.id) return;
@@ -35,6 +69,12 @@ export default function Dashboard() {
     fetchAssignments().finally(() => clearTimeout(timeout));
     return () => clearTimeout(timeout);
   }, [profile?.id]);
+
+  useEffect(() => {
+    if ((isAdmin || isAssistant) && profile?.id) {
+      fetchItinerary();
+    }
+  }, [isAdmin, isAssistant, profile?.id, fetchItinerary]);
 
   async function fetchAssignments() {
     if (!profile?.id) return;
@@ -58,6 +98,53 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function addItineraryItem() {
+    if (!newItemText.trim()) return;
+    try {
+      const { error } = await supabase.from('daily_itinerary').insert({
+        created_by: profile.id,
+        target_date: todayStr,
+        content: newItemText.trim(),
+      });
+      if (error) throw error;
+      setNewItemText('');
+      fetchItinerary();
+    } catch (err) {
+      console.error('Error adding itinerary item:', err);
+    }
+  }
+
+  async function updateItineraryItem(id, updates) {
+    try {
+      const { error } = await supabase
+        .from('daily_itinerary')
+        .update({ ...updates, updated_at: new Date().toISOString() })
+        .eq('id', id);
+      if (error) throw error;
+      fetchItinerary();
+    } catch (err) {
+      console.error('Error updating itinerary item:', err);
+    }
+  }
+
+  async function deleteItineraryItem(id) {
+    try {
+      const { error } = await supabase.from('daily_itinerary').delete().eq('id', id);
+      if (error) throw error;
+      fetchItinerary();
+    } catch (err) {
+      console.error('Error deleting itinerary item:', err);
+    }
+  }
+
+  function handleEditSave(id) {
+    if (editingItemText.trim()) {
+      updateItineraryItem(id, { content: editingItemText.trim() });
+    }
+    setEditingItemId(null);
+    setEditingItemText('');
   }
 
   async function handleTitleSave() {
@@ -86,6 +173,62 @@ export default function Dashboard() {
 
   const completedAssignments = assignments
     .filter(a => a.project && a.project.status === 'published');
+
+  // ── Itinerary section (shared renderer) ──
+  function renderItineraryItem(item) {
+    const isEditing = editingItemId === item.id;
+    return (
+      <div key={item.id} style={styles.itineraryItem}>
+        <input
+          type="checkbox"
+          checked={item.is_complete}
+          onChange={() => updateItineraryItem(item.id, { is_complete: !item.is_complete })}
+          style={styles.itineraryCheckbox}
+        />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {isEditing ? (
+            <input
+              value={editingItemText}
+              onChange={(e) => setEditingItemText(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleEditSave(item.id)}
+              onBlur={() => handleEditSave(item.id)}
+              style={styles.itineraryEditInput}
+              autoFocus
+            />
+          ) : (
+            <span style={{
+              ...styles.itineraryContent,
+              textDecoration: item.is_complete ? 'line-through' : 'none',
+              opacity: item.is_complete ? 0.5 : 1,
+            }}>
+              {item.content}
+            </span>
+          )}
+          {isAdmin && item.creator && (
+            <span style={styles.itineraryCreator}>{item.creator.full_name}</span>
+          )}
+        </div>
+        <div style={styles.itineraryActions}>
+          {!isEditing && (
+            <button
+              onClick={() => { setEditingItemId(item.id); setEditingItemText(item.content); }}
+              style={styles.itineraryActionBtn}
+              title="Edit"
+            >
+              ✎
+            </button>
+          )}
+          <button
+            onClick={() => deleteItineraryItem(item.id)}
+            style={{ ...styles.itineraryActionBtn, color: '#ef4444' }}
+            title="Delete"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.page}>
@@ -153,6 +296,61 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Admin: Today's Itinerary (above projects) */}
+      {isAdmin && (
+        <div style={styles.section}>
+          <h2 style={styles.sectionTitle}>Today's Itinerary</h2>
+          <div style={styles.itineraryCard}>
+            {itineraryLoading ? (
+              <p style={styles.emptyText}>Loading...</p>
+            ) : itineraryItems.length === 0 ? (
+              <p style={styles.emptyText}>No itinerary items for today</p>
+            ) : (
+              <div style={styles.itineraryList}>
+                {itineraryItems.map(item => renderItineraryItem(item))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Assistant: Itinerary Tool */}
+      {isAssistant && (
+        <div style={styles.section}>
+          <h2 style={styles.sectionTitle}>Today's Itinerary</h2>
+          <div style={styles.itineraryCard}>
+            <div style={styles.itineraryAddRow}>
+              <input
+                value={newItemText}
+                onChange={(e) => setNewItemText(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addItineraryItem()}
+                placeholder="Add an itinerary item..."
+                style={styles.itineraryInput}
+              />
+              <button
+                onClick={addItineraryItem}
+                disabled={!newItemText.trim()}
+                style={{
+                  ...styles.itineraryAddBtn,
+                  opacity: newItemText.trim() ? 1 : 0.4,
+                }}
+              >
+                Add
+              </button>
+            </div>
+            {itineraryLoading ? (
+              <p style={styles.emptyText}>Loading...</p>
+            ) : itineraryItems.length === 0 ? (
+              <p style={{ ...styles.emptyText, marginTop: '12px' }}>No items yet — add one above</p>
+            ) : (
+              <div style={styles.itineraryList}>
+                {itineraryItems.map(item => renderItineraryItem(item))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Active Projects */}
       <div style={styles.section}>
@@ -363,6 +561,101 @@ const styles = {
     textTransform: 'uppercase',
     letterSpacing: '0.5px',
   },
+  // Itinerary styles
+  itineraryCard: {
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '14px',
+    padding: '20px',
+  },
+  itineraryAddRow: {
+    display: 'flex',
+    gap: '10px',
+    marginBottom: '4px',
+  },
+  itineraryInput: {
+    flex: 1,
+    padding: '10px 14px',
+    background: 'rgba(255,255,255,0.05)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '8px',
+    color: '#fff',
+    fontSize: '14px',
+    fontFamily: 'inherit',
+    outline: 'none',
+  },
+  itineraryAddBtn: {
+    padding: '10px 20px',
+    background: '#6366f1',
+    border: 'none',
+    borderRadius: '8px',
+    color: '#fff',
+    fontSize: '14px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    whiteSpace: 'nowrap',
+  },
+  itineraryList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+    marginTop: '12px',
+  },
+  itineraryItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '10px 14px',
+    background: 'rgba(255,255,255,0.02)',
+    borderRadius: '10px',
+    transition: 'background 0.1s',
+  },
+  itineraryCheckbox: {
+    width: '18px',
+    height: '18px',
+    accentColor: '#6366f1',
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
+  itineraryContent: {
+    fontSize: '14px',
+    color: '#e2e8f0',
+    display: 'block',
+  },
+  itineraryCreator: {
+    fontSize: '11px',
+    color: 'rgba(255,255,255,0.35)',
+    marginTop: '2px',
+    display: 'block',
+  },
+  itineraryEditInput: {
+    width: '100%',
+    padding: '6px 10px',
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.15)',
+    borderRadius: '6px',
+    color: '#fff',
+    fontSize: '14px',
+    fontFamily: 'inherit',
+    outline: 'none',
+  },
+  itineraryActions: {
+    display: 'flex',
+    gap: '4px',
+    flexShrink: 0,
+  },
+  itineraryActionBtn: {
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.35)',
+    cursor: 'pointer',
+    fontSize: '14px',
+    padding: '4px 6px',
+    borderRadius: '4px',
+    lineHeight: 1,
+  },
+  // Project styles
   projectGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
