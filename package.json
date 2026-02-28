@@ -12,6 +12,8 @@
     "@tiptap/react": "^3.20.0",
     "@tiptap/starter-kit": "^3.20.0",
     "docx": "^9.5.3",
+    "fabric": "^7.2.0",
+    "jspdf": "^4.2.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-scripts": "5.0.1"

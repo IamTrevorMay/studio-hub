@@ -15,7 +15,7 @@ import Research from './Research';
 const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard', icon: DashboardIcon },
   { key: 'projects', label: 'Projects', icon: ProjectsIcon },
-  { key: 'ideation', label: 'Ideation', icon: IdeationIcon },
+  { key: 'ideation', label: 'Create', icon: IdeationIcon },
   { key: 'resources', label: 'Resources', icon: ResourcesIcon },
   { key: 'analytics', label: 'Analytics', icon: AnalyticsIcon },
   { key: 'research', label: 'Research', icon: ResearchIcon },
