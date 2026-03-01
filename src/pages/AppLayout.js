@@ -27,10 +27,15 @@ const NAV_ITEMS = [
 
 export default function AppLayout() {
   const { profile, signOut, isAdmin, isAssistant } = useAuth();
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState(() => localStorage.getItem('studio-hub-tab') || 'dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [navTarget, setNavTarget] = useState(null);
   const [adminInitialTab, setAdminInitialTab] = useState(null);
+
+  // Persist active tab to localStorage
+  useEffect(() => {
+    localStorage.setItem('studio-hub-tab', activeTab);
+  }, [activeTab]);
 
   // Handle Google Calendar OAuth redirect
   useEffect(() => {

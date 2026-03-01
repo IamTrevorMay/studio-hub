@@ -78,37 +78,46 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Call Claude API
-    const claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": anthropicKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 4096,
-        messages: [
-          {
-            role: "user",
-            content: `You are a baseball research analyst for a player development organization. Analyze the following articles and newsletters, then produce a concise research briefing in markdown format.
+    // Call Claude API with 50-second timeout
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 50000);
+
+    let claudeResponse;
+    try {
+      claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": anthropicKey,
+          "anthropic-version": "2023-06-01",
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 4096,
+          messages: [
+            {
+              role: "user",
+              content: `You are a research analyst. Analyze the following articles and newsletters, then produce a concise research briefing in markdown format.
 
 Your briefing should:
 - Start with a clear, descriptive title on the first line (just the title text, no # prefix)
 - Include a "## Key Takeaways" section with 3-5 bullet points
 - Include a "## Detailed Analysis" section organized by theme
-- If there are player development or scouting implications, include a "## Development Implications" section
-- Keep it focused and actionable for coaching staff
+- If there are actionable implications, include a "## Implications" section
+- Keep it focused and actionable
 - Use markdown formatting (##, ###, **, -, etc.)
 
 Here is the content to analyze:
 
 ${contentSummary}`,
-          },
-        ],
-      }),
-    });
+            },
+          ],
+        }),
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (!claudeResponse.ok) {
       const errBody = await claudeResponse.text();

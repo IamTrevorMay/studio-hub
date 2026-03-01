@@ -177,6 +177,19 @@ export default function Research() {
     }
   }
 
+  async function handleDeleteReport(reportId, e) {
+    if (e) e.stopPropagation();
+    if (!window.confirm('Delete this report?')) return;
+    const { error } = await supabase.from('research_reports').delete().eq('id', reportId);
+    if (!error) {
+      setReports(prev => prev.filter(r => r.id !== reportId));
+      if (view === 'reader' && selectedItem?.id === reportId) {
+        setView('feed');
+        setSelectedItem(null);
+      }
+    }
+  }
+
   const filteredArticles = activeFilter === 'all'
     ? articles
     : articles.filter(a => a.feed?.id === activeFilter);
@@ -237,7 +250,18 @@ export default function Research() {
           )}
           {selectedItem._type === 'report' && (
             <>
-              <h1 style={s.readerTitle}>{selectedItem.title}</h1>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' }}>
+                <h1 style={s.readerTitle}>{selectedItem.title}</h1>
+                <button
+                  onClick={() => handleDeleteReport(selectedItem.id)}
+                  style={s.deleteBtn}
+                  title="Delete report"
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M2 4h12M5.33 4V2.67a1.33 1.33 0 011.34-1.34h2.66a1.33 1.33 0 011.34 1.34V4M12.67 4v9.33a1.33 1.33 0 01-1.34 1.34H4.67a1.33 1.33 0 01-1.34-1.34V4" />
+                  </svg>
+                </button>
+              </div>
               <span style={s.metaText}>{timeAgo(selectedItem.created_at)}</span>
               <div style={{ ...s.readerContent, marginTop: '20px' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(selectedItem.content) }} />
             </>
@@ -424,6 +448,15 @@ export default function Research() {
                       <div style={s.reportTitle}>{report.title}</div>
                       <div style={s.timeText}>{timeAgo(report.created_at)}</div>
                     </div>
+                    <button
+                      onClick={(e) => handleDeleteReport(report.id, e)}
+                      style={s.deleteBtn}
+                      title="Delete report"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <path d="M2 4h12M5.33 4V2.67a1.33 1.33 0 011.34-1.34h2.66a1.33 1.33 0 011.34 1.34V4M12.67 4v9.33a1.33 1.33 0 01-1.34 1.34H4.67a1.33 1.33 0 01-1.34-1.34V4" />
+                      </svg>
+                    </button>
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5"><path d="M6 3l5 5-5 5" /></svg>
                   </div>
                 ))
@@ -746,6 +779,19 @@ const s = {
   metaText: {
     fontSize: '13px',
     color: 'rgba(255,255,255,0.4)',
+  },
+  deleteBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '6px',
+    border: 'none',
+    borderRadius: '6px',
+    background: 'transparent',
+    color: 'rgba(255,255,255,0.3)',
+    cursor: 'pointer',
+    flexShrink: 0,
+    transition: 'all 0.15s',
   },
   newsletterFrame: {
     width: '100%',
