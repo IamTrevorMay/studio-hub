@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import Dashboard from './Dashboard';
 import Projects from './Projects';
@@ -30,6 +30,18 @@ export default function AppLayout() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [navTarget, setNavTarget] = useState(null);
+  const [adminInitialTab, setAdminInitialTab] = useState(null);
+
+  // Handle Google Calendar OAuth redirect
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('gcal_connected') === 'true' || params.get('gcal_error')) {
+      setAdminInitialTab('google');
+      setActiveTab('admin');
+      // Clean up URL
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   function navigateTo(tab, target) {
     setNavTarget(target || null);
@@ -48,7 +60,7 @@ export default function AppLayout() {
       case 'reviews': return <Reviews />;
       case 'channels': return <Channels />;
       case 'messages': return <Messages />;
-      case 'admin': return <AdminPanel />;
+      case 'admin': return <AdminPanel initialTab={adminInitialTab} />;
       default: return <Dashboard />;
     }
   };

@@ -2,7 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 
-export default function AdminPanel() {
+const EVENT_TYPE_LABELS = {
+  deadline: 'Deadline',
+  meeting: 'Meeting',
+  live_recording: 'Live/Recording',
+  filming: 'Filming',
+  video_post: 'Video Post',
+  unavailable: 'Unavailable',
+};
+const EVENT_TYPES = Object.keys(EVENT_TYPE_LABELS);
+
+export default function AdminPanel({ initialTab }) {
   const { profile, isAdmin } = useAuth();
   const [invitations, setInvitations] = useState([]);
   const [teamMembers, setTeamMembers] = useState([]);
@@ -10,12 +20,22 @@ export default function AdminPanel() {
   const [loading, setLoading] = useState(false);
   const [inviteSuccess, setInviteSuccess] = useState('');
   const [inviteError, setInviteError] = useState('');
-  const [activeTab, setActiveTab] = useState('invite');
+  const [activeTab, setActiveTab] = useState(initialTab || 'invite');
+
+  // Google Calendar state
+  const [gcalConnection, setGcalConnection] = useState(null);
+  const [gcalLoading, setGcalLoading] = useState(false);
+  const [gcalCalendars, setGcalCalendars] = useState([]);
+  const [gcalMappings, setGcalMappings] = useState({});
+  const [gcalMessage, setGcalMessage] = useState('');
+  const [gcalError, setGcalError] = useState('');
 
   useEffect(() => {
     if (isAdmin) {
       fetchInvitations();
       fetchTeamMembers();
+      fetchGcalConnection();
+      fetchGcalMappings();
     }
   }, [isAdmin]);
 
@@ -108,6 +128,138 @@ export default function AdminPanel() {
     }
   }
 
+  // --- Google Calendar functions ---
+  async function fetchGcalConnection() {
+    const { data } = await supabase
+      .from('google_calendar_connections')
+      .select('*')
+      .eq('user_id', profile?.id)
+      .single();
+    setGcalConnection(data || null);
+    if (data) fetchGcalCalendars();
+  }
+
+  async function fetchGcalMappings() {
+    const { data } = await supabase
+      .from('google_calendar_mappings')
+      .select('*')
+      .eq('user_id', profile?.id);
+    const map = {};
+    (data || []).forEach(m => { map[m.event_type] = m; });
+    setGcalMappings(map);
+  }
+
+  async function fetchGcalCalendars() {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const res = await fetch(
+        `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/google-calendars-list`,
+        {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': process.env.REACT_APP_SUPABASE_ANON_KEY,
+          },
+        }
+      );
+      const result = await res.json();
+      if (res.ok) setGcalCalendars(result.calendars || []);
+    } catch (err) {
+      console.error('Error fetching Google calendars:', err);
+    }
+  }
+
+  async function handleGcalConnect() {
+    setGcalLoading(true);
+    setGcalError('');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+      const res = await fetch(
+        `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/google-auth-url`,
+        {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': process.env.REACT_APP_SUPABASE_ANON_KEY,
+          },
+        }
+      );
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'Failed to get auth URL');
+      window.location.href = result.url;
+    } catch (err) {
+      setGcalError(err.message);
+      setTimeout(() => setGcalError(''), 8000);
+    } finally {
+      setGcalLoading(false);
+    }
+  }
+
+  async function handleGcalDisconnect() {
+    if (!window.confirm('Disconnect Google Calendar? This will remove all calendar mappings and sync data.')) return;
+    setGcalLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+      const res = await fetch(
+        `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/google-disconnect`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json',
+            'apikey': process.env.REACT_APP_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({}),
+        }
+      );
+      if (!res.ok) {
+        const result = await res.json();
+        throw new Error(result.error || 'Failed to disconnect');
+      }
+      setGcalConnection(null);
+      setGcalCalendars([]);
+      setGcalMappings({});
+      setGcalMessage('Google Calendar disconnected');
+      setTimeout(() => setGcalMessage(''), 5000);
+    } catch (err) {
+      setGcalError(err.message);
+      setTimeout(() => setGcalError(''), 8000);
+    } finally {
+      setGcalLoading(false);
+    }
+  }
+
+  async function handleMappingChange(eventType, calendarId) {
+    if (!calendarId) {
+      // Remove mapping
+      await supabase
+        .from('google_calendar_mappings')
+        .delete()
+        .eq('user_id', profile.id)
+        .eq('event_type', eventType);
+      const updated = { ...gcalMappings };
+      delete updated[eventType];
+      setGcalMappings(updated);
+      return;
+    }
+    const cal = gcalCalendars.find(c => c.id === calendarId);
+    const { error } = await supabase
+      .from('google_calendar_mappings')
+      .upsert({
+        user_id: profile.id,
+        event_type: eventType,
+        google_calendar_id: calendarId,
+        google_calendar_name: cal?.summary || calendarId,
+      }, { onConflict: 'user_id,event_type' });
+    if (!error) {
+      setGcalMappings(prev => ({
+        ...prev,
+        [eventType]: { google_calendar_id: calendarId, google_calendar_name: cal?.summary || calendarId },
+      }));
+    }
+  }
+
   if (!isAdmin) {
     return (
       <div style={styles.page}>
@@ -134,6 +286,10 @@ export default function AdminPanel() {
           onClick={() => setActiveTab('team')}
           style={{ ...styles.tab, ...(activeTab === 'team' ? styles.tabActive : {}) }}
         >Team ({teamMembers.length})</button>
+        <button
+          onClick={() => setActiveTab('google')}
+          style={{ ...styles.tab, ...(activeTab === 'google' ? styles.tabActive : {}) }}
+        >Google Calendar</button>
       </div>
 
       {activeTab === 'invite' && (
@@ -236,6 +392,89 @@ export default function AdminPanel() {
             ))}
           </div>
         </div>
+      )}
+
+      {activeTab === 'google' && (
+        <>
+          {gcalMessage && <div style={styles.successMsg}>{gcalMessage}</div>}
+          {gcalError && <div style={styles.errorMsg}>{gcalError}</div>}
+
+          {/* Connection Card */}
+          <div style={styles.card}>
+            <h3 style={styles.cardTitle}>Google Calendar Connection</h3>
+            {gcalConnection ? (
+              <div style={styles.gcalConnected}>
+                <div style={styles.gcalConnectedInfo}>
+                  <div style={styles.gcalConnectedIcon}>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                      <path d="M20 6L9 17l-5-5" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '14px', fontWeight: 600, color: '#e2e8f0' }}>
+                      Connected as {gcalConnection.google_email}
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.35)', marginTop: '2px' }}>
+                      Connected {new Date(gcalConnection.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </div>
+                  </div>
+                </div>
+                <button onClick={handleGcalDisconnect} disabled={gcalLoading} style={styles.gcalDisconnectBtn}>
+                  {gcalLoading ? 'Disconnecting...' : 'Disconnect'}
+                </button>
+              </div>
+            ) : (
+              <div>
+                <p style={{ fontSize: '14px', color: 'rgba(255,255,255,0.5)', margin: '0 0 16px 0' }}>
+                  Connect your Google account to automatically sync Studio Hub events to your Google Calendars.
+                </p>
+                <button onClick={handleGcalConnect} disabled={gcalLoading} style={styles.gcalConnectBtn}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ marginRight: '8px' }}>
+                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
+                    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                  </svg>
+                  {gcalLoading ? 'Connecting...' : 'Connect Google Calendar'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Mapping Grid */}
+          {gcalConnection && (
+            <div style={styles.card}>
+              <h3 style={styles.cardTitle}>Event Type Mapping</h3>
+              <p style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)', margin: '0 0 16px 0' }}>
+                Choose which Google Calendar each event type syncs to. Unmapped types won't sync.
+              </p>
+              <div style={styles.mappingList}>
+                {EVENT_TYPES.map(type => (
+                  <div key={type} style={styles.mappingRow}>
+                    <div style={styles.mappingLabel}>{EVENT_TYPE_LABELS[type]}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+                        <path d="M2 8h12M10 4l4 4-4 4" stroke="rgba(255,255,255,0.25)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </div>
+                    <select
+                      value={gcalMappings[type]?.google_calendar_id || ''}
+                      onChange={(e) => handleMappingChange(type, e.target.value)}
+                      style={styles.mappingSelect}
+                    >
+                      <option value="">-- Not synced --</option>
+                      {gcalCalendars.map(cal => (
+                        <option key={cal.id} value={cal.id}>
+                          {cal.summary}{cal.primary ? ' (Primary)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -351,5 +590,45 @@ const styles = {
   },
   accessDenied: {
     textAlign: 'center', padding: '80px 20px', color: 'rgba(255,255,255,0.5)',
+  },
+  gcalConnected: {
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+    padding: '14px 16px', background: 'rgba(34,197,94,0.06)',
+    border: '1px solid rgba(34,197,94,0.15)', borderRadius: '10px',
+  },
+  gcalConnectedInfo: {
+    display: 'flex', alignItems: 'center', gap: '12px',
+  },
+  gcalConnectedIcon: {
+    width: '40px', height: '40px', borderRadius: '10px',
+    background: 'rgba(34,197,94,0.1)', display: 'flex',
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+  gcalDisconnectBtn: {
+    padding: '8px 16px', background: 'transparent',
+    border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px',
+    color: '#ef4444', fontSize: '13px', fontWeight: 600,
+    cursor: 'pointer', fontFamily: 'inherit',
+  },
+  gcalConnectBtn: {
+    display: 'flex', alignItems: 'center', padding: '12px 24px',
+    background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: '10px', color: '#fff', fontSize: '14px', fontWeight: 600,
+    cursor: 'pointer', fontFamily: 'inherit', transition: 'background 0.15s',
+  },
+  mappingList: { display: 'flex', flexDirection: 'column', gap: '8px' },
+  mappingRow: {
+    display: 'flex', alignItems: 'center', gap: '12px',
+    padding: '10px 14px', background: 'rgba(255,255,255,0.02)',
+    borderRadius: '8px',
+  },
+  mappingLabel: {
+    width: '130px', fontSize: '14px', fontWeight: 500, color: '#e2e8f0',
+    flexShrink: 0,
+  },
+  mappingSelect: {
+    flex: 1, padding: '8px 10px', background: 'rgba(255,255,255,0.05)',
+    border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px',
+    color: '#fff', fontSize: '13px', fontFamily: 'inherit', outline: 'none',
   },
 };

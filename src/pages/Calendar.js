@@ -374,6 +374,27 @@ export default function Calendar({ onNavigate }) {
     fetchProjects();
   }
 
+  async function syncToGoogleCalendar(action, eventId) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      await fetch(
+        `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/google-calendar-sync`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json',
+            'apikey': process.env.REACT_APP_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({ action, event_id: eventId }),
+        }
+      );
+    } catch (err) {
+      console.error('Google Calendar sync error:', err);
+    }
+  }
+
   async function handleSaveEvent() {
     if (!eventForm.title.trim() || !eventForm.start_date || !profile?.id) return;
     setSavingEvent(true);
@@ -409,13 +430,19 @@ export default function Calendar({ onNavigate }) {
         recurrence_rule: recurrenceRule,
       };
 
+      let eventId = editingEventId;
       if (editingEventId) {
         const { error } = await supabase.from('calendar_events').update(payload).eq('id', editingEventId);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from('calendar_events').insert({ ...payload, created_by: profile.id });
+        const { data: inserted, error } = await supabase.from('calendar_events').insert({ ...payload, created_by: profile.id }).select('id').single();
         if (error) throw error;
+        eventId = inserted.id;
       }
+
+      // Sync to Google Calendar (fire-and-forget)
+      syncToGoogleCalendar(editingEventId ? 'update' : 'create', eventId);
+
       setShowEventModal(false);
       setEventForm(EMPTY_EVENT_FORM);
       setEditingEventId(null);
@@ -431,6 +458,8 @@ export default function Calendar({ onNavigate }) {
   async function handleDeleteEvent(eventId) {
     if (!window.confirm('Delete this event?')) return;
     try {
+      // Sync delete to Google Calendar before removing from DB
+      await syncToGoogleCalendar('delete', eventId);
       const { error } = await supabase.from('calendar_events').delete().eq('id', eventId);
       if (error) throw error;
       setSelectedEvent(null);
@@ -735,6 +764,7 @@ export default function Calendar({ onNavigate }) {
           {ev.title.substring(0, maxLen)}
         </span>
         {isRecurring && <span style={{ fontSize: '8px', flexShrink: 0, opacity: 0.6 }}>{'\uD83D\uDD01'}</span>}
+        {ev.google_synced_at && <span style={{ fontSize: '8px', flexShrink: 0, opacity: 0.5 }} title="Synced to Google Calendar">{'\u2713'}</span>}
       </div>
     );
   }
