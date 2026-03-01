@@ -26,12 +26,13 @@ const NETWORK_ICONS = {
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const WEEKDAYS_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-const EVENT_TYPES = ['deadline', 'meeting', 'live_recording', 'filming', 'unavailable'];
+const EVENT_TYPES = ['deadline', 'meeting', 'live_recording', 'filming', 'video_post', 'unavailable'];
 const EVENT_TYPE_COLORS = {
   deadline: '#ef4444',
   meeting: '#3b82f6',
   live_recording: '#22c55e',
   filming: '#f59e0b',
+  video_post: '#a855f7',
   unavailable: '#6b7280',
 };
 const EVENT_TYPE_LABELS = {
@@ -39,6 +40,7 @@ const EVENT_TYPE_LABELS = {
   meeting: 'Meeting',
   live_recording: 'Live/Recording',
   filming: 'Filming',
+  video_post: 'Video Post',
   unavailable: 'Unavailable',
 };
 const EVENT_TYPE_ICONS = {
@@ -46,8 +48,19 @@ const EVENT_TYPE_ICONS = {
   meeting: '\uD83D\uDC65',
   live_recording: '\uD83D\uDD34',
   filming: '\uD83C\uDFAC',
+  video_post: '\uD83D\uDCF9',
   unavailable: '\uD83D\uDEAB',
 };
+
+const RECURRENCE_OPTIONS = [
+  { value: 'none', label: 'Does not repeat' },
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'monthly', label: 'Monthly' },
+  { value: 'yearly', label: 'Annually' },
+  { value: 'weekdays', label: 'Every weekday (Mon\u2013Fri)' },
+  { value: 'custom', label: 'Custom...' },
+];
 
 const EMPTY_EVENT_FORM = {
   title: '',
@@ -60,6 +73,12 @@ const EMPTY_EVENT_FORM = {
   all_day: false,
   location: '',
   guests: [],
+  recurrence: 'none',
+  recurrence_interval: 1,
+  recurrence_days: [],
+  recurrence_end_type: 'never',
+  recurrence_end_date: '',
+  recurrence_end_count: 10,
 };
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -70,6 +89,100 @@ function formatHourLabel(h) {
   if (h < 12) return `${h} AM`;
   if (h === 12) return '12 PM';
   return `${h - 12} PM`;
+}
+
+function expandRecurringEvents(events, rangeStart, rangeEnd) {
+  const result = [];
+  const MAX_OCCURRENCES = 500;
+  events.forEach(ev => {
+    if (!ev.recurrence_rule || ev.recurrence_rule.type === 'none') {
+      result.push(ev);
+      return;
+    }
+    const rule = ev.recurrence_rule;
+    const origStart = new Date(ev.start_date);
+    const origEnd = new Date(ev.end_date);
+    const duration = origEnd.getTime() - origStart.getTime();
+    const interval = rule.interval || 1;
+    const endDate = rule.endDate ? new Date(rule.endDate + 'T23:59:59') : null;
+    const endCount = rule.endCount || 999;
+    let count = 0;
+    let cursor = new Date(origStart);
+
+    function addOccurrence(d) {
+      const occStart = new Date(d);
+      occStart.setHours(origStart.getHours(), origStart.getMinutes(), origStart.getSeconds());
+      const occEnd = new Date(occStart.getTime() + duration);
+      if (occEnd < rangeStart) return true;
+      if (occStart > rangeEnd) return false;
+      if (endDate && occStart > endDate) return false;
+      if (rule.endType === 'count' && count >= endCount) return false;
+      count++;
+      result.push({
+        ...ev,
+        id: count === 1 && occStart.getTime() === origStart.getTime() ? ev.id : `${ev.id}_r${count}`,
+        start_date: occStart.toISOString(),
+        end_date: occEnd.toISOString(),
+        _isRecurrenceInstance: count > 1 || occStart.getTime() !== origStart.getTime(),
+        _parentId: ev.id,
+      });
+      return true;
+    }
+
+    const safeEnd = new Date(Math.min(rangeEnd.getTime(), endDate ? endDate.getTime() : rangeEnd.getTime()));
+    safeEnd.setFullYear(safeEnd.getFullYear() + 1);
+
+    if (rule.type === 'daily') {
+      while (cursor <= safeEnd && count < MAX_OCCURRENCES) {
+        if (addOccurrence(cursor) === false) break;
+        cursor.setDate(cursor.getDate() + interval);
+      }
+    } else if (rule.type === 'weekly') {
+      const days = rule.daysOfWeek && rule.daysOfWeek.length > 0 ? rule.daysOfWeek : [origStart.getDay()];
+      let weekCursor = new Date(cursor);
+      weekCursor.setDate(weekCursor.getDate() - weekCursor.getDay());
+      while (weekCursor <= safeEnd && count < MAX_OCCURRENCES) {
+        for (const dow of days.sort((a, b) => a - b)) {
+          const d = new Date(weekCursor);
+          d.setDate(d.getDate() + dow);
+          if (d < origStart) continue;
+          if (d > safeEnd) break;
+          if (addOccurrence(d) === false) break;
+          if (count >= MAX_OCCURRENCES) break;
+        }
+        weekCursor.setDate(weekCursor.getDate() + 7 * interval);
+      }
+    } else if (rule.type === 'weekdays') {
+      while (cursor <= safeEnd && count < MAX_OCCURRENCES) {
+        const dow = cursor.getDay();
+        if (dow >= 1 && dow <= 5) {
+          if (addOccurrence(cursor) === false) break;
+        }
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    } else if (rule.type === 'monthly') {
+      const dayOfMonth = origStart.getDate();
+      while (cursor <= safeEnd && count < MAX_OCCURRENCES) {
+        const d = new Date(cursor.getFullYear(), cursor.getMonth(), dayOfMonth);
+        if (d.getMonth() !== cursor.getMonth()) {
+          cursor.setMonth(cursor.getMonth() + interval, 1);
+          continue;
+        }
+        if (d >= origStart) {
+          if (addOccurrence(d) === false) break;
+        }
+        cursor.setMonth(cursor.getMonth() + interval, 1);
+      }
+    } else if (rule.type === 'yearly') {
+      while (cursor <= safeEnd && count < MAX_OCCURRENCES) {
+        if (cursor >= origStart) {
+          if (addOccurrence(cursor) === false) break;
+        }
+        cursor.setFullYear(cursor.getFullYear() + interval);
+      }
+    }
+  });
+  return result;
 }
 
 export default function Calendar({ onNavigate }) {
@@ -95,6 +208,7 @@ export default function Calendar({ onNavigate }) {
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [showGuestDropdown, setShowGuestDropdown] = useState(false);
   const [expandedSocialDays, setExpandedSocialDays] = useState({});
+  const [showCustomRecurrence, setShowCustomRecurrence] = useState(false);
   const dropdownRef = useRef(null);
   const modalRef = useRef(null);
   const guestDropdownRef = useRef(null);
@@ -272,6 +386,17 @@ export default function Calendar({ onNavigate }) {
         ? new Date(`${endDateStr}T23:59:59`)
         : new Date(`${endDateStr}T${eventForm.end_time}:00`);
 
+      const recurrenceRule = eventForm.recurrence === 'none' ? null : {
+        type: eventForm.recurrence,
+        interval: eventForm.recurrence_interval || 1,
+        daysOfWeek: eventForm.recurrence === 'weekly' || eventForm.recurrence === 'custom'
+          ? (eventForm.recurrence_days.length > 0 ? eventForm.recurrence_days : [startDate.getDay()])
+          : undefined,
+        endType: eventForm.recurrence_end_type || 'never',
+        endDate: eventForm.recurrence_end_type === 'date' ? eventForm.recurrence_end_date : undefined,
+        endCount: eventForm.recurrence_end_type === 'count' ? eventForm.recurrence_end_count : undefined,
+      };
+
       const payload = {
         title: eventForm.title.trim(),
         description: eventForm.description.trim(),
@@ -281,6 +406,7 @@ export default function Calendar({ onNavigate }) {
         all_day: eventForm.all_day,
         location: eventForm.location.trim(),
         guests: eventForm.guests,
+        recurrence_rule: recurrenceRule,
       };
 
       if (editingEventId) {
@@ -321,6 +447,7 @@ export default function Calendar({ onNavigate }) {
     setShowEventModal(true);
     setSelectedEvent(null);
     setShowGuestDropdown(false);
+    setShowCustomRecurrence(false);
   }
 
   function openNewEventModalAtTime(date, hour) {
@@ -332,27 +459,40 @@ export default function Calendar({ onNavigate }) {
     setShowEventModal(true);
     setSelectedEvent(null);
     setShowGuestDropdown(false);
+    setShowCustomRecurrence(false);
   }
 
   function openEditEventModal(ev) {
-    const startD = new Date(ev.start_date);
-    const endD = new Date(ev.end_date);
+    const editId = ev._parentId || ev.id;
+    const parentEv = ev._isRecurrenceInstance
+      ? calendarEvents.find(e => e.id === ev._parentId) || ev
+      : ev;
+    const startD = new Date(parentEv.start_date);
+    const endD = new Date(parentEv.end_date);
+    const rule = parentEv.recurrence_rule;
     setEventForm({
-      title: ev.title || '',
-      description: ev.description || '',
-      event_type: ev.event_type || 'meeting',
+      title: parentEv.title || '',
+      description: parentEv.description || '',
+      event_type: parentEv.event_type || 'meeting',
       start_date: dk(startD),
       start_time: `${String(startD.getHours()).padStart(2, '0')}:${String(startD.getMinutes()).padStart(2, '0')}`,
       end_date: dk(endD),
       end_time: `${String(endD.getHours()).padStart(2, '0')}:${String(endD.getMinutes()).padStart(2, '0')}`,
-      all_day: ev.all_day || false,
-      location: ev.location || '',
-      guests: ev.guests || [],
+      all_day: parentEv.all_day || false,
+      location: parentEv.location || '',
+      guests: parentEv.guests || [],
+      recurrence: rule?.type || 'none',
+      recurrence_interval: rule?.interval || 1,
+      recurrence_days: rule?.daysOfWeek || [],
+      recurrence_end_type: rule?.endType || 'never',
+      recurrence_end_date: rule?.endDate || '',
+      recurrence_end_count: rule?.endCount || 10,
     });
-    setEditingEventId(ev.id);
+    setEditingEventId(editId);
     setShowEventModal(true);
     setSelectedEvent(null);
     setShowGuestDropdown(false);
+    setShowCustomRecurrence(false);
   }
 
   function toggleGuest(userId) {
@@ -425,12 +565,21 @@ export default function Calendar({ onNavigate }) {
     setViewDate(d);
   }
 
+  const expandedEvents = React.useMemo(() => {
+    const { start, end } = getVisibleRange();
+    const bufferStart = new Date(start);
+    bufferStart.setDate(bufferStart.getDate() - 7);
+    const bufferEnd = new Date(end);
+    bufferEnd.setDate(bufferEnd.getDate() + 7);
+    return expandRecurringEvents(calendarEvents, bufferStart, bufferEnd);
+  }, [calendarEvents, viewDate, viewMode]);
+
   function getEventsForDate(date) {
     const dayStart = new Date(date);
     dayStart.setHours(0, 0, 0, 0);
     const dayEnd = new Date(date);
     dayEnd.setHours(23, 59, 59, 999);
-    return calendarEvents.filter(ev => {
+    return expandedEvents.filter(ev => {
       const evStart = new Date(ev.start_date);
       const evEnd = new Date(ev.end_date);
       return evStart <= dayEnd && evEnd >= dayStart;
@@ -570,6 +719,7 @@ export default function Calendar({ onNavigate }) {
     const color = EVENT_TYPE_COLORS[ev.event_type] || '#6b7280';
     const icon = EVENT_TYPE_ICONS[ev.event_type] || '\u2022';
     const maxLen = opts.maxLen || 16;
+    const isRecurring = ev.recurrence_rule && ev.recurrence_rule.type !== 'none';
     return (
       <div
         key={`ev-${ev.id}`}
@@ -584,6 +734,7 @@ export default function Calendar({ onNavigate }) {
         <span style={{ ...styles.eventChipText, color }}>
           {ev.title.substring(0, maxLen)}
         </span>
+        {isRecurring && <span style={{ fontSize: '8px', flexShrink: 0, opacity: 0.6 }}>{'\uD83D\uDD01'}</span>}
       </div>
     );
   }
@@ -1254,6 +1405,31 @@ export default function Calendar({ onNavigate }) {
                 }
               </span>
             </div>
+            {selectedEvent.recurrence_rule && selectedEvent.recurrence_rule.type !== 'none' && (
+              <div style={styles.eventDetailRow}>
+                <span style={styles.eventDetailLabel}>Repeats</span>
+                <span style={{ color: '#a5b4fc', fontSize: '13px' }}>
+                  {'\uD83D\uDD01'} {(() => {
+                    const r = selectedEvent.recurrence_rule;
+                    const interval = r.interval || 1;
+                    let text = '';
+                    if (r.type === 'daily') text = interval === 1 ? 'Daily' : `Every ${interval} days`;
+                    else if (r.type === 'weekly') {
+                      const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                      const days = (r.daysOfWeek || []).map(d => dayNames[d]).join(', ');
+                      text = interval === 1 ? `Weekly on ${days}` : `Every ${interval} weeks on ${days}`;
+                    }
+                    else if (r.type === 'weekdays') text = 'Every weekday (Mon\u2013Fri)';
+                    else if (r.type === 'monthly') text = interval === 1 ? 'Monthly' : `Every ${interval} months`;
+                    else if (r.type === 'yearly') text = interval === 1 ? 'Annually' : `Every ${interval} years`;
+                    else text = r.type;
+                    if (r.endType === 'date' && r.endDate) text += `, until ${new Date(r.endDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+                    else if (r.endType === 'count' && r.endCount) text += `, ${r.endCount} times`;
+                    return text;
+                  })()}
+                </span>
+              </div>
+            )}
             {selectedEvent.location && (
               <div style={styles.eventDetailRow}>
                 <span style={styles.eventDetailLabel}>Location</span>
@@ -1282,7 +1458,7 @@ export default function Calendar({ onNavigate }) {
                 {selectedEvent.creator?.full_name || 'Unknown'}
               </span>
             </div>
-            {(selectedEvent.created_by === profile?.id || isAdmin) && (
+            {(selectedEvent.created_by === profile?.id || isAdmin) && !selectedEvent._isRecurrenceInstance && (
               <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                 <button
                   onClick={() => openEditEventModal(selectedEvent)}
@@ -1291,10 +1467,26 @@ export default function Calendar({ onNavigate }) {
                   Edit Event
                 </button>
                 <button
-                  onClick={() => handleDeleteEvent(selectedEvent.id)}
+                  onClick={() => handleDeleteEvent(selectedEvent._parentId || selectedEvent.id)}
                   style={styles.eventDeleteBtn}
                 >
-                  Delete
+                  Delete{selectedEvent.recurrence_rule && selectedEvent.recurrence_rule.type !== 'none' ? ' All' : ''}
+                </button>
+              </div>
+            )}
+            {(selectedEvent.created_by === profile?.id || isAdmin) && selectedEvent._isRecurrenceInstance && (
+              <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                <button
+                  onClick={() => openEditEventModal(selectedEvent)}
+                  style={styles.eventEditBtn}
+                >
+                  Edit Series
+                </button>
+                <button
+                  onClick={() => handleDeleteEvent(selectedEvent._parentId)}
+                  style={styles.eventDeleteBtn}
+                >
+                  Delete All
                 </button>
               </div>
             )}
@@ -1415,6 +1607,130 @@ export default function Calendar({ onNavigate }) {
                 </div>
               )}
             </div>
+
+            {/* Repeat */}
+            <div style={styles.formGroup}>
+              <label style={styles.formLabel}>Repeat</label>
+              <select
+                value={showCustomRecurrence ? 'custom' : eventForm.recurrence}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === 'custom') {
+                    setShowCustomRecurrence(true);
+                    setEventForm(prev => ({ ...prev, recurrence: 'weekly', recurrence_days: prev.recurrence_days.length ? prev.recurrence_days : (prev.start_date ? [new Date(prev.start_date + 'T00:00:00').getDay()] : []) }));
+                  } else {
+                    setShowCustomRecurrence(false);
+                    setEventForm(prev => ({ ...prev, recurrence: val, recurrence_interval: 1, recurrence_days: [], recurrence_end_type: 'never' }));
+                  }
+                }}
+                style={styles.formInput}
+              >
+                {RECURRENCE_OPTIONS.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Custom Recurrence */}
+            {showCustomRecurrence && (
+              <div style={styles.customRecurrenceBox}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                  <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>Every</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="99"
+                    value={eventForm.recurrence_interval}
+                    onChange={(e) => setEventForm(prev => ({ ...prev, recurrence_interval: Math.max(1, parseInt(e.target.value) || 1) }))}
+                    style={{ ...styles.formInput, width: '60px', textAlign: 'center' }}
+                  />
+                  <select
+                    value={eventForm.recurrence}
+                    onChange={(e) => setEventForm(prev => ({ ...prev, recurrence: e.target.value }))}
+                    style={{ ...styles.formInput, width: 'auto', flex: 1 }}
+                  >
+                    <option value="daily">{eventForm.recurrence_interval > 1 ? 'days' : 'day'}</option>
+                    <option value="weekly">{eventForm.recurrence_interval > 1 ? 'weeks' : 'week'}</option>
+                    <option value="monthly">{eventForm.recurrence_interval > 1 ? 'months' : 'month'}</option>
+                    <option value="yearly">{eventForm.recurrence_interval > 1 ? 'years' : 'year'}</option>
+                  </select>
+                </div>
+
+                {eventForm.recurrence === 'weekly' && (
+                  <div style={{ marginBottom: '12px' }}>
+                    <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: '6px' }}>Repeat on</span>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((label, idx) => {
+                        const isActive = eventForm.recurrence_days.includes(idx);
+                        return (
+                          <button
+                            key={idx}
+                            onClick={() => {
+                              setEventForm(prev => ({
+                                ...prev,
+                                recurrence_days: isActive
+                                  ? prev.recurrence_days.filter(d => d !== idx)
+                                  : [...prev.recurrence_days, idx].sort((a, b) => a - b),
+                              }));
+                            }}
+                            style={{
+                              width: '32px', height: '32px', borderRadius: '50%',
+                              border: isActive ? '2px solid #6366f1' : '1px solid rgba(255,255,255,0.12)',
+                              background: isActive ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.03)',
+                              color: isActive ? '#a5b4fc' : 'rgba(255,255,255,0.4)',
+                              fontSize: '11px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+                            }}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: '6px' }}>Ends</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer' }}>
+                      <input type="radio" name="recEnd" checked={eventForm.recurrence_end_type === 'never'} onChange={() => setEventForm(prev => ({ ...prev, recurrence_end_type: 'never' }))} style={{ accentColor: '#6366f1' }} />
+                      Never
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer' }}>
+                      <input type="radio" name="recEnd" checked={eventForm.recurrence_end_type === 'date'} onChange={() => setEventForm(prev => ({ ...prev, recurrence_end_type: 'date' }))} style={{ accentColor: '#6366f1' }} />
+                      On
+                      <input
+                        type="date"
+                        value={eventForm.recurrence_end_date}
+                        min={eventForm.start_date}
+                        onChange={(e) => setEventForm(prev => ({ ...prev, recurrence_end_date: e.target.value, recurrence_end_type: 'date' }))}
+                        style={{ ...styles.formInput, width: '150px', padding: '4px 8px', fontSize: '12px' }}
+                      />
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer' }}>
+                      <input type="radio" name="recEnd" checked={eventForm.recurrence_end_type === 'count'} onChange={() => setEventForm(prev => ({ ...prev, recurrence_end_type: 'count' }))} style={{ accentColor: '#6366f1' }} />
+                      After
+                      <input
+                        type="number"
+                        min="1"
+                        max="999"
+                        value={eventForm.recurrence_end_count}
+                        onChange={(e) => setEventForm(prev => ({ ...prev, recurrence_end_count: Math.max(1, parseInt(e.target.value) || 1), recurrence_end_type: 'count' }))}
+                        style={{ ...styles.formInput, width: '60px', padding: '4px 8px', textAlign: 'center', fontSize: '12px' }}
+                      />
+                      occurrences
+                    </label>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Recurrence summary for non-custom presets */}
+            {eventForm.recurrence !== 'none' && !showCustomRecurrence && (
+              <div style={{ marginTop: '-8px', marginBottom: '14px', padding: '6px 10px', background: 'rgba(99,102,241,0.08)', borderRadius: '6px', fontSize: '11px', color: '#a5b4fc' }}>
+                {'\uD83D\uDD01'} Repeats {eventForm.recurrence === 'weekdays' ? 'every weekday (Mon\u2013Fri)' : eventForm.recurrence}
+              </div>
+            )}
 
             {/* Location */}
             <div style={styles.formGroup}>
@@ -1637,6 +1953,7 @@ const styles = {
   formInput: { width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '13px', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' },
   eventTypeGrid: { display: 'flex', flexWrap: 'wrap', gap: '6px' },
   eventTypeBtn: { display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 12px', borderRadius: '8px', border: '1px solid', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s' },
+  customRecurrenceBox: { marginTop: '-8px', marginBottom: '14px', padding: '14px', background: 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: '10px' },
   cancelBtn: { flex: 1, padding: '10px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', color: 'rgba(255,255,255,0.6)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   saveBtn: { flex: 1, padding: '10px', background: 'linear-gradient(135deg, #6366f1, #818cf8)', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   guestSelector: { padding: '9px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', cursor: 'pointer', minHeight: '38px', display: 'flex', alignItems: 'center' },
