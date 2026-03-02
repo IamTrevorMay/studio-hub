@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 
-export default function Channels() {
-  const { profile, isAdmin } = useAuth();
+export default function Channels({ initialChannelName, onChannelOpened }) {
+  const { profile, isAdmin, unreadMentionChannelIds, markChannelSeen, refreshNotifications } = useAuth();
   const [channels, setChannels] = useState([]);
   const [activeChannel, setActiveChannel] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -25,6 +25,16 @@ export default function Channels() {
     fetchChannels();
     fetchTeamMembers();
   }, [profile?.id]);
+
+  useEffect(() => {
+    if (!initialChannelName || channels.length === 0) return;
+    const match = channels.find(c => c.name.toLowerCase() === initialChannelName.toLowerCase());
+    if (match) {
+      setActiveChannel(match);
+      markChannelSeen(match.id);
+    }
+    if (onChannelOpened) onChannelOpened();
+  }, [initialChannelName, channels]);
 
   const fetchMessages = useCallback(async (channelId) => {
     setLoadingMessages(true);
@@ -212,12 +222,28 @@ export default function Channels() {
   );
 
   function formatMessageContent(content) {
-    const parts = content.split(/(@\w+(?:\s\w+)?)/g);
-    return parts.map((part, i) =>
-      part.startsWith('@')
-        ? <span key={i} style={msgStyles.mention}>{part}</span>
-        : part
-    );
+    const parts = content.split(/([@#]\w+(?:[- ]\w+)*)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith('@')) {
+        return <span key={i} style={msgStyles.mention}>{part}</span>;
+      }
+      if (part.startsWith('#')) {
+        const chName = part.slice(1).toLowerCase();
+        const matched = channels.find(c => c.name.toLowerCase() === chName);
+        if (matched) {
+          return (
+            <span
+              key={i}
+              style={msgStyles.channelLink}
+              onClick={() => setActiveChannel(matched)}
+            >
+              {part}
+            </span>
+          );
+        }
+      }
+      return part;
+    });
   }
 
   function formatTime(dateStr) {
@@ -272,7 +298,12 @@ export default function Channels() {
               isAdmin={isAdmin}
               isFirst={idx === 0}
               isLast={idx === channels.length - 1}
-              onSelect={() => setActiveChannel(ch)}
+              hasUnreadMention={unreadMentionChannelIds.includes(ch.id)}
+              onSelect={() => {
+                setActiveChannel(ch);
+                markChannelSeen(ch.id);
+                refreshNotifications();
+              }}
               onMove={(dir) => handleMoveChannel(ch.id, dir)}
               onDelete={() => handleDeleteChannel(ch.id)}
             />
@@ -405,7 +436,7 @@ export default function Channels() {
   );
 }
 
-function ChannelItem({ channel, isActive, isAdmin, isFirst, isLast, onSelect, onMove, onDelete }) {
+function ChannelItem({ channel, isActive, isAdmin, isFirst, isLast, hasUnreadMention, onSelect, onMove, onDelete }) {
   const [hovered, setHovered] = useState(false);
   return (
     <div
@@ -422,6 +453,7 @@ function ChannelItem({ channel, isActive, isAdmin, isFirst, isLast, onSelect, on
       >
         <span style={styles.hashIcon}>#</span>
         <span style={styles.channelItemName}>{channel.name}</span>
+        {hasUnreadMention && <span style={styles.channelUnreadDot} />}
       </button>
       {isAdmin && hovered && (
         <div style={styles.channelActions}>
@@ -595,6 +627,10 @@ const styles = {
     fontSize: '16px', fontWeight: 700, opacity: 0.5,
   },
   channelItemName: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  channelUnreadDot: {
+    width: '8px', height: '8px', borderRadius: '50%',
+    background: '#ef4444', flexShrink: 0, marginLeft: 'auto',
+  },
   pinHeaderBtn: {
     padding: '5px 10px', background: 'rgba(255,255,255,0.04)',
     border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px',
@@ -775,5 +811,10 @@ const msgStyles = {
   mention: {
     background: 'rgba(99,102,241,0.2)', color: '#a5b4fc',
     padding: '1px 4px', borderRadius: '4px', fontWeight: 600,
+  },
+  channelLink: {
+    background: 'rgba(99,102,241,0.15)', color: '#a5b4fc',
+    padding: '1px 4px', borderRadius: '4px', fontWeight: 600,
+    cursor: 'pointer', textDecoration: 'none',
   },
 };

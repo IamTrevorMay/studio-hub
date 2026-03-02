@@ -21,13 +21,15 @@ const STATUS_LABELS = {
   published: 'Published',
 };
 
-export default function Dashboard() {
-  const { profile, updateProfile, isAdmin, isAssistant } = useAuth();
+export default function Dashboard({ onNavigate }) {
+  const { profile, updateProfile, isAdmin, isAssistant, refreshNotifications } = useAuth();
   const { safeQuery } = useSupabaseQuery();
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(profile?.title || '');
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState(profile?.full_name || '');
 
   // Itinerary state
   const [itineraryItems, setItineraryItems] = useState([]);
@@ -35,6 +37,15 @@ export default function Dashboard() {
   const [newItemText, setNewItemText] = useState('');
   const [editingItemId, setEditingItemId] = useState(null);
   const [editingItemText, setEditingItemText] = useState('');
+
+  // Admin comment state
+  const [commentingItemId, setCommentingItemId] = useState(null);
+  const [commentText, setCommentText] = useState('');
+
+  // Announcements state
+  const [announcements, setAnnouncements] = useState([]);
+  const [announcementsLoading, setAnnouncementsLoading] = useState(false);
+  const [newAnnouncementText, setNewAnnouncementText] = useState('');
 
   const todayStr = new Date().toISOString().split('T')[0];
 
@@ -63,6 +74,38 @@ export default function Dashboard() {
     }
   }, [profile?.id, isAdmin, todayStr]);
 
+  const fetchAnnouncements = useCallback(async () => {
+    if (!profile?.id) return;
+    setAnnouncementsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('announcements')
+        .select('*, creator:profiles!created_by(full_name)')
+        .eq('target_date', todayStr)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+
+      // Fetch reads for the current user
+      const announcementIds = (data || []).map(a => a.id);
+      let readIds = new Set();
+      if (announcementIds.length > 0) {
+        const { data: reads } = await supabase
+          .from('announcement_reads')
+          .select('announcement_id')
+          .eq('user_id', profile.id)
+          .in('announcement_id', announcementIds);
+        readIds = new Set((reads || []).map(r => r.announcement_id));
+      }
+
+      setAnnouncements((data || []).map(a => ({ ...a, isRead: readIds.has(a.id) })));
+    } catch (err) {
+      console.error('Error fetching announcements:', err);
+      setAnnouncements([]);
+    } finally {
+      setAnnouncementsLoading(false);
+    }
+  }, [profile?.id, todayStr]);
+
   useEffect(() => {
     if (!profile?.id) return;
     const timeout = setTimeout(() => setLoading(false), 5000);
@@ -75,6 +118,12 @@ export default function Dashboard() {
       fetchItinerary();
     }
   }, [isAdmin, isAssistant, profile?.id, fetchItinerary]);
+
+  useEffect(() => {
+    if (profile?.id) {
+      fetchAnnouncements();
+    }
+  }, [profile?.id, fetchAnnouncements]);
 
   async function fetchAssignments() {
     if (!profile?.id) return;
@@ -111,6 +160,7 @@ export default function Dashboard() {
       if (error) throw error;
       setNewItemText('');
       fetchItinerary();
+      refreshNotifications();
     } catch (err) {
       console.error('Error adding itinerary item:', err);
     }
@@ -124,6 +174,7 @@ export default function Dashboard() {
         .eq('id', id);
       if (error) throw error;
       fetchItinerary();
+      refreshNotifications();
     } catch (err) {
       console.error('Error updating itinerary item:', err);
     }
@@ -147,9 +198,75 @@ export default function Dashboard() {
     setEditingItemText('');
   }
 
+  // Admin comment handlers
+  async function saveAdminComment(itemId) {
+    try {
+      const { error } = await supabase
+        .from('daily_itinerary')
+        .update({ admin_comment: commentText.trim() || null, updated_at: new Date().toISOString() })
+        .eq('id', itemId);
+      if (error) throw error;
+      setCommentingItemId(null);
+      setCommentText('');
+      fetchItinerary();
+    } catch (err) {
+      console.error('Error saving admin comment:', err);
+    }
+  }
+
+  // Announcement handlers
+  async function addAnnouncement() {
+    if (!newAnnouncementText.trim()) return;
+    try {
+      const { error } = await supabase.from('announcements').insert({
+        created_by: profile.id,
+        target_date: todayStr,
+        content: newAnnouncementText.trim(),
+      });
+      if (error) throw error;
+      setNewAnnouncementText('');
+      fetchAnnouncements();
+      refreshNotifications();
+    } catch (err) {
+      console.error('Error adding announcement:', err);
+    }
+  }
+
+  async function deleteAnnouncement(id) {
+    try {
+      const { error } = await supabase.from('announcements').delete().eq('id', id);
+      if (error) throw error;
+      fetchAnnouncements();
+      refreshNotifications();
+    } catch (err) {
+      console.error('Error deleting announcement:', err);
+    }
+  }
+
+  async function markAnnouncementRead(announcementId) {
+    try {
+      const { error } = await supabase.from('announcement_reads').insert({
+        announcement_id: announcementId,
+        user_id: profile.id,
+      });
+      if (error) throw error;
+      fetchAnnouncements();
+      refreshNotifications();
+    } catch (err) {
+      console.error('Error marking announcement read:', err);
+    }
+  }
+
   async function handleTitleSave() {
     await updateProfile({ title: titleDraft });
     setEditingTitle(false);
+  }
+
+  async function handleNameSave() {
+    if (!nameDraft.trim()) return;
+    await updateProfile({ full_name: nameDraft.trim() });
+    await supabase.auth.updateUser({ data: { full_name: nameDraft.trim() } });
+    setEditingName(false);
   }
 
   function getDaysUntil(deadline) {
@@ -166,6 +283,25 @@ export default function Dashboard() {
     return '#22c55e';
   }
 
+  function formatContent(content) {
+    const parts = content.split(/(#\w+(?:-\w+)*)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith('#')) {
+        const chName = part.slice(1);
+        return (
+          <span
+            key={i}
+            style={styles.channelLink}
+            onClick={() => onNavigate && onNavigate('channels', chName)}
+          >
+            {part}
+          </span>
+        );
+      }
+      return part;
+    });
+  }
+
   // Sort: active projects first, then by deadline urgency
   const activeAssignments = assignments
     .filter(a => a.project && a.project.status !== 'published')
@@ -174,61 +310,181 @@ export default function Dashboard() {
   const completedAssignments = assignments
     .filter(a => a.project && a.project.status === 'published');
 
-  // ── Itinerary section (shared renderer) ──
+  // ── Itinerary item renderer ──
   function renderItineraryItem(item) {
     const isEditing = editingItemId === item.id;
+    const isCommenting = commentingItemId === item.id;
     return (
-      <div key={item.id} style={styles.itineraryItem}>
-        <input
-          type="checkbox"
-          checked={item.is_complete}
-          onChange={() => updateItineraryItem(item.id, { is_complete: !item.is_complete })}
-          style={styles.itineraryCheckbox}
-        />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {isEditing ? (
-            <input
-              value={editingItemText}
-              onChange={(e) => setEditingItemText(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleEditSave(item.id)}
-              onBlur={() => handleEditSave(item.id)}
-              style={styles.itineraryEditInput}
-              autoFocus
-            />
-          ) : (
-            <span style={{
-              ...styles.itineraryContent,
-              textDecoration: item.is_complete ? 'line-through' : 'none',
-              opacity: item.is_complete ? 0.5 : 1,
-            }}>
-              {item.content}
-            </span>
-          )}
-          {isAdmin && item.creator && (
-            <span style={styles.itineraryCreator}>{item.creator.full_name}</span>
-          )}
+      <div key={item.id} style={styles.itineraryItemWrapper}>
+        <div style={styles.itineraryItem}>
+          <input
+            type="checkbox"
+            checked={item.is_complete}
+            onChange={() => updateItineraryItem(item.id, { is_complete: !item.is_complete })}
+            style={styles.itineraryCheckbox}
+          />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {isEditing ? (
+              <input
+                value={editingItemText}
+                onChange={(e) => setEditingItemText(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleEditSave(item.id)}
+                onBlur={() => handleEditSave(item.id)}
+                style={styles.itineraryEditInput}
+                autoFocus
+              />
+            ) : (
+              <span style={{
+                ...styles.itineraryContent,
+                textDecoration: item.is_complete ? 'line-through' : 'none',
+                opacity: item.is_complete ? 0.5 : 1,
+              }}>
+                {item.content}
+              </span>
+            )}
+            {isAdmin && item.creator && (
+              <span style={styles.itineraryCreator}>{item.creator.full_name}</span>
+            )}
+          </div>
+          <div style={styles.itineraryActions}>
+            {!isEditing && (isAdmin || isAssistant) && (
+              <button
+                onClick={() => { setEditingItemId(item.id); setEditingItemText(item.content); }}
+                style={styles.itineraryActionBtn}
+                title="Edit"
+              >
+                ✎
+              </button>
+            )}
+            {(isAdmin || isAssistant) && (
+              <button
+                onClick={() => deleteItineraryItem(item.id)}
+                style={{ ...styles.itineraryActionBtn, color: '#ef4444' }}
+                title="Delete"
+              >
+                ✕
+              </button>
+            )}
+          </div>
         </div>
-        <div style={styles.itineraryActions}>
-          {!isEditing && (
-            <button
-              onClick={() => { setEditingItemId(item.id); setEditingItemText(item.content); }}
-              style={styles.itineraryActionBtn}
-              title="Edit"
-            >
-              ✎
-            </button>
-          )}
-          <button
-            onClick={() => deleteItineraryItem(item.id)}
-            style={{ ...styles.itineraryActionBtn, color: '#ef4444' }}
-            title="Delete"
-          >
-            ✕
-          </button>
-        </div>
+        {/* Admin comment section */}
+        {isAdmin && (
+          <div style={styles.commentSection}>
+            {isCommenting ? (
+              <div style={styles.commentEditRow}>
+                <input
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && saveAdminComment(item.id)}
+                  placeholder="Add a comment..."
+                  style={styles.commentInput}
+                  autoFocus
+                />
+                <button onClick={() => saveAdminComment(item.id)} style={styles.commentSaveBtn}>Save</button>
+                <button onClick={() => { setCommentingItemId(null); setCommentText(''); }} style={styles.commentCancelBtn}>Cancel</button>
+              </div>
+            ) : item.admin_comment ? (
+              <div style={styles.commentDisplay}>
+                <span style={styles.commentLabel}>Admin:</span>
+                <span style={styles.commentText}>{item.admin_comment}</span>
+                <button
+                  onClick={() => { setCommentingItemId(item.id); setCommentText(item.admin_comment); }}
+                  style={styles.commentEditBtn}
+                >
+                  ✎
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => { setCommentingItemId(item.id); setCommentText(''); }}
+                style={styles.addCommentBtn}
+              >
+                + Add comment
+              </button>
+            )}
+          </div>
+        )}
+        {/* Assistant sees admin comment read-only */}
+        {isAssistant && item.admin_comment && (
+          <div style={styles.commentSection}>
+            <div style={styles.commentDisplay}>
+              <span style={styles.commentLabel}>Admin:</span>
+              <span style={styles.commentText}>{item.admin_comment}</span>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
+
+  // ── Announcements renderer ──
+  function renderAnnouncements({ showInput }) {
+    return (
+      <div style={styles.announcementsSection}>
+        <h3 style={styles.subSectionTitle}>Announcements</h3>
+        {showInput && (
+          <div style={styles.itineraryAddRow}>
+            <input
+              value={newAnnouncementText}
+              onChange={(e) => setNewAnnouncementText(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && addAnnouncement()}
+              placeholder="Post an announcement to all members..."
+              style={styles.itineraryInput}
+            />
+            <button
+              onClick={addAnnouncement}
+              disabled={!newAnnouncementText.trim()}
+              style={{
+                ...styles.itineraryAddBtn,
+                opacity: newAnnouncementText.trim() ? 1 : 0.4,
+              }}
+            >
+              Post
+            </button>
+          </div>
+        )}
+        {announcementsLoading ? (
+          <p style={styles.emptyText}>Loading...</p>
+        ) : announcements.length === 0 ? (
+          <p style={{ ...styles.emptyText, marginTop: '8px' }}>No announcements today</p>
+        ) : (
+          <div style={styles.announcementList}>
+            {announcements.map(a => (
+              <div key={a.id} style={{
+                ...styles.announcementItem,
+                borderLeft: a.isRead ? '3px solid rgba(255,255,255,0.1)' : '3px solid #6366f1',
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <span style={styles.announcementContent}>{formatContent(a.content)}</span>
+                  <span style={styles.announcementMeta}>
+                    {a.creator?.full_name} &middot; {new Date(a.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                  </span>
+                </div>
+                <div style={styles.announcementActions}>
+                  {!a.isRead && (
+                    <button onClick={() => markAnnouncementRead(a.id)} style={styles.readBtn}>
+                      Mark Read
+                    </button>
+                  )}
+                  {a.created_by === profile.id && (
+                    <button
+                      onClick={() => deleteAnnouncement(a.id)}
+                      style={{ ...styles.itineraryActionBtn, color: '#ef4444' }}
+                      title="Delete"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const isMember = !isAdmin && !isAssistant;
 
   return (
     <div style={styles.page}>
@@ -254,7 +510,28 @@ export default function Dashboard() {
           {profile?.full_name?.charAt(0)?.toUpperCase()}
         </div>
         <div style={styles.profileInfo}>
-          <h2 style={styles.profileName}>{profile?.full_name}</h2>
+          {editingName ? (
+            <div style={styles.titleEdit}>
+              <input
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                placeholder="Enter your name"
+                style={styles.titleInput}
+                autoFocus
+                onKeyDown={(e) => e.key === 'Enter' && handleNameSave()}
+              />
+              <button onClick={handleNameSave} style={styles.saveTitleBtn}>Save</button>
+              <button onClick={() => setEditingName(false)} style={styles.cancelTitleBtn}>Cancel</button>
+            </div>
+          ) : (
+            <h2
+              style={{ ...styles.profileName, cursor: 'pointer' }}
+              onClick={() => { setNameDraft(profile?.full_name || ''); setEditingName(true); }}
+              title="Click to edit"
+            >
+              {profile?.full_name} <span style={{ fontSize: '14px', opacity: 0.4 }}>✎</span>
+            </h2>
+          )}
           {editingTitle ? (
             <div style={styles.titleEdit}>
               <input
@@ -297,10 +574,10 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Admin: Today's Itinerary (above projects) */}
+      {/* Admin: Today section */}
       {isAdmin && (
         <div style={styles.section}>
-          <h2 style={styles.sectionTitle}>Today's Itinerary</h2>
+          <h2 style={styles.sectionTitle}>Today</h2>
           <div style={styles.itineraryCard}>
             {itineraryLoading ? (
               <p style={styles.emptyText}>Loading...</p>
@@ -311,14 +588,15 @@ export default function Dashboard() {
                 {itineraryItems.map(item => renderItineraryItem(item))}
               </div>
             )}
+            {renderAnnouncements({ showInput: true })}
           </div>
         </div>
       )}
 
-      {/* Assistant: Itinerary Tool */}
+      {/* Assistant: Today section */}
       {isAssistant && (
         <div style={styles.section}>
-          <h2 style={styles.sectionTitle}>Today's Itinerary</h2>
+          <h2 style={styles.sectionTitle}>Today</h2>
           <div style={styles.itineraryCard}>
             <div style={styles.itineraryAddRow}>
               <input
@@ -348,6 +626,17 @@ export default function Dashboard() {
                 {itineraryItems.map(item => renderItineraryItem(item))}
               </div>
             )}
+            {renderAnnouncements({ showInput: true })}
+          </div>
+        </div>
+      )}
+
+      {/* Regular member: Today section (only if announcements exist) */}
+      {isMember && announcements.length > 0 && (
+        <div style={styles.section}>
+          <h2 style={styles.sectionTitle}>Today</h2>
+          <div style={styles.itineraryCard}>
+            {renderAnnouncements({ showInput: false })}
           </div>
         </div>
       )}
@@ -561,6 +850,14 @@ const styles = {
     textTransform: 'uppercase',
     letterSpacing: '0.5px',
   },
+  subSectionTitle: {
+    fontSize: '13px',
+    fontWeight: 600,
+    color: 'rgba(255,255,255,0.5)',
+    margin: '0 0 10px 0',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+  },
   // Itinerary styles
   itineraryCard: {
     background: 'rgba(255,255,255,0.03)',
@@ -602,13 +899,16 @@ const styles = {
     gap: '4px',
     marginTop: '12px',
   },
+  itineraryItemWrapper: {
+    background: 'rgba(255,255,255,0.02)',
+    borderRadius: '10px',
+    overflow: 'hidden',
+  },
   itineraryItem: {
     display: 'flex',
     alignItems: 'center',
     gap: '12px',
     padding: '10px 14px',
-    background: 'rgba(255,255,255,0.02)',
-    borderRadius: '10px',
     transition: 'background 0.1s',
   },
   itineraryCheckbox: {
@@ -654,6 +954,130 @@ const styles = {
     padding: '4px 6px',
     borderRadius: '4px',
     lineHeight: 1,
+  },
+  // Admin comment styles
+  commentSection: {
+    padding: '4px 14px 10px 44px',
+  },
+  commentEditRow: {
+    display: 'flex',
+    gap: '8px',
+    alignItems: 'center',
+  },
+  commentInput: {
+    flex: 1,
+    padding: '6px 10px',
+    background: 'rgba(255,255,255,0.05)',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: '6px',
+    color: '#fff',
+    fontSize: '13px',
+    fontFamily: 'inherit',
+    outline: 'none',
+  },
+  commentSaveBtn: {
+    padding: '5px 12px',
+    background: '#6366f1',
+    border: 'none',
+    borderRadius: '6px',
+    color: '#fff',
+    fontSize: '12px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  commentCancelBtn: {
+    padding: '5px 12px',
+    background: 'transparent',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '6px',
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: '12px',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  commentDisplay: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    fontSize: '13px',
+  },
+  commentLabel: {
+    color: '#a5b4fc',
+    fontWeight: 600,
+    fontSize: '11px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.3px',
+  },
+  commentText: {
+    color: 'rgba(255,255,255,0.6)',
+    flex: 1,
+  },
+  commentEditBtn: {
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.3)',
+    cursor: 'pointer',
+    fontSize: '13px',
+    padding: '2px 4px',
+  },
+  addCommentBtn: {
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.3)',
+    cursor: 'pointer',
+    fontSize: '12px',
+    padding: 0,
+    fontFamily: 'inherit',
+  },
+  // Announcement styles
+  announcementsSection: {
+    marginTop: '20px',
+    paddingTop: '16px',
+    borderTop: '1px solid rgba(255,255,255,0.06)',
+  },
+  announcementList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+    marginTop: '10px',
+  },
+  announcementItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '10px 14px',
+    background: 'rgba(255,255,255,0.02)',
+    borderRadius: '8px',
+  },
+  announcementContent: {
+    fontSize: '14px',
+    color: '#e2e8f0',
+    display: 'block',
+  },
+  announcementMeta: {
+    fontSize: '11px',
+    color: 'rgba(255,255,255,0.3)',
+    marginTop: '2px',
+    display: 'block',
+  },
+  announcementActions: {
+    display: 'flex',
+    gap: '6px',
+    alignItems: 'center',
+    flexShrink: 0,
+  },
+  readBtn: {
+    padding: '4px 10px',
+    background: 'rgba(99,102,241,0.15)',
+    border: '1px solid rgba(99,102,241,0.3)',
+    borderRadius: '6px',
+    color: '#a5b4fc',
+    fontSize: '11px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    whiteSpace: 'nowrap',
   },
   // Project styles
   projectGrid: {
@@ -766,5 +1190,13 @@ const styles = {
   completedDate: {
     fontSize: '12px',
     color: 'rgba(255,255,255,0.25)',
+  },
+  channelLink: {
+    background: 'rgba(99,102,241,0.15)',
+    color: '#a5b4fc',
+    padding: '1px 4px',
+    borderRadius: '4px',
+    fontWeight: 600,
+    cursor: 'pointer',
   },
 };

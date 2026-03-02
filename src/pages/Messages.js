@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 
-export default function Messages() {
+export default function Messages({ onNavigate }) {
   const { profile } = useAuth();
   const [conversations, setConversations] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);
@@ -231,6 +231,25 @@ export default function Messages() {
     m.full_name.toLowerCase().includes(searchUsers.toLowerCase())
   );
 
+  function formatMessageContent(content) {
+    const parts = content.split(/(#\w+(?:-\w+)*)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith('#')) {
+        const chName = part.slice(1);
+        return (
+          <span
+            key={i}
+            style={styles.channelLink}
+            onClick={() => onNavigate && onNavigate('channels', chName)}
+          >
+            {part}
+          </span>
+        );
+      }
+      return part;
+    });
+  }
+
   return (
     <div style={styles.page}>
       {/* Conversations Sidebar */}
@@ -366,7 +385,7 @@ export default function Messages() {
                         {showAvatar && !isOwn && (
                           <div style={styles.msgSender}>{msg.profile?.full_name}</div>
                         )}
-                        <div style={styles.msgContent}>{msg.content}</div>
+                        <div style={styles.msgContent}>{formatMessageContent(msg.content)}</div>
                         <div style={styles.msgTime}>{formatTime(msg.created_at)}</div>
                       </div>
                     </div>
@@ -541,4 +560,9 @@ const styles = {
   noChatIcon: { fontSize: '48px', marginBottom: '12px' },
   noChatTitle: { fontSize: '18px', fontWeight: 600, color: '#e2e8f0', margin: '0 0 6px 0' },
   noChatSubtitle: { fontSize: '14px', color: 'rgba(255,255,255,0.35)', margin: 0 },
+  channelLink: {
+    background: 'rgba(99,102,241,0.15)', color: '#a5b4fc',
+    padding: '1px 4px', borderRadius: '4px', fontWeight: 600,
+    cursor: 'pointer',
+  },
 };

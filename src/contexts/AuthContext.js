@@ -299,6 +299,106 @@ export function AuthProvider({ children }) {
     window.location.hash = '';
   }
 
+  // ── Notification state ──
+  const [unreadAnnouncementCount, setUnreadAnnouncementCount] = useState(0);
+  const [newItineraryCount, setNewItineraryCount] = useState(0);
+  const [unreadMentionChannelIds, setUnreadMentionChannelIds] = useState([]);
+
+  const fetchUnreadAnnouncementCount = useCallback(async () => {
+    if (!user) return;
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      // Get today's announcements
+      const { data: announcements, error: aErr } = await supabase
+        .from('announcements')
+        .select('id')
+        .eq('target_date', todayStr);
+      if (aErr) throw aErr;
+      if (!announcements || announcements.length === 0) {
+        setUnreadAnnouncementCount(0);
+        return;
+      }
+      // Get which ones the user has read
+      const { data: reads, error: rErr } = await supabase
+        .from('announcement_reads')
+        .select('announcement_id')
+        .eq('user_id', user.id);
+      if (rErr) throw rErr;
+      const readIds = new Set((reads || []).map(r => r.announcement_id));
+      const unread = announcements.filter(a => !readIds.has(a.id)).length;
+      setUnreadAnnouncementCount(unread);
+    } catch (err) {
+      console.error('Error fetching unread announcement count:', err);
+    }
+  }, [user]);
+
+  const fetchNewItineraryCount = useCallback(async () => {
+    if (!user || profile?.role !== 'admin') { setNewItineraryCount(0); return; }
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const lastSeen = localStorage.getItem('dashboard_last_seen') || '1970-01-01T00:00:00.000Z';
+      const { data, error } = await supabase
+        .from('daily_itinerary')
+        .select('id')
+        .eq('target_date', todayStr)
+        .gt('updated_at', lastSeen);
+      if (error) throw error;
+      setNewItineraryCount(data?.length || 0);
+    } catch (err) {
+      console.error('Error fetching new itinerary count:', err);
+    }
+  }, [user, profile?.role]);
+
+  const fetchUnreadMentions = useCallback(async () => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from('channel_messages')
+        .select('channel_id, created_at')
+        .contains('mentions', [user.id]);
+      if (error) throw error;
+      if (!data || data.length === 0) { setUnreadMentionChannelIds([]); return; }
+      // Group by channel and check against localStorage timestamps
+      const channelMap = {};
+      data.forEach(msg => {
+        if (!channelMap[msg.channel_id] || msg.created_at > channelMap[msg.channel_id]) {
+          channelMap[msg.channel_id] = msg.created_at;
+        }
+      });
+      const unread = Object.entries(channelMap).filter(([chId, latestMention]) => {
+        const seen = localStorage.getItem(`channel_seen_${chId}`) || '1970-01-01T00:00:00.000Z';
+        return latestMention > seen;
+      }).map(([chId]) => chId);
+      setUnreadMentionChannelIds(unread);
+    } catch (err) {
+      console.error('Error fetching unread mentions:', err);
+    }
+  }, [user]);
+
+  const markChannelSeen = useCallback((channelId) => {
+    localStorage.setItem(`channel_seen_${channelId}`, new Date().toISOString());
+    setUnreadMentionChannelIds(prev => prev.filter(id => id !== channelId));
+  }, []);
+
+  const markDashboardSeen = useCallback(() => {
+    localStorage.setItem('dashboard_last_seen', new Date().toISOString());
+    setNewItineraryCount(0);
+  }, []);
+
+  const refreshNotifications = useCallback(() => {
+    fetchUnreadAnnouncementCount();
+    fetchNewItineraryCount();
+    fetchUnreadMentions();
+  }, [fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions]);
+
+  // Initial fetch + 30s polling
+  useEffect(() => {
+    if (!user) return;
+    refreshNotifications();
+    const interval = setInterval(refreshNotifications, 30000);
+    return () => clearInterval(interval);
+  }, [user, refreshNotifications]);
+
   const value = {
     user,
     profile,
@@ -313,6 +413,12 @@ export function AuthProvider({ children }) {
     ensureSession,
     isAdmin: profile?.role === 'admin',
     isAssistant: profile?.role === 'assistant',
+    unreadAnnouncementCount,
+    newItineraryCount,
+    markDashboardSeen,
+    unreadMentionChannelIds,
+    markChannelSeen,
+    refreshNotifications,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -26,7 +26,7 @@ const NAV_ITEMS = [
 ];
 
 export default function AppLayout() {
-  const { profile, signOut, isAdmin, isAssistant } = useAuth();
+  const { profile, signOut, isAdmin, isAssistant, unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds } = useAuth();
   const [activeTab, setActiveTab] = useState(() => localStorage.getItem('studio-hub-tab') || 'dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [navTarget, setNavTarget] = useState(null);
@@ -48,6 +48,13 @@ export default function AppLayout() {
     }
   }, []);
 
+  const dashboardNotifCount = unreadAnnouncementCount + (isAdmin ? newItineraryCount : 0);
+
+  function handleNavClick(key) {
+    if (key === 'dashboard' && isAdmin) markDashboardSeen();
+    setActiveTab(key);
+  }
+
   function navigateTo(tab, target) {
     setNavTarget(target || null);
     setActiveTab(tab);
@@ -55,7 +62,7 @@ export default function AppLayout() {
 
   const renderPage = () => {
     switch (activeTab) {
-      case 'dashboard': return <Dashboard />;
+      case 'dashboard': return <Dashboard onNavigate={navigateTo} />;
       case 'projects': return <Projects onNavigate={navigateTo} />;
       case 'calendar': return <Calendar onNavigate={navigateTo} />;
       case 'ideation': return <Ideation initialConceptId={navTarget} onConceptOpened={() => setNavTarget(null)} />;
@@ -63,8 +70,8 @@ export default function AppLayout() {
       case 'analytics': return <Analytics />;
       case 'research': return <Research />;
       case 'reviews': return <Reviews />;
-      case 'channels': return <Channels />;
-      case 'messages': return <Messages />;
+      case 'channels': return <Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} />;
+      case 'messages': return <Messages onNavigate={navigateTo} />;
       case 'admin': return <AdminPanel initialTab={adminInitialTab} />;
       default: return <Dashboard />;
     }
@@ -95,16 +102,23 @@ export default function AppLayout() {
           {NAV_ITEMS.map(({ key, label, icon: Icon }) => (
             <button
               key={key}
-              onClick={() => setActiveTab(key)}
+              onClick={() => handleNavClick(key)}
               style={{
                 ...styles.navItem,
                 ...(activeTab === key ? styles.navItemActive : {}),
                 justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                position: 'relative',
               }}
               title={sidebarCollapsed ? label : undefined}
             >
               <Icon active={activeTab === key} />
               {!sidebarCollapsed && <span>{label}</span>}
+              {key === 'dashboard' && dashboardNotifCount > 0 && (
+                <span style={styles.navBadge}>{dashboardNotifCount}</span>
+              )}
+              {key === 'channels' && unreadMentionChannelIds.length > 0 && (
+                <span style={styles.navBadge}>{unreadMentionChannelIds.length}</span>
+              )}
             </button>
           ))}
 
@@ -342,6 +356,23 @@ const styles = {
   navItemActive: {
     background: 'rgba(99,102,241,0.12)',
     color: '#a5b4fc',
+  },
+  navBadge: {
+    position: 'absolute',
+    top: '4px',
+    right: '8px',
+    background: '#ef4444',
+    color: '#fff',
+    fontSize: '10px',
+    fontWeight: 700,
+    minWidth: '18px',
+    height: '18px',
+    borderRadius: '9px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '0 5px',
+    lineHeight: 1,
   },
   collapseBtn: {
     display: 'flex',
