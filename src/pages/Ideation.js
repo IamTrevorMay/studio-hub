@@ -5,6 +5,7 @@ import Whiteboard from './editors/Whiteboard';
 import StickyBoard from './editors/StickyBoard';
 import DocEditor from './editors/DocEditor';
 import Storyboard from './editors/Storyboard';
+import ScreenplayEditor from './editors/ScreenplayEditor';
 
 const CONCEPT_COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#22c55e', '#3b82f6', '#ef4444', '#14b8a6'];
 const DOC_TYPES = {
@@ -12,6 +13,7 @@ const DOC_TYPES = {
   stickyboard: { label: 'Sticky Board', icon: '📌', desc: 'Drag & drop sticky notes' },
   document: { label: 'Document', icon: '📝', desc: 'Rich text editor with export' },
   storyboard: { label: 'Storyboard', icon: '🎬', desc: 'Multi-page visual storyboard' },
+  screenplay: { label: 'Screenplay', icon: '🎭', desc: 'Industry-standard screenwriting' },
 };
 
 export default function Ideation({ initialConceptId, onConceptOpened }) {
@@ -122,6 +124,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
       content = docForm.type === 'whiteboard' ? { strokes: [] }
         : docForm.type === 'stickyboard' ? { notes: [] }
         : docForm.type === 'storyboard' ? { pageCount: 1 }
+        : docForm.type === 'screenplay' ? { titlePage: { title: '', writtenBy: '', basedOn: '', draft: '', date: '', contact: '' }, elements: [{ id: Date.now().toString(), type: 'sceneHeading', text: '' }], notes: [] }
         : { html: '' };
     }
 
@@ -164,6 +167,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
     const EditorComponent = activeDoc.type === 'whiteboard' ? Whiteboard
       : activeDoc.type === 'stickyboard' ? StickyBoard
       : activeDoc.type === 'storyboard' ? Storyboard
+      : activeDoc.type === 'screenplay' ? ScreenplayEditor
       : DocEditor;
     return (
       <EditorComponent
@@ -354,7 +358,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
       {templates.length > 0 && (
         <div style={styles.templatesSection}>
           <h2 style={styles.templatesSectionTitle}>📋 Templates</h2>
-          {['whiteboard', 'stickyboard', 'document', 'storyboard'].map(type => {
+          {['whiteboard', 'stickyboard', 'document', 'storyboard', 'screenplay'].map(type => {
             const typeTemplates = templates.filter(t => t.type === type);
             if (typeTemplates.length === 0) return null;
             return (
@@ -408,7 +412,7 @@ const styles = {
   conceptCardFooter: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   conceptCardMeta: { fontSize: '11px', color: 'rgba(255,255,255,0.25)' },
   deleteBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '14px', padding: '2px 6px' },
-  typeSelector: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' },
+  typeSelector: { display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px' },
   typeOption: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', padding: '16px 12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', cursor: 'pointer', fontFamily: 'inherit', color: 'rgba(255,255,255,0.5)', transition: 'all 0.15s' },
   typeOptionActive: { background: 'rgba(99,102,241,0.1)', borderColor: 'rgba(99,102,241,0.3)', color: '#a5b4fc' },
   typeIcon: { fontSize: '24px' },

@@ -109,6 +109,8 @@ function expandRecurringEvents(events, rangeStart, rangeEnd) {
     let count = 0;
     let cursor = new Date(origStart);
 
+    const excludedDates = new Set((rule.excludedDates || []).map(d => d.split('T')[0]));
+
     function addOccurrence(d) {
       const occStart = new Date(d);
       occStart.setHours(origStart.getHours(), origStart.getMinutes(), origStart.getSeconds());
@@ -118,6 +120,8 @@ function expandRecurringEvents(events, rangeStart, rangeEnd) {
       if (endDate && occStart > endDate) return false;
       if (rule.endType === 'count' && count >= endCount) return false;
       count++;
+      const dateKey = occStart.toISOString().split('T')[0];
+      if (excludedDates.has(dateKey)) return true;
       result.push({
         ...ev,
         id: count === 1 && occStart.getTime() === origStart.getTime() ? ev.id : `${ev.id}_r${count}`,
@@ -209,6 +213,7 @@ export default function Calendar({ onNavigate }) {
   const [showGuestDropdown, setShowGuestDropdown] = useState(false);
   const [expandedSocialDays, setExpandedSocialDays] = useState({});
   const [showCustomRecurrence, setShowCustomRecurrence] = useState(false);
+  const [recurrencePrompt, setRecurrencePrompt] = useState(null); // { action: 'edit'|'delete', event }
   const dropdownRef = useRef(null);
   const modalRef = useRef(null);
   const guestDropdownRef = useRef(null);
@@ -407,6 +412,10 @@ export default function Calendar({ onNavigate }) {
         ? new Date(`${endDateStr}T23:59:59`)
         : new Date(`${endDateStr}T${eventForm.end_time}:00`);
 
+      // Preserve excludedDates when editing an existing recurring event
+      const existingRule = editingEventId
+        ? calendarEvents.find(e => e.id === editingEventId)?.recurrence_rule
+        : null;
       const recurrenceRule = eventForm.recurrence === 'none' ? null : {
         type: eventForm.recurrence,
         interval: eventForm.recurrence_interval || 1,
@@ -416,6 +425,7 @@ export default function Calendar({ onNavigate }) {
         endType: eventForm.recurrence_end_type || 'never',
         endDate: eventForm.recurrence_end_type === 'date' ? eventForm.recurrence_end_date : undefined,
         endCount: eventForm.recurrence_end_type === 'count' ? eventForm.recurrence_end_count : undefined,
+        ...(existingRule?.excludedDates?.length ? { excludedDates: existingRule.excludedDates } : {}),
       };
 
       const payload = {
@@ -458,7 +468,6 @@ export default function Calendar({ onNavigate }) {
   async function handleDeleteEvent(eventId) {
     if (!window.confirm('Delete this event?')) return;
     try {
-      // Sync delete to Google Calendar before removing from DB
       await syncToGoogleCalendar('delete', eventId);
       const { error } = await supabase.from('calendar_events').delete().eq('id', eventId);
       if (error) throw error;
@@ -467,6 +476,75 @@ export default function Calendar({ onNavigate }) {
     } catch (err) {
       console.error('Error deleting event:', err);
     }
+  }
+
+  async function handleDeleteSingleOccurrence(ev) {
+    const parentId = ev._parentId || ev.id;
+    const parent = calendarEvents.find(e => e.id === parentId);
+    if (!parent) return;
+    const dateKey = new Date(ev.start_date).toISOString().split('T')[0];
+    const rule = { ...parent.recurrence_rule };
+    rule.excludedDates = [...(rule.excludedDates || []), dateKey];
+    try {
+      const { error } = await supabase.from('calendar_events')
+        .update({ recurrence_rule: rule }).eq('id', parentId);
+      if (error) throw error;
+      setSelectedEvent(null);
+      setRecurrencePrompt(null);
+      fetchCalendarEvents();
+    } catch (err) {
+      console.error('Error excluding occurrence:', err);
+    }
+  }
+
+  function handleEditSingleOccurrence(ev) {
+    // Open modal pre-filled with this occurrence's data, but as a NEW standalone event
+    const startD = new Date(ev.start_date);
+    const endD = new Date(ev.end_date);
+    const parentId = ev._parentId || ev.id;
+    const parent = calendarEvents.find(e => e.id === parentId) || ev;
+    setEventForm({
+      title: parent.title || '',
+      description: parent.description || '',
+      event_type: parent.event_type || 'meeting',
+      start_date: dk(startD),
+      start_time: `${String(startD.getHours()).padStart(2, '0')}:${String(startD.getMinutes()).padStart(2, '0')}`,
+      end_date: dk(endD),
+      end_time: `${String(endD.getHours()).padStart(2, '0')}:${String(endD.getMinutes()).padStart(2, '0')}`,
+      all_day: parent.all_day || false,
+      location: parent.location || '',
+      guests: parent.guests || [],
+      recurrence: 'none',
+      recurrence_interval: 1,
+      recurrence_days: [],
+      recurrence_end_type: 'never',
+      recurrence_end_date: '',
+      recurrence_end_count: 10,
+    });
+    // Store info to exclude this date from parent after save
+    setEditingEventId(null);
+    setShowEventModal(true);
+    setSelectedEvent(null);
+    setShowGuestDropdown(false);
+    setShowCustomRecurrence(false);
+    // Exclude the date from parent series
+    const dateKey = startD.toISOString().split('T')[0];
+    const rule = { ...(parent.recurrence_rule || {}) };
+    rule.excludedDates = [...(rule.excludedDates || []), dateKey];
+    supabase.from('calendar_events')
+      .update({ recurrence_rule: rule }).eq('id', parentId)
+      .then(({ error }) => { if (error) console.error('Error excluding date:', error); });
+    setRecurrencePrompt(null);
+  }
+
+  function promptRecurrenceAction(action, ev) {
+    const isRecurring = ev.recurrence_rule && ev.recurrence_rule.type !== 'none';
+    if (!isRecurring) {
+      if (action === 'edit') openEditEventModal(ev);
+      else handleDeleteEvent(ev._parentId || ev.id);
+      return;
+    }
+    setRecurrencePrompt({ action, event: ev });
   }
 
   function openNewEventModal(date) {
@@ -760,6 +838,7 @@ export default function Calendar({ onNavigate }) {
         onClick={(e) => handleEventClick(e, ev)}
       >
         <span style={{ fontSize: '9px', flexShrink: 0 }}>{icon}</span>
+        {!ev.all_day && <span style={{ fontSize: '9px', flexShrink: 0, color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>{new Date(ev.start_date).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>}
         <span style={{ ...styles.eventChipText, color }}>
           {ev.title.substring(0, maxLen)}
         </span>
@@ -1488,38 +1567,71 @@ export default function Calendar({ onNavigate }) {
                 {selectedEvent.creator?.full_name || 'Unknown'}
               </span>
             </div>
-            {(selectedEvent.created_by === profile?.id || isAdmin) && !selectedEvent._isRecurrenceInstance && (
+            {(selectedEvent.created_by === profile?.id || isAdmin) && (
               <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                 <button
-                  onClick={() => openEditEventModal(selectedEvent)}
+                  onClick={() => promptRecurrenceAction('edit', selectedEvent)}
                   style={styles.eventEditBtn}
                 >
-                  Edit Event
+                  Edit
                 </button>
                 <button
-                  onClick={() => handleDeleteEvent(selectedEvent._parentId || selectedEvent.id)}
+                  onClick={() => promptRecurrenceAction('delete', selectedEvent)}
                   style={styles.eventDeleteBtn}
                 >
-                  Delete{selectedEvent.recurrence_rule && selectedEvent.recurrence_rule.type !== 'none' ? ' All' : ''}
+                  Delete
                 </button>
               </div>
             )}
-            {(selectedEvent.created_by === profile?.id || isAdmin) && selectedEvent._isRecurrenceInstance && (
-              <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                <button
-                  onClick={() => openEditEventModal(selectedEvent)}
-                  style={styles.eventEditBtn}
-                >
-                  Edit Series
-                </button>
-                <button
-                  onClick={() => handleDeleteEvent(selectedEvent._parentId)}
-                  style={styles.eventDeleteBtn}
-                >
-                  Delete All
-                </button>
-              </div>
-            )}
+          </div>
+        </div>
+      )}
+
+      {/* Recurrence Action Prompt */}
+      {recurrencePrompt && (
+        <div style={styles.modalOverlay} onClick={() => setRecurrencePrompt(null)}>
+          <div style={styles.recurrencePrompt} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 4px 0', fontSize: '16px', fontWeight: 700, color: '#fff' }}>
+              {recurrencePrompt.action === 'delete' ? 'Delete Recurring Event' : 'Edit Recurring Event'}
+            </h3>
+            <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: 'rgba(255,255,255,0.5)' }}>
+              This is a repeating event. What would you like to {recurrencePrompt.action}?
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <button
+                onClick={() => {
+                  const ev = recurrencePrompt.event;
+                  if (recurrencePrompt.action === 'delete') {
+                    handleDeleteSingleOccurrence(ev);
+                  } else {
+                    handleEditSingleOccurrence(ev);
+                  }
+                }}
+                style={styles.recurrencePromptBtn}
+              >
+                This event only
+              </button>
+              <button
+                onClick={() => {
+                  const ev = recurrencePrompt.event;
+                  setRecurrencePrompt(null);
+                  if (recurrencePrompt.action === 'delete') {
+                    handleDeleteEvent(ev._parentId || ev.id);
+                  } else {
+                    openEditEventModal(ev);
+                  }
+                }}
+                style={styles.recurrencePromptBtn}
+              >
+                All events in this series
+              </button>
+              <button
+                onClick={() => setRecurrencePrompt(null)}
+                style={styles.recurrencePromptCancelBtn}
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1998,4 +2110,18 @@ const styles = {
   eventDetailLabel: { fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.5px' },
   eventEditBtn: { flex: 1, padding: '9px', background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '8px', color: '#a5b4fc', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   eventDeleteBtn: { flex: 1, padding: '9px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '8px', color: '#fca5a5', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  recurrencePrompt: {
+    background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '14px',
+    padding: '24px', width: '320px', boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
+  },
+  recurrencePromptBtn: {
+    padding: '11px', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)',
+    borderRadius: '8px', color: '#a5b4fc', fontSize: '13px', fontWeight: 600,
+    cursor: 'pointer', fontFamily: 'inherit', transition: 'background 0.15s',
+  },
+  recurrencePromptCancelBtn: {
+    padding: '11px', background: 'transparent', border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '8px', color: 'rgba(255,255,255,0.4)', fontSize: '13px',
+    cursor: 'pointer', fontFamily: 'inherit',
+  },
 };
