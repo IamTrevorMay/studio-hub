@@ -214,10 +214,26 @@ export default function Calendar({ onNavigate }) {
   const [expandedSocialDays, setExpandedSocialDays] = useState({});
   const [showCustomRecurrence, setShowCustomRecurrence] = useState(false);
   const [recurrencePrompt, setRecurrencePrompt] = useState(null); // { action: 'edit'|'delete', event }
+  const [showFilters, setShowFilters] = useState(false);
+  const [visibleFilters, setVisibleFilters] = useState(() => {
+    try {
+      const saved = localStorage.getItem('calendar_filters');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return { projects: true, deadline: true, meeting: true, live_recording: true, filming: true, video_post: true, unavailable: true, social_posts: true };
+  });
   const dropdownRef = useRef(null);
   const modalRef = useRef(null);
   const guestDropdownRef = useRef(null);
   const timeGridRef = useRef(null);
+
+  useEffect(() => {
+    try { localStorage.setItem('calendar_filters', JSON.stringify(visibleFilters)); } catch {}
+  }, [visibleFilters]);
+
+  function toggleFilter(key) {
+    setVisibleFilters(prev => ({ ...prev, [key]: !prev[key] }));
+  }
 
   useEffect(() => {
     function handleClick(e) {
@@ -689,7 +705,9 @@ export default function Calendar({ onNavigate }) {
     return expandedEvents.filter(ev => {
       const evStart = new Date(ev.start_date);
       const evEnd = new Date(ev.end_date);
-      return evStart <= dayEnd && evEnd >= dayStart;
+      if (evStart > dayEnd || evEnd < dayStart) return false;
+      if (!visibleFilters[ev.event_type]) return false;
+      return true;
     });
   }
 
@@ -724,6 +742,8 @@ export default function Calendar({ onNavigate }) {
     const weekStart = dk(week[0].date);
     const weekEnd = dk(week[6].date);
     const bars = [];
+
+    if (!visibleFilters.projects) return { bars: [], rowCount: 0 };
 
     projects.forEach(project => {
       if (project.deadline < weekStart || project.start_date > weekEnd) return;
@@ -954,8 +974,46 @@ export default function Calendar({ onNavigate }) {
           >
             {loadingPosts ? '\u27F3' : '\uD83D\uDCC5'} Metricool
           </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowFilters(!showFilters); }}
+            style={{ ...styles.metricoolToggle, ...(showFilters ? styles.filterToggleActive : {}) }}
+          >
+            {'\u2630'} Filters
+          </button>
         </div>
       </div>
+
+      {showFilters && (
+        <div style={styles.filterRow}>
+          <FilterChip
+            label="Projects"
+            color="#8b5cf6"
+            active={visibleFilters.projects}
+            onClick={() => toggleFilter('projects')}
+          />
+          <span style={styles.filterDivider} />
+          {EVENT_TYPES.map(type => (
+            <FilterChip
+              key={type}
+              label={`${EVENT_TYPE_ICONS[type]} ${EVENT_TYPE_LABELS[type]}`}
+              color={EVENT_TYPE_COLORS[type]}
+              active={visibleFilters[type]}
+              onClick={() => toggleFilter(type)}
+            />
+          ))}
+          {showMetricool && (
+            <>
+              <span style={styles.filterDivider} />
+              <FilterChip
+                label="Social Posts"
+                color="#22c55e"
+                active={visibleFilters.social_posts}
+                onClick={() => toggleFilter('social_posts')}
+              />
+            </>
+          )}
+        </div>
+      )}
 
       {metricoolError && showMetricool && (
         <div style={styles.errorBanner}>
@@ -982,7 +1040,7 @@ export default function Calendar({ onNavigate }) {
                   <div key={wi} style={styles.weekRow}>
                     {week.map((day, di) => {
                       const isToday = day.date.toDateString() === new Date().toDateString();
-                      const dayPosts = showMetricool ? getPostsForDate(day.date) : [];
+                      const dayPosts = showMetricool && visibleFilters.social_posts ? getPostsForDate(day.date) : [];
                       const dayEvents = getEventsForDate(day.date);
                       const regularEvents = dayEvents.filter(ev => ev.event_type !== 'live_recording');
                       const liveEvents = dayEvents.filter(ev => ev.event_type === 'live_recording');
@@ -1999,6 +2057,31 @@ export default function Calendar({ onNavigate }) {
   );
 }
 
+function FilterChip({ label, color, active, onClick }) {
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      style={{
+        display: 'flex', alignItems: 'center', gap: '6px',
+        padding: '4px 10px', borderRadius: '6px', border: '1px solid',
+        borderColor: active ? `${color}50` : 'rgba(255,255,255,0.08)',
+        background: active ? `${color}18` : 'rgba(255,255,255,0.02)',
+        color: active ? color : 'rgba(255,255,255,0.3)',
+        fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+        fontFamily: 'inherit', transition: 'all 0.15s',
+        whiteSpace: 'nowrap', opacity: active ? 1 : 0.6,
+      }}
+    >
+      <div style={{
+        width: '8px', height: '8px', borderRadius: '50%',
+        background: active ? color : 'rgba(255,255,255,0.2)',
+        flexShrink: 0, transition: 'background 0.15s',
+      }} />
+      {label}
+    </button>
+  );
+}
+
 const styles = {
   page: { padding: '32px 40px', minHeight: '100%' },
   topBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' },
@@ -2015,6 +2098,9 @@ const styles = {
   viewToggleBtnActive: { background: 'rgba(99,102,241,0.2)', color: '#a5b4fc' },
   metricoolToggle: { padding: '6px 14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', color: 'rgba(255,255,255,0.45)', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s' },
   metricoolToggleActive: { background: 'rgba(34,197,94,0.12)', borderColor: 'rgba(34,197,94,0.25)', color: '#86efac' },
+  filterToggleActive: { background: 'rgba(99,102,241,0.12)', borderColor: 'rgba(99,102,241,0.25)', color: '#a5b4fc' },
+  filterRow: { display: 'flex', alignItems: 'center', gap: '6px', padding: '0 0 12px', flexWrap: 'wrap' },
+  filterDivider: { width: '1px', height: '20px', background: 'rgba(255,255,255,0.08)', flexShrink: 0 },
   errorBanner: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', marginBottom: '16px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '10px', color: '#fca5a5', fontSize: '13px' },
   errorClose: { background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer', fontSize: '14px', padding: '0 4px' },
   // Month view
