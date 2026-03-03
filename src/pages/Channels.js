@@ -76,7 +76,11 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
       .on('postgres_changes', {
         event: 'UPDATE', schema: 'public', table: 'channel_messages',
         filter: `channel_id=eq.${activeChannel.id}`,
-      }, () => {
+      }, (payload) => {
+        setMessages(prev => prev.map(m => m.id === payload.new.id
+          ? { ...m, content: payload.new.content, edited_at: payload.new.edited_at, is_pinned: payload.new.is_pinned }
+          : m
+        ));
         fetchPinnedMessages(activeChannel.id);
       })
       .subscribe();
@@ -105,6 +109,18 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   async function handlePinMessage(messageId, isPinned) {
     await supabase.from('channel_messages').update({ is_pinned: !isPinned }).eq('id', messageId);
     if (activeChannel) fetchPinnedMessages(activeChannel.id);
+  }
+
+  async function handleEditMessage(messageId, newContent) {
+    if (!newContent.trim()) return;
+    await supabase.from('channel_messages').update({
+      content: newContent.trim(),
+      edited_at: new Date().toISOString(),
+    }).eq('id', messageId);
+    setMessages(prev => prev.map(m => m.id === messageId
+      ? { ...m, content: newContent.trim(), edited_at: new Date().toISOString() }
+      : m
+    ));
   }
 
   async function handleDeleteMessage(messageId) {
@@ -380,6 +396,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
                           isAdmin={isAdmin}
                           profileId={profile?.id}
                           onPin={handlePinMessage}
+                          onEdit={handleEditMessage}
                           onDelete={handleDeleteMessage}
                           formatContent={formatMessageContent}
                         />
@@ -482,12 +499,16 @@ function ChannelItem({ channel, isActive, isAdmin, isFirst, isLast, hasUnreadMen
   );
 }
 
-function MessageRow({ msg, isAdmin, profileId, onPin, onDelete, formatContent }) {
+function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, formatContent }) {
   const [hovered, setHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editContent, setEditContent] = useState(msg.content);
   const menuRef = useRef(null);
+  const editInputRef = useRef(null);
 
   const isOwner = msg.user_id === profileId;
+  const canEdit = isOwner;
   const canDelete = isAdmin || isOwner;
   const canPin = isAdmin;
 
@@ -500,9 +521,43 @@ function MessageRow({ msg, isAdmin, profileId, onPin, onDelete, formatContent })
     return () => document.removeEventListener('mousedown', handleClick);
   }, [menuOpen]);
 
+  useEffect(() => {
+    if (editing && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.selectionStart = editInputRef.current.value.length;
+    }
+  }, [editing]);
+
   function handleCopy() {
     navigator.clipboard.writeText(msg.content).catch(() => {});
     setMenuOpen(false);
+  }
+
+  function handleStartEdit() {
+    setEditContent(msg.content);
+    setEditing(true);
+    setMenuOpen(false);
+  }
+
+  function handleSaveEdit() {
+    if (editContent.trim() && editContent.trim() !== msg.content) {
+      onEdit(msg.id, editContent);
+    }
+    setEditing(false);
+  }
+
+  function handleCancelEdit() {
+    setEditContent(msg.content);
+    setEditing(false);
+  }
+
+  function handleEditKeyDown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSaveEdit();
+    } else if (e.key === 'Escape') {
+      handleCancelEdit();
+    }
   }
 
   return (
@@ -517,45 +572,70 @@ function MessageRow({ msg, isAdmin, profileId, onPin, onDelete, formatContent })
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => { setHovered(false); }}
     >
-      <p style={msgStyles.text}>
-        {msg.is_pinned && <span style={msgStyles.pinBadge}>📌</span>}
-        {formatContent(msg.content)}
-      </p>
-      <div style={{ position: 'relative', flexShrink: 0 }}>
-        <button
-          onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
-          style={{
-            ...msgStyles.menuBtn,
-            opacity: hovered || menuOpen ? 0.7 : 0,
-          }}
-          title="More options"
-        >
-          ⋯
-        </button>
-        {menuOpen && (
-          <div ref={menuRef} style={msgStyles.menuDropdown}>
-            {canPin && (
-              <button
-                onClick={() => { onPin(msg.id, msg.is_pinned); setMenuOpen(false); }}
-                style={msgStyles.menuItem}
-              >
-                📌 {msg.is_pinned ? 'Unpin' : 'Pin'}
-              </button>
-            )}
-            <button onClick={handleCopy} style={msgStyles.menuItem}>
-              📋 Copy
+      {editing ? (
+        <div style={{ flex: 1 }}>
+          <input
+            ref={editInputRef}
+            value={editContent}
+            onChange={(e) => setEditContent(e.target.value)}
+            onKeyDown={handleEditKeyDown}
+            style={msgStyles.editInput}
+          />
+          <div style={msgStyles.editActions}>
+            <span style={msgStyles.editHint}>Enter to save, Esc to cancel</span>
+            <button onClick={handleCancelEdit} style={msgStyles.editCancelBtn}>Cancel</button>
+            <button onClick={handleSaveEdit} style={msgStyles.editSaveBtn}>Save</button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p style={msgStyles.text}>
+            {msg.is_pinned && <span style={msgStyles.pinBadge}>📌</span>}
+            {formatContent(msg.content)}
+            {msg.edited_at && <span style={msgStyles.editedTag}>(edited)</span>}
+          </p>
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            <button
+              onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
+              style={{
+                ...msgStyles.menuBtn,
+                opacity: hovered || menuOpen ? 0.7 : 0,
+              }}
+              title="More options"
+            >
+              ⋯
             </button>
-            {canDelete && (
-              <button
-                onClick={() => { onDelete(msg.id); setMenuOpen(false); }}
-                style={{ ...msgStyles.menuItem, color: '#fca5a5' }}
-              >
-                🗑 Delete
-              </button>
+            {menuOpen && (
+              <div ref={menuRef} style={msgStyles.menuDropdown}>
+                {canEdit && (
+                  <button onClick={handleStartEdit} style={msgStyles.menuItem}>
+                    ✏️ Edit
+                  </button>
+                )}
+                {canPin && (
+                  <button
+                    onClick={() => { onPin(msg.id, msg.is_pinned); setMenuOpen(false); }}
+                    style={msgStyles.menuItem}
+                  >
+                    📌 {msg.is_pinned ? 'Unpin' : 'Pin'}
+                  </button>
+                )}
+                <button onClick={handleCopy} style={msgStyles.menuItem}>
+                  📋 Copy
+                </button>
+                {canDelete && (
+                  <button
+                    onClick={() => { onDelete(msg.id); setMenuOpen(false); }}
+                    style={{ ...msgStyles.menuItem, color: '#fca5a5' }}
+                  >
+                    🗑 Delete
+                  </button>
+                )}
+              </div>
             )}
           </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 }
@@ -816,5 +896,34 @@ const msgStyles = {
     background: 'rgba(99,102,241,0.15)', color: '#a5b4fc',
     padding: '1px 4px', borderRadius: '4px', fontWeight: 600,
     cursor: 'pointer', textDecoration: 'none',
+  },
+  editedTag: {
+    fontSize: '11px', color: 'rgba(255,255,255,0.25)', marginLeft: '6px',
+    fontStyle: 'italic',
+  },
+  editInput: {
+    width: '100%', padding: '8px 12px',
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(99,102,241,0.4)', borderRadius: '8px',
+    color: '#fff', fontSize: '14px', fontFamily: 'inherit', outline: 'none',
+    boxSizing: 'border-box',
+  },
+  editActions: {
+    display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px',
+  },
+  editHint: {
+    fontSize: '11px', color: 'rgba(255,255,255,0.25)', flex: 1,
+  },
+  editCancelBtn: {
+    padding: '4px 10px', background: 'none',
+    border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px',
+    color: 'rgba(255,255,255,0.5)', fontSize: '12px', cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  editSaveBtn: {
+    padding: '4px 10px', background: '#6366f1',
+    border: 'none', borderRadius: '6px',
+    color: '#fff', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+    fontFamily: 'inherit',
   },
 };
