@@ -97,8 +97,8 @@ export default function Goals() {
         target_value,
         category: form.category,
         created_by: profile.id,
-      });
-      if (error) { console.error(error); return; }
+      }).select();
+      if (error) { console.error(error); alert('Error creating goal: ' + error.message); return; }
     }
     cancelForm();
     fetchGoals();
@@ -146,20 +146,18 @@ export default function Goals() {
           />
           <div style={styles.formRow}>
             <input
-              type="number"
               value={form.current_value}
               onChange={e => setForm({ ...form, current_value: e.target.value })}
               placeholder="Current value"
               style={{ ...styles.input, flex: 1 }}
-              step="any"
+              inputMode="decimal"
             />
             <input
-              type="number"
               value={form.target_value}
               onChange={e => setForm({ ...form, target_value: e.target.value })}
               placeholder="Target value"
               style={{ ...styles.input, flex: 1 }}
-              step="any"
+              inputMode="decimal"
             />
             <select
               value={form.category}
