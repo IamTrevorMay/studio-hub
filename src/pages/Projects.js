@@ -34,6 +34,7 @@ export default function Projects({ onNavigate }) {
   const [filterStatus, setFilterStatus] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('projects_view') || 'list');
+  const [showArchived, setShowArchived] = useState(false);
 
   // Form state
   const [form, setForm] = useState({
@@ -211,6 +212,16 @@ export default function Projects({ onNavigate }) {
     }
   }
 
+  async function handleArchiveProject(projectId) {
+    await supabase.from('projects').update({ is_archived: true }).eq('id', projectId);
+    fetchProjects();
+  }
+
+  async function handleUnarchiveProject(projectId) {
+    await supabase.from('projects').update({ is_archived: false }).eq('id', projectId);
+    fetchProjects();
+  }
+
   async function handleDeleteProject(projectId) {
     if (!window.confirm('Delete this project and all its data?')) return;
     await supabase.from('projects').delete().eq('id', projectId);
@@ -252,7 +263,14 @@ export default function Projects({ onNavigate }) {
     }
   }
 
+  const archivedCount = projects.filter(p => p.is_archived).length;
+
   const filtered = projects.filter(p => {
+    if (showArchived) {
+      if (!p.is_archived) return false;
+    } else {
+      if (p.is_archived) return false;
+    }
     if (filterStatus !== 'all' && p.status !== filterStatus) return false;
     if (searchQuery && !p.name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     return true;
@@ -263,7 +281,7 @@ export default function Projects({ onNavigate }) {
       <div style={styles.topBar}>
         <div>
           <h1 style={styles.pageTitle}>Projects</h1>
-          <p style={styles.pageSubtitle}>{projects.length} total projects</p>
+          <p style={styles.pageSubtitle}>{projects.length - archivedCount} active{archivedCount > 0 ? ` · ${archivedCount} archived` : ''}</p>
         </div>
         <button onClick={() => setShowForm(!showForm)} style={styles.addBtn}>
           {showForm ? '✕ Cancel' : '+ New Project'}
@@ -378,6 +396,21 @@ export default function Projects({ onNavigate }) {
               {STATUS_LABELS[s]}
             </button>
           ))}
+          {archivedCount > 0 && (
+            <button
+              onClick={() => setShowArchived(!showArchived)}
+              style={{
+                ...styles.filterBtn,
+                ...(showArchived ? {
+                  background: 'rgba(107,114,128,0.2)',
+                  color: '#9ca3af',
+                  borderColor: 'rgba(107,114,128,0.4)',
+                } : {}),
+              }}
+            >
+              Archived ({archivedCount})
+            </button>
+          )}
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <div style={styles.viewToggle}>
@@ -445,6 +478,8 @@ export default function Projects({ onNavigate }) {
                 onAddComment={handleAddComment}
                 onDeleteComment={handleDeleteComment}
                 onDeleteProject={handleDeleteProject}
+                onArchiveProject={handleArchiveProject}
+                onUnarchiveProject={handleUnarchiveProject}
                 onLinkConcept={handleLinkConcept}
                 onNavigate={onNavigate}
                 concepts={concepts}
@@ -514,7 +549,8 @@ function ProjectRow({
   project, teamMembers, profile, isSelected, onToggle,
   onStatusChange, onAssign, onRemoveAssignment,
   onAddAttachment, onRemoveAttachment, onAddComment, onDeleteComment,
-  onDeleteProject, onLinkConcept, onNavigate, concepts,
+  onDeleteProject, onArchiveProject, onUnarchiveProject,
+  onLinkConcept, onNavigate, concepts,
   isAdmin,
   onAddChecklistItem, onToggleChecklistItem, onDeleteChecklistItem,
 }) {
@@ -570,15 +606,21 @@ function ProjectRow({
   );
 
   return (
-    <div style={styles.projectRow}>
+    <div style={{
+      ...styles.projectRow,
+      ...(project.is_archived ? { opacity: 0.6 } : {}),
+    }}>
       <div style={styles.projectRowMain} onClick={onToggle}>
         <div style={styles.projectRowLeft}>
           <div style={{
             ...styles.statusDot,
-            background: STATUS_COLORS[project.status],
+            background: project.is_archived ? '#6b7280' : STATUS_COLORS[project.status],
           }} />
           <div>
-            <div style={styles.projectRowName}>{project.name}</div>
+            <div style={styles.projectRowName}>
+              {project.name}
+              {project.is_archived && <span style={styles.archivedTag}>Archived</span>}
+            </div>
             <div style={styles.projectRowMeta}>
               {project.type.replace('_', ' ')}
               {project.channel && ` · ${project.channel}`}
@@ -949,13 +991,26 @@ function ProjectRow({
             )}
           </div>
 
-          {/* Delete Project */}
+          {/* Archive / Delete Project */}
           {(project.created_by === profile?.id || isAdmin) && (
             <div style={styles.detailSection}>
-              <button
-                onClick={() => onDeleteProject(project.id)}
-                style={styles.deleteProjectBtn}
-              >🗑 Delete Project</button>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {project.is_archived ? (
+                  <button
+                    onClick={() => onUnarchiveProject(project.id)}
+                    style={styles.unarchiveProjectBtn}
+                  >Restore from Archive</button>
+                ) : (
+                  <button
+                    onClick={() => onArchiveProject(project.id)}
+                    style={styles.archiveProjectBtn}
+                  >Archive Project</button>
+                )}
+                <button
+                  onClick={() => onDeleteProject(project.id)}
+                  style={styles.deleteProjectBtn}
+                >Delete</button>
+              </div>
             </div>
           )}
         </div>
@@ -1225,7 +1280,10 @@ const styles = {
   conceptLinkRow: { display: 'flex', alignItems: 'center', gap: '8px' },
   conceptLinkBtn: { display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '8px', color: '#a5b4fc', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   conceptLinkDot: { width: '8px', height: '8px', borderRadius: '3px', flexShrink: 0 },
-  deleteProjectBtn: { padding: '8px 16px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '8px', color: '#fca5a5', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', width: '100%' },
+  deleteProjectBtn: { padding: '8px 16px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '8px', color: '#fca5a5', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  archiveProjectBtn: { flex: 1, padding: '8px 16px', background: 'rgba(107,114,128,0.08)', border: '1px solid rgba(107,114,128,0.2)', borderRadius: '8px', color: '#9ca3af', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  unarchiveProjectBtn: { flex: 1, padding: '8px 16px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '8px', color: '#a5b4fc', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  archivedTag: { marginLeft: '8px', fontSize: '10px', fontWeight: 600, color: '#6b7280', background: 'rgba(107,114,128,0.15)', padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase', letterSpacing: '0.3px', verticalAlign: 'middle' },
   viewToggle: {
     display: 'flex',
     background: 'rgba(255,255,255,0.04)',
