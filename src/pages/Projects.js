@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
@@ -32,12 +33,17 @@ export default function Projects({ onNavigate }) {
   const [selectedProject, setSelectedProject] = useState(null);
   const [filterStatus, setFilterStatus] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('projects_view') || 'list');
 
   // Form state
   const [form, setForm] = useState({
     name: '', type: 'youtube_video', channel: '',
     start_date: '', deadline: '', notes: '', status: 'concept',
   });
+
+  useEffect(() => {
+    localStorage.setItem('projects_view', viewMode);
+  }, [viewMode]);
 
   const fetchProjects = useCallback(async () => {
     try {
@@ -47,7 +53,8 @@ export default function Projects({ onNavigate }) {
           *,
           project_assignments(*, profile:profiles(id, full_name, title)),
           project_attachments(*),
-          concept:concepts(id, name, color)
+          concept:concepts(id, name, color),
+          project_checklists(*)
         `)
         .order('created_at', { ascending: false });
 
@@ -70,6 +77,9 @@ export default function Projects({ onNavigate }) {
     const channel = supabase
       .channel('projects-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, () => {
+        fetchProjects();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'project_checklists' }, () => {
         fetchProjects();
       })
       .subscribe();
@@ -105,7 +115,24 @@ export default function Projects({ onNavigate }) {
   }
 
   async function handleStatusChange(projectId, newStatus) {
+    const project = projects.find(p => p.id === projectId);
     await supabase.from('projects').update({ status: newStatus }).eq('id', projectId);
+    // Notify assigned users
+    if (project?.project_assignments) {
+      const notifs = project.project_assignments
+        .filter(a => a.user_id !== profile.id)
+        .map(a => ({
+          user_id: a.user_id,
+          type: 'status_change',
+          title: `${project.name} moved to ${STATUS_LABELS[newStatus]}`,
+          body: `${profile.full_name} changed the status`,
+          link_tab: 'projects',
+          link_target: projectId,
+        }));
+      if (notifs.length > 0) {
+        await supabase.from('notifications').insert(notifs);
+      }
+    }
     fetchProjects();
   }
 
@@ -113,6 +140,18 @@ export default function Projects({ onNavigate }) {
     await supabase.from('project_assignments').insert({
       project_id: projectId, user_id: userId, assignment_role: role,
     });
+    // Notify assigned user
+    if (userId !== profile.id) {
+      const project = projects.find(p => p.id === projectId);
+      await supabase.from('notifications').insert({
+        user_id: userId,
+        type: 'assignment',
+        title: `You were assigned to ${project?.name || 'a project'}`,
+        body: `Role: ${role} — by ${profile.full_name}`,
+        link_tab: 'projects',
+        link_target: projectId,
+      });
+    }
     fetchProjects();
   }
 
@@ -139,6 +178,23 @@ export default function Projects({ onNavigate }) {
       project_id: projectId, user_id: profile.id, content: content.trim(),
     });
     if (error) console.error('Error adding comment:', error);
+    // Notify project assignees
+    const project = projects.find(p => p.id === projectId);
+    if (project?.project_assignments) {
+      const notifs = project.project_assignments
+        .filter(a => a.user_id !== profile.id)
+        .map(a => ({
+          user_id: a.user_id,
+          type: 'comment',
+          title: `New comment on ${project.name}`,
+          body: content.trim().substring(0, 100),
+          link_tab: 'projects',
+          link_target: projectId,
+        }));
+      if (notifs.length > 0) {
+        await supabase.from('notifications').insert(notifs);
+      }
+    }
   }
 
   async function handleDeleteComment(commentId) {
@@ -164,6 +220,36 @@ export default function Projects({ onNavigate }) {
   async function handleLinkConcept(projectId, conceptId) {
     await supabase.from('projects').update({ concept_id: conceptId || null }).eq('id', projectId);
     fetchProjects();
+  }
+
+  async function handleAddChecklistItem(projectId, stage, content) {
+    if (!content.trim()) return;
+    await supabase.from('project_checklists').insert({
+      project_id: projectId, stage, content: content.trim(), created_by: profile.id,
+    });
+    fetchProjects();
+  }
+
+  async function handleToggleChecklistItem(itemId, isComplete) {
+    await supabase.from('project_checklists').update({
+      is_complete: !isComplete, updated_at: new Date().toISOString(),
+    }).eq('id', itemId);
+    fetchProjects();
+  }
+
+  async function handleDeleteChecklistItem(itemId) {
+    await supabase.from('project_checklists').delete().eq('id', itemId);
+    fetchProjects();
+  }
+
+  function onDragEnd(result) {
+    if (!result.destination) return;
+    const { draggableId, destination } = result;
+    const newStatus = destination.droppableId;
+    const project = projects.find(p => p.id === draggableId);
+    if (project && project.status !== newStatus) {
+      handleStatusChange(draggableId, newStatus);
+    }
   }
 
   const filtered = projects.filter(p => {
@@ -293,46 +379,132 @@ export default function Projects({ onNavigate }) {
             </button>
           ))}
         </div>
-        <input
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search projects..."
-          style={styles.searchInput}
-        />
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div style={styles.viewToggle}>
+            <button
+              onClick={() => setViewMode('list')}
+              style={{
+                ...styles.viewToggleBtn,
+                ...(viewMode === 'list' ? styles.viewToggleBtnActive : {}),
+              }}
+              title="List view"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <rect x="1" y="2" width="14" height="2" rx="0.5" />
+                <rect x="1" y="7" width="14" height="2" rx="0.5" />
+                <rect x="1" y="12" width="14" height="2" rx="0.5" />
+              </svg>
+            </button>
+            <button
+              onClick={() => setViewMode('board')}
+              style={{
+                ...styles.viewToggleBtn,
+                ...(viewMode === 'board' ? styles.viewToggleBtnActive : {}),
+              }}
+              title="Board view"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <rect x="1" y="1" width="4" height="14" rx="1" />
+                <rect x="6" y="1" width="4" height="10" rx="1" />
+                <rect x="11" y="1" width="4" height="12" rx="1" />
+              </svg>
+            </button>
+          </div>
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search projects..."
+            style={styles.searchInput}
+          />
+        </div>
       </div>
 
-      {/* Project List */}
+      {/* Project List / Board */}
       {loading ? (
         <p style={styles.emptyText}>Loading projects...</p>
-      ) : filtered.length === 0 ? (
-        <div style={styles.emptyCard}>
-          <p style={styles.emptyText}>No projects found.</p>
-        </div>
+      ) : viewMode === 'list' ? (
+        filtered.length === 0 ? (
+          <div style={styles.emptyCard}>
+            <p style={styles.emptyText}>No projects found.</p>
+          </div>
+        ) : (
+          <div style={styles.projectList}>
+            {filtered.map(project => (
+              <ProjectRow
+                key={project.id}
+                project={project}
+                teamMembers={teamMembers}
+                profile={profile}
+                isSelected={selectedProject === project.id}
+                onToggle={() => setSelectedProject(selectedProject === project.id ? null : project.id)}
+                onStatusChange={handleStatusChange}
+                onAssign={handleAssign}
+                onRemoveAssignment={handleRemoveAssignment}
+                onAddAttachment={handleAddAttachment}
+                onRemoveAttachment={handleRemoveAttachment}
+                onAddComment={handleAddComment}
+                onDeleteComment={handleDeleteComment}
+                onDeleteProject={handleDeleteProject}
+                onLinkConcept={handleLinkConcept}
+                onNavigate={onNavigate}
+                concepts={concepts}
+                isAdmin={isAdmin}
+                onAddChecklistItem={handleAddChecklistItem}
+                onToggleChecklistItem={handleToggleChecklistItem}
+                onDeleteChecklistItem={handleDeleteChecklistItem}
+              />
+            ))}
+          </div>
+        )
       ) : (
-        <div style={styles.projectList}>
-          {filtered.map(project => (
-            <ProjectRow
-              key={project.id}
-              project={project}
-              teamMembers={teamMembers}
-              profile={profile}
-              isSelected={selectedProject === project.id}
-              onToggle={() => setSelectedProject(selectedProject === project.id ? null : project.id)}
-              onStatusChange={handleStatusChange}
-              onAssign={handleAssign}
-              onRemoveAssignment={handleRemoveAssignment}
-              onAddAttachment={handleAddAttachment}
-              onRemoveAttachment={handleRemoveAttachment}
-              onAddComment={handleAddComment}
-              onDeleteComment={handleDeleteComment}
-              onDeleteProject={handleDeleteProject}
-              onLinkConcept={handleLinkConcept}
-              onNavigate={onNavigate}
-              concepts={concepts}
-              isAdmin={isAdmin}
-            />
-          ))}
-        </div>
+        <DragDropContext onDragEnd={onDragEnd}>
+          <div style={styles.boardContainer}>
+            {STATUSES.map(status => {
+              const columnProjects = filtered.filter(p => p.status === status);
+              return (
+                <Droppable droppableId={status} key={status}>
+                  {(provided, snapshot) => (
+                    <div
+                      ref={provided.innerRef}
+                      {...provided.droppableProps}
+                      style={{
+                        ...styles.boardColumn,
+                        background: snapshot.isDraggingOver ? 'rgba(99,102,241,0.06)' : 'rgba(255,255,255,0.02)',
+                      }}
+                    >
+                      <div style={styles.boardColumnHeader}>
+                        <div style={{ ...styles.boardColumnDot, background: STATUS_COLORS[status] }} />
+                        <span style={{ ...styles.boardColumnTitle, color: STATUS_COLORS[status] }}>{STATUS_LABELS[status]}</span>
+                        <span style={styles.boardColumnCount}>{columnProjects.length}</span>
+                      </div>
+                      <div style={styles.boardColumnBody}>
+                        {columnProjects.map((project, index) => (
+                          <Draggable key={project.id} draggableId={project.id} index={index}>
+                            {(provided, snapshot) => (
+                              <div
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                {...provided.dragHandleProps}
+                                style={{
+                                  ...styles.kanbanCard,
+                                  ...(snapshot.isDragging ? { boxShadow: '0 8px 24px rgba(0,0,0,0.4)', border: '1px solid rgba(99,102,241,0.3)' } : {}),
+                                  ...provided.draggableProps.style,
+                                }}
+                              >
+                                <KanbanCard project={project} />
+                              </div>
+                            )}
+                          </Draggable>
+                        ))}
+                        {provided.placeholder}
+                      </div>
+                    </div>
+                  )}
+                </Droppable>
+              );
+            })}
+          </div>
+        </DragDropContext>
       )}
     </div>
   );
@@ -344,6 +516,7 @@ function ProjectRow({
   onAddAttachment, onRemoveAttachment, onAddComment, onDeleteComment,
   onDeleteProject, onLinkConcept, onNavigate, concepts,
   isAdmin,
+  onAddChecklistItem, onToggleChecklistItem, onDeleteChecklistItem,
 }) {
   const [assignUserId, setAssignUserId] = useState('');
   const [assignRole, setAssignRole] = useState('editor');
@@ -352,6 +525,8 @@ function ProjectRow({
   const [commentText, setCommentText] = useState('');
   const [comments, setComments] = useState([]);
   const [loadingComments, setLoadingComments] = useState(false);
+  const [newChecklistContent, setNewChecklistContent] = useState('');
+  const [showAllStages, setShowAllStages] = useState(false);
 
   useEffect(() => {
     if (!isSelected) return;
@@ -425,6 +600,15 @@ function ProjectRow({
               <div style={styles.miniAvatarMore}>+{project.project_assignments.length - 4}</div>
             )}
           </div>
+          {(() => {
+            const cl = project.project_checklists || [];
+            const stageItems = cl.filter(c => c.stage === project.status);
+            const done = stageItems.filter(c => c.is_complete).length;
+            const tot = stageItems.length;
+            return tot > 0 ? (
+              <span style={styles.checklistBadge}>{done}/{tot}</span>
+            ) : null;
+          })()}
           <span style={{
             ...styles.statusTag,
             background: `${STATUS_COLORS[project.status]}15`,
@@ -468,6 +652,120 @@ function ProjectRow({
                 );
               })}
             </div>
+          </div>
+
+          {/* Checklist */}
+          <div style={styles.detailSection}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h4 style={styles.detailLabel}>Checklist — {STATUS_LABELS[project.status]}</h4>
+              {(project.project_checklists || []).some(c => c.stage !== project.status) && (
+                <button
+                  onClick={() => setShowAllStages(!showAllStages)}
+                  style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)', fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit' }}
+                >
+                  {showAllStages ? 'Show current only' : 'Show all stages'}
+                </button>
+              )}
+            </div>
+            {(() => {
+              const checklists = project.project_checklists || [];
+              const stagesToShow = showAllStages ? STATUSES : [project.status];
+              return stagesToShow.map(stage => {
+                const items = checklists.filter(c => c.stage === stage);
+                const completedCount = items.filter(c => c.is_complete).length;
+                if (!showAllStages && items.length === 0 && stage === project.status) {
+                  return (
+                    <div key={stage}>
+                      <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.25)', margin: '4px 0 8px' }}>No checklist items yet.</p>
+                      <div style={styles.assignForm}>
+                        <input
+                          value={newChecklistContent}
+                          onChange={(e) => setNewChecklistContent(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && newChecklistContent.trim()) {
+                              onAddChecklistItem(project.id, stage, newChecklistContent);
+                              setNewChecklistContent('');
+                            }
+                          }}
+                          placeholder="Add checklist item..."
+                          style={styles.smallInput}
+                        />
+                        <button
+                          onClick={() => {
+                            if (newChecklistContent.trim()) {
+                              onAddChecklistItem(project.id, stage, newChecklistContent);
+                              setNewChecklistContent('');
+                            }
+                          }}
+                          style={styles.smallBtn}
+                          disabled={!newChecklistContent.trim()}
+                        >Add</button>
+                      </div>
+                    </div>
+                  );
+                }
+                if (showAllStages && items.length === 0) return null;
+                return (
+                  <div key={stage} style={{ marginBottom: showAllStages ? '12px' : '0' }}>
+                    {showAllStages && (
+                      <div style={{ fontSize: '11px', fontWeight: 600, color: STATUS_COLORS[stage], marginBottom: '6px', textTransform: 'uppercase' }}>
+                        {STATUS_LABELS[stage]} ({completedCount}/{items.length})
+                      </div>
+                    )}
+                    {items.length > 0 && (
+                      <div style={{ marginBottom: '6px', background: 'rgba(255,255,255,0.04)', borderRadius: '6px', height: '4px', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${items.length > 0 ? (completedCount / items.length) * 100 : 0}%`, background: STATUS_COLORS[stage], borderRadius: '6px', transition: 'width 0.2s' }} />
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                      {items.map(item => (
+                        <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px', borderRadius: '6px', background: 'rgba(255,255,255,0.02)' }}>
+                          <input
+                            type="checkbox"
+                            checked={item.is_complete}
+                            onChange={() => onToggleChecklistItem(item.id, item.is_complete)}
+                            style={{ width: '16px', height: '16px', accentColor: '#6366f1', cursor: 'pointer', flexShrink: 0 }}
+                          />
+                          <span style={{ flex: 1, fontSize: '13px', color: item.is_complete ? 'rgba(255,255,255,0.3)' : '#e2e8f0', textDecoration: item.is_complete ? 'line-through' : 'none' }}>
+                            {item.content}
+                          </span>
+                          <button
+                            onClick={() => onDeleteChecklistItem(item.id)}
+                            style={styles.removeBtn}
+                          >✕</button>
+                        </div>
+                      ))}
+                    </div>
+                    {stage === project.status && (
+                      <div style={{ ...styles.assignForm, marginTop: '6px' }}>
+                        <input
+                          value={newChecklistContent}
+                          onChange={(e) => setNewChecklistContent(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && newChecklistContent.trim()) {
+                              onAddChecklistItem(project.id, stage, newChecklistContent);
+                              setNewChecklistContent('');
+                            }
+                          }}
+                          placeholder="Add checklist item..."
+                          style={styles.smallInput}
+                        />
+                        <button
+                          onClick={() => {
+                            if (newChecklistContent.trim()) {
+                              onAddChecklistItem(project.id, stage, newChecklistContent);
+                              setNewChecklistContent('');
+                            }
+                          }}
+                          style={styles.smallBtn}
+                          disabled={!newChecklistContent.trim()}
+                        >Add</button>
+                      </div>
+                    )}
+                  </div>
+                );
+              });
+            })()}
           </div>
 
           {/* Notes */}
@@ -663,6 +961,58 @@ function ProjectRow({
         </div>
       )}
     </div>
+  );
+}
+
+function KanbanCard({ project }) {
+  const daysLeft = Math.ceil(
+    (new Date(project.deadline) - new Date()) / (1000 * 60 * 60 * 24)
+  );
+  const checklists = project.project_checklists || [];
+  const stageItems = checklists.filter(c => c.stage === project.status);
+  const completed = stageItems.filter(c => c.is_complete).length;
+  const total = stageItems.length;
+
+  return (
+    <>
+      <div style={styles.kanbanCardName}>{project.name}</div>
+      <div style={styles.kanbanCardMeta}>
+        <span style={{
+          ...styles.kanbanTypeBadge,
+          background: `${STATUS_COLORS[project.status]}15`,
+          color: STATUS_COLORS[project.status],
+        }}>
+          {project.type.replace('_', ' ')}
+        </span>
+        {project.channel && <span style={styles.kanbanChannel}>{project.channel}</span>}
+      </div>
+      <div style={styles.kanbanCardFooter}>
+        <div style={styles.kanbanAvatars}>
+          {project.project_assignments?.slice(0, 3).map(a => (
+            <div key={a.id} style={styles.kanbanAvatar} title={a.profile?.full_name}>
+              {a.profile?.full_name?.charAt(0)}
+            </div>
+          ))}
+          {project.project_assignments?.length > 3 && (
+            <div style={styles.kanbanAvatarMore}>+{project.project_assignments.length - 3}</div>
+          )}
+        </div>
+        <span style={{
+          fontSize: '11px', fontWeight: 600,
+          color: daysLeft < 0 ? '#ef4444' : daysLeft <= 3 ? '#f97316' : 'rgba(255,255,255,0.4)',
+        }}>
+          {daysLeft < 0 ? `${Math.abs(daysLeft)}d over` : `${daysLeft}d`}
+        </span>
+      </div>
+      {total > 0 && (
+        <div style={styles.kanbanProgress}>
+          <div style={styles.kanbanProgressBar}>
+            <div style={{ ...styles.kanbanProgressFill, width: `${(completed / total) * 100}%` }} />
+          </div>
+          <span style={styles.kanbanProgressText}>{completed}/{total}</span>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -876,4 +1226,180 @@ const styles = {
   conceptLinkBtn: { display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '8px', color: '#a5b4fc', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   conceptLinkDot: { width: '8px', height: '8px', borderRadius: '3px', flexShrink: 0 },
   deleteProjectBtn: { padding: '8px 16px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '8px', color: '#fca5a5', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', width: '100%' },
+  viewToggle: {
+    display: 'flex',
+    background: 'rgba(255,255,255,0.04)',
+    borderRadius: '8px',
+    padding: '2px',
+    border: '1px solid rgba(255,255,255,0.08)',
+  },
+  viewToggleBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '32px',
+    height: '28px',
+    border: 'none',
+    borderRadius: '6px',
+    background: 'transparent',
+    color: 'rgba(255,255,255,0.35)',
+    cursor: 'pointer',
+    transition: 'all 0.15s',
+  },
+  viewToggleBtnActive: {
+    background: 'rgba(99,102,241,0.2)',
+    color: '#a5b4fc',
+  },
+  boardContainer: {
+    display: 'flex',
+    gap: '12px',
+    overflowX: 'auto',
+    paddingBottom: '16px',
+  },
+  boardColumn: {
+    flex: '1 0 200px',
+    minWidth: '200px',
+    maxWidth: '280px',
+    borderRadius: '12px',
+    border: '1px solid rgba(255,255,255,0.06)',
+    display: 'flex',
+    flexDirection: 'column',
+    transition: 'background 0.15s',
+  },
+  boardColumnHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '12px 14px',
+    borderBottom: '1px solid rgba(255,255,255,0.06)',
+  },
+  boardColumnDot: {
+    width: '8px',
+    height: '8px',
+    borderRadius: '50%',
+    flexShrink: 0,
+  },
+  boardColumnTitle: {
+    fontSize: '12px',
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '0.3px',
+  },
+  boardColumnCount: {
+    fontSize: '11px',
+    color: 'rgba(255,255,255,0.3)',
+    marginLeft: 'auto',
+    background: 'rgba(255,255,255,0.06)',
+    padding: '1px 7px',
+    borderRadius: '10px',
+    fontWeight: 600,
+  },
+  boardColumnBody: {
+    padding: '8px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+    flex: 1,
+    minHeight: '60px',
+  },
+  kanbanCard: {
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '10px',
+    padding: '12px',
+    cursor: 'grab',
+    transition: 'border-color 0.15s',
+  },
+  kanbanCardName: {
+    fontSize: '13px',
+    fontWeight: 600,
+    color: '#e2e8f0',
+    marginBottom: '6px',
+    lineHeight: 1.3,
+  },
+  kanbanCardMeta: {
+    display: 'flex',
+    gap: '6px',
+    alignItems: 'center',
+    marginBottom: '8px',
+    flexWrap: 'wrap',
+  },
+  kanbanTypeBadge: {
+    fontSize: '10px',
+    fontWeight: 600,
+    padding: '2px 6px',
+    borderRadius: '4px',
+    textTransform: 'capitalize',
+  },
+  kanbanChannel: {
+    fontSize: '10px',
+    color: 'rgba(255,255,255,0.35)',
+  },
+  kanbanCardFooter: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  kanbanAvatars: {
+    display: 'flex',
+  },
+  kanbanAvatar: {
+    width: '22px',
+    height: '22px',
+    borderRadius: '6px',
+    background: 'rgba(99,102,241,0.25)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '10px',
+    fontWeight: 600,
+    color: '#a5b4fc',
+    marginLeft: '-4px',
+    border: '2px solid #12121f',
+  },
+  kanbanAvatarMore: {
+    width: '22px',
+    height: '22px',
+    borderRadius: '6px',
+    background: 'rgba(255,255,255,0.08)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '9px',
+    color: 'rgba(255,255,255,0.4)',
+    marginLeft: '-4px',
+    border: '2px solid #12121f',
+  },
+  kanbanProgress: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    marginTop: '8px',
+  },
+  kanbanProgressBar: {
+    flex: 1,
+    height: '3px',
+    background: 'rgba(255,255,255,0.06)',
+    borderRadius: '2px',
+    overflow: 'hidden',
+  },
+  kanbanProgressFill: {
+    height: '100%',
+    background: '#6366f1',
+    borderRadius: '2px',
+    transition: 'width 0.2s',
+  },
+  kanbanProgressText: {
+    fontSize: '10px',
+    color: 'rgba(255,255,255,0.35)',
+    fontWeight: 600,
+  },
+  checklistBadge: {
+    fontSize: '11px',
+    fontWeight: 600,
+    color: 'rgba(255,255,255,0.4)',
+    background: 'rgba(255,255,255,0.06)',
+    padding: '2px 7px',
+    borderRadius: '6px',
+  },
 };

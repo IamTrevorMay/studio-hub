@@ -303,6 +303,7 @@ export function AuthProvider({ children }) {
   const [unreadAnnouncementCount, setUnreadAnnouncementCount] = useState(0);
   const [newItineraryCount, setNewItineraryCount] = useState(0);
   const [unreadMentionChannelIds, setUnreadMentionChannelIds] = useState([]);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
 
   const fetchUnreadAnnouncementCount = useCallback(async () => {
     if (!user) return;
@@ -375,6 +376,21 @@ export function AuthProvider({ children }) {
     }
   }, [user]);
 
+  const fetchUnreadNotificationCount = useCallback(async () => {
+    if (!user) return;
+    try {
+      const { count, error } = await supabase
+        .from('notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('is_read', false);
+      if (error) throw error;
+      setUnreadNotificationCount(count || 0);
+    } catch (err) {
+      console.error('Error fetching unread notification count:', err);
+    }
+  }, [user]);
+
   const markChannelSeen = useCallback((channelId) => {
     localStorage.setItem(`channel_seen_${channelId}`, new Date().toISOString());
     setUnreadMentionChannelIds(prev => prev.filter(id => id !== channelId));
@@ -389,7 +405,8 @@ export function AuthProvider({ children }) {
     fetchUnreadAnnouncementCount();
     fetchNewItineraryCount();
     fetchUnreadMentions();
-  }, [fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions]);
+    fetchUnreadNotificationCount();
+  }, [fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions, fetchUnreadNotificationCount]);
 
   // Initial fetch + 30s polling
   useEffect(() => {
@@ -419,6 +436,7 @@ export function AuthProvider({ children }) {
     unreadMentionChannelIds,
     markChannelSeen,
     refreshNotifications,
+    unreadNotificationCount,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

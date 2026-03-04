@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import Dashboard from './Dashboard';
 import Projects from './Projects';
@@ -26,11 +27,15 @@ const NAV_ITEMS = [
 ];
 
 export default function AppLayout() {
-  const { profile, signOut, isAdmin, isAssistant, unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds } = useAuth();
+  const { profile, signOut, isAdmin, isAssistant, unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, refreshNotifications } = useAuth();
   const [activeTab, setActiveTab] = useState(() => localStorage.getItem('studio-hub-tab') || 'dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [navTarget, setNavTarget] = useState(null);
   const [adminInitialTab, setAdminInitialTab] = useState(null);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const notifPanelRef = React.useRef(null);
 
   // Persist active tab to localStorage
   useEffect(() => {
@@ -59,6 +64,60 @@ export default function AppLayout() {
     setNavTarget(target || null);
     setActiveTab(tab);
   }
+
+  async function fetchNotifications() {
+    setNotificationsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', profile?.id)
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      setNotifications(data || []);
+    } catch (err) {
+      console.error('Error fetching notifications:', err);
+    } finally {
+      setNotificationsLoading(false);
+    }
+  }
+
+  async function markNotificationRead(id) {
+    await supabase.from('notifications').update({ is_read: true }).eq('id', id);
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
+    refreshNotifications();
+  }
+
+  async function markAllNotificationsRead() {
+    if (!profile?.id) return;
+    await supabase.from('notifications').update({ is_read: true }).eq('user_id', profile.id).eq('is_read', false);
+    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+    refreshNotifications();
+  }
+
+  function handleNotificationClick(notif) {
+    markNotificationRead(notif.id);
+    if (notif.link_tab) {
+      navigateTo(notif.link_tab, notif.link_target);
+    }
+    setShowNotifications(false);
+  }
+
+  React.useEffect(() => {
+    if (showNotifications && profile?.id) fetchNotifications();
+  }, [showNotifications, profile?.id]);
+
+  React.useEffect(() => {
+    if (!showNotifications) return;
+    function handleClickOutside(e) {
+      if (notifPanelRef.current && !notifPanelRef.current.contains(e.target)) {
+        setShowNotifications(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showNotifications]);
 
   const renderPage = () => {
     switch (activeTab) {
@@ -180,7 +239,62 @@ export default function AppLayout() {
 
       {/* Main content */}
       <main style={styles.main}>
-        {renderPage()}
+        <div style={styles.mainHeader}>
+          <div style={{ flex: 1 }} />
+          <div style={{ position: 'relative' }} ref={notifPanelRef}>
+            <button
+              onClick={() => setShowNotifications(!showNotifications)}
+              style={styles.bellBtn}
+              title="Notifications"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" />
+              </svg>
+              {unreadNotificationCount > 0 && (
+                <span style={styles.bellBadge}>{unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}</span>
+              )}
+            </button>
+            {showNotifications && (
+              <div style={styles.notifPanel}>
+                <div style={styles.notifHeader}>
+                  <span style={styles.notifTitle}>Notifications</span>
+                  <button onClick={markAllNotificationsRead} style={styles.markAllReadBtn}>Mark all read</button>
+                </div>
+                <div style={styles.notifList}>
+                  {notificationsLoading ? (
+                    <p style={styles.notifEmpty}>Loading...</p>
+                  ) : notifications.length === 0 ? (
+                    <p style={styles.notifEmpty}>You're all caught up!</p>
+                  ) : (
+                    notifications.map(n => (
+                      <button
+                        key={n.id}
+                        onClick={() => handleNotificationClick(n)}
+                        style={{
+                          ...styles.notifItem,
+                          background: n.is_read ? 'transparent' : 'rgba(99,102,241,0.06)',
+                        }}
+                      >
+                        <div style={styles.notifIcon}>
+                          {n.type === 'assignment' ? '\u{1F464}' : n.type === 'mention' ? '@' : n.type === 'comment' ? '\u{1F4AC}' : n.type === 'status_change' ? '\u{1F504}' : n.type === 'announcement' ? '\u{1F4E2}' : '\u{1F514}'}
+                        </div>
+                        <div style={styles.notifContent}>
+                          <div style={styles.notifItemTitle}>{n.title}</div>
+                          {n.body && <div style={styles.notifBody}>{n.body}</div>}
+                          <div style={styles.notifTime}>{formatNotifTime(n.created_at)}</div>
+                        </div>
+                        {!n.is_read && <div style={styles.notifUnreadDot} />}
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+        <div style={styles.mainContent}>
+          {renderPage()}
+        </div>
       </main>
     </div>
   );
@@ -285,6 +399,20 @@ function AdminIcon({ active }) {
       <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.93 4.93l1.41 1.41M13.66 13.66l1.41 1.41M4.93 15.07l1.41-1.41M13.66 6.34l1.41-1.41" />
     </svg>
   );
+}
+
+function formatNotifTime(dateStr) {
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now - d;
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 const styles = {
@@ -436,7 +564,158 @@ const styles = {
   },
   main: {
     flex: 1,
-    overflow: 'auto',
+    overflow: 'hidden',
     background: '#12121f',
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  mainHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    padding: '12px 24px 0',
+    flexShrink: 0,
+  },
+  mainContent: {
+    flex: 1,
+    overflow: 'auto',
+  },
+  bellBtn: {
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '36px',
+    height: '36px',
+    border: 'none',
+    borderRadius: '10px',
+    background: 'rgba(255,255,255,0.04)',
+    color: 'rgba(255,255,255,0.5)',
+    cursor: 'pointer',
+    transition: 'all 0.15s',
+  },
+  bellBadge: {
+    position: 'absolute',
+    top: '-2px',
+    right: '-2px',
+    background: '#ef4444',
+    color: '#fff',
+    fontSize: '10px',
+    fontWeight: 700,
+    minWidth: '18px',
+    height: '18px',
+    borderRadius: '9px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '0 4px',
+    lineHeight: 1,
+  },
+  notifPanel: {
+    position: 'absolute',
+    top: '44px',
+    right: 0,
+    width: '400px',
+    maxHeight: '500px',
+    background: '#1a1a2e',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '14px',
+    boxShadow: '0 12px 40px rgba(0,0,0,0.5)',
+    zIndex: 100,
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+  },
+  notifHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '14px 16px',
+    borderBottom: '1px solid rgba(255,255,255,0.08)',
+    flexShrink: 0,
+  },
+  notifTitle: {
+    fontSize: '15px',
+    fontWeight: 700,
+    color: '#e2e8f0',
+  },
+  markAllReadBtn: {
+    padding: '4px 10px',
+    background: 'rgba(99,102,241,0.1)',
+    border: '1px solid rgba(99,102,241,0.25)',
+    borderRadius: '6px',
+    color: '#a5b4fc',
+    fontSize: '11px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  notifList: {
+    flex: 1,
+    overflow: 'auto',
+    padding: '4px',
+  },
+  notifEmpty: {
+    color: 'rgba(255,255,255,0.35)',
+    fontSize: '14px',
+    textAlign: 'center',
+    padding: '32px 16px',
+    margin: 0,
+  },
+  notifItem: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '10px',
+    width: '100%',
+    padding: '10px 12px',
+    border: 'none',
+    borderRadius: '10px',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    textAlign: 'left',
+    transition: 'background 0.1s',
+  },
+  notifIcon: {
+    width: '32px',
+    height: '32px',
+    borderRadius: '8px',
+    background: 'rgba(255,255,255,0.05)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '14px',
+    flexShrink: 0,
+  },
+  notifContent: {
+    flex: 1,
+    minWidth: 0,
+  },
+  notifItemTitle: {
+    fontSize: '13px',
+    fontWeight: 600,
+    color: '#e2e8f0',
+    lineHeight: 1.3,
+  },
+  notifBody: {
+    fontSize: '12px',
+    color: 'rgba(255,255,255,0.45)',
+    marginTop: '2px',
+    lineHeight: 1.3,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  notifTime: {
+    fontSize: '11px',
+    color: 'rgba(255,255,255,0.25)',
+    marginTop: '3px',
+  },
+  notifUnreadDot: {
+    width: '8px',
+    height: '8px',
+    borderRadius: '50%',
+    background: '#6366f1',
+    flexShrink: 0,
+    marginTop: '4px',
   },
 };

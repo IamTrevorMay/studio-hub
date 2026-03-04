@@ -277,6 +277,26 @@ export default function Dashboard({ onNavigate }) {
         content: newAnnouncementText.trim(),
       });
       if (error) throw error;
+      // Notify all team members
+      try {
+        const { data: allMembers } = await supabase.from('profiles').select('id');
+        if (allMembers) {
+          const notifs = allMembers
+            .filter(m => m.id !== profile.id)
+            .map(m => ({
+              user_id: m.id,
+              type: 'announcement',
+              title: 'New announcement',
+              body: newAnnouncementText.trim().substring(0, 100),
+              link_tab: 'dashboard',
+            }));
+          if (notifs.length > 0) {
+            await supabase.from('notifications').insert(notifs);
+          }
+        }
+      } catch (e) {
+        console.error('Error sending announcement notifications:', e);
+      }
       setNewAnnouncementText('');
       setShowAnnouncementInput(false);
       fetchAnnouncements();

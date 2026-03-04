@@ -191,6 +191,22 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
       content: newMessage.trim(),
       mentions,
     });
+    // Notify mentioned users
+    if (mentions.length > 0) {
+      const notifs = mentions
+        .filter(uid => uid !== profile.id)
+        .map(uid => ({
+          user_id: uid,
+          type: 'mention',
+          title: `${profile.full_name} mentioned you in #${activeChannel.name}`,
+          body: newMessage.trim().substring(0, 100),
+          link_tab: 'channels',
+          link_target: activeChannel.name,
+        }));
+      if (notifs.length > 0) {
+        await supabase.from('notifications').insert(notifs);
+      }
+    }
     setNewMessage('');
     setShowMentions(false);
   }
