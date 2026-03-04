@@ -14,154 +14,218 @@ function formatDate(dateStr) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function formatDeadline(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T00:00:00');
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const diffDays = Math.ceil((d - now) / 86400000);
+  const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  if (diffDays < 0) return { label, sub: `${Math.abs(diffDays)}d overdue`, color: '#ef4444' };
+  if (diffDays === 0) return { label, sub: 'Due today', color: '#f59e0b' };
+  if (diffDays <= 7) return { label, sub: `${diffDays}d left`, color: '#f59e0b' };
+  return { label, sub: `${diffDays}d left`, color: 'rgba(255,255,255,0.4)' };
+}
+
 function progressColor(pct) {
-  // Interpolate from #86efac (light green) to #16a34a (dark green)
   const r = Math.round(0x86 + (0x16 - 0x86) * pct);
   const g = Math.round(0xef + (0xa3 - 0xef) * pct);
   const b = Math.round(0xac + (0x4a - 0xac) * pct);
   return `rgb(${r},${g},${b})`;
 }
 
-const EMPTY_FORM = { title: '', current_value: '', target_value: '', category: 'quarterly' };
+const EMPTY_GOAL = { title: '', current_value: '', target_value: '', category: 'quarterly' };
+const EMPTY_INITIATIVE = { title: '', deadline: '', category: 'quarterly' };
 
 export default function Goals() {
   const { profile, isAdmin } = useAuth();
   const [goals, setGoals] = useState([]);
+  const [initiatives, setInitiatives] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState(null);
-  const [form, setForm] = useState(EMPTY_FORM);
+
+  // Goal form state
+  const [showGoalForm, setShowGoalForm] = useState(false);
+  const [editingGoalId, setEditingGoalId] = useState(null);
+  const [goalForm, setGoalForm] = useState(EMPTY_GOAL);
+
+  // Initiative form state
+  const [showInitForm, setShowInitForm] = useState(false);
+  const [editingInitId, setEditingInitId] = useState(null);
+  const [initForm, setInitForm] = useState(EMPTY_INITIATIVE);
 
   useEffect(() => {
-    if (profile?.id) fetchGoals();
+    if (profile?.id) fetchAll();
   }, [profile?.id]);
 
-  async function fetchGoals() {
+  async function fetchAll() {
     try {
-      const { data, error } = await supabase.from('goals')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      setGoals(data || []);
+      const [goalsRes, initRes] = await Promise.all([
+        supabase.from('goals').select('*').order('created_at', { ascending: false }),
+        supabase.from('initiatives').select('*').order('deadline', { ascending: true }),
+      ]);
+      if (goalsRes.error) throw goalsRes.error;
+      if (initRes.error) throw initRes.error;
+      setGoals(goalsRes.data || []);
+      setInitiatives(initRes.data || []);
     } catch (err) {
-      console.error('Error fetching goals:', err);
-      setGoals([]);
+      console.error('Error fetching:', err);
     } finally {
       setLoading(false);
     }
   }
 
-  function openCreate() {
-    setEditingId(null);
-    setForm(EMPTY_FORM);
-    setShowForm(true);
+  // --- Goal CRUD ---
+  function openCreateGoal() {
+    setEditingGoalId(null);
+    setGoalForm(EMPTY_GOAL);
+    setShowGoalForm(true);
   }
-
-  function openEdit(goal) {
-    setEditingId(goal.id);
-    setForm({
+  function openEditGoal(goal) {
+    setEditingGoalId(goal.id);
+    setGoalForm({
       title: goal.title,
       current_value: String(goal.current_value),
       target_value: String(goal.target_value),
       category: goal.category,
     });
-    setShowForm(true);
+    setShowGoalForm(true);
   }
-
-  function cancelForm() {
-    setShowForm(false);
-    setEditingId(null);
-    setForm(EMPTY_FORM);
+  function cancelGoalForm() {
+    setShowGoalForm(false);
+    setEditingGoalId(null);
+    setGoalForm(EMPTY_GOAL);
   }
-
-  async function handleSubmit(e) {
+  async function handleGoalSubmit(e) {
     e.preventDefault();
-    const title = form.title.trim();
+    const title = goalForm.title.trim();
     if (!title) return;
-    const current_value = parseFloat(form.current_value) || 0;
-    const target_value = parseFloat(form.target_value) || 1;
+    const current_value = parseFloat(goalForm.current_value) || 0;
+    const target_value = parseFloat(goalForm.target_value) || 1;
 
-    if (editingId) {
+    if (editingGoalId) {
       const { error } = await supabase.from('goals').update({
-        title,
-        current_value,
-        target_value,
-        category: form.category,
+        title, current_value, target_value, category: goalForm.category,
         updated_at: new Date().toISOString(),
-      }).eq('id', editingId);
-      if (error) { console.error(error); return; }
+      }).eq('id', editingGoalId);
+      if (error) { alert('Error: ' + error.message); return; }
     } else {
       const { error } = await supabase.from('goals').insert({
-        title,
-        current_value,
-        target_value,
-        category: form.category,
+        title, current_value, target_value, category: goalForm.category,
         created_by: profile.id,
       }).select();
-      if (error) { console.error(error); alert('Error creating goal: ' + error.message); return; }
+      if (error) { alert('Error: ' + error.message); return; }
     }
-    cancelForm();
-    fetchGoals();
+    cancelGoalForm();
+    fetchAll();
   }
-
-  async function handleDelete(id) {
+  async function handleDeleteGoal(id) {
     if (!window.confirm('Delete this goal?')) return;
     await supabase.from('goals').delete().eq('id', id);
-    fetchGoals();
+    fetchAll();
   }
 
-  const quarterly = goals.filter(g => g.category === 'quarterly');
-  const yearly = goals.filter(g => g.category === 'yearly');
+  // --- Initiative CRUD ---
+  function openCreateInit() {
+    setEditingInitId(null);
+    setInitForm(EMPTY_INITIATIVE);
+    setShowInitForm(true);
+  }
+  function openEditInit(init) {
+    setEditingInitId(init.id);
+    setInitForm({ title: init.title, deadline: init.deadline, category: init.category });
+    setShowInitForm(true);
+  }
+  function cancelInitForm() {
+    setShowInitForm(false);
+    setEditingInitId(null);
+    setInitForm(EMPTY_INITIATIVE);
+  }
+  async function handleInitSubmit(e) {
+    e.preventDefault();
+    const title = initForm.title.trim();
+    if (!title || !initForm.deadline) return;
+
+    if (editingInitId) {
+      const { error } = await supabase.from('initiatives').update({
+        title, deadline: initForm.deadline, category: initForm.category,
+        updated_at: new Date().toISOString(),
+      }).eq('id', editingInitId);
+      if (error) { alert('Error: ' + error.message); return; }
+    } else {
+      const { error } = await supabase.from('initiatives').insert({
+        title, deadline: initForm.deadline, category: initForm.category,
+        created_by: profile.id,
+      }).select();
+      if (error) { alert('Error: ' + error.message); return; }
+    }
+    cancelInitForm();
+    fetchAll();
+  }
+  async function handleDeleteInit(id) {
+    if (!window.confirm('Delete this initiative?')) return;
+    await supabase.from('initiatives').delete().eq('id', id);
+    fetchAll();
+  }
+
+  const quarterlyGoals = goals.filter(g => g.category === 'quarterly');
+  const yearlyGoals = goals.filter(g => g.category === 'yearly');
+  const quarterlyInits = initiatives.filter(i => i.category === 'quarterly');
+  const yearlyInits = initiatives.filter(i => i.category === 'yearly');
+  const totalCount = goals.length + initiatives.length;
 
   if (loading) {
-    return (
-      <div style={styles.page}>
-        <div style={styles.loading}>Loading goals...</div>
-      </div>
-    );
+    return <div style={styles.page}><div style={styles.loading}>Loading goals...</div></div>;
   }
 
   return (
     <div style={styles.page}>
+      {/* Header */}
       <div style={styles.topBar}>
         <div>
           <h1 style={styles.pageTitle}>Goals</h1>
-          <p style={styles.pageSubtitle}>{goals.length} goal{goals.length !== 1 ? 's' : ''} tracked</p>
+          <p style={styles.pageSubtitle}>{totalCount} item{totalCount !== 1 ? 's' : ''} tracked</p>
         </div>
         {isAdmin && (
-          <button onClick={showForm ? cancelForm : openCreate} style={styles.addBtn}>
-            {showForm ? '✕ Cancel' : '+ Add Goal'}
-          </button>
+          <div style={styles.headerActions}>
+            <button onClick={showGoalForm ? cancelGoalForm : openCreateGoal} style={styles.addBtn}>
+              {showGoalForm ? '✕ Cancel' : '+ Add Goal'}
+            </button>
+            <button onClick={showInitForm ? cancelInitForm : openCreateInit} style={styles.addBtn}>
+              {showInitForm ? '✕ Cancel' : '+ Add Initiative'}
+            </button>
+          </div>
         )}
       </div>
 
-      {showForm && (
-        <form onSubmit={handleSubmit} style={styles.form}>
+      {/* Goal Form */}
+      {showGoalForm && (
+        <form onSubmit={handleGoalSubmit} style={styles.form}>
+          <div style={styles.formLabel}>New Goal</div>
           <input
-            value={form.title}
-            onChange={e => setForm({ ...form, title: e.target.value })}
+            value={goalForm.title}
+            onChange={e => setGoalForm({ ...goalForm, title: e.target.value })}
             placeholder="Goal title"
             style={styles.input}
             autoFocus
           />
           <div style={styles.formRow}>
             <input
-              value={form.current_value}
-              onChange={e => setForm({ ...form, current_value: e.target.value })}
+              value={goalForm.current_value}
+              onChange={e => setGoalForm({ ...goalForm, current_value: e.target.value })}
               placeholder="Current value"
               style={{ ...styles.input, flex: 1 }}
               inputMode="decimal"
             />
             <input
-              value={form.target_value}
-              onChange={e => setForm({ ...form, target_value: e.target.value })}
+              value={goalForm.target_value}
+              onChange={e => setGoalForm({ ...goalForm, target_value: e.target.value })}
               placeholder="Target value"
               style={{ ...styles.input, flex: 1 }}
               inputMode="decimal"
             />
             <select
-              value={form.category}
-              onChange={e => setForm({ ...form, category: e.target.value })}
+              value={goalForm.category}
+              onChange={e => setGoalForm({ ...goalForm, category: e.target.value })}
               style={styles.select}
             >
               <option value="quarterly">Quarterly</option>
@@ -169,28 +233,73 @@ export default function Goals() {
             </select>
           </div>
           <button type="submit" style={styles.submitBtn}>
-            {editingId ? 'Update Goal' : 'Create Goal'}
+            {editingGoalId ? 'Update Goal' : 'Create Goal'}
           </button>
         </form>
       )}
 
-      <GoalSection title="Quarterly Goals" goals={quarterly} isAdmin={isAdmin} onEdit={openEdit} onDelete={handleDelete} />
-      <GoalSection title="Yearly Goals" goals={yearly} isAdmin={isAdmin} onEdit={openEdit} onDelete={handleDelete} />
-    </div>
-  );
-}
+      {/* Initiative Form */}
+      {showInitForm && (
+        <form onSubmit={handleInitSubmit} style={styles.form}>
+          <div style={styles.formLabel}>New Initiative</div>
+          <input
+            value={initForm.title}
+            onChange={e => setInitForm({ ...initForm, title: e.target.value })}
+            placeholder="Initiative title"
+            style={styles.input}
+            autoFocus
+          />
+          <div style={styles.formRow}>
+            <input
+              type="date"
+              value={initForm.deadline}
+              onChange={e => setInitForm({ ...initForm, deadline: e.target.value })}
+              style={{ ...styles.input, flex: 1 }}
+            />
+            <select
+              value={initForm.category}
+              onChange={e => setInitForm({ ...initForm, category: e.target.value })}
+              style={styles.select}
+            >
+              <option value="quarterly">Quarterly</option>
+              <option value="yearly">Yearly</option>
+            </select>
+          </div>
+          <button type="submit" style={styles.submitBtn}>
+            {editingInitId ? 'Update Initiative' : 'Create Initiative'}
+          </button>
+        </form>
+      )}
 
-function GoalSection({ title, goals, isAdmin, onEdit, onDelete }) {
-  if (goals.length === 0) return null;
+      {/* Quarterly Section */}
+      {(quarterlyGoals.length > 0 || quarterlyInits.length > 0) && (
+        <div style={styles.section}>
+          <h2 style={styles.sectionTitle}>Quarterly</h2>
+          <div style={styles.list}>
+            {quarterlyGoals.map(g => (
+              <GoalCard key={g.id} goal={g} isAdmin={isAdmin} onEdit={openEditGoal} onDelete={handleDeleteGoal} />
+            ))}
+            {quarterlyInits.map(i => (
+              <InitiativeCard key={i.id} initiative={i} isAdmin={isAdmin} onEdit={openEditInit} onDelete={handleDeleteInit} />
+            ))}
+          </div>
+        </div>
+      )}
 
-  return (
-    <div style={styles.section}>
-      <h2 style={styles.sectionTitle}>{title}</h2>
-      <div style={styles.grid}>
-        {goals.map(goal => (
-          <GoalCard key={goal.id} goal={goal} isAdmin={isAdmin} onEdit={onEdit} onDelete={onDelete} />
-        ))}
-      </div>
+      {/* Yearly Section */}
+      {(yearlyGoals.length > 0 || yearlyInits.length > 0) && (
+        <div style={styles.section}>
+          <h2 style={styles.sectionTitle}>Yearly</h2>
+          <div style={styles.list}>
+            {yearlyGoals.map(g => (
+              <GoalCard key={g.id} goal={g} isAdmin={isAdmin} onEdit={openEditGoal} onDelete={handleDeleteGoal} />
+            ))}
+            {yearlyInits.map(i => (
+              <InitiativeCard key={i.id} initiative={i} isAdmin={isAdmin} onEdit={openEditInit} onDelete={handleDeleteInit} />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -205,7 +314,10 @@ function GoalCard({ goal, isAdmin, onEdit, onDelete }) {
   return (
     <div style={styles.card}>
       <div style={styles.cardHeader}>
-        <span style={styles.cardTitle}>{goal.title}</span>
+        <div style={styles.cardTitleRow}>
+          <span style={styles.cardBadge}>Goal</span>
+          <span style={styles.cardTitle}>{goal.title}</span>
+        </div>
         {isAdmin && (
           <div style={styles.cardActions}>
             <button onClick={() => onEdit(goal)} style={styles.iconBtn} title="Edit">
@@ -221,21 +333,51 @@ function GoalCard({ goal, isAdmin, onEdit, onDelete }) {
           </div>
         )}
       </div>
-
-      {/* Progress bar */}
       <div style={styles.barBg}>
-        <div style={{
-          ...styles.barFill,
-          width: `${pctDisplay}%`,
-          background: color,
-        }} />
+        <div style={{ ...styles.barFill, width: `${pctDisplay}%`, background: color }} />
       </div>
-
       <div style={styles.cardFooter}>
         <span style={styles.cardNumbers}>{current} / {target}</span>
         <span style={{ ...styles.cardPct, color }}>{pctDisplay}%</span>
       </div>
       <div style={styles.cardUpdated}>Updated {formatDate(goal.updated_at)}</div>
+    </div>
+  );
+}
+
+function InitiativeCard({ initiative, isAdmin, onEdit, onDelete }) {
+  const dl = formatDeadline(initiative.deadline);
+
+  return (
+    <div style={styles.card}>
+      <div style={styles.cardHeader}>
+        <div style={styles.cardTitleRow}>
+          <span style={styles.initBadge}>Initiative</span>
+          <span style={styles.cardTitle}>{initiative.title}</span>
+        </div>
+        {isAdmin && (
+          <div style={styles.cardActions}>
+            <button onClick={() => onEdit(initiative)} style={styles.iconBtn} title="Edit">
+              <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M14.5 3.5l2 2L6 16H4v-2L14.5 3.5z" />
+              </svg>
+            </button>
+            <button onClick={() => onDelete(initiative.id)} style={styles.iconBtn} title="Delete">
+              <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M5 6h10M8 6V4h4v2M6 6v10a1 1 0 001 1h6a1 1 0 001-1V6" />
+              </svg>
+            </button>
+          </div>
+        )}
+      </div>
+      <div style={styles.deadlineRow}>
+        <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke={dl.color} strokeWidth="1.5" style={{ flexShrink: 0 }}>
+          <rect x="3" y="4" width="14" height="13" rx="2" />
+          <path d="M3 8h14M7 2v4M13 2v4" />
+        </svg>
+        <span style={{ color: dl.color, fontSize: '13px', fontWeight: 500 }}>{dl.label}</span>
+        <span style={{ color: dl.color, fontSize: '12px', opacity: 0.8 }}>{dl.sub}</span>
+      </div>
     </div>
   );
 }
@@ -269,6 +411,10 @@ const styles = {
     color: 'rgba(255,255,255,0.4)',
     margin: '4px 0 0',
   },
+  headerActions: {
+    display: 'flex',
+    gap: '8px',
+  },
   addBtn: {
     padding: '8px 18px',
     borderRadius: '10px',
@@ -289,6 +435,12 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     gap: '10px',
+  },
+  formLabel: {
+    fontSize: '13px',
+    fontWeight: 600,
+    color: 'rgba(255,255,255,0.5)',
+    marginBottom: '2px',
   },
   formRow: {
     display: 'flex',
@@ -336,16 +488,17 @@ const styles = {
     color: 'rgba(255,255,255,0.7)',
     margin: '0 0 14px',
   },
-  grid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-    gap: '14px',
+  list: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px',
   },
   card: {
     background: 'rgba(255,255,255,0.04)',
     border: '1px solid rgba(255,255,255,0.08)',
     borderRadius: '12px',
     padding: '16px',
+    width: '100%',
   },
   cardHeader: {
     display: 'flex',
@@ -353,14 +506,47 @@ const styles = {
     alignItems: 'center',
     marginBottom: '12px',
   },
+  cardTitleRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    flex: 1,
+    minWidth: 0,
+  },
+  cardBadge: {
+    fontSize: '10px',
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+    color: '#86efac',
+    background: 'rgba(134,239,172,0.1)',
+    padding: '3px 8px',
+    borderRadius: '4px',
+    flexShrink: 0,
+  },
+  initBadge: {
+    fontSize: '10px',
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+    color: '#93c5fd',
+    background: 'rgba(147,197,253,0.1)',
+    padding: '3px 8px',
+    borderRadius: '4px',
+    flexShrink: 0,
+  },
   cardTitle: {
     fontSize: '14px',
     fontWeight: 600,
     color: '#e2e8f0',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
   cardActions: {
     display: 'flex',
     gap: '4px',
+    flexShrink: 0,
   },
   iconBtn: {
     display: 'flex',
@@ -405,5 +591,10 @@ const styles = {
   cardUpdated: {
     fontSize: '11px',
     color: 'rgba(255,255,255,0.3)',
+  },
+  deadlineRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
   },
 };
