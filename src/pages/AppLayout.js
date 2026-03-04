@@ -12,6 +12,7 @@ import Reviews from './Reviews';
 import Resources from './Resources';
 import Analytics from './Analytics';
 import Research from './Research';
+import Goals from './Goals';
 
 const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard', icon: DashboardIcon },
@@ -22,6 +23,7 @@ const NAV_ITEMS = [
   { key: 'research', label: 'Research', icon: ResearchIcon },
   { key: 'reviews', label: 'Reviews', icon: ReviewsIcon },
   { key: 'calendar', label: 'Calendar', icon: CalendarIcon },
+  { key: 'goals', label: 'Goals', icon: GoalsIcon },
   { key: 'channels', label: 'Channels', icon: ChannelsIcon },
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
 ];
@@ -129,6 +131,7 @@ export default function AppLayout() {
       case 'analytics': return <Analytics />;
       case 'research': return <Research />;
       case 'reviews': return <Reviews />;
+      case 'goals': return <Goals />;
       case 'channels': return <Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} />;
       case 'messages': return <Messages onNavigate={navigateTo} />;
       case 'admin': return <AdminPanel initialTab={adminInitialTab} />;
@@ -388,6 +391,16 @@ function ResearchIcon({ active }) {
       <circle cx="8" cy="8" r="5" />
       <path d="M12 12l5 5" />
       <path d="M6 5h4M6 8h3" />
+    </svg>
+  );
+}
+
+function GoalsIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <circle cx="10" cy="10" r="7" />
+      <circle cx="10" cy="10" r="4" />
+      <circle cx="10" cy="10" r="1" fill={active ? '#a5b4fc' : '#6b7280'} />
     </svg>
   );
 }
