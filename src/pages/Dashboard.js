@@ -12,6 +12,19 @@ const STATUS_COLORS = {
   published: '#22c55e',
 };
 
+const EVENT_TYPE_COLORS = {
+  deadline: '#ef4444', meeting: '#3b82f6', live_recording: '#22c55e',
+  filming: '#f59e0b', video_post: '#a855f7', unavailable: '#6b7280',
+};
+const EVENT_TYPE_LABELS = {
+  deadline: 'Deadline', meeting: 'Meeting', live_recording: 'Live/Recording',
+  filming: 'Filming', video_post: 'Video Post', unavailable: 'Unavailable',
+};
+const EVENT_TYPE_ICONS = {
+  deadline: '\u23F0', meeting: '\uD83D\uDC65', live_recording: '\uD83D\uDD34',
+  filming: '\uD83C\uDFAC', video_post: '\uD83D\uDCF9', unavailable: '\uD83D\uDEAB',
+};
+
 const STATUS_LABELS = {
   concept: 'Concept',
   script: 'Script',
@@ -46,6 +59,11 @@ export default function Dashboard({ onNavigate }) {
   const [announcements, setAnnouncements] = useState([]);
   const [announcementsLoading, setAnnouncementsLoading] = useState(false);
   const [newAnnouncementText, setNewAnnouncementText] = useState('');
+  const [showAnnouncementInput, setShowAnnouncementInput] = useState(false);
+
+  // Today's schedule state
+  const [todayEvents, setTodayEvents] = useState([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
 
   const todayStr = new Date().toISOString().split('T')[0];
 
@@ -124,6 +142,33 @@ export default function Dashboard({ onNavigate }) {
       fetchAnnouncements();
     }
   }, [profile?.id, fetchAnnouncements]);
+
+  const fetchTodayEvents = useCallback(async () => {
+    if (!profile?.id) return;
+    setEventsLoading(true);
+    try {
+      const dayStart = new Date(todayStr + 'T00:00:00').toISOString();
+      const dayEnd = new Date(todayStr + 'T23:59:59').toISOString();
+      const { data, error } = await supabase
+        .from('calendar_events')
+        .select('*, creator:profiles!created_by(id, full_name)')
+        .lte('start_date', dayEnd)
+        .gte('end_date', dayStart)
+        .order('all_day', { ascending: false })
+        .order('start_date', { ascending: true });
+      if (error) throw error;
+      setTodayEvents(data || []);
+    } catch (err) {
+      console.error('Error fetching today events:', err);
+      setTodayEvents([]);
+    } finally {
+      setEventsLoading(false);
+    }
+  }, [profile?.id, todayStr]);
+
+  useEffect(() => {
+    if (profile?.id) fetchTodayEvents();
+  }, [profile?.id, fetchTodayEvents]);
 
   async function fetchAssignments() {
     if (!profile?.id) return;
@@ -225,6 +270,7 @@ export default function Dashboard({ onNavigate }) {
       });
       if (error) throw error;
       setNewAnnouncementText('');
+      setShowAnnouncementInput(false);
       fetchAnnouncements();
       refreshNotifications();
     } catch (err) {
@@ -421,15 +467,29 @@ export default function Dashboard({ onNavigate }) {
   function renderAnnouncements({ showInput }) {
     return (
       <div style={styles.announcementsSection}>
-        <h3 style={styles.subSectionTitle}>Announcements</h3>
-        {showInput && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <h3 style={styles.subSectionTitle}>Announcements</h3>
+          {showInput && !showAnnouncementInput && (
+            <button
+              onClick={() => setShowAnnouncementInput(true)}
+              style={styles.postAnnouncementBtn}
+            >
+              + Post
+            </button>
+          )}
+        </div>
+        {showInput && showAnnouncementInput && (
           <div style={styles.itineraryAddRow}>
             <input
               value={newAnnouncementText}
               onChange={(e) => setNewAnnouncementText(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && addAnnouncement()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') addAnnouncement();
+                if (e.key === 'Escape') { setShowAnnouncementInput(false); setNewAnnouncementText(''); }
+              }}
               placeholder="Post an announcement to all members..."
               style={styles.itineraryInput}
+              autoFocus
             />
             <button
               onClick={addAnnouncement}
@@ -440,6 +500,12 @@ export default function Dashboard({ onNavigate }) {
               }}
             >
               Post
+            </button>
+            <button
+              onClick={() => { setShowAnnouncementInput(false); setNewAnnouncementText(''); }}
+              style={styles.cancelTitleBtn}
+            >
+              Cancel
             </button>
           </div>
         )}
@@ -478,6 +544,48 @@ export default function Dashboard({ onNavigate }) {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Today's Schedule renderer ──
+  function renderTodaySchedule() {
+    return (
+      <div style={styles.scheduleSection}>
+        <h3 style={styles.subSectionTitle}>Today's Schedule</h3>
+        {eventsLoading ? (
+          <p style={styles.emptyText}>Loading...</p>
+        ) : todayEvents.length === 0 ? (
+          <p style={{ ...styles.emptyText, marginTop: '8px' }}>No events scheduled for today</p>
+        ) : (
+          <div style={styles.scheduleList}>
+            {todayEvents.map(ev => {
+              const color = EVENT_TYPE_COLORS[ev.event_type] || '#6b7280';
+              const icon = EVENT_TYPE_ICONS[ev.event_type] || '\u2022';
+              const startD = new Date(ev.start_date);
+              const endD = new Date(ev.end_date);
+              const timeStr = ev.all_day
+                ? 'All day'
+                : `${startD.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} \u2013 ${endD.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+              return (
+                <div key={ev.id} style={{ ...styles.scheduleItem, borderLeftColor: color }}>
+                  <div style={styles.scheduleItemHeader}>
+                    <span style={{ fontSize: '13px' }}>{icon}</span>
+                    <span style={{ ...styles.scheduleItemTitle, color }}>{ev.title}</span>
+                    <span style={styles.scheduleItemType}>{EVENT_TYPE_LABELS[ev.event_type]}</span>
+                  </div>
+                  <div style={styles.scheduleItemMeta}>
+                    <span>{timeStr}</span>
+                    {ev.location && <span> &middot; {ev.location}</span>}
+                  </div>
+                  {ev.description && (
+                    <p style={styles.scheduleItemDesc}>{ev.description}</p>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -579,6 +687,7 @@ export default function Dashboard({ onNavigate }) {
         <div style={styles.section}>
           <h2 style={styles.sectionTitle}>Today</h2>
           <div style={styles.itineraryCard}>
+            {renderTodaySchedule()}
             {itineraryLoading ? (
               <p style={styles.emptyText}>Loading...</p>
             ) : itineraryItems.length === 0 ? (
@@ -598,6 +707,7 @@ export default function Dashboard({ onNavigate }) {
         <div style={styles.section}>
           <h2 style={styles.sectionTitle}>Today</h2>
           <div style={styles.itineraryCard}>
+            {renderTodaySchedule()}
             <div style={styles.itineraryAddRow}>
               <input
                 value={newItemText}
@@ -631,11 +741,12 @@ export default function Dashboard({ onNavigate }) {
         </div>
       )}
 
-      {/* Regular member: Today section (only if announcements exist) */}
-      {isMember && announcements.length > 0 && (
+      {/* Regular member: Today section */}
+      {isMember && (
         <div style={styles.section}>
           <h2 style={styles.sectionTitle}>Today</h2>
           <div style={styles.itineraryCard}>
+            {renderTodaySchedule()}
             {renderAnnouncements({ showInput: false })}
           </div>
         </div>
@@ -1198,5 +1309,62 @@ const styles = {
     borderRadius: '4px',
     fontWeight: 600,
     cursor: 'pointer',
+  },
+  postAnnouncementBtn: {
+    padding: '4px 12px',
+    background: 'rgba(99,102,241,0.1)',
+    border: '1px solid rgba(99,102,241,0.25)',
+    borderRadius: '6px',
+    color: '#a5b4fc',
+    fontSize: '12px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  scheduleSection: {
+    marginBottom: '16px',
+    paddingBottom: '16px',
+    borderBottom: '1px solid rgba(255,255,255,0.06)',
+  },
+  scheduleList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    marginTop: '8px',
+  },
+  scheduleItem: {
+    padding: '10px 14px',
+    background: 'rgba(255,255,255,0.02)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderLeft: '3px solid',
+    borderRadius: '8px',
+  },
+  scheduleItemHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    marginBottom: '4px',
+  },
+  scheduleItemTitle: {
+    fontSize: '14px',
+    fontWeight: 600,
+    flex: 1,
+  },
+  scheduleItemType: {
+    fontSize: '11px',
+    color: 'rgba(255,255,255,0.3)',
+    fontWeight: 600,
+    textTransform: 'uppercase',
+    letterSpacing: '0.3px',
+  },
+  scheduleItemMeta: {
+    fontSize: '12px',
+    color: 'rgba(255,255,255,0.4)',
+  },
+  scheduleItemDesc: {
+    fontSize: '12px',
+    color: 'rgba(255,255,255,0.3)',
+    margin: '4px 0 0 0',
+    lineHeight: 1.4,
   },
 };
