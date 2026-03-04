@@ -22,6 +22,15 @@ const PROJECT_TYPES = [
 ];
 const ASSIGNMENT_ROLES = ['producer', 'writer', 'editor', 'designer', 'reviewer', 'other'];
 
+const SHORTS_STAGES = ['editing', 'ready_to_post', 'posted'];
+const SHORTS_STAGE_LABELS = {
+  editing: 'Editing', ready_to_post: 'Ready to Post', posted: 'Posted',
+};
+const SHORTS_STAGE_COLORS = {
+  editing: '#f59e0b', ready_to_post: '#3b82f6', posted: '#22c55e',
+};
+const POSTING_PLATFORMS = ['YouTube Shorts', 'TikTok', 'Instagram Reels', 'X/Twitter', 'Facebook'];
+
 export default function Projects({ onNavigate }) {
   const { profile, isAdmin } = useAuth();
   const { safeQuery } = useSupabaseQuery();
@@ -35,6 +44,17 @@ export default function Projects({ onNavigate }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('projects_view') || 'list');
   const [showArchived, setShowArchived] = useState(false);
+  const [activeSection, setActiveSection] = useState('projects');
+
+  // Shorts Queue state
+  const [shorts, setShorts] = useState([]);
+  const [shortsLoading, setShortsLoading] = useState(false);
+  const [showShortForm, setShowShortForm] = useState(false);
+  const [shortForm, setShortForm] = useState({
+    title: '', source_show: '', urgency: 'evergreen', post_by: '', notes: '', assigned_to: '',
+  });
+  const [editingShort, setEditingShort] = useState(null);
+  const [stagePrompt, setStagePrompt] = useState(null);
 
   // Form state
   const [form, setForm] = useState({
@@ -212,6 +232,149 @@ export default function Projects({ onNavigate }) {
     }
   }
 
+  // --- Shorts Queue ---
+  const fetchShorts = useCallback(async () => {
+    setShortsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('shorts_queue')
+        .select('*, creator:profiles!created_by(id, full_name), assignee:profiles!assigned_to(id, full_name)')
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      setShorts(data || []);
+    } catch (err) {
+      console.error('Error fetching shorts:', err);
+      setShorts([]);
+    } finally {
+      setShortsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeSection !== 'shorts') return;
+    fetchShorts();
+    const channel = supabase
+      .channel('shorts-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'shorts_queue' }, () => {
+        fetchShorts();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [activeSection, fetchShorts]);
+
+  function sortShorts(items) {
+    return [...items].sort((a, b) => {
+      // Time-sensitive first
+      if (a.urgency !== b.urgency) {
+        return a.urgency === 'time_sensitive' ? -1 : 1;
+      }
+      // Within time-sensitive: sort by post_by ascending (most urgent first)
+      if (a.urgency === 'time_sensitive' && a.post_by && b.post_by) {
+        return new Date(a.post_by) - new Date(b.post_by);
+      }
+      // Manual sort_order, then created_at
+      if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+      return new Date(a.created_at) - new Date(b.created_at);
+    });
+  }
+
+  async function handleCreateShort(e) {
+    e.preventDefault();
+    const insertData = {
+      title: shortForm.title,
+      source_show: shortForm.source_show || null,
+      urgency: shortForm.urgency,
+      post_by: shortForm.urgency === 'time_sensitive' && shortForm.post_by ? shortForm.post_by : null,
+      notes: shortForm.notes || null,
+      assigned_to: shortForm.assigned_to || null,
+      created_by: profile.id,
+    };
+    const { error } = await supabase.from('shorts_queue').insert(insertData);
+    if (error) { alert('Error creating clip: ' + error.message); return; }
+    // Notify assigned user
+    if (shortForm.assigned_to && shortForm.assigned_to !== profile.id) {
+      await supabase.from('notifications').insert({
+        user_id: shortForm.assigned_to,
+        type: 'assignment',
+        title: `New clip assigned: ${shortForm.title}`,
+        body: `${profile.full_name} added a new clip to the Shorts Queue`,
+        link_tab: 'projects',
+      });
+    }
+    setShortForm({ title: '', source_show: '', urgency: 'evergreen', post_by: '', notes: '', assigned_to: '' });
+    setShowShortForm(false);
+    fetchShorts();
+  }
+
+  async function handleUpdateShortStage(shortId, newStage, extras = {}) {
+    const clip = shorts.find(s => s.id === shortId);
+    const { error } = await supabase.from('shorts_queue').update({
+      stage: newStage, ...extras, updated_at: new Date().toISOString(),
+    }).eq('id', shortId);
+    if (error) { console.error('Error updating short stage:', error); return; }
+    // Notify assigned user on stage change
+    if (clip?.assigned_to && clip.assigned_to !== profile.id) {
+      await supabase.from('notifications').insert({
+        user_id: clip.assigned_to,
+        type: 'status_change',
+        title: `Clip "${clip.title}" moved to ${SHORTS_STAGE_LABELS[newStage]}`,
+        body: `${profile.full_name} updated the clip stage`,
+        link_tab: 'projects',
+      });
+    }
+    fetchShorts();
+  }
+
+  async function handleUpdateShort(shortId, updates) {
+    const { error } = await supabase.from('shorts_queue').update({
+      ...updates, updated_at: new Date().toISOString(),
+    }).eq('id', shortId);
+    if (error) console.error('Error updating short:', error);
+    fetchShorts();
+  }
+
+  async function handleDeleteShort(shortId) {
+    if (!window.confirm('Delete this clip from the queue?')) return;
+    await supabase.from('shorts_queue').delete().eq('id', shortId);
+    fetchShorts();
+  }
+
+  function onShortsDragEnd(result) {
+    if (!result.destination) return;
+    const { draggableId, source, destination } = result;
+    const newStage = destination.droppableId;
+    const clip = shorts.find(s => s.id === draggableId);
+    if (!clip) return;
+
+    if (clip.stage !== newStage) {
+      // Stage transition prompts
+      if (newStage === 'ready_to_post' && !clip.drive_link) {
+        setStagePrompt({ id: draggableId, newStage, type: 'drive_link', title: clip.title });
+        return;
+      }
+      if (newStage === 'posted') {
+        setStagePrompt({ id: draggableId, newStage, type: 'posted_info', title: clip.title });
+        return;
+      }
+      handleUpdateShortStage(draggableId, newStage);
+    } else {
+      // Reorder within column
+      const columnItems = sortShorts(shorts.filter(s => s.stage === newStage));
+      const oldIndex = columnItems.findIndex(s => s.id === draggableId);
+      if (oldIndex === destination.index) return;
+      // Calculate new sort_order based on neighbors
+      const reordered = [...columnItems];
+      const [moved] = reordered.splice(oldIndex, 1);
+      reordered.splice(destination.index, 0, moved);
+      reordered.forEach((item, idx) => {
+        if (item.sort_order !== idx) {
+          supabase.from('shorts_queue').update({ sort_order: idx }).eq('id', item.id).then();
+        }
+      });
+      fetchShorts();
+    }
+  }
+
   async function handleArchiveProject(projectId) {
     await supabase.from('projects').update({ is_archived: true }).eq('id', projectId);
     fetchProjects();
@@ -276,8 +439,36 @@ export default function Projects({ onNavigate }) {
     return true;
   });
 
+  const editingCount = shorts.filter(s => s.stage === 'editing').length;
+  const readyCount = shorts.filter(s => s.stage === 'ready_to_post').length;
+
   return (
     <div style={styles.page}>
+      {/* Section Toggle */}
+      <div style={styles.sectionTabs}>
+        <button
+          onClick={() => setActiveSection('projects')}
+          style={{
+            ...styles.sectionTab,
+            ...(activeSection === 'projects' ? styles.sectionTabActive : {}),
+          }}
+        >Projects</button>
+        <button
+          onClick={() => setActiveSection('shorts')}
+          style={{
+            ...styles.sectionTab,
+            ...(activeSection === 'shorts' ? styles.sectionTabActive : {}),
+          }}
+        >
+          Shorts Queue
+          {(editingCount + readyCount) > 0 && (
+            <span style={styles.sectionTabBadge}>{editingCount + readyCount}</span>
+          )}
+        </button>
+      </div>
+
+      {activeSection === 'projects' ? (
+      <>
       <div style={styles.topBar}>
         <div>
           <h1 style={styles.pageTitle}>Projects</h1>
@@ -540,6 +731,190 @@ export default function Projects({ onNavigate }) {
             })}
           </div>
         </DragDropContext>
+      )}
+      </>
+      ) : (
+      /* ====== SHORTS QUEUE SECTION ====== */
+      <>
+      <div style={styles.topBar}>
+        <div>
+          <h1 style={styles.pageTitle}>Shorts Queue</h1>
+          <p style={styles.pageSubtitle}>
+            {editingCount} editing · {readyCount} ready to post
+          </p>
+        </div>
+        <button onClick={() => setShowShortForm(!showShortForm)} style={styles.addBtn}>
+          {showShortForm ? '✕ Cancel' : '+ New Clip'}
+        </button>
+      </div>
+
+      {/* Add Clip Form */}
+      {showShortForm && (
+        <form onSubmit={handleCreateShort} style={styles.formCard}>
+          <div style={styles.formGrid}>
+            <div style={styles.field}>
+              <label style={styles.label}>Title *</label>
+              <input
+                value={shortForm.title}
+                onChange={(e) => setShortForm({ ...shortForm, title: e.target.value })}
+                placeholder="e.g. LeBron dunk reaction"
+                required
+                style={styles.input}
+              />
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Source Show</label>
+              <input
+                value={shortForm.source_show}
+                onChange={(e) => setShortForm({ ...shortForm, source_show: e.target.value })}
+                placeholder="e.g. Monday Show 3/3"
+                style={styles.input}
+              />
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Urgency</label>
+              <div style={styles.urgencyToggle}>
+                <button
+                  type="button"
+                  onClick={() => setShortForm({ ...shortForm, urgency: 'time_sensitive' })}
+                  style={{
+                    ...styles.urgencyBtn,
+                    ...(shortForm.urgency === 'time_sensitive' ? styles.urgencyBtnTimeSensitive : {}),
+                  }}
+                >Time-Sensitive</button>
+                <button
+                  type="button"
+                  onClick={() => setShortForm({ ...shortForm, urgency: 'evergreen' })}
+                  style={{
+                    ...styles.urgencyBtn,
+                    ...(shortForm.urgency === 'evergreen' ? styles.urgencyBtnEvergreen : {}),
+                  }}
+                >Evergreen</button>
+              </div>
+            </div>
+            {shortForm.urgency === 'time_sensitive' && (
+              <div style={styles.field}>
+                <label style={styles.label}>Post By</label>
+                <input
+                  type="date"
+                  value={shortForm.post_by}
+                  onChange={(e) => setShortForm({ ...shortForm, post_by: e.target.value })}
+                  style={styles.input}
+                />
+              </div>
+            )}
+            <div style={styles.field}>
+              <label style={styles.label}>Assign To</label>
+              <select
+                value={shortForm.assigned_to}
+                onChange={(e) => setShortForm({ ...shortForm, assigned_to: e.target.value })}
+                style={styles.select}
+              >
+                <option value="">Unassigned</option>
+                {teamMembers.map(m => (
+                  <option key={m.id} value={m.id}>{m.full_name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div style={styles.field}>
+            <label style={styles.label}>Notes</label>
+            <textarea
+              value={shortForm.notes}
+              onChange={(e) => setShortForm({ ...shortForm, notes: e.target.value })}
+              placeholder="Timestamps, context, special instructions..."
+              rows={2}
+              style={{ ...styles.input, resize: 'vertical' }}
+            />
+          </div>
+          <button type="submit" style={styles.submitBtn}>Add to Queue</button>
+        </form>
+      )}
+
+      {/* Stage Transition Prompt Modal */}
+      {stagePrompt && (
+        <StagePromptModal
+          prompt={stagePrompt}
+          onSubmit={(extras) => {
+            handleUpdateShortStage(stagePrompt.id, stagePrompt.newStage, extras);
+            setStagePrompt(null);
+          }}
+          onCancel={() => setStagePrompt(null)}
+        />
+      )}
+
+      {/* Three-column stage view */}
+      {shortsLoading ? (
+        <p style={styles.emptyText}>Loading shorts queue...</p>
+      ) : (
+        <DragDropContext onDragEnd={onShortsDragEnd}>
+          <div style={styles.shortsBoardContainer}>
+            {SHORTS_STAGES.map(stage => {
+              const stageShorts = sortShorts(shorts.filter(s => s.stage === stage));
+              return (
+                <Droppable droppableId={stage} key={stage}>
+                  {(provided, snapshot) => (
+                    <div
+                      ref={provided.innerRef}
+                      {...provided.droppableProps}
+                      style={{
+                        ...styles.shortsColumn,
+                        background: snapshot.isDraggingOver
+                          ? `${SHORTS_STAGE_COLORS[stage]}08`
+                          : 'rgba(255,255,255,0.02)',
+                      }}
+                    >
+                      <div style={styles.shortsColumnHeader}>
+                        <div style={{ ...styles.boardColumnDot, background: SHORTS_STAGE_COLORS[stage] }} />
+                        <span style={{ ...styles.boardColumnTitle, color: SHORTS_STAGE_COLORS[stage] }}>
+                          {SHORTS_STAGE_LABELS[stage]}
+                        </span>
+                        <span style={styles.boardColumnCount}>{stageShorts.length}</span>
+                      </div>
+                      <div style={styles.boardColumnBody}>
+                        {stageShorts.map((clip, index) => (
+                          <Draggable key={clip.id} draggableId={clip.id} index={index}>
+                            {(provided, snapshot) => (
+                              <div
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                {...provided.dragHandleProps}
+                                style={{
+                                  ...styles.kanbanCard,
+                                  ...(snapshot.isDragging ? { boxShadow: '0 8px 24px rgba(0,0,0,0.4)', border: '1px solid rgba(99,102,241,0.3)' } : {}),
+                                  ...provided.draggableProps.style,
+                                }}
+                              >
+                                <ShortsCard
+                                  clip={clip}
+                                  teamMembers={teamMembers}
+                                  onUpdate={(updates) => handleUpdateShort(clip.id, updates)}
+                                  onDelete={() => handleDeleteShort(clip.id)}
+                                  isEditing={editingShort === clip.id}
+                                  onToggleEdit={() => setEditingShort(editingShort === clip.id ? null : clip.id)}
+                                />
+                              </div>
+                            )}
+                          </Draggable>
+                        ))}
+                        {provided.placeholder}
+                        {stageShorts.length === 0 && (
+                          <div style={styles.shortsEmptyColumn}>
+                            <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.2)', margin: 0 }}>
+                              {stage === 'editing' ? 'No clips to edit' : stage === 'ready_to_post' ? 'No clips ready' : 'No recent posts'}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </Droppable>
+              );
+            })}
+          </div>
+        </DragDropContext>
+      )}
+      </>
       )}
     </div>
   );
@@ -1071,6 +1446,224 @@ function KanbanCard({ project }) {
   );
 }
 
+function ShortsCard({ clip, teamMembers, onUpdate, onDelete, isEditing, onToggleEdit }) {
+  const [editDriveLink, setEditDriveLink] = useState(clip.drive_link || '');
+  const [editNotes, setEditNotes] = useState(clip.notes || '');
+  const [editAssignedTo, setEditAssignedTo] = useState(clip.assigned_to || '');
+
+  const postByDays = clip.post_by
+    ? Math.ceil((new Date(clip.post_by) - new Date()) / (1000 * 60 * 60 * 24))
+    : null;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
+        <div style={styles.kanbanCardName}>{clip.title}</div>
+        <button onClick={onToggleEdit} style={{ ...styles.removeBtn, fontSize: '14px', padding: '0 4px' }}>
+          {isEditing ? '✕' : '⋯'}
+        </button>
+      </div>
+      {clip.source_show && (
+        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', marginBottom: '6px' }}>
+          {clip.source_show}
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+        <span style={{
+          fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px',
+          textTransform: 'uppercase', letterSpacing: '0.3px',
+          background: clip.urgency === 'time_sensitive' ? 'rgba(239,68,68,0.15)' : 'rgba(107,114,128,0.15)',
+          color: clip.urgency === 'time_sensitive' ? '#fca5a5' : '#9ca3af',
+        }}>
+          {clip.urgency === 'time_sensitive' ? 'TIME SENSITIVE' : 'EVERGREEN'}
+        </span>
+        {clip.post_by && (
+          <span style={{
+            fontSize: '10px', fontWeight: 600, padding: '2px 6px', borderRadius: '4px',
+            background: postByDays !== null && postByDays <= 1 ? 'rgba(239,68,68,0.15)' : postByDays !== null && postByDays <= 3 ? 'rgba(249,115,22,0.15)' : 'rgba(255,255,255,0.06)',
+            color: postByDays !== null && postByDays <= 1 ? '#fca5a5' : postByDays !== null && postByDays <= 3 ? '#fdba74' : 'rgba(255,255,255,0.4)',
+          }}>
+            Post by {new Date(clip.post_by + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+          </span>
+        )}
+        {clip.posted_platform && (
+          <span style={{
+            fontSize: '10px', fontWeight: 600, padding: '2px 6px', borderRadius: '4px',
+            background: 'rgba(34,197,94,0.15)', color: '#86efac',
+          }}>
+            {clip.posted_platform}
+          </span>
+        )}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {clip.assignee && (
+            <div style={styles.kanbanAvatar} title={clip.assignee.full_name}>
+              {clip.assignee.full_name?.charAt(0)}
+            </div>
+          )}
+          {clip.drive_link && (
+            <a
+              href={clip.drive_link}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              style={{ fontSize: '11px', color: '#a5b4fc', textDecoration: 'none' }}
+              title="Open Drive link"
+            >
+              Drive ↗
+            </a>
+          )}
+          {clip.posted_url && (
+            <a
+              href={clip.posted_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              style={{ fontSize: '11px', color: '#86efac', textDecoration: 'none' }}
+              title="View post"
+            >
+              View ↗
+            </a>
+          )}
+        </div>
+      </div>
+      {clip.notes && !isEditing && (
+        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', marginTop: '6px', lineHeight: 1.3 }}>
+          {clip.notes.length > 60 ? clip.notes.substring(0, 60) + '…' : clip.notes}
+        </div>
+      )}
+      {isEditing && (
+        <div style={{ marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '8px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <input
+              value={editDriveLink}
+              onChange={(e) => setEditDriveLink(e.target.value)}
+              placeholder="Google Drive link..."
+              style={styles.smallInput}
+              onClick={(e) => e.stopPropagation()}
+            />
+            <select
+              value={editAssignedTo}
+              onChange={(e) => setEditAssignedTo(e.target.value)}
+              style={styles.smallSelect}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <option value="">Unassigned</option>
+              {teamMembers.map(m => (
+                <option key={m.id} value={m.id}>{m.full_name}</option>
+              ))}
+            </select>
+            <textarea
+              value={editNotes}
+              onChange={(e) => setEditNotes(e.target.value)}
+              placeholder="Notes..."
+              rows={2}
+              style={{ ...styles.smallInput, resize: 'vertical' }}
+              onClick={(e) => e.stopPropagation()}
+            />
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUpdate({
+                    drive_link: editDriveLink || null,
+                    notes: editNotes || null,
+                    assigned_to: editAssignedTo || null,
+                  });
+                  onToggleEdit();
+                }}
+                style={styles.smallBtn}
+              >Save</button>
+              <button
+                onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                style={{ ...styles.smallBtn, background: 'rgba(239,68,68,0.15)', color: '#fca5a5' }}
+              >Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StagePromptModal({ prompt, onSubmit, onCancel }) {
+  const [driveLink, setDriveLink] = useState('');
+  const [platform, setPlatform] = useState('');
+  const [postedUrl, setPostedUrl] = useState('');
+
+  return (
+    <div style={styles.modalOverlay} onClick={onCancel}>
+      <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+        {prompt.type === 'drive_link' ? (
+          <>
+            <h3 style={{ color: '#e2e8f0', margin: '0 0 4px', fontSize: '16px' }}>
+              Mark as Ready to Post
+            </h3>
+            <p style={{ color: 'rgba(255,255,255,0.4)', margin: '0 0 16px', fontSize: '13px' }}>
+              "{prompt.title}" — paste the Google Drive link for the finished clip.
+            </p>
+            <input
+              value={driveLink}
+              onChange={(e) => setDriveLink(e.target.value)}
+              placeholder="https://drive.google.com/..."
+              style={{ ...styles.input, width: '100%', boxSizing: 'border-box', marginBottom: '12px' }}
+              autoFocus
+            />
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button onClick={onCancel} style={{ ...styles.smallBtn, background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)' }}>
+                Cancel
+              </button>
+              <button onClick={() => onSubmit({ drive_link: driveLink || null })} style={styles.smallBtn}>
+                {driveLink ? 'Save & Move' : 'Skip & Move'}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <h3 style={{ color: '#e2e8f0', margin: '0 0 4px', fontSize: '16px' }}>
+              Mark as Posted
+            </h3>
+            <p style={{ color: 'rgba(255,255,255,0.4)', margin: '0 0 16px', fontSize: '13px' }}>
+              "{prompt.title}" — where was this clip posted?
+            </p>
+            <select
+              value={platform}
+              onChange={(e) => setPlatform(e.target.value)}
+              style={{ ...styles.select, width: '100%', boxSizing: 'border-box', marginBottom: '10px' }}
+            >
+              <option value="">Select platform...</option>
+              {POSTING_PLATFORMS.map(p => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+            <input
+              value={postedUrl}
+              onChange={(e) => setPostedUrl(e.target.value)}
+              placeholder="Link to live post (optional)"
+              style={{ ...styles.input, width: '100%', boxSizing: 'border-box', marginBottom: '12px' }}
+            />
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button onClick={onCancel} style={{ ...styles.smallBtn, background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)' }}>
+                Cancel
+              </button>
+              <button
+                onClick={() => onSubmit({
+                  posted_platform: platform || null,
+                  posted_url: postedUrl || null,
+                })}
+                style={styles.smallBtn}
+              >
+                {platform ? 'Save & Move' : 'Skip & Move'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const styles = {
   page: { padding: '32px 40px' },
   topBar: {
@@ -1459,5 +2052,118 @@ const styles = {
     background: 'rgba(255,255,255,0.06)',
     padding: '2px 7px',
     borderRadius: '6px',
+  },
+  // --- Section Tabs ---
+  sectionTabs: {
+    display: 'flex',
+    gap: '4px',
+    marginBottom: '24px',
+    background: 'rgba(255,255,255,0.03)',
+    borderRadius: '10px',
+    padding: '3px',
+    border: '1px solid rgba(255,255,255,0.06)',
+    width: 'fit-content',
+  },
+  sectionTab: {
+    padding: '8px 20px',
+    border: 'none',
+    borderRadius: '8px',
+    background: 'transparent',
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    transition: 'all 0.15s',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  sectionTabActive: {
+    background: 'rgba(99,102,241,0.15)',
+    color: '#a5b4fc',
+  },
+  sectionTabBadge: {
+    fontSize: '10px',
+    fontWeight: 700,
+    background: 'rgba(99,102,241,0.3)',
+    color: '#c7d2fe',
+    padding: '1px 6px',
+    borderRadius: '8px',
+    minWidth: '16px',
+    textAlign: 'center',
+  },
+  // --- Shorts Queue ---
+  urgencyToggle: {
+    display: 'flex',
+    gap: '4px',
+    background: 'rgba(255,255,255,0.03)',
+    borderRadius: '8px',
+    padding: '3px',
+    border: '1px solid rgba(255,255,255,0.08)',
+  },
+  urgencyBtn: {
+    flex: 1,
+    padding: '8px 12px',
+    border: 'none',
+    borderRadius: '6px',
+    background: 'transparent',
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: '12px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    transition: 'all 0.15s',
+  },
+  urgencyBtnTimeSensitive: {
+    background: 'rgba(239,68,68,0.15)',
+    color: '#fca5a5',
+  },
+  urgencyBtnEvergreen: {
+    background: 'rgba(107,114,128,0.2)',
+    color: '#d1d5db',
+  },
+  shortsBoardContainer: {
+    display: 'flex',
+    gap: '12px',
+    overflowX: 'auto',
+    paddingBottom: '16px',
+  },
+  shortsColumn: {
+    flex: '1 1 0',
+    minWidth: '260px',
+    borderRadius: '12px',
+    border: '1px solid rgba(255,255,255,0.06)',
+    display: 'flex',
+    flexDirection: 'column',
+    transition: 'background 0.15s',
+  },
+  shortsColumnHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '12px 14px',
+    borderBottom: '1px solid rgba(255,255,255,0.06)',
+  },
+  shortsEmptyColumn: {
+    padding: '24px 16px',
+    textAlign: 'center',
+  },
+  modalOverlay: {
+    position: 'fixed',
+    top: 0, left: 0, right: 0, bottom: 0,
+    background: 'rgba(0,0,0,0.6)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+  },
+  modalContent: {
+    background: '#1a1a2e',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '14px',
+    padding: '24px',
+    width: '420px',
+    maxWidth: '90vw',
   },
 };
