@@ -65,6 +65,13 @@ export default function Dashboard({ onNavigate }) {
   const [todayEvents, setTodayEvents] = useState([]);
   const [eventsLoading, setEventsLoading] = useState(false);
 
+  // Brain Dump state
+  const [brainDumpItems, setBrainDumpItems] = useState([]);
+  const [brainDumpLoading, setBrainDumpLoading] = useState(false);
+  const [newBrainDumpText, setNewBrainDumpText] = useState('');
+  const [editingBrainDumpId, setEditingBrainDumpId] = useState(null);
+  const [editingBrainDumpText, setEditingBrainDumpText] = useState('');
+
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
@@ -314,6 +321,75 @@ export default function Dashboard({ onNavigate }) {
     await updateProfile({ full_name: nameDraft.trim() });
     await supabase.auth.updateUser({ data: { full_name: nameDraft.trim() } });
     setEditingName(false);
+  }
+
+  // ── Brain Dump handlers ──
+  const fetchBrainDump = useCallback(async () => {
+    if (!profile?.id) return;
+    setBrainDumpLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('brain_dump')
+        .select('*, creator:profiles!created_by(id, full_name)')
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      setBrainDumpItems(data || []);
+    } catch (err) {
+      console.error('Error fetching brain dump:', err);
+      setBrainDumpItems([]);
+    } finally {
+      setBrainDumpLoading(false);
+    }
+  }, [profile?.id]);
+
+  useEffect(() => {
+    if (profile?.id) fetchBrainDump();
+  }, [profile?.id, fetchBrainDump]);
+
+  async function addBrainDumpItem() {
+    if (!newBrainDumpText.trim() || !profile?.id) return;
+    try {
+      const { error } = await supabase.from('brain_dump').insert({
+        created_by: profile.id,
+        content: newBrainDumpText.trim(),
+      });
+      if (error) throw error;
+      setNewBrainDumpText('');
+      fetchBrainDump();
+    } catch (err) {
+      console.error('Error adding brain dump item:', err);
+    }
+  }
+
+  async function updateBrainDumpItem(id, updates) {
+    try {
+      const { error } = await supabase
+        .from('brain_dump')
+        .update({ ...updates, updated_at: new Date().toISOString() })
+        .eq('id', id);
+      if (error) throw error;
+      fetchBrainDump();
+    } catch (err) {
+      console.error('Error updating brain dump item:', err);
+    }
+  }
+
+  async function deleteBrainDumpItem(id) {
+    try {
+      const { error } = await supabase.from('brain_dump').delete().eq('id', id);
+      if (error) throw error;
+      fetchBrainDump();
+    } catch (err) {
+      console.error('Error deleting brain dump item:', err);
+    }
+  }
+
+  function handleBrainDumpEditSave(id) {
+    if (editingBrainDumpText.trim()) {
+      updateBrainDumpItem(id, { content: editingBrainDumpText.trim() });
+    }
+    setEditingBrainDumpId(null);
+    setEditingBrainDumpText('');
   }
 
   function getDaysUntil(deadline) {
@@ -689,10 +765,30 @@ export default function Dashboard({ onNavigate }) {
           <h2 style={styles.sectionTitle}>Today</h2>
           <div style={styles.itineraryCard}>
             {renderTodaySchedule()}
+            <h3 style={styles.subSectionTitle}>Itinerary</h3>
+            <div style={styles.itineraryAddRow}>
+              <input
+                value={newItemText}
+                onChange={(e) => setNewItemText(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addItineraryItem()}
+                placeholder="Add an itinerary item..."
+                style={styles.itineraryInput}
+              />
+              <button
+                onClick={addItineraryItem}
+                disabled={!newItemText.trim()}
+                style={{
+                  ...styles.itineraryAddBtn,
+                  opacity: newItemText.trim() ? 1 : 0.4,
+                }}
+              >
+                Add
+              </button>
+            </div>
             {itineraryLoading ? (
               <p style={styles.emptyText}>Loading...</p>
             ) : itineraryItems.length === 0 ? (
-              <p style={styles.emptyText}>No itinerary items for today</p>
+              <p style={{ ...styles.emptyText, marginTop: '8px' }}>No itinerary items for today</p>
             ) : (
               <div style={styles.itineraryList}>
                 {itineraryItems.map(item => renderItineraryItem(item))}
@@ -826,6 +922,96 @@ export default function Dashboard({ onNavigate }) {
           </div>
         </div>
       )}
+
+      {/* Brain Dump */}
+      <div style={styles.section}>
+        <h2 style={styles.sectionTitle}>Brain Dump</h2>
+        <div style={styles.itineraryCard}>
+          <div style={styles.itineraryAddRow}>
+            <input
+              value={newBrainDumpText}
+              onChange={(e) => setNewBrainDumpText(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && addBrainDumpItem()}
+              placeholder="Drop an idea, task, or note..."
+              style={styles.itineraryInput}
+            />
+            <button
+              onClick={addBrainDumpItem}
+              disabled={!newBrainDumpText.trim()}
+              style={{
+                ...styles.itineraryAddBtn,
+                opacity: newBrainDumpText.trim() ? 1 : 0.4,
+              }}
+            >
+              Add
+            </button>
+          </div>
+          {brainDumpLoading ? (
+            <p style={styles.emptyText}>Loading...</p>
+          ) : brainDumpItems.length === 0 ? (
+            <p style={{ ...styles.emptyText, marginTop: '12px' }}>No items yet — drop something in above</p>
+          ) : (
+            <div style={styles.brainDumpList}>
+              {brainDumpItems.map(item => {
+                const isOwner = item.created_by === profile?.id;
+                const isEditingThis = editingBrainDumpId === item.id;
+                return (
+                  <div key={item.id} style={styles.brainDumpItem}>
+                    <input
+                      type="checkbox"
+                      checked={item.is_complete}
+                      onChange={() => isOwner && updateBrainDumpItem(item.id, { is_complete: !item.is_complete })}
+                      style={styles.itineraryCheckbox}
+                      disabled={!isOwner}
+                    />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {isEditingThis ? (
+                        <input
+                          value={editingBrainDumpText}
+                          onChange={(e) => setEditingBrainDumpText(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleBrainDumpEditSave(item.id)}
+                          onBlur={() => handleBrainDumpEditSave(item.id)}
+                          style={styles.itineraryEditInput}
+                          autoFocus
+                        />
+                      ) : (
+                        <span style={{
+                          ...styles.itineraryContent,
+                          textDecoration: item.is_complete ? 'line-through' : 'none',
+                          opacity: item.is_complete ? 0.5 : 1,
+                        }}>
+                          {item.content}
+                        </span>
+                      )}
+                      <span style={styles.brainDumpCreator}>{item.creator?.full_name}</span>
+                    </div>
+                    {isOwner && (
+                      <div style={styles.itineraryActions}>
+                        {!isEditingThis && (
+                          <button
+                            onClick={() => { setEditingBrainDumpId(item.id); setEditingBrainDumpText(item.content); }}
+                            style={styles.itineraryActionBtn}
+                            title="Edit"
+                          >
+                            ✎
+                          </button>
+                        )}
+                        <button
+                          onClick={() => deleteBrainDumpItem(item.id)}
+                          style={{ ...styles.itineraryActionBtn, color: '#ef4444' }}
+                          title="Delete"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1310,6 +1496,25 @@ const styles = {
     borderRadius: '4px',
     fontWeight: 600,
     cursor: 'pointer',
+  },
+  brainDumpList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '2px',
+    marginTop: '8px',
+  },
+  brainDumpItem: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '10px',
+    padding: '8px 10px',
+    borderRadius: '8px',
+    transition: 'background 0.1s',
+  },
+  brainDumpCreator: {
+    fontSize: '11px',
+    color: 'rgba(255,255,255,0.25)',
+    marginLeft: '8px',
   },
   postAnnouncementBtn: {
     padding: '4px 12px',
