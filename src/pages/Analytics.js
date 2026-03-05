@@ -455,8 +455,8 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* ── A. Date Range & Platform Filters ── */}
-      <div style={styles.filterBar}>
+      {/* ── A. Date Range & Platform Filters (Dashboard only) ── */}
+      {viewMode !== 'advanced' && <div style={styles.filterBar}>
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
           {/* Month dropdown */}
           <select value={dateRange === 'month' ? filterMonth : ''}
@@ -545,17 +545,21 @@ export default function Analytics() {
             </div>
           )}
         </div>
+      </div>}
+
+      {/* ── View Mode Toggle ── */}
+      <div style={styles.viewToggleBar}>
+        <button onClick={() => setViewMode('dashboard')} style={viewMode === 'dashboard' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Dashboard</button>
+        <button onClick={() => setViewMode('advanced')} style={viewMode === 'advanced' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Advanced</button>
       </div>
 
-      {loading ? <p style={styles.loadingText}>Loading analytics...</p> : (
-        <>
-          {/* ── View Mode Toggle ── */}
-          <div style={styles.viewToggleBar}>
-            <button onClick={() => setViewMode('dashboard')} style={viewMode === 'dashboard' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Dashboard</button>
-            <button onClick={() => setViewMode('advanced')} style={viewMode === 'advanced' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Advanced</button>
-          </div>
+      {viewMode === 'advanced' && (
+        <AdvancedView accounts={accounts} />
+      )}
 
-          {viewMode === 'dashboard' && (<>
+      {viewMode === 'dashboard' && (loading ? <p style={styles.loadingText}>Loading analytics...</p> : (
+        <>
+          {/* ── Dashboard Sections ── */}
           {/* ── B. KPI Summary Cards ── */}
           {kpi && (
             <div style={styles.kpiGrid}>
@@ -693,33 +697,28 @@ export default function Analytics() {
               <p style={styles.emptyText}>No content found for this date range.</p>
             </div>
           )}
-          </>)}
-
-          {viewMode === 'advanced' && (
-            <AdvancedView accounts={accounts} activeAccountIds={activeAccountIds} pageStart={start} pageEnd={end} />
-          )}
-
-          {/* ── F. Data Input Section ── */}
-          <div style={{ marginTop: '24px' }}>
-            <button onClick={() => setCsvSection(!csvSection)} style={styles.collapseBtn}>
-              {csvSection ? '▾' : '▸'} Data Input
-            </button>
-            {csvSection && <DataInputSection profile={profile} accounts={accounts} />}
-          </div>
-
-          {/* ── G. Ingestion Health Panel (admin only) ── */}
-          {isAdmin && (
-            <div style={{ marginTop: '16px' }}>
-              <button onClick={() => {
-                setShowIngestion(!showIngestion);
-                if (!showIngestion) fetchIngestionLogs();
-              }} style={styles.collapseBtn}>
-                {showIngestion ? '▾' : '▸'} Ingestion Health (Admin)
-              </button>
-              {showIngestion && <IngestionHealthPanel logs={ingestionLogs} accounts={accounts} />}
-            </div>
-          )}
         </>
+      ))}
+
+      {/* ── F. Data Input Section ── */}
+      <div style={{ marginTop: '24px' }}>
+        <button onClick={() => setCsvSection(!csvSection)} style={styles.collapseBtn}>
+          {csvSection ? '▾' : '▸'} Data Input
+        </button>
+        {csvSection && <DataInputSection profile={profile} accounts={accounts} />}
+      </div>
+
+      {/* ── G. Ingestion Health Panel (admin only) ── */}
+      {isAdmin && (
+        <div style={{ marginTop: '16px' }}>
+          <button onClick={() => {
+            setShowIngestion(!showIngestion);
+            if (!showIngestion) fetchIngestionLogs();
+          }} style={styles.collapseBtn}>
+            {showIngestion ? '▾' : '▸'} Ingestion Health (Admin)
+          </button>
+          {showIngestion && <IngestionHealthPanel logs={ingestionLogs} accounts={accounts} />}
+        </div>
       )}
     </div>
   );
@@ -737,11 +736,20 @@ export default function Analytics() {
 // ═══════════════════════════════════════════════
 // Advanced View
 // ═══════════════════════════════════════════════
-function AdvancedView({ accounts, activeAccountIds, pageStart, pageEnd }) {
-  // Table state
+function AdvancedView({ accounts }) {
+  // ── Table filters ──
   const [tableSplit, setTableSplit] = useState('month');
   const [tableMetrics, setTableMetrics] = useState(['views', 'revenue']);
   const [contentTypeFilter, setContentTypeFilter] = useState('all');
+  const [tableSelectedYears, setTableSelectedYears] = useState([new Date().getFullYear()]);
+  const [tableDateMode, setTableDateMode] = useState('years'); // 'years' | 'custom'
+  const [tableCustomStart, setTableCustomStart] = useState('');
+  const [tableCustomEnd, setTableCustomEnd] = useState('');
+  const [tableAccountIds, setTableAccountIds] = useState([]);
+  const [tablePlatformOpen, setTablePlatformOpen] = useState(false);
+  const tablePlatformRef = useRef(null);
+
+  // ── Table data ──
   const [tableData, setTableData] = useState([]);
   const [tableLoading, setTableLoading] = useState(false);
   const [tableSortCol, setTableSortCol] = useState(null);
@@ -749,8 +757,12 @@ function AdvancedView({ accounts, activeAccountIds, pageStart, pageEnd }) {
   const [metricDropdownOpen, setMetricDropdownOpen] = useState(false);
   const metricDropdownRef = useRef(null);
 
-  // Comparison state
+  // ── Comparison state ──
   const [compMetric, setCompMetric] = useState('views');
+  const [compContentType, setCompContentType] = useState('all');
+  const [compAccountIds, setCompAccountIds] = useState([]);
+  const [compPlatformOpen, setCompPlatformOpen] = useState(false);
+  const compPlatformRef = useRef(null);
   const [compPeriods, setCompPeriods] = useState([]);
   const [compData, setCompData] = useState([]);
   const [compLoading, setCompLoading] = useState(false);
@@ -759,16 +771,47 @@ function AdvancedView({ accounts, activeAccountIds, pageStart, pageEnd }) {
   const [periodCustomStart, setPeriodCustomStart] = useState('');
   const [periodCustomEnd, setPeriodCustomEnd] = useState('');
 
-  // Close metric dropdown on outside click
+  const allYears = useMemo(() => {
+    const years = [];
+    for (let y = new Date().getFullYear(); y >= 2020; y--) years.push(y);
+    return years;
+  }, []);
+
+  // Compute effective date range from table year/custom selection
+  const { tableStart, tableEnd } = useMemo(() => {
+    if (tableDateMode === 'custom' && tableCustomStart && tableCustomEnd) {
+      return { tableStart: tableCustomStart, tableEnd: tableCustomEnd };
+    }
+    if (tableSelectedYears.length === 0) {
+      const y = new Date().getFullYear();
+      return { tableStart: `${y}-01-01`, tableEnd: `${y}-12-31` };
+    }
+    const sorted = [...tableSelectedYears].sort();
+    return { tableStart: `${sorted[0]}-01-01`, tableEnd: `${sorted[sorted.length - 1]}-12-31` };
+  }, [tableDateMode, tableCustomStart, tableCustomEnd, tableSelectedYears]);
+
+  // Close dropdowns on outside click
   useEffect(() => {
     function handleClick(e) {
-      if (metricDropdownRef.current && !metricDropdownRef.current.contains(e.target)) {
-        setMetricDropdownOpen(false);
-      }
+      if (metricDropdownRef.current && !metricDropdownRef.current.contains(e.target)) setMetricDropdownOpen(false);
+      if (tablePlatformRef.current && !tablePlatformRef.current.contains(e.target)) setTablePlatformOpen(false);
+      if (compPlatformRef.current && !compPlatformRef.current.contains(e.target)) setCompPlatformOpen(false);
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
+
+  function toggleYear(y) {
+    setTableSelectedYears(prev => prev.includes(y) ? prev.filter(v => v !== y) : [...prev, y]);
+  }
+
+  function toggleTableAccount(id) {
+    setTableAccountIds(prev => prev.includes(id) ? prev.filter(v => v !== id) : [...prev, id]);
+  }
+
+  function toggleCompAccount(id) {
+    setCompAccountIds(prev => prev.includes(id) ? prev.filter(v => v !== id) : [...prev, id]);
+  }
 
   // Available metrics for current split
   const availableMetrics = useMemo(() => {
@@ -776,21 +819,22 @@ function AdvancedView({ accounts, activeAccountIds, pageStart, pageEnd }) {
     return AVAILABLE_METRICS.filter(m => !m.contentOnly);
   }, [tableSplit]);
 
-  // Fetch table data when filters change
+  // Effective account IDs for table (respects platform filter + content type)
+  const effectiveTableAccountIds = useMemo(() => {
+    return getContentTypeAccountIds(accounts, tableAccountIds, contentTypeFilter);
+  }, [accounts, tableAccountIds, contentTypeFilter]);
+
+  // ── Fetch table data ──
   useEffect(() => {
     fetchTableData();
-  }, [tableSplit, contentTypeFilter, pageStart, pageEnd, activeAccountIds.join(','), tableMetrics.join(',')]);
+  }, [tableSplit, contentTypeFilter, tableStart, tableEnd, effectiveTableAccountIds.join(','), tableMetrics.join(',')]);
 
   async function fetchTableData() {
     setTableLoading(true);
     try {
-      if (tableSplit === 'content') {
-        await fetchContentSplit();
-      } else if (tableSplit.startsWith('bucket_')) {
-        await fetchBucketSplit();
-      } else {
-        await fetchDateSplit();
-      }
+      if (tableSplit === 'content') await fetchContentSplit();
+      else if (tableSplit.startsWith('bucket_')) await fetchBucketSplit();
+      else await fetchDateSplit();
     } catch (err) {
       console.error('Table fetch error:', err);
       setTableData([]);
@@ -799,20 +843,17 @@ function AdvancedView({ accounts, activeAccountIds, pageStart, pageEnd }) {
   }
 
   async function fetchContentSplit() {
-    const accountIds = getContentTypeAccountIds(accounts, activeAccountIds, contentTypeFilter);
-    if (!accountIds.length) { setTableData([]); return; }
-
+    if (!effectiveTableAccountIds.length) { setTableData([]); return; }
     let q = supabase
       .from('content_items')
       .select(`*, platform_account:platform_accounts(platform, account_name), latest_metrics:content_metrics(views, likes, comments, shares, engagement_rate)`)
-      .gte('published_at', pageStart)
-      .lte('published_at', pageEnd)
-      .in('platform_account_id', accountIds)
+      .gte('published_at', tableStart)
+      .lte('published_at', tableEnd)
+      .in('platform_account_id', effectiveTableAccountIds)
       .order('published_at', { ascending: false })
       .limit(200);
     const { data } = await q;
 
-    // For YouTube short/long filtering with duration
     let durationMap = {};
     if (contentTypeFilter === 'short' || contentTypeFilter === 'long') {
       const ytItems = (data || []).filter(d => d.platform_account?.platform === 'youtube' && d.url);
@@ -822,10 +863,7 @@ function AdvancedView({ accounts, activeAccountIds, pageStart, pageEnd }) {
           return match ? match[1] : null;
         }).filter(Boolean);
         if (videoIds.length) {
-          const { data: ytData } = await supabase
-            .from('analytics_youtube')
-            .select('video_id, duration_seconds')
-            .in('video_id', videoIds);
+          const { data: ytData } = await supabase.from('analytics_youtube').select('video_id, duration_seconds').in('video_id', videoIds);
           (ytData || []).forEach(r => { durationMap[r.video_id] = r.duration_seconds; });
         }
       }
@@ -836,173 +874,96 @@ function AdvancedView({ accounts, activeAccountIds, pageStart, pageEnd }) {
       return {
         label: item.title || '(Untitled)',
         sublabel: item.platform_account?.platform ? `${PLATFORM_META[item.platform_account.platform]?.label || item.platform_account.platform}${item.platform_account.account_name ? ' \u00b7 ' + item.platform_account.account_name : ''}` : '',
-        platform: item.platform_account?.platform,
-        url: item.url,
-        content_views: Number(metrics.views) || 0,
-        content_likes: Number(metrics.likes) || 0,
-        content_comments: Number(metrics.comments) || 0,
-        content_shares: Number(metrics.shares) || 0,
+        platform: item.platform_account?.platform, url: item.url,
+        content_views: Number(metrics.views) || 0, content_likes: Number(metrics.likes) || 0,
+        content_comments: Number(metrics.comments) || 0, content_shares: Number(metrics.shares) || 0,
         content_engagement: Number(metrics.engagement_rate) || 0,
         _videoId: item.url?.match(/(?:v=|youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})/)?.[1],
       };
     });
 
-    // Filter by duration for YouTube short/long
     if (contentTypeFilter === 'short') {
-      rows = rows.filter(r => {
-        if (r.platform !== 'youtube') return true;
-        if (!r._videoId || durationMap[r._videoId] === undefined) return false;
-        return durationMap[r._videoId] < 60;
-      });
+      rows = rows.filter(r => { if (r.platform !== 'youtube') return true; if (!r._videoId || durationMap[r._videoId] === undefined) return false; return durationMap[r._videoId] < 60; });
     } else if (contentTypeFilter === 'long') {
-      rows = rows.filter(r => {
-        if (r.platform !== 'youtube') return false;
-        if (!r._videoId || durationMap[r._videoId] === undefined) return true;
-        return durationMap[r._videoId] >= 60;
-      });
+      rows = rows.filter(r => { if (r.platform !== 'youtube') return false; if (!r._videoId || durationMap[r._videoId] === undefined) return true; return durationMap[r._videoId] >= 60; });
     }
-
     setTableData(rows);
   }
 
   async function fetchDateSplit() {
-    const accountIds = getContentTypeAccountIds(accounts, activeAccountIds, contentTypeFilter);
-    if (!accountIds.length) { setTableData([]); return; }
-
-    const { data: rollups } = await supabase
-      .from('daily_platform_rollups')
-      .select('*')
-      .gte('date', pageStart)
-      .lte('date', pageEnd)
-      .in('platform_account_id', accountIds)
-      .order('date', { ascending: true });
-
-    // Fetch YouTube daily if any YT metrics selected
+    if (!effectiveTableAccountIds.length) { setTableData([]); return; }
+    const { data: rollups } = await supabase.from('daily_platform_rollups').select('*')
+      .gte('date', tableStart).lte('date', tableEnd).in('platform_account_id', effectiveTableAccountIds).order('date', { ascending: true });
     const needsYT = tableMetrics.some(k => AVAILABLE_METRICS.find(m => m.key === k)?.table === 'analytics_youtube_daily');
     let ytData = [];
     if (needsYT) {
-      const { data } = await supabase
-        .from('analytics_youtube_daily')
-        .select('*')
-        .gte('date', pageStart)
-        .lte('date', pageEnd)
-        .order('date', { ascending: true });
+      const { data } = await supabase.from('analytics_youtube_daily').select('*').gte('date', tableStart).lte('date', tableEnd).order('date', { ascending: true });
       ytData = data || [];
     }
-
-    // Group by date split key
     const grouped = {};
     for (const row of (rollups || [])) {
-      let key;
-      if (tableSplit === 'day') key = row.date;
-      else if (tableSplit === 'month') key = row.date.slice(0, 7);
-      else key = row.date.slice(0, 4);
-      if (!grouped[key]) grouped[key] = { rollups: [], yt: [] };
-      grouped[key].rollups.push(row);
+      let key; if (tableSplit === 'day') key = row.date; else if (tableSplit === 'month') key = row.date.slice(0, 7); else key = row.date.slice(0, 4);
+      if (!grouped[key]) grouped[key] = { rollups: [], yt: [] }; grouped[key].rollups.push(row);
     }
     for (const row of ytData) {
-      let key;
-      if (tableSplit === 'day') key = row.date;
-      else if (tableSplit === 'month') key = row.date.slice(0, 7);
-      else key = row.date.slice(0, 4);
-      if (!grouped[key]) grouped[key] = { rollups: [], yt: [] };
-      grouped[key].yt.push(row);
+      let key; if (tableSplit === 'day') key = row.date; else if (tableSplit === 'month') key = row.date.slice(0, 7); else key = row.date.slice(0, 4);
+      if (!grouped[key]) grouped[key] = { rollups: [], yt: [] }; grouped[key].yt.push(row);
     }
-
-    const rows = Object.entries(grouped)
-      .map(([key, { rollups: rRows, yt: yRows }]) => {
-        const row = { label: formatGroupLabel(key, tableSplit), _sortKey: key };
-        for (const m of AVAILABLE_METRICS.filter(m => m.table === 'daily_platform_rollups' && !m.contentOnly)) {
-          if (m.aggregate === 'avg') {
-            row[m.key] = rRows.length ? rRows.reduce((s, r) => s + m.getValue(r), 0) / rRows.length : 0;
-          } else if (m.aggregate === 'last') {
-            row[m.key] = rRows.length ? m.getValue(rRows[rRows.length - 1]) : 0;
-          } else {
-            row[m.key] = rRows.reduce((s, r) => s + m.getValue(r), 0);
-          }
-        }
-        for (const m of AVAILABLE_METRICS.filter(m => m.table === 'analytics_youtube_daily')) {
-          if (m.aggregate === 'avg') {
-            row[m.key] = yRows.length ? yRows.reduce((s, r) => s + m.getValue(r), 0) / yRows.length : 0;
-          } else {
-            row[m.key] = yRows.reduce((s, r) => s + m.getValue(r), 0);
-          }
-        }
-        return row;
-      })
-      .sort((a, b) => a._sortKey.localeCompare(b._sortKey));
-
+    const rows = Object.entries(grouped).map(([key, { rollups: rRows, yt: yRows }]) => {
+      const row = { label: formatGroupLabel(key, tableSplit), _sortKey: key };
+      for (const m of AVAILABLE_METRICS.filter(m => m.table === 'daily_platform_rollups' && !m.contentOnly)) {
+        if (m.aggregate === 'avg') row[m.key] = rRows.length ? rRows.reduce((s, r) => s + m.getValue(r), 0) / rRows.length : 0;
+        else if (m.aggregate === 'last') row[m.key] = rRows.length ? m.getValue(rRows[rRows.length - 1]) : 0;
+        else row[m.key] = rRows.reduce((s, r) => s + m.getValue(r), 0);
+      }
+      for (const m of AVAILABLE_METRICS.filter(m => m.table === 'analytics_youtube_daily')) {
+        if (m.aggregate === 'avg') row[m.key] = yRows.length ? yRows.reduce((s, r) => s + m.getValue(r), 0) / yRows.length : 0;
+        else row[m.key] = yRows.reduce((s, r) => s + m.getValue(r), 0);
+      }
+      return row;
+    }).sort((a, b) => a._sortKey.localeCompare(b._sortKey));
     setTableData(rows);
   }
 
   async function fetchBucketSplit() {
     const bucketKey = tableSplit.replace('bucket_', '');
-    const years = getYearsInRange(pageStart, pageEnd);
-    const accountIds = getContentTypeAccountIds(accounts, activeAccountIds, contentTypeFilter);
-    if (!accountIds.length) { setTableData([]); return; }
-
-    const { data: rollups } = await supabase
-      .from('daily_platform_rollups')
-      .select('*')
-      .gte('date', pageStart)
-      .lte('date', pageEnd)
-      .in('platform_account_id', accountIds);
-
+    const years = getYearsInRange(tableStart, tableEnd);
+    if (!effectiveTableAccountIds.length) { setTableData([]); return; }
+    const { data: rollups } = await supabase.from('daily_platform_rollups').select('*')
+      .gte('date', tableStart).lte('date', tableEnd).in('platform_account_id', effectiveTableAccountIds);
     const needsYT = tableMetrics.some(k => AVAILABLE_METRICS.find(m => m.key === k)?.table === 'analytics_youtube_daily');
     let ytData = [];
     if (needsYT) {
-      const { data } = await supabase
-        .from('analytics_youtube_daily')
-        .select('*')
-        .gte('date', pageStart)
-        .lte('date', pageEnd);
+      const { data } = await supabase.from('analytics_youtube_daily').select('*').gte('date', tableStart).lte('date', tableEnd);
       ytData = data || [];
     }
-
     const rows = [];
     for (const year of years) {
       const range = getBucketDateRange(bucketKey, year);
-      if (!range) continue;
-      if (range.end < pageStart || range.start > pageEnd) continue;
-
+      if (!range || range.end < tableStart || range.start > tableEnd) continue;
       const bucketRollups = (rollups || []).filter(r => r.date >= range.start && r.date < range.end);
       const bucketYt = ytData.filter(r => r.date >= range.start && r.date < range.end);
-
       const row = { label: range.label, _sortKey: `${year}` };
       for (const m of AVAILABLE_METRICS.filter(m => m.table === 'daily_platform_rollups' && !m.contentOnly)) {
-        if (m.aggregate === 'avg') {
-          row[m.key] = bucketRollups.length ? bucketRollups.reduce((s, r) => s + m.getValue(r), 0) / bucketRollups.length : 0;
-        } else if (m.aggregate === 'last') {
-          row[m.key] = bucketRollups.length ? m.getValue(bucketRollups[bucketRollups.length - 1]) : 0;
-        } else {
-          row[m.key] = bucketRollups.reduce((s, r) => s + m.getValue(r), 0);
-        }
+        if (m.aggregate === 'avg') row[m.key] = bucketRollups.length ? bucketRollups.reduce((s, r) => s + m.getValue(r), 0) / bucketRollups.length : 0;
+        else if (m.aggregate === 'last') row[m.key] = bucketRollups.length ? m.getValue(bucketRollups[bucketRollups.length - 1]) : 0;
+        else row[m.key] = bucketRollups.reduce((s, r) => s + m.getValue(r), 0);
       }
       for (const m of AVAILABLE_METRICS.filter(m => m.table === 'analytics_youtube_daily')) {
-        if (m.aggregate === 'avg') {
-          row[m.key] = bucketYt.length ? bucketYt.reduce((s, r) => s + m.getValue(r), 0) / bucketYt.length : 0;
-        } else {
-          row[m.key] = bucketYt.reduce((s, r) => s + m.getValue(r), 0);
-        }
+        if (m.aggregate === 'avg') row[m.key] = bucketYt.length ? bucketYt.reduce((s, r) => s + m.getValue(r), 0) / bucketYt.length : 0;
+        else row[m.key] = bucketYt.reduce((s, r) => s + m.getValue(r), 0);
       }
       rows.push(row);
     }
-
     setTableData(rows);
   }
 
   function formatGroupLabel(key, split) {
-    if (split === 'day') {
-      return new Date(key + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    }
-    if (split === 'month') {
-      const [y, m] = key.split('-');
-      return MONTHS[parseInt(m, 10) - 1] + ' ' + y;
-    }
+    if (split === 'day') return new Date(key + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    if (split === 'month') { const [y, m] = key.split('-'); return MONTHS[parseInt(m, 10) - 1] + ' ' + y; }
     return key;
   }
 
-  // Sort table data
   const sortedTableData = useMemo(() => {
     if (!tableSortCol) return tableData;
     return [...tableData].sort((a, b) => {
@@ -1019,26 +980,19 @@ function AdvancedView({ accounts, activeAccountIds, pageStart, pageEnd }) {
   }
 
   function toggleMetric(key) {
-    setTableMetrics(prev => {
-      if (prev.includes(key)) return prev.filter(k => k !== key);
-      return [...prev, key];
-    });
+    setTableMetrics(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
   }
 
-  // Comparison period management
+  // ── Comparison ──
   function addPeriod() {
     let pStart, pEnd, label;
     if (periodType === 'custom') {
       if (!periodCustomStart || !periodCustomEnd) return;
-      pStart = periodCustomStart;
-      pEnd = periodCustomEnd;
-      label = `${pStart} to ${pEnd}`;
+      pStart = periodCustomStart; pEnd = periodCustomEnd; label = `${pStart} to ${pEnd}`;
     } else {
       const range = getBucketDateRange(periodType, periodYear);
       if (!range) return;
-      pStart = range.start;
-      pEnd = range.end;
-      label = range.label;
+      pStart = range.start; pEnd = range.end; label = range.label;
     }
     const color = LINE_COLORS[compPeriods.length % LINE_COLORS.length];
     setCompPeriods(prev => [...prev, { start: pStart, end: pEnd, label, color }]);
@@ -1048,111 +1002,145 @@ function AdvancedView({ accounts, activeAccountIds, pageStart, pageEnd }) {
     setCompPeriods(prev => prev.filter((_, i) => i !== idx));
   }
 
-  // Fetch comparison data
+  // Effective comparison account IDs
+  const effectiveCompAccountIds = useMemo(() => {
+    return getContentTypeAccountIds(accounts, compAccountIds, compContentType);
+  }, [accounts, compAccountIds, compContentType]);
+
   useEffect(() => {
     if (compPeriods.length === 0) { setCompData([]); return; }
     fetchComparisonData();
-  }, [compPeriods, compMetric]);
+  }, [compPeriods, compMetric, effectiveCompAccountIds.join(',')]);
 
   async function fetchComparisonData() {
     setCompLoading(true);
     try {
       const metricDef = AVAILABLE_METRICS.find(m => m.key === compMetric);
       if (!metricDef) { setCompData([]); setCompLoading(false); return; }
-
-      const accountIds = getContentTypeAccountIds(accounts, activeAccountIds, 'all');
-
       const results = await Promise.all(compPeriods.map(async (period) => {
         let values = [];
         if (metricDef.table === 'daily_platform_rollups') {
-          let q = supabase
-            .from('daily_platform_rollups')
-            .select('*')
-            .gte('date', period.start)
-            .lt('date', period.end)
-            .order('date', { ascending: true });
-          if (accountIds.length) q = q.in('platform_account_id', accountIds);
+          let q = supabase.from('daily_platform_rollups').select('*').gte('date', period.start).lt('date', period.end).order('date', { ascending: true });
+          if (effectiveCompAccountIds.length) q = q.in('platform_account_id', effectiveCompAccountIds);
           const { data } = await q;
-
           const byDate = {};
-          for (const row of (data || [])) {
-            if (!byDate[row.date]) byDate[row.date] = [];
-            byDate[row.date].push(row);
-          }
-          const dates = Object.keys(byDate).sort();
-          values = dates.map((d, i) => {
+          for (const row of (data || [])) { if (!byDate[row.date]) byDate[row.date] = []; byDate[row.date].push(row); }
+          values = Object.keys(byDate).sort().map((d, i) => {
             const rows = byDate[d];
-            let val;
-            if (metricDef.aggregate === 'avg') {
-              val = rows.reduce((s, r) => s + metricDef.getValue(r), 0) / rows.length;
-            } else {
-              val = rows.reduce((s, r) => s + metricDef.getValue(r), 0);
-            }
+            const val = metricDef.aggregate === 'avg' ? rows.reduce((s, r) => s + metricDef.getValue(r), 0) / rows.length : rows.reduce((s, r) => s + metricDef.getValue(r), 0);
             return { dayIndex: i, value: val };
           });
         } else if (metricDef.table === 'analytics_youtube_daily') {
-          const { data } = await supabase
-            .from('analytics_youtube_daily')
-            .select('*')
-            .gte('date', period.start)
-            .lt('date', period.end)
-            .order('date', { ascending: true });
-
+          const { data } = await supabase.from('analytics_youtube_daily').select('*').gte('date', period.start).lt('date', period.end).order('date', { ascending: true });
           const byDate = {};
-          for (const row of (data || [])) {
-            if (!byDate[row.date]) byDate[row.date] = [];
-            byDate[row.date].push(row);
-          }
-          const dates = Object.keys(byDate).sort();
-          values = dates.map((d, i) => {
+          for (const row of (data || [])) { if (!byDate[row.date]) byDate[row.date] = []; byDate[row.date].push(row); }
+          values = Object.keys(byDate).sort().map((d, i) => {
             const rows = byDate[d];
-            let val;
-            if (metricDef.aggregate === 'avg') {
-              val = rows.reduce((s, r) => s + metricDef.getValue(r), 0) / rows.length;
-            } else {
-              val = rows.reduce((s, r) => s + metricDef.getValue(r), 0);
-            }
+            const val = metricDef.aggregate === 'avg' ? rows.reduce((s, r) => s + metricDef.getValue(r), 0) / rows.length : rows.reduce((s, r) => s + metricDef.getValue(r), 0);
             return { dayIndex: i, value: val };
           });
         }
         return { ...period, values };
       }));
-
       setCompData(results);
-    } catch (err) {
-      console.error('Comparison fetch error:', err);
-    }
+    } catch (err) { console.error('Comparison fetch error:', err); }
     setCompLoading(false);
   }
 
-  const availableYears = useMemo(() => {
-    const years = [];
-    for (let y = new Date().getFullYear(); y >= 2020; y--) years.push(y);
-    return years;
-  }, []);
+  // Split comparison metrics into groups
+  const compRollupMetrics = COMPARISON_METRICS.filter(m => m.table === 'daily_platform_rollups');
+  const compYouTubeMetrics = COMPARISON_METRICS.filter(m => m.table === 'analytics_youtube_daily');
+
+  // Platform dropdown renderer (reused for table & comparison)
+  function renderPlatformDropdown(open, setOpen, ref, selectedIds, toggleFn) {
+    return (
+      <div ref={ref} style={{ position: 'relative' }}>
+        <button onClick={() => setOpen(!open)}
+          style={{ ...styles.filterChip, display: 'flex', alignItems: 'center', gap: '6px' }}>
+          Platforms
+          {selectedIds.length > 0 && (
+            <span style={{ background: 'rgba(99,102,241,0.3)', padding: '1px 6px', borderRadius: '8px', fontSize: '10px', fontWeight: 700, color: '#a5b4fc' }}>
+              {selectedIds.length}
+            </span>
+          )}
+          <span style={{ fontSize: '10px', marginLeft: '2px' }}>{open ? '\u25B2' : '\u25BC'}</span>
+        </button>
+        {open && (
+          <div style={{ ...styles.platformDropdown, zIndex: 60 }}>
+            {selectedIds.length > 0 && (
+              <button onClick={() => { toggleFn('__clear__'); }} style={styles.platformDropdownClear}>Clear all</button>
+            )}
+            {accounts.map(acct => {
+              const meta = PLATFORM_META[acct.platform] || { label: acct.platform, color: '#666', icon: '?' };
+              const isActive = selectedIds.length === 0 || selectedIds.includes(acct.id);
+              return (
+                <button key={acct.id} onClick={() => toggleFn(acct.id)}
+                  style={{ ...styles.platformDropdownItem, ...(isActive ? { background: meta.color + '18', borderColor: meta.color + '55', color: meta.color } : {}) }}>
+                  <span style={{ ...styles.platformDot, background: meta.color, opacity: isActive ? 1 : 0.35 }} />
+                  <span style={{ flex: 1 }}>{acct.account_name}</span>
+                  {selectedIds.includes(acct.id) && <span style={{ fontSize: '12px', color: meta.color }}>{'\u2713'}</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function handleTablePlatformToggle(id) {
+    if (id === '__clear__') setTableAccountIds([]);
+    else toggleTableAccount(id);
+  }
+
+  function handleCompPlatformToggle(id) {
+    if (id === '__clear__') setCompAccountIds([]);
+    else toggleCompAccount(id);
+  }
 
   return (
     <div>
-      {/* Custom Table Section */}
+      {/* ══ Custom Table Section ══ */}
       <div style={styles.chartSection}>
         <span style={styles.chartTitle}>Custom Table</span>
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginTop: '12px', marginBottom: '16px' }}>
-          {/* Split selector */}
+
+        {/* Row 1: Date range */}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginTop: '12px' }}>
+          <button onClick={() => setTableDateMode('years')}
+            style={{ ...styles.filterChip, ...(tableDateMode === 'years' ? styles.filterChipActive : {}) }}>Years</button>
+          <button onClick={() => setTableDateMode('custom')}
+            style={{ ...styles.filterChip, ...(tableDateMode === 'custom' ? styles.filterChipActive : {}) }}>Custom Range</button>
+          {tableDateMode === 'years' ? (
+            allYears.map(y => (
+              <button key={y} onClick={() => toggleYear(y)}
+                style={{ ...styles.filterChip, ...(tableSelectedYears.includes(y) ? styles.filterChipActive : {}), minWidth: '48px', textAlign: 'center' }}>
+                {y}
+              </button>
+            ))
+          ) : (
+            <>
+              <input type="date" value={tableCustomStart} onChange={e => setTableCustomStart(e.target.value)} style={styles.filterInput} />
+              <span style={{ color: 'rgba(255,255,255,0.3)' }}>to</span>
+              <input type="date" value={tableCustomEnd} onChange={e => setTableCustomEnd(e.target.value)} style={styles.filterInput} />
+            </>
+          )}
+        </div>
+
+        {/* Row 2: Split, platform, content type, columns */}
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginTop: '10px', marginBottom: '16px' }}>
           <select value={tableSplit} onChange={e => {
             setTableSplit(e.target.value);
-            setTableMetrics(prev => prev.filter(k => {
-              const m = AVAILABLE_METRICS.find(am => am.key === k);
-              return !m?.contentOnly || e.target.value === 'content';
-            }));
+            setTableMetrics(prev => prev.filter(k => { const m = AVAILABLE_METRICS.find(am => am.key === k); return !m?.contentOnly || e.target.value === 'content'; }));
           }} style={styles.filterSelect}>
             {ROW_SPLITS.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
           </select>
 
-          {/* Content type chips */}
-          {['all', 'short', 'long', 'editorial'].map(ct => (
+          {renderPlatformDropdown(tablePlatformOpen, setTablePlatformOpen, tablePlatformRef, tableAccountIds, handleTablePlatformToggle)}
+
+          {['all', 'short', 'long'].map(ct => (
             <button key={ct} onClick={() => setContentTypeFilter(ct)}
               style={{ ...styles.filterChip, ...(contentTypeFilter === ct ? styles.filterChipActive : {}) }}>
-              {ct === 'all' ? 'All' : ct === 'short' ? 'Short Form' : ct === 'long' ? 'Long Form' : 'Editorial'}
+              {ct === 'all' ? 'All' : ct === 'short' ? 'Short Form' : 'Long Form'}
             </button>
           ))}
 
@@ -1161,9 +1149,7 @@ function AdvancedView({ accounts, activeAccountIds, pageStart, pageEnd }) {
             <button onClick={() => setMetricDropdownOpen(!metricDropdownOpen)}
               style={{ ...styles.filterChip, display: 'flex', alignItems: 'center', gap: '6px' }}>
               Columns
-              <span style={{ background: 'rgba(99,102,241,0.3)', padding: '1px 6px', borderRadius: '8px', fontSize: '10px', fontWeight: 700, color: '#a5b4fc' }}>
-                {tableMetrics.length}
-              </span>
+              <span style={{ background: 'rgba(99,102,241,0.3)', padding: '1px 6px', borderRadius: '8px', fontSize: '10px', fontWeight: 700, color: '#a5b4fc' }}>{tableMetrics.length}</span>
               <span style={{ fontSize: '10px', marginLeft: '2px' }}>{metricDropdownOpen ? '\u25B2' : '\u25BC'}</span>
             </button>
             {metricDropdownOpen && (
@@ -1220,9 +1206,7 @@ function AdvancedView({ accounts, activeAccountIds, pageStart, pageEnd }) {
                   <tr key={i} style={i % 2 === 0 ? styles.trEven : {}}>
                     <td style={{ ...styles.td, ...styles.tdSticky, background: i % 2 === 0 ? 'rgba(255,255,255,0.01)' : '#12121f' }}>
                       {row.url ? (
-                        <a href={row.url} target="_blank" rel="noopener noreferrer" style={{ color: '#e2e8f0', textDecoration: 'none', fontWeight: 500 }}>
-                          {row.label}
-                        </a>
+                        <a href={row.url} target="_blank" rel="noopener noreferrer" style={{ color: '#e2e8f0', textDecoration: 'none', fontWeight: 500 }}>{row.label}</a>
                       ) : (
                         <span style={{ fontWeight: 500, color: '#e2e8f0' }}>{row.label}</span>
                       )}
@@ -1230,13 +1214,9 @@ function AdvancedView({ accounts, activeAccountIds, pageStart, pageEnd }) {
                     </td>
                     {tableMetrics.map(key => {
                       const m = AVAILABLE_METRICS.find(am => am.key === key);
-                      if (!m) return <td key={key} style={styles.td}>&mdash;</td>;
+                      if (!m) return <td key={key} style={styles.td}>{'\u2014'}</td>;
                       const val = row[key];
-                      return (
-                        <td key={key} style={{ ...styles.td, ...styles.tdValue, textAlign: 'right' }}>
-                          {val != null ? m.format(val) : '\u2014'}
-                        </td>
-                      );
+                      return <td key={key} style={{ ...styles.td, ...styles.tdValue, textAlign: 'right' }}>{val != null ? m.format(val) : '\u2014'}</td>;
                     })}
                   </tr>
                 ))}
@@ -1246,16 +1226,33 @@ function AdvancedView({ accounts, activeAccountIds, pageStart, pageEnd }) {
         )}
       </div>
 
-      {/* Compare Periods Section */}
+      {/* ══ Compare Periods Section ══ */}
       <div style={styles.chartSection}>
         <span style={styles.chartTitle}>Compare Periods</span>
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginTop: '12px', marginBottom: '12px' }}>
-          {/* Metric selector */}
+
+        {/* Row 1: Metric (split by source), content type, platform */}
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginTop: '12px', marginBottom: '10px' }}>
           <select value={compMetric} onChange={e => setCompMetric(e.target.value)} style={styles.filterSelect}>
-            {COMPARISON_METRICS.map(m => <option key={m.key} value={m.key}>{m.group}: {m.label}</option>)}
+            <optgroup label="Platform Rollups">
+              {compRollupMetrics.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+            </optgroup>
+            <optgroup label="YouTube">
+              {compYouTubeMetrics.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+            </optgroup>
           </select>
 
-          {/* Period type */}
+          {renderPlatformDropdown(compPlatformOpen, setCompPlatformOpen, compPlatformRef, compAccountIds, handleCompPlatformToggle)}
+
+          {['all', 'short', 'long'].map(ct => (
+            <button key={ct} onClick={() => setCompContentType(ct)}
+              style={{ ...styles.filterChip, ...(compContentType === ct ? styles.filterChipActive : {}) }}>
+              {ct === 'all' ? 'All' : ct === 'short' ? 'Short Form' : 'Long Form'}
+            </button>
+          ))}
+        </div>
+
+        {/* Row 2: Period builder (bucket/year + custom) */}
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '12px' }}>
           <select value={periodType} onChange={e => setPeriodType(e.target.value)} style={styles.filterSelect}>
             <option value="custom">Custom Range</option>
             {Object.entries(BUCKET_DEFS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
@@ -1263,7 +1260,7 @@ function AdvancedView({ accounts, activeAccountIds, pageStart, pageEnd }) {
 
           {periodType !== 'custom' ? (
             <select value={periodYear} onChange={e => setPeriodYear(Number(e.target.value))} style={styles.filterSelect}>
-              {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+              {allYears.map(y => <option key={y} value={y}>{y}</option>)}
             </select>
           ) : (
             <>
@@ -1292,7 +1289,7 @@ function AdvancedView({ accounts, activeAccountIds, pageStart, pageEnd }) {
                 {p.label}
                 <button onClick={() => removePeriod(i)}
                   style={{ background: 'none', border: 'none', color: p.color, cursor: 'pointer', fontSize: '14px', padding: '0 2px', fontFamily: 'inherit', lineHeight: 1, opacity: 0.7 }}>
-                  \u00d7
+                  {'\u00d7'}
                 </button>
               </span>
             ))}
