@@ -11,6 +11,7 @@ const PLATFORM_META = {
   instagram: { label: 'Instagram', color: '#E4405F', icon: 'IG' },
   tiktok:    { label: 'TikTok',    color: '#00F2EA', icon: 'TT' },
   substack:  { label: 'Substack',  color: '#FF6719', icon: 'SS' },
+  twitch:    { label: 'Twitch',    color: '#9146FF', icon: 'TW' },
   stripe:    { label: 'Stripe',    color: '#635BFF', icon: '$' },
 };
 
@@ -492,12 +493,12 @@ export default function Analytics() {
             </div>
           )}
 
-          {/* ── F. CSV Upload Section (preserved) ── */}
+          {/* ── F. Data Input Section ── */}
           <div style={{ marginTop: '24px' }}>
             <button onClick={() => setCsvSection(!csvSection)} style={styles.collapseBtn}>
-              {csvSection ? '▾' : '▸'} YouTube CSV Upload
+              {csvSection ? '▾' : '▸'} Data Input
             </button>
-            {csvSection && <YouTubeCSVUpload profile={profile} />}
+            {csvSection && <DataInputSection profile={profile} accounts={accounts} />}
           </div>
 
           {/* ── G. Ingestion Health Panel (admin only) ── */}
@@ -708,6 +709,260 @@ function IngestionHealthPanel({ logs, accounts }) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+// ═══════════════════════════════════════════════
+// Data Input Section (tabbed: YouTube, TikTok, Instagram, Facebook, Substack, Twitch)
+// ═══════════════════════════════════════════════
+const DATA_INPUT_TABS = [
+  { key: 'youtube',   label: 'YouTube' },
+  { key: 'tiktok',    label: 'TikTok' },
+  { key: 'instagram', label: 'Instagram' },
+  { key: 'facebook',  label: 'Facebook' },
+  { key: 'substack',  label: 'Substack' },
+  { key: 'twitch',    label: 'Twitch' },
+];
+
+function DataInputSection({ profile, accounts }) {
+  const [activeTab, setActiveTab] = useState('youtube');
+  const meta = PLATFORM_META[activeTab] || {};
+
+  return (
+    <div style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', marginTop: '8px' }}>
+      <div style={{ display: 'flex', gap: '6px', marginBottom: '16px', flexWrap: 'wrap' }}>
+        {DATA_INPUT_TABS.map(t => {
+          const pm = PLATFORM_META[t.key] || {};
+          const isActive = activeTab === t.key;
+          return (
+            <button key={t.key} onClick={() => setActiveTab(t.key)}
+              style={{
+                ...styles.filterChip,
+                ...(isActive ? { background: (pm.color || '#666') + '22', borderColor: (pm.color || '#666') + '66', color: pm.color || '#666' } : {}),
+              }}>
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+      {activeTab === 'youtube' && <YouTubeCSVUpload profile={profile} />}
+      {activeTab === 'tiktok' && <TikTokCSVUpload profile={profile} accounts={accounts} />}
+      {activeTab === 'instagram' && <ManualMetricsForm platform="instagram" fields={['views']} accounts={accounts} />}
+      {activeTab === 'facebook' && <ManualMetricsForm platform="facebook" fields={['views', 'revenue']} accounts={accounts} />}
+      {activeTab === 'substack' && <ManualMetricsForm platform="substack" fields={['views', 'revenue', 'subscribers']} accounts={accounts} />}
+      {activeTab === 'twitch' && <ManualMetricsForm platform="twitch" fields={['revenue']} accounts={accounts} />}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════
+// TikTok CSV Upload
+// ═══════════════════════════════════════════════
+function TikTokCSVUpload({ profile, accounts }) {
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState(null);
+  const fileInputRef = useRef(null);
+
+  const tiktokAccount = accounts.find(a => a.platform === 'tiktok');
+  const color = PLATFORM_META.tiktok?.color || '#00F2EA';
+
+  async function handleUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file || !tiktokAccount) return;
+    setUploading(true); setUploadResult(null);
+    try {
+      const text = await file.text();
+      const parsed = parseCSV(text);
+      if (!parsed.rows.length) throw new Error('No valid rows found');
+
+      const rows = [];
+      for (const row of parsed.rows) {
+        const date = parseDate(row['Date'] || row['date'] || row['DATE']);
+        if (!date) continue;
+        const views = parseNumber(row['Video Views'] || row['Views'] || row['Video views'] || row['views'] || '0');
+        const likes = parseNumber(row['Likes'] || row['likes'] || '0');
+        const comments = parseNumber(row['Comments'] || row['comments'] || '0');
+        const shares = parseNumber(row['Shares'] || row['shares'] || '0');
+
+        rows.push({
+          platform_account_id: tiktokAccount.id,
+          date,
+          views: views || 0,
+          likes: likes || 0,
+          comments: comments || 0,
+          shares: shares || 0,
+          metadata: {},
+        });
+      }
+      if (!rows.length) throw new Error('No valid rows found after parsing');
+
+      let inserted = 0;
+      for (let i = 0; i < rows.length; i += 100) {
+        const batch = rows.slice(i, i + 100);
+        const { data: result, error } = await supabase.from('platform_daily_metrics')
+          .upsert(batch, { onConflict: 'platform_account_id,date' }).select();
+        if (error) { console.error(error); continue; }
+        inserted += result?.length || 0;
+      }
+      setUploadResult({ success: true, count: inserted });
+    } catch (err) { setUploadResult({ error: err.message }); }
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+
+  if (!tiktokAccount) return <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px', margin: 0 }}>No TikTok account found.</p>;
+
+  return (
+    <div>
+      <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', margin: '0 0 10px' }}>
+        Upload a CSV exported from TikTok Studio. Expected columns: Date, Video Views, Likes, Comments, Shares.
+      </p>
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+        {uploadResult && (
+          <span style={{ fontSize: '12px', fontWeight: 500, color: uploadResult.error ? '#f87171' : '#4ade80' }}>
+            {uploadResult.error ? `Error: ${uploadResult.error}` : `${uploadResult.count} rows imported`}
+          </span>
+        )}
+        <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
+          style={{ ...styles.uploadBtn, borderColor: color + '66', color }}>
+          {uploading ? 'Uploading...' : 'Upload TikTok CSV'}
+        </button>
+        <input ref={fileInputRef} type="file" accept=".csv" onChange={handleUpload} style={{ display: 'none' }} />
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════
+// Manual Metrics Form (Instagram, Facebook, Substack, Twitch)
+// ═══════════════════════════════════════════════
+function ManualMetricsForm({ platform, fields, accounts }) {
+  const [date, setDate] = useState(todayStr());
+  const [views, setViews] = useState('');
+  const [revenue, setRevenue] = useState('');
+  const [subscribers, setSubscribers] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const account = accounts.find(a => a.platform === platform);
+  const meta = PLATFORM_META[platform] || {};
+  const color = meta.color || '#666';
+
+  const hasViews = fields.includes('views');
+  const hasRevenue = fields.includes('revenue');
+  const hasSubscribers = fields.includes('subscribers');
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!account) return;
+    setSubmitting(true); setResult(null);
+
+    try {
+      // Insert views into platform_daily_metrics if applicable
+      if (hasViews) {
+        const viewsNum = parseInt(views, 10) || 0;
+        const { error } = await supabase.from('platform_daily_metrics')
+          .upsert({
+            platform_account_id: account.id,
+            date,
+            views: viewsNum,
+            metadata: {},
+          }, { onConflict: 'platform_account_id,date' });
+        if (error) throw new Error(`Views: ${error.message}`);
+      }
+
+      // Insert revenue into revenue_events if applicable
+      if (hasRevenue && revenue) {
+        const revenueCents = Math.round(parseFloat(revenue) * 100);
+        if (revenueCents > 0) {
+          const stripeEventId = `manual_${platform}_${account.id}_${date}`;
+          const { error } = await supabase.from('revenue_events')
+            .upsert({
+              stripe_event_id: stripeEventId,
+              event_type: 'charge',
+              amount_cents: revenueCents,
+              net_amount_cents: revenueCents,
+              currency: 'usd',
+              product_category: 'ad_revenue',
+              is_recurring: false,
+              occurred_at: `${date}T00:00:00Z`,
+              metadata: { source: 'manual_input', platform },
+              platform_account_id: account.id,
+            }, { onConflict: 'stripe_event_id' });
+          if (error) throw new Error(`Revenue: ${error.message}`);
+        }
+      }
+
+      // Insert subscribers into audience_snapshots if applicable
+      if (hasSubscribers && subscribers) {
+        const subsNum = parseInt(subscribers, 10) || 0;
+        if (subsNum > 0) {
+          const { error } = await supabase.from('audience_snapshots')
+            .upsert({
+              platform_account_id: account.id,
+              date,
+              followers_total: subsNum,
+              followers_gained: 0,
+              demographics: {},
+              metadata: { source: 'manual_input' },
+            }, { onConflict: 'platform_account_id,date' });
+          if (error) throw new Error(`Subscribers: ${error.message}`);
+        }
+      }
+
+      setResult({ success: true });
+      setViews(''); setRevenue(''); setSubscribers('');
+    } catch (err) {
+      setResult({ error: err.message });
+    }
+    setSubmitting(false);
+  }
+
+  if (!account) return <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px', margin: 0 }}>No {meta.label} account found.</p>;
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Date</label>
+          <input type="date" value={date} onChange={e => setDate(e.target.value)}
+            style={{ ...styles.filterInput, padding: '8px 10px' }} required />
+        </div>
+        {hasViews && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Views</label>
+            <input type="text" inputMode="numeric" pattern="[0-9]*" value={views}
+              onChange={e => setViews(e.target.value.replace(/[^0-9]/g, ''))}
+              placeholder="0" style={{ ...styles.filterInput, padding: '8px 10px', width: '120px' }} />
+          </div>
+        )}
+        {hasRevenue && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Revenue ($)</label>
+            <input type="text" inputMode="decimal" value={revenue}
+              onChange={e => setRevenue(e.target.value.replace(/[^0-9.]/g, ''))}
+              placeholder="0.00" style={{ ...styles.filterInput, padding: '8px 10px', width: '120px' }} />
+          </div>
+        )}
+        {hasSubscribers && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Subscribers</label>
+            <input type="text" inputMode="numeric" pattern="[0-9]*" value={subscribers}
+              onChange={e => setSubscribers(e.target.value.replace(/[^0-9]/g, ''))}
+              placeholder="0" style={{ ...styles.filterInput, padding: '8px 10px', width: '120px' }} />
+          </div>
+        )}
+        <button type="submit" disabled={submitting}
+          style={{ ...styles.uploadBtn, borderColor: color + '66', color, opacity: submitting ? 0.5 : 1 }}>
+          {submitting ? 'Saving...' : 'Save'}
+        </button>
+        {result && (
+          <span style={{ fontSize: '12px', fontWeight: 500, color: result.error ? '#f87171' : '#4ade80' }}>
+            {result.error ? `Error: ${result.error}` : 'Saved successfully'}
+          </span>
+        )}
+      </div>
+    </form>
   );
 }
 
