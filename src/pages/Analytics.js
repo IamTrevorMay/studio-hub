@@ -45,6 +45,50 @@ const TREND_METRICS = [
 
 const LINE_COLORS = ['#6366f1', '#f59e0b', '#22c55e', '#ec4899', '#3b82f6', '#a855f7', '#14b8a6'];
 
+const BUCKET_DEFS = {
+  spring_training: { startMonth: 2, startDay: 15, endMonth: 4, endDay: 1, label: 'Spring Training' },
+  regular_season:  { startMonth: 4, startDay: 1, endMonth: 10, endDay: 1, label: 'Regular Season' },
+  post_season:     { startMonth: 10, startDay: 1, endMonth: 11, endDay: 1, label: 'Post Season' },
+  in_season:       { startMonth: 2, startDay: 15, endMonth: 11, endDay: 1, label: 'In Season' },
+  off_season:      { startMonth: 11, startDay: 1, endMonth: 2, endDay: 15, label: 'Off Season', crossesYear: true },
+};
+
+const ROW_SPLITS = [
+  { key: 'content', label: 'Content' },
+  { key: 'day', label: 'Date (Day)' },
+  { key: 'month', label: 'Date (Month)' },
+  { key: 'year', label: 'Date (Year)' },
+  ...Object.entries(BUCKET_DEFS).map(([k, v]) => ({ key: `bucket_${k}`, label: v.label })),
+];
+
+const AVAILABLE_METRICS = [
+  // Platform Rollups
+  { key: 'views', label: 'Views', group: 'Platform Rollups', table: 'daily_platform_rollups', format: v => formatCompact(v), getValue: r => Number(r.total_views) || 0 },
+  { key: 'revenue', label: 'Revenue', group: 'Platform Rollups', table: 'daily_platform_rollups', format: v => '$' + (v / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }), getValue: r => Number(r.revenue_cents) || 0 },
+  { key: 'avg_engagement', label: 'Avg Engagement', group: 'Platform Rollups', table: 'daily_platform_rollups', format: v => (v * 100).toFixed(2) + '%', getValue: r => Number(r.avg_engagement_rate) || 0, aggregate: 'avg' },
+  { key: 'followers_eod', label: 'Followers EOD', group: 'Platform Rollups', table: 'daily_platform_rollups', format: v => formatCompact(v), getValue: r => Number(r.followers_eod) || 0, aggregate: 'last' },
+  // Content Metrics
+  { key: 'content_views', label: 'Views', group: 'Content Metrics', table: 'content_metrics', format: v => formatCompact(v), contentOnly: true },
+  { key: 'content_likes', label: 'Likes', group: 'Content Metrics', table: 'content_metrics', format: v => formatCompact(v), contentOnly: true },
+  { key: 'content_comments', label: 'Comments', group: 'Content Metrics', table: 'content_metrics', format: v => formatCompact(v), contentOnly: true },
+  { key: 'content_shares', label: 'Shares', group: 'Content Metrics', table: 'content_metrics', format: v => formatCompact(v), contentOnly: true },
+  { key: 'content_engagement', label: 'Engagement Rate', group: 'Content Metrics', table: 'content_metrics', format: v => (v * 100).toFixed(2) + '%', contentOnly: true },
+  // YouTube Daily
+  { key: 'yt_watch_time', label: 'Watch Time (hrs)', group: 'YouTube', table: 'analytics_youtube_daily', format: v => formatCompact(v), getValue: r => Number(r.watch_time_hours) || 0 },
+  { key: 'yt_impressions', label: 'Impressions', group: 'YouTube', table: 'analytics_youtube_daily', format: v => formatCompact(v), getValue: r => Number(r.impressions) || 0 },
+  { key: 'yt_ctr', label: 'Impressions CTR', group: 'YouTube', table: 'analytics_youtube_daily', format: v => v.toFixed(2) + '%', getValue: r => Number(r.impressions_ctr) || 0, aggregate: 'avg' },
+  { key: 'yt_subscribers', label: 'Subscribers', group: 'YouTube', table: 'analytics_youtube_daily', format: v => formatCompact(v), getValue: r => Number(r.subscribers) || 0 },
+  { key: 'yt_est_revenue', label: 'Est. Revenue', group: 'YouTube', table: 'analytics_youtube_daily', format: v => '$' + v.toFixed(2), getValue: r => Number(r.estimated_revenue) || 0 },
+  { key: 'yt_ad_revenue', label: 'Ad Revenue', group: 'YouTube', table: 'analytics_youtube_daily', format: v => '$' + v.toFixed(2), getValue: r => Number(r.ad_revenue) || 0 },
+  { key: 'yt_cpm', label: 'CPM', group: 'YouTube', table: 'analytics_youtube_daily', format: v => '$' + v.toFixed(2), getValue: r => Number(r.cpm) || 0, aggregate: 'avg' },
+  { key: 'yt_rpm', label: 'RPM', group: 'YouTube', table: 'analytics_youtube_daily', format: v => '$' + v.toFixed(2), getValue: r => Number(r.rpm) || 0, aggregate: 'avg' },
+  { key: 'yt_unique_viewers', label: 'Unique Viewers', group: 'YouTube', table: 'analytics_youtube_daily', format: v => formatCompact(v), getValue: r => Number(r.unique_viewers) || 0 },
+  { key: 'yt_new_viewers', label: 'New Viewers', group: 'YouTube', table: 'analytics_youtube_daily', format: v => formatCompact(v), getValue: r => Number(r.new_viewers) || 0 },
+  { key: 'yt_returning_viewers', label: 'Returning Viewers', group: 'YouTube', table: 'analytics_youtube_daily', format: v => formatCompact(v), getValue: r => Number(r.returning_viewers) || 0 },
+];
+
+const COMPARISON_METRICS = AVAILABLE_METRICS.filter(m => !m.contentOnly);
+
 // ═══════════════════════════════════════════════
 // Date helpers
 // ═══════════════════════════════════════════════
@@ -73,6 +117,49 @@ function getPreviousPeriod(start, end) {
 function pctChange(curr, prev) {
   if (prev === 0) return curr > 0 ? 100 : 0;
   return ((curr - prev) / Math.abs(prev)) * 100;
+}
+
+function getBucketDateRange(bucketKey, year) {
+  const def = BUCKET_DEFS[bucketKey];
+  if (!def) return null;
+  if (def.crossesYear) {
+    return {
+      start: `${year}-${String(def.startMonth).padStart(2, '0')}-${String(def.startDay).padStart(2, '0')}`,
+      end: `${year + 1}-${String(def.endMonth).padStart(2, '0')}-${String(def.endDay).padStart(2, '0')}`,
+      label: `${year} ${def.label}`,
+    };
+  }
+  return {
+    start: `${year}-${String(def.startMonth).padStart(2, '0')}-${String(def.startDay).padStart(2, '0')}`,
+    end: `${year}-${String(def.endMonth).padStart(2, '0')}-${String(def.endDay).padStart(2, '0')}`,
+    label: `${year} ${def.label}`,
+  };
+}
+
+function getYearsInRange(startStr, endStr) {
+  const startY = new Date(startStr).getFullYear();
+  const endY = new Date(endStr).getFullYear();
+  const years = [];
+  for (let y = startY; y <= endY; y++) years.push(y);
+  return years;
+}
+
+function getContentTypeAccountIds(accounts, activeAccountIds, contentTypeFilter) {
+  if (!contentTypeFilter || contentTypeFilter === 'all') {
+    return activeAccountIds.length > 0 ? activeAccountIds : accounts.map(a => a.id);
+  }
+  const shortFormPlatforms = ['tiktok', 'instagram', 'facebook'];
+  const longFormPlatforms = ['youtube'];
+  const editorialPlatforms = ['substack'];
+  let platforms;
+  if (contentTypeFilter === 'short') platforms = shortFormPlatforms;
+  else if (contentTypeFilter === 'long') platforms = longFormPlatforms;
+  else if (contentTypeFilter === 'editorial') platforms = editorialPlatforms;
+  else return activeAccountIds.length > 0 ? activeAccountIds : accounts.map(a => a.id);
+  const filtered = accounts.filter(a => platforms.includes(a.platform));
+  const ids = filtered.map(a => a.id);
+  if (activeAccountIds.length > 0) return ids.filter(id => activeAccountIds.includes(id));
+  return ids;
 }
 
 function formatCompact(n) {
@@ -121,6 +208,7 @@ export default function Analytics() {
   // Ingestion health (admin)
   const [showIngestion, setShowIngestion] = useState(false);
   const [ingestionLogs, setIngestionLogs] = useState([]);
+  const [viewMode, setViewMode] = useState('dashboard');
 
   // Close platform dropdown on outside click
   useEffect(() => {
@@ -461,6 +549,13 @@ export default function Analytics() {
 
       {loading ? <p style={styles.loadingText}>Loading analytics...</p> : (
         <>
+          {/* ── View Mode Toggle ── */}
+          <div style={styles.viewToggleBar}>
+            <button onClick={() => setViewMode('dashboard')} style={viewMode === 'dashboard' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Dashboard</button>
+            <button onClick={() => setViewMode('advanced')} style={viewMode === 'advanced' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Advanced</button>
+          </div>
+
+          {viewMode === 'dashboard' && (<>
           {/* ── B. KPI Summary Cards ── */}
           {kpi && (
             <div style={styles.kpiGrid}>
@@ -598,6 +693,11 @@ export default function Analytics() {
               <p style={styles.emptyText}>No content found for this date range.</p>
             </div>
           )}
+          </>)}
+
+          {viewMode === 'advanced' && (
+            <AdvancedView accounts={accounts} activeAccountIds={activeAccountIds} pageStart={start} pageEnd={end} />
+          )}
 
           {/* ── F. Data Input Section ── */}
           <div style={{ marginTop: '24px' }}>
@@ -632,6 +732,706 @@ export default function Analytics() {
       .limit(50);
     if (data) setIngestionLogs(data);
   }
+}
+
+// ═══════════════════════════════════════════════
+// Advanced View
+// ═══════════════════════════════════════════════
+function AdvancedView({ accounts, activeAccountIds, pageStart, pageEnd }) {
+  // Table state
+  const [tableSplit, setTableSplit] = useState('month');
+  const [tableMetrics, setTableMetrics] = useState(['views', 'revenue']);
+  const [contentTypeFilter, setContentTypeFilter] = useState('all');
+  const [tableData, setTableData] = useState([]);
+  const [tableLoading, setTableLoading] = useState(false);
+  const [tableSortCol, setTableSortCol] = useState(null);
+  const [tableSortDir, setTableSortDir] = useState('desc');
+  const [metricDropdownOpen, setMetricDropdownOpen] = useState(false);
+  const metricDropdownRef = useRef(null);
+
+  // Comparison state
+  const [compMetric, setCompMetric] = useState('views');
+  const [compPeriods, setCompPeriods] = useState([]);
+  const [compData, setCompData] = useState([]);
+  const [compLoading, setCompLoading] = useState(false);
+  const [periodType, setPeriodType] = useState('in_season');
+  const [periodYear, setPeriodYear] = useState(new Date().getFullYear());
+  const [periodCustomStart, setPeriodCustomStart] = useState('');
+  const [periodCustomEnd, setPeriodCustomEnd] = useState('');
+
+  // Close metric dropdown on outside click
+  useEffect(() => {
+    function handleClick(e) {
+      if (metricDropdownRef.current && !metricDropdownRef.current.contains(e.target)) {
+        setMetricDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  // Available metrics for current split
+  const availableMetrics = useMemo(() => {
+    if (tableSplit === 'content') return AVAILABLE_METRICS;
+    return AVAILABLE_METRICS.filter(m => !m.contentOnly);
+  }, [tableSplit]);
+
+  // Fetch table data when filters change
+  useEffect(() => {
+    fetchTableData();
+  }, [tableSplit, contentTypeFilter, pageStart, pageEnd, activeAccountIds.join(','), tableMetrics.join(',')]);
+
+  async function fetchTableData() {
+    setTableLoading(true);
+    try {
+      if (tableSplit === 'content') {
+        await fetchContentSplit();
+      } else if (tableSplit.startsWith('bucket_')) {
+        await fetchBucketSplit();
+      } else {
+        await fetchDateSplit();
+      }
+    } catch (err) {
+      console.error('Table fetch error:', err);
+      setTableData([]);
+    }
+    setTableLoading(false);
+  }
+
+  async function fetchContentSplit() {
+    const accountIds = getContentTypeAccountIds(accounts, activeAccountIds, contentTypeFilter);
+    if (!accountIds.length) { setTableData([]); return; }
+
+    let q = supabase
+      .from('content_items')
+      .select(`*, platform_account:platform_accounts(platform, account_name), latest_metrics:content_metrics(views, likes, comments, shares, engagement_rate)`)
+      .gte('published_at', pageStart)
+      .lte('published_at', pageEnd)
+      .in('platform_account_id', accountIds)
+      .order('published_at', { ascending: false })
+      .limit(200);
+    const { data } = await q;
+
+    // For YouTube short/long filtering with duration
+    let durationMap = {};
+    if (contentTypeFilter === 'short' || contentTypeFilter === 'long') {
+      const ytItems = (data || []).filter(d => d.platform_account?.platform === 'youtube' && d.url);
+      if (ytItems.length) {
+        const videoIds = ytItems.map(item => {
+          const match = item.url?.match(/(?:v=|youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})/);
+          return match ? match[1] : null;
+        }).filter(Boolean);
+        if (videoIds.length) {
+          const { data: ytData } = await supabase
+            .from('analytics_youtube')
+            .select('video_id, duration_seconds')
+            .in('video_id', videoIds);
+          (ytData || []).forEach(r => { durationMap[r.video_id] = r.duration_seconds; });
+        }
+      }
+    }
+
+    let rows = (data || []).map(item => {
+      const metrics = item.latest_metrics?.[0] || {};
+      return {
+        label: item.title || '(Untitled)',
+        sublabel: item.platform_account?.platform ? `${PLATFORM_META[item.platform_account.platform]?.label || item.platform_account.platform}${item.platform_account.account_name ? ' \u00b7 ' + item.platform_account.account_name : ''}` : '',
+        platform: item.platform_account?.platform,
+        url: item.url,
+        content_views: Number(metrics.views) || 0,
+        content_likes: Number(metrics.likes) || 0,
+        content_comments: Number(metrics.comments) || 0,
+        content_shares: Number(metrics.shares) || 0,
+        content_engagement: Number(metrics.engagement_rate) || 0,
+        _videoId: item.url?.match(/(?:v=|youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})/)?.[1],
+      };
+    });
+
+    // Filter by duration for YouTube short/long
+    if (contentTypeFilter === 'short') {
+      rows = rows.filter(r => {
+        if (r.platform !== 'youtube') return true;
+        if (!r._videoId || durationMap[r._videoId] === undefined) return false;
+        return durationMap[r._videoId] < 60;
+      });
+    } else if (contentTypeFilter === 'long') {
+      rows = rows.filter(r => {
+        if (r.platform !== 'youtube') return false;
+        if (!r._videoId || durationMap[r._videoId] === undefined) return true;
+        return durationMap[r._videoId] >= 60;
+      });
+    }
+
+    setTableData(rows);
+  }
+
+  async function fetchDateSplit() {
+    const accountIds = getContentTypeAccountIds(accounts, activeAccountIds, contentTypeFilter);
+    if (!accountIds.length) { setTableData([]); return; }
+
+    const { data: rollups } = await supabase
+      .from('daily_platform_rollups')
+      .select('*')
+      .gte('date', pageStart)
+      .lte('date', pageEnd)
+      .in('platform_account_id', accountIds)
+      .order('date', { ascending: true });
+
+    // Fetch YouTube daily if any YT metrics selected
+    const needsYT = tableMetrics.some(k => AVAILABLE_METRICS.find(m => m.key === k)?.table === 'analytics_youtube_daily');
+    let ytData = [];
+    if (needsYT) {
+      const { data } = await supabase
+        .from('analytics_youtube_daily')
+        .select('*')
+        .gte('date', pageStart)
+        .lte('date', pageEnd)
+        .order('date', { ascending: true });
+      ytData = data || [];
+    }
+
+    // Group by date split key
+    const grouped = {};
+    for (const row of (rollups || [])) {
+      let key;
+      if (tableSplit === 'day') key = row.date;
+      else if (tableSplit === 'month') key = row.date.slice(0, 7);
+      else key = row.date.slice(0, 4);
+      if (!grouped[key]) grouped[key] = { rollups: [], yt: [] };
+      grouped[key].rollups.push(row);
+    }
+    for (const row of ytData) {
+      let key;
+      if (tableSplit === 'day') key = row.date;
+      else if (tableSplit === 'month') key = row.date.slice(0, 7);
+      else key = row.date.slice(0, 4);
+      if (!grouped[key]) grouped[key] = { rollups: [], yt: [] };
+      grouped[key].yt.push(row);
+    }
+
+    const rows = Object.entries(grouped)
+      .map(([key, { rollups: rRows, yt: yRows }]) => {
+        const row = { label: formatGroupLabel(key, tableSplit), _sortKey: key };
+        for (const m of AVAILABLE_METRICS.filter(m => m.table === 'daily_platform_rollups' && !m.contentOnly)) {
+          if (m.aggregate === 'avg') {
+            row[m.key] = rRows.length ? rRows.reduce((s, r) => s + m.getValue(r), 0) / rRows.length : 0;
+          } else if (m.aggregate === 'last') {
+            row[m.key] = rRows.length ? m.getValue(rRows[rRows.length - 1]) : 0;
+          } else {
+            row[m.key] = rRows.reduce((s, r) => s + m.getValue(r), 0);
+          }
+        }
+        for (const m of AVAILABLE_METRICS.filter(m => m.table === 'analytics_youtube_daily')) {
+          if (m.aggregate === 'avg') {
+            row[m.key] = yRows.length ? yRows.reduce((s, r) => s + m.getValue(r), 0) / yRows.length : 0;
+          } else {
+            row[m.key] = yRows.reduce((s, r) => s + m.getValue(r), 0);
+          }
+        }
+        return row;
+      })
+      .sort((a, b) => a._sortKey.localeCompare(b._sortKey));
+
+    setTableData(rows);
+  }
+
+  async function fetchBucketSplit() {
+    const bucketKey = tableSplit.replace('bucket_', '');
+    const years = getYearsInRange(pageStart, pageEnd);
+    const accountIds = getContentTypeAccountIds(accounts, activeAccountIds, contentTypeFilter);
+    if (!accountIds.length) { setTableData([]); return; }
+
+    const { data: rollups } = await supabase
+      .from('daily_platform_rollups')
+      .select('*')
+      .gte('date', pageStart)
+      .lte('date', pageEnd)
+      .in('platform_account_id', accountIds);
+
+    const needsYT = tableMetrics.some(k => AVAILABLE_METRICS.find(m => m.key === k)?.table === 'analytics_youtube_daily');
+    let ytData = [];
+    if (needsYT) {
+      const { data } = await supabase
+        .from('analytics_youtube_daily')
+        .select('*')
+        .gte('date', pageStart)
+        .lte('date', pageEnd);
+      ytData = data || [];
+    }
+
+    const rows = [];
+    for (const year of years) {
+      const range = getBucketDateRange(bucketKey, year);
+      if (!range) continue;
+      if (range.end < pageStart || range.start > pageEnd) continue;
+
+      const bucketRollups = (rollups || []).filter(r => r.date >= range.start && r.date < range.end);
+      const bucketYt = ytData.filter(r => r.date >= range.start && r.date < range.end);
+
+      const row = { label: range.label, _sortKey: `${year}` };
+      for (const m of AVAILABLE_METRICS.filter(m => m.table === 'daily_platform_rollups' && !m.contentOnly)) {
+        if (m.aggregate === 'avg') {
+          row[m.key] = bucketRollups.length ? bucketRollups.reduce((s, r) => s + m.getValue(r), 0) / bucketRollups.length : 0;
+        } else if (m.aggregate === 'last') {
+          row[m.key] = bucketRollups.length ? m.getValue(bucketRollups[bucketRollups.length - 1]) : 0;
+        } else {
+          row[m.key] = bucketRollups.reduce((s, r) => s + m.getValue(r), 0);
+        }
+      }
+      for (const m of AVAILABLE_METRICS.filter(m => m.table === 'analytics_youtube_daily')) {
+        if (m.aggregate === 'avg') {
+          row[m.key] = bucketYt.length ? bucketYt.reduce((s, r) => s + m.getValue(r), 0) / bucketYt.length : 0;
+        } else {
+          row[m.key] = bucketYt.reduce((s, r) => s + m.getValue(r), 0);
+        }
+      }
+      rows.push(row);
+    }
+
+    setTableData(rows);
+  }
+
+  function formatGroupLabel(key, split) {
+    if (split === 'day') {
+      return new Date(key + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    if (split === 'month') {
+      const [y, m] = key.split('-');
+      return MONTHS[parseInt(m, 10) - 1] + ' ' + y;
+    }
+    return key;
+  }
+
+  // Sort table data
+  const sortedTableData = useMemo(() => {
+    if (!tableSortCol) return tableData;
+    return [...tableData].sort((a, b) => {
+      const va = tableSortCol === 'label' ? (a.label ?? '') : (a[tableSortCol] ?? 0);
+      const vb = tableSortCol === 'label' ? (b.label ?? '') : (b[tableSortCol] ?? 0);
+      if (typeof va === 'string') return tableSortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+      return tableSortDir === 'asc' ? va - vb : vb - va;
+    });
+  }, [tableData, tableSortCol, tableSortDir]);
+
+  function handleTableSort(col) {
+    if (tableSortCol === col) setTableSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setTableSortCol(col); setTableSortDir('desc'); }
+  }
+
+  function toggleMetric(key) {
+    setTableMetrics(prev => {
+      if (prev.includes(key)) return prev.filter(k => k !== key);
+      return [...prev, key];
+    });
+  }
+
+  // Comparison period management
+  function addPeriod() {
+    let pStart, pEnd, label;
+    if (periodType === 'custom') {
+      if (!periodCustomStart || !periodCustomEnd) return;
+      pStart = periodCustomStart;
+      pEnd = periodCustomEnd;
+      label = `${pStart} to ${pEnd}`;
+    } else {
+      const range = getBucketDateRange(periodType, periodYear);
+      if (!range) return;
+      pStart = range.start;
+      pEnd = range.end;
+      label = range.label;
+    }
+    const color = LINE_COLORS[compPeriods.length % LINE_COLORS.length];
+    setCompPeriods(prev => [...prev, { start: pStart, end: pEnd, label, color }]);
+  }
+
+  function removePeriod(idx) {
+    setCompPeriods(prev => prev.filter((_, i) => i !== idx));
+  }
+
+  // Fetch comparison data
+  useEffect(() => {
+    if (compPeriods.length === 0) { setCompData([]); return; }
+    fetchComparisonData();
+  }, [compPeriods, compMetric]);
+
+  async function fetchComparisonData() {
+    setCompLoading(true);
+    try {
+      const metricDef = AVAILABLE_METRICS.find(m => m.key === compMetric);
+      if (!metricDef) { setCompData([]); setCompLoading(false); return; }
+
+      const accountIds = getContentTypeAccountIds(accounts, activeAccountIds, 'all');
+
+      const results = await Promise.all(compPeriods.map(async (period) => {
+        let values = [];
+        if (metricDef.table === 'daily_platform_rollups') {
+          let q = supabase
+            .from('daily_platform_rollups')
+            .select('*')
+            .gte('date', period.start)
+            .lt('date', period.end)
+            .order('date', { ascending: true });
+          if (accountIds.length) q = q.in('platform_account_id', accountIds);
+          const { data } = await q;
+
+          const byDate = {};
+          for (const row of (data || [])) {
+            if (!byDate[row.date]) byDate[row.date] = [];
+            byDate[row.date].push(row);
+          }
+          const dates = Object.keys(byDate).sort();
+          values = dates.map((d, i) => {
+            const rows = byDate[d];
+            let val;
+            if (metricDef.aggregate === 'avg') {
+              val = rows.reduce((s, r) => s + metricDef.getValue(r), 0) / rows.length;
+            } else {
+              val = rows.reduce((s, r) => s + metricDef.getValue(r), 0);
+            }
+            return { dayIndex: i, value: val };
+          });
+        } else if (metricDef.table === 'analytics_youtube_daily') {
+          const { data } = await supabase
+            .from('analytics_youtube_daily')
+            .select('*')
+            .gte('date', period.start)
+            .lt('date', period.end)
+            .order('date', { ascending: true });
+
+          const byDate = {};
+          for (const row of (data || [])) {
+            if (!byDate[row.date]) byDate[row.date] = [];
+            byDate[row.date].push(row);
+          }
+          const dates = Object.keys(byDate).sort();
+          values = dates.map((d, i) => {
+            const rows = byDate[d];
+            let val;
+            if (metricDef.aggregate === 'avg') {
+              val = rows.reduce((s, r) => s + metricDef.getValue(r), 0) / rows.length;
+            } else {
+              val = rows.reduce((s, r) => s + metricDef.getValue(r), 0);
+            }
+            return { dayIndex: i, value: val };
+          });
+        }
+        return { ...period, values };
+      }));
+
+      setCompData(results);
+    } catch (err) {
+      console.error('Comparison fetch error:', err);
+    }
+    setCompLoading(false);
+  }
+
+  const availableYears = useMemo(() => {
+    const years = [];
+    for (let y = new Date().getFullYear(); y >= 2020; y--) years.push(y);
+    return years;
+  }, []);
+
+  return (
+    <div>
+      {/* Custom Table Section */}
+      <div style={styles.chartSection}>
+        <span style={styles.chartTitle}>Custom Table</span>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginTop: '12px', marginBottom: '16px' }}>
+          {/* Split selector */}
+          <select value={tableSplit} onChange={e => {
+            setTableSplit(e.target.value);
+            setTableMetrics(prev => prev.filter(k => {
+              const m = AVAILABLE_METRICS.find(am => am.key === k);
+              return !m?.contentOnly || e.target.value === 'content';
+            }));
+          }} style={styles.filterSelect}>
+            {ROW_SPLITS.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+          </select>
+
+          {/* Content type chips */}
+          {['all', 'short', 'long', 'editorial'].map(ct => (
+            <button key={ct} onClick={() => setContentTypeFilter(ct)}
+              style={{ ...styles.filterChip, ...(contentTypeFilter === ct ? styles.filterChipActive : {}) }}>
+              {ct === 'all' ? 'All' : ct === 'short' ? 'Short Form' : ct === 'long' ? 'Long Form' : 'Editorial'}
+            </button>
+          ))}
+
+          {/* Metric column picker */}
+          <div ref={metricDropdownRef} style={{ position: 'relative' }}>
+            <button onClick={() => setMetricDropdownOpen(!metricDropdownOpen)}
+              style={{ ...styles.filterChip, display: 'flex', alignItems: 'center', gap: '6px' }}>
+              Columns
+              <span style={{ background: 'rgba(99,102,241,0.3)', padding: '1px 6px', borderRadius: '8px', fontSize: '10px', fontWeight: 700, color: '#a5b4fc' }}>
+                {tableMetrics.length}
+              </span>
+              <span style={{ fontSize: '10px', marginLeft: '2px' }}>{metricDropdownOpen ? '\u25B2' : '\u25BC'}</span>
+            </button>
+            {metricDropdownOpen && (
+              <div style={{ ...styles.platformDropdown, minWidth: '240px', maxHeight: '320px', overflow: 'auto' }}>
+                {['Platform Rollups', 'Content Metrics', 'YouTube'].map(group => {
+                  const groupMetrics = availableMetrics.filter(m => m.group === group);
+                  if (!groupMetrics.length) return null;
+                  return (
+                    <div key={group}>
+                      <div style={{ padding: '6px 12px', fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{group}</div>
+                      {groupMetrics.map(m => (
+                        <button key={m.key} onClick={() => toggleMetric(m.key)}
+                          style={{ ...styles.platformDropdownItem, ...(tableMetrics.includes(m.key) ? { background: 'rgba(99,102,241,0.12)', color: '#a5b4fc' } : {}) }}>
+                          <span style={{ width: '14px', textAlign: 'center', fontSize: '11px' }}>{tableMetrics.includes(m.key) ? '\u2713' : ''}</span>
+                          <span>{m.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Table */}
+        {tableLoading ? (
+          <p style={styles.emptyText}>Loading...</p>
+        ) : sortedTableData.length === 0 ? (
+          <p style={styles.emptyText}>No data for selected filters</p>
+        ) : (
+          <div style={{ ...styles.tableWrap, marginBottom: 0 }}>
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={{ ...styles.th, ...styles.thSticky, cursor: 'pointer' }} onClick={() => handleTableSort('label')}>
+                    {tableSplit === 'content' ? 'Content' : 'Period'}
+                    {tableSortCol === 'label' && <span style={styles.sortArrow}>{tableSortDir === 'asc' ? '\u2191' : '\u2193'}</span>}
+                  </th>
+                  {tableMetrics.map(key => {
+                    const m = AVAILABLE_METRICS.find(am => am.key === key);
+                    if (!m) return null;
+                    return (
+                      <th key={key} style={{ ...styles.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => handleTableSort(key)}>
+                        {m.label}
+                        {tableSortCol === key && <span style={styles.sortArrow}>{tableSortDir === 'asc' ? '\u2191' : '\u2193'}</span>}
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {sortedTableData.map((row, i) => (
+                  <tr key={i} style={i % 2 === 0 ? styles.trEven : {}}>
+                    <td style={{ ...styles.td, ...styles.tdSticky, background: i % 2 === 0 ? 'rgba(255,255,255,0.01)' : '#12121f' }}>
+                      {row.url ? (
+                        <a href={row.url} target="_blank" rel="noopener noreferrer" style={{ color: '#e2e8f0', textDecoration: 'none', fontWeight: 500 }}>
+                          {row.label}
+                        </a>
+                      ) : (
+                        <span style={{ fontWeight: 500, color: '#e2e8f0' }}>{row.label}</span>
+                      )}
+                      {row.sublabel && <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', marginTop: '2px' }}>{row.sublabel}</div>}
+                    </td>
+                    {tableMetrics.map(key => {
+                      const m = AVAILABLE_METRICS.find(am => am.key === key);
+                      if (!m) return <td key={key} style={styles.td}>&mdash;</td>;
+                      const val = row[key];
+                      return (
+                        <td key={key} style={{ ...styles.td, ...styles.tdValue, textAlign: 'right' }}>
+                          {val != null ? m.format(val) : '\u2014'}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Compare Periods Section */}
+      <div style={styles.chartSection}>
+        <span style={styles.chartTitle}>Compare Periods</span>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginTop: '12px', marginBottom: '12px' }}>
+          {/* Metric selector */}
+          <select value={compMetric} onChange={e => setCompMetric(e.target.value)} style={styles.filterSelect}>
+            {COMPARISON_METRICS.map(m => <option key={m.key} value={m.key}>{m.group}: {m.label}</option>)}
+          </select>
+
+          {/* Period type */}
+          <select value={periodType} onChange={e => setPeriodType(e.target.value)} style={styles.filterSelect}>
+            <option value="custom">Custom Range</option>
+            {Object.entries(BUCKET_DEFS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          </select>
+
+          {periodType !== 'custom' ? (
+            <select value={periodYear} onChange={e => setPeriodYear(Number(e.target.value))} style={styles.filterSelect}>
+              {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+          ) : (
+            <>
+              <input type="date" value={periodCustomStart} onChange={e => setPeriodCustomStart(e.target.value)} style={styles.filterInput} />
+              <span style={{ color: 'rgba(255,255,255,0.3)' }}>to</span>
+              <input type="date" value={periodCustomEnd} onChange={e => setPeriodCustomEnd(e.target.value)} style={styles.filterInput} />
+            </>
+          )}
+
+          <button onClick={addPeriod}
+            style={{ ...styles.filterChip, background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.4)', color: '#a5b4fc' }}>
+            + Add Period
+          </button>
+        </div>
+
+        {/* Active periods as chips */}
+        {compPeriods.length > 0 && (
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
+            {compPeriods.map((p, i) => (
+              <span key={i} style={{
+                display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 12px',
+                borderRadius: '14px', fontSize: '12px', fontWeight: 600,
+                background: p.color + '18', border: `1px solid ${p.color}44`, color: p.color,
+              }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: p.color }} />
+                {p.label}
+                <button onClick={() => removePeriod(i)}
+                  style={{ background: 'none', border: 'none', color: p.color, cursor: 'pointer', fontSize: '14px', padding: '0 2px', fontFamily: 'inherit', lineHeight: 1, opacity: 0.7 }}>
+                  \u00d7
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Chart */}
+        {compLoading ? (
+          <p style={styles.emptyText}>Loading comparison...</p>
+        ) : compData.length > 0 ? (
+          <ComparisonChart data={compData} metricDef={AVAILABLE_METRICS.find(m => m.key === compMetric)} />
+        ) : (
+          <p style={styles.emptyText}>Add periods above to compare</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════
+// Comparison Chart (SVG overlay)
+// ═══════════════════════════════════════════════
+function ComparisonChart({ data, metricDef }) {
+  const [hoveredIndex, setHoveredIndex] = useState(null);
+  const W = 900, H = 300, PAD = { top: 20, right: 20, bottom: 40, left: 70 };
+  const plotW = W - PAD.left - PAD.right;
+  const plotH = H - PAD.top - PAD.bottom;
+
+  if (!data.length || !data.some(d => d.values.length > 0)) return null;
+
+  const maxDays = Math.max(...data.map(d => d.values.length));
+  if (maxDays === 0) return null;
+
+  const xStep = plotW / Math.max(maxDays - 1, 1);
+
+  // Shared Y-axis scale
+  const allValues = data.flatMap(d => d.values.map(v => v.value));
+  const maxVal = Math.max(...allValues, 1);
+  const minVal = Math.min(...allValues, 0);
+  const range = maxVal - minVal || 1;
+
+  // Build paths per series
+  const series = data.map(d => {
+    const points = d.values.map((v, i) => ({
+      x: PAD.left + i * xStep,
+      y: PAD.top + plotH - ((v.value - minVal) / range) * plotH,
+    }));
+    const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+    return { ...d, points, path };
+  });
+
+  // Y-axis labels
+  const gridLines = 4;
+  const yLabels = Array.from({ length: gridLines + 1 }, (_, i) => {
+    const val = minVal + (range / gridLines) * i;
+    return { y: PAD.top + plotH - (plotH / gridLines) * i, label: metricDef ? metricDef.format(val) : formatCompact(val) };
+  });
+
+  // X-axis labels
+  const tickCount = Math.min(maxDays, 10);
+  const tickInterval = Math.max(1, Math.floor((maxDays - 1) / (tickCount - 1)));
+
+  return (
+    <div style={{ overflowX: 'auto', position: 'relative' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxHeight: '320px' }}
+        onMouseLeave={() => setHoveredIndex(null)}>
+        {/* Grid lines + Y labels */}
+        {yLabels.map((yl, i) => (
+          <g key={i}>
+            <line x1={PAD.left} y1={yl.y} x2={W - PAD.right} y2={yl.y} stroke="rgba(255,255,255,0.05)" />
+            <text x={PAD.left - 8} y={yl.y + 4} fill="rgba(255,255,255,0.3)" fontSize="9" textAnchor="end">{yl.label}</text>
+          </g>
+        ))}
+        {/* X-axis labels */}
+        {Array.from({ length: maxDays }, (_, i) => {
+          if (maxDays > 10 && i !== 0 && i !== maxDays - 1 && i % tickInterval !== 0) return null;
+          return (
+            <text key={i} x={PAD.left + i * xStep} y={H - 8} fill="rgba(255,255,255,0.3)" fontSize="10" textAnchor="middle">
+              Day {i}
+            </text>
+          );
+        })}
+        {/* Lines */}
+        {series.map((s, si) => (
+          <path key={si} d={s.path} fill="none" stroke={s.color} strokeWidth="2" strokeLinejoin="round"
+            opacity={hoveredIndex !== null ? 0.6 : 1} />
+        ))}
+        {/* Hover guide line */}
+        {hoveredIndex !== null && (
+          <line
+            x1={PAD.left + hoveredIndex * xStep} y1={PAD.top}
+            x2={PAD.left + hoveredIndex * xStep} y2={PAD.top + plotH}
+            stroke="rgba(255,255,255,0.2)" strokeWidth="1" strokeDasharray="4,3"
+          />
+        )}
+        {/* Hover dots */}
+        {hoveredIndex !== null && series.map((s, si) => {
+          if (!s.points[hoveredIndex]) return null;
+          return (
+            <circle key={si} cx={s.points[hoveredIndex].x} cy={s.points[hoveredIndex].y}
+              r="4" fill={s.color} stroke="#12121f" strokeWidth="1.5" />
+          );
+        })}
+        {/* Invisible hover rects */}
+        {Array.from({ length: maxDays }, (_, i) => (
+          <rect key={i} x={Math.max(PAD.left + i * xStep - xStep / 2, 0)} y={PAD.top}
+            width={xStep} height={plotH} fill="transparent"
+            onMouseEnter={() => setHoveredIndex(i)} />
+        ))}
+      </svg>
+      {/* Tooltip */}
+      {hoveredIndex !== null && (
+        <div style={{
+          position: 'absolute', top: '8px',
+          left: `${((PAD.left + hoveredIndex * xStep) / W) * 100}%`,
+          transform: hoveredIndex > maxDays * 0.7 ? 'translateX(-110%)' : 'translateX(10px)',
+          background: 'rgba(18,18,31,0.95)', border: '1px solid rgba(255,255,255,0.12)',
+          borderRadius: '8px', padding: '10px 14px', zIndex: 10, pointerEvents: 'none',
+          minWidth: '160px', boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+        }}>
+          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '6px', fontWeight: 600 }}>
+            Day {hoveredIndex}
+          </div>
+          {series.map((s, si) => {
+            const val = s.values[hoveredIndex];
+            return (
+              <div key={si} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: s.color, flexShrink: 0 }} />
+                <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', minWidth: '90px' }}>{s.label}</span>
+                <span style={{ fontSize: '12px', color: '#fff', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                  {val ? (metricDef ? metricDef.format(val.value) : formatCompact(val.value)) : '\u2014'}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ═══════════════════════════════════════════════
@@ -1749,4 +2549,9 @@ const styles = {
   emptyText: { color: 'rgba(255,255,255,0.35)', fontSize: '14px', margin: 0 },
   uploadBtn: { padding: '8px 16px', background: 'rgba(255,255,255,0.04)', border: '1px solid', borderRadius: '8px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   collapseBtn: { padding: '8px 16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', color: 'rgba(255,255,255,0.5)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', width: '100%', textAlign: 'left' },
+
+  // View toggle
+  viewToggleBar: { display: 'flex', gap: '2px', padding: '3px', background: 'rgba(255,255,255,0.04)', borderRadius: '10px', width: 'fit-content', marginBottom: '20px' },
+  viewToggleBtn: { padding: '7px 18px', borderRadius: '8px', border: 'none', background: 'transparent', color: 'rgba(255,255,255,0.4)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  viewToggleBtnActive: { padding: '7px 18px', borderRadius: '8px', border: 'none', background: 'rgba(99,102,241,0.2)', color: '#a5b4fc', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
 };
