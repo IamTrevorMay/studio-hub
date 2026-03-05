@@ -19,7 +19,7 @@ const NAV_ITEMS = [
   { key: 'projects', label: 'Projects', icon: ProjectsIcon },
   { key: 'ideation', label: 'Create', icon: IdeationIcon },
   { key: 'resources', label: 'Resources', icon: ResourcesIcon },
-  { key: 'analytics', label: 'Analytics', icon: AnalyticsIcon },
+  { key: 'analytics', label: 'Analytics', icon: AnalyticsIcon, adminOnly: true },
   { key: 'research', label: 'Research', icon: ResearchIcon },
   { key: 'reviews', label: 'Reviews', icon: ReviewsIcon },
   { key: 'calendar', label: 'Calendar', icon: CalendarIcon },
@@ -161,7 +161,7 @@ export default function AppLayout() {
 
         {/* Navigation */}
         <nav style={styles.nav}>
-          {NAV_ITEMS.map(({ key, label, icon: Icon }) => (
+          {NAV_ITEMS.filter(item => !item.adminOnly || isAdmin).map(({ key, label, icon: Icon }) => (
             <button
               key={key}
               onClick={() => handleNavClick(key)}
