@@ -2211,13 +2211,15 @@ function ManualMetricsForm({ platform, fields, accounts }) {
     if (!account) return;
     if (startDate > endDate) { setResult({ error: 'Start date must be before end date' }); return; }
     setSubmitting(true); setResult(null);
-
-    // Create ingestion log entry
-    const { data: logEntry } = await supabase.from('ingestion_logs')
-      .insert({ platform_account_id: account.id, job_type: `manual_input_${platform}`, status: 'running' })
-      .select().single();
+    let logEntry = null;
 
     try {
+      // Create ingestion log entry
+      const { data: logData } = await supabase.from('ingestion_logs')
+        .insert({ platform_account_id: account.id, job_type: `manual_input_${platform}`, status: 'running' })
+        .select().single();
+      logEntry = logData;
+
       const days = getDaysInRange(startDate, endDate);
       const numDays = days.length;
       let recordsProcessed = 0;
