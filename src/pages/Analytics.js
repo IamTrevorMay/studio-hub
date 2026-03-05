@@ -205,6 +205,9 @@ export default function Analytics() {
   const [csvSection, setCsvSection] = useState(false);
   const [csvPlatform, setCsvPlatform] = useState('youtube_trevormay');
 
+  // Content performance (collapsible)
+  const [showContentPerf, setShowContentPerf] = useState(false);
+
   // Ingestion health (admin)
   const [showIngestion, setShowIngestion] = useState(false);
   const [ingestionLogs, setIngestionLogs] = useState([]);
@@ -693,91 +696,99 @@ export default function Analytics() {
           )}
 
           {/* ── E. Content Performance Table ── */}
-          <div style={styles.tableHeader}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span style={styles.tableTitle}>Content Performance ({contentItems.length})</span>
-              <button onClick={handleContentRefresh} disabled={contentRefreshing}
-                style={{
-                  background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer',
-                  fontSize: '16px', padding: '2px 6px', fontFamily: 'inherit', lineHeight: 1,
-                  animation: contentRefreshing ? 'spin 0.8s linear infinite' : 'none',
-                }}
-                title="Refresh content performance">
-                ↻
-              </button>
-              <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
-            </div>
+          <div style={{ marginTop: '16px' }}>
+            <button onClick={() => setShowContentPerf(!showContentPerf)} style={styles.collapseBtn}>
+              {showContentPerf ? '▾' : '▸'} Content Performance ({contentItems.length})
+            </button>
+            {showContentPerf && (
+              <>
+                <div style={{ ...styles.tableHeader, marginTop: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <button onClick={handleContentRefresh} disabled={contentRefreshing}
+                      style={{
+                        background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer',
+                        fontSize: '16px', padding: '2px 6px', fontFamily: 'inherit', lineHeight: 1,
+                        animation: contentRefreshing ? 'spin 0.8s linear infinite' : 'none',
+                      }}
+                      title="Refresh content performance">
+                      ↻
+                    </button>
+                    <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+                  </div>
+                </div>
+                {sortedContent.length > 0 ? (
+                  <div style={styles.tableWrap}>
+                    <table style={styles.table}>
+                      <thead>
+                        <tr>
+                          <th style={{ ...styles.th, ...styles.thSticky, cursor: 'pointer' }} onClick={() => handleSort('title')}>
+                            Title {sortCol === 'title' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                          </th>
+                          <th style={{ ...styles.th, cursor: 'pointer' }} onClick={() => handleSort('platform')}>
+                            Platform {sortCol === 'platform' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                          </th>
+                          <th style={{ ...styles.th, cursor: 'pointer' }} onClick={() => handleSort('published_at')}>
+                            Date {sortCol === 'published_at' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                          </th>
+                          <th style={{ ...styles.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => handleSort('views')}>
+                            Views {sortCol === 'views' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                          </th>
+                          <th style={{ ...styles.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => handleSort('engagement_rate')}>
+                            Engagement {sortCol === 'engagement_rate' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedContent.map((item, i) => {
+                          const metrics = item.latest_metrics?.[0] || {};
+                          const platform = item.platform_account?.platform;
+                          const meta = PLATFORM_META[platform] || {};
+                          return (
+                            <tr key={item.id} style={i % 2 === 0 ? styles.trEven : {}}>
+                              <td style={{ ...styles.td, ...styles.tdSticky, background: i % 2 === 0 ? 'rgba(255,255,255,0.01)' : '#12121f' }}>
+                                {item.url ? (
+                                  <a href={item.url} target="_blank" rel="noopener noreferrer"
+                                    style={{ color: '#e2e8f0', textDecoration: 'none', fontWeight: 500 }}>
+                                    {item.title || '(Untitled)'}
+                                  </a>
+                                ) : (item.title || '(Untitled)')}
+                              </td>
+                              <td style={styles.td}>
+                                <span style={{
+                                  display: 'inline-block', padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600,
+                                  background: (meta.color || '#666') + '22', color: meta.color || '#999',
+                                }}>
+                                  {(() => {
+                                    const label = meta.label || platform;
+                                    const acctName = item.platform_account?.account_name;
+                                    if (acctName && acctName !== label && acctName.trim()) return `${label} · ${acctName}`;
+                                    return label;
+                                  })()}
+                                </span>
+                              </td>
+                              <td style={styles.td}>
+                                {item.published_at ? new Date(item.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                              </td>
+                              <td style={{ ...styles.td, ...styles.tdValue, textAlign: 'right' }}>
+                                {metrics.views != null ? formatCompact(Number(metrics.views)) : '—'}
+                              </td>
+                              <td style={{ ...styles.td, ...styles.tdValue, textAlign: 'right' }}>
+                                {metrics.engagement_rate != null ? (Number(metrics.engagement_rate) * 100).toFixed(2) + '%' : '—'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div style={styles.emptyCard}>
+                    <p style={styles.emptyText}>No content found for this date range.</p>
+                  </div>
+                )}
+              </>
+            )}
           </div>
-          {sortedContent.length > 0 ? (
-            <div style={styles.tableWrap}>
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    <th style={{ ...styles.th, ...styles.thSticky, cursor: 'pointer' }} onClick={() => handleSort('title')}>
-                      Title {sortCol === 'title' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
-                    </th>
-                    <th style={{ ...styles.th, cursor: 'pointer' }} onClick={() => handleSort('platform')}>
-                      Platform {sortCol === 'platform' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
-                    </th>
-                    <th style={{ ...styles.th, cursor: 'pointer' }} onClick={() => handleSort('published_at')}>
-                      Date {sortCol === 'published_at' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
-                    </th>
-                    <th style={{ ...styles.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => handleSort('views')}>
-                      Views {sortCol === 'views' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
-                    </th>
-                    <th style={{ ...styles.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => handleSort('engagement_rate')}>
-                      Engagement {sortCol === 'engagement_rate' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedContent.map((item, i) => {
-                    const metrics = item.latest_metrics?.[0] || {};
-                    const platform = item.platform_account?.platform;
-                    const meta = PLATFORM_META[platform] || {};
-                    return (
-                      <tr key={item.id} style={i % 2 === 0 ? styles.trEven : {}}>
-                        <td style={{ ...styles.td, ...styles.tdSticky, background: i % 2 === 0 ? 'rgba(255,255,255,0.01)' : '#12121f' }}>
-                          {item.url ? (
-                            <a href={item.url} target="_blank" rel="noopener noreferrer"
-                              style={{ color: '#e2e8f0', textDecoration: 'none', fontWeight: 500 }}>
-                              {item.title || '(Untitled)'}
-                            </a>
-                          ) : (item.title || '(Untitled)')}
-                        </td>
-                        <td style={styles.td}>
-                          <span style={{
-                            display: 'inline-block', padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600,
-                            background: (meta.color || '#666') + '22', color: meta.color || '#999',
-                          }}>
-                            {(() => {
-                              const label = meta.label || platform;
-                              const acctName = item.platform_account?.account_name;
-                              if (acctName && acctName !== label && acctName.trim()) return `${label} · ${acctName}`;
-                              return label;
-                            })()}
-                          </span>
-                        </td>
-                        <td style={styles.td}>
-                          {item.published_at ? new Date(item.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
-                        </td>
-                        <td style={{ ...styles.td, ...styles.tdValue, textAlign: 'right' }}>
-                          {metrics.views != null ? formatCompact(Number(metrics.views)) : '—'}
-                        </td>
-                        <td style={{ ...styles.td, ...styles.tdValue, textAlign: 'right' }}>
-                          {metrics.engagement_rate != null ? (Number(metrics.engagement_rate) * 100).toFixed(2) + '%' : '—'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div style={styles.emptyCard}>
-              <p style={styles.emptyText}>No content found for this date range.</p>
-            </div>
-          )}
         </>
       ))}
 
