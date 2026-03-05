@@ -602,8 +602,8 @@ export default function Analytics() {
             <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
               {/* Views */}
               {platformBreakdown.some(p => p.views > 0) && (
-                <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px' }}>
-                  <span style={styles.chartTitle}>Views by Platform</span>
+                <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px', borderLeft: '3px solid #6366f1' }}>
+                  <span style={{ ...styles.chartTitle, color: '#6366f1' }}>Views by Platform</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '24px', marginTop: '16px', flexWrap: 'wrap' }}>
                     <DonutChart data={platformBreakdown} valueKey="views" centerLabel="total views" />
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -624,8 +624,8 @@ export default function Analytics() {
               )}
               {/* Revenue */}
               {platformBreakdown.some(p => p.revenue > 0) && (
-                <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px' }}>
-                  <span style={styles.chartTitle}>Revenue by Platform</span>
+                <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px', borderLeft: '3px solid #f59e0b' }}>
+                  <span style={{ ...styles.chartTitle, color: '#f59e0b' }}>Revenue by Platform</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '24px', marginTop: '16px', flexWrap: 'wrap' }}>
                     <DonutChart data={platformBreakdown} valueKey="revenue" centerLabel="total revenue"
                       formatValue={v => '$' + formatCompact(v / 100)} />
@@ -647,8 +647,8 @@ export default function Analytics() {
               )}
               {/* Engagement */}
               {platformBreakdown.some(p => p.engagement > 0) && (
-                <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px' }}>
-                  <span style={styles.chartTitle}>Engagement by Platform</span>
+                <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px', borderLeft: '3px solid #22c55e' }}>
+                  <span style={{ ...styles.chartTitle, color: '#22c55e' }}>Engagement by Platform</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '24px', marginTop: '16px', flexWrap: 'wrap' }}>
                     <DonutChart data={platformBreakdown.filter(p => p.engagement > 0)} valueKey="engagement" centerLabel="avg engagement"
                       formatValue={v => {
@@ -669,8 +669,8 @@ export default function Analytics() {
               )}
               {/* Followers */}
               {platformBreakdown.some(p => p.followers > 0) && (
-                <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px' }}>
-                  <span style={styles.chartTitle}>Followers by Platform</span>
+                <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px', borderLeft: '3px solid #ec4899' }}>
+                  <span style={{ ...styles.chartTitle, color: '#ec4899' }}>Followers by Platform</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '24px', marginTop: '16px', flexWrap: 'wrap' }}>
                     <DonutChart data={platformBreakdown.filter(p => p.followers > 0)} valueKey="followers" centerLabel="total followers" />
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
