@@ -19,7 +19,10 @@ const MC_BASE = "https://app.metricool.com/api";
 // text_message_clicks, clicks_total, delta_followers, Followers, Friends, impressions, reach,
 // profile_views, postsCount, postsInteractions, website_clicks, views, accounts_engaged
 //
-// Facebook account valid metrics: likes, pageViews, pageImpressions, page_posts_impressions, ...
+// Facebook account valid metrics: likes, pageViews, pageImpressions, page_posts_impressions,
+// page_actions_post_reactions_total, pageFollows, Follows, Unfollows, page_daily_follows_unique,
+// page_daily_unfollows_unique, page_media_view, page_website_clicks_logged_in_unique, ctaClicks,
+// page_total_actions, postsCount, postsInteractions
 //
 // TikTok account valid metrics: video_views, profile_views, followers_count,
 // followers_delta_count, likes, comments, shares
@@ -39,9 +42,10 @@ const PLATFORM_METRICS = [
     platform: "facebook",
     network: "facebook",
     pdm: [
-      { subject: "account", metric: "pageImpressions", field: "views", cumulative: false },
+      { subject: "account", metric: "page_posts_impressions", field: "views", cumulative: false },
+      { subject: "account", metric: "postsInteractions", field: "likes", cumulative: false },
     ],
-    followers: { subject: "account", metric: "likes", cumulative: true },
+    followers: { subject: "account", metric: "pageFollows", cumulative: true },
   },
   {
     platform: "tiktok",
