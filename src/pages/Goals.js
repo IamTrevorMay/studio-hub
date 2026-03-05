@@ -34,13 +34,68 @@ function progressColor(pct) {
   return `rgb(${r},${g},${b})`;
 }
 
-const EMPTY_GOAL = { title: '', current_value: '', target_value: '', category: 'quarterly' };
+// ═══════════════════════════════════════════════
+// Metric goal config
+// ═══════════════════════════════════════════════
+const PLATFORM_META = {
+  youtube:   { label: 'YouTube',   color: '#FF0000' },
+  facebook:  { label: 'Facebook',  color: '#1877F2' },
+  instagram: { label: 'Instagram', color: '#E4405F' },
+  tiktok:    { label: 'TikTok',    color: '#00F2EA' },
+  substack:  { label: 'Substack',  color: '#FF6719' },
+  twitch:    { label: 'Twitch',    color: '#9146FF' },
+  stripe:    { label: 'Stripe',    color: '#635BFF' },
+};
+
+const METRIC_OPTIONS = [
+  { key: 'total_views',              label: 'Views' },
+  { key: 'revenue_cents',            label: 'Revenue ($)' },
+  { key: 'followers_eod',            label: 'Followers' },
+  { key: 'total_likes',              label: 'Likes' },
+  { key: 'total_comments',           label: 'Comments' },
+  { key: 'total_shares',             label: 'Shares' },
+  { key: 'total_watch_time_seconds', label: 'Watch Time (hrs)' },
+  { key: 'posts_published',          label: 'Posts Published' },
+];
+
+function getDateRangeForCategory(category) {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  if (category === 'quarterly') {
+    const qStart = new Date(year, Math.floor(month / 3) * 3, 1);
+    return { start: qStart.toISOString().split('T')[0], end: now.toISOString().split('T')[0] };
+  }
+  return { start: `${year}-01-01`, end: now.toISOString().split('T')[0] };
+}
+
+function formatMetricValue(key, value) {
+  if (key === 'revenue_cents') return '$' + (value / 100).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  if (key === 'total_watch_time_seconds') return Math.round(value / 3600).toLocaleString() + 'h';
+  return Math.round(value).toLocaleString();
+}
+
+function formatTargetForMetric(key, value) {
+  if (key === 'revenue_cents') return Math.round(value * 100);
+  if (key === 'total_watch_time_seconds') return value * 3600;
+  return value;
+}
+
+function displayTargetForMetric(key, value) {
+  if (key === 'revenue_cents') return '$' + Math.round(value).toLocaleString();
+  if (key === 'total_watch_time_seconds') return Math.round(value).toLocaleString() + 'h';
+  return Math.round(value).toLocaleString();
+}
+
+const EMPTY_GOAL = { title: '', current_value: '', target_value: '', category: 'quarterly', goal_type: 'manual', metrics: [], platform_account_ids: [] };
 const EMPTY_INITIATIVE = { title: '', deadline: '', category: 'quarterly' };
 
 export default function Goals() {
   const { profile, isAdmin } = useAuth();
   const [goals, setGoals] = useState([]);
   const [initiatives, setInitiatives] = useState([]);
+  const [accounts, setAccounts] = useState([]);
+  const [rollupData, setRollupData] = useState({});
   const [loading, setLoading] = useState(true);
 
   // Goal form state
@@ -59,19 +114,68 @@ export default function Goals() {
 
   async function fetchAll() {
     try {
-      const [goalsRes, initRes] = await Promise.all([
+      const [goalsRes, initRes, acctRes] = await Promise.all([
         supabase.from('goals').select('*').order('created_at', { ascending: false }),
         supabase.from('initiatives').select('*').order('deadline', { ascending: true }),
+        supabase.from('platform_accounts').select('*').eq('is_active', true).order('platform'),
       ]);
       if (goalsRes.error) throw goalsRes.error;
       if (initRes.error) throw initRes.error;
-      setGoals(goalsRes.data || []);
+      const goalsData = goalsRes.data || [];
+      setGoals(goalsData);
       setInitiatives(initRes.data || []);
+      setAccounts(acctRes.data || []);
+
+      // Fetch rollup data for metric goals
+      const metricGoals = goalsData.filter(g => g.goal_type === 'metric');
+      if (metricGoals.length > 0) {
+        await fetchRollupData(metricGoals);
+      }
     } catch (err) {
       console.error('Error fetching:', err);
     } finally {
       setLoading(false);
     }
+  }
+
+  async function fetchRollupData(metricGoals) {
+    // Determine the widest date range needed (yearly always covers quarterly)
+    const hasYearly = metricGoals.some(g => g.category === 'yearly');
+    const yearRange = getDateRangeForCategory('yearly');
+    const quarterRange = getDateRangeForCategory('quarterly');
+    const start = hasYearly ? yearRange.start : quarterRange.start;
+    const end = yearRange.end;
+
+    // Collect all platform account IDs needed
+    const allAccountIds = [...new Set(metricGoals.flatMap(g => g.platform_account_ids || []))];
+    if (!allAccountIds.length) return;
+
+    const { data: rollups } = await supabase
+      .from('daily_platform_rollups')
+      .select('*')
+      .gte('date', start)
+      .lte('date', end)
+      .in('platform_account_id', allAccountIds);
+
+    if (!rollups) return;
+
+    // Build lookup: { goalId: { metricKey: summedValue } }
+    const result = {};
+    for (const goal of metricGoals) {
+      const range = getDateRangeForCategory(goal.category);
+      const goalAccountIds = goal.platform_account_ids || [];
+      const goalMetrics = goal.metrics || [];
+      const filtered = rollups.filter(r =>
+        goalAccountIds.includes(r.platform_account_id) &&
+        r.date >= range.start && r.date <= range.end
+      );
+      const sums = {};
+      for (const m of goalMetrics) {
+        sums[m] = filtered.reduce((acc, r) => acc + (Number(r[m]) || 0), 0);
+      }
+      result[goal.id] = sums;
+    }
+    setRollupData(result);
   }
 
   // --- Goal CRUD ---
@@ -87,6 +191,9 @@ export default function Goals() {
       current_value: String(goal.current_value),
       target_value: String(goal.target_value),
       category: goal.category,
+      goal_type: goal.goal_type || 'manual',
+      metrics: goal.metrics || [],
+      platform_account_ids: goal.platform_account_ids || [],
     });
     setShowGoalForm(true);
   }
@@ -99,19 +206,40 @@ export default function Goals() {
     e.preventDefault();
     const title = goalForm.title.trim();
     if (!title) return;
-    const current_value = parseFloat(goalForm.current_value) || 0;
+
+    const isMetric = goalForm.goal_type === 'metric';
     const target_value = parseFloat(goalForm.target_value) || 1;
+    const current_value = isMetric ? 0 : (parseFloat(goalForm.current_value) || 0);
+
+    // For metric goals, store the target in the unit the user typed (dollars, hours, raw count)
+    // but convert to the DB unit for comparison
+    const storedTarget = isMetric && goalForm.metrics.length === 1
+      ? formatTargetForMetric(goalForm.metrics[0], target_value)
+      : target_value;
+
+    const payload = {
+      title,
+      current_value: isMetric ? 0 : current_value,
+      target_value: storedTarget,
+      category: goalForm.category,
+      goal_type: goalForm.goal_type,
+      metrics: isMetric ? goalForm.metrics : [],
+      platform_account_ids: isMetric ? goalForm.platform_account_ids : [],
+    };
+
+    if (isMetric && (!payload.metrics.length || !payload.platform_account_ids.length)) {
+      alert('Please select at least one metric and one platform.');
+      return;
+    }
 
     if (editingGoalId) {
       const { error } = await supabase.from('goals').update({
-        title, current_value, target_value, category: goalForm.category,
-        updated_at: new Date().toISOString(),
+        ...payload, updated_at: new Date().toISOString(),
       }).eq('id', editingGoalId);
       if (error) { alert('Error: ' + error.message); return; }
     } else {
       const { error } = await supabase.from('goals').insert({
-        title, current_value, target_value, category: goalForm.category,
-        created_by: profile.id,
+        ...payload, created_by: profile.id,
       }).select();
       if (error) { alert('Error: ' + error.message); return; }
     }
@@ -167,6 +295,23 @@ export default function Goals() {
     fetchAll();
   }
 
+  // --- Metric form helpers ---
+  function toggleMetric(key) {
+    setGoalForm(prev => {
+      const cur = prev.metrics || [];
+      if (cur.includes(key)) return { ...prev, metrics: cur.filter(m => m !== key) };
+      if (cur.length >= 3) return prev;
+      return { ...prev, metrics: [...cur, key] };
+    });
+  }
+  function togglePlatformAccount(id) {
+    setGoalForm(prev => {
+      const cur = prev.platform_account_ids || [];
+      if (cur.includes(id)) return { ...prev, platform_account_ids: cur.filter(a => a !== id) };
+      return { ...prev, platform_account_ids: [...cur, id] };
+    });
+  }
+
   const quarterlyGoals = goals.filter(g => g.category === 'quarterly');
   const yearlyGoals = goals.filter(g => g.category === 'yearly');
   const quarterlyInits = initiatives.filter(i => i.category === 'quarterly');
@@ -176,6 +321,8 @@ export default function Goals() {
   if (loading) {
     return <div style={styles.page}><div style={styles.loading}>Loading goals...</div></div>;
   }
+
+  const isMetricForm = goalForm.goal_type === 'metric';
 
   return (
     <div style={styles.page}>
@@ -200,7 +347,20 @@ export default function Goals() {
       {/* Goal Form */}
       {showGoalForm && (
         <form onSubmit={handleGoalSubmit} style={styles.form}>
-          <div style={styles.formLabel}>New Goal</div>
+          <div style={styles.formLabel}>{editingGoalId ? 'Edit Goal' : 'New Goal'}</div>
+
+          {/* Type toggle */}
+          <div style={styles.formRow}>
+            <button type="button" onClick={() => setGoalForm({ ...goalForm, goal_type: 'manual' })}
+              style={{ ...styles.typeBtn, ...(goalForm.goal_type === 'manual' ? styles.typeBtnActive : {}) }}>
+              Manual
+            </button>
+            <button type="button" onClick={() => setGoalForm({ ...goalForm, goal_type: 'metric' })}
+              style={{ ...styles.typeBtn, ...(goalForm.goal_type === 'metric' ? styles.typeBtnActive : {}) }}>
+              Metric
+            </button>
+          </div>
+
           <input
             value={goalForm.title}
             onChange={e => setGoalForm({ ...goalForm, title: e.target.value })}
@@ -208,30 +368,94 @@ export default function Goals() {
             style={styles.input}
             autoFocus
           />
-          <div style={styles.formRow}>
-            <input
-              value={goalForm.current_value}
-              onChange={e => setGoalForm({ ...goalForm, current_value: e.target.value })}
-              placeholder="Current value"
-              style={{ ...styles.input, flex: 1 }}
-              inputMode="decimal"
-            />
-            <input
-              value={goalForm.target_value}
-              onChange={e => setGoalForm({ ...goalForm, target_value: e.target.value })}
-              placeholder="Target value"
-              style={{ ...styles.input, flex: 1 }}
-              inputMode="decimal"
-            />
-            <select
-              value={goalForm.category}
-              onChange={e => setGoalForm({ ...goalForm, category: e.target.value })}
-              style={styles.select}
-            >
-              <option value="quarterly">Quarterly</option>
-              <option value="yearly">Yearly</option>
-            </select>
-          </div>
+
+          {/* Manual fields */}
+          {!isMetricForm && (
+            <div style={styles.formRow}>
+              <input
+                value={goalForm.current_value}
+                onChange={e => setGoalForm({ ...goalForm, current_value: e.target.value })}
+                placeholder="Current value"
+                style={{ ...styles.input, flex: 1 }}
+                inputMode="decimal"
+              />
+              <input
+                value={goalForm.target_value}
+                onChange={e => setGoalForm({ ...goalForm, target_value: e.target.value })}
+                placeholder="Target value"
+                style={{ ...styles.input, flex: 1 }}
+                inputMode="decimal"
+              />
+              <select
+                value={goalForm.category}
+                onChange={e => setGoalForm({ ...goalForm, category: e.target.value })}
+                style={styles.select}
+              >
+                <option value="quarterly">Quarterly</option>
+                <option value="yearly">Yearly</option>
+              </select>
+            </div>
+          )}
+
+          {/* Metric fields */}
+          {isMetricForm && (
+            <>
+              <div style={styles.formRow}>
+                <input
+                  value={goalForm.target_value}
+                  onChange={e => setGoalForm({ ...goalForm, target_value: e.target.value })}
+                  placeholder={goalForm.metrics.length === 1 && goalForm.metrics[0] === 'revenue_cents' ? 'Target (dollars)' : goalForm.metrics.length === 1 && goalForm.metrics[0] === 'total_watch_time_seconds' ? 'Target (hours)' : 'Target value'}
+                  style={{ ...styles.input, flex: 1 }}
+                  inputMode="decimal"
+                />
+                <select
+                  value={goalForm.category}
+                  onChange={e => setGoalForm({ ...goalForm, category: e.target.value })}
+                  style={styles.select}
+                >
+                  <option value="quarterly">Quarterly</option>
+                  <option value="yearly">Yearly</option>
+                </select>
+              </div>
+
+              {/* Metrics picker */}
+              <div>
+                <div style={styles.formSubLabel}>Metrics (up to 3)</div>
+                <div style={styles.chipRow}>
+                  {METRIC_OPTIONS.map(m => {
+                    const selected = (goalForm.metrics || []).includes(m.key);
+                    return (
+                      <button key={m.key} type="button" onClick={() => toggleMetric(m.key)}
+                        style={{ ...styles.chip, ...(selected ? styles.chipSelected : {}) }}>
+                        {m.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Platform picker */}
+              <div>
+                <div style={styles.formSubLabel}>Platforms</div>
+                <div style={styles.chipRow}>
+                  {accounts.filter(a => a.platform !== 'stripe').map(acct => {
+                    const selected = (goalForm.platform_account_ids || []).includes(acct.id);
+                    const pm = PLATFORM_META[acct.platform] || {};
+                    return (
+                      <button key={acct.id} type="button" onClick={() => togglePlatformAccount(acct.id)}
+                        style={{
+                          ...styles.chip,
+                          ...(selected ? { background: (pm.color || '#666') + '22', borderColor: (pm.color || '#666') + '66', color: pm.color || '#fff' } : {}),
+                        }}>
+                        {acct.account_name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+
           <button type="submit" style={styles.submitBtn}>
             {editingGoalId ? 'Update Goal' : 'Create Goal'}
           </button>
@@ -241,7 +465,7 @@ export default function Goals() {
       {/* Initiative Form */}
       {showInitForm && (
         <form onSubmit={handleInitSubmit} style={styles.form}>
-          <div style={styles.formLabel}>New Initiative</div>
+          <div style={styles.formLabel}>{editingInitId ? 'Edit Initiative' : 'New Initiative'}</div>
           <input
             value={initForm.title}
             onChange={e => setInitForm({ ...initForm, title: e.target.value })}
@@ -277,7 +501,7 @@ export default function Goals() {
           <h2 style={styles.sectionTitle}>Quarterly</h2>
           <div style={styles.list}>
             {quarterlyGoals.map(g => (
-              <GoalCard key={g.id} goal={g} isAdmin={isAdmin} onEdit={openEditGoal} onDelete={handleDeleteGoal} />
+              <GoalCard key={g.id} goal={g} rollupData={rollupData} accounts={accounts} isAdmin={isAdmin} onEdit={openEditGoal} onDelete={handleDeleteGoal} />
             ))}
             {quarterlyInits.map(i => (
               <InitiativeCard key={i.id} initiative={i} isAdmin={isAdmin} onEdit={openEditInit} onDelete={handleDeleteInit} />
@@ -292,7 +516,7 @@ export default function Goals() {
           <h2 style={styles.sectionTitle}>Yearly</h2>
           <div style={styles.list}>
             {yearlyGoals.map(g => (
-              <GoalCard key={g.id} goal={g} isAdmin={isAdmin} onEdit={openEditGoal} onDelete={handleDeleteGoal} />
+              <GoalCard key={g.id} goal={g} rollupData={rollupData} accounts={accounts} isAdmin={isAdmin} onEdit={openEditGoal} onDelete={handleDeleteGoal} />
             ))}
             {yearlyInits.map(i => (
               <InitiativeCard key={i.id} initiative={i} isAdmin={isAdmin} onEdit={openEditInit} onDelete={handleDeleteInit} />
@@ -304,18 +528,63 @@ export default function Goals() {
   );
 }
 
-function GoalCard({ goal, isAdmin, onEdit, onDelete }) {
-  const target = Number(goal.target_value) || 1;
-  const current = Number(goal.current_value) || 0;
+function GoalCard({ goal, rollupData, accounts, isAdmin, onEdit, onDelete }) {
+  const isMetric = goal.goal_type === 'metric';
+  const goalMetrics = goal.metrics || [];
+  const goalAccountIds = goal.platform_account_ids || [];
+
+  // Compute current value for metric goals
+  let current, target, metricBreakdown;
+  if (isMetric && goalMetrics.length > 0) {
+    const sums = rollupData[goal.id] || {};
+    // If single metric, use sum directly vs target
+    if (goalMetrics.length === 1) {
+      const key = goalMetrics[0];
+      current = sums[key] || 0;
+      target = Number(goal.target_value) || 1;
+      metricBreakdown = null;
+    } else {
+      // Multiple metrics: sum all metric values, target is the combined target
+      current = goalMetrics.reduce((acc, key) => acc + (sums[key] || 0), 0);
+      target = Number(goal.target_value) || 1;
+      metricBreakdown = goalMetrics.map(key => ({
+        key,
+        label: METRIC_OPTIONS.find(m => m.key === key)?.label || key,
+        value: sums[key] || 0,
+      }));
+    }
+  } else {
+    target = Number(goal.target_value) || 1;
+    current = Number(goal.current_value) || 0;
+  }
+
   const pct = Math.min(current / target, 1);
   const pctDisplay = Math.round(pct * 100);
   const color = progressColor(pct);
+
+  // Format display values
+  const displayCurrent = isMetric && goalMetrics.length === 1
+    ? formatMetricValue(goalMetrics[0], current)
+    : isMetric ? Math.round(current).toLocaleString() : current;
+  const displayTarget = isMetric && goalMetrics.length === 1
+    ? formatMetricValue(goalMetrics[0], target)
+    : isMetric ? Math.round(target).toLocaleString() : target;
+
+  // Platform labels for metric goals
+  const platformLabels = isMetric
+    ? goalAccountIds.map(id => {
+        const acct = accounts.find(a => a.id === id);
+        return acct ? acct.account_name : '';
+      }).filter(Boolean)
+    : [];
 
   return (
     <div style={styles.card}>
       <div style={styles.cardHeader}>
         <div style={styles.cardTitleRow}>
-          <span style={styles.cardBadge}>Goal</span>
+          <span style={isMetric ? styles.metricBadge : styles.cardBadge}>
+            {isMetric ? 'Metric' : 'Goal'}
+          </span>
           <span style={styles.cardTitle}>{goal.title}</span>
         </div>
         {isAdmin && (
@@ -333,14 +602,43 @@ function GoalCard({ goal, isAdmin, onEdit, onDelete }) {
           </div>
         )}
       </div>
+
+      {/* Metric tags */}
+      {isMetric && (
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
+          {goalMetrics.map(key => (
+            <span key={key} style={styles.metricTag}>
+              {METRIC_OPTIONS.find(m => m.key === key)?.label || key}
+            </span>
+          ))}
+          {platformLabels.map((name, i) => (
+            <span key={i} style={styles.platformTag}>{name}</span>
+          ))}
+        </div>
+      )}
+
       <div style={styles.barBg}>
         <div style={{ ...styles.barFill, width: `${pctDisplay}%`, background: color }} />
       </div>
       <div style={styles.cardFooter}>
-        <span style={styles.cardNumbers}>{current} / {target}</span>
+        <span style={styles.cardNumbers}>{displayCurrent} / {displayTarget}</span>
         <span style={{ ...styles.cardPct, color }}>{pctDisplay}%</span>
       </div>
-      <div style={styles.cardUpdated}>Updated {formatDate(goal.updated_at)}</div>
+
+      {/* Multi-metric breakdown */}
+      {metricBreakdown && (
+        <div style={{ marginTop: '6px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+          {metricBreakdown.map(m => (
+            <span key={m.key} style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>
+              {m.label}: {formatMetricValue(m.key, m.value)}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div style={styles.cardUpdated}>
+        {isMetric ? `${goal.category === 'quarterly' ? 'This quarter' : 'This year'} — live` : `Updated ${formatDate(goal.updated_at)}`}
+      </div>
     </div>
   );
 }
@@ -442,6 +740,14 @@ const styles = {
     color: 'rgba(255,255,255,0.5)',
     marginBottom: '2px',
   },
+  formSubLabel: {
+    fontSize: '11px',
+    fontWeight: 600,
+    color: 'rgba(255,255,255,0.35)',
+    marginBottom: '6px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+  },
   formRow: {
     display: 'flex',
     gap: '10px',
@@ -466,6 +772,44 @@ const styles = {
     fontFamily: 'inherit',
     outline: 'none',
     cursor: 'pointer',
+  },
+  typeBtn: {
+    flex: 1,
+    padding: '8px 14px',
+    borderRadius: '8px',
+    border: '1px solid rgba(255,255,255,0.1)',
+    background: 'rgba(255,255,255,0.04)',
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  typeBtnActive: {
+    background: 'rgba(99,102,241,0.15)',
+    borderColor: 'rgba(99,102,241,0.4)',
+    color: '#a5b4fc',
+  },
+  chipRow: {
+    display: 'flex',
+    gap: '6px',
+    flexWrap: 'wrap',
+  },
+  chip: {
+    padding: '5px 12px',
+    borderRadius: '16px',
+    border: '1px solid rgba(255,255,255,0.1)',
+    background: 'rgba(255,255,255,0.04)',
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: '12px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  chipSelected: {
+    background: 'rgba(99,102,241,0.15)',
+    borderColor: 'rgba(99,102,241,0.4)',
+    color: '#a5b4fc',
   },
   submitBtn: {
     padding: '10px 20px',
@@ -524,6 +868,17 @@ const styles = {
     borderRadius: '4px',
     flexShrink: 0,
   },
+  metricBadge: {
+    fontSize: '10px',
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+    color: '#c4b5fd',
+    background: 'rgba(196,181,253,0.1)',
+    padding: '3px 8px',
+    borderRadius: '4px',
+    flexShrink: 0,
+  },
   initBadge: {
     fontSize: '10px',
     fontWeight: 700,
@@ -534,6 +889,22 @@ const styles = {
     padding: '3px 8px',
     borderRadius: '4px',
     flexShrink: 0,
+  },
+  metricTag: {
+    fontSize: '10px',
+    fontWeight: 600,
+    color: 'rgba(196,181,253,0.7)',
+    background: 'rgba(196,181,253,0.08)',
+    padding: '2px 8px',
+    borderRadius: '10px',
+  },
+  platformTag: {
+    fontSize: '10px',
+    fontWeight: 600,
+    color: 'rgba(255,255,255,0.4)',
+    background: 'rgba(255,255,255,0.06)',
+    padding: '2px 8px',
+    borderRadius: '10px',
   },
   cardTitle: {
     fontSize: '14px',
@@ -591,6 +962,7 @@ const styles = {
   cardUpdated: {
     fontSize: '11px',
     color: 'rgba(255,255,255,0.3)',
+    marginTop: '4px',
   },
   deadlineRow: {
     display: 'flex',
