@@ -3,261 +3,727 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 
 // ═══════════════════════════════════════════════
-// Platform config (YouTube only for now)
+// Platform Config
 // ═══════════════════════════════════════════════
-const PLATFORMS = [
-  { key: 'youtube_trevormay', label: 'Trevor May Baseball', icon: '🎬', color: '#ff0000', channel: 'trevormay' },
-  { key: 'youtube_moremayday', label: 'More Mayday', icon: '🎬', color: '#ff4444', channel: 'moremayday' },
-  { key: 'tiktok', label: 'IamTrevorMay TikTok', icon: '🎵', color: '#00f2ea', disabled: true },
-  { key: 'facebook', label: 'Trevor May Facebook', icon: '📘', color: '#1877f2', disabled: true },
-  { key: 'instagram', label: 'trevmay65 Instagram', icon: '📸', color: '#e4405f', disabled: true },
-  { key: 'substack', label: 'Mayday Substack', icon: '📰', color: '#ff6719', disabled: true },
+const PLATFORM_META = {
+  youtube:   { label: 'YouTube',   color: '#FF0000', icon: 'YT' },
+  facebook:  { label: 'Facebook',  color: '#1877F2', icon: 'FB' },
+  instagram: { label: 'Instagram', color: '#E4405F', icon: 'IG' },
+  tiktok:    { label: 'TikTok',    color: '#00F2EA', icon: 'TT' },
+  substack:  { label: 'Substack',  color: '#FF6719', icon: 'SS' },
+  stripe:    { label: 'Stripe',    color: '#635BFF', icon: '$' },
+};
+
+const DATE_RANGES = [
+  { key: '7d',  label: '7 days',  days: 7 },
+  { key: '30d', label: '30 days', days: 30 },
+  { key: '90d', label: '90 days', days: 90 },
+  { key: '1y',  label: '1 year',  days: 365 },
+  { key: 'custom', label: 'Custom' },
 ];
 
-// Line colors for multi-metric graph
-const LINE_COLORS = ['#6366f1', '#f59e0b', '#22c55e', '#ec4899'];
-
-// Daily metrics available for graphing
-const DAILY_METRICS = [
-  { key: 'views', label: 'Views', format: 'number' },
-  { key: 'engaged_views', label: 'Engaged Views', format: 'number' },
-  { key: 'watch_time_hours', label: 'Watch Time (hrs)', format: 'decimal' },
-  { key: 'subscribers', label: 'Subscribers', format: 'number' },
-  { key: 'impressions', label: 'Impressions', format: 'number' },
-  { key: 'impressions_ctr', label: 'CTR (%)', format: 'percent' },
-  { key: 'average_percentage_viewed', label: 'Avg % Viewed', format: 'percent' },
-  { key: 'average_views_per_viewer', label: 'Avg Views/Viewer', format: 'decimal' },
-  { key: 'unique_viewers', label: 'Unique Viewers', format: 'number' },
-  { key: 'new_viewers', label: 'New Viewers', format: 'number' },
-  { key: 'returning_viewers', label: 'Returning Viewers', format: 'number' },
-  { key: 'estimated_revenue', label: 'Revenue ($)', format: 'currency' },
-  { key: 'ad_revenue', label: 'Ad Revenue ($)', format: 'currency' },
-  { key: 'adsense_revenue', label: 'AdSense ($)', format: 'currency' },
-  { key: 'watch_page_ads_revenue', label: 'Watch Page Ads ($)', format: 'currency' },
-  { key: 'youtube_premium_revenue', label: 'Premium ($)', format: 'currency' },
-  { key: 'ad_impressions', label: 'Ad Impressions', format: 'number' },
-  { key: 'cpm', label: 'CPM ($)', format: 'currency' },
-  { key: 'rpm', label: 'RPM ($)', format: 'currency' },
-  { key: 'videos_published', label: 'Videos Published', format: 'number' },
-  { key: 'stayed_to_watch_pct', label: 'Stayed to Watch (%)', format: 'percent' },
+const TREND_METRICS = [
+  { key: 'views',      label: 'Views' },
+  { key: 'revenue',    label: 'Revenue' },
+  { key: 'engagement', label: 'Engagement' },
+  { key: 'followers',  label: 'Followers' },
 ];
 
-// Per-video table columns
-const VIDEO_COLUMNS = [
-  { key: 'video_title', label: 'Video', type: 'text', sticky: true, defaultOn: true },
-  { key: 'publish_date', label: 'Published', type: 'date', defaultOn: true },
-  { key: 'views', label: 'Views', type: 'number', defaultOn: true },
-  { key: 'engaged_views', label: 'Engaged Views', type: 'number', defaultOn: true },
-  { key: 'impressions', label: 'Impressions', type: 'number', defaultOn: true },
-  { key: 'impressions_ctr', label: 'CTR (%)', type: 'percent', defaultOn: true },
-  { key: 'watch_time_hours', label: 'Watch Time (hrs)', type: 'decimal', defaultOn: true },
-  { key: 'average_view_duration_seconds', label: 'Avg Duration', type: 'duration', defaultOn: true },
-  { key: 'average_percentage_viewed', label: 'Avg % Viewed', type: 'percent', defaultOn: false },
-  { key: 'stayed_to_watch_pct', label: 'Stayed to Watch (%)', type: 'percent', defaultOn: false },
-  { key: 'subscribers', label: 'Subscribers', type: 'number', defaultOn: true },
-  { key: 'estimated_revenue', label: 'Revenue ($)', type: 'currency', defaultOn: true },
-  { key: 'ad_revenue', label: 'Ad Revenue ($)', type: 'currency', defaultOn: false },
-  { key: 'adsense_revenue', label: 'AdSense ($)', type: 'currency', defaultOn: false },
-  { key: 'watch_page_ads_revenue', label: 'Watch Page Ads ($)', type: 'currency', defaultOn: false },
-  { key: 'youtube_premium_revenue', label: 'Premium ($)', type: 'currency', defaultOn: false },
-  { key: 'ad_impressions', label: 'Ad Impressions', type: 'number', defaultOn: false },
-  { key: 'cpm', label: 'CPM ($)', type: 'currency', defaultOn: false },
-  { key: 'rpm', label: 'RPM ($)', type: 'currency', defaultOn: false },
-  { key: 'youtube_premium_views', label: 'Premium Views', type: 'number', defaultOn: false },
-  { key: 'post_subscribers', label: 'Post Subs', type: 'number', defaultOn: false },
-  { key: 'duration_seconds', label: 'Duration', type: 'duration', defaultOn: false },
-];
+const LINE_COLORS = ['#6366f1', '#f59e0b', '#22c55e', '#ec4899', '#3b82f6', '#a855f7', '#14b8a6'];
 
 // ═══════════════════════════════════════════════
 // Date helpers
 // ═══════════════════════════════════════════════
-function today() { return new Date().toISOString().split('T')[0]; }
-function daysAgo(n) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().split('T')[0]; }
-function startOfMonth(year, month) { return `${year}-${String(month).padStart(2,'0')}-01`; }
-function endOfMonth(year, month) { const d = new Date(year, month, 0); return d.toISOString().split('T')[0]; }
-function startOfYear(year) { return `${year}-01-01`; }
-function endOfYear(year) { return `${year}-12-31`; }
+function todayStr() { return new Date().toISOString().split('T')[0]; }
+function daysAgoStr(n) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().split('T')[0]; }
 
-const TIME_PRESETS = [
-  { key: '28d', label: 'Last 28 days' },
-  { key: '90d', label: 'Last 90 days' },
-  { key: '365d', label: 'Last 365 days' },
-  { key: 'month', label: 'Specific month' },
-  { key: 'year', label: 'Specific year' },
-  { key: 'custom', label: 'Custom range' },
-];
+function getDateRange(rangeKey, customStart, customEnd) {
+  if (rangeKey === 'custom' && customStart && customEnd) {
+    return { start: customStart, end: customEnd };
+  }
+  const preset = DATE_RANGES.find(r => r.key === rangeKey);
+  const days = preset?.days || 30;
+  return { start: daysAgoStr(days), end: todayStr() };
+}
+
+function getPreviousPeriod(start, end) {
+  const daysDiff = Math.ceil((new Date(end) - new Date(start)) / 86400000);
+  const prevStart = daysAgoStr(daysDiff + Math.ceil((new Date() - new Date(start)) / 86400000));
+  const prevEnd = new Date(new Date(start).getTime() - 86400000).toISOString().split('T')[0];
+  return { start: prevStart, end: prevEnd };
+}
+
+function pctChange(curr, prev) {
+  if (prev === 0) return curr > 0 ? 100 : 0;
+  return ((curr - prev) / Math.abs(prev)) * 100;
+}
+
+function formatCompact(n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  if (n % 1 !== 0) return n.toFixed(1);
+  return n.toLocaleString();
+}
+
+function formatCurrency(cents) {
+  return '$' + (cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 
 // ═══════════════════════════════════════════════
 // Main Component
 // ═══════════════════════════════════════════════
 export default function Analytics() {
-  const { profile } = useAuth();
-  const [activePlatform, setActivePlatform] = useState(PLATFORMS[0].key);
+  const { profile, isAdmin } = useAuth();
 
-  const platform = PLATFORMS.find(p => p.key === activePlatform);
-  const isYouTube = activePlatform.startsWith('youtube_');
+  // Filters
+  const [dateRange, setDateRange] = useState('30d');
+  const [customStart, setCustomStart] = useState(daysAgoStr(30));
+  const [customEnd, setCustomEnd] = useState(todayStr());
+  const [activeAccountIds, setActiveAccountIds] = useState([]);
+  const [accounts, setAccounts] = useState([]);
+  const [trendMetric, setTrendMetric] = useState('views');
 
-  return (
-    <div style={styles.page}>
-      <div style={styles.topBar}>
-        <div>
-          <h1 style={styles.pageTitle}>Analytics</h1>
-          <p style={styles.pageSubtitle}>Performance data across all platforms</p>
-        </div>
-      </div>
-
-      {/* Platform Tabs */}
-      <div style={styles.tabBar}>
-        {PLATFORMS.map(p => (
-          <button
-            key={p.key}
-            onClick={() => !p.disabled && setActivePlatform(p.key)}
-            style={{
-              ...styles.tab,
-              ...(activePlatform === p.key ? { ...styles.tabActive, borderBottomColor: p.color } : {}),
-              ...(p.disabled ? styles.tabDisabled : {}),
-            }}
-          >
-            <span style={{ fontSize: '16px' }}>{p.icon}</span>
-            <span>{p.label}</span>
-            {p.disabled && <span style={styles.comingSoon}>Soon</span>}
-          </button>
-        ))}
-      </div>
-
-      {isYouTube && <YouTubeAnalytics platform={platform} profile={profile} />}
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════
-// YouTube Analytics
-// ═══════════════════════════════════════════════
-function YouTubeAnalytics({ platform, profile }) {
-  // Daily data + video data
-  const [dailyData, setDailyData] = useState([]);
-  const [videoData, setVideoData] = useState([]);
+  // Data
+  const [kpi, setKpi] = useState(null);
+  const [timeSeries, setTimeSeries] = useState([]);
+  const [contentItems, setContentItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
-  const [uploadResult, setUploadResult] = useState(null);
 
-  // Time filter
-  const [timePreset, setTimePreset] = useState('28d');
-  const [dateStart, setDateStart] = useState(daysAgo(28));
-  const [dateEnd, setDateEnd] = useState(today());
-  const [selectedMonth, setSelectedMonth] = useState(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`);
-  const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()));
-
-  // Graph metrics (up to 4)
-  const [graphMetrics, setGraphMetrics] = useState(['views']);
-
-  // Table column visibility
-  const [visibleCols, setVisibleCols] = useState(() => {
-    const set = new Set();
-    VIDEO_COLUMNS.forEach(c => { if (c.defaultOn) set.add(c.key); });
-    return set;
-  });
-  const [showColMenu, setShowColMenu] = useState(false);
-
-  // Table sort
-  const [sortCol, setSortCol] = useState('views');
+  // Content table sort
+  const [sortCol, setSortCol] = useState('published_at');
   const [sortDir, setSortDir] = useState('desc');
 
-  const fileInputRef = useRef(null);
-  const videoFileInputRef = useRef(null);
+  // CSV upload (preserved)
+  const [csvSection, setCsvSection] = useState(false);
+  const [csvPlatform, setCsvPlatform] = useState('youtube_trevormay');
 
-  // Compute effective date range from preset
+  // Ingestion health (admin)
+  const [showIngestion, setShowIngestion] = useState(false);
+  const [ingestionLogs, setIngestionLogs] = useState([]);
+
+  // ── Fetch platform accounts ──
   useEffect(() => {
-    if (timePreset === '28d') { setDateStart(daysAgo(28)); setDateEnd(today()); }
-    else if (timePreset === '90d') { setDateStart(daysAgo(90)); setDateEnd(today()); }
-    else if (timePreset === '365d') { setDateStart(daysAgo(365)); setDateEnd(today()); }
-    else if (timePreset === 'month') {
-      const [y, m] = selectedMonth.split('-').map(Number);
-      setDateStart(startOfMonth(y, m)); setDateEnd(endOfMonth(y, m));
-    } else if (timePreset === 'year') {
-      setDateStart(startOfYear(Number(selectedYear))); setDateEnd(endOfYear(Number(selectedYear)));
+    async function load() {
+      const { data } = await supabase
+        .from('platform_accounts')
+        .select('*')
+        .eq('is_active', true)
+        .order('platform');
+      if (data) setAccounts(data);
     }
-    // 'custom' — user sets manually
-  }, [timePreset, selectedMonth, selectedYear]);
+    load();
+  }, []);
 
-  // Fetch data when date range or channel changes
-  useEffect(() => { fetchAll(); }, [platform.channel, dateStart, dateEnd]);
+  // ── Fetch all data when filters change ──
+  const { start, end } = getDateRange(dateRange, customStart, customEnd);
 
-  async function fetchAll() {
+  useEffect(() => {
+    fetchAllData();
+  }, [dateRange, customStart, customEnd, activeAccountIds.join(',')]);
+
+  async function fetchAllData() {
     setLoading(true);
-    await Promise.all([fetchDaily(), fetchVideos()]);
+    await Promise.all([
+      fetchKPI(),
+      fetchTimeSeries(),
+      fetchContentPerformance(),
+    ]);
     setLoading(false);
   }
 
-  async function fetchDaily() {
-    const { data } = await supabase.from('analytics_youtube_daily')
-      .select('*')
-      .eq('channel', platform.channel)
-      .gte('date', dateStart)
-      .lte('date', dateEnd)
-      .order('date', { ascending: true });
-    setDailyData(data || []);
-  }
+  async function fetchKPI() {
+    const { start, end } = getDateRange(dateRange, customStart, customEnd);
 
-  async function fetchVideos() {
-    const { data } = await supabase.from('analytics_youtube')
+    // Current period
+    let q = supabase
+      .from('daily_platform_rollups')
       .select('*')
-      .eq('channel', platform.channel)
-      .gte('publish_date', dateStart)
-      .lte('publish_date', dateEnd)
-      .order('publish_date', { ascending: false })
-      .limit(500);
-    setVideoData(data || []);
-  }
+      .gte('date', start)
+      .lte('date', end);
+    if (activeAccountIds.length > 0) q = q.in('platform_account_id', activeAccountIds);
+    const { data: rollups } = await q;
 
-  // ── Totals from daily data ──
-  const totals = useMemo(() => {
-    const t = { views: 0, watch_time_hours: 0, estimated_revenue: 0, videos_published: 0, shorts_published: 0 };
-    dailyData.forEach(d => {
-      t.views += Number(d.views) || 0;
-      t.watch_time_hours += Number(d.watch_time_hours) || 0;
-      t.estimated_revenue += Number(d.estimated_revenue) || 0;
-      t.videos_published += Number(d.videos_published) || 0;
+    // Previous period
+    const daysDiff = Math.ceil((new Date(end) - new Date(start)) / 86400000);
+    const prevStart = new Date(new Date(start).getTime() - daysDiff * 86400000).toISOString().split('T')[0];
+    let pq = supabase
+      .from('daily_platform_rollups')
+      .select('*')
+      .gte('date', prevStart)
+      .lt('date', start);
+    if (activeAccountIds.length > 0) pq = pq.in('platform_account_id', activeAccountIds);
+    const { data: prevRollups } = await pq;
+
+    // Revenue
+    const { data: revenue } = await supabase
+      .from('revenue_events')
+      .select('net_amount_cents, event_type')
+      .gte('occurred_at', start)
+      .lte('occurred_at', end)
+      .in('event_type', ['charge', 'subscription_renewal']);
+
+    const { data: prevRevenue } = await supabase
+      .from('revenue_events')
+      .select('net_amount_cents')
+      .gte('occurred_at', prevStart)
+      .lt('occurred_at', start)
+      .in('event_type', ['charge', 'subscription_renewal']);
+
+    // Audience
+    const { data: latestAudience } = await supabase
+      .from('audience_snapshots')
+      .select('followers_total, followers_gained, platform_account_id')
+      .eq('date', end);
+
+    const totalViews = (rollups || []).reduce((s, r) => s + Number(r.total_views), 0);
+    const prevViews = (prevRollups || []).reduce((s, r) => s + Number(r.total_views), 0);
+    const totalRev = (revenue || []).reduce((s, r) => s + r.net_amount_cents, 0);
+    const prevRev = (prevRevenue || []).reduce((s, r) => s + r.net_amount_cents, 0);
+    const totalFollowers = (latestAudience || []).reduce((s, a) => s + Number(a.followers_total), 0);
+    const followersGained = (latestAudience || []).reduce((s, a) => s + Number(a.followers_gained), 0);
+
+    const avgEng = rollups && rollups.length > 0
+      ? rollups.reduce((s, r) => s + Number(r.avg_engagement_rate), 0) / rollups.length
+      : 0;
+    const prevAvgEng = prevRollups && prevRollups.length > 0
+      ? prevRollups.reduce((s, r) => s + Number(r.avg_engagement_rate), 0) / prevRollups.length
+      : 0;
+
+    setKpi({
+      totalViews,
+      totalRevenue: totalRev,
+      totalFollowers,
+      avgEngagement: avgEng,
+      viewsChange: pctChange(totalViews, prevViews),
+      revenueChange: pctChange(totalRev, prevRev),
+      followersChange: followersGained,
+      engagementChange: pctChange(avgEng, prevAvgEng),
     });
-    // Estimate shorts: videos in videoData with duration < 180 seconds
-    t.shorts_published = videoData.filter(v => v.duration_seconds && v.duration_seconds <= 180).length;
-    t.long_videos = videoData.filter(v => !v.duration_seconds || v.duration_seconds > 180).length;
-    return t;
-  }, [dailyData, videoData]);
+  }
 
-  // ── Sort video table ──
-  const sortedVideos = useMemo(() => {
-    return [...videoData].sort((a, b) => {
-      let va = a[sortCol], vb = b[sortCol];
-      if (va == null) va = sortDir === 'asc' ? Infinity : -Infinity;
-      if (vb == null) vb = sortDir === 'asc' ? Infinity : -Infinity;
+  async function fetchTimeSeries() {
+    const { start, end } = getDateRange(dateRange, customStart, customEnd);
+    let q = supabase
+      .from('daily_platform_rollups')
+      .select('*')
+      .gte('date', start)
+      .lte('date', end)
+      .order('date', { ascending: true });
+    if (activeAccountIds.length > 0) q = q.in('platform_account_id', activeAccountIds);
+    const { data } = await q;
+    setTimeSeries(data || []);
+  }
+
+  async function fetchContentPerformance() {
+    const { start, end } = getDateRange(dateRange, customStart, customEnd);
+    let q = supabase
+      .from('content_items')
+      .select(`
+        *,
+        platform_account:platform_accounts(platform, account_name),
+        latest_metrics:content_metrics(views, likes, comments, shares, engagement_rate)
+      `)
+      .gte('published_at', start)
+      .lte('published_at', end)
+      .order('published_at', { ascending: false })
+      .limit(100);
+    if (activeAccountIds.length > 0) q = q.in('platform_account_id', activeAccountIds);
+    const { data } = await q;
+    setContentItems(data || []);
+  }
+
+  // ── Toggle account filter ──
+  function toggleAccount(accountId) {
+    setActiveAccountIds(prev => {
+      if (prev.includes(accountId)) return prev.filter(id => id !== accountId);
+      return [...prev, accountId];
+    });
+  }
+
+  // ── Aggregate time series by date ──
+  const aggregatedTimeSeries = useMemo(() => {
+    const byDate = {};
+    for (const row of timeSeries) {
+      if (!byDate[row.date]) {
+        byDate[row.date] = { date: row.date, total_views: 0, revenue_cents: 0, avg_engagement_rate: 0, followers_eod: 0, _count: 0 };
+      }
+      byDate[row.date].total_views += Number(row.total_views) || 0;
+      byDate[row.date].revenue_cents += Number(row.revenue_cents) || 0;
+      byDate[row.date].avg_engagement_rate += Number(row.avg_engagement_rate) || 0;
+      byDate[row.date].followers_eod += Number(row.followers_eod) || 0;
+      byDate[row.date]._count += 1;
+    }
+    return Object.values(byDate)
+      .map(d => ({
+        ...d,
+        avg_engagement_rate: d._count > 0 ? d.avg_engagement_rate / d._count : 0,
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [timeSeries]);
+
+  // ── Account breakdown for donut ──
+  const platformBreakdown = useMemo(() => {
+    const byAccount = {};
+    for (const row of timeSeries) {
+      const key = row.platform_account_id;
+      if (!byAccount[key]) byAccount[key] = { views: 0, platform: row.platform, name: row.account_name };
+      byAccount[key].views += Number(row.total_views) || 0;
+    }
+    const total = Object.values(byAccount).reduce((s, v) => s + v.views, 0);
+    return Object.entries(byAccount)
+      .map(([id, info]) => ({
+        platform: info.platform,
+        views: info.views,
+        pct: total > 0 ? (info.views / total) * 100 : 0,
+        color: PLATFORM_META[info.platform]?.color || '#666',
+        label: info.name || PLATFORM_META[info.platform]?.label || info.platform,
+      }))
+      .sort((a, b) => b.views - a.views);
+  }, [timeSeries]);
+
+  // ── Sort content items ──
+  const sortedContent = useMemo(() => {
+    return [...contentItems].sort((a, b) => {
+      let va, vb;
+      if (sortCol === 'views' || sortCol === 'engagement_rate') {
+        const aMetrics = a.latest_metrics?.[0] || {};
+        const bMetrics = b.latest_metrics?.[0] || {};
+        va = aMetrics[sortCol] || 0;
+        vb = bMetrics[sortCol] || 0;
+      } else if (sortCol === 'platform') {
+        va = a.platform_account?.platform || '';
+        vb = b.platform_account?.platform || '';
+      } else {
+        va = a[sortCol] ?? '';
+        vb = b[sortCol] ?? '';
+      }
       if (typeof va === 'string') return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
       return sortDir === 'asc' ? va - vb : vb - va;
     });
-  }, [videoData, sortCol, sortDir]);
+  }, [contentItems, sortCol, sortDir]);
 
   function handleSort(col) {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setSortCol(col); setSortDir('desc'); }
   }
 
-  function toggleGraphMetric(key) {
-    setGraphMetrics(prev => {
-      if (prev.includes(key)) return prev.filter(k => k !== key);
-      if (prev.length >= 4) return [...prev.slice(1), key]; // Replace oldest
-      return [...prev, key];
-    });
+  // ── Get trend metric value from a row ──
+  function getTrendValue(row) {
+    switch (trendMetric) {
+      case 'views': return row.total_views;
+      case 'revenue': return row.revenue_cents / 100;
+      case 'engagement': return row.avg_engagement_rate * 100;
+      case 'followers': return row.followers_eod;
+      default: return 0;
+    }
   }
 
-  function toggleCol(key) {
-    setVisibleCols(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-  }
+  return (
+    <div style={styles.page}>
+      {/* ── Top Bar ── */}
+      <div style={styles.topBar}>
+        <div>
+          <h1 style={styles.pageTitle}>Analytics Command Center</h1>
+          <p style={styles.pageSubtitle}>Multi-platform performance dashboard</p>
+        </div>
+      </div>
 
-  // ── CSV Upload handlers ──
+      {/* ── A. Date Range & Platform Filters ── */}
+      <div style={styles.filterBar}>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {DATE_RANGES.map(r => (
+            <button key={r.key} onClick={() => setDateRange(r.key)}
+              style={{ ...styles.filterChip, ...(dateRange === r.key ? styles.filterChipActive : {}) }}>
+              {r.label}
+            </button>
+          ))}
+          {dateRange === 'custom' && (
+            <>
+              <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} style={styles.filterInput} />
+              <span style={{ color: 'rgba(255,255,255,0.3)' }}>to</span>
+              <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} style={styles.filterInput} />
+            </>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {accounts.map(acct => {
+            const meta = PLATFORM_META[acct.platform] || { label: acct.platform, color: '#666', icon: '?' };
+            const isActive = activeAccountIds.length === 0 || activeAccountIds.includes(acct.id);
+            return (
+              <button key={acct.id} onClick={() => toggleAccount(acct.id)}
+                style={{
+                  ...styles.platformChip,
+                  ...(isActive
+                    ? { background: meta.color + '22', borderColor: meta.color + '66', color: meta.color }
+                    : { opacity: 0.35 }),
+                }}>
+                <span style={{ ...styles.platformDot, background: meta.color }} />
+                {acct.account_name}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {loading ? <p style={styles.loadingText}>Loading analytics...</p> : (
+        <>
+          {/* ── B. KPI Summary Cards ── */}
+          {kpi && (
+            <div style={styles.kpiGrid}>
+              <KPICard label="Total Views" value={formatCompact(kpi.totalViews)} change={kpi.viewsChange} color="#6366f1" />
+              <KPICard label="Total Revenue" value={formatCurrency(kpi.totalRevenue)} change={kpi.revenueChange} color="#22c55e" />
+              <KPICard label="Net Followers" value={formatCompact(kpi.totalFollowers)}
+                change={kpi.followersChange} changeLabel={`${kpi.followersChange >= 0 ? '+' : ''}${formatCompact(kpi.followersChange)} this period`} color="#3b82f6" />
+              <KPICard label="Avg Engagement" value={(kpi.avgEngagement * 100).toFixed(2) + '%'} change={kpi.engagementChange} color="#f59e0b" />
+            </div>
+          )}
+
+          {/* ── C. Trend Chart ── */}
+          <div style={styles.chartSection}>
+            <div style={styles.chartHeader}>
+              <span style={styles.chartTitle}>Trends</span>
+              <div style={{ display: 'flex', gap: '4px' }}>
+                {TREND_METRICS.map(m => (
+                  <button key={m.key} onClick={() => setTrendMetric(m.key)}
+                    style={{ ...styles.metricChip, ...(trendMetric === m.key ? styles.metricChipActive : {}) }}>
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {aggregatedTimeSeries.length > 0 ? (
+              <TrendChart data={aggregatedTimeSeries} getValue={getTrendValue} color="#6366f1" />
+            ) : (
+              <p style={styles.emptyText}>No data for selected period</p>
+            )}
+          </div>
+
+          {/* ── D. Platform Breakdown (Donut) ── */}
+          {platformBreakdown.length > 0 && platformBreakdown.some(p => p.views > 0) && (
+            <div style={styles.chartSection}>
+              <span style={styles.chartTitle}>Views by Platform</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '40px', marginTop: '16px', flexWrap: 'wrap' }}>
+                <DonutChart data={platformBreakdown} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {platformBreakdown.map(p => (
+                    <div key={p.platform} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{ width: '12px', height: '12px', borderRadius: '3px', background: p.color, flexShrink: 0 }} />
+                      <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', minWidth: '80px' }}>{p.label}</span>
+                      <span style={{ fontSize: '13px', fontWeight: 600, color: '#fff' }}>{formatCompact(p.views)}</span>
+                      <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)' }}>({p.pct.toFixed(1)}%)</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── E. Content Performance Table ── */}
+          <div style={styles.tableHeader}>
+            <span style={styles.tableTitle}>Content Performance ({contentItems.length})</span>
+          </div>
+          {sortedContent.length > 0 ? (
+            <div style={styles.tableWrap}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={{ ...styles.th, ...styles.thSticky, cursor: 'pointer' }} onClick={() => handleSort('title')}>
+                      Title {sortCol === 'title' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                    </th>
+                    <th style={{ ...styles.th, cursor: 'pointer' }} onClick={() => handleSort('platform')}>
+                      Platform {sortCol === 'platform' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                    </th>
+                    <th style={{ ...styles.th, cursor: 'pointer' }} onClick={() => handleSort('published_at')}>
+                      Date {sortCol === 'published_at' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                    </th>
+                    <th style={{ ...styles.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => handleSort('views')}>
+                      Views {sortCol === 'views' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                    </th>
+                    <th style={{ ...styles.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => handleSort('engagement_rate')}>
+                      Engagement {sortCol === 'engagement_rate' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedContent.map((item, i) => {
+                    const metrics = item.latest_metrics?.[0] || {};
+                    const platform = item.platform_account?.platform;
+                    const meta = PLATFORM_META[platform] || {};
+                    return (
+                      <tr key={item.id} style={i % 2 === 0 ? styles.trEven : {}}>
+                        <td style={{ ...styles.td, ...styles.tdSticky, background: i % 2 === 0 ? 'rgba(255,255,255,0.01)' : '#12121f' }}>
+                          {item.url ? (
+                            <a href={item.url} target="_blank" rel="noopener noreferrer"
+                              style={{ color: '#e2e8f0', textDecoration: 'none', fontWeight: 500 }}>
+                              {item.title || '(Untitled)'}
+                            </a>
+                          ) : (item.title || '(Untitled)')}
+                        </td>
+                        <td style={styles.td}>
+                          <span style={{
+                            display: 'inline-block', padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600,
+                            background: (meta.color || '#666') + '22', color: meta.color || '#999',
+                          }}>
+                            {meta.label || platform}
+                          </span>
+                        </td>
+                        <td style={styles.td}>
+                          {item.published_at ? new Date(item.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                        </td>
+                        <td style={{ ...styles.td, ...styles.tdValue, textAlign: 'right' }}>
+                          {metrics.views != null ? formatCompact(Number(metrics.views)) : '—'}
+                        </td>
+                        <td style={{ ...styles.td, ...styles.tdValue, textAlign: 'right' }}>
+                          {metrics.engagement_rate != null ? (Number(metrics.engagement_rate) * 100).toFixed(2) + '%' : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div style={styles.emptyCard}>
+              <p style={styles.emptyText}>No content found for this date range.</p>
+            </div>
+          )}
+
+          {/* ── F. CSV Upload Section (preserved) ── */}
+          <div style={{ marginTop: '24px' }}>
+            <button onClick={() => setCsvSection(!csvSection)} style={styles.collapseBtn}>
+              {csvSection ? '▾' : '▸'} YouTube CSV Upload
+            </button>
+            {csvSection && <YouTubeCSVUpload profile={profile} />}
+          </div>
+
+          {/* ── G. Ingestion Health Panel (admin only) ── */}
+          {isAdmin && (
+            <div style={{ marginTop: '16px' }}>
+              <button onClick={() => {
+                setShowIngestion(!showIngestion);
+                if (!showIngestion) fetchIngestionLogs();
+              }} style={styles.collapseBtn}>
+                {showIngestion ? '▾' : '▸'} Ingestion Health (Admin)
+              </button>
+              {showIngestion && <IngestionHealthPanel logs={ingestionLogs} accounts={accounts} />}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+
+  async function fetchIngestionLogs() {
+    const { data } = await supabase
+      .from('ingestion_logs')
+      .select('*')
+      .order('started_at', { ascending: false })
+      .limit(50);
+    if (data) setIngestionLogs(data);
+  }
+}
+
+// ═══════════════════════════════════════════════
+// KPI Card
+// ═══════════════════════════════════════════════
+function KPICard({ label, value, change, changeLabel, color }) {
+  const isPositive = change >= 0;
+  return (
+    <div style={styles.kpiCard}>
+      <div style={{ ...styles.kpiAccent, background: color }} />
+      <div style={styles.kpiLabel}>{label}</div>
+      <div style={styles.kpiValue}>{value}</div>
+      <div style={{ fontSize: '12px', fontWeight: 500, color: isPositive ? '#4ade80' : '#f87171', marginTop: '4px' }}>
+        {changeLabel || `${isPositive ? '+' : ''}${change.toFixed(1)}%`}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════
+// Trend Chart (SVG line graph)
+// ═══════════════════════════════════════════════
+function TrendChart({ data, getValue, color }) {
+  const W = 900, H = 260, PAD = { top: 20, right: 20, bottom: 40, left: 65 };
+  const plotW = W - PAD.left - PAD.right;
+  const plotH = H - PAD.top - PAD.bottom;
+
+  if (!data.length) return null;
+
+  const values = data.map(d => getValue(d) || 0);
+  const maxVal = Math.max(...values, 1);
+  const xStep = plotW / Math.max(data.length - 1, 1);
+  const yScale = plotH / maxVal;
+
+  const path = data.map((d, i) => {
+    const x = PAD.left + i * xStep;
+    const y = PAD.top + plotH - ((getValue(d) || 0) * yScale);
+    return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+
+  // Area fill
+  const areaPath = path + ` L${(PAD.left + (data.length - 1) * xStep).toFixed(1)},${PAD.top + plotH} L${PAD.left},${PAD.top + plotH} Z`;
+
+  const yTicks = 5;
+  const yLabels = Array.from({ length: yTicks + 1 }, (_, i) => {
+    const val = (maxVal / yTicks) * i;
+    return { val, y: PAD.top + plotH - (val * yScale) };
+  });
+
+  const tickCount = Math.min(data.length, 10);
+  const tickInterval = Math.max(1, Math.floor(data.length / tickCount));
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxHeight: '280px' }}>
+        {yLabels.map((yl, i) => (
+          <g key={i}>
+            <line x1={PAD.left} y1={yl.y} x2={W - PAD.right} y2={yl.y} stroke="rgba(255,255,255,0.05)" />
+            <text x={PAD.left - 8} y={yl.y + 4} fill="rgba(255,255,255,0.3)" fontSize="10" textAnchor="end">
+              {formatCompact(yl.val)}
+            </text>
+          </g>
+        ))}
+        {data.map((d, i) => {
+          if (i % tickInterval !== 0 && i !== data.length - 1) return null;
+          const x = PAD.left + i * xStep;
+          return (
+            <text key={i} x={x} y={H - 8} fill="rgba(255,255,255,0.3)" fontSize="10" textAnchor="middle">
+              {new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            </text>
+          );
+        })}
+        <path d={areaPath} fill={color + '15'} />
+        <path d={path} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" />
+      </svg>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════
+// Donut Chart (SVG)
+// ═══════════════════════════════════════════════
+function DonutChart({ data }) {
+  const size = 160;
+  const cx = size / 2, cy = size / 2;
+  const outerR = 70, innerR = 45;
+  const total = data.reduce((s, d) => s + d.views, 0);
+  if (total === 0) return null;
+
+  let cumAngle = -Math.PI / 2;
+  const segments = data.map(d => {
+    const angle = (d.views / total) * 2 * Math.PI;
+    const startAngle = cumAngle;
+    cumAngle += angle;
+    const endAngle = cumAngle;
+
+    const x1 = cx + outerR * Math.cos(startAngle);
+    const y1 = cy + outerR * Math.sin(startAngle);
+    const x2 = cx + outerR * Math.cos(endAngle);
+    const y2 = cy + outerR * Math.sin(endAngle);
+    const x3 = cx + innerR * Math.cos(endAngle);
+    const y3 = cy + innerR * Math.sin(endAngle);
+    const x4 = cx + innerR * Math.cos(startAngle);
+    const y4 = cy + innerR * Math.sin(startAngle);
+    const largeArc = angle > Math.PI ? 1 : 0;
+
+    const path = `M${x1},${y1} A${outerR},${outerR} 0 ${largeArc},1 ${x2},${y2} L${x3},${y3} A${innerR},${innerR} 0 ${largeArc},0 ${x4},${y4} Z`;
+    return { ...d, path };
+  });
+
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      {segments.map((s, i) => (
+        <path key={i} d={s.path} fill={s.color} stroke="#12121f" strokeWidth="1" />
+      ))}
+      <text x={cx} y={cy - 6} textAnchor="middle" fill="#fff" fontSize="16" fontWeight="700">{formatCompact(total)}</text>
+      <text x={cx} y={cy + 12} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize="10">total views</text>
+    </svg>
+  );
+}
+
+// ═══════════════════════════════════════════════
+// Ingestion Health Panel (Admin)
+// ═══════════════════════════════════════════════
+function IngestionHealthPanel({ logs, accounts }) {
+  const accountMap = {};
+  accounts.forEach(a => { accountMap[a.id] = a; });
+
+  const statusColors = {
+    running: '#f59e0b',
+    success: '#4ade80',
+    failed: '#f87171',
+    partial: '#fb923c',
+  };
+
+  return (
+    <div style={{ ...styles.tableWrap, marginTop: '8px', maxHeight: '400px' }}>
+      <table style={styles.table}>
+        <thead>
+          <tr>
+            <th style={styles.th}>Status</th>
+            <th style={styles.th}>Platform</th>
+            <th style={styles.th}>Job Type</th>
+            <th style={{ ...styles.th, textAlign: 'right' }}>Processed</th>
+            <th style={styles.th}>Started</th>
+            <th style={styles.th}>Duration</th>
+            <th style={styles.th}>Error</th>
+          </tr>
+        </thead>
+        <tbody>
+          {logs.map((log, i) => {
+            const acct = accountMap[log.platform_account_id];
+            const duration = log.completed_at && log.started_at
+              ? Math.round((new Date(log.completed_at) - new Date(log.started_at)) / 1000) + 's'
+              : '...';
+            return (
+              <tr key={log.id} style={i % 2 === 0 ? styles.trEven : {}}>
+                <td style={styles.td}>
+                  <span style={{
+                    display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%',
+                    background: statusColors[log.status] || '#666', marginRight: '6px',
+                  }} />
+                  {log.status}
+                </td>
+                <td style={styles.td}>{acct?.account_name || '—'}</td>
+                <td style={styles.td}>{log.job_type}</td>
+                <td style={{ ...styles.td, textAlign: 'right' }}>{log.records_processed || 0}</td>
+                <td style={styles.td}>
+                  {log.started_at ? new Date(log.started_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                </td>
+                <td style={styles.td}>{duration}</td>
+                <td style={{ ...styles.td, color: '#f87171', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {log.error_message || '—'}
+                </td>
+              </tr>
+            );
+          })}
+          {logs.length === 0 && (
+            <tr><td colSpan={7} style={{ ...styles.td, textAlign: 'center', color: 'rgba(255,255,255,0.3)' }}>No ingestion logs yet</td></tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════
+// YouTube CSV Upload (preserved from original)
+// ═══════════════════════════════════════════════
+const YT_CSV_PLATFORMS = [
+  { key: 'youtube_trevormay', label: 'Trevor May Baseball', channel: 'trevormay', color: '#ff0000' },
+  { key: 'youtube_moremayday', label: 'More Mayday', channel: 'moremayday', color: '#ff4444' },
+];
+
+function YouTubeCSVUpload({ profile }) {
+  const [csvPlatform, setCsvPlatform] = useState(YT_CSV_PLATFORMS[0].key);
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState(null);
+  const fileInputRef = useRef(null);
+  const videoFileInputRef = useRef(null);
+
+  const platform = YT_CSV_PLATFORMS.find(p => p.key === csvPlatform);
+
   async function handleDailyUpload(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -280,7 +746,6 @@ function YouTubeAnalytics({ platform, profile }) {
         date_range_start: dateRange.start, date_range_end: dateRange.end, uploaded_by: profile.id,
       });
       setUploadResult({ success: true, count: inserted, type: 'daily' });
-      fetchAll();
     } catch (err) { setUploadResult({ error: err.message }); }
     setUploading(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -308,287 +773,47 @@ function YouTubeAnalytics({ platform, profile }) {
         date_range_start: dateRange.start, date_range_end: dateRange.end, uploaded_by: profile.id,
       });
       setUploadResult({ success: true, count: inserted, type: 'video' });
-      fetchAll();
     } catch (err) { setUploadResult({ error: err.message }); }
     setUploading(false);
     if (videoFileInputRef.current) videoFileInputRef.current.value = '';
   }
 
-  const activeVisibleCols = VIDEO_COLUMNS.filter(c => visibleCols.has(c.key));
-
   return (
-    <div>
-      {/* ── Upload Bar ── */}
-      <div style={{ ...styles.uploadBar, borderLeftColor: platform.color }}>
-        <div style={styles.uploadBarLeft}>
-          <span style={{ fontSize: '20px' }}>{platform.icon}</span>
-          <div>
-            <div style={styles.uploadBarTitle}>{platform.label}</div>
-            <div style={styles.uploadBarSub}>{dailyData.length} days · {videoData.length} videos</div>
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-          {uploadResult && (
-            <span style={{ fontSize: '12px', fontWeight: 500, color: uploadResult.error ? '#f87171' : '#4ade80' }}>
-              {uploadResult.error ? `❌ ${uploadResult.error}` : `✅ ${uploadResult.count} ${uploadResult.type} rows imported`}
-            </span>
-          )}
-          <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
-            style={{ ...styles.uploadBtn, borderColor: platform.color + '66', color: platform.color }}>
-            {uploading ? '⏳...' : '📈 Upload Daily CSV'}
-          </button>
-          <input ref={fileInputRef} type="file" accept=".csv" onChange={handleDailyUpload} style={{ display: 'none' }} />
-          <button onClick={() => videoFileInputRef.current?.click()} disabled={uploading}
-            style={{ ...styles.uploadBtn, borderColor: platform.color + '66', color: platform.color }}>
-            {uploading ? '⏳...' : '🎬 Upload Video CSV'}
-          </button>
-          <input ref={videoFileInputRef} type="file" accept=".csv" onChange={handleVideoUpload} style={{ display: 'none' }} />
-        </div>
-      </div>
-
-      {/* ── Time Filters ── */}
-      <div style={styles.filterBar}>
-        {TIME_PRESETS.map(p => (
-          <button key={p.key} onClick={() => setTimePreset(p.key)}
-            style={{ ...styles.filterChip, ...(timePreset === p.key ? styles.filterChipActive : {}) }}>
+    <div style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', marginTop: '8px' }}>
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+        {YT_CSV_PLATFORMS.map(p => (
+          <button key={p.key} onClick={() => setCsvPlatform(p.key)}
+            style={{
+              ...styles.filterChip,
+              ...(csvPlatform === p.key ? { background: p.color + '22', borderColor: p.color + '66', color: p.color } : {}),
+            }}>
             {p.label}
           </button>
         ))}
-        {timePreset === 'month' && (
-          <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} style={styles.filterInput} />
-        )}
-        {timePreset === 'year' && (
-          <select value={selectedYear} onChange={e => setSelectedYear(e.target.value)} style={styles.filterInput}>
-            {Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - i).map(y => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
-        )}
-        {timePreset === 'custom' && (
-          <>
-            <input type="date" value={dateStart} onChange={e => setDateStart(e.target.value)} style={styles.filterInput} />
-            <span style={{ color: 'rgba(255,255,255,0.3)' }}>to</span>
-            <input type="date" value={dateEnd} onChange={e => setDateEnd(e.target.value)} style={styles.filterInput} />
-          </>
-        )}
-        <span style={styles.filterRange}>
-          {new Date(dateStart + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} — {new Date(dateEnd + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-        </span>
       </div>
-
-      {loading ? <p style={styles.loadingText}>Loading...</p> : (
-        <>
-          {/* ── Totals Cards ── */}
-          <div style={styles.totalsGrid}>
-            <TotalCard label="Total Views" value={totals.views} format="number" color="#6366f1" />
-            <TotalCard label="Videos Published" value={totals.long_videos} format="number" color="#3b82f6" />
-            <TotalCard label="Shorts Published" value={totals.shorts_published} format="number" color="#8b5cf6" />
-            <TotalCard label="Estimated Revenue" value={totals.estimated_revenue} format="currency" color="#22c55e" />
-            <TotalCard label="Watch Time (hrs)" value={totals.watch_time_hours} format="decimal" color="#f59e0b" />
-            <TotalCard label="Subscribers" value={dailyData.reduce((s, d) => s + (Number(d.subscribers) || 0), 0)} format="number" color="#ec4899" />
-          </div>
-
-          {/* ── Line Graph ── */}
-          {dailyData.length > 0 ? (
-            <div style={styles.chartSection}>
-              <div style={styles.chartHeader}>
-                <span style={styles.chartTitle}>Trends</span>
-                <div style={styles.metricPicker}>
-                  {DAILY_METRICS.map(m => (
-                    <button key={m.key} onClick={() => toggleGraphMetric(m.key)}
-                      style={{
-                        ...styles.metricChip,
-                        ...(graphMetrics.includes(m.key) ? {
-                          background: LINE_COLORS[graphMetrics.indexOf(m.key)] + '22',
-                          borderColor: LINE_COLORS[graphMetrics.indexOf(m.key)],
-                          color: LINE_COLORS[graphMetrics.indexOf(m.key)],
-                        } : {}),
-                      }}>
-                      {m.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <LineGraph data={dailyData} metrics={graphMetrics} />
-              <div style={styles.legendRow}>
-                {graphMetrics.map((key, i) => {
-                  const m = DAILY_METRICS.find(d => d.key === key);
-                  return (
-                    <span key={key} style={styles.legendItem}>
-                      <span style={{ ...styles.legendDot, background: LINE_COLORS[i] }} />
-                      {m?.label || key}
-                    </span>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (
-            <div style={styles.emptyCard}>
-              <p style={styles.emptyText}>No daily data yet. Upload a date-based CSV from YouTube Studio Advanced Mode.</p>
-            </div>
-          )}
-
-          {/* ── Video Table ── */}
-          <div style={styles.tableHeader}>
-            <span style={styles.tableTitle}>Videos ({videoData.length})</span>
-            <div style={{ position: 'relative' }}>
-              <button onClick={() => setShowColMenu(!showColMenu)} style={styles.colMenuBtn}>
-                ⚙ Columns
-              </button>
-              {showColMenu && (
-                <div style={styles.colMenu}>
-                  {VIDEO_COLUMNS.filter(c => !c.sticky).map(c => (
-                    <label key={c.key} style={styles.colMenuItem}>
-                      <input type="checkbox" checked={visibleCols.has(c.key)}
-                        onChange={() => toggleCol(c.key)} style={styles.checkbox} />
-                      {c.label}
-                    </label>
-                  ))}
-                  <button onClick={() => setShowColMenu(false)} style={styles.colMenuClose}>Done</button>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {videoData.length > 0 ? (
-            <div style={styles.tableWrap}>
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    {activeVisibleCols.map(col => (
-                      <th key={col.key} onClick={() => handleSort(col.key)}
-                        style={{
-                          ...styles.th,
-                          cursor: 'pointer',
-                          ...(col.sticky ? styles.thSticky : {}),
-                          ...(col.type !== 'text' ? { textAlign: 'right' } : {}),
-                        }}>
-                        {col.label}
-                        {sortCol === col.key && <span style={{ marginLeft: '4px', color: '#a5b4fc' }}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedVideos.map((row, i) => (
-                    <tr key={row.id} style={i % 2 === 0 ? styles.trEven : {}}>
-                      {activeVisibleCols.map(col => (
-                        <td key={col.key} style={{
-                          ...styles.td,
-                          ...(col.sticky ? { ...styles.tdSticky, background: i % 2 === 0 ? 'rgba(255,255,255,0.01)' : '#12121f' } : {}),
-                          ...(col.type !== 'text' && col.type !== 'date' ? styles.tdValue : {}),
-                          ...(col.type !== 'text' ? { textAlign: 'right' } : {}),
-                        }}>
-                          {formatCell(row[col.key], col.type)}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div style={styles.emptyCard}>
-              <p style={styles.emptyText}>No video data for this date range. Upload a per-video CSV or adjust the time filter.</p>
-            </div>
-          )}
-        </>
-      )}
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+        {uploadResult && (
+          <span style={{ fontSize: '12px', fontWeight: 500, color: uploadResult.error ? '#f87171' : '#4ade80' }}>
+            {uploadResult.error ? `Error: ${uploadResult.error}` : `${uploadResult.count} ${uploadResult.type} rows imported`}
+          </span>
+        )}
+        <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
+          style={{ ...styles.uploadBtn, borderColor: (platform?.color || '#666') + '66', color: platform?.color || '#666' }}>
+          {uploading ? 'Uploading...' : 'Upload Daily CSV'}
+        </button>
+        <input ref={fileInputRef} type="file" accept=".csv" onChange={handleDailyUpload} style={{ display: 'none' }} />
+        <button onClick={() => videoFileInputRef.current?.click()} disabled={uploading}
+          style={{ ...styles.uploadBtn, borderColor: (platform?.color || '#666') + '66', color: platform?.color || '#666' }}>
+          {uploading ? 'Uploading...' : 'Upload Video CSV'}
+        </button>
+        <input ref={videoFileInputRef} type="file" accept=".csv" onChange={handleVideoUpload} style={{ display: 'none' }} />
+      </div>
     </div>
   );
 }
 
 // ═══════════════════════════════════════════════
-// Totals Card
-// ═══════════════════════════════════════════════
-function TotalCard({ label, value, format, color }) {
-  let display;
-  if (format === 'currency') display = '$' + Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  else if (format === 'decimal') display = Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 });
-  else display = Number(value).toLocaleString();
-
-  return (
-    <div style={styles.totalCard}>
-      <div style={{ ...styles.totalCardAccent, background: color }} />
-      <div style={styles.totalCardLabel}>{label}</div>
-      <div style={styles.totalCardValue}>{display}</div>
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════
-// Line Graph (SVG, no library)
-// ═══════════════════════════════════════════════
-function LineGraph({ data, metrics }) {
-  const W = 900, H = 280, PAD = { top: 20, right: 20, bottom: 40, left: 60 };
-  const plotW = W - PAD.left - PAD.right;
-  const plotH = H - PAD.top - PAD.bottom;
-
-  if (!data.length || !metrics.length) return null;
-
-  // X axis: evenly spaced dates
-  const dates = data.map(d => d.date);
-  const xStep = plotW / Math.max(dates.length - 1, 1);
-
-  // Y axis: find max across all selected metrics
-  const allVals = metrics.flatMap(m => data.map(d => Number(d[m]) || 0));
-  const maxVal = Math.max(...allVals, 1);
-  const yScale = plotH / maxVal;
-
-  // Dynamic tick count based on date range
-  const tickCount = Math.min(dates.length, 12);
-  const tickInterval = Math.max(1, Math.floor(dates.length / tickCount));
-
-  function buildPath(metricKey) {
-    return data.map((d, i) => {
-      const x = PAD.left + i * xStep;
-      const y = PAD.top + plotH - ((Number(d[metricKey]) || 0) * yScale);
-      return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
-    }).join(' ');
-  }
-
-  // Y axis labels
-  const yTicks = 5;
-  const yLabels = Array.from({ length: yTicks + 1 }, (_, i) => {
-    const val = (maxVal / yTicks) * i;
-    return { val, y: PAD.top + plotH - (val * yScale) };
-  });
-
-  return (
-    <div style={{ overflowX: 'auto' }}>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxHeight: '300px' }}>
-        {/* Grid lines */}
-        {yLabels.map((yl, i) => (
-          <g key={i}>
-            <line x1={PAD.left} y1={yl.y} x2={W - PAD.right} y2={yl.y} stroke="rgba(255,255,255,0.05)" />
-            <text x={PAD.left - 8} y={yl.y + 4} fill="rgba(255,255,255,0.3)" fontSize="10" textAnchor="end">
-              {formatCompact(yl.val)}
-            </text>
-          </g>
-        ))}
-
-        {/* X axis date labels */}
-        {dates.map((date, i) => {
-          if (i % tickInterval !== 0 && i !== dates.length - 1) return null;
-          const x = PAD.left + i * xStep;
-          return (
-            <text key={i} x={x} y={H - 8} fill="rgba(255,255,255,0.3)" fontSize="10" textAnchor="middle">
-              {new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-            </text>
-          );
-        })}
-
-        {/* Lines */}
-        {metrics.map((m, i) => (
-          <path key={m} d={buildPath(m)} fill="none" stroke={LINE_COLORS[i]} strokeWidth="2" strokeLinejoin="round" />
-        ))}
-      </svg>
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════
-// CSV Parsing
+// CSV Parsing (preserved from original)
 // ═══════════════════════════════════════════════
 function parseCSV(text) {
   const lines = text.trim().split(/\r?\n/);
@@ -616,7 +841,6 @@ function parseCSV(text) {
   return { headers, rows };
 }
 
-// ── Map daily CSV ──
 function mapDailyCSV(channel, parsed, userId) {
   const { headers, rows } = parsed;
   const colMap = {
@@ -659,7 +883,6 @@ function mapDailyCSV(channel, parsed, userId) {
   return { rows: dbRows, dateRange: { start: minD, end: maxD } };
 }
 
-// ── Map per-video CSV ──
 function mapVideoCSV(channel, parsed, userId) {
   const { headers, rows } = parsed;
   const colMap = {
@@ -700,7 +923,7 @@ function mapVideoCSV(channel, parsed, userId) {
 }
 
 // ═══════════════════════════════════════════════
-// Helpers
+// Helpers (preserved from original)
 // ═══════════════════════════════════════════════
 function parseDate(val) {
   if (!val) return null;
@@ -728,81 +951,55 @@ function parseNumber(val) {
   const n = Number(String(val).replace(/[,%$]/g,'').trim());
   return isNaN(n)?null:n;
 }
-function formatCell(val, type) {
-  if (val==null||val==='') return '—';
-  switch(type) {
-    case 'number': return Number(val).toLocaleString();
-    case 'decimal': return Number(val).toLocaleString(undefined,{maximumFractionDigits:2});
-    case 'percent': return Number(val).toFixed(2)+'%';
-    case 'currency': return '$'+Number(val).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
-    case 'duration': { const s=Math.round(Number(val)),h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60; return h>0?`${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`:`${m}:${String(sec).padStart(2,'0')}`; }
-    case 'date': return new Date(val+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
-    default: return String(val);
-  }
-}
-function formatCompact(n) {
-  if (n>=1e6) return (n/1e6).toFixed(1)+'M';
-  if (n>=1e3) return (n/1e3).toFixed(1)+'K';
-  if (n%1!==0) return n.toFixed(1);
-  return n.toLocaleString();
-}
 
 // ═══════════════════════════════════════════════
 // Styles
 // ═══════════════════════════════════════════════
 const styles = {
   page: { padding: '32px 40px' },
-  topBar: { display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'24px' },
-  pageTitle: { fontSize:'28px', fontWeight:700, color:'#fff', margin:'0 0 4px', letterSpacing:'-0.5px' },
-  pageSubtitle: { fontSize:'14px', color:'rgba(255,255,255,0.4)', margin:0 },
-  tabBar: { display:'flex', gap:'2px', marginBottom:'20px', overflowX:'auto', borderBottom:'1px solid rgba(255,255,255,0.06)' },
-  tab: { display:'flex', alignItems:'center', gap:'8px', padding:'10px 16px', background:'none', border:'none', borderBottom:'2px solid transparent', color:'rgba(255,255,255,0.45)', fontSize:'13px', fontWeight:500, cursor:'pointer', fontFamily:'inherit', whiteSpace:'nowrap' },
-  tabActive: { color:'#fff', borderBottomWidth:'2px', borderBottomStyle:'solid' },
-  tabDisabled: { opacity:0.35, cursor:'default' },
-  comingSoon: { fontSize:'10px', background:'rgba(255,255,255,0.06)', padding:'2px 6px', borderRadius:'4px', color:'rgba(255,255,255,0.3)' },
-  uploadBar: { display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:'12px', padding:'16px 20px', background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.06)', borderLeft:'3px solid', borderRadius:'12px', marginBottom:'16px' },
-  uploadBarLeft: { display:'flex', alignItems:'center', gap:'12px' },
-  uploadBarTitle: { fontSize:'15px', fontWeight:700, color:'#fff' },
-  uploadBarSub: { fontSize:'12px', color:'rgba(255,255,255,0.35)' },
-  uploadBtn: { padding:'8px 16px', background:'rgba(255,255,255,0.04)', border:'1px solid', borderRadius:'8px', fontSize:'12px', fontWeight:600, cursor:'pointer', fontFamily:'inherit' },
+  topBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' },
+  pageTitle: { fontSize: '28px', fontWeight: 700, color: '#fff', margin: '0 0 4px', letterSpacing: '-0.5px' },
+  pageSubtitle: { fontSize: '14px', color: 'rgba(255,255,255,0.4)', margin: 0 },
+
   // Filters
-  filterBar: { display:'flex', gap:'8px', alignItems:'center', flexWrap:'wrap', marginBottom:'20px', padding:'12px 16px', background:'rgba(255,255,255,0.02)', borderRadius:'10px', border:'1px solid rgba(255,255,255,0.06)' },
-  filterChip: { padding:'6px 14px', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'20px', color:'rgba(255,255,255,0.5)', fontSize:'12px', fontWeight:500, cursor:'pointer', fontFamily:'inherit' },
-  filterChipActive: { background:'rgba(99,102,241,0.15)', borderColor:'rgba(99,102,241,0.4)', color:'#a5b4fc' },
-  filterInput: { padding:'6px 10px', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:'6px', color:'#fff', fontSize:'12px', fontFamily:'inherit', outline:'none' },
-  filterRange: { fontSize:'12px', color:'rgba(255,255,255,0.25)', marginLeft:'auto' },
-  // Totals
-  totalsGrid: { display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:'12px', marginBottom:'20px' },
-  totalCard: { background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.06)', borderRadius:'12px', padding:'16px 20px', position:'relative', overflow:'hidden' },
-  totalCardAccent: { position:'absolute', top:0, left:0, right:0, height:'3px' },
-  totalCardLabel: { fontSize:'11px', fontWeight:600, color:'rgba(255,255,255,0.35)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:'6px' },
-  totalCardValue: { fontSize:'22px', fontWeight:700, color:'#fff', fontVariantNumeric:'tabular-nums' },
+  filterBar: { display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: '20px', padding: '12px 16px', background: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)' },
+  filterChip: { padding: '6px 14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', color: 'rgba(255,255,255,0.5)', fontSize: '12px', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' },
+  filterChipActive: { background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.4)', color: '#a5b4fc' },
+  filterInput: { padding: '6px 10px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: '#fff', fontSize: '12px', fontFamily: 'inherit', outline: 'none' },
+  platformChip: { display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', color: 'rgba(255,255,255,0.5)', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s' },
+  platformDot: { width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0 },
+
+  // KPI
+  kpiGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '20px' },
+  kpiCard: { background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', padding: '18px 22px', position: 'relative', overflow: 'hidden' },
+  kpiAccent: { position: 'absolute', top: 0, left: 0, right: 0, height: '3px' },
+  kpiLabel: { fontSize: '11px', fontWeight: 600, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' },
+  kpiValue: { fontSize: '26px', fontWeight: 700, color: '#fff', fontVariantNumeric: 'tabular-nums' },
+
   // Chart
-  chartSection: { background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.06)', borderRadius:'12px', padding:'20px', marginBottom:'20px' },
-  chartHeader: { marginBottom:'12px' },
-  chartTitle: { fontSize:'15px', fontWeight:700, color:'#fff', marginRight:'16px' },
-  metricPicker: { display:'flex', flexWrap:'wrap', gap:'4px', marginTop:'8px' },
-  metricChip: { padding:'4px 10px', background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'14px', color:'rgba(255,255,255,0.4)', fontSize:'11px', fontWeight:500, cursor:'pointer', fontFamily:'inherit' },
-  legendRow: { display:'flex', gap:'16px', marginTop:'12px' },
-  legendItem: { display:'flex', alignItems:'center', gap:'6px', fontSize:'12px', color:'rgba(255,255,255,0.5)' },
-  legendDot: { width:'10px', height:'10px', borderRadius:'3px' },
+  chartSection: { background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', padding: '20px', marginBottom: '20px' },
+  chartHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' },
+  chartTitle: { fontSize: '15px', fontWeight: 700, color: '#fff' },
+  metricChip: { padding: '5px 12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', color: 'rgba(255,255,255,0.4)', fontSize: '11px', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' },
+  metricChipActive: { background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.4)', color: '#a5b4fc' },
+
   // Table
-  tableHeader: { display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'12px' },
-  tableTitle: { fontSize:'15px', fontWeight:700, color:'#fff' },
-  colMenuBtn: { padding:'6px 14px', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:'8px', color:'rgba(255,255,255,0.5)', fontSize:'12px', cursor:'pointer', fontFamily:'inherit' },
-  colMenu: { position:'absolute', right:0, top:'100%', marginTop:'4px', background:'#1a1a2e', border:'1px solid rgba(255,255,255,0.1)', borderRadius:'12px', padding:'12px', minWidth:'220px', maxHeight:'400px', overflowY:'auto', zIndex:100, display:'flex', flexDirection:'column', gap:'6px' },
-  colMenuItem: { display:'flex', alignItems:'center', gap:'8px', fontSize:'12px', color:'rgba(255,255,255,0.6)', cursor:'pointer' },
-  colMenuClose: { marginTop:'8px', padding:'6px', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:'6px', color:'rgba(255,255,255,0.5)', fontSize:'11px', cursor:'pointer', fontFamily:'inherit' },
-  tableWrap: { background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.06)', borderRadius:'12px', overflow:'auto', maxHeight:'600px' },
-  table: { width:'100%', borderCollapse:'collapse', fontSize:'13px', minWidth:'900px' },
-  th: { padding:'10px 14px', textAlign:'left', fontWeight:600, fontSize:'11px', color:'rgba(255,255,255,0.4)', textTransform:'uppercase', letterSpacing:'0.5px', borderBottom:'1px solid rgba(255,255,255,0.06)', position:'sticky', top:0, background:'#16162a', zIndex:1, whiteSpace:'nowrap', userSelect:'none' },
-  thSticky: { position:'sticky', left:0, zIndex:3, background:'#16162a', minWidth:'200px', maxWidth:'300px' },
-  td: { padding:'8px 14px', borderBottom:'1px solid rgba(255,255,255,0.03)', color:'rgba(255,255,255,0.6)', whiteSpace:'nowrap' },
-  tdSticky: { position:'sticky', left:0, zIndex:1, maxWidth:'300px', overflow:'hidden', textOverflow:'ellipsis', fontWeight:500, color:'#e2e8f0' },
-  tdValue: { fontWeight:600, color:'#e2e8f0', fontVariantNumeric:'tabular-nums' },
-  trEven: { background:'rgba(255,255,255,0.01)' },
-  checkbox: { accentColor:'#6366f1', cursor:'pointer' },
-  loadingText: { padding:'40px', textAlign:'center', color:'rgba(255,255,255,0.3)', fontSize:'14px' },
-  emptyCard: { background:'rgba(255,255,255,0.02)', border:'1px dashed rgba(255,255,255,0.08)', borderRadius:'14px', padding:'32px', textAlign:'center', marginBottom:'20px' },
-  emptyText: { color:'rgba(255,255,255,0.35)', fontSize:'14px', margin:0 },
+  tableHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' },
+  tableTitle: { fontSize: '15px', fontWeight: 700, color: '#fff' },
+  tableWrap: { background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', overflow: 'auto', maxHeight: '600px', marginBottom: '20px' },
+  table: { width: '100%', borderCollapse: 'collapse', fontSize: '13px', minWidth: '700px' },
+  th: { padding: '10px 14px', textAlign: 'left', fontWeight: 600, fontSize: '11px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0, background: '#16162a', zIndex: 1, whiteSpace: 'nowrap', userSelect: 'none' },
+  thSticky: { position: 'sticky', left: 0, zIndex: 3, background: '#16162a', minWidth: '200px', maxWidth: '300px' },
+  td: { padding: '8px 14px', borderBottom: '1px solid rgba(255,255,255,0.03)', color: 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap' },
+  tdSticky: { position: 'sticky', left: 0, zIndex: 1, maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 500, color: '#e2e8f0' },
+  tdValue: { fontWeight: 600, color: '#e2e8f0', fontVariantNumeric: 'tabular-nums' },
+  trEven: { background: 'rgba(255,255,255,0.01)' },
+  sortArrow: { marginLeft: '4px', color: '#a5b4fc' },
+
+  // Misc
+  loadingText: { padding: '40px', textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: '14px' },
+  emptyCard: { background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.08)', borderRadius: '14px', padding: '32px', textAlign: 'center', marginBottom: '20px' },
+  emptyText: { color: 'rgba(255,255,255,0.35)', fontSize: '14px', margin: 0 },
+  uploadBtn: { padding: '8px 16px', background: 'rgba(255,255,255,0.04)', border: '1px solid', borderRadius: '8px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  collapseBtn: { padding: '8px 16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', color: 'rgba(255,255,255,0.5)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', width: '100%', textAlign: 'left' },
 };
