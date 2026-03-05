@@ -956,6 +956,15 @@ function ManualMetricsForm({ platform, fields, accounts }) {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
 
+  // Manage entries state
+  const [showManage, setShowManage] = useState(false);
+  const [entries, setEntries] = useState([]);
+  const [loadingEntries, setLoadingEntries] = useState(false);
+  const [deleteStart, setDeleteStart] = useState('');
+  const [deleteEnd, setDeleteEnd] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [deleteResult, setDeleteResult] = useState(null);
+
   const account = accounts.find(a => a.platform === platform);
   const meta = PLATFORM_META[platform] || {};
   const color = meta.color || '#666';
@@ -963,6 +972,112 @@ function ManualMetricsForm({ platform, fields, accounts }) {
   const hasViews = fields.includes('views');
   const hasRevenue = fields.includes('revenue');
   const hasSubscribers = fields.includes('subscribers');
+
+  async function loadEntries() {
+    if (!account) return;
+    setLoadingEntries(true);
+    try {
+      // Fetch platform_daily_metrics
+      const { data: pdm } = await supabase.from('platform_daily_metrics')
+        .select('id, date, views, likes, comments, shares')
+        .eq('platform_account_id', account.id)
+        .order('date', { ascending: false })
+        .limit(200);
+
+      // Fetch manual revenue_events
+      const { data: rev } = await supabase.from('revenue_events')
+        .select('id, stripe_event_id, occurred_at, net_amount_cents')
+        .eq('platform_account_id', account.id)
+        .like('stripe_event_id', `manual_${platform}_%`)
+        .order('occurred_at', { ascending: false })
+        .limit(200);
+
+      // Fetch audience_snapshots
+      const { data: aud } = await supabase.from('audience_snapshots')
+        .select('id, date, followers_total')
+        .eq('platform_account_id', account.id)
+        .order('date', { ascending: false })
+        .limit(200);
+
+      // Merge by date
+      const byDate = {};
+      for (const row of (pdm || [])) {
+        byDate[row.date] = { ...byDate[row.date], date: row.date, pdm_id: row.id, views: row.views, likes: row.likes, comments: row.comments, shares: row.shares };
+      }
+      for (const row of (rev || [])) {
+        const d = row.occurred_at?.split('T')[0];
+        if (d) byDate[d] = { ...byDate[d], date: d, rev_id: row.id, revenue_cents: row.net_amount_cents };
+      }
+      for (const row of (aud || [])) {
+        byDate[row.date] = { ...byDate[row.date], date: row.date, aud_id: row.id, followers_total: row.followers_total };
+      }
+      setEntries(Object.values(byDate).sort((a, b) => b.date.localeCompare(a.date)));
+    } catch (err) {
+      console.error('Error loading entries:', err);
+    }
+    setLoadingEntries(false);
+  }
+
+  async function handleDeleteRange() {
+    if (!account || !deleteStart || !deleteEnd) return;
+    if (deleteStart > deleteEnd) { setDeleteResult({ error: 'Start must be before end' }); return; }
+    if (!window.confirm(`Delete all manual ${meta.label} data from ${deleteStart} to ${deleteEnd}?`)) return;
+    setDeleting(true); setDeleteResult(null);
+    try {
+      let deleted = 0;
+      // Delete platform_daily_metrics
+      if (hasViews) {
+        const { data } = await supabase.from('platform_daily_metrics')
+          .delete()
+          .eq('platform_account_id', account.id)
+          .gte('date', deleteStart)
+          .lte('date', deleteEnd)
+          .select('id');
+        deleted += data?.length || 0;
+      }
+      // Delete manual revenue_events
+      if (hasRevenue) {
+        const days = getDaysInRange(deleteStart, deleteEnd);
+        const eventIds = days.map(d => `manual_${platform}_${account.id}_${d}`);
+        for (let i = 0; i < eventIds.length; i += 100) {
+          const batch = eventIds.slice(i, i + 100);
+          const { data } = await supabase.from('revenue_events')
+            .delete()
+            .in('stripe_event_id', batch)
+            .select('id');
+          deleted += data?.length || 0;
+        }
+      }
+      // Delete audience_snapshots
+      if (hasSubscribers) {
+        const { data } = await supabase.from('audience_snapshots')
+          .delete()
+          .eq('platform_account_id', account.id)
+          .gte('date', deleteStart)
+          .lte('date', deleteEnd)
+          .select('id');
+        deleted += data?.length || 0;
+      }
+      setDeleteResult({ success: true, count: deleted });
+      loadEntries();
+    } catch (err) {
+      setDeleteResult({ error: err.message });
+    }
+    setDeleting(false);
+  }
+
+  async function handleDeleteSingleDay(entry) {
+    if (!account) return;
+    if (!window.confirm(`Delete ${meta.label} data for ${entry.date}?`)) return;
+    try {
+      if (entry.pdm_id) await supabase.from('platform_daily_metrics').delete().eq('id', entry.pdm_id);
+      if (entry.rev_id) await supabase.from('revenue_events').delete().eq('id', entry.rev_id);
+      if (entry.aud_id) await supabase.from('audience_snapshots').delete().eq('id', entry.aud_id);
+      setEntries(prev => prev.filter(e => e.date !== entry.date));
+    } catch (err) {
+      console.error('Delete error:', err);
+    }
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -1068,56 +1183,128 @@ function ManualMetricsForm({ platform, fields, accounts }) {
   if (!account) return <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px', margin: 0 }}>No {meta.label} account found.</p>;
 
   return (
-    <form onSubmit={handleSubmit}>
-      <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', margin: '0 0 10px' }}>
-        Enter totals for the date range. Views and revenue are split evenly across days. Subscribers are set as a snapshot for each day.
-      </p>
-      <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Start Date</label>
-          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
-            style={{ ...styles.filterInput, padding: '8px 10px' }} required />
+    <div>
+      <form onSubmit={handleSubmit}>
+        <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', margin: '0 0 10px' }}>
+          Enter totals for the date range. Views and revenue are split evenly across days. Subscribers are set as a snapshot for each day.
+        </p>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Start Date</label>
+            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
+              style={{ ...styles.filterInput, padding: '8px 10px' }} required />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>End Date</label>
+            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
+              style={{ ...styles.filterInput, padding: '8px 10px' }} required />
+          </div>
+          {hasViews && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Total Views</label>
+              <input type="text" inputMode="numeric" pattern="[0-9]*" value={views}
+                onChange={e => setViews(e.target.value.replace(/[^0-9]/g, ''))}
+                placeholder="0" style={{ ...styles.filterInput, padding: '8px 10px', width: '120px' }} />
+            </div>
+          )}
+          {hasRevenue && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Total Revenue ($)</label>
+              <input type="text" inputMode="decimal" value={revenue}
+                onChange={e => setRevenue(e.target.value.replace(/[^0-9.]/g, ''))}
+                placeholder="0.00" style={{ ...styles.filterInput, padding: '8px 10px', width: '120px' }} />
+            </div>
+          )}
+          {hasSubscribers && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Subscribers</label>
+              <input type="text" inputMode="numeric" pattern="[0-9]*" value={subscribers}
+                onChange={e => setSubscribers(e.target.value.replace(/[^0-9]/g, ''))}
+                placeholder="0" style={{ ...styles.filterInput, padding: '8px 10px', width: '120px' }} />
+            </div>
+          )}
+          <button type="submit" disabled={submitting}
+            style={{ ...styles.uploadBtn, borderColor: color + '66', color, opacity: submitting ? 0.5 : 1 }}>
+            {submitting ? 'Saving...' : 'Save'}
+          </button>
+          {result && (
+            <span style={{ fontSize: '12px', fontWeight: 500, color: result.error ? '#f87171' : '#4ade80' }}>
+              {result.error ? `Error: ${result.error}` : `Saved across ${result.days} day${result.days > 1 ? 's' : ''}`}
+            </span>
+          )}
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>End Date</label>
-          <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
-            style={{ ...styles.filterInput, padding: '8px 10px' }} required />
-        </div>
-        {hasViews && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Total Views</label>
-            <input type="text" inputMode="numeric" pattern="[0-9]*" value={views}
-              onChange={e => setViews(e.target.value.replace(/[^0-9]/g, ''))}
-              placeholder="0" style={{ ...styles.filterInput, padding: '8px 10px', width: '120px' }} />
-          </div>
-        )}
-        {hasRevenue && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Total Revenue ($)</label>
-            <input type="text" inputMode="decimal" value={revenue}
-              onChange={e => setRevenue(e.target.value.replace(/[^0-9.]/g, ''))}
-              placeholder="0.00" style={{ ...styles.filterInput, padding: '8px 10px', width: '120px' }} />
-          </div>
-        )}
-        {hasSubscribers && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Subscribers</label>
-            <input type="text" inputMode="numeric" pattern="[0-9]*" value={subscribers}
-              onChange={e => setSubscribers(e.target.value.replace(/[^0-9]/g, ''))}
-              placeholder="0" style={{ ...styles.filterInput, padding: '8px 10px', width: '120px' }} />
-          </div>
-        )}
-        <button type="submit" disabled={submitting}
-          style={{ ...styles.uploadBtn, borderColor: color + '66', color, opacity: submitting ? 0.5 : 1 }}>
-          {submitting ? 'Saving...' : 'Save'}
+      </form>
+
+      {/* Manage Entries */}
+      <div style={{ marginTop: '16px' }}>
+        <button onClick={() => { setShowManage(!showManage); if (!showManage) loadEntries(); }}
+          style={{ ...styles.collapseBtn, width: 'auto', fontSize: '12px', padding: '6px 14px' }}>
+          {showManage ? '▾' : '▸'} Manage Entries
         </button>
-        {result && (
-          <span style={{ fontSize: '12px', fontWeight: 500, color: result.error ? '#f87171' : '#4ade80' }}>
-            {result.error ? `Error: ${result.error}` : `Saved across ${result.days} day${result.days > 1 ? 's' : ''}`}
-          </span>
+        {showManage && (
+          <div style={{ marginTop: '10px', padding: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px' }}>
+            {/* Delete range */}
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: '12px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                <label style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', fontWeight: 600, textTransform: 'uppercase' }}>Delete from</label>
+                <input type="date" value={deleteStart} onChange={e => setDeleteStart(e.target.value)}
+                  style={{ ...styles.filterInput, padding: '6px 8px', fontSize: '11px' }} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                <label style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', fontWeight: 600, textTransform: 'uppercase' }}>to</label>
+                <input type="date" value={deleteEnd} onChange={e => setDeleteEnd(e.target.value)}
+                  style={{ ...styles.filterInput, padding: '6px 8px', fontSize: '11px' }} />
+              </div>
+              <button onClick={handleDeleteRange} disabled={deleting || !deleteStart || !deleteEnd}
+                style={{ padding: '6px 14px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '6px', color: '#f87171', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', opacity: deleting ? 0.5 : 1 }}>
+                {deleting ? 'Deleting...' : 'Delete Range'}
+              </button>
+              {deleteResult && (
+                <span style={{ fontSize: '11px', fontWeight: 500, color: deleteResult.error ? '#f87171' : '#4ade80' }}>
+                  {deleteResult.error ? deleteResult.error : `${deleteResult.count} record${deleteResult.count !== 1 ? 's' : ''} deleted`}
+                </span>
+              )}
+            </div>
+
+            {/* Entries table */}
+            {loadingEntries ? (
+              <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.3)', margin: 0 }}>Loading...</p>
+            ) : entries.length === 0 ? (
+              <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.3)', margin: 0 }}>No entries found.</p>
+            ) : (
+              <div style={{ maxHeight: '300px', overflow: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ padding: '6px 10px', textAlign: 'left', fontSize: '10px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0, background: '#1a1a2e' }}>Date</th>
+                      {hasViews && <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0, background: '#1a1a2e' }}>Views</th>}
+                      {hasRevenue && <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0, background: '#1a1a2e' }}>Revenue</th>}
+                      {hasSubscribers && <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0, background: '#1a1a2e' }}>Subs</th>}
+                      <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', color: 'rgba(255,255,255,0.4)', borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0, background: '#1a1a2e', width: '40px' }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {entries.map(entry => (
+                      <tr key={entry.date} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                        <td style={{ padding: '5px 10px', color: 'rgba(255,255,255,0.6)' }}>{entry.date}</td>
+                        {hasViews && <td style={{ padding: '5px 10px', color: 'rgba(255,255,255,0.6)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{entry.views != null ? Number(entry.views).toLocaleString() : '—'}</td>}
+                        {hasRevenue && <td style={{ padding: '5px 10px', color: 'rgba(255,255,255,0.6)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{entry.revenue_cents != null ? '$' + (entry.revenue_cents / 100).toFixed(2) : '—'}</td>}
+                        {hasSubscribers && <td style={{ padding: '5px 10px', color: 'rgba(255,255,255,0.6)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{entry.followers_total != null ? Number(entry.followers_total).toLocaleString() : '—'}</td>}
+                        <td style={{ padding: '5px 10px', textAlign: 'right' }}>
+                          <button onClick={() => handleDeleteSingleDay(entry)}
+                            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.25)', cursor: 'pointer', fontSize: '13px', padding: '2px 4px' }}
+                            title={`Delete ${entry.date}`}>✕</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         )}
       </div>
-    </form>
+    </div>
   );
 }
 
