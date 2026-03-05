@@ -836,8 +836,19 @@ function TikTokCSVUpload({ profile, accounts }) {
 // ═══════════════════════════════════════════════
 // Manual Metrics Form (Instagram, Facebook, Substack, Twitch)
 // ═══════════════════════════════════════════════
+function getDaysInRange(startStr, endStr) {
+  const days = [];
+  const start = new Date(startStr + 'T00:00:00');
+  const end = new Date(endStr + 'T00:00:00');
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    days.push(d.toISOString().split('T')[0]);
+  }
+  return days;
+}
+
 function ManualMetricsForm({ platform, fields, accounts }) {
-  const [date, setDate] = useState(todayStr());
+  const [startDate, setStartDate] = useState(daysAgoStr(30));
+  const [endDate, setEndDate] = useState(todayStr());
   const [views, setViews] = useState('');
   const [revenue, setRevenue] = useState('');
   const [subscribers, setSubscribers] = useState('');
@@ -855,62 +866,81 @@ function ManualMetricsForm({ platform, fields, accounts }) {
   async function handleSubmit(e) {
     e.preventDefault();
     if (!account) return;
+    if (startDate > endDate) { setResult({ error: 'Start date must be before end date' }); return; }
     setSubmitting(true); setResult(null);
 
     try {
-      // Insert views into platform_daily_metrics if applicable
-      if (hasViews) {
-        const viewsNum = parseInt(views, 10) || 0;
-        const { error } = await supabase.from('platform_daily_metrics')
-          .upsert({
-            platform_account_id: account.id,
-            date,
-            views: viewsNum,
-            metadata: {},
-          }, { onConflict: 'platform_account_id,date' });
-        if (error) throw new Error(`Views: ${error.message}`);
-      }
+      const days = getDaysInRange(startDate, endDate);
+      const numDays = days.length;
 
-      // Insert revenue into revenue_events if applicable
-      if (hasRevenue && revenue) {
-        const revenueCents = Math.round(parseFloat(revenue) * 100);
-        if (revenueCents > 0) {
-          const stripeEventId = `manual_${platform}_${account.id}_${date}`;
-          const { error } = await supabase.from('revenue_events')
-            .upsert({
-              stripe_event_id: stripeEventId,
-              event_type: 'charge',
-              amount_cents: revenueCents,
-              net_amount_cents: revenueCents,
-              currency: 'usd',
-              product_category: 'ad_revenue',
-              is_recurring: false,
-              occurred_at: `${date}T00:00:00Z`,
-              metadata: { source: 'manual_input', platform },
-              platform_account_id: account.id,
-            }, { onConflict: 'stripe_event_id' });
-          if (error) throw new Error(`Revenue: ${error.message}`);
+      // Views: split total evenly across days, remainder goes to last day
+      if (hasViews && views) {
+        const totalViews = parseInt(views, 10) || 0;
+        const perDay = Math.floor(totalViews / numDays);
+        const remainder = totalViews - perDay * numDays;
+        const rows = days.map((d, i) => ({
+          platform_account_id: account.id,
+          date: d,
+          views: perDay + (i === numDays - 1 ? remainder : 0),
+          metadata: {},
+        }));
+        for (let i = 0; i < rows.length; i += 100) {
+          const batch = rows.slice(i, i + 100);
+          const { error } = await supabase.from('platform_daily_metrics')
+            .upsert(batch, { onConflict: 'platform_account_id,date' });
+          if (error) throw new Error(`Views: ${error.message}`);
         }
       }
 
-      // Insert subscribers into audience_snapshots if applicable
+      // Revenue: split total evenly across days
+      if (hasRevenue && revenue) {
+        const totalCents = Math.round(parseFloat(revenue) * 100);
+        if (totalCents > 0) {
+          const perDay = Math.floor(totalCents / numDays);
+          const remainder = totalCents - perDay * numDays;
+          const rows = days.map((d, i) => ({
+            stripe_event_id: `manual_${platform}_${account.id}_${d}`,
+            event_type: 'charge',
+            amount_cents: perDay + (i === numDays - 1 ? remainder : 0),
+            net_amount_cents: perDay + (i === numDays - 1 ? remainder : 0),
+            currency: 'usd',
+            product_category: 'ad_revenue',
+            is_recurring: false,
+            occurred_at: `${d}T00:00:00Z`,
+            metadata: { source: 'manual_input', platform },
+            platform_account_id: account.id,
+          }));
+          for (let i = 0; i < rows.length; i += 100) {
+            const batch = rows.slice(i, i + 100);
+            const { error } = await supabase.from('revenue_events')
+              .upsert(batch, { onConflict: 'stripe_event_id' });
+            if (error) throw new Error(`Revenue: ${error.message}`);
+          }
+        }
+      }
+
+      // Subscribers: use same total for each day (snapshot, not split)
       if (hasSubscribers && subscribers) {
         const subsNum = parseInt(subscribers, 10) || 0;
         if (subsNum > 0) {
-          const { error } = await supabase.from('audience_snapshots')
-            .upsert({
-              platform_account_id: account.id,
-              date,
-              followers_total: subsNum,
-              followers_gained: 0,
-              demographics: {},
-              metadata: { source: 'manual_input' },
-            }, { onConflict: 'platform_account_id,date' });
-          if (error) throw new Error(`Subscribers: ${error.message}`);
+          const rows = days.map(d => ({
+            platform_account_id: account.id,
+            date: d,
+            followers_total: subsNum,
+            followers_gained: 0,
+            demographics: {},
+            metadata: { source: 'manual_input' },
+          }));
+          for (let i = 0; i < rows.length; i += 100) {
+            const batch = rows.slice(i, i + 100);
+            const { error } = await supabase.from('audience_snapshots')
+              .upsert(batch, { onConflict: 'platform_account_id,date' });
+            if (error) throw new Error(`Subscribers: ${error.message}`);
+          }
         }
       }
 
-      setResult({ success: true });
+      setResult({ success: true, days: numDays });
       setViews(''); setRevenue(''); setSubscribers('');
     } catch (err) {
       setResult({ error: err.message });
@@ -922,15 +952,23 @@ function ManualMetricsForm({ platform, fields, accounts }) {
 
   return (
     <form onSubmit={handleSubmit}>
+      <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', margin: '0 0 10px' }}>
+        Enter totals for the date range. Views and revenue are split evenly across days. Subscribers are set as a snapshot for each day.
+      </p>
       <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Date</label>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)}
+          <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Start Date</label>
+          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
+            style={{ ...styles.filterInput, padding: '8px 10px' }} required />
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>End Date</label>
+          <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
             style={{ ...styles.filterInput, padding: '8px 10px' }} required />
         </div>
         {hasViews && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Views</label>
+            <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Total Views</label>
             <input type="text" inputMode="numeric" pattern="[0-9]*" value={views}
               onChange={e => setViews(e.target.value.replace(/[^0-9]/g, ''))}
               placeholder="0" style={{ ...styles.filterInput, padding: '8px 10px', width: '120px' }} />
@@ -938,7 +976,7 @@ function ManualMetricsForm({ platform, fields, accounts }) {
         )}
         {hasRevenue && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Revenue ($)</label>
+            <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Total Revenue ($)</label>
             <input type="text" inputMode="decimal" value={revenue}
               onChange={e => setRevenue(e.target.value.replace(/[^0-9.]/g, ''))}
               placeholder="0.00" style={{ ...styles.filterInput, padding: '8px 10px', width: '120px' }} />
@@ -958,7 +996,7 @@ function ManualMetricsForm({ platform, fields, accounts }) {
         </button>
         {result && (
           <span style={{ fontSize: '12px', fontWeight: 500, color: result.error ? '#f87171' : '#4ade80' }}>
-            {result.error ? `Error: ${result.error}` : 'Saved successfully'}
+            {result.error ? `Error: ${result.error}` : `Saved across ${result.days} day${result.days > 1 ? 's' : ''}`}
           </span>
         )}
       </div>
