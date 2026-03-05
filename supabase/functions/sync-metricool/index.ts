@@ -324,6 +324,75 @@ Deno.serve(async (req: Request) => {
     }
   }
 
+  // ── YouTube audience_snapshots from analytics_youtube_daily ──
+  // YouTube subscriber data comes from CSV uploads, not Metricool.
+  // Compute running follower totals from daily subscriber gains, anchored to the latest known total.
+  try {
+    const { data: ytAccounts } = await supabase
+      .from("platform_accounts")
+      .select("id, account_name")
+      .eq("platform", "youtube")
+      .eq("is_active", true);
+
+    for (const yt of ytAccounts || []) {
+      // Get latest audience_snapshot as anchor
+      const { data: anchor } = await supabase
+        .from("audience_snapshots")
+        .select("followers_total, date")
+        .eq("platform_account_id", yt.id)
+        .order("date", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (!anchor) continue;
+
+      // Get recent youtube daily data (before anchor date)
+      const { data: ytDaily } = await supabase
+        .from("analytics_youtube_daily")
+        .select("date, subscribers")
+        .eq("platform_account_id", yt.id)
+        .lt("date", anchor.date)
+        .gte("date", fromStr.slice(0, 10))
+        .order("date", { ascending: false });
+
+      if (!ytDaily?.length) continue;
+
+      // Compute running totals backwards from anchor
+      let runningTotal = anchor.followers_total;
+      const audRows: {
+        platform_account_id: string;
+        date: string;
+        followers_total: number;
+        followers_gained: number;
+        demographics: Record<string, never>;
+        metadata: { source: string };
+      }[] = [];
+
+      for (const row of ytDaily) {
+        audRows.push({
+          platform_account_id: yt.id,
+          date: row.date,
+          followers_total: Math.max(runningTotal, 0),
+          followers_gained: row.subscribers || 0,
+          demographics: {},
+          metadata: { source: "youtube_daily_backfill" },
+        });
+        runningTotal -= (row.subscribers || 0);
+      }
+
+      for (let i = 0; i < audRows.length; i += 100) {
+        const batch = audRows.slice(i, i + 100);
+        await supabase
+          .from("audience_snapshots")
+          .upsert(batch, { onConflict: "platform_account_id,date" });
+      }
+
+      results[`youtube_${yt.account_name}`] = { aud_upserted: audRows.length };
+    }
+  } catch (e) {
+    results._youtube_aud_error = e.message;
+  }
+
   // Refresh the materialized view so donut charts pick up new data
   try {
     await supabase.rpc("refresh_daily_platform_rollups");
