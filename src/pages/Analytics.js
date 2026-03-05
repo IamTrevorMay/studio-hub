@@ -162,6 +162,11 @@ function getContentTypeAccountIds(accounts, activeAccountIds, contentTypeFilter)
   return ids;
 }
 
+/** Parse a date string that may be "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS" into a local Date */
+function toLocalDate(s) {
+  return new Date(String(s).slice(0, 10) + 'T00:00:00');
+}
+
 function formatCompact(n) {
   if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
   if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
@@ -1463,7 +1468,7 @@ function ComparisonChart({ data, metricDef }) {
           const dateStr = longestSeries?.values[i]?.date;
           let label = `Day ${i}`;
           if (dateStr) {
-            const d = new Date(dateStr + 'T00:00:00');
+            const d = toLocalDate(dateStr);
             label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
           }
           return (
@@ -1513,7 +1518,7 @@ function ComparisonChart({ data, metricDef }) {
           {series.map((s, si) => {
             const val = s.values[hoveredIndex];
             const dateStr = val?.date;
-            const dateLabel = dateStr ? new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+            const dateLabel = dateStr ? toLocalDate(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
             return (
               <div key={si} style={{ marginBottom: si < series.length - 1 ? '6px' : 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1579,10 +1584,10 @@ function TrendChart({ data, metrics }) {
 
   // Dynamic x-axis date formatting
   const totalDays = data.length > 1
-    ? Math.ceil((new Date(data[data.length - 1].date) - new Date(data[0].date)) / 86400000)
+    ? Math.ceil((toLocalDate(data[data.length - 1].date) - toLocalDate(data[0].date)) / 86400000)
     : 1;
   function formatDateLabel(dateStr) {
-    const d = new Date(dateStr + 'T00:00:00');
+    const d = toLocalDate(dateStr);
     if (totalDays <= 31) {
       return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     }
@@ -1664,7 +1669,7 @@ function TrendChart({ data, metrics }) {
           minWidth: '140px', boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
         }}>
           <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '6px', fontWeight: 600 }}>
-            {new Date(data[hoveredIndex].date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+            {toLocalDate(data[hoveredIndex].date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
           </div>
           {metricLines.map(m => (
             <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
