@@ -82,7 +82,7 @@ export default function Dashboard({ onNavigate }) {
       let query = supabase
         .from('daily_itinerary')
         .select(isAdmin ? '*, creator:profiles!created_by(full_name)' : '*')
-        .eq('target_date', todayStr)
+        .or(`is_complete.eq.false,target_date.eq.${todayStr}`)
         .order('created_at', { ascending: true });
 
       if (!isAdmin) {
@@ -350,7 +350,8 @@ export default function Dashboard({ onNavigate }) {
     try {
       const { data, error } = await supabase
         .from('brain_dump')
-        .select('*, creator:profiles!created_by(id, full_name)')
+        .select('*')
+        .eq('created_by', profile.id)
         .order('created_at', { ascending: true });
       if (error) throw error;
       setBrainDumpItems(data || []);
@@ -1003,7 +1004,6 @@ export default function Dashboard({ onNavigate }) {
                           {item.content}
                         </span>
                       )}
-                      <span style={styles.brainDumpCreator}>{item.creator?.full_name}</span>
                     </div>
                     {isOwner && (
                       <div style={styles.itineraryActions}>
