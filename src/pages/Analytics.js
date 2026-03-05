@@ -770,6 +770,12 @@ function TikTokCSVUpload({ profile, accounts }) {
     const file = e.target.files?.[0];
     if (!file || !tiktokAccount) return;
     setUploading(true); setUploadResult(null);
+
+    // Create ingestion log entry
+    const { data: logEntry } = await supabase.from('ingestion_logs')
+      .insert({ platform_account_id: tiktokAccount.id, job_type: 'manual_csv_upload_tiktok', status: 'running' })
+      .select().single();
+
     try {
       const text = await file.text();
       const parsed = parseCSV(text);
@@ -805,7 +811,16 @@ function TikTokCSVUpload({ profile, accounts }) {
         inserted += result?.length || 0;
       }
       setUploadResult({ success: true, count: inserted });
-    } catch (err) { setUploadResult({ error: err.message }); }
+
+      if (logEntry?.id) await supabase.from('ingestion_logs').update({
+        status: 'success', records_processed: rows.length, records_created: inserted, completed_at: new Date().toISOString(),
+      }).eq('id', logEntry.id);
+    } catch (err) {
+      setUploadResult({ error: err.message });
+      if (logEntry?.id) await supabase.from('ingestion_logs').update({
+        status: 'failed', error_message: err.message, completed_at: new Date().toISOString(),
+      }).eq('id', logEntry.id);
+    }
     setUploading(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
@@ -869,9 +884,15 @@ function ManualMetricsForm({ platform, fields, accounts }) {
     if (startDate > endDate) { setResult({ error: 'Start date must be before end date' }); return; }
     setSubmitting(true); setResult(null);
 
+    // Create ingestion log entry
+    const { data: logEntry } = await supabase.from('ingestion_logs')
+      .insert({ platform_account_id: account.id, job_type: `manual_input_${platform}`, status: 'running' })
+      .select().single();
+
     try {
       const days = getDaysInRange(startDate, endDate);
       const numDays = days.length;
+      let recordsProcessed = 0;
 
       // Views: split total evenly across days, remainder goes to last day
       if (hasViews && views) {
@@ -890,6 +911,7 @@ function ManualMetricsForm({ platform, fields, accounts }) {
             .upsert(batch, { onConflict: 'platform_account_id,date' });
           if (error) throw new Error(`Views: ${error.message}`);
         }
+        recordsProcessed += rows.length;
       }
 
       // Revenue: split total evenly across days
@@ -916,6 +938,7 @@ function ManualMetricsForm({ platform, fields, accounts }) {
               .upsert(batch, { onConflict: 'stripe_event_id' });
             if (error) throw new Error(`Revenue: ${error.message}`);
           }
+          recordsProcessed += rows.length;
         }
       }
 
@@ -937,13 +960,21 @@ function ManualMetricsForm({ platform, fields, accounts }) {
               .upsert(batch, { onConflict: 'platform_account_id,date' });
             if (error) throw new Error(`Subscribers: ${error.message}`);
           }
+          recordsProcessed += rows.length;
         }
       }
 
       setResult({ success: true, days: numDays });
       setViews(''); setRevenue(''); setSubscribers('');
+
+      if (logEntry?.id) await supabase.from('ingestion_logs').update({
+        status: 'success', records_processed: recordsProcessed, records_created: recordsProcessed, completed_at: new Date().toISOString(),
+      }).eq('id', logEntry.id);
     } catch (err) {
       setResult({ error: err.message });
+      if (logEntry?.id) await supabase.from('ingestion_logs').update({
+        status: 'failed', error_message: err.message, completed_at: new Date().toISOString(),
+      }).eq('id', logEntry.id);
     }
     setSubmitting(false);
   }
