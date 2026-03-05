@@ -23,6 +23,19 @@ const DATE_RANGES = [
   { key: 'custom', label: 'Custom' },
 ];
 
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function getMonthRange(year, month) {
+  const start = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  const end = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+  return { start, end };
+}
+
+function getYearRange(year) {
+  return { start: `${year}-01-01`, end: `${year}-12-31` };
+}
+
 const TREND_METRICS = [
   { key: 'views',      label: 'Views' },
   { key: 'revenue',    label: 'Revenue' },
@@ -38,7 +51,10 @@ const LINE_COLORS = ['#6366f1', '#f59e0b', '#22c55e', '#ec4899', '#3b82f6', '#a8
 function todayStr() { return new Date().toISOString().split('T')[0]; }
 function daysAgoStr(n) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().split('T')[0]; }
 
-function getDateRange(rangeKey, customStart, customEnd) {
+function getDateRange(rangeKey, customStart, customEnd, filterMonth, filterYear) {
+  if (rangeKey === 'month') return getMonthRange(filterYear, filterMonth);
+  if (rangeKey === 'year') return getYearRange(filterYear);
+  if (rangeKey === 'lifetime') return { start: '2000-01-01', end: todayStr() };
   if (rangeKey === 'custom' && customStart && customEnd) {
     return { start: customStart, end: customEnd };
   }
@@ -80,9 +96,13 @@ export default function Analytics() {
   const [dateRange, setDateRange] = useState('30d');
   const [customStart, setCustomStart] = useState(daysAgoStr(30));
   const [customEnd, setCustomEnd] = useState(todayStr());
+  const [filterMonth, setFilterMonth] = useState(new Date().getMonth());
+  const [filterYear, setFilterYear] = useState(new Date().getFullYear());
   const [activeAccountIds, setActiveAccountIds] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [trendMetric, setTrendMetric] = useState('views');
+  const [platformDropdownOpen, setPlatformDropdownOpen] = useState(false);
+  const platformDropdownRef = useRef(null);
 
   // Data
   const [kpi, setKpi] = useState(null);
@@ -102,6 +122,17 @@ export default function Analytics() {
   const [showIngestion, setShowIngestion] = useState(false);
   const [ingestionLogs, setIngestionLogs] = useState([]);
 
+  // Close platform dropdown on outside click
+  useEffect(() => {
+    function handleClick(e) {
+      if (platformDropdownRef.current && !platformDropdownRef.current.contains(e.target)) {
+        setPlatformDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
   // ── Fetch platform accounts ──
   useEffect(() => {
     async function load() {
@@ -116,11 +147,11 @@ export default function Analytics() {
   }, []);
 
   // ── Fetch all data when filters change ──
-  const { start, end } = getDateRange(dateRange, customStart, customEnd);
+  const { start, end } = getDateRange(dateRange, customStart, customEnd, filterMonth, filterYear);
 
   useEffect(() => {
     fetchAllData();
-  }, [dateRange, customStart, customEnd, activeAccountIds.join(',')]);
+  }, [dateRange, customStart, customEnd, filterMonth, filterYear, activeAccountIds.join(',')]);
 
   async function fetchAllData() {
     setLoading(true);
@@ -133,7 +164,7 @@ export default function Analytics() {
   }
 
   async function fetchKPI() {
-    const { start, end } = getDateRange(dateRange, customStart, customEnd);
+    const { start, end } = getDateRange(dateRange, customStart, customEnd, filterMonth, filterYear);
 
     // Current period
     let q = supabase
@@ -207,7 +238,7 @@ export default function Analytics() {
   }
 
   async function fetchTimeSeries() {
-    const { start, end } = getDateRange(dateRange, customStart, customEnd);
+    const { start, end } = getDateRange(dateRange, customStart, customEnd, filterMonth, filterYear);
     let q = supabase
       .from('daily_platform_rollups')
       .select('*')
@@ -220,7 +251,7 @@ export default function Analytics() {
   }
 
   async function fetchContentPerformance() {
-    const { start, end } = getDateRange(dateRange, customStart, customEnd);
+    const { start, end } = getDateRange(dateRange, customStart, customEnd, filterMonth, filterYear);
     let q = supabase
       .from('content_items')
       .select(`
@@ -336,12 +367,43 @@ export default function Analytics() {
       {/* ── A. Date Range & Platform Filters ── */}
       <div style={styles.filterBar}>
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-          {DATE_RANGES.map(r => (
+          {/* Month dropdown */}
+          <select value={dateRange === 'month' ? filterMonth : ''}
+            onChange={e => { setDateRange('month'); setFilterMonth(Number(e.target.value)); }}
+            style={{ ...styles.filterSelect, ...(dateRange === 'month' ? styles.filterSelectActive : {}) }}>
+            <option value="" disabled>Month</option>
+            {MONTHS.map((m, i) => <option key={i} value={i}>{m}</option>)}
+          </select>
+
+          {/* Year dropdown */}
+          <select value={dateRange === 'year' || dateRange === 'month' ? filterYear : ''}
+            onChange={e => { if (dateRange !== 'month') setDateRange('year'); setFilterYear(Number(e.target.value)); }}
+            style={{ ...styles.filterSelect, ...(dateRange === 'year' || dateRange === 'month' ? styles.filterSelectActive : {}) }}>
+            <option value="" disabled>Year</option>
+            {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(y => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+
+          {/* Lifetime */}
+          <button onClick={() => setDateRange('lifetime')}
+            style={{ ...styles.filterChip, ...(dateRange === 'lifetime' ? styles.filterChipActive : {}) }}>
+            Lifetime
+          </button>
+
+          {/* Quick presets */}
+          {DATE_RANGES.filter(r => r.key !== 'custom').map(r => (
             <button key={r.key} onClick={() => setDateRange(r.key)}
               style={{ ...styles.filterChip, ...(dateRange === r.key ? styles.filterChipActive : {}) }}>
               {r.label}
             </button>
           ))}
+
+          {/* Custom */}
+          <button onClick={() => setDateRange('custom')}
+            style={{ ...styles.filterChip, ...(dateRange === 'custom' ? styles.filterChipActive : {}) }}>
+            Custom
+          </button>
           {dateRange === 'custom' && (
             <>
               <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} style={styles.filterInput} />
@@ -350,23 +412,47 @@ export default function Analytics() {
             </>
           )}
         </div>
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-          {accounts.map(acct => {
-            const meta = PLATFORM_META[acct.platform] || { label: acct.platform, color: '#666', icon: '?' };
-            const isActive = activeAccountIds.length === 0 || activeAccountIds.includes(acct.id);
-            return (
-              <button key={acct.id} onClick={() => toggleAccount(acct.id)}
-                style={{
-                  ...styles.platformChip,
-                  ...(isActive
-                    ? { background: meta.color + '22', borderColor: meta.color + '66', color: meta.color }
-                    : { opacity: 0.35 }),
-                }}>
-                <span style={{ ...styles.platformDot, background: meta.color }} />
-                {acct.account_name}
-              </button>
-            );
-          })}
+
+        {/* Platform dropdown */}
+        <div ref={platformDropdownRef} style={{ position: 'relative' }}>
+          <button onClick={() => setPlatformDropdownOpen(!platformDropdownOpen)}
+            style={{ ...styles.filterChip, display: 'flex', alignItems: 'center', gap: '6px' }}>
+            Platforms
+            {activeAccountIds.length > 0 && (
+              <span style={{ background: 'rgba(99,102,241,0.3)', padding: '1px 6px', borderRadius: '8px', fontSize: '10px', fontWeight: 700, color: '#a5b4fc' }}>
+                {activeAccountIds.length}
+              </span>
+            )}
+            <span style={{ fontSize: '10px', marginLeft: '2px' }}>{platformDropdownOpen ? '▲' : '▼'}</span>
+          </button>
+          {platformDropdownOpen && (
+            <div style={styles.platformDropdown}>
+              {activeAccountIds.length > 0 && (
+                <button onClick={() => setActiveAccountIds([])} style={styles.platformDropdownClear}>
+                  Clear all
+                </button>
+              )}
+              {accounts.map(acct => {
+                const meta = PLATFORM_META[acct.platform] || { label: acct.platform, color: '#666', icon: '?' };
+                const isActive = activeAccountIds.length === 0 || activeAccountIds.includes(acct.id);
+                return (
+                  <button key={acct.id} onClick={() => toggleAccount(acct.id)}
+                    style={{
+                      ...styles.platformDropdownItem,
+                      ...(isActive
+                        ? { background: meta.color + '18', borderColor: meta.color + '55', color: meta.color }
+                        : {}),
+                    }}>
+                    <span style={{ ...styles.platformDot, background: meta.color, opacity: isActive ? 1 : 0.35 }} />
+                    <span style={{ flex: 1 }}>{acct.account_name}</span>
+                    {(activeAccountIds.includes(acct.id)) && (
+                      <span style={{ fontSize: '12px', color: meta.color }}>✓</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1293,9 +1379,13 @@ const styles = {
   filterBar: { display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: '20px', padding: '12px 16px', background: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)' },
   filterChip: { padding: '6px 14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', color: 'rgba(255,255,255,0.5)', fontSize: '12px', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' },
   filterChipActive: { background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.4)', color: '#a5b4fc' },
+  filterSelect: { padding: '6px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', color: 'rgba(255,255,255,0.5)', fontSize: '12px', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', outline: 'none', appearance: 'none', WebkitAppearance: 'none', paddingRight: '10px' },
+  filterSelectActive: { background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.4)', color: '#a5b4fc' },
   filterInput: { padding: '6px 10px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: '#fff', fontSize: '12px', fontFamily: 'inherit', outline: 'none' },
-  platformChip: { display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', color: 'rgba(255,255,255,0.5)', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s' },
   platformDot: { width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0 },
+  platformDropdown: { position: 'absolute', top: '100%', right: 0, marginTop: '6px', background: '#1e1e36', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', padding: '6px', zIndex: 50, minWidth: '220px', display: 'flex', flexDirection: 'column', gap: '2px', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' },
+  platformDropdownItem: { display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 12px', background: 'transparent', border: '1px solid transparent', borderRadius: '8px', color: 'rgba(255,255,255,0.5)', fontSize: '12px', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', width: '100%' },
+  platformDropdownClear: { padding: '5px 12px', background: 'transparent', border: 'none', borderRadius: '6px', color: 'rgba(255,255,255,0.3)', fontSize: '11px', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', marginBottom: '2px' },
 
   // KPI
   kpiGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '20px' },
