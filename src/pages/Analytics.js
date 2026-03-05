@@ -37,10 +37,10 @@ function getYearRange(year) {
 }
 
 const TREND_METRICS = [
-  { key: 'views',      label: 'Views' },
-  { key: 'revenue',    label: 'Revenue' },
-  { key: 'engagement', label: 'Engagement' },
-  { key: 'followers',  label: 'Followers' },
+  { key: 'views',      label: 'Views',      color: '#6366f1', getValue: r => r.total_views || 0 },
+  { key: 'revenue',    label: 'Revenue',    color: '#f59e0b', getValue: r => (r.revenue_cents || 0) / 100 },
+  { key: 'engagement', label: 'Engagement', color: '#22c55e', getValue: r => (r.avg_engagement_rate || 0) * 100 },
+  { key: 'followers',  label: 'Followers',  color: '#ec4899', getValue: r => r.followers_eod || 0 },
 ];
 
 const LINE_COLORS = ['#6366f1', '#f59e0b', '#22c55e', '#ec4899', '#3b82f6', '#a855f7', '#14b8a6'];
@@ -100,8 +100,8 @@ export default function Analytics() {
   const [filterYear, setFilterYear] = useState(new Date().getFullYear());
   const [activeAccountIds, setActiveAccountIds] = useState([]);
   const [accounts, setAccounts] = useState([]);
-  const [trendMetric, setTrendMetric] = useState('views');
   const [platformDropdownOpen, setPlatformDropdownOpen] = useState(false);
+  const [contentRefreshing, setContentRefreshing] = useState(false);
   const platformDropdownRef = useRef(null);
 
   // Data
@@ -152,6 +152,20 @@ export default function Analytics() {
   useEffect(() => {
     fetchAllData();
   }, [dateRange, customStart, customEnd, filterMonth, filterYear, activeAccountIds.join(',')]);
+
+  // Auto-refresh content performance every 5 minutes
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchContentPerformance();
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [dateRange, customStart, customEnd, filterMonth, filterYear, activeAccountIds.join(',')]);
+
+  async function handleContentRefresh() {
+    setContentRefreshing(true);
+    await fetchContentPerformance();
+    setContentRefreshing(false);
+  }
 
   async function fetchAllData() {
     setLoading(true);
@@ -343,17 +357,6 @@ export default function Analytics() {
     else { setSortCol(col); setSortDir('desc'); }
   }
 
-  // ── Get trend metric value from a row ──
-  function getTrendValue(row) {
-    switch (trendMetric) {
-      case 'views': return row.total_views;
-      case 'revenue': return row.revenue_cents / 100;
-      case 'engagement': return row.avg_engagement_rate * 100;
-      case 'followers': return row.followers_eod;
-      default: return 0;
-    }
-  }
-
   return (
     <div style={styles.page}>
       {/* ── Top Bar ── */}
@@ -473,17 +476,17 @@ export default function Analytics() {
           <div style={styles.chartSection}>
             <div style={styles.chartHeader}>
               <span style={styles.chartTitle}>Trends</span>
-              <div style={{ display: 'flex', gap: '4px' }}>
+              <div style={{ display: 'flex', gap: '14px', alignItems: 'center' }}>
                 {TREND_METRICS.map(m => (
-                  <button key={m.key} onClick={() => setTrendMetric(m.key)}
-                    style={{ ...styles.metricChip, ...(trendMetric === m.key ? styles.metricChipActive : {}) }}>
-                    {m.label}
-                  </button>
+                  <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: m.color, flexShrink: 0 }} />
+                    <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>{m.label}</span>
+                  </div>
                 ))}
               </div>
             </div>
             {aggregatedTimeSeries.length > 0 ? (
-              <TrendChart data={aggregatedTimeSeries} getValue={getTrendValue} color="#6366f1" />
+              <TrendChart data={aggregatedTimeSeries} metrics={TREND_METRICS} />
             ) : (
               <p style={styles.emptyText}>No data for selected period</p>
             )}
@@ -511,7 +514,19 @@ export default function Analytics() {
 
           {/* ── E. Content Performance Table ── */}
           <div style={styles.tableHeader}>
-            <span style={styles.tableTitle}>Content Performance ({contentItems.length})</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={styles.tableTitle}>Content Performance ({contentItems.length})</span>
+              <button onClick={handleContentRefresh} disabled={contentRefreshing}
+                style={{
+                  background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer',
+                  fontSize: '16px', padding: '2px 6px', fontFamily: 'inherit', lineHeight: 1,
+                  animation: contentRefreshing ? 'spin 0.8s linear infinite' : 'none',
+                }}
+                title="Refresh content performance">
+                ↻
+              </button>
+              <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+            </div>
           </div>
           {sortedContent.length > 0 ? (
             <div style={styles.tableWrap}>
@@ -555,7 +570,12 @@ export default function Analytics() {
                             display: 'inline-block', padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600,
                             background: (meta.color || '#666') + '22', color: meta.color || '#999',
                           }}>
-                            {meta.label || platform}
+                            {(() => {
+                              const label = meta.label || platform;
+                              const acctName = item.platform_account?.account_name;
+                              if (acctName && acctName !== label && acctName.trim()) return `${label} · ${acctName}`;
+                              return label;
+                            })()}
                           </span>
                         </td>
                         <td style={styles.td}>
@@ -632,61 +652,132 @@ function KPICard({ label, value, change, changeLabel, color }) {
 }
 
 // ═══════════════════════════════════════════════
-// Trend Chart (SVG line graph)
+// Trend Chart (SVG multi-metric line graph)
 // ═══════════════════════════════════════════════
-function TrendChart({ data, getValue, color }) {
-  const W = 900, H = 260, PAD = { top: 20, right: 20, bottom: 40, left: 65 };
+function TrendChart({ data, metrics }) {
+  const [hoveredIndex, setHoveredIndex] = useState(null);
+  const W = 900, H = 280, PAD = { top: 20, right: 20, bottom: 40, left: 20 };
   const plotW = W - PAD.left - PAD.right;
   const plotH = H - PAD.top - PAD.bottom;
 
   if (!data.length) return null;
 
-  const values = data.map(d => getValue(d) || 0);
-  const maxVal = Math.max(...values, 1);
   const xStep = plotW / Math.max(data.length - 1, 1);
-  const yScale = plotH / maxVal;
 
-  const path = data.map((d, i) => {
-    const x = PAD.left + i * xStep;
-    const y = PAD.top + plotH - ((getValue(d) || 0) * yScale);
-    return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(' ');
-
-  // Area fill
-  const areaPath = path + ` L${(PAD.left + (data.length - 1) * xStep).toFixed(1)},${PAD.top + plotH} L${PAD.left},${PAD.top + plotH} Z`;
-
-  const yTicks = 5;
-  const yLabels = Array.from({ length: yTicks + 1 }, (_, i) => {
-    const val = (maxVal / yTicks) * i;
-    return { val, y: PAD.top + plotH - (val * yScale) };
+  // Compute per-metric max and build paths
+  const metricLines = metrics.map(m => {
+    const values = data.map(d => m.getValue(d));
+    const maxVal = Math.max(...values, 1);
+    const points = data.map((d, i) => {
+      const x = PAD.left + i * xStep;
+      const y = PAD.top + plotH - ((m.getValue(d) / maxVal) * plotH);
+      return { x, y };
+    });
+    const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+    const areaPath = path + ` L${points[points.length - 1].x.toFixed(1)},${PAD.top + plotH} L${PAD.left},${PAD.top + plotH} Z`;
+    return { ...m, values, maxVal, points, path, areaPath };
   });
 
-  const tickCount = Math.min(data.length, 10);
-  const tickInterval = Math.max(1, Math.floor(data.length / tickCount));
+  // Dynamic x-axis date formatting
+  const totalDays = data.length > 1
+    ? Math.ceil((new Date(data[data.length - 1].date) - new Date(data[0].date)) / 86400000)
+    : 1;
+  function formatDateLabel(dateStr) {
+    const d = new Date(dateStr + 'T00:00:00');
+    if (totalDays <= 31) {
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+    const yr = String(d.getFullYear()).slice(2);
+    return d.toLocaleDateString('en-US', { month: 'short' }) + " '" + yr;
+  }
+
+  const tickCount = Math.min(data.length, 8);
+  const tickInterval = Math.max(1, Math.floor((data.length - 1) / (tickCount - 1)));
+
+  // Grid lines
+  const gridLines = 4;
+  const gridYs = Array.from({ length: gridLines + 1 }, (_, i) => PAD.top + plotH - (plotH / gridLines) * i);
+
+  // Tooltip formatter
+  function formatMetricValue(m, val) {
+    if (m.key === 'revenue') return '$' + val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (m.key === 'engagement') return val.toFixed(2) + '%';
+    return formatCompact(val);
+  }
 
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxHeight: '280px' }}>
-        {yLabels.map((yl, i) => (
-          <g key={i}>
-            <line x1={PAD.left} y1={yl.y} x2={W - PAD.right} y2={yl.y} stroke="rgba(255,255,255,0.05)" />
-            <text x={PAD.left - 8} y={yl.y + 4} fill="rgba(255,255,255,0.3)" fontSize="10" textAnchor="end">
-              {formatCompact(yl.val)}
-            </text>
-          </g>
+    <div style={{ overflowX: 'auto', position: 'relative' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxHeight: '300px' }}
+        onMouseLeave={() => setHoveredIndex(null)}>
+        {/* Grid lines */}
+        {gridYs.map((y, i) => (
+          <line key={i} x1={PAD.left} y1={y} x2={W - PAD.right} y2={y} stroke="rgba(255,255,255,0.05)" />
         ))}
+        {/* X-axis labels */}
         {data.map((d, i) => {
-          if (i % tickInterval !== 0 && i !== data.length - 1) return null;
+          if (data.length <= 8) { /* show all */ }
+          else if (i !== 0 && i !== data.length - 1 && i % tickInterval !== 0) return null;
           const x = PAD.left + i * xStep;
           return (
             <text key={i} x={x} y={H - 8} fill="rgba(255,255,255,0.3)" fontSize="10" textAnchor="middle">
-              {new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              {formatDateLabel(d.date)}
             </text>
           );
         })}
-        <path d={areaPath} fill={color + '15'} />
-        <path d={path} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" />
+        {/* Area fills and lines for each metric */}
+        {metricLines.map(m => (
+          <g key={m.key}>
+            <path d={m.areaPath} fill={m.color + '10'} />
+            <path d={m.path} fill="none" stroke={m.color} strokeWidth="1.5" strokeLinejoin="round" opacity={hoveredIndex !== null ? 0.7 : 1} />
+          </g>
+        ))}
+        {/* Hover guide line */}
+        {hoveredIndex !== null && (
+          <line
+            x1={PAD.left + hoveredIndex * xStep} y1={PAD.top}
+            x2={PAD.left + hoveredIndex * xStep} y2={PAD.top + plotH}
+            stroke="rgba(255,255,255,0.2)" strokeWidth="1" strokeDasharray="4,3"
+          />
+        )}
+        {/* Hover dots */}
+        {hoveredIndex !== null && metricLines.map(m => (
+          <circle key={m.key} cx={m.points[hoveredIndex].x} cy={m.points[hoveredIndex].y}
+            r="3.5" fill={m.color} stroke="#12121f" strokeWidth="1.5" />
+        ))}
+        {/* Invisible hover rects */}
+        {data.map((d, i) => {
+          const x = PAD.left + i * xStep - xStep / 2;
+          return (
+            <rect key={i} x={Math.max(x, 0)} y={PAD.top} width={xStep} height={plotH}
+              fill="transparent" onMouseEnter={() => setHoveredIndex(i)} />
+          );
+        })}
       </svg>
+      {/* Tooltip */}
+      {hoveredIndex !== null && (
+        <div style={{
+          position: 'absolute',
+          top: '8px',
+          left: `${((PAD.left + hoveredIndex * xStep) / W) * 100}%`,
+          transform: hoveredIndex > data.length * 0.7 ? 'translateX(-110%)' : 'translateX(10px)',
+          background: 'rgba(18,18,31,0.95)', border: '1px solid rgba(255,255,255,0.12)',
+          borderRadius: '8px', padding: '10px 14px', zIndex: 10, pointerEvents: 'none',
+          minWidth: '140px', boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+        }}>
+          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '6px', fontWeight: 600 }}>
+            {new Date(data[hoveredIndex].date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+          </div>
+          {metricLines.map(m => (
+            <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
+              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: m.color, flexShrink: 0 }} />
+              <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', minWidth: '70px' }}>{m.label}</span>
+              <span style={{ fontSize: '12px', color: '#fff', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                {formatMetricValue(m, m.values[hoveredIndex])}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
