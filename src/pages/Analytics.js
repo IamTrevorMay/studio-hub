@@ -399,20 +399,26 @@ export default function Analytics() {
       .sort((a, b) => a.date.localeCompare(b.date));
   }, [timeSeries]);
 
-  // ── Account breakdown for donut ──
+  // ── Account breakdowns for donuts ──
   const platformBreakdown = useMemo(() => {
     const byAccount = {};
     for (const row of timeSeries) {
       const key = row.platform_account_id;
-      if (!byAccount[key]) byAccount[key] = { views: 0, platform: row.platform, name: row.account_name };
+      if (!byAccount[key]) byAccount[key] = { views: 0, revenue: 0, engagement: 0, followers: 0, _engCount: 0, platform: row.platform, name: row.account_name };
       byAccount[key].views += Number(row.total_views) || 0;
+      byAccount[key].revenue += Number(row.revenue_cents) || 0;
+      const eng = Number(row.avg_engagement_rate) || 0;
+      if (eng > 0) { byAccount[key].engagement += eng; byAccount[key]._engCount += 1; }
+      const fol = Number(row.followers_eod) || 0;
+      if (fol > 0) byAccount[key].followers = fol; // use latest non-zero value (overwritten as we iterate sorted by date)
     }
-    const total = Object.values(byAccount).reduce((s, v) => s + v.views, 0);
     return Object.entries(byAccount)
       .map(([id, info]) => ({
         platform: info.platform,
         views: info.views,
-        pct: total > 0 ? (info.views / total) * 100 : 0,
+        revenue: info.revenue,
+        engagement: info._engCount > 0 ? info.engagement / info._engCount : 0,
+        followers: info.followers,
         color: PLATFORM_META[info.platform]?.color || '#666',
         label: info.name || PLATFORM_META[info.platform]?.label || info.platform,
       }))
@@ -591,23 +597,98 @@ export default function Analytics() {
             )}
           </div>
 
-          {/* ── D. Platform Breakdown (Donut) ── */}
-          {platformBreakdown.length > 0 && platformBreakdown.some(p => p.views > 0) && (
-            <div style={styles.chartSection}>
-              <span style={styles.chartTitle}>Views by Platform</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '40px', marginTop: '16px', flexWrap: 'wrap' }}>
-                <DonutChart data={platformBreakdown} />
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {platformBreakdown.map(p => (
-                    <div key={p.platform} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <span style={{ width: '12px', height: '12px', borderRadius: '3px', background: p.color, flexShrink: 0 }} />
-                      <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', minWidth: '80px' }}>{p.label}</span>
-                      <span style={{ fontSize: '13px', fontWeight: 600, color: '#fff' }}>{formatCompact(p.views)}</span>
-                      <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)' }}>({p.pct.toFixed(1)}%)</span>
+          {/* ── D. Platform Breakdowns (Donuts) ── */}
+          {platformBreakdown.length > 0 && (
+            <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+              {/* Views */}
+              {platformBreakdown.some(p => p.views > 0) && (
+                <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px' }}>
+                  <span style={styles.chartTitle}>Views by Platform</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '24px', marginTop: '16px', flexWrap: 'wrap' }}>
+                    <DonutChart data={platformBreakdown} valueKey="views" centerLabel="total views" />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {platformBreakdown.filter(p => p.views > 0).map(p => {
+                        const total = platformBreakdown.reduce((s, x) => s + x.views, 0);
+                        return (
+                          <div key={p.label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: p.color, flexShrink: 0 }} />
+                            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', minWidth: '70px' }}>{p.label}</span>
+                            <span style={{ fontSize: '12px', fontWeight: 600, color: '#fff' }}>{formatCompact(p.views)}</span>
+                            <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>({(total > 0 ? (p.views / total) * 100 : 0).toFixed(1)}%)</span>
+                          </div>
+                        );
+                      })}
                     </div>
-                  ))}
+                  </div>
                 </div>
-              </div>
+              )}
+              {/* Revenue */}
+              {platformBreakdown.some(p => p.revenue > 0) && (
+                <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px' }}>
+                  <span style={styles.chartTitle}>Revenue by Platform</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '24px', marginTop: '16px', flexWrap: 'wrap' }}>
+                    <DonutChart data={platformBreakdown} valueKey="revenue" centerLabel="total revenue"
+                      formatValue={v => '$' + formatCompact(v / 100)} />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {platformBreakdown.filter(p => p.revenue > 0).map(p => {
+                        const total = platformBreakdown.reduce((s, x) => s + x.revenue, 0);
+                        return (
+                          <div key={p.label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: p.color, flexShrink: 0 }} />
+                            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', minWidth: '70px' }}>{p.label}</span>
+                            <span style={{ fontSize: '12px', fontWeight: 600, color: '#fff' }}>${(p.revenue / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>({(total > 0 ? (p.revenue / total) * 100 : 0).toFixed(1)}%)</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {/* Engagement */}
+              {platformBreakdown.some(p => p.engagement > 0) && (
+                <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px' }}>
+                  <span style={styles.chartTitle}>Engagement by Platform</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '24px', marginTop: '16px', flexWrap: 'wrap' }}>
+                    <DonutChart data={platformBreakdown.filter(p => p.engagement > 0)} valueKey="engagement" centerLabel="avg engagement"
+                      formatValue={v => {
+                        const avg = platformBreakdown.filter(p => p.engagement > 0).length;
+                        return avg > 0 ? ((v / avg) * 100).toFixed(2) + '%' : '0%';
+                      }} />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {platformBreakdown.filter(p => p.engagement > 0).map(p => (
+                        <div key={p.label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: p.color, flexShrink: 0 }} />
+                          <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', minWidth: '70px' }}>{p.label}</span>
+                          <span style={{ fontSize: '12px', fontWeight: 600, color: '#fff' }}>{(p.engagement * 100).toFixed(2)}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {/* Followers */}
+              {platformBreakdown.some(p => p.followers > 0) && (
+                <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px' }}>
+                  <span style={styles.chartTitle}>Followers by Platform</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '24px', marginTop: '16px', flexWrap: 'wrap' }}>
+                    <DonutChart data={platformBreakdown.filter(p => p.followers > 0)} valueKey="followers" centerLabel="total followers" />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {platformBreakdown.filter(p => p.followers > 0).map(p => {
+                        const total = platformBreakdown.filter(x => x.followers > 0).reduce((s, x) => s + x.followers, 0);
+                        return (
+                          <div key={p.label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: p.color, flexShrink: 0 }} />
+                            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', minWidth: '70px' }}>{p.label}</span>
+                            <span style={{ fontSize: '12px', fontWeight: 600, color: '#fff' }}>{formatCompact(p.followers)}</span>
+                            <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>({(total > 0 ? (p.followers / total) * 100 : 0).toFixed(1)}%)</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1028,7 +1109,7 @@ function AdvancedView({ accounts }) {
           values = Object.keys(byDate).sort().map((d, i) => {
             const rows = byDate[d];
             const val = metricDef.aggregate === 'avg' ? rows.reduce((s, r) => s + metricDef.getValue(r), 0) / rows.length : rows.reduce((s, r) => s + metricDef.getValue(r), 0);
-            return { dayIndex: i, value: val };
+            return { dayIndex: i, date: d, value: val };
           });
         } else if (metricDef.table === 'analytics_youtube_daily') {
           const { data } = await supabase.from('analytics_youtube_daily').select('*').gte('date', period.start).lt('date', period.end).order('date', { ascending: true });
@@ -1037,7 +1118,7 @@ function AdvancedView({ accounts }) {
           values = Object.keys(byDate).sort().map((d, i) => {
             const rows = byDate[d];
             const val = metricDef.aggregate === 'avg' ? rows.reduce((s, r) => s + metricDef.getValue(r), 0) / rows.length : rows.reduce((s, r) => s + metricDef.getValue(r), 0);
-            return { dayIndex: i, value: val };
+            return { dayIndex: i, date: d, value: val };
           });
         }
         return { ...period, values };
@@ -1366,9 +1447,17 @@ function ComparisonChart({ data, metricDef }) {
         {/* X-axis labels */}
         {Array.from({ length: maxDays }, (_, i) => {
           if (maxDays > 10 && i !== 0 && i !== maxDays - 1 && i % tickInterval !== 0) return null;
+          // Show date from the longest series if available
+          const longestSeries = series.reduce((a, b) => a.values.length >= b.values.length ? a : b, series[0]);
+          const dateStr = longestSeries?.values[i]?.date;
+          let label = `Day ${i}`;
+          if (dateStr) {
+            const d = new Date(dateStr + 'T00:00:00');
+            label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          }
           return (
             <text key={i} x={PAD.left + i * xStep} y={H - 8} fill="rgba(255,255,255,0.3)" fontSize="10" textAnchor="middle">
-              Day {i}
+              {label}
             </text>
           );
         })}
@@ -1410,18 +1499,20 @@ function ComparisonChart({ data, metricDef }) {
           borderRadius: '8px', padding: '10px 14px', zIndex: 10, pointerEvents: 'none',
           minWidth: '160px', boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
         }}>
-          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '6px', fontWeight: 600 }}>
-            Day {hoveredIndex}
-          </div>
           {series.map((s, si) => {
             const val = s.values[hoveredIndex];
+            const dateStr = val?.date;
+            const dateLabel = dateStr ? new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
             return (
-              <div key={si} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
-                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: s.color, flexShrink: 0 }} />
-                <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', minWidth: '90px' }}>{s.label}</span>
-                <span style={{ fontSize: '12px', color: '#fff', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-                  {val ? (metricDef ? metricDef.format(val.value) : formatCompact(val.value)) : '\u2014'}
-                </span>
+              <div key={si} style={{ marginBottom: si < series.length - 1 ? '6px' : 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: s.color, flexShrink: 0 }} />
+                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}>{s.label}</span>
+                  <span style={{ fontSize: '12px', color: '#fff', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                    {val ? (metricDef ? metricDef.format(val.value) : formatCompact(val.value)) : '\u2014'}
+                  </span>
+                </div>
+                {dateLabel && <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', marginLeft: '12px', marginTop: '1px' }}>{dateLabel}</div>}
               </div>
             );
           })}
@@ -1582,16 +1673,17 @@ function TrendChart({ data, metrics }) {
 // ═══════════════════════════════════════════════
 // Donut Chart (SVG)
 // ═══════════════════════════════════════════════
-function DonutChart({ data }) {
+function DonutChart({ data, valueKey = 'views', centerLabel = 'total views', formatValue }) {
   const size = 160;
   const cx = size / 2, cy = size / 2;
   const outerR = 70, innerR = 45;
-  const total = data.reduce((s, d) => s + d.views, 0);
+  const total = data.reduce((s, d) => s + (d[valueKey] || 0), 0);
   if (total === 0) return null;
 
   let cumAngle = -Math.PI / 2;
   const segments = data.map(d => {
-    const angle = (d.views / total) * 2 * Math.PI;
+    const val = d[valueKey] || 0;
+    const angle = (val / total) * 2 * Math.PI;
     const startAngle = cumAngle;
     cumAngle += angle;
     const endAngle = cumAngle;
@@ -1610,13 +1702,15 @@ function DonutChart({ data }) {
     return { ...d, path };
   });
 
+  const centerText = formatValue ? formatValue(total) : formatCompact(total);
+
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
       {segments.map((s, i) => (
         <path key={i} d={s.path} fill={s.color} stroke="#12121f" strokeWidth="1" />
       ))}
-      <text x={cx} y={cy - 6} textAnchor="middle" fill="#fff" fontSize="16" fontWeight="700">{formatCompact(total)}</text>
-      <text x={cx} y={cy + 12} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize="10">total views</text>
+      <text x={cx} y={cy - 6} textAnchor="middle" fill="#fff" fontSize="16" fontWeight="700">{centerText}</text>
+      <text x={cx} y={cy + 12} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize="10">{centerLabel}</text>
     </svg>
   );
 }
@@ -1720,10 +1814,18 @@ function DataInputSection({ profile, accounts }) {
         })}
       </div>
       {activeTab === 'youtube' && <YouTubeCSVUpload profile={profile} />}
-      {activeTab === 'tiktok' && <TikTokCSVUpload profile={profile} accounts={accounts} />}
-      {activeTab === 'instagram' && <ManualMetricsForm platform="instagram" fields={['views']} accounts={accounts} />}
-      {activeTab === 'facebook' && <ManualMetricsForm platform="facebook" fields={['views', 'revenue']} accounts={accounts} />}
-      {activeTab === 'substack' && <ManualMetricsForm platform="substack" fields={['views', 'revenue', 'subscribers']} accounts={accounts} />}
+      {activeTab === 'tiktok' && (
+        <div>
+          <TikTokCSVUpload profile={profile} accounts={accounts} />
+          <div style={{ marginTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '12px' }}>
+            <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Manual Input</span>
+            <ManualMetricsForm platform="tiktok" fields={['followers']} accounts={accounts} />
+          </div>
+        </div>
+      )}
+      {activeTab === 'instagram' && <ManualMetricsForm platform="instagram" fields={['views', 'followers']} accounts={accounts} />}
+      {activeTab === 'facebook' && <ManualMetricsForm platform="facebook" fields={['views', 'revenue', 'followers']} accounts={accounts} />}
+      {activeTab === 'substack' && <ManualMetricsForm platform="substack" fields={['views', 'revenue', 'supporters', 'followers']} accounts={accounts} />}
       {activeTab === 'twitch' && <ManualMetricsForm platform="twitch" fields={['revenue']} accounts={accounts} />}
     </div>
   );
@@ -1735,6 +1837,7 @@ function DataInputSection({ profile, accounts }) {
 function TikTokCSVUpload({ profile, accounts }) {
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState(null);
+  const [csvYear, setCsvYear] = useState(new Date().getFullYear());
   const fileInputRef = useRef(null);
 
   const tiktokAccount = accounts.find(a => a.platform === 'tiktok');
@@ -1757,7 +1860,7 @@ function TikTokCSVUpload({ profile, accounts }) {
 
       const rows = [];
       for (const row of parsed.rows) {
-        const date = parseDate(row['Date'] || row['date'] || row['DATE']);
+        const date = parseDate(row['Date'] || row['date'] || row['DATE'], csvYear);
         if (!date) continue;
         const views = parseNumber(row['Video Views'] || row['Views'] || row['Video views'] || row['views'] || '0');
         const likes = parseNumber(row['Likes'] || row['likes'] || '0');
@@ -1804,19 +1907,27 @@ function TikTokCSVUpload({ profile, accounts }) {
   return (
     <div>
       <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', margin: '0 0 10px' }}>
-        Upload a CSV exported from TikTok Studio. Expected columns: Date, Video Views, Likes, Comments, Shares.
+        Upload a CSV exported from TikTok Studio. Select the year for the data (TikTok CSVs don't include the year).
       </p>
       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-        {uploadResult && (
-          <span style={{ fontSize: '12px', fontWeight: 500, color: uploadResult.error ? '#f87171' : '#4ade80' }}>
-            {uploadResult.error ? `Error: ${uploadResult.error}` : `${uploadResult.count} rows imported`}
-          </span>
-        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Year</label>
+          <select value={csvYear} onChange={e => setCsvYear(Number(e.target.value))} style={{ ...styles.filterSelect, padding: '8px 10px' }}>
+            {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(y => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+        </div>
         <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
-          style={{ ...styles.uploadBtn, borderColor: color + '66', color }}>
+          style={{ ...styles.uploadBtn, borderColor: color + '66', color, alignSelf: 'flex-end' }}>
           {uploading ? 'Uploading...' : 'Upload TikTok CSV'}
         </button>
         <input ref={fileInputRef} type="file" accept=".csv" onChange={handleUpload} style={{ display: 'none' }} />
+        {uploadResult && (
+          <span style={{ fontSize: '12px', fontWeight: 500, color: uploadResult.error ? '#f87171' : '#4ade80', alignSelf: 'flex-end' }}>
+            {uploadResult.error ? `Error: ${uploadResult.error}` : `${uploadResult.count} rows imported`}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -1841,6 +1952,8 @@ function ManualMetricsForm({ platform, fields, accounts }) {
   const [views, setViews] = useState('');
   const [revenue, setRevenue] = useState('');
   const [subscribers, setSubscribers] = useState('');
+  const [followers, setFollowers] = useState('');
+  const [supporters, setSupporters] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
 
@@ -1861,6 +1974,8 @@ function ManualMetricsForm({ platform, fields, accounts }) {
   const hasViews = fields.includes('views');
   const hasRevenue = fields.includes('revenue');
   const hasSubscribers = fields.includes('subscribers');
+  const hasFollowers = fields.includes('followers');
+  const hasSupporters = fields.includes('supporters');
 
   async function loadEntries() {
     if (!account) return;
@@ -1883,7 +1998,7 @@ function ManualMetricsForm({ platform, fields, accounts }) {
 
       // Fetch audience_snapshots
       const { data: aud } = await supabase.from('audience_snapshots')
-        .select('id, date, followers_total')
+        .select('id, date, followers_total, metadata')
         .eq('platform_account_id', account.id)
         .order('date', { ascending: false })
         .limit(200);
@@ -1898,7 +2013,7 @@ function ManualMetricsForm({ platform, fields, accounts }) {
         if (d) byDate[d] = { ...byDate[d], date: d, rev_id: row.id, revenue_cents: row.net_amount_cents };
       }
       for (const row of (aud || [])) {
-        byDate[row.date] = { ...byDate[row.date], date: row.date, aud_id: row.id, followers_total: row.followers_total };
+        byDate[row.date] = { ...byDate[row.date], date: row.date, aud_id: row.id, followers_total: row.followers_total, supporters: row.metadata?.supporters };
       }
       setEntries(Object.values(byDate).sort((a, b) => b.date.localeCompare(a.date)));
     } catch (err) {
@@ -1938,7 +2053,7 @@ function ManualMetricsForm({ platform, fields, accounts }) {
         }
       }
       // Delete audience_snapshots
-      if (hasSubscribers) {
+      if (hasSubscribers || hasFollowers || hasSupporters) {
         const { data } = await supabase.from('audience_snapshots')
           .delete()
           .eq('platform_account_id', account.id)
@@ -2068,30 +2183,35 @@ function ManualMetricsForm({ platform, fields, accounts }) {
         }
       }
 
-      // Subscribers: use same total for each day (snapshot, not split)
-      if (hasSubscribers && subscribers) {
-        const subsNum = parseInt(subscribers, 10) || 0;
-        if (subsNum > 0) {
-          const rows = days.map(d => ({
+      // Followers / Supporters: audience_snapshots (snapshot, not split)
+      const hasFollowersVal = hasFollowers && followers;
+      const hasSupportersVal = hasSupporters && supporters;
+      if (hasFollowersVal || hasSupportersVal) {
+        const folNum = parseInt(followers, 10) || 0;
+        const supNum = parseInt(supporters, 10) || 0;
+        const rows = days.map(d => {
+          const row = {
             platform_account_id: account.id,
             date: d,
-            followers_total: subsNum,
             followers_gained: 0,
             demographics: {},
             metadata: { source: 'manual_input' },
-          }));
-          for (let i = 0; i < rows.length; i += 100) {
-            const batch = rows.slice(i, i + 100);
-            const { error } = await supabase.from('audience_snapshots')
-              .upsert(batch, { onConflict: 'platform_account_id,date' });
-            if (error) throw new Error(`Subscribers: ${error.message}`);
-          }
-          recordsProcessed += rows.length;
+          };
+          if (hasFollowersVal) row.followers_total = folNum;
+          if (hasSupportersVal) row.metadata.supporters = supNum;
+          return row;
+        });
+        for (let i = 0; i < rows.length; i += 100) {
+          const batch = rows.slice(i, i + 100);
+          const { error } = await supabase.from('audience_snapshots')
+            .upsert(batch, { onConflict: 'platform_account_id,date' });
+          if (error) throw new Error(`Audience: ${error.message}`);
         }
+        recordsProcessed += rows.length;
       }
 
       setResult({ success: true, days: numDays });
-      setViews(''); setRevenue(''); setSubscribers('');
+      setViews(''); setRevenue(''); setSubscribers(''); setFollowers(''); setSupporters('');
 
       if (logEntry?.id) await supabase.from('ingestion_logs').update({
         status: 'success', records_processed: recordsProcessed, records_created: recordsProcessed, completed_at: new Date().toISOString(),
@@ -2111,7 +2231,7 @@ function ManualMetricsForm({ platform, fields, accounts }) {
     <div>
       <form onSubmit={handleSubmit}>
         <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', margin: '0 0 10px' }}>
-          Enter totals for the date range. Views and revenue are split evenly across days. Subscribers are set as a snapshot for each day.
+          Enter totals for the date range. Views and revenue are split evenly across days. Followers{hasSupporters ? ' and supporters are' : ' is'} set as a snapshot for each day.
         </p>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -2145,6 +2265,22 @@ function ManualMetricsForm({ platform, fields, accounts }) {
               <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Subscribers</label>
               <input type="text" inputMode="numeric" pattern="[0-9]*" value={subscribers}
                 onChange={e => setSubscribers(e.target.value.replace(/[^0-9]/g, ''))}
+                placeholder="0" style={{ ...styles.filterInput, padding: '8px 10px', width: '120px' }} />
+            </div>
+          )}
+          {hasSupporters && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Supporters</label>
+              <input type="text" inputMode="numeric" pattern="[0-9]*" value={supporters}
+                onChange={e => setSupporters(e.target.value.replace(/[^0-9]/g, ''))}
+                placeholder="0" style={{ ...styles.filterInput, padding: '8px 10px', width: '120px' }} />
+            </div>
+          )}
+          {hasFollowers && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>{platform === 'substack' ? 'Subscribers' : 'Followers'}</label>
+              <input type="text" inputMode="numeric" pattern="[0-9]*" value={followers}
+                onChange={e => setFollowers(e.target.value.replace(/[^0-9]/g, ''))}
                 placeholder="0" style={{ ...styles.filterInput, padding: '8px 10px', width: '120px' }} />
             </div>
           )}
@@ -2214,7 +2350,8 @@ function ManualMetricsForm({ platform, fields, accounts }) {
                       <th style={{ padding: '6px 10px', textAlign: 'left', fontSize: '10px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0, background: '#1a1a2e' }}>Date</th>
                       {hasViews && <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0, background: '#1a1a2e' }}>Views</th>}
                       {hasRevenue && <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0, background: '#1a1a2e' }}>Revenue</th>}
-                      {hasSubscribers && <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0, background: '#1a1a2e' }}>Subs</th>}
+                      {hasSupporters && <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0, background: '#1a1a2e' }}>Supporters</th>}
+                      {(hasFollowers || hasSubscribers) && <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0, background: '#1a1a2e' }}>{platform === 'substack' ? 'Subs' : 'Followers'}</th>}
                       <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', color: 'rgba(255,255,255,0.4)', borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0, background: '#1a1a2e', width: '40px' }}></th>
                     </tr>
                   </thead>
@@ -2228,7 +2365,8 @@ function ManualMetricsForm({ platform, fields, accounts }) {
                         <td style={{ padding: '5px 10px', color: 'rgba(255,255,255,0.6)' }}>{entry.date}</td>
                         {hasViews && <td style={{ padding: '5px 10px', color: 'rgba(255,255,255,0.6)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{entry.views != null ? Number(entry.views).toLocaleString() : '—'}</td>}
                         {hasRevenue && <td style={{ padding: '5px 10px', color: 'rgba(255,255,255,0.6)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{entry.revenue_cents != null ? '$' + (entry.revenue_cents / 100).toFixed(2) : '—'}</td>}
-                        {hasSubscribers && <td style={{ padding: '5px 10px', color: 'rgba(255,255,255,0.6)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{entry.followers_total != null ? Number(entry.followers_total).toLocaleString() : '—'}</td>}
+                        {hasSupporters && <td style={{ padding: '5px 10px', color: 'rgba(255,255,255,0.6)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{entry.supporters != null ? Number(entry.supporters).toLocaleString() : '—'}</td>}
+                        {(hasFollowers || hasSubscribers) && <td style={{ padding: '5px 10px', color: 'rgba(255,255,255,0.6)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{entry.followers_total != null ? Number(entry.followers_total).toLocaleString() : '—'}</td>}
                         <td style={{ padding: '5px 10px', textAlign: 'right' }}>
                           <button onClick={() => handleDeleteSingleDay(entry)}
                             style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.25)', cursor: 'pointer', fontSize: '13px', padding: '2px 4px' }}
@@ -2465,13 +2603,29 @@ function mapVideoCSV(channel, parsed, userId) {
 // ═══════════════════════════════════════════════
 // Helpers (preserved from original)
 // ═══════════════════════════════════════════════
-function parseDate(val) {
+function parseDate(val, fallbackYear) {
   if (!val) return null;
   const s = String(val).trim();
-  const months = {jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
-  const m = s.match(/^([A-Za-z]{3})\s+(\d{1,2}),?\s+(\d{4})$/);
-  if (m && months[m[1].toLowerCase()]) return `${m[3]}-${months[m[1].toLowerCase()]}-${m[2].padStart(2,'0')}`;
+  const shortMonths = {jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
+  const fullMonths = {january:'01',february:'02',march:'03',april:'04',may:'05',june:'06',july:'07',august:'08',september:'09',october:'10',november:'11',december:'12'};
+  // "Jan 15, 2025" or "January 15, 2025"
+  const m = s.match(/^([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})$/);
+  if (m) {
+    const mm = shortMonths[m[1].toLowerCase().slice(0,3)];
+    if (mm) return `${m[3]}-${mm}-${m[2].padStart(2,'0')}`;
+  }
+  // "January 15" or "Jan 15" (no year — use fallbackYear or current year)
+  const mNoYear = s.match(/^([A-Za-z]+)\s+(\d{1,2})$/);
+  if (mNoYear) {
+    const mm = fullMonths[mNoYear[1].toLowerCase()] || shortMonths[mNoYear[1].toLowerCase().slice(0,3)];
+    if (mm) {
+      const yr = fallbackYear || new Date().getFullYear();
+      return `${yr}-${mm}-${mNoYear[2].padStart(2,'0')}`;
+    }
+  }
+  // "2025-01-15"
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+  // "1/15/2025" or "1-15-2025"
   const p = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
   if (p) { const y = p[3].length===2?'20'+p[3]:p[3]; return `${y}-${p[1].padStart(2,'0')}-${p[2].padStart(2,'0')}`; }
   return null;
