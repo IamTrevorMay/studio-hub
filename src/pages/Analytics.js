@@ -964,6 +964,7 @@ function ManualMetricsForm({ platform, fields, accounts }) {
   const [deleteEnd, setDeleteEnd] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [deleteResult, setDeleteResult] = useState(null);
+  const [selectedDates, setSelectedDates] = useState(new Set());
 
   const account = accounts.find(a => a.platform === platform);
   const meta = PLATFORM_META[platform] || {};
@@ -1074,9 +1075,45 @@ function ManualMetricsForm({ platform, fields, accounts }) {
       if (entry.rev_id) await supabase.from('revenue_events').delete().eq('id', entry.rev_id);
       if (entry.aud_id) await supabase.from('audience_snapshots').delete().eq('id', entry.aud_id);
       setEntries(prev => prev.filter(e => e.date !== entry.date));
+      setSelectedDates(prev => { const n = new Set(prev); n.delete(entry.date); return n; });
     } catch (err) {
       console.error('Delete error:', err);
     }
+  }
+
+  async function handleDeleteSelected() {
+    if (!account || selectedDates.size === 0) return;
+    if (!window.confirm(`Delete ${selectedDates.size} selected ${meta.label} entr${selectedDates.size === 1 ? 'y' : 'ies'}?`)) return;
+    setDeleting(true); setDeleteResult(null);
+    try {
+      const selected = entries.filter(e => selectedDates.has(e.date));
+      const pdmIds = selected.map(e => e.pdm_id).filter(Boolean);
+      const revIds = selected.map(e => e.rev_id).filter(Boolean);
+      const audIds = selected.map(e => e.aud_id).filter(Boolean);
+      let deleted = 0;
+      if (pdmIds.length) { const { data } = await supabase.from('platform_daily_metrics').delete().in('id', pdmIds).select('id'); deleted += data?.length || 0; }
+      if (revIds.length) { const { data } = await supabase.from('revenue_events').delete().in('id', revIds).select('id'); deleted += data?.length || 0; }
+      if (audIds.length) { const { data } = await supabase.from('audience_snapshots').delete().in('id', audIds).select('id'); deleted += data?.length || 0; }
+      setEntries(prev => prev.filter(e => !selectedDates.has(e.date)));
+      setSelectedDates(new Set());
+      setDeleteResult({ success: true, count: deleted });
+    } catch (err) {
+      setDeleteResult({ error: err.message });
+    }
+    setDeleting(false);
+  }
+
+  function toggleSelectDate(date) {
+    setSelectedDates(prev => {
+      const n = new Set(prev);
+      if (n.has(date)) n.delete(date); else n.add(date);
+      return n;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selectedDates.size === entries.length) setSelectedDates(new Set());
+    else setSelectedDates(new Set(entries.map(e => e.date)));
   }
 
   async function handleSubmit(e) {
@@ -1259,6 +1296,12 @@ function ManualMetricsForm({ platform, fields, accounts }) {
                 style={{ padding: '6px 14px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '6px', color: '#f87171', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', opacity: deleting ? 0.5 : 1 }}>
                 {deleting ? 'Deleting...' : 'Delete Range'}
               </button>
+              {selectedDates.size > 0 && (
+                <button onClick={handleDeleteSelected} disabled={deleting}
+                  style={{ padding: '6px 14px', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: '6px', color: '#f87171', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', opacity: deleting ? 0.5 : 1 }}>
+                  {deleting ? 'Deleting...' : `Delete Selected (${selectedDates.size})`}
+                </button>
+              )}
               {deleteResult && (
                 <span style={{ fontSize: '11px', fontWeight: 500, color: deleteResult.error ? '#f87171' : '#4ade80' }}>
                   {deleteResult.error ? deleteResult.error : `${deleteResult.count} record${deleteResult.count !== 1 ? 's' : ''} deleted`}
@@ -1276,6 +1319,10 @@ function ManualMetricsForm({ platform, fields, accounts }) {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                   <thead>
                     <tr>
+                      <th style={{ padding: '6px 6px 6px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0, background: '#1a1a2e', width: '28px' }}>
+                        <input type="checkbox" checked={selectedDates.size === entries.length && entries.length > 0} onChange={toggleSelectAll}
+                          style={{ cursor: 'pointer', accentColor: color }} />
+                      </th>
                       <th style={{ padding: '6px 10px', textAlign: 'left', fontSize: '10px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0, background: '#1a1a2e' }}>Date</th>
                       {hasViews && <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0, background: '#1a1a2e' }}>Views</th>}
                       {hasRevenue && <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0, background: '#1a1a2e' }}>Revenue</th>}
@@ -1285,7 +1332,11 @@ function ManualMetricsForm({ platform, fields, accounts }) {
                   </thead>
                   <tbody>
                     {entries.map(entry => (
-                      <tr key={entry.date} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                      <tr key={entry.date} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', background: selectedDates.has(entry.date) ? 'rgba(255,255,255,0.03)' : 'transparent' }}>
+                        <td style={{ padding: '5px 6px 5px 10px' }}>
+                          <input type="checkbox" checked={selectedDates.has(entry.date)} onChange={() => toggleSelectDate(entry.date)}
+                            style={{ cursor: 'pointer', accentColor: color }} />
+                        </td>
                         <td style={{ padding: '5px 10px', color: 'rgba(255,255,255,0.6)' }}>{entry.date}</td>
                         {hasViews && <td style={{ padding: '5px 10px', color: 'rgba(255,255,255,0.6)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{entry.views != null ? Number(entry.views).toLocaleString() : '—'}</td>}
                         {hasRevenue && <td style={{ padding: '5px 10px', color: 'rgba(255,255,255,0.6)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{entry.revenue_cents != null ? '$' + (entry.revenue_cents / 100).toFixed(2) : '—'}</td>}
