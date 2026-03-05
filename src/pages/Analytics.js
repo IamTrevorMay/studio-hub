@@ -155,19 +155,23 @@ export default function Analytics() {
     const { data: prevRollups } = await pq;
 
     // Revenue
-    const { data: revenue } = await supabase
+    let rq = supabase
       .from('revenue_events')
       .select('net_amount_cents, event_type')
       .gte('occurred_at', start)
       .lte('occurred_at', end)
       .in('event_type', ['charge', 'subscription_renewal']);
+    if (activeAccountIds.length > 0) rq = rq.in('platform_account_id', activeAccountIds);
+    const { data: revenue } = await rq;
 
-    const { data: prevRevenue } = await supabase
+    let prq = supabase
       .from('revenue_events')
       .select('net_amount_cents')
       .gte('occurred_at', prevStart)
       .lt('occurred_at', start)
       .in('event_type', ['charge', 'subscription_renewal']);
+    if (activeAccountIds.length > 0) prq = prq.in('platform_account_id', activeAccountIds);
+    const { data: prevRevenue } = await prq;
 
     // Audience
     const { data: latestAudience } = await supabase
