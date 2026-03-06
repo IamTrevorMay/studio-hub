@@ -218,6 +218,10 @@ export default function Analytics() {
   const [ingestionLogs, setIngestionLogs] = useState([]);
   const [viewMode, setViewMode] = useState('dashboard');
 
+  // Analysis tools
+  const [showAnalysis, setShowAnalysis] = useState(false);
+  const [analysisData, setAnalysisData] = useState({ revenue: [], contentWithMetrics: [], audienceSnapshots: [] });
+
   // Close platform dropdown on outside click
   useEffect(() => {
     function handleClick(e) {
@@ -269,8 +273,41 @@ export default function Analytics() {
       fetchKPI(),
       fetchTimeSeries(),
       fetchContentPerformance(),
+      fetchAnalysisData(),
     ]);
     setLoading(false);
+  }
+
+  async function fetchAnalysisData() {
+    const { start, end } = getDateRange(dateRange, customStart, customEnd, filterMonth, filterYear);
+    const [revResult, contentResult, audResult] = await Promise.all([
+      // Revenue by account
+      supabase
+        .from('revenue_events')
+        .select('platform_account_id, amount_cents, net_amount_cents, event_type')
+        .gte('occurred_at', start)
+        .lte('occurred_at', end + 'T23:59:59')
+        .in('event_type', ['charge', 'subscription_renewal']),
+      // Content items with metrics
+      supabase
+        .from('content_items')
+        .select('id, title, published_at, platform_account_id, url, platform_account:platform_accounts(platform, account_name), latest_metrics:content_metrics(views, likes, comments, shares, engagement_rate)')
+        .gte('published_at', start)
+        .lte('published_at', end + 'T23:59:59')
+        .order('published_at', { ascending: false })
+        .limit(500),
+      // Audience snapshots for follower growth
+      supabase
+        .from('audience_snapshots')
+        .select('date, followers_gained, platform_account_id')
+        .gte('date', start)
+        .lte('date', end),
+    ]);
+    setAnalysisData({
+      revenue: revResult.data || [],
+      contentWithMetrics: contentResult.data || [],
+      audienceSnapshots: audResult.data || [],
+    });
   }
 
   async function fetchKPI() {
@@ -792,6 +829,25 @@ export default function Analytics() {
                   </div>
                 )}
               </>
+            )}
+          </div>
+
+          {/* ── Analysis Tools ── */}
+          <div style={{ marginTop: '16px' }}>
+            <button onClick={() => setShowAnalysis(!showAnalysis)} style={styles.collapseBtn}>
+              {showAnalysis ? '▾' : '▸'} Analysis Tools
+            </button>
+            {showAnalysis && (
+              <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '0px' }}>
+                <RPMCard revenueData={analysisData.revenue} timeSeries={timeSeries} accounts={accounts} />
+                <PublishHeatmap contentItems={analysisData.contentWithMetrics} />
+                <ContentVelocityChart contentItems={analysisData.contentWithMetrics} />
+                <FrequencyGrowthChart
+                  contentItems={analysisData.contentWithMetrics}
+                  audienceSnapshots={analysisData.audienceSnapshots}
+                  accounts={accounts}
+                />
+              </div>
             )}
           </div>
         </>
@@ -2746,6 +2802,532 @@ function parseNumber(val) {
   const n = Number(String(val).replace(/[,%$]/g,'').trim());
   return isNaN(n)?null:n;
 }
+
+// ═══════════════════════════════════════════════
+// RPM Card
+// ═══════════════════════════════════════════════
+function RPMCard({ revenueData, timeSeries, accounts }) {
+  const revenueByAccount = {};
+  for (const r of revenueData) {
+    if (!revenueByAccount[r.platform_account_id]) revenueByAccount[r.platform_account_id] = 0;
+    revenueByAccount[r.platform_account_id] += (r.net_amount_cents || r.amount_cents || 0);
+  }
+
+  const viewsByAccount = {};
+  for (const r of timeSeries) {
+    if (!viewsByAccount[r.platform_account_id]) viewsByAccount[r.platform_account_id] = 0;
+    viewsByAccount[r.platform_account_id] += Number(r.total_views) || 0;
+  }
+
+  const rows = Object.entries(revenueByAccount)
+    .filter(([, cents]) => cents > 0)
+    .map(([accountId, cents]) => {
+      const acct = accounts.find(a => a.id === accountId);
+      const platform = acct?.platform || 'unknown';
+      const meta = PLATFORM_META[platform] || { label: platform, color: '#666' };
+      const views = viewsByAccount[accountId] || 0;
+      const revenue = cents / 100;
+      const rpm = views > 0 ? (revenue / (views / 1000)) : 0;
+      return { accountId, name: acct?.account_name || meta.label, platform, color: meta.color, revenue, views, rpm };
+    })
+    .sort((a, b) => b.revenue - a.revenue);
+
+  if (rows.length === 0) return null;
+
+  const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0);
+  const totalViews = rows.reduce((s, r) => s + r.views, 0);
+  const blendedRpm = totalViews > 0 ? (totalRevenue / (totalViews / 1000)) : 0;
+  const maxRevenue = Math.max(...rows.map(r => r.revenue));
+
+  return (
+    <div style={{ ...analysisStyles.card, borderLeft: '3px solid #f59e0b' }}>
+      <div style={analysisStyles.cardHeader}>
+        <span style={{ ...analysisStyles.cardTitle, color: '#f59e0b' }}>Revenue per 1K Views (RPM)</span>
+        <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)' }}>
+          Blended RPM: <strong style={{ color: '#f59e0b' }}>${blendedRpm.toFixed(2)}</strong>
+        </span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '12px' }}>
+        {rows.map(r => (
+          <div key={r.accountId} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: r.color, flexShrink: 0 }} />
+            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', minWidth: '120px', flexShrink: 0 }}>{r.name}</span>
+            <div style={{ flex: 1, position: 'relative', height: '22px', background: 'rgba(255,255,255,0.03)', borderRadius: '4px', overflow: 'hidden' }}>
+              <div style={{
+                height: '100%', borderRadius: '4px',
+                background: `linear-gradient(90deg, ${r.color}44, ${r.color}88)`,
+                width: `${maxRevenue > 0 ? (r.revenue / maxRevenue) * 100 : 0}%`,
+                transition: 'width 0.3s ease',
+              }} />
+              <span style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', color: '#fff', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                ${r.revenue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+              </span>
+            </div>
+            <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', minWidth: '70px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+              {formatCompact(r.views)} views
+            </span>
+            <span style={{ fontSize: '12px', fontWeight: 700, color: '#f59e0b', minWidth: '65px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+              ${r.rpm.toFixed(2)}/1K
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════
+// Publish Time Heatmap
+// ═══════════════════════════════════════════════
+function PublishHeatmap({ contentItems }) {
+  const [hoveredCell, setHoveredCell] = useState(null);
+
+  const grid = {};
+  for (const item of contentItems) {
+    if (!item.published_at) continue;
+    const dt = new Date(item.published_at);
+    const day = dt.getUTCDay(); // 0=Sun
+    const hour = dt.getUTCHours();
+    const key = `${day}-${hour}`;
+    if (!grid[key]) grid[key] = { count: 0, totalViews: 0 };
+    grid[key].count += 1;
+    const views = item.latest_metrics?.[0]?.views || 0;
+    grid[key].totalViews += Number(views);
+  }
+
+  const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const cellW = 28, cellH = 24, labelW = 36, labelH = 20;
+  const W = labelW + 24 * cellW + 4;
+  const H = labelH + 7 * cellH + 4;
+
+  let maxAvg = 0;
+  for (const cell of Object.values(grid)) {
+    const avg = cell.count > 0 ? cell.totalViews / cell.count : 0;
+    if (avg > maxAvg) maxAvg = avg;
+  }
+
+  function cellColor(day, hour) {
+    const cell = grid[`${day}-${hour}`];
+    if (!cell || cell.count === 0) return 'rgba(255,255,255,0.02)';
+    const avg = cell.totalViews / cell.count;
+    const intensity = maxAvg > 0 ? avg / maxAvg : 0;
+    if (intensity < 0.25) return `rgba(99,102,241,${0.15 + intensity * 0.6})`;
+    if (intensity < 0.5) return `rgba(139,92,246,${0.3 + intensity * 0.5})`;
+    if (intensity < 0.75) return `rgba(245,158,11,${0.4 + intensity * 0.4})`;
+    return `rgba(250,204,21,${0.5 + intensity * 0.4})`;
+  }
+
+  return (
+    <div style={{ ...analysisStyles.card, borderLeft: '3px solid #8b5cf6' }}>
+      <span style={{ ...analysisStyles.cardTitle, color: '#8b5cf6' }}>Best Publish Time</span>
+      <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', margin: '4px 0 12px' }}>Average views by day of week and hour (UTC). Brighter = more views.</p>
+      <div style={{ overflowX: 'auto', position: 'relative' }}>
+        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxHeight: '240px' }}>
+          {/* Hour labels */}
+          {Array.from({ length: 24 }, (_, h) => (
+            <text key={h} x={labelW + h * cellW + cellW / 2} y={labelH - 4}
+              fill="rgba(255,255,255,0.3)" fontSize="9" textAnchor="middle">{h}</text>
+          ))}
+          {/* Day labels + cells */}
+          {dayLabels.map((label, d) => (
+            <g key={d}>
+              <text x={labelW - 6} y={labelH + d * cellH + cellH / 2 + 3}
+                fill="rgba(255,255,255,0.4)" fontSize="10" textAnchor="end">{label}</text>
+              {Array.from({ length: 24 }, (_, h) => {
+                const cell = grid[`${d}-${h}`];
+                return (
+                  <rect key={h}
+                    x={labelW + h * cellW + 1} y={labelH + d * cellH + 1}
+                    width={cellW - 2} height={cellH - 2}
+                    rx="3" fill={cellColor(d, h)}
+                    stroke={hoveredCell === `${d}-${h}` ? 'rgba(255,255,255,0.4)' : 'transparent'}
+                    strokeWidth="1"
+                    onMouseEnter={() => setHoveredCell(`${d}-${h}`)}
+                    onMouseLeave={() => setHoveredCell(null)}
+                    style={{ cursor: 'default' }}
+                  />
+                );
+              })}
+            </g>
+          ))}
+        </svg>
+        {hoveredCell && (() => {
+          const [d, h] = hoveredCell.split('-').map(Number);
+          const cell = grid[hoveredCell];
+          const count = cell?.count || 0;
+          const avg = count > 0 ? Math.round(cell.totalViews / count) : 0;
+          return (
+            <div style={{
+              position: 'absolute', top: '4px', right: '8px',
+              background: 'rgba(18,18,31,0.95)', border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: '8px', padding: '8px 12px', pointerEvents: 'none',
+              fontSize: '11px', color: 'rgba(255,255,255,0.6)',
+            }}>
+              <strong style={{ color: '#fff' }}>{dayLabels[d]} {h}:00 UTC</strong>
+              <br />{count} post{count !== 1 ? 's' : ''} — avg {formatCompact(avg)} views
+            </div>
+          );
+        })()}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════
+// Content Velocity Scatter Plot
+// ═══════════════════════════════════════════════
+function ContentVelocityChart({ contentItems }) {
+  const [hoveredDot, setHoveredDot] = useState(null);
+  const now = new Date();
+
+  const dots = contentItems
+    .filter(item => item.published_at && item.latest_metrics?.[0]?.views)
+    .map(item => {
+      const published = new Date(item.published_at);
+      const daysOld = Math.max(1, Math.round((now - published) / 86400000));
+      const views = Number(item.latest_metrics[0].views) || 0;
+      const platform = item.platform_account?.platform || 'unknown';
+      const meta = PLATFORM_META[platform] || { label: platform, color: '#666' };
+      return {
+        id: item.id, title: item.title || '(Untitled)', daysOld, views,
+        platform, color: meta.color, label: meta.label,
+        accountName: item.platform_account?.account_name || meta.label,
+      };
+    })
+    .filter(d => d.views > 0);
+
+  if (dots.length === 0) return null;
+
+  const W = 900, H = 340, PAD = { top: 30, right: 30, bottom: 50, left: 60 };
+  const plotW = W - PAD.left - PAD.right;
+  const plotH = H - PAD.top - PAD.bottom;
+
+  const maxDays = Math.max(...dots.map(d => d.daysOld));
+  const maxViews = Math.max(...dots.map(d => d.views));
+  const logMax = Math.log10(Math.max(maxViews, 10));
+  const logMin = 0;
+
+  function xPos(days) { return PAD.left + (days / maxDays) * plotW; }
+  function yPos(views) {
+    const logVal = views > 0 ? Math.log10(views) : 0;
+    return PAD.top + plotH - ((logVal - logMin) / (logMax - logMin)) * plotH;
+  }
+
+  // Y-axis ticks (powers of 10)
+  const yTicks = [];
+  for (let p = 0; p <= Math.ceil(logMax); p++) {
+    yTicks.push(Math.pow(10, p));
+  }
+
+  // X-axis ticks
+  const xTickCount = Math.min(8, maxDays);
+  const xTickInterval = Math.max(1, Math.ceil(maxDays / xTickCount));
+  const xTicks = [];
+  for (let t = 0; t <= maxDays; t += xTickInterval) xTicks.push(t);
+
+  // Legend - unique platforms
+  const platforms = [...new Set(dots.map(d => d.platform))];
+
+  return (
+    <div style={{ ...analysisStyles.card, borderLeft: '3px solid #3b82f6' }}>
+      <div style={analysisStyles.cardHeader}>
+        <span style={{ ...analysisStyles.cardTitle, color: '#3b82f6' }}>Content Velocity</span>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          {platforms.map(p => {
+            const meta = PLATFORM_META[p] || { label: p, color: '#666' };
+            return (
+              <div key={p} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: meta.color }} />
+                <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>{meta.label}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', margin: '4px 0 12px' }}>
+        Total views vs days since publish. Dots higher and to the left gained traction fastest.
+      </p>
+      <div style={{ overflowX: 'auto', position: 'relative' }}>
+        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxHeight: '360px' }}
+          onMouseLeave={() => setHoveredDot(null)}>
+          {/* Grid */}
+          {yTicks.map(t => {
+            const y = yPos(t);
+            if (y < PAD.top || y > PAD.top + plotH) return null;
+            return (
+              <g key={t}>
+                <line x1={PAD.left} y1={y} x2={W - PAD.right} y2={y} stroke="rgba(255,255,255,0.05)" />
+                <text x={PAD.left - 8} y={y + 3} fill="rgba(255,255,255,0.3)" fontSize="10" textAnchor="end">
+                  {formatCompact(t)}
+                </text>
+              </g>
+            );
+          })}
+          {/* X axis labels */}
+          {xTicks.map(t => {
+            const x = xPos(t);
+            return (
+              <text key={t} x={x} y={H - 12} fill="rgba(255,255,255,0.3)" fontSize="10" textAnchor="middle">
+                {t}d
+              </text>
+            );
+          })}
+          {/* Axis labels */}
+          <text x={W / 2} y={H - 0} fill="rgba(255,255,255,0.25)" fontSize="10" textAnchor="middle">Days since publish</text>
+          <text x={14} y={H / 2} fill="rgba(255,255,255,0.25)" fontSize="10" textAnchor="middle" transform={`rotate(-90, 14, ${H / 2})`}>Views (log scale)</text>
+          {/* Dots */}
+          {dots.map((d, i) => (
+            <circle key={d.id}
+              cx={xPos(d.daysOld)} cy={yPos(d.views)}
+              r={hoveredDot === i ? 6 : 4}
+              fill={d.color} fillOpacity={hoveredDot === i ? 1 : 0.7}
+              stroke={hoveredDot === i ? '#fff' : d.color} strokeWidth={hoveredDot === i ? 2 : 0.5}
+              onMouseEnter={() => setHoveredDot(i)}
+              style={{ cursor: 'pointer', transition: 'r 0.15s' }}
+            />
+          ))}
+        </svg>
+        {hoveredDot !== null && dots[hoveredDot] && (() => {
+          const d = dots[hoveredDot];
+          const xPct = (xPos(d.daysOld) / W) * 100;
+          return (
+            <div style={{
+              position: 'absolute', top: '8px',
+              left: `${xPct}%`,
+              transform: xPct > 70 ? 'translateX(-110%)' : 'translateX(10px)',
+              background: 'rgba(18,18,31,0.95)', border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: '8px', padding: '10px 14px', pointerEvents: 'none',
+              maxWidth: '280px', zIndex: 10, boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+            }}>
+              <div style={{ fontSize: '12px', fontWeight: 600, color: '#fff', marginBottom: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {d.title}
+              </div>
+              <div style={{ display: 'flex', gap: '8px', fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}>
+                <span style={{ color: d.color }}>{d.label}</span>
+                <span>{formatCompact(d.views)} views</span>
+                <span>{d.daysOld}d old</span>
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════
+// Upload Frequency vs Growth
+// ═══════════════════════════════════════════════
+function FrequencyGrowthChart({ contentItems, audienceSnapshots, accounts }) {
+  // Group content by ISO week
+  const weekPosts = {};
+  for (const item of contentItems) {
+    if (!item.published_at) continue;
+    const dt = new Date(item.published_at);
+    const week = getISOWeekKey(dt);
+    if (!weekPosts[week]) weekPosts[week] = { count: 0, byPlatform: {} };
+    weekPosts[week].count += 1;
+    const platform = (() => {
+      const acct = accounts.find(a => a.id === item.platform_account_id);
+      return acct?.platform || 'unknown';
+    })();
+    weekPosts[week].byPlatform[platform] = (weekPosts[week].byPlatform[platform] || 0) + 1;
+  }
+
+  // Group follower gains by ISO week
+  const weekFollowers = {};
+  for (const snap of audienceSnapshots) {
+    if (!snap.date) continue;
+    const dt = new Date(snap.date + 'T00:00:00');
+    const week = getISOWeekKey(dt);
+    if (!weekFollowers[week]) weekFollowers[week] = 0;
+    weekFollowers[week] += Number(snap.followers_gained) || 0;
+  }
+
+  // Merge weeks
+  const allWeeks = [...new Set([...Object.keys(weekPosts), ...Object.keys(weekFollowers)])].sort();
+  if (allWeeks.length < 2) return null;
+
+  const data = allWeeks.map(week => ({
+    week,
+    posts: weekPosts[week]?.count || 0,
+    byPlatform: weekPosts[week]?.byPlatform || {},
+    followersGained: weekFollowers[week] || 0,
+  }));
+
+  const W = 900, H = 300, PAD = { top: 30, right: 60, bottom: 45, left: 50 };
+  const plotW = W - PAD.left - PAD.right;
+  const plotH = H - PAD.top - PAD.bottom;
+
+  const maxPosts = Math.max(...data.map(d => d.posts), 1);
+  const maxFol = Math.max(...data.map(d => Math.abs(d.followersGained)), 1);
+  const minFol = Math.min(...data.map(d => d.followersGained), 0);
+  const folRange = Math.max(maxFol, Math.abs(minFol)) || 1;
+
+  const barW = Math.min(plotW / data.length * 0.6, 40);
+  const xStep = plotW / Math.max(data.length - 1, 1);
+
+  // Platforms for stacked bars
+  const allPlatforms = [...new Set(data.flatMap(d => Object.keys(d.byPlatform)))];
+
+  // Line path for followers
+  const linePoints = data.map((d, i) => {
+    const x = PAD.left + i * xStep;
+    const y = PAD.top + plotH / 2 - (d.followersGained / folRange) * (plotH / 2);
+    return { x, y };
+  });
+  const linePath = linePoints.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+
+  // Zero line for followers
+  const zeroY = PAD.top + plotH / 2;
+
+  const [hoveredWeek, setHoveredWeek] = useState(null);
+
+  // X-axis tick filtering
+  const tickCount = Math.min(data.length, 10);
+  const tickInterval = Math.max(1, Math.floor(data.length / tickCount));
+
+  return (
+    <div style={{ ...analysisStyles.card, borderLeft: '3px solid #22c55e' }}>
+      <div style={analysisStyles.cardHeader}>
+        <span style={{ ...analysisStyles.cardTitle, color: '#22c55e' }}>Upload Frequency vs Growth</span>
+        <div style={{ display: 'flex', gap: '16px', fontSize: '11px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span style={{ width: '12px', height: '8px', borderRadius: '2px', background: 'rgba(99,102,241,0.6)' }} />
+            <span style={{ color: 'rgba(255,255,255,0.4)' }}>Posts/week</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span style={{ width: '12px', height: '2px', background: '#22c55e' }} />
+            <span style={{ color: 'rgba(255,255,255,0.4)' }}>Followers gained</span>
+          </div>
+        </div>
+      </div>
+      <div style={{ overflowX: 'auto', position: 'relative' }}>
+        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxHeight: '320px' }}
+          onMouseLeave={() => setHoveredWeek(null)}>
+          {/* Grid */}
+          {[0, 0.25, 0.5, 0.75, 1].map(pct => {
+            const y = PAD.top + plotH * pct;
+            return <line key={pct} x1={PAD.left} y1={y} x2={W - PAD.right} y2={y} stroke="rgba(255,255,255,0.04)" />;
+          })}
+          {/* Zero line */}
+          <line x1={PAD.left} y1={zeroY} x2={W - PAD.right} y2={zeroY} stroke="rgba(255,255,255,0.1)" strokeDasharray="4,3" />
+          {/* Left Y axis labels (posts) */}
+          {[0, Math.round(maxPosts / 2), maxPosts].map(v => {
+            const y = PAD.top + plotH - (v / maxPosts) * plotH;
+            return <text key={v} x={PAD.left - 8} y={y + 3} fill="rgba(99,102,241,0.5)" fontSize="10" textAnchor="end">{v}</text>;
+          })}
+          {/* Right Y axis labels (followers) */}
+          {[folRange, 0, -folRange].map((v, i) => {
+            const y = PAD.top + (i / 2) * plotH;
+            return <text key={i} x={W - PAD.right + 8} y={y + 3} fill="rgba(34,197,94,0.5)" fontSize="10" textAnchor="start">{v >= 0 ? '+' : ''}{formatCompact(v)}</text>;
+          })}
+          {/* Stacked bars */}
+          {data.map((d, i) => {
+            const x = PAD.left + i * xStep - barW / 2;
+            const totalBarH = (d.posts / maxPosts) * plotH;
+            let cumH = 0;
+            return (
+              <g key={i}>
+                {allPlatforms.map(platform => {
+                  const count = d.byPlatform[platform] || 0;
+                  if (count === 0) return null;
+                  const segH = (count / maxPosts) * plotH;
+                  const meta = PLATFORM_META[platform] || { color: '#666' };
+                  const barY = PAD.top + plotH - cumH - segH;
+                  cumH += segH;
+                  return (
+                    <rect key={platform} x={x} y={barY} width={barW} height={segH}
+                      fill={meta.color} fillOpacity={0.6} rx="2" />
+                  );
+                })}
+              </g>
+            );
+          })}
+          {/* Followers line */}
+          <path d={linePath} fill="none" stroke="#22c55e" strokeWidth="2" strokeLinejoin="round" />
+          {linePoints.map((p, i) => (
+            <circle key={i} cx={p.x} cy={p.y} r={hoveredWeek === i ? 4 : 2.5}
+              fill="#22c55e" stroke="#12121f" strokeWidth="1" />
+          ))}
+          {/* X-axis labels */}
+          {data.map((d, i) => {
+            if (data.length > 10 && i !== 0 && i !== data.length - 1 && i % tickInterval !== 0) return null;
+            const x = PAD.left + i * xStep;
+            return (
+              <text key={i} x={x} y={H - 8} fill="rgba(255,255,255,0.3)" fontSize="9" textAnchor="middle"
+                transform={`rotate(-30, ${x}, ${H - 8})`}>
+                {d.week}
+              </text>
+            );
+          })}
+          {/* Hover guide */}
+          {hoveredWeek !== null && (
+            <line x1={PAD.left + hoveredWeek * xStep} y1={PAD.top}
+              x2={PAD.left + hoveredWeek * xStep} y2={PAD.top + plotH}
+              stroke="rgba(255,255,255,0.15)" strokeWidth="1" strokeDasharray="4,3" />
+          )}
+          {/* Invisible hover rects */}
+          {data.map((d, i) => (
+            <rect key={i} x={PAD.left + i * xStep - xStep / 2} y={PAD.top}
+              width={xStep} height={plotH} fill="transparent"
+              onMouseEnter={() => setHoveredWeek(i)} />
+          ))}
+        </svg>
+        {hoveredWeek !== null && data[hoveredWeek] && (() => {
+          const d = data[hoveredWeek];
+          const xPct = ((PAD.left + hoveredWeek * xStep) / W) * 100;
+          return (
+            <div style={{
+              position: 'absolute', top: '8px',
+              left: `${xPct}%`,
+              transform: xPct > 70 ? 'translateX(-110%)' : 'translateX(10px)',
+              background: 'rgba(18,18,31,0.95)', border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: '8px', padding: '10px 14px', pointerEvents: 'none',
+              zIndex: 10, boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+            }}>
+              <div style={{ fontSize: '11px', fontWeight: 600, color: '#fff', marginBottom: '6px' }}>Week of {d.week}</div>
+              <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '3px' }}>
+                Posts: <strong style={{ color: '#a5b4fc' }}>{d.posts}</strong>
+              </div>
+              {Object.entries(d.byPlatform).map(([p, count]) => (
+                <div key={p} style={{ fontSize: '10px', color: PLATFORM_META[p]?.color || '#666', paddingLeft: '8px' }}>
+                  {PLATFORM_META[p]?.label || p}: {count}
+                </div>
+              ))}
+              <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginTop: '4px' }}>
+                Followers: <strong style={{ color: d.followersGained >= 0 ? '#4ade80' : '#f87171' }}>
+                  {d.followersGained >= 0 ? '+' : ''}{formatCompact(d.followersGained)}
+                </strong>
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+    </div>
+  );
+}
+
+function getISOWeekKey(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - d.getDay() + 1); // Monday
+  return d.toISOString().slice(0, 10);
+}
+
+// ═══════════════════════════════════════════════
+// Analysis Styles
+// ═══════════════════════════════════════════════
+const analysisStyles = {
+  card: {
+    background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '12px', padding: '20px', marginBottom: '16px',
+  },
+  cardHeader: {
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px',
+  },
+  cardTitle: { fontSize: '15px', fontWeight: 700 },
+};
 
 // ═══════════════════════════════════════════════
 // Styles
