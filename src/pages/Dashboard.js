@@ -185,13 +185,84 @@ export default function Dashboard({ onNavigate }) {
     }
   }, [profile?.id, todayStr]);
 
+  const fetchStageTasks = useCallback(async () => {
+    if (!profile?.id) return;
+    setStageTasksLoading(true);
+    try {
+      const { data: projectStageData } = await supabase
+        .from('project_stage_assignments')
+        .select('*, project:projects(id, name, status, deadline, type, channel)')
+        .eq('user_id', profile.id);
+
+      const { data: deliverableStageData } = await supabase
+        .from('deliverable_stage_assignments')
+        .select('*, deliverable:sponsor_deliverables(id, title, status, due_date, deliverable_type, sponsor_id, sponsors(name))')
+        .eq('user_id', profile.id);
+
+      const tasks = [];
+      (projectStageData || []).forEach(a => {
+        if (a.project && a.project.status === a.stage && a.project.status !== 'published') {
+          tasks.push({
+            id: a.id, type: 'project', name: a.project.name, stage: a.stage,
+            stageColor: STATUS_COLORS[a.stage] || '#6b7280', stageLabel: STATUS_LABELS[a.stage] || a.stage,
+            deadline: a.project.deadline, extra: a.project.channel || a.project.type?.replace('_', ' '),
+          });
+        }
+      });
+      (deliverableStageData || []).forEach(a => {
+        if (a.deliverable && a.deliverable.status === a.stage && a.deliverable.status !== 'posted') {
+          tasks.push({
+            id: a.id, type: 'deliverable', name: a.deliverable.title, stage: a.stage,
+            stageColor: DELIVERABLE_STAGE_COLORS[a.stage] || '#6b7280', stageLabel: DELIVERABLE_STAGE_LABELS[a.stage] || a.stage,
+            deadline: a.deliverable.due_date, extra: a.deliverable.sponsors?.name || null,
+          });
+        }
+      });
+      setStageTasks(tasks);
+    } catch (err) {
+      console.error('Error fetching stage tasks:', err);
+      setStageTasks([]);
+    } finally {
+      setStageTasksLoading(false);
+    }
+  }, [profile?.id]);
+
+  const fetchSponsorDeliverables = useCallback(async () => {
+    if (!profile?.id) return;
+    setSponsorDelLoading(true);
+    try {
+      const { data } = await supabase
+        .from('deliverable_stage_assignments')
+        .select('stage, deliverable:sponsor_deliverables(id, title, status, due_date, deliverable_type, campaign_id, sponsor_id, sponsors(name), sponsor_campaigns(name))')
+        .eq('user_id', profile.id);
+
+      const items = [];
+      (data || []).forEach(a => {
+        if (a.deliverable && a.deliverable.status === a.stage && a.deliverable.status !== 'posted') {
+          items.push({
+            ...a.deliverable, assigned_stage: a.stage,
+            sponsor_name: a.deliverable.sponsors?.name || 'Unknown Sponsor',
+            campaign_name: a.deliverable.sponsor_campaigns?.name || null,
+          });
+        }
+      });
+      setSponsorDeliverables(items);
+    } catch (err) {
+      console.error('Error fetching sponsor deliverables:', err);
+      setSponsorDeliverables([]);
+    } finally {
+      setSponsorDelLoading(false);
+    }
+  }, [profile?.id]);
+
   useEffect(() => {
     if (!profile?.id) return;
     const timeout = setTimeout(() => setLoading(false), 5000);
     fetchAssignments().finally(() => clearTimeout(timeout));
     fetchStageTasks();
+    fetchSponsorDeliverables();
     return () => clearTimeout(timeout);
-  }, [profile?.id, fetchStageTasks]);
+  }, [profile?.id, fetchStageTasks, fetchSponsorDeliverables]);
 
   useEffect(() => {
     if ((isAdmin || isAssistant) && profile?.id) {
@@ -273,98 +344,6 @@ export default function Dashboard({ onNavigate }) {
       setLoading(false);
     }
   }
-
-  const fetchStageTasks = useCallback(async () => {
-    if (!profile?.id) return;
-    setStageTasksLoading(true);
-    try {
-      // Fetch project stage assignments
-      const { data: projectStageData } = await supabase
-        .from('project_stage_assignments')
-        .select('*, project:projects(id, name, status, deadline, type, channel)')
-        .eq('user_id', profile.id);
-
-      // Fetch deliverable stage assignments
-      const { data: deliverableStageData } = await supabase
-        .from('deliverable_stage_assignments')
-        .select('*, deliverable:sponsor_deliverables(id, title, status, due_date, deliverable_type, sponsor_id, sponsors(name))')
-        .eq('user_id', profile.id);
-
-      const tasks = [];
-
-      // Project stage tasks: only where current project status matches assigned stage
-      (projectStageData || []).forEach(a => {
-        if (a.project && a.project.status === a.stage && a.project.status !== 'published') {
-          tasks.push({
-            id: a.id,
-            type: 'project',
-            name: a.project.name,
-            stage: a.stage,
-            stageColor: STATUS_COLORS[a.stage] || '#6b7280',
-            stageLabel: STATUS_LABELS[a.stage] || a.stage,
-            deadline: a.project.deadline,
-            extra: a.project.channel || a.project.type?.replace('_', ' '),
-          });
-        }
-      });
-
-      // Deliverable stage tasks: only where current deliverable status matches assigned stage
-      (deliverableStageData || []).forEach(a => {
-        if (a.deliverable && a.deliverable.status === a.stage && a.deliverable.status !== 'posted') {
-          tasks.push({
-            id: a.id,
-            type: 'deliverable',
-            name: a.deliverable.title,
-            stage: a.stage,
-            stageColor: DELIVERABLE_STAGE_COLORS[a.stage] || '#6b7280',
-            stageLabel: DELIVERABLE_STAGE_LABELS[a.stage] || a.stage,
-            deadline: a.deliverable.due_date,
-            extra: a.deliverable.sponsors?.name || null,
-          });
-        }
-      });
-
-      setStageTasks(tasks);
-    } catch (err) {
-      console.error('Error fetching stage tasks:', err);
-      setStageTasks([]);
-    } finally {
-      setStageTasksLoading(false);
-    }
-  }, [profile?.id]);
-
-  const fetchSponsorDeliverables = useCallback(async () => {
-    if (!profile?.id) return;
-    setSponsorDelLoading(true);
-    try {
-      const { data } = await supabase
-        .from('deliverable_stage_assignments')
-        .select('stage, deliverable:sponsor_deliverables(id, title, status, due_date, deliverable_type, campaign_id, sponsor_id, sponsors(name), sponsor_campaigns(name))')
-        .eq('user_id', profile.id);
-
-      const items = [];
-      (data || []).forEach(a => {
-        if (a.deliverable && a.deliverable.status === a.stage && a.deliverable.status !== 'posted') {
-          items.push({
-            ...a.deliverable,
-            assigned_stage: a.stage,
-            sponsor_name: a.deliverable.sponsors?.name || 'Unknown Sponsor',
-            campaign_name: a.deliverable.sponsor_campaigns?.name || null,
-          });
-        }
-      });
-      setSponsorDeliverables(items);
-    } catch (err) {
-      console.error('Error fetching sponsor deliverables:', err);
-      setSponsorDeliverables([]);
-    } finally {
-      setSponsorDelLoading(false);
-    }
-  }, [profile?.id]);
-
-  useEffect(() => {
-    if (profile?.id) fetchSponsorDeliverables();
-  }, [profile?.id, fetchSponsorDeliverables]);
 
   async function addItineraryItem() {
     if (!newItemText.trim()) return;
