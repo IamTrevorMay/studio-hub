@@ -190,9 +190,8 @@ export default function Dashboard({ onNavigate }) {
     const timeout = setTimeout(() => setLoading(false), 5000);
     fetchAssignments().finally(() => clearTimeout(timeout));
     fetchStageTasks();
-    fetchSponsorDeliverables();
     return () => clearTimeout(timeout);
-  }, [profile?.id, fetchStageTasks, fetchSponsorDeliverables]);
+  }, [profile?.id, fetchStageTasks]);
 
   useEffect(() => {
     if ((isAdmin || isAssistant) && profile?.id) {
@@ -362,6 +361,10 @@ export default function Dashboard({ onNavigate }) {
       setSponsorDelLoading(false);
     }
   }, [profile?.id]);
+
+  useEffect(() => {
+    if (profile?.id) fetchSponsorDeliverables();
+  }, [profile?.id, fetchSponsorDeliverables]);
 
   async function addItineraryItem() {
     if (!newItemText.trim()) return;
