@@ -48,6 +48,7 @@ export default function Dashboard({ onNavigate }) {
   const [itineraryItems, setItineraryItems] = useState([]);
   const [itineraryLoading, setItineraryLoading] = useState(false);
   const [newItemText, setNewItemText] = useState('');
+  const [showItineraryInput, setShowItineraryInput] = useState(false);
   const [editingItemId, setEditingItemId] = useState(null);
   const [editingItemText, setEditingItemText] = useState('');
 
@@ -267,6 +268,7 @@ export default function Dashboard({ onNavigate }) {
       creator: { full_name: profile.full_name },
     };
     setNewItemText('');
+    setShowItineraryInput(false);
     setItineraryItems(prev => [...prev, tempItem]);
     try {
       const { error } = await supabase.from('daily_itinerary').insert({
@@ -1030,26 +1032,48 @@ export default function Dashboard({ onNavigate }) {
           <h2 style={styles.sectionTitle}>Today</h2>
           <div style={styles.itineraryCard}>
             {renderTodaySchedule()}
-            <h3 style={styles.subSectionTitle}>Itinerary</h3>
-            <div style={styles.itineraryAddRow}>
-              <input
-                value={newItemText}
-                onChange={(e) => setNewItemText(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && addItineraryItem()}
-                placeholder="Add an itinerary item..."
-                style={styles.itineraryInput}
-              />
-              <button
-                onClick={addItineraryItem}
-                disabled={!newItemText.trim()}
-                style={{
-                  ...styles.itineraryAddBtn,
-                  opacity: newItemText.trim() ? 1 : 0.4,
-                }}
-              >
-                Add
-              </button>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h3 style={styles.subSectionTitle}>Itinerary</h3>
+              {!showItineraryInput && (
+                <button
+                  onClick={() => setShowItineraryInput(true)}
+                  style={styles.postAnnouncementBtn}
+                >
+                  + Add
+                </button>
+              )}
             </div>
+            {showItineraryInput && (
+              <div style={styles.itineraryAddRow}>
+                <input
+                  value={newItemText}
+                  onChange={(e) => setNewItemText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') addItineraryItem();
+                    if (e.key === 'Escape') { setShowItineraryInput(false); setNewItemText(''); }
+                  }}
+                  placeholder="Add an itinerary item..."
+                  style={styles.itineraryInput}
+                  autoFocus
+                />
+                <button
+                  onClick={addItineraryItem}
+                  disabled={!newItemText.trim()}
+                  style={{
+                    ...styles.itineraryAddBtn,
+                    opacity: newItemText.trim() ? 1 : 0.4,
+                  }}
+                >
+                  Add
+                </button>
+                <button
+                  onClick={() => { setShowItineraryInput(false); setNewItemText(''); }}
+                  style={styles.cancelTitleBtn}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
             {itineraryLoading ? (
               <p style={styles.emptyText}>Loading...</p>
             ) : itineraryItems.length === 0 ? (
@@ -1070,29 +1094,52 @@ export default function Dashboard({ onNavigate }) {
           <h2 style={styles.sectionTitle}>Today</h2>
           <div style={styles.itineraryCard}>
             {renderTodaySchedule()}
-            <div style={styles.itineraryAddRow}>
-              <input
-                value={newItemText}
-                onChange={(e) => setNewItemText(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && addItineraryItem()}
-                placeholder="Add an itinerary item..."
-                style={styles.itineraryInput}
-              />
-              <button
-                onClick={addItineraryItem}
-                disabled={!newItemText.trim()}
-                style={{
-                  ...styles.itineraryAddBtn,
-                  opacity: newItemText.trim() ? 1 : 0.4,
-                }}
-              >
-                Add
-              </button>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h3 style={styles.subSectionTitle}>Itinerary</h3>
+              {!showItineraryInput && (
+                <button
+                  onClick={() => setShowItineraryInput(true)}
+                  style={styles.postAnnouncementBtn}
+                >
+                  + Add
+                </button>
+              )}
             </div>
+            {showItineraryInput && (
+              <div style={styles.itineraryAddRow}>
+                <input
+                  value={newItemText}
+                  onChange={(e) => setNewItemText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') addItineraryItem();
+                    if (e.key === 'Escape') { setShowItineraryInput(false); setNewItemText(''); }
+                  }}
+                  placeholder="Add an itinerary item..."
+                  style={styles.itineraryInput}
+                  autoFocus
+                />
+                <button
+                  onClick={addItineraryItem}
+                  disabled={!newItemText.trim()}
+                  style={{
+                    ...styles.itineraryAddBtn,
+                    opacity: newItemText.trim() ? 1 : 0.4,
+                  }}
+                >
+                  Add
+                </button>
+                <button
+                  onClick={() => { setShowItineraryInput(false); setNewItemText(''); }}
+                  style={styles.cancelTitleBtn}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
             {itineraryLoading ? (
               <p style={styles.emptyText}>Loading...</p>
             ) : itineraryItems.length === 0 ? (
-              <p style={{ ...styles.emptyText, marginTop: '12px' }}>No items yet — add one above</p>
+              <p style={{ ...styles.emptyText, marginTop: '12px' }}>No items yet</p>
             ) : (
               <div style={styles.itineraryList}>
                 {itineraryItems.map(item => renderItineraryItem(item))}
