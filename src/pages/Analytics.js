@@ -1880,7 +1880,7 @@ function IngestionHealthPanel({ logs, accounts, onRefresh }) {
                   <td style={styles.td}>{log.job_type}</td>
                   <td style={{ ...styles.td, textAlign: 'right' }}>{log.records_processed || 0}</td>
                   <td style={styles.td}>
-                    {log.started_at ? new Date(log.started_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                    {log.started_at ? new Date(log.started_at).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
                   </td>
                   <td style={styles.td}>{duration}</td>
                   <td style={{ ...styles.td, color: '#f87171', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -2886,8 +2886,10 @@ function PublishHeatmap({ contentItems }) {
   for (const item of contentItems) {
     if (!item.published_at) continue;
     const dt = new Date(item.published_at);
-    const day = dt.getUTCDay(); // 0=Sun
-    const hour = dt.getUTCHours();
+    const ptParts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', weekday: 'short', hour: 'numeric', hour12: false }).formatToParts(dt);
+    const dayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    const day = dayMap[ptParts.find(p => p.type === 'weekday')?.value] ?? 0;
+    const hour = parseInt(ptParts.find(p => p.type === 'hour')?.value, 10) || 0;
     const key = `${day}-${hour}`;
     if (!grid[key]) grid[key] = { count: 0, totalViews: 0 };
     grid[key].count += 1;
@@ -2920,7 +2922,7 @@ function PublishHeatmap({ contentItems }) {
   return (
     <div style={{ ...analysisStyles.card, borderLeft: '3px solid #8b5cf6' }}>
       <span style={{ ...analysisStyles.cardTitle, color: '#8b5cf6' }}>Best Publish Time</span>
-      <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', margin: '4px 0 12px' }}>Average views by day of week and hour (UTC). Brighter = more views.</p>
+      <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', margin: '4px 0 12px' }}>Average views by day of week and hour (Pacific). Brighter = more views.</p>
       <div style={{ overflowX: 'auto', position: 'relative' }}>
         <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxHeight: '240px' }}>
           {/* Hour labels */}
@@ -2963,7 +2965,7 @@ function PublishHeatmap({ contentItems }) {
               borderRadius: '8px', padding: '8px 12px', pointerEvents: 'none',
               fontSize: '11px', color: 'rgba(255,255,255,0.6)',
             }}>
-              <strong style={{ color: '#fff' }}>{dayLabels[d]} {h}:00 UTC</strong>
+              <strong style={{ color: '#fff' }}>{dayLabels[d]} {h}:00 PT</strong>
               <br />{count} post{count !== 1 ? 's' : ''} — avg {formatCompact(avg)} views
             </div>
           );
