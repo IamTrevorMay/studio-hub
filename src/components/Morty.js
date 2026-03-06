@@ -97,11 +97,11 @@ const SHIRT_COLORS = [
 ];
 
 // === PIXEL ART SPRITE GENERATOR ===
-// Side-view T-Rex profile — facing right
-// ~20 wide x 26 tall pixel grid at 3x scale
+// Cute baseball with arms, legs, face, and cap
+// ~16 wide x 20 tall pixel grid at 4x scale
 
-const S = 3; // scale factor
-const SPRITE_H = 26; // sprite height in logical pixels
+const S = 4; // scale factor
+const SPRITE_H = 20; // sprite height in logical pixels
 
 function px(x, y, color) {
   return `${x * S}px ${y * S}px 0 0 ${color}`;
@@ -112,181 +112,199 @@ function buildShadow(pixels) {
 }
 
 // Colors
-const C = {
-  body: '#2d8a4e',
-  dark: '#1d6b3a',
-  light: '#3aaf62',
-  belly: '#8fd4a0',
-  eye: '#ffffff',
-  pupil: '#1a1a2e',
-  teeth: '#ffffff',
-  mouth: '#1a1a2e',
-  claw: '#f5e6c8',
+const B = {
+  white: '#f5f0e8',    // baseball leather
+  seam: '#cc3333',     // red stitching
+  shade: '#ddd8cc',    // shadow side of ball
+  eye: '#1a1a2e',      // eyes
+  mouth: '#1a1a2e',    // mouth
+  blush: '#ffaaaa',    // cheek blush
+  arm: '#f5f0e8',      // arms (same as ball)
+  glove: '#8B4513',    // little glove/hand
+  shoe: '#333333',     // shoes
+  leg: '#f5f0e8',      // legs
+  capTop: '#1e40af',   // cap top (blue)
+  capBrim: '#1e3a8a',  // cap brim (darker blue)
 };
 
-// Side-view T-Rex base (head faces right, tail to left)
-function sideBase(shirt) {
+// Baseball body (round ball shape, rows 0-12)
+function ballBody(shirt) {
   const p = [];
 
-  // === TAIL (left side, rows 10-17) ===
-  p.push(px(0, 15, C.body));
-  p.push(px(1, 14, C.body)); p.push(px(1, 15, C.body));
-  p.push(px(2, 13, C.body)); p.push(px(2, 14, C.body));
-  p.push(px(3, 12, C.body)); p.push(px(3, 13, C.body));
-  p.push(px(4, 11, C.body)); p.push(px(4, 12, C.body)); p.push(px(4, 13, C.body));
-  p.push(px(5, 10, C.dark)); p.push(px(5, 11, C.body)); p.push(px(5, 12, C.body));
+  // === CAP (rows 0-3) ===
+  [6, 7, 8, 9, 10].forEach(x => p.push(px(x, 0, B.capTop)));
+  [5, 6, 7, 8, 9, 10, 11].forEach(x => p.push(px(x, 1, B.capTop)));
+  [5, 6, 7, 8, 9, 10, 11].forEach(x => p.push(px(x, 2, B.capTop)));
+  // Cap brim
+  [4, 5, 6, 7, 8, 9, 10, 11, 12].forEach(x => p.push(px(x, 3, B.capBrim)));
 
-  // === BODY (rows 6-18) ===
-  // Back ridge / spikes
-  p.push(px(8, 4, C.dark));
-  p.push(px(10, 3, C.dark));
-  p.push(px(12, 4, C.dark));
+  // === BALL / FACE (rows 4-12) ===
+  // Row 4: top of ball below cap
+  [5, 6, 7, 8, 9, 10, 11].forEach(x => p.push(px(x, 4, B.white)));
 
-  // Upper back
-  for (let x = 7; x <= 13; x++) p.push(px(x, 5, C.dark));
-  for (let x = 6; x <= 14; x++) p.push(px(x, 6, C.body));
-  for (let x = 6; x <= 15; x++) p.push(px(x, 7, C.body));
+  // Row 5: wider
+  [4, 5, 11, 12].forEach(x => p.push(px(x, 5, B.white)));
+  // Seam stitch on left
+  p.push(px(6, 5, B.seam));
+  [7, 8, 9, 10].forEach(x => p.push(px(x, 5, B.white)));
 
-  // === HEAD (rows 0-8, right side) ===
-  // Top of skull
-  [14, 15, 16].forEach(x => p.push(px(x, 0, C.body)));
-  [13, 14, 15, 16, 17].forEach(x => p.push(px(x, 1, C.body)));
-  [13, 14].forEach(x => p.push(px(x, 2, C.body)));
-  p.push(px(15, 2, C.eye)); p.push(px(16, 2, C.pupil));
-  p.push(px(17, 2, C.body));
-  // Snout
-  [13, 14, 15, 16, 17, 18].forEach(x => p.push(px(x, 3, C.body)));
-  [14, 15, 16, 17, 18, 19].forEach(x => p.push(px(x, 4, C.body)));
-  // Jaw with teeth
-  [14, 15].forEach(x => p.push(px(x, 5, C.body)));
-  p.push(px(16, 5, C.mouth)); p.push(px(17, 5, C.teeth));
-  p.push(px(18, 5, C.mouth)); p.push(px(19, 5, C.teeth));
-  // Lower jaw
-  [15, 16, 17, 18].forEach(x => p.push(px(x, 6, C.body)));
+  // Row 6: eyes row
+  [4].forEach(x => p.push(px(x, 6, B.white)));
+  p.push(px(5, 6, B.seam));
+  p.push(px(6, 6, B.white));
+  p.push(px(7, 6, B.eye)); // left eye
+  p.push(px(8, 6, B.white));
+  p.push(px(9, 6, B.eye)); // right eye
+  p.push(px(10, 6, B.white));
+  p.push(px(11, 6, B.seam));
+  p.push(px(12, 6, B.white));
 
-  // Neck
-  [14, 15].forEach(x => p.push(px(x, 7, C.body)));
+  // Row 7: blush + seams
+  [4].forEach(x => p.push(px(x, 7, B.white)));
+  p.push(px(5, 7, B.white));
+  p.push(px(6, 7, B.blush)); // left blush
+  [7, 8, 9].forEach(x => p.push(px(x, 7, B.white)));
+  p.push(px(10, 7, B.blush)); // right blush
+  p.push(px(11, 7, B.white));
+  p.push(px(12, 7, B.white));
 
-  // === SHIRT (rows 8-14) ===
-  for (let y = 8; y <= 14; y++) {
-    const left = y <= 10 ? 6 : y <= 12 ? 7 : 8;
-    const right = y <= 9 ? 14 : y <= 12 ? 13 : 12;
-    for (let x = left; x <= right; x++) {
-      // MM letters on shirt (rows 10-13)
-      if (y >= 10 && y <= 13 && x >= 8 && x <= 12) {
-        const isLetter =
-          (y === 10 && (x === 8 || x === 10 || x === 12)) ||
-          (y === 11 && (x === 8 || x === 9 || x === 10 || x === 11 || x === 12)) ||
-          (y === 12 && (x === 8 || x === 10 || x === 12)) ||
-          (y === 13 && (x === 8 || x === 10 || x === 12));
-        p.push(px(x, y, isLetter ? shirt.letter : shirt.base));
-      } else {
-        p.push(px(x, y, shirt.base));
-      }
-    }
-    // Light edge
-    if (y <= 12) p.push(px(right + 1, y, shirt.light));
-  }
+  // Row 8: mouth
+  [4, 5, 6].forEach(x => p.push(px(x, 8, B.white)));
+  p.push(px(7, 8, B.mouth)); p.push(px(8, 8, B.mouth)); p.push(px(9, 8, B.mouth)); // smile
+  [10, 11, 12].forEach(x => p.push(px(x, 8, B.white)));
 
-  // === BELLY (rows 15-17) ===
-  for (let y = 15; y <= 17; y++) {
-    const left = y === 15 ? 8 : y === 16 ? 9 : 9;
-    const right = y === 15 ? 12 : y === 16 ? 11 : 11;
-    for (let x = left; x <= right; x++) p.push(px(x, y, C.belly));
-    // Body edges
-    if (y === 15) { p.push(px(7, y, C.body)); p.push(px(13, y, C.body)); }
-    if (y === 16) { p.push(px(8, y, C.body)); p.push(px(12, y, C.body)); }
-    if (y === 17) { p.push(px(8, y, C.body)); p.push(px(12, y, C.body)); }
-  }
+  // Row 9: lower face + seam
+  [4, 5].forEach(x => p.push(px(x, 9, B.white)));
+  p.push(px(6, 9, B.seam));
+  [7, 8, 9, 10].forEach(x => p.push(px(x, 9, B.white)));
+  p.push(px(11, 9, B.seam));
+  p.push(px(12, 9, B.white));
 
-  // === TINY ARM (row 9-10) ===
-  p.push(px(14, 9, C.body)); p.push(px(15, 9, C.body));
-  p.push(px(15, 10, C.claw));
+  // Row 10: lower ball
+  [5, 6].forEach(x => p.push(px(x, 10, B.shade)));
+  p.push(px(7, 10, B.seam));
+  [8, 9].forEach(x => p.push(px(x, 10, B.shade)));
+  p.push(px(10, 10, B.seam));
+  p.push(px(11, 10, B.shade));
+
+  // Row 11: bottom curve
+  [5, 6, 7, 8, 9, 10, 11].forEach(x => p.push(px(x, 11, B.shade)));
+
+  // Row 12: very bottom of ball
+  [6, 7, 8, 9, 10].forEach(x => p.push(px(x, 12, B.shade)));
 
   return p;
 }
 
-// Standing legs helper
+// Standing legs (rows 13-17)
 function standingLegs(p) {
   // Left leg
-  [8, 9].forEach(x => { p.push(px(x, 18, C.body)); p.push(px(x, 19, C.body)); });
-  [8, 9].forEach(x => p.push(px(x, 20, C.body)));
-  p.push(px(7, 21, C.claw)); p.push(px(8, 21, C.claw)); p.push(px(9, 21, C.body));
+  p.push(px(6, 13, B.leg)); p.push(px(7, 13, B.leg));
+  p.push(px(6, 14, B.leg)); p.push(px(7, 14, B.leg));
+  p.push(px(6, 15, B.leg)); p.push(px(7, 15, B.leg));
+  // Left shoe
+  p.push(px(5, 16, B.shoe)); p.push(px(6, 16, B.shoe)); p.push(px(7, 16, B.shoe));
+
   // Right leg
-  [11, 12].forEach(x => { p.push(px(x, 18, C.body)); p.push(px(x, 19, C.body)); });
-  [11, 12].forEach(x => p.push(px(x, 20, C.body)));
-  p.push(px(11, 21, C.body)); p.push(px(12, 21, C.claw)); p.push(px(13, 21, C.claw));
+  p.push(px(9, 13, B.leg)); p.push(px(10, 13, B.leg));
+  p.push(px(9, 14, B.leg)); p.push(px(10, 14, B.leg));
+  p.push(px(9, 15, B.leg)); p.push(px(10, 15, B.leg));
+  // Right shoe
+  p.push(px(9, 16, B.shoe)); p.push(px(10, 16, B.shoe)); p.push(px(11, 16, B.shoe));
+}
+
+// Arms at rest (sides of ball)
+function restingArms(p) {
+  // Left arm
+  p.push(px(3, 7, B.arm)); p.push(px(3, 8, B.arm));
+  p.push(px(2, 9, B.glove));
+  // Right arm
+  p.push(px(13, 7, B.arm)); p.push(px(13, 8, B.arm));
+  p.push(px(14, 9, B.glove));
 }
 
 function walkFrame(shirt, frame) {
-  const p = sideBase(shirt);
+  const p = ballBody(shirt);
   const f = frame % 4;
 
-  if (f === 0) {
-    // Left leg forward, right back
-    [7, 8].forEach(x => { p.push(px(x, 18, C.body)); p.push(px(x, 19, C.body)); });
-    p.push(px(6, 20, C.claw)); p.push(px(7, 20, C.claw)); p.push(px(8, 20, C.body));
-    [12, 13].forEach(x => { p.push(px(x, 18, C.body)); p.push(px(x, 19, C.body)); });
-    p.push(px(12, 20, C.body)); p.push(px(13, 20, C.claw)); p.push(px(14, 20, C.claw));
+  // Arms swing while walking
+  if (f === 0 || f === 2) {
+    restingArms(p);
   } else if (f === 1) {
-    standingLegs(p);
-  } else if (f === 2) {
-    // Right leg forward, left back
-    [9, 10].forEach(x => { p.push(px(x, 18, C.body)); p.push(px(x, 19, C.body)); });
-    p.push(px(9, 20, C.body)); p.push(px(10, 20, C.claw)); p.push(px(11, 20, C.claw));
-    [11, 12].forEach(x => { p.push(px(x, 18, C.body)); p.push(px(x, 19, C.body)); });
-    p.push(px(10, 20, C.claw)); p.push(px(11, 20, C.body)); p.push(px(12, 20, C.body));
+    // Left arm forward, right back
+    p.push(px(3, 6, B.arm)); p.push(px(3, 7, B.arm)); p.push(px(2, 8, B.glove));
+    p.push(px(13, 8, B.arm)); p.push(px(13, 9, B.arm)); p.push(px(14, 10, B.glove));
   } else {
-    standingLegs(p);
+    // Right arm forward, left back
+    p.push(px(3, 8, B.arm)); p.push(px(3, 9, B.arm)); p.push(px(2, 10, B.glove));
+    p.push(px(13, 6, B.arm)); p.push(px(13, 7, B.arm)); p.push(px(14, 8, B.glove));
   }
 
-  // Tail wag
-  if (f % 2 === 1) {
-    p.push(px(0, 14, C.body));
+  // Walking legs
+  if (f === 0) {
+    // Left forward, right back
+    p.push(px(5, 13, B.leg)); p.push(px(6, 13, B.leg));
+    p.push(px(5, 14, B.leg)); p.push(px(6, 14, B.leg));
+    p.push(px(4, 15, B.shoe)); p.push(px(5, 15, B.shoe)); p.push(px(6, 15, B.shoe));
+    p.push(px(10, 13, B.leg)); p.push(px(11, 13, B.leg));
+    p.push(px(10, 14, B.leg)); p.push(px(11, 14, B.leg));
+    p.push(px(10, 15, B.shoe)); p.push(px(11, 15, B.shoe)); p.push(px(12, 15, B.shoe));
+  } else if (f === 2) {
+    // Right forward, left back
+    p.push(px(6, 13, B.leg)); p.push(px(7, 13, B.leg));
+    p.push(px(6, 14, B.leg)); p.push(px(7, 14, B.leg));
+    p.push(px(6, 15, B.shoe)); p.push(px(7, 15, B.shoe)); p.push(px(8, 15, B.shoe));
+    p.push(px(9, 13, B.leg)); p.push(px(10, 13, B.leg));
+    p.push(px(9, 14, B.leg)); p.push(px(10, 14, B.leg));
+    p.push(px(8, 15, B.shoe)); p.push(px(9, 15, B.shoe)); p.push(px(10, 15, B.shoe));
+  } else {
+    standingLegs(p);
   }
 
   return buildShadow(p);
 }
 
 function idleFrame(shirt, frame) {
-  const p = sideBase(shirt);
+  const p = ballBody(shirt);
+  restingArms(p);
   standingLegs(p);
-
-  // Subtle tail movement
-  if (frame % 2 === 1) {
-    p.push(px(0, 14, C.body));
-  }
-
   return buildShadow(p);
 }
 
 function waveFrame(shirt, frame) {
-  const p = sideBase(shirt);
+  const p = ballBody(shirt);
   standingLegs(p);
   const wf = frame % 3;
 
-  // Override arm to wave position
+  // Left arm resting
+  p.push(px(3, 7, B.arm)); p.push(px(3, 8, B.arm)); p.push(px(2, 9, B.glove));
+
+  // Right arm waving up
   if (wf === 0) {
-    p.push(px(15, 8, C.body)); p.push(px(16, 7, C.claw));
+    p.push(px(13, 5, B.arm)); p.push(px(14, 4, B.arm)); p.push(px(15, 3, B.glove));
   } else if (wf === 1) {
-    p.push(px(15, 7, C.body)); p.push(px(16, 6, C.claw));
+    p.push(px(13, 5, B.arm)); p.push(px(14, 4, B.arm)); p.push(px(15, 4, B.glove));
   } else {
-    p.push(px(15, 8, C.body)); p.push(px(16, 8, C.claw));
+    p.push(px(13, 5, B.arm)); p.push(px(14, 4, B.arm)); p.push(px(15, 3, B.glove));
   }
 
   return buildShadow(p);
 }
 
 function jumpFrame(shirt, frame) {
-  const p = sideBase(shirt);
+  const p = ballBody(shirt);
   const jf = frame % 3;
 
+  // Arms up
+  p.push(px(3, 5, B.arm)); p.push(px(2, 4, B.arm)); p.push(px(1, 3, B.glove));
+  p.push(px(13, 5, B.arm)); p.push(px(14, 4, B.arm)); p.push(px(15, 3, B.glove));
+
   if (jf === 1) {
-    // In air — tucked legs
-    [9, 10].forEach(x => p.push(px(x, 18, C.body)));
-    [9, 10].forEach(x => p.push(px(x, 19, C.claw)));
-    [11, 12].forEach(x => p.push(px(x, 18, C.body)));
-    [11, 12].forEach(x => p.push(px(x, 19, C.claw)));
+    // Tucked legs (in air)
+    p.push(px(6, 13, B.leg)); p.push(px(7, 13, B.leg));
+    p.push(px(5, 14, B.shoe)); p.push(px(6, 14, B.shoe));
+    p.push(px(9, 13, B.leg)); p.push(px(10, 13, B.leg));
+    p.push(px(10, 14, B.shoe)); p.push(px(11, 14, B.shoe));
   } else {
     standingLegs(p);
   }
@@ -294,111 +312,86 @@ function jumpFrame(shirt, frame) {
   return buildShadow(p);
 }
 
-function lookFrameWithShirt(shirt, frame) {
+function lookFrame(shirt, frame) {
   const p = [];
   const lf = frame % 2;
 
-  // Head with shifted pupil
-  [14, 15, 16].forEach(x => p.push(px(x, 0, C.body)));
-  [13, 14, 15, 16, 17].forEach(x => p.push(px(x, 1, C.body)));
-  [13, 14].forEach(x => p.push(px(x, 2, C.body)));
+  // Cap
+  [6, 7, 8, 9, 10].forEach(x => p.push(px(x, 0, B.capTop)));
+  [5, 6, 7, 8, 9, 10, 11].forEach(x => p.push(px(x, 1, B.capTop)));
+  [5, 6, 7, 8, 9, 10, 11].forEach(x => p.push(px(x, 2, B.capTop)));
+  [4, 5, 6, 7, 8, 9, 10, 11, 12].forEach(x => p.push(px(x, 3, B.capBrim)));
+
+  // Ball top
+  [5, 6, 7, 8, 9, 10, 11].forEach(x => p.push(px(x, 4, B.white)));
+  [4, 5, 11, 12].forEach(x => p.push(px(x, 5, B.white)));
+  p.push(px(6, 5, B.seam));
+  [7, 8, 9, 10].forEach(x => p.push(px(x, 5, B.white)));
+
+  // Eyes shifted
+  [4].forEach(x => p.push(px(x, 6, B.white)));
+  p.push(px(5, 6, B.seam)); p.push(px(6, 6, B.white));
   if (lf === 0) {
-    p.push(px(15, 2, C.pupil)); p.push(px(16, 2, C.eye));
+    p.push(px(7, 6, B.white)); p.push(px(8, 6, B.eye)); // look right
+    p.push(px(9, 6, B.white)); p.push(px(10, 6, B.eye));
   } else {
-    p.push(px(15, 2, C.eye)); p.push(px(16, 2, C.pupil));
+    p.push(px(7, 6, B.eye)); p.push(px(8, 6, B.white)); // look left
+    p.push(px(9, 6, B.eye)); p.push(px(10, 6, B.white));
   }
-  p.push(px(17, 2, C.body));
-  [13, 14, 15, 16, 17, 18].forEach(x => p.push(px(x, 3, C.body)));
-  [14, 15, 16, 17, 18, 19].forEach(x => p.push(px(x, 4, C.body)));
-  [14, 15].forEach(x => p.push(px(x, 5, C.body)));
-  p.push(px(16, 5, C.mouth)); p.push(px(17, 5, C.teeth));
-  p.push(px(18, 5, C.mouth)); p.push(px(19, 5, C.teeth));
-  [15, 16, 17, 18].forEach(x => p.push(px(x, 6, C.body)));
-  [14, 15].forEach(x => p.push(px(x, 7, C.body)));
+  p.push(px(11, 6, B.seam)); p.push(px(12, 6, B.white));
 
-  // Spikes + back
-  p.push(px(8, 4, C.dark)); p.push(px(10, 3, C.dark)); p.push(px(12, 4, C.dark));
-  for (let x = 7; x <= 13; x++) p.push(px(x, 5, C.dark));
-  for (let x = 6; x <= 14; x++) p.push(px(x, 6, C.body));
-  for (let x = 6; x <= 15; x++) p.push(px(x, 7, C.body));
+  // Blush + lower face (same as base)
+  [4].forEach(x => p.push(px(x, 7, B.white)));
+  p.push(px(5, 7, B.white)); p.push(px(6, 7, B.blush));
+  [7, 8, 9].forEach(x => p.push(px(x, 7, B.white)));
+  p.push(px(10, 7, B.blush)); p.push(px(11, 7, B.white)); p.push(px(12, 7, B.white));
+  [4, 5, 6].forEach(x => p.push(px(x, 8, B.white)));
+  p.push(px(7, 8, B.mouth)); p.push(px(8, 8, B.mouth)); p.push(px(9, 8, B.mouth));
+  [10, 11, 12].forEach(x => p.push(px(x, 8, B.white)));
+  [4, 5].forEach(x => p.push(px(x, 9, B.white)));
+  p.push(px(6, 9, B.seam)); [7, 8, 9, 10].forEach(x => p.push(px(x, 9, B.white)));
+  p.push(px(11, 9, B.seam)); p.push(px(12, 9, B.white));
+  [5, 6].forEach(x => p.push(px(x, 10, B.shade)));
+  p.push(px(7, 10, B.seam)); [8, 9].forEach(x => p.push(px(x, 10, B.shade)));
+  p.push(px(10, 10, B.seam)); p.push(px(11, 10, B.shade));
+  [5, 6, 7, 8, 9, 10, 11].forEach(x => p.push(px(x, 11, B.shade)));
+  [6, 7, 8, 9, 10].forEach(x => p.push(px(x, 12, B.shade)));
 
-  // Tail
-  p.push(px(0, 15, C.body));
-  p.push(px(1, 14, C.body)); p.push(px(1, 15, C.body));
-  p.push(px(2, 13, C.body)); p.push(px(2, 14, C.body));
-  p.push(px(3, 12, C.body)); p.push(px(3, 13, C.body));
-  p.push(px(4, 11, C.body)); p.push(px(4, 12, C.body)); p.push(px(4, 13, C.body));
-  p.push(px(5, 10, C.dark)); p.push(px(5, 11, C.body)); p.push(px(5, 12, C.body));
-
-  // Shirt with MM
-  for (let y = 8; y <= 14; y++) {
-    const left = y <= 10 ? 6 : y <= 12 ? 7 : 8;
-    const right = y <= 9 ? 14 : y <= 12 ? 13 : 12;
-    for (let x = left; x <= right; x++) {
-      if (y >= 10 && y <= 13 && x >= 8 && x <= 12) {
-        const isLetter =
-          (y === 10 && (x === 8 || x === 10 || x === 12)) ||
-          (y === 11 && (x === 8 || x === 9 || x === 10 || x === 11 || x === 12)) ||
-          (y === 12 && (x === 8 || x === 10 || x === 12)) ||
-          (y === 13 && (x === 8 || x === 10 || x === 12));
-        p.push(px(x, y, isLetter ? shirt.letter : shirt.base));
-      } else {
-        p.push(px(x, y, shirt.base));
-      }
-    }
-    if (y <= 12) p.push(px(right + 1, y, shirt.light));
-  }
-
-  // Belly
-  for (let y = 15; y <= 17; y++) {
-    const left = y === 15 ? 8 : 9;
-    const right = y === 15 ? 12 : 11;
-    for (let x = left; x <= right; x++) p.push(px(x, y, C.belly));
-    if (y === 15) { p.push(px(7, y, C.body)); p.push(px(13, y, C.body)); }
-    if (y >= 16) { p.push(px(8, y, C.body)); p.push(px(12, y, C.body)); }
-  }
-
-  // Arm
-  p.push(px(14, 9, C.body)); p.push(px(15, 9, C.body)); p.push(px(15, 10, C.claw));
-
-  // Legs standing
+  // Arms + legs
+  restingArms(p);
   standingLegs(p);
 
   return buildShadow(p);
 }
 
 function danceFrame(shirt, frame, type) {
-  const p = sideBase(shirt);
+  const p = ballBody(shirt);
   const df = frame % 4;
 
-  // Dance legs
+  // Dance legs — side to side
   if (df === 0 || df === 2) {
     standingLegs(p);
   } else if (df === 1) {
-    // Left kick
-    [7, 8].forEach(x => { p.push(px(x, 18, C.body)); p.push(px(x, 19, C.body)); });
-    p.push(px(6, 19, C.claw)); p.push(px(7, 20, C.claw));
-    [11, 12].forEach(x => { p.push(px(x, 18, C.body)); p.push(px(x, 19, C.body)); p.push(px(x, 20, C.body)); });
-    p.push(px(11, 21, C.body)); p.push(px(12, 21, C.claw)); p.push(px(13, 21, C.claw));
+    // Legs apart left
+    p.push(px(5, 13, B.leg)); p.push(px(5, 14, B.leg)); p.push(px(5, 15, B.leg));
+    p.push(px(4, 16, B.shoe)); p.push(px(5, 16, B.shoe));
+    p.push(px(10, 13, B.leg)); p.push(px(10, 14, B.leg)); p.push(px(10, 15, B.leg));
+    p.push(px(10, 16, B.shoe)); p.push(px(11, 16, B.shoe));
   } else {
-    // Right kick
-    [8, 9].forEach(x => { p.push(px(x, 18, C.body)); p.push(px(x, 19, C.body)); p.push(px(x, 20, C.body)); });
-    p.push(px(7, 21, C.claw)); p.push(px(8, 21, C.claw)); p.push(px(9, 21, C.body));
-    [12, 13].forEach(x => { p.push(px(x, 18, C.body)); p.push(px(x, 19, C.body)); });
-    p.push(px(13, 19, C.claw)); p.push(px(14, 20, C.claw));
+    // Legs apart right
+    p.push(px(7, 13, B.leg)); p.push(px(7, 14, B.leg)); p.push(px(7, 15, B.leg));
+    p.push(px(7, 16, B.shoe)); p.push(px(8, 16, B.shoe));
+    p.push(px(11, 13, B.leg)); p.push(px(11, 14, B.leg)); p.push(px(11, 15, B.leg));
+    p.push(px(11, 16, B.shoe)); p.push(px(12, 16, B.shoe));
   }
 
-  // Tail wag
-  if (df % 2 === 0) p.push(px(0, 14, C.body));
-  else p.push(px(0, 16, C.body));
-
   // Disco arms
-  if (type === 'disco') {
-    if (df % 2 === 0) {
-      p.push(px(15, 7, C.body)); p.push(px(16, 6, C.claw));
-    } else {
-      p.push(px(15, 10, C.body)); p.push(px(16, 11, C.claw));
-    }
+  if (df % 2 === 0) {
+    p.push(px(2, 5, B.arm)); p.push(px(1, 4, B.glove)); // left up
+    p.push(px(13, 8, B.arm)); p.push(px(14, 9, B.glove)); // right down
+  } else {
+    p.push(px(3, 8, B.arm)); p.push(px(2, 9, B.glove)); // left down
+    p.push(px(14, 5, B.arm)); p.push(px(15, 4, B.glove)); // right up
   }
 
   return buildShadow(p);
@@ -410,7 +403,7 @@ const ANIM_CONFIG = {
   idle: { frames: 2, speed: 500, fn: idleFrame },
   wave: { frames: 3, speed: 300, fn: waveFrame },
   jump: { frames: 3, speed: 250, fn: jumpFrame },
-  look: { frames: 2, speed: 400, fn: lookFrameWithShirt },
+  look: { frames: 2, speed: 400, fn: lookFrame },
   disco: { frames: 4, speed: 250, fn: (s, f) => danceFrame(s, f, 'disco') },
   spin: { frames: 4, speed: 200, fn: (s, f) => danceFrame(s, f, 'spin') },
   shuffle: { frames: 4, speed: 250, fn: (s, f) => danceFrame(s, f, 'shuffle') },
