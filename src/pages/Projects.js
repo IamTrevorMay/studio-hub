@@ -18,6 +18,7 @@ const PROJECT_TYPES = [
   { value: 'short_form', label: 'Short Form' },
   { value: 'social_post', label: 'Social Post' },
   { value: 'podcast', label: 'Podcast' },
+  { value: 'substack_article', label: 'Substack Article' },
   { value: 'other', label: 'Other' },
 ];
 const ASSIGNMENT_ROLES = ['producer', 'writer', 'editor', 'designer', 'reviewer', 'other'];

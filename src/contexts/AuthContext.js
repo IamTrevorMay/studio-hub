@@ -258,6 +258,9 @@ export function AuthProvider({ children }) {
   }
 
   async function signOut() {
+    if (user) {
+      try { await supabase.from('profiles').update({ status: 'offline', last_seen_at: new Date().toISOString() }).eq('id', user.id); } catch (e) {}
+    }
     await nukeSession();
   }
 
@@ -312,8 +315,8 @@ export function AuthProvider({ children }) {
     const interval = setInterval(ping, 60000); // every 60s
 
     const handleBeforeUnload = () => {
-      // Best-effort offline on tab close (sendBeacon not available for supabase, but the heartbeat stopping will show offline)
-      navigator.sendBeacon && supabase.from('profiles').update({ last_seen_at: new Date().toISOString() }).eq('id', user.id);
+      // Best-effort offline on tab close
+      supabase.from('profiles').update({ status: 'offline', last_seen_at: new Date().toISOString() }).eq('id', user.id);
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
 

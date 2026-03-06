@@ -223,7 +223,7 @@ export default function Calendar({ onNavigate }) {
       const saved = localStorage.getItem('calendar_filters');
       if (saved) return JSON.parse(saved);
     } catch {}
-    return { projects: true, deadline: true, meeting: true, live_recording: true, filming: true, video_post: true, unavailable: true, social_posts: true };
+    return { projects: true, substack_article: true, deadline: true, meeting: true, live_recording: true, filming: true, video_post: true, unavailable: true, social_posts: true };
   });
   const dropdownRef = useRef(null);
   const modalRef = useRef(null);
@@ -746,9 +746,12 @@ export default function Calendar({ onNavigate }) {
     const weekEnd = dk(week[6].date);
     const bars = [];
 
-    if (!visibleFilters.projects) return { bars: [], rowCount: 0 };
+    if (!visibleFilters.projects && !visibleFilters.substack_article) return { bars: [], rowCount: 0 };
 
     projects.forEach(project => {
+      // Substack articles have their own independent filter
+      if (project.type === 'substack_article' && !visibleFilters.substack_article) return;
+      if (project.type !== 'substack_article' && !visibleFilters.projects) return;
       if (project.deadline < weekStart || project.start_date > weekEnd) return;
       let startIdx = 0;
       let endIdx = 6;
@@ -994,6 +997,12 @@ export default function Calendar({ onNavigate }) {
             active={visibleFilters.projects}
             onClick={() => toggleFilter('projects')}
           />
+          <FilterChip
+            label="📝 Substack"
+            color="#FF6719"
+            active={visibleFilters.substack_article}
+            onClick={() => toggleFilter('substack_article')}
+          />
           <span style={styles.filterDivider} />
           {EVENT_TYPES.map(type => (
             <FilterChip
@@ -1166,7 +1175,7 @@ export default function Calendar({ onNavigate }) {
                           onClick={(e) => handleProjectClick(e, bar.project)}
                         >
                           <span style={{ fontSize: '10px', fontWeight: 700, color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {bar.project.name}
+                            {bar.project.type === 'substack_article' ? '📝 ' : ''}{bar.project.name}
                           </span>
 
                           {activeDropdown === bar.project.id && (
