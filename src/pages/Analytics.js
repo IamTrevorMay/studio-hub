@@ -1116,8 +1116,9 @@ function AdvancedView({ accounts }) {
   const sortedTableData = useMemo(() => {
     if (!tableSortCol) return tableData;
     return [...tableData].sort((a, b) => {
-      const va = tableSortCol === 'label' ? (a.label ?? '') : (a[tableSortCol] ?? 0);
-      const vb = tableSortCol === 'label' ? (b.label ?? '') : (b[tableSortCol] ?? 0);
+      // For label column, sort by _sortKey (chronological) instead of formatted label (alphabetical)
+      const va = tableSortCol === 'label' ? (a._sortKey ?? '') : (a[tableSortCol] ?? 0);
+      const vb = tableSortCol === 'label' ? (b._sortKey ?? '') : (b[tableSortCol] ?? 0);
       if (typeof va === 'string') return tableSortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
       return tableSortDir === 'asc' ? va - vb : vb - va;
     });
