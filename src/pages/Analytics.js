@@ -149,7 +149,7 @@ function getContentTypeAccountIds(accounts, activeAccountIds, contentTypeFilter)
     return activeAccountIds.length > 0 ? activeAccountIds : accounts.map(a => a.id);
   }
   const shortFormPlatforms = ['tiktok', 'instagram', 'facebook'];
-  const longFormPlatforms = ['youtube'];
+  const longFormPlatforms = ['youtube', 'twitch'];
   const editorialPlatforms = ['substack'];
   let platforms;
   if (contentTypeFilter === 'short') platforms = shortFormPlatforms;
@@ -951,21 +951,6 @@ function AdvancedView({ accounts }) {
       .limit(200);
     const { data } = await q;
 
-    let durationMap = {};
-    if (contentTypeFilter === 'short' || contentTypeFilter === 'long') {
-      const ytItems = (data || []).filter(d => d.platform_account?.platform === 'youtube' && d.url);
-      if (ytItems.length) {
-        const videoIds = ytItems.map(item => {
-          const match = item.url?.match(/(?:v=|youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})/);
-          return match ? match[1] : null;
-        }).filter(Boolean);
-        if (videoIds.length) {
-          const { data: ytData } = await supabase.from('analytics_youtube').select('video_id, duration_seconds').in('video_id', videoIds);
-          (ytData || []).forEach(r => { durationMap[r.video_id] = r.duration_seconds; });
-        }
-      }
-    }
-
     let rows = (data || []).map(item => {
       const metrics = item.latest_metrics?.[0] || {};
       return {
@@ -975,14 +960,25 @@ function AdvancedView({ accounts }) {
         content_views: Number(metrics.views) || 0, content_likes: Number(metrics.likes) || 0,
         content_comments: Number(metrics.comments) || 0, content_shares: Number(metrics.shares) || 0,
         content_engagement: Number(metrics.engagement_rate) || 0,
-        _videoId: item.url?.match(/(?:v=|youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})/)?.[1],
+        _contentType: item.content_type,
+        _duration: item.duration_seconds,
       };
     });
 
     if (contentTypeFilter === 'short') {
-      rows = rows.filter(r => { if (r.platform !== 'youtube') return true; if (!r._videoId || durationMap[r._videoId] === undefined) return false; return durationMap[r._videoId] < 60; });
+      // TikTok/IG/FB = all short form; YouTube = shorts only (content_type or duration < 60s)
+      rows = rows.filter(r => {
+        if (['tiktok', 'instagram', 'facebook'].includes(r.platform)) return true;
+        if (r.platform === 'youtube') return r._contentType === 'short' || (r._duration != null && r._duration < 60);
+        return false;
+      });
     } else if (contentTypeFilter === 'long') {
-      rows = rows.filter(r => { if (r.platform !== 'youtube') return false; if (!r._videoId || durationMap[r._videoId] === undefined) return true; return durationMap[r._videoId] >= 60; });
+      // YouTube long-form + Twitch VODs
+      rows = rows.filter(r => {
+        if (r.platform === 'youtube') return r._contentType === 'video' || r._contentType === 'live' || (r._duration != null && r._duration >= 60);
+        if (r.platform === 'twitch') return true;
+        return false;
+      });
     }
     setTableData(rows);
   }
