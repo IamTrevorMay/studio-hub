@@ -33,16 +33,22 @@ const SHORTS_STAGE_COLORS = {
 const POSTING_PLATFORMS = ['YouTube Shorts', 'TikTok', 'Instagram Reels', 'X/Twitter', 'Facebook'];
 
 const DELIVERABLE_TYPES = {
-  video_integration: { label: 'Video Integration', icon: '🎬' },
-  dedicated_video: { label: 'Dedicated Video', icon: '📹' },
-  social_post: { label: 'Social Post', icon: '📱' },
-  story: { label: 'Story', icon: '📸' },
-  live_mention: { label: 'Live Mention', icon: '🎙️' },
-  other: { label: 'Other', icon: '📋' },
+  long_form_read: { label: 'Long Form Read', icon: '📖' },
+  live_read: { label: 'Live Read', icon: '🎙️' },
+  short_form_video: { label: 'Short Form Video', icon: '📱' },
 };
+const DELIVERABLE_STAGES = ['script', 'production', 'editing', 'sent_for_review', 'posted'];
+const DELIVERABLE_STAGE_LABELS = {
+  script: 'Script', production: 'Production', editing: 'Editing',
+  sent_for_review: 'Sent for Review', posted: 'Posted',
+};
+const DELIVERABLE_STAGE_COLORS = {
+  script: '#3b82f6', production: '#f59e0b', editing: '#f97316',
+  sent_for_review: '#ec4899', posted: '#22c55e',
+};
+const DELIVERABLE_PLATFORMS = ['YouTube', 'TikTok', 'Instagram', 'X/Twitter', 'Facebook', 'Substack', 'Podcast'];
 const SPONSOR_STATUS_COLORS = { active: '#10b981', completed: '#6366f1', cancelled: '#ef4444' };
 const PAYMENT_STATUS_COLORS = { unpaid: '#ef4444', partial: '#f59e0b', paid: '#10b981' };
-const DELIVERABLE_STATUS_COLORS = { pending: '#f59e0b', in_progress: '#6366f1', completed: '#10b981', cancelled: '#ef4444' };
 
 export default function Projects({ onNavigate }) {
   const { profile, isAdmin } = useAuth();
@@ -76,17 +82,27 @@ export default function Projects({ onNavigate }) {
   const [showSponsorForm, setShowSponsorForm] = useState(false);
   const [editingSponsor, setEditingSponsor] = useState(null);
   const [sponsorName, setSponsorName] = useState('');
-  const [contactName, setContactName] = useState('');
-  const [contactEmail, setContactEmail] = useState('');
   const [sponsorNotes, setSponsorNotes] = useState('');
-  const [paymentAmount, setPaymentAmount] = useState('');
-  const [paymentStatus, setPaymentStatus] = useState('unpaid');
   const [showDeliverableForm, setShowDeliverableForm] = useState(null); // sponsorId or null
   const [editingDeliverable, setEditingDeliverable] = useState(null);
   const [deliverableTitle, setDeliverableTitle] = useState('');
-  const [deliverableType, setDeliverableType] = useState('video_integration');
+  const [deliverableType, setDeliverableType] = useState('long_form_read');
   const [dueDate, setDueDate] = useState('');
   const [deliverableNotes, setDeliverableNotes] = useState('');
+  const [deliverablePlatforms, setDeliverablePlatforms] = useState([]);
+  const [deliverableNeedsReview, setDeliverableNeedsReview] = useState(false);
+  const [deliverableCampaignId, setDeliverableCampaignId] = useState('');
+
+  // Campaign state
+  const [showCampaignForm, setShowCampaignForm] = useState(null); // sponsorId or null
+  const [editingCampaign, setEditingCampaign] = useState(null);
+  const [campaignForm, setCampaignForm] = useState({ name: '', description: '', start_date: '', end_date: '', contact_name: '', contact_email: '', payment_amount: '', payment_status: 'unpaid' });
+  const [briefFile, setBriefFile] = useState(null);
+
+  // Sponsor view mode
+  const [sponsorViewMode, setSponsorViewMode] = useState(() => localStorage.getItem('sponsor_view') || 'list');
+  const [allDeliverables, setAllDeliverables] = useState([]);
+  const [expandedDeliverableId, setExpandedDeliverableId] = useState(null);
 
   // Form state
   const [form, setForm] = useState({
@@ -98,6 +114,10 @@ export default function Projects({ onNavigate }) {
     localStorage.setItem('projects_view', viewMode);
   }, [viewMode]);
 
+  useEffect(() => {
+    localStorage.setItem('sponsor_view', sponsorViewMode);
+  }, [sponsorViewMode]);
+
   const fetchProjects = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -107,7 +127,8 @@ export default function Projects({ onNavigate }) {
           project_assignments(*, profile:profiles(id, full_name, title)),
           project_attachments(*),
           concept:concepts(id, name, color),
-          project_checklists(*)
+          project_checklists(*),
+          project_stage_assignments(*, profile:profiles(id, full_name))
         `)
         .order('created_at', { ascending: false });
 
@@ -133,6 +154,9 @@ export default function Projects({ onNavigate }) {
         fetchProjects();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'project_checklists' }, () => {
+        fetchProjects();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'project_stage_assignments' }, () => {
         fetchProjects();
       })
       .subscribe();
@@ -454,10 +478,19 @@ export default function Projects({ onNavigate }) {
     try {
       const { data, error } = await supabase
         .from('sponsors')
-        .select('*, sponsor_deliverables(*)')
+        .select('*, sponsor_deliverables(*, deliverable_stage_assignments(*, profile:profiles(id, full_name))), sponsor_campaigns(*)')
         .order('created_at', { ascending: false });
       if (error) throw error;
       setSponsors(data || []);
+      // Flatten deliverables for kanban view
+      const flat = [];
+      (data || []).forEach(s => {
+        (s.sponsor_deliverables || []).forEach(d => {
+          const campaign = (s.sponsor_campaigns || []).find(c => c.id === d.campaign_id);
+          flat.push({ ...d, sponsor_name: s.name, sponsor_id: s.id, campaign_name: campaign?.name || null });
+        });
+      });
+      setAllDeliverables(flat);
     } catch (err) {
       console.error('Error fetching sponsors:', err);
       setSponsors([]);
@@ -473,29 +506,28 @@ export default function Projects({ onNavigate }) {
       .channel('sponsors-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sponsors' }, () => fetchSponsors())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sponsor_deliverables' }, () => fetchSponsors())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sponsor_campaigns' }, () => fetchSponsors())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'deliverable_stage_assignments' }, () => fetchSponsors())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [activeSection, fetchSponsors]);
 
   function resetSponsorForm() {
-    setSponsorName(''); setContactName(''); setContactEmail('');
-    setSponsorNotes(''); setPaymentAmount(''); setPaymentStatus('unpaid');
+    setSponsorName('');
+    setSponsorNotes('');
     setEditingSponsor(null); setShowSponsorForm(false);
   }
 
   function resetDeliverableForm() {
-    setDeliverableTitle(''); setDeliverableType('video_integration');
+    setDeliverableTitle(''); setDeliverableType('long_form_read');
     setDueDate(''); setDeliverableNotes('');
+    setDeliverablePlatforms([]); setDeliverableNeedsReview(false); setDeliverableCampaignId('');
     setEditingDeliverable(null); setShowDeliverableForm(null);
   }
 
   function startEditSponsor(sponsor) {
     setSponsorName(sponsor.name);
-    setContactName(sponsor.contact_name || '');
-    setContactEmail(sponsor.contact_email || '');
     setSponsorNotes(sponsor.notes || '');
-    setPaymentAmount(sponsor.payment_amount || '');
-    setPaymentStatus(sponsor.payment_status);
     setEditingSponsor(sponsor.id);
     setShowSponsorForm(true);
   }
@@ -505,6 +537,9 @@ export default function Projects({ onNavigate }) {
     setDeliverableType(d.deliverable_type);
     setDueDate(d.due_date || '');
     setDeliverableNotes(d.notes || '');
+    setDeliverablePlatforms(d.platforms || []);
+    setDeliverableNeedsReview(d.needs_review || false);
+    setDeliverableCampaignId(d.campaign_id || '');
     setEditingDeliverable(d.id);
     setShowDeliverableForm(d.sponsor_id);
   }
@@ -513,11 +548,7 @@ export default function Projects({ onNavigate }) {
     e.preventDefault();
     const payload = {
       name: sponsorName,
-      contact_name: contactName || null,
-      contact_email: contactEmail || null,
       notes: sponsorNotes || null,
-      payment_amount: paymentAmount ? parseFloat(paymentAmount) : 0,
-      payment_status: paymentStatus,
       updated_at: new Date().toISOString(),
     };
     if (editingSponsor) {
@@ -559,6 +590,9 @@ export default function Projects({ onNavigate }) {
         deliverable_type: deliverableType,
         due_date: dueDate || null,
         notes: deliverableNotes || null,
+        platforms: deliverablePlatforms,
+        needs_review: deliverableNeedsReview,
+        campaign_id: deliverableCampaignId || null,
         updated_at: new Date().toISOString(),
       }).eq('id', editingDeliverable);
       if (error) { alert('Error updating deliverable: ' + error.message); return; }
@@ -597,6 +631,9 @@ export default function Projects({ onNavigate }) {
         deliverable_type: deliverableType,
         due_date: dueDate || null,
         notes: deliverableNotes || null,
+        platforms: deliverablePlatforms,
+        needs_review: deliverableNeedsReview,
+        campaign_id: deliverableCampaignId || null,
       }).select().single();
       if (error) { alert('Error creating deliverable: ' + error.message); return; }
 
@@ -627,16 +664,125 @@ export default function Projects({ onNavigate }) {
     fetchSponsors();
   }
 
-  async function handleToggleDeliverableStatus(deliverable) {
-    const next = deliverable.status === 'pending' ? 'in_progress'
-      : deliverable.status === 'in_progress' ? 'completed' : 'pending';
+  async function handleDeliverableStageChange(deliverableId, newStage) {
     const updates = {
-      status: next,
-      completed_at: next === 'completed' ? new Date().toISOString() : null,
+      status: newStage,
+      completed_at: newStage === 'posted' ? new Date().toISOString() : null,
       updated_at: new Date().toISOString(),
     };
-    await supabase.from('sponsor_deliverables').update(updates).eq('id', deliverable.id);
+    await supabase.from('sponsor_deliverables').update(updates).eq('id', deliverableId);
     fetchSponsors();
+  }
+
+  // Campaign CRUD
+  function resetCampaignForm() {
+    setCampaignForm({ name: '', description: '', start_date: '', end_date: '', contact_name: '', contact_email: '', payment_amount: '', payment_status: 'unpaid' });
+    setBriefFile(null);
+    setEditingCampaign(null); setShowCampaignForm(null);
+  }
+
+  async function handleSaveCampaign(e, sponsorId) {
+    e.preventDefault();
+    const payload = {
+      sponsor_id: sponsorId,
+      name: campaignForm.name,
+      description: campaignForm.description || null,
+      start_date: campaignForm.start_date || null,
+      end_date: campaignForm.end_date || null,
+      contact_name: campaignForm.contact_name || null,
+      contact_email: campaignForm.contact_email || null,
+      payment_amount: campaignForm.payment_amount ? parseFloat(campaignForm.payment_amount) : 0,
+      payment_status: campaignForm.payment_status || 'unpaid',
+      updated_at: new Date().toISOString(),
+    };
+    let campaignId = editingCampaign;
+    if (editingCampaign) {
+      const { error } = await supabase.from('sponsor_campaigns').update(payload).eq('id', editingCampaign);
+      if (error) { alert('Error updating campaign: ' + error.message); return; }
+    } else {
+      const { data, error } = await supabase.from('sponsor_campaigns').insert(payload).select().single();
+      if (error) { alert('Error creating campaign: ' + error.message); return; }
+      campaignId = data.id;
+    }
+    // Upload brief if file selected
+    if (briefFile && campaignId) {
+      const filePath = `${campaignId}/${Date.now()}_${briefFile.name}`;
+      const { error: uploadError } = await supabase.storage.from('campaign-briefs').upload(filePath, briefFile);
+      if (uploadError) { alert('Brief upload failed: ' + uploadError.message); } else {
+        const { data: urlData } = supabase.storage.from('campaign-briefs').getPublicUrl(filePath);
+        await supabase.from('sponsor_campaigns').update({ brief_url: urlData.publicUrl, brief_name: briefFile.name }).eq('id', campaignId);
+      }
+    }
+    resetCampaignForm();
+    fetchSponsors();
+  }
+
+  async function handleRemoveBrief(campaignId, briefUrl) {
+    if (!window.confirm('Remove this brief file?')) return;
+    // Extract storage path from URL
+    const pathMatch = briefUrl.match(/campaign-briefs\/(.+)$/);
+    if (pathMatch) {
+      await supabase.storage.from('campaign-briefs').remove([decodeURIComponent(pathMatch[1])]);
+    }
+    await supabase.from('sponsor_campaigns').update({ brief_url: null, brief_name: null }).eq('id', campaignId);
+    fetchSponsors();
+  }
+
+  async function handleDeleteCampaign(campaignId) {
+    if (!window.confirm('Delete this campaign? Deliverables will be uncampaigned.')) return;
+    await supabase.from('sponsor_campaigns').delete().eq('id', campaignId);
+    fetchSponsors();
+  }
+
+  // Deliverable stage assignments
+  async function handleAssignDeliverableStage(deliverableId, stage, userId) {
+    const { error } = await supabase.from('deliverable_stage_assignments').insert({
+      deliverable_id: deliverableId, stage, user_id: userId,
+    });
+    if (error && error.code !== '23505') console.error('Error assigning stage:', error);
+    fetchSponsors();
+  }
+
+  async function handleRemoveDeliverableStageAssignment(id) {
+    await supabase.from('deliverable_stage_assignments').delete().eq('id', id);
+    fetchSponsors();
+  }
+
+  // Project stage assignments
+  async function handleAssignProjectStage(projectId, stage, userId) {
+    const { error } = await supabase.from('project_stage_assignments').insert({
+      project_id: projectId, stage, user_id: userId,
+    });
+    if (error && error.code !== '23505') console.error('Error assigning stage:', error);
+    // Notify assigned user
+    if (userId !== profile.id) {
+      const project = projects.find(p => p.id === projectId);
+      await supabase.from('notifications').insert({
+        user_id: userId,
+        type: 'assignment',
+        title: `Stage assignment: ${project?.name || 'a project'}`,
+        body: `${profile.full_name} assigned you to the "${STATUS_LABELS[stage]}" stage`,
+        link_tab: 'projects',
+        link_target: projectId,
+      });
+    }
+    fetchProjects();
+  }
+
+  async function handleRemoveProjectStageAssignment(id) {
+    await supabase.from('project_stage_assignments').delete().eq('id', id);
+    fetchProjects();
+  }
+
+  // Kanban drag for deliverables
+  function onDeliverablesDragEnd(result) {
+    if (!result.destination) return;
+    const { draggableId, destination } = result;
+    const newStage = destination.droppableId;
+    const deliverable = allDeliverables.find(d => d.id === draggableId);
+    if (deliverable && deliverable.status !== newStage) {
+      handleDeliverableStageChange(draggableId, newStage);
+    }
   }
 
   function onDragEnd(result) {
@@ -665,6 +811,93 @@ export default function Projects({ onNavigate }) {
   const editingCount = shorts.filter(s => s.stage === 'editing').length;
   const readyCount = shorts.filter(s => s.stage === 'ready_to_post').length;
   const activeSponsorsCount = sponsors.filter(s => s.status === 'active').length;
+
+  function renderDeliverableRow(d, sponsor) {
+    const isDetailExpanded = expandedDeliverableId === d.id;
+    const stageAssignments = d.deliverable_stage_assignments || [];
+    const currentStageAssignments = stageAssignments.filter(a => a.stage === d.status);
+    return (
+      <div key={d.id} style={styles.deliverableRow}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, flexWrap: 'wrap' }}>
+          {/* Mini stage pipeline */}
+          <div style={{ display: 'flex', gap: '2px' }}>
+            {DELIVERABLE_STAGES.map(stage => (
+              <button
+                key={stage}
+                onClick={(e) => { e.stopPropagation(); handleDeliverableStageChange(d.id, stage); }}
+                title={DELIVERABLE_STAGE_LABELS[stage]}
+                style={{
+                  width: '18px', height: '18px', borderRadius: '4px', border: 'none', cursor: 'pointer', padding: 0,
+                  background: d.status === stage ? DELIVERABLE_STAGE_COLORS[stage] : DELIVERABLE_STAGES.indexOf(d.status) > DELIVERABLE_STAGES.indexOf(stage) ? `${DELIVERABLE_STAGE_COLORS[stage]}40` : 'rgba(255,255,255,0.06)',
+                  transition: 'all 0.15s',
+                }}
+              />
+            ))}
+          </div>
+          <span style={{ fontSize: '14px', flexShrink: 0 }}>{DELIVERABLE_TYPES[d.deliverable_type]?.icon || '📋'}</span>
+          <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => setExpandedDeliverableId(isDetailExpanded ? null : d.id)}>
+            <div style={{ fontSize: '13px', color: d.status === 'posted' ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.85)', textDecoration: d.status === 'posted' ? 'line-through' : 'none' }}>
+              {d.title}
+            </div>
+          </div>
+          {/* Platform pills */}
+          {(d.platforms || []).map(p => (
+            <span key={p} style={{ fontSize: '9px', fontWeight: 600, padding: '2px 5px', borderRadius: '4px', background: 'rgba(99,102,241,0.12)', color: '#a5b4fc' }}>{p}</span>
+          ))}
+          {d.needs_review && (
+            <span style={{ fontSize: '9px', fontWeight: 700, padding: '2px 5px', borderRadius: '4px', background: 'rgba(236,72,153,0.15)', color: '#f9a8d4', textTransform: 'uppercase', letterSpacing: '0.3px' }}>REVIEW</span>
+          )}
+          {/* Stage assigned avatars */}
+          {currentStageAssignments.length > 0 && (
+            <div style={{ display: 'flex', marginLeft: '4px' }}>
+              {currentStageAssignments.map(a => (
+                <div key={a.id} style={styles.kanbanAvatar} title={a.profile?.full_name}>{a.profile?.full_name?.charAt(0)}</div>
+              ))}
+            </div>
+          )}
+          {d.due_date && (
+            <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap' }}>
+              {new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            </span>
+          )}
+          <button onClick={() => startEditDeliverable(d)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Edit">✎</button>
+          <button onClick={() => handleDeleteDeliverable(d)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Delete">✕</button>
+        </div>
+        {/* Expanded stage assignments */}
+        {isDetailExpanded && (
+          <div style={{ width: '100%', marginTop: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+            {DELIVERABLE_STAGES.map(stage => {
+              const stageAs = stageAssignments.filter(a => a.stage === stage);
+              return (
+                <div key={stage} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0', borderLeft: d.status === stage ? `2px solid ${DELIVERABLE_STAGE_COLORS[stage]}` : '2px solid transparent', paddingLeft: '8px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: DELIVERABLE_STAGE_COLORS[stage], width: '90px', flexShrink: 0 }}>{DELIVERABLE_STAGE_LABELS[stage]}</span>
+                  <div style={{ display: 'flex', gap: '4px', flex: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+                    {stageAs.map(a => (
+                      <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(99,102,241,0.1)', padding: '2px 6px', borderRadius: '6px' }}>
+                        <div style={{ ...styles.kanbanAvatar, width: '18px', height: '18px', fontSize: '9px', marginLeft: 0, border: 'none' }}>{a.profile?.full_name?.charAt(0)}</div>
+                        <span style={{ fontSize: '11px', color: '#a5b4fc' }}>{a.profile?.full_name}</span>
+                        <button onClick={() => handleRemoveDeliverableStageAssignment(a.id)} style={styles.removeBtn}>✕</button>
+                      </div>
+                    ))}
+                    <select
+                      onChange={(e) => { if (e.target.value) { handleAssignDeliverableStage(d.id, stage, e.target.value); e.target.value = ''; } }}
+                      defaultValue=""
+                      style={{ ...styles.smallSelect, padding: '3px 6px', fontSize: '11px' }}
+                    >
+                      <option value="">+ Assign</option>
+                      {teamMembers.filter(m => !stageAs.some(a => a.user_id === m.id)).map(m => (
+                        <option key={m.id} value={m.id}>{m.full_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={styles.page}>
@@ -914,6 +1147,8 @@ export default function Projects({ onNavigate }) {
                 onAddChecklistItem={handleAddChecklistItem}
                 onToggleChecklistItem={handleToggleChecklistItem}
                 onDeleteChecklistItem={handleDeleteChecklistItem}
+                onAssignProjectStage={handleAssignProjectStage}
+                onRemoveProjectStageAssignment={handleRemoveProjectStageAssignment}
               />
             ))}
           </div>
@@ -1165,9 +1400,41 @@ export default function Projects({ onNavigate }) {
             {activeSponsorsCount} active · {sponsors.filter(s => s.status === 'completed').length} completed
           </p>
         </div>
-        <button onClick={() => { resetSponsorForm(); setShowSponsorForm(!showSponsorForm); }} style={styles.addBtn}>
-          {showSponsorForm && !editingSponsor ? '✕ Cancel' : '+ New Sponsor'}
-        </button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div style={styles.viewToggle}>
+            <button
+              onClick={() => setSponsorViewMode('list')}
+              style={{
+                ...styles.viewToggleBtn,
+                ...(sponsorViewMode === 'list' ? styles.viewToggleBtnActive : {}),
+              }}
+              title="List view"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <rect x="1" y="2" width="14" height="2" rx="0.5" />
+                <rect x="1" y="7" width="14" height="2" rx="0.5" />
+                <rect x="1" y="12" width="14" height="2" rx="0.5" />
+              </svg>
+            </button>
+            <button
+              onClick={() => setSponsorViewMode('board')}
+              style={{
+                ...styles.viewToggleBtn,
+                ...(sponsorViewMode === 'board' ? styles.viewToggleBtnActive : {}),
+              }}
+              title="Board view"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <rect x="1" y="1" width="4" height="14" rx="1" />
+                <rect x="6" y="1" width="4" height="10" rx="1" />
+                <rect x="11" y="1" width="4" height="12" rx="1" />
+              </svg>
+            </button>
+          </div>
+          <button onClick={() => { resetSponsorForm(); setShowSponsorForm(!showSponsorForm); }} style={styles.addBtn}>
+            {showSponsorForm && !editingSponsor ? '✕ Cancel' : '+ New Sponsor'}
+          </button>
+        </div>
       </div>
 
       {/* Sponsor Form */}
@@ -1178,26 +1445,6 @@ export default function Projects({ onNavigate }) {
               <label style={styles.label}>Sponsor Name *</label>
               <input value={sponsorName} onChange={e => setSponsorName(e.target.value)} placeholder="e.g. NordVPN" required style={styles.input} />
             </div>
-            <div style={styles.field}>
-              <label style={styles.label}>Contact Name</label>
-              <input value={contactName} onChange={e => setContactName(e.target.value)} placeholder="e.g. John Smith" style={styles.input} />
-            </div>
-            <div style={styles.field}>
-              <label style={styles.label}>Contact Email</label>
-              <input value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder="john@sponsor.com" type="email" style={styles.input} />
-            </div>
-            <div style={styles.field}>
-              <label style={styles.label}>Payment Amount</label>
-              <input value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} placeholder="0.00" type="number" step="0.01" min="0" style={styles.input} />
-            </div>
-            <div style={styles.field}>
-              <label style={styles.label}>Payment Status</label>
-              <select value={paymentStatus} onChange={e => setPaymentStatus(e.target.value)} style={styles.select}>
-                <option value="unpaid">Unpaid</option>
-                <option value="partial">Partial</option>
-                <option value="paid">Paid</option>
-              </select>
-            </div>
           </div>
           <div style={styles.field}>
             <label style={styles.label}>Notes</label>
@@ -1207,166 +1454,323 @@ export default function Projects({ onNavigate }) {
         </form>
       )}
 
-      {/* Sponsor List */}
+      {/* Sponsor List / Board */}
       {sponsorLoading ? (
         <p style={styles.emptyText}>Loading sponsors...</p>
-      ) : sponsors.length === 0 ? (
-        <div style={styles.emptyCard}>
-          <p style={styles.emptyText}>No sponsors yet. Add one to get started.</p>
-        </div>
-      ) : (
-        <div style={styles.projectList}>
-          {sponsors.map(sponsor => {
-            const isExpanded = expandedSponsorId === sponsor.id;
-            const deliverables = sponsor.sponsor_deliverables || [];
-            const completedDels = deliverables.filter(d => d.status === 'completed').length;
-            return (
-              <div key={sponsor.id} style={styles.sponsorCard}>
-                <div style={styles.sponsorCardHeader} onClick={() => setExpandedSponsorId(isExpanded ? null : sponsor.id)}>
-                  <div style={styles.projectRowLeft}>
-                    <span style={{ fontSize: '18px' }}>🤝</span>
-                    <div>
-                      <div style={styles.projectRowName}>{sponsor.name}</div>
-                      <div style={styles.projectRowMeta}>
-                        {sponsor.contact_name && <>{sponsor.contact_name}</>}
-                        {sponsor.contact_email && <> ({sponsor.contact_email})</>}
-                        {!sponsor.contact_name && !sponsor.contact_email && 'No contact info'}
+      ) : sponsorViewMode === 'list' ? (
+        sponsors.length === 0 ? (
+          <div style={styles.emptyCard}>
+            <p style={styles.emptyText}>No sponsors yet. Add one to get started.</p>
+          </div>
+        ) : (
+          <div style={styles.projectList}>
+            {sponsors.map(sponsor => {
+              const isExpanded = expandedSponsorId === sponsor.id;
+              const deliverables = sponsor.sponsor_deliverables || [];
+              const campaigns = sponsor.sponsor_campaigns || [];
+              const postedDels = deliverables.filter(d => d.status === 'posted').length;
+              return (
+                <div key={sponsor.id} style={styles.sponsorCard}>
+                  <div style={styles.sponsorCardHeader} onClick={() => setExpandedSponsorId(isExpanded ? null : sponsor.id)}>
+                    <div style={styles.projectRowLeft}>
+                      <span style={{ fontSize: '18px' }}>🤝</span>
+                      <div>
+                        <div style={styles.projectRowName}>{sponsor.name}</div>
+                        <div style={styles.projectRowMeta}>
+                          {campaigns.length > 0 ? `${campaigns.length} campaign${campaigns.length > 1 ? 's' : ''}` : 'No campaigns'}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <div style={styles.projectRowRight}>
-                    {sponsor.payment_amount > 0 && (
-                      <span style={{ ...styles.paymentBadge, background: `${PAYMENT_STATUS_COLORS[sponsor.payment_status]}15`, color: PAYMENT_STATUS_COLORS[sponsor.payment_status] }}>
-                        ${Number(sponsor.payment_amount).toLocaleString()}
+                    <div style={styles.projectRowRight}>
+                      <span style={{ ...styles.statusTag, background: `${SPONSOR_STATUS_COLORS[sponsor.status]}15`, color: SPONSOR_STATUS_COLORS[sponsor.status] }}>
+                        {sponsor.status}
                       </span>
-                    )}
-                    <span style={{ ...styles.statusTag, background: `${PAYMENT_STATUS_COLORS[sponsor.payment_status]}15`, color: PAYMENT_STATUS_COLORS[sponsor.payment_status] }}>
-                      {sponsor.payment_status}
-                    </span>
-                    <span style={{ ...styles.statusTag, background: `${SPONSOR_STATUS_COLORS[sponsor.status]}15`, color: SPONSOR_STATUS_COLORS[sponsor.status] }}>
-                      {sponsor.status}
-                    </span>
-                    {deliverables.length > 0 && (
-                      <span style={styles.checklistBadge}>{completedDels}/{deliverables.length}</span>
-                    )}
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="rgba(255,255,255,0.3)"
-                      style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>
-                      <path d="M4 6l4 4 4-4" />
-                    </svg>
-                  </div>
-                </div>
-
-                {isExpanded && (
-                  <div style={styles.projectDetail}>
-                    {sponsor.notes && (
-                      <div style={styles.detailSection}>
-                        <h4 style={styles.detailLabel}>Notes</h4>
-                        <p style={{ margin: 0, fontSize: '13px', color: 'rgba(255,255,255,0.6)', whiteSpace: 'pre-wrap' }}>{sponsor.notes}</p>
-                      </div>
-                    )}
-
-                    {/* Deliverables */}
-                    <div style={styles.detailSection}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                        <h4 style={styles.detailLabel}>Deliverables</h4>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); resetDeliverableForm(); setShowDeliverableForm(showDeliverableForm === sponsor.id ? null : sponsor.id); }}
-                          style={{ background: 'none', border: 'none', color: '#a5b4fc', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}
-                        >
-                          {showDeliverableForm === sponsor.id && !editingDeliverable ? '✕ Cancel' : '+ Add Deliverable'}
-                        </button>
-                      </div>
-
-                      {/* Deliverable Form */}
-                      {showDeliverableForm === sponsor.id && (
-                        <form onSubmit={(e) => handleSaveDeliverable(e, sponsor.id)} style={{ ...styles.formCard, marginBottom: '12px' }}>
-                          <div style={styles.formGrid}>
-                            <div style={styles.field}>
-                              <label style={styles.label}>Title *</label>
-                              <input value={deliverableTitle} onChange={e => setDeliverableTitle(e.target.value)} placeholder="e.g. Mid-roll integration" required style={styles.input} />
-                            </div>
-                            <div style={styles.field}>
-                              <label style={styles.label}>Type</label>
-                              <select value={deliverableType} onChange={e => setDeliverableType(e.target.value)} style={styles.select}>
-                                {Object.entries(DELIVERABLE_TYPES).map(([k, v]) => (
-                                  <option key={k} value={k}>{v.icon} {v.label}</option>
-                                ))}
-                              </select>
-                            </div>
-                            <div style={styles.field}>
-                              <label style={styles.label}>Due Date</label>
-                              <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} style={styles.input} />
-                            </div>
-                          </div>
-                          <div style={styles.field}>
-                            <label style={styles.label}>Notes</label>
-                            <textarea value={deliverableNotes} onChange={e => setDeliverableNotes(e.target.value)} placeholder="Requirements, talking points..." rows={2} style={{ ...styles.input, resize: 'vertical' }} />
-                          </div>
-                          <button type="submit" style={styles.submitBtn}>{editingDeliverable ? 'Update Deliverable' : 'Add Deliverable'}</button>
-                        </form>
+                      {deliverables.length > 0 && (
+                        <span style={styles.checklistBadge}>{postedDels}/{deliverables.length}</span>
                       )}
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="rgba(255,255,255,0.3)"
+                        style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>
+                        <path d="M4 6l4 4 4-4" />
+                      </svg>
+                    </div>
+                  </div>
 
-                      {deliverables.length === 0 && showDeliverableForm !== sponsor.id ? (
-                        <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.25)', margin: '4px 0' }}>No deliverables yet.</p>
-                      ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          {deliverables.map(d => (
-                            <div key={d.id} style={styles.deliverableRow}>
-                              <button
-                                onClick={() => handleToggleDeliverableStatus(d)}
-                                style={{
-                                  background: 'none', border: `2px solid ${DELIVERABLE_STATUS_COLORS[d.status]}`,
-                                  width: '20px', height: '20px', borderRadius: '4px', cursor: 'pointer',
-                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                  color: DELIVERABLE_STATUS_COLORS[d.status], fontSize: '12px', flexShrink: 0,
-                                  ...(d.status === 'completed' ? { background: `${DELIVERABLE_STATUS_COLORS.completed}20` } : {}),
-                                }}
-                                title={`Status: ${d.status} — click to advance`}
-                              >
-                                {d.status === 'completed' ? '✓' : d.status === 'in_progress' ? '◐' : ''}
-                              </button>
-                              <span style={{ fontSize: '14px', flexShrink: 0 }}>{DELIVERABLE_TYPES[d.deliverable_type]?.icon || '📋'}</span>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: '13px', color: d.status === 'completed' ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.85)', textDecoration: d.status === 'completed' ? 'line-through' : 'none' }}>
-                                  {d.title}
-                                </div>
-                                {d.notes && <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', marginTop: '2px' }}>{d.notes}</div>}
-                              </div>
-                              <span style={{ ...styles.statusTag, background: `${DELIVERABLE_STATUS_COLORS[d.status]}15`, color: DELIVERABLE_STATUS_COLORS[d.status], fontSize: '10px' }}>
-                                {d.status.replace('_', ' ')}
-                              </span>
-                              {d.due_date && (
-                                <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap' }}>
-                                  {new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                                </span>
-                              )}
-                              <button
-                                onClick={() => startEditDeliverable(d)}
-                                style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }}
-                                title="Edit"
-                              >✎</button>
-                              <button
-                                onClick={() => handleDeleteDeliverable(d)}
-                                style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }}
-                                title="Delete"
-                              >✕</button>
-                            </div>
-                          ))}
+                  {isExpanded && (
+                    <div style={styles.projectDetail}>
+                      {sponsor.notes && (
+                        <div style={styles.detailSection}>
+                          <h4 style={styles.detailLabel}>Notes</h4>
+                          <p style={{ margin: 0, fontSize: '13px', color: 'rgba(255,255,255,0.6)', whiteSpace: 'pre-wrap' }}>{sponsor.notes}</p>
                         </div>
                       )}
-                    </div>
 
-                    {/* Sponsor Actions */}
-                    <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-                      <button onClick={() => startEditSponsor(sponsor)} style={{ ...styles.filterBtn, fontSize: '12px' }}>Edit</button>
-                      <button onClick={() => handleDeleteSponsor(sponsor.id)} style={{ ...styles.filterBtn, fontSize: '12px', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}>Delete</button>
+                      {/* Campaigns */}
+                      <div style={styles.detailSection}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                          <h4 style={styles.detailLabel}>Campaigns</h4>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); resetCampaignForm(); setShowCampaignForm(showCampaignForm === sponsor.id ? null : sponsor.id); }}
+                            style={{ background: 'none', border: 'none', color: '#a5b4fc', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}
+                          >
+                            {showCampaignForm === sponsor.id && !editingCampaign ? '✕ Cancel' : '+ Add Campaign'}
+                          </button>
+                        </div>
+
+                        {showCampaignForm === sponsor.id && (
+                          <form onSubmit={(e) => handleSaveCampaign(e, sponsor.id)} style={{ ...styles.formCard, marginBottom: '12px' }}>
+                            <div style={styles.formGrid}>
+                              <div style={styles.field}>
+                                <label style={styles.label}>Campaign Name *</label>
+                                <input value={campaignForm.name} onChange={e => setCampaignForm({ ...campaignForm, name: e.target.value })} placeholder="e.g. Q1 Launch" required style={styles.input} />
+                              </div>
+                              <div style={styles.field}>
+                                <label style={styles.label}>Start Date</label>
+                                <input type="date" value={campaignForm.start_date} onChange={e => setCampaignForm({ ...campaignForm, start_date: e.target.value })} style={styles.input} />
+                              </div>
+                              <div style={styles.field}>
+                                <label style={styles.label}>End Date</label>
+                                <input type="date" value={campaignForm.end_date} onChange={e => setCampaignForm({ ...campaignForm, end_date: e.target.value })} style={styles.input} />
+                              </div>
+                              <div style={styles.field}>
+                                <label style={styles.label}>Contact Name</label>
+                                <input value={campaignForm.contact_name} onChange={e => setCampaignForm({ ...campaignForm, contact_name: e.target.value })} placeholder="e.g. John Smith" style={styles.input} />
+                              </div>
+                              <div style={styles.field}>
+                                <label style={styles.label}>Contact Email</label>
+                                <input value={campaignForm.contact_email} onChange={e => setCampaignForm({ ...campaignForm, contact_email: e.target.value })} placeholder="john@sponsor.com" type="email" style={styles.input} />
+                              </div>
+                              {isAdmin && (
+                                <div style={styles.field}>
+                                  <label style={styles.label}>Payment Amount</label>
+                                  <input value={campaignForm.payment_amount} onChange={e => setCampaignForm({ ...campaignForm, payment_amount: e.target.value })} placeholder="0.00" type="number" step="0.01" min="0" style={styles.input} />
+                                </div>
+                              )}
+                              {isAdmin && (
+                                <div style={styles.field}>
+                                  <label style={styles.label}>Payment Status</label>
+                                  <select value={campaignForm.payment_status} onChange={e => setCampaignForm({ ...campaignForm, payment_status: e.target.value })} style={styles.select}>
+                                    <option value="unpaid">Unpaid</option>
+                                    <option value="partial">Partial</option>
+                                    <option value="paid">Paid</option>
+                                  </select>
+                                </div>
+                              )}
+                              <div style={styles.field}>
+                                <label style={styles.label}>Brief (PDF/DOCX)</label>
+                                <input type="file" accept=".pdf,.docx,.doc" onChange={e => setBriefFile(e.target.files[0] || null)} style={{ ...styles.input, padding: '6px 8px' }} />
+                              </div>
+                            </div>
+                            <div style={styles.field}>
+                              <label style={styles.label}>Description</label>
+                              <textarea value={campaignForm.description} onChange={e => setCampaignForm({ ...campaignForm, description: e.target.value })} placeholder="Campaign details..." rows={2} style={{ ...styles.input, resize: 'vertical' }} />
+                            </div>
+                            <button type="submit" style={styles.submitBtn}>{editingCampaign ? 'Update Campaign' : 'Create Campaign'}</button>
+                          </form>
+                        )}
+
+                        {campaigns.length > 0 && campaigns.map(campaign => {
+                          const campaignDels = deliverables.filter(d => d.campaign_id === campaign.id);
+                          const allPosted = campaignDels.length > 0 && campaignDels.every(d => d.status === 'posted');
+                          const postedCount = campaignDels.filter(d => d.status === 'posted').length;
+                          return (
+                            <div key={campaign.id} style={{ marginBottom: '8px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', padding: '10px 12px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: '13px', fontWeight: 600, color: '#e2e8f0', flex: 1 }}>{campaign.name}</span>
+                                {campaign.start_date && campaign.end_date && (
+                                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)' }}>
+                                    {new Date(campaign.start_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – {new Date(campaign.end_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                  </span>
+                                )}
+                                {isAdmin && campaign.payment_amount > 0 && (
+                                  <span style={{ ...styles.paymentBadge, background: `${PAYMENT_STATUS_COLORS[campaign.payment_status]}15`, color: PAYMENT_STATUS_COLORS[campaign.payment_status] }}>
+                                    ${Number(campaign.payment_amount).toLocaleString()}
+                                  </span>
+                                )}
+                                {isAdmin && (
+                                  <span style={{ ...styles.statusTag, background: `${PAYMENT_STATUS_COLORS[campaign.payment_status]}15`, color: PAYMENT_STATUS_COLORS[campaign.payment_status] }}>
+                                    {campaign.payment_status}
+                                  </span>
+                                )}
+                                {allPosted && (
+                                  <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: 'rgba(34,197,94,0.15)', color: '#86efac', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Delivered!</span>
+                                )}
+                                {campaignDels.length > 0 && (
+                                  <span style={styles.checklistBadge}>{postedCount}/{campaignDels.length}</span>
+                                )}
+                                <button onClick={() => { setCampaignForm({ name: campaign.name, description: campaign.description || '', start_date: campaign.start_date || '', end_date: campaign.end_date || '', contact_name: campaign.contact_name || '', contact_email: campaign.contact_email || '', payment_amount: campaign.payment_amount || '', payment_status: campaign.payment_status || 'unpaid' }); setEditingCampaign(campaign.id); setShowCampaignForm(sponsor.id); }} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Edit">✎</button>
+                                <button onClick={() => handleDeleteCampaign(campaign.id)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Delete">✕</button>
+                              </div>
+                              {/* Campaign contact + brief info */}
+                              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '6px', alignItems: 'center' }}>
+                                {(campaign.contact_name || campaign.contact_email) && (
+                                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>
+                                    {campaign.contact_name}{campaign.contact_email && ` (${campaign.contact_email})`}
+                                  </span>
+                                )}
+                                {campaign.brief_url && (
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                    <a href={campaign.brief_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '11px', color: '#a5b4fc', textDecoration: 'none' }}>
+                                      📄 {campaign.brief_name || 'Brief'}
+                                    </a>
+                                    <button onClick={() => handleRemoveBrief(campaign.id, campaign.brief_url)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '10px', padding: '0 2px' }} title="Remove brief">✕</button>
+                                  </span>
+                                )}
+                              </div>
+                              {campaignDels.length > 0 && <div style={{ marginTop: '8px' }}>{campaignDels.map(d => renderDeliverableRow(d, sponsor))}</div>}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Uncampaigned Deliverables */}
+                      {(() => {
+                        const uncampaigned = deliverables.filter(d => !d.campaign_id);
+                        if (uncampaigned.length === 0 && campaigns.length > 0) return null;
+                        return (
+                          <div style={styles.detailSection}>
+                            {campaigns.length > 0 && <h4 style={{ ...styles.detailLabel, marginBottom: '8px' }}>Uncampaigned</h4>}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              {uncampaigned.map(d => renderDeliverableRow(d, sponsor))}
+                              {uncampaigned.length === 0 && campaigns.length === 0 && showDeliverableForm !== sponsor.id && (
+                                <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.25)', margin: '4px 0' }}>No deliverables yet.</p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Add Deliverable */}
+                      <div style={styles.detailSection}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                          <h4 style={styles.detailLabel}>Deliverables</h4>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); resetDeliverableForm(); setShowDeliverableForm(showDeliverableForm === sponsor.id ? null : sponsor.id); }}
+                            style={{ background: 'none', border: 'none', color: '#a5b4fc', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}
+                          >
+                            {showDeliverableForm === sponsor.id && !editingDeliverable ? '✕ Cancel' : '+ Add Deliverable'}
+                          </button>
+                        </div>
+
+                        {showDeliverableForm === sponsor.id && (
+                          <form onSubmit={(e) => handleSaveDeliverable(e, sponsor.id)} style={{ ...styles.formCard, marginBottom: '12px' }}>
+                            <div style={styles.formGrid}>
+                              <div style={styles.field}>
+                                <label style={styles.label}>Title *</label>
+                                <input value={deliverableTitle} onChange={e => setDeliverableTitle(e.target.value)} placeholder="e.g. Mid-roll integration" required style={styles.input} />
+                              </div>
+                              <div style={styles.field}>
+                                <label style={styles.label}>Type</label>
+                                <select value={deliverableType} onChange={e => setDeliverableType(e.target.value)} style={styles.select}>
+                                  {Object.entries(DELIVERABLE_TYPES).map(([k, v]) => (
+                                    <option key={k} value={k}>{v.icon} {v.label}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div style={styles.field}>
+                                <label style={styles.label}>Due Date</label>
+                                <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} style={styles.input} />
+                              </div>
+                              <div style={styles.field}>
+                                <label style={styles.label}>Campaign</label>
+                                <select value={deliverableCampaignId} onChange={e => setDeliverableCampaignId(e.target.value)} style={styles.select}>
+                                  <option value="">No campaign</option>
+                                  {campaigns.map(c => (
+                                    <option key={c.id} value={c.id}>{c.name}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div style={styles.field}>
+                                <label style={styles.label}>Platforms</label>
+                                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                  {DELIVERABLE_PLATFORMS.map(p => (
+                                    <button key={p} type="button" onClick={() => setDeliverablePlatforms(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p])} style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', background: deliverablePlatforms.includes(p) ? 'rgba(99,102,241,0.2)' : 'transparent', color: deliverablePlatforms.includes(p) ? '#a5b4fc' : 'rgba(255,255,255,0.35)', borderColor: deliverablePlatforms.includes(p) ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.08)' }}>{p}</button>
+                                  ))}
+                                </div>
+                              </div>
+                              <div style={styles.field}>
+                                <label style={styles.label}>Needs Review</label>
+                                <select value={deliverableNeedsReview ? 'yes' : 'no'} onChange={e => setDeliverableNeedsReview(e.target.value === 'yes')} style={styles.select}>
+                                  <option value="no">No</option>
+                                  <option value="yes">Yes</option>
+                                </select>
+                              </div>
+                            </div>
+                            <div style={styles.field}>
+                              <label style={styles.label}>Notes</label>
+                              <textarea value={deliverableNotes} onChange={e => setDeliverableNotes(e.target.value)} placeholder="Requirements, talking points..." rows={2} style={{ ...styles.input, resize: 'vertical' }} />
+                            </div>
+                            <button type="submit" style={styles.submitBtn}>{editingDeliverable ? 'Update Deliverable' : 'Add Deliverable'}</button>
+                          </form>
+                        )}
+                      </div>
+
+                      {/* Sponsor Actions */}
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                        <button onClick={() => startEditSponsor(sponsor)} style={{ ...styles.filterBtn, fontSize: '12px' }}>Edit</button>
+                        <button onClick={() => handleDeleteSponsor(sponsor.id)} style={{ ...styles.filterBtn, fontSize: '12px', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}>Delete</button>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )
+      ) : (
+        /* Kanban Board View */
+        <DragDropContext onDragEnd={onDeliverablesDragEnd}>
+          <div style={styles.boardContainer}>
+            {DELIVERABLE_STAGES.map(stage => {
+              const columnDels = allDeliverables.filter(d => d.status === stage);
+              return (
+                <Droppable droppableId={stage} key={stage}>
+                  {(provided, snapshot) => (
+                    <div
+                      ref={provided.innerRef}
+                      {...provided.droppableProps}
+                      style={{
+                        ...styles.boardColumn,
+                        background: snapshot.isDraggingOver ? `${DELIVERABLE_STAGE_COLORS[stage]}08` : 'rgba(255,255,255,0.02)',
+                      }}
+                    >
+                      <div style={styles.boardColumnHeader}>
+                        <div style={{ ...styles.boardColumnDot, background: DELIVERABLE_STAGE_COLORS[stage] }} />
+                        <span style={{ ...styles.boardColumnTitle, color: DELIVERABLE_STAGE_COLORS[stage] }}>{DELIVERABLE_STAGE_LABELS[stage]}</span>
+                        <span style={styles.boardColumnCount}>{columnDels.length}</span>
+                      </div>
+                      <div style={styles.boardColumnBody}>
+                        {columnDels.map((d, index) => (
+                          <Draggable key={d.id} draggableId={d.id} index={index}>
+                            {(provided, snapshot) => (
+                              <div
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                {...provided.dragHandleProps}
+                                style={{
+                                  ...styles.kanbanCard,
+                                  ...(snapshot.isDragging ? { boxShadow: '0 8px 24px rgba(0,0,0,0.4)', border: '1px solid rgba(99,102,241,0.3)' } : {}),
+                                  ...provided.draggableProps.style,
+                                }}
+                              >
+                                <DeliverableKanbanCard deliverable={d} />
+                              </div>
+                            )}
+                          </Draggable>
+                        ))}
+                        {provided.placeholder}
+                        {columnDels.length === 0 && (
+                          <div style={{ padding: '24px 16px', textAlign: 'center' }}>
+                            <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.2)', margin: 0 }}>No deliverables</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </Droppable>
+              );
+            })}
+          </div>
+        </DragDropContext>
       )}
       </>
       )}
@@ -1382,6 +1786,7 @@ function ProjectRow({
   onLinkConcept, onNavigate, concepts,
   isAdmin,
   onAddChecklistItem, onToggleChecklistItem, onDeleteChecklistItem,
+  onAssignProjectStage, onRemoveProjectStageAssignment,
 }) {
   const [assignUserId, setAssignUserId] = useState('');
   const [assignRole, setAssignRole] = useState('editor');
@@ -1710,6 +2115,44 @@ function ProjectRow({
             </div>
           </div>
 
+          {/* Stage Assignments */}
+          <div style={styles.detailSection}>
+            <h4 style={styles.detailLabel}>Stage Assignments</h4>
+            <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', margin: '0 0 10px 0' }}>
+              Assign team members to stages. They'll see this on their dashboard when the project enters their stage.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {STATUSES.map(stage => {
+                const stageAs = (project.project_stage_assignments || []).filter(a => a.stage === stage);
+                const isCurrentStage = project.status === stage;
+                return (
+                  <div key={stage} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', borderRadius: '6px', background: isCurrentStage ? `${STATUS_COLORS[stage]}08` : 'transparent', borderLeft: isCurrentStage ? `2px solid ${STATUS_COLORS[stage]}` : '2px solid transparent' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: STATUS_COLORS[stage], width: '80px', flexShrink: 0 }}>{STATUS_LABELS[stage]}</span>
+                    <div style={{ display: 'flex', gap: '4px', flex: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {stageAs.map(a => (
+                        <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(99,102,241,0.1)', padding: '2px 6px', borderRadius: '6px' }}>
+                          <div style={{ width: '18px', height: '18px', borderRadius: '6px', background: 'rgba(99,102,241,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '9px', fontWeight: 600, color: '#a5b4fc' }}>{a.profile?.full_name?.charAt(0)}</div>
+                          <span style={{ fontSize: '11px', color: '#a5b4fc' }}>{a.profile?.full_name}</span>
+                          <button onClick={() => onRemoveProjectStageAssignment(a.id)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.25)', cursor: 'pointer', fontSize: '12px', padding: '4px' }}>✕</button>
+                        </div>
+                      ))}
+                      <select
+                        onChange={(e) => { if (e.target.value) { onAssignProjectStage(project.id, stage, e.target.value); e.target.value = ''; } }}
+                        defaultValue=""
+                        style={{ padding: '3px 6px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', color: '#fff', fontSize: '11px', fontFamily: 'inherit', outline: 'none' }}
+                      >
+                        <option value="">+ Assign</option>
+                        {teamMembers.filter(m => !stageAs.some(a => a.user_id === m.id)).map(m => (
+                          <option key={m.id} value={m.id}>{m.full_name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Attachments */}
           <div style={styles.detailSection}>
             <h4 style={styles.detailLabel}>Attachments & Links</h4>
@@ -1880,6 +2323,9 @@ function KanbanCard({ project }) {
           {project.project_assignments?.length > 3 && (
             <div style={styles.kanbanAvatarMore}>+{project.project_assignments.length - 3}</div>
           )}
+          {(project.project_stage_assignments || []).filter(a => a.stage === project.status).slice(0, 3).map(a => (
+            <div key={a.id} style={{ ...styles.kanbanAvatar, background: 'rgba(236,72,153,0.25)', color: '#f9a8d4' }} title={`${a.profile?.full_name} (stage)`}>{a.profile?.full_name?.charAt(0)}</div>
+          ))}
         </div>
         <span style={{
           fontSize: '11px', fontWeight: 600,
@@ -1896,6 +2342,46 @@ function KanbanCard({ project }) {
           <span style={styles.kanbanProgressText}>{completed}/{total}</span>
         </div>
       )}
+    </>
+  );
+}
+
+function DeliverableKanbanCard({ deliverable }) {
+  const d = deliverable;
+  const currentStageAssignments = (d.deliverable_stage_assignments || []).filter(a => a.stage === d.status);
+  return (
+    <>
+      <div style={styles.kanbanCardName}>{d.title}</div>
+      <div style={styles.kanbanCardMeta}>
+        <span style={{ ...styles.kanbanTypeBadge, background: `${DELIVERABLE_STAGE_COLORS[d.status]}15`, color: DELIVERABLE_STAGE_COLORS[d.status] }}>
+          {DELIVERABLE_TYPES[d.deliverable_type]?.icon} {DELIVERABLE_TYPES[d.deliverable_type]?.label}
+        </span>
+      </div>
+      <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', marginBottom: '6px' }}>
+        {d.sponsor_name}{d.campaign_name ? ` · ${d.campaign_name}` : ''}
+      </div>
+      {((d.platforms || []).length > 0 || d.needs_review) && (
+        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '6px' }}>
+          {(d.platforms || []).map(p => (
+            <span key={p} style={{ fontSize: '9px', fontWeight: 600, padding: '2px 5px', borderRadius: '4px', background: 'rgba(99,102,241,0.12)', color: '#a5b4fc' }}>{p}</span>
+          ))}
+          {d.needs_review && (
+            <span style={{ fontSize: '9px', fontWeight: 700, padding: '2px 5px', borderRadius: '4px', background: 'rgba(236,72,153,0.15)', color: '#f9a8d4', textTransform: 'uppercase', letterSpacing: '0.3px' }}>REVIEW</span>
+          )}
+        </div>
+      )}
+      <div style={styles.kanbanCardFooter}>
+        <div style={styles.kanbanAvatars}>
+          {currentStageAssignments.slice(0, 3).map(a => (
+            <div key={a.id} style={styles.kanbanAvatar} title={a.profile?.full_name}>{a.profile?.full_name?.charAt(0)}</div>
+          ))}
+        </div>
+        {d.due_date && (
+          <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>
+            {new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+          </span>
+        )}
+      </div>
     </>
   );
 }
