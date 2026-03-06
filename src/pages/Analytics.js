@@ -222,6 +222,10 @@ export default function Analytics() {
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [analysisData, setAnalysisData] = useState({ revenue: [], contentWithMetrics: [], audienceSnapshots: [] });
 
+  // Platform sync refresh
+  const [syncing, setSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState(null);
+
   // Close platform dropdown on outside click
   useEffect(() => {
     function handleClick(e) {
@@ -276,6 +280,32 @@ export default function Analytics() {
       fetchAnalysisData(),
     ]);
     setLoading(false);
+  }
+
+  async function handleSyncAllPlatforms() {
+    setSyncing(true);
+    setSyncStatus(null);
+    const base = process.env.REACT_APP_SUPABASE_URL;
+    const anonKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
+    const headers = { 'Authorization': `Bearer ${anonKey}`, 'Content-Type': 'application/json' };
+    try {
+      const results = await Promise.allSettled([
+        fetch(`${base}/functions/v1/sync-metricool`, { method: 'POST', headers }),
+        fetch(`${base}/functions/v1/sync-twitch`, { method: 'POST', headers }),
+      ]);
+      const failures = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.ok));
+      // Refresh materialized view
+      await supabase.rpc('refresh_daily_platform_rollups');
+      // Re-fetch all dashboard data
+      await fetchAllData();
+      setSyncStatus(failures.length > 0 ? `Synced with ${failures.length} warning(s)` : 'All platforms synced!');
+    } catch (err) {
+      console.error('Sync error:', err);
+      setSyncStatus('Sync failed — check console');
+    } finally {
+      setSyncing(false);
+      setTimeout(() => setSyncStatus(null), 5000);
+    }
   }
 
   async function fetchAnalysisData() {
@@ -503,6 +533,27 @@ export default function Analytics() {
         <div>
           <h1 style={styles.pageTitle}>Analytics Command Center</h1>
           <p style={styles.pageSubtitle}>Multi-platform performance dashboard</p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {syncStatus && (
+            <span style={{ fontSize: '12px', color: syncStatus.includes('failed') || syncStatus.includes('warning') ? '#f59e0b' : '#22c55e', fontWeight: 600 }}>
+              {syncStatus}
+            </span>
+          )}
+          <button
+            onClick={handleSyncAllPlatforms}
+            disabled={syncing}
+            style={{
+              padding: '8px 16px', borderRadius: '8px', border: '1px solid rgba(99,102,241,0.3)',
+              background: syncing ? 'rgba(99,102,241,0.1)' : 'rgba(99,102,241,0.15)',
+              color: '#a5b4fc', fontSize: '13px', fontWeight: 600, cursor: syncing ? 'not-allowed' : 'pointer',
+              fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '6px',
+              opacity: syncing ? 0.7 : 1, transition: 'all 0.15s',
+            }}
+          >
+            <span style={{ display: 'inline-block', animation: syncing ? 'spin 1s linear infinite' : 'none' }}>↻</span>
+            {syncing ? 'Syncing...' : 'Refresh All'}
+          </button>
         </div>
       </div>
 
