@@ -785,7 +785,7 @@ export default function Morty() {
     <div
       style={{
         position: 'fixed',
-        bottom: 0,
+        bottom: S * 24,
         left: posX,
         zIndex: 900,
         cursor: 'pointer',
@@ -799,7 +799,7 @@ export default function Morty() {
       {showBubble && (
         <div style={{
           position: 'absolute',
-          bottom: S * 24 + 16,
+          bottom: 16,
           left: facingRight ? S * 8 : 'auto',
           right: facingRight ? 'auto' : S * 8,
           transform: facingRight ? 'none' : 'scaleX(-1)',
