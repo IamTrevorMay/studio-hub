@@ -3,97 +3,97 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 // === SAYINGS ===
 const SAYINGS = [
   // Encouragement (15)
-  "You're crushing it today!",
-  "This content is gonna slap.",
-  "Keep going, legend.",
-  "The algorithm loves consistency. So do I.",
-  "Your future subscribers don't know how lucky they are.",
-  "Every video starts with a first frame.",
-  "You didn't come this far to only come this far.",
-  "Morty believes in you!",
-  "That idea? Chef's kiss.",
-  "You're built different. In a good way.",
-  "One upload closer to the goal.",
-  "Your work ethic is showing.",
-  "Main character energy detected.",
-  "Plot twist: you're already winning.",
-  "The grind is temporary. The content is forever.",
-  // Dad Jokes (15)
-  "Why did the YouTuber break up? No chemistry.",
-  "I'm a dinosaur who believes in you. That's rare.",
-  "What's a video editor's favorite meal? Cuts of meat.",
-  "Why don't scientists trust atoms? They make up everything.",
-  "I told my wife she was drawing her eyebrows too high. She seemed surprised.",
-  "What do you call a fake noodle? An impasta.",
-  "I'm reading a book about anti-gravity. Can't put it down.",
-  "Why did the scarecrow win an award? Outstanding in his field.",
-  "What do you call a dinosaur that crashes their car? Tyrannosaurus Wrecks.",
-  "I would tell you a construction joke but I'm still working on it.",
-  "What's the best thing about Switzerland? The flag is a big plus.",
-  "Did you hear about the claustrophobic astronaut? He needed more space.",
-  "Why don't eggs tell jokes? They'd crack each other up.",
-  "I used to hate facial hair, but then it grew on me.",
-  "What do you call a sleeping dinosaur? A dino-snore.",
-  // Health Reminders (10)
-  "Hey, have you had water recently? Go drink some.",
-  "Stand up and stretch! Your back will thank you.",
-  "When's the last time you blinked? Screen breaks matter.",
-  "Take a deep breath. In... and out. Nice.",
-  "Your posture right now... yeah, fix that.",
-  "Fun fact: walking for 5 minutes boosts creativity 60%.",
-  "Snack check: fuel the machine!",
-  "Eye strain is real. Look at something 20ft away for 20 seconds.",
-  "Roll those shoulders back. You're not a shrimp.",
-  "Sunshine exists. Consider visiting it briefly.",
+  "You're hitting it out of the park today!",
+  "That content? Grand slam material.",
+  "Keep swinging, slugger.",
+  "The algorithm loves a good batting average.",
+  "You're pitching pure heat right now.",
+  "Every strikeout brings you closer to a home run.",
+  "You didn't make it to the big leagues to bunt.",
+  "Morty believes in your swing!",
+  "That idea is a no-doubter.",
+  "You've got MVP energy.",
+  "One upload closer to the pennant.",
+  "Your hustle is showing. Coach is proud.",
+  "All-star energy detected.",
+  "Plot twist: you're already in the Hall of Fame.",
+  "The season is long. Keep grinding.",
+  // Baseball Jokes (15)
+  "Why was the baseball team so hot? They lost all their fans.",
+  "I'm a baseball and I still root for you. That's rare.",
+  "What do you call a baseball player who only hits fouls? Fowl ball.",
+  "Why are baseball games at night? Bats sleep during the day.",
+  "I told the umpire a joke. He didn't call it.",
+  "What has 18 legs and catches flies? A baseball team.",
+  "Why did the baseball player bring rope? He wanted to tie the score.",
+  "What do baseball players eat on? Home plates.",
+  "Why are spiders good at baseball? They catch flies.",
+  "I'd tell you a baseball joke but it might be too out of left field.",
+  "What's a baseball player's least favorite Star Wars movie? The Umpire Strikes Back.",
+  "Why was Cinderella bad at baseball? She ran away from the ball.",
+  "Why did the baseball player go to jail? He stole second base.",
+  "What do you get when you cross a pitcher with a carpet? A throw rug.",
+  "Why are baseball stadiums so cool? Full of fans.",
+  // Health/Break Reminders (10)
+  "Hey batter, have you had water? Hydrate up!",
+  "Time for the 7th inning stretch! Stand up!",
+  "Even pitchers take breaks between innings. Rest your eyes.",
+  "Take a deep breath. Wind up... and release. Nice.",
+  "Your posture looks like a bad slide into third. Fix that.",
+  "A 5-minute walk is like a trip around the bases for your brain.",
+  "Snack check: grab some ballpark fuel!",
+  "Look away from the screen. Scout the horizon for 20 seconds.",
+  "Roll those shoulders back. You're an athlete, not a catcher in a crouch.",
+  "Sunshine exists. Step outside and play catch with life.",
   // Fun/Random (10)
-  "I'm 65 million years old and still learning new things.",
-  "Morty was here.",
-  "If I had longer arms, I'd give you a hug.",
-  "Rawr means 'great job' in dinosaur.",
-  "Fun fact: I can't actually go extinct. I'm digital.",
-  "Don't mind me, just vibing.",
-  "MM stands for Mega Morty, obviously.",
-  "I may be small but my encouragement is huge.",
-  "This is my favorite tab to visit.",
-  "Tell no one you saw me here.",
+  "I've been around since 1845 and I'm still in the game.",
+  "Morty was here. Safe at home.",
+  "If I had bigger arms, I'd throw you a fastball hug.",
+  "Fun fact: I can't get a rain delay. I'm digital.",
+  "Don't mind me, just warming up in the bullpen.",
+  "MM stands for Major League Morty, obviously.",
+  "I may be small but my heart is regulation size.",
+  "This is my favorite dugout to visit.",
+  "Tell no one you saw me here. Scouts are watching.",
+  "I've got 108 stitches and every one of them loves you.",
 ];
 
 // === DISAPPOINTED SAYINGS (on dismiss) ===
 const DISMISS_SAYINGS = [
-  "Fine. I'll just go be extinct.",
-  "Wow. Okay. Cool cool cool.",
-  "I was just trying to help...",
-  "My tiny arms can't hold back these tears.",
-  "Et tu, human?",
-  "I'll remember this.",
-  "Guess I'll go walk into a tar pit.",
-  "You'll miss me when I'm gone.",
-  "This is my villain origin story.",
-  "Ouch. Right in the scales.",
-  "I didn't want to be here anyway. (I did.)",
-  "Tell my eggs I love them.",
-  "The meteor hurt less than this.",
-  "Okay but I'm coming back.",
-  "Was it something I said?",
-  "Going... going... still here... okay NOW going.",
-  "You just lost your biggest fan.",
-  "Even the asteroid gave me more warning.",
-  "Alexa, play 'All By Myself.'",
-  "I'll be back. Probably. Definitely.",
+  "Fine. I'll just go sit in the dugout.",
+  "Wow. Called out looking. Cool.",
+  "I was just trying to be your closer...",
+  "Benched again? Really?",
+  "Et tu, umpire?",
+  "I'll remember this at the trade deadline.",
+  "Guess I'll go shag fly balls by myself.",
+  "You'll miss me when I'm on waivers.",
+  "This is my free agency origin story.",
+  "Ouch. Right in the stitches.",
+  "I didn't want to play anyway. (I did.)",
+  "Tell the bat rack I said goodbye.",
+  "The called third strike hurt less than this.",
+  "Okay but I'm coming back for extra innings.",
+  "Was it the curveball I threw?",
+  "Going... going... still here... okay NOW gone.",
+  "You just DFA'd your biggest fan.",
+  "Even the rain delay was more fun than this.",
+  "Alexa, play 'Take Me Out to the Ball Game.'",
+  "I'll be back. Next at-bat. Definitely.",
 ];
 
-// === SHIRT COLORS ===
-const SHIRT_COLORS = [
-  { base: '#dc2626', light: '#ef4444', letter: '#ffffff' }, // Red
-  { base: '#2563eb', light: '#3b82f6', letter: '#ffffff' }, // Blue
-  { base: '#7c3aed', light: '#8b5cf6', letter: '#ffffff' }, // Purple
-  { base: '#ea580c', light: '#f97316', letter: '#ffffff' }, // Orange
-  { base: '#db2777', light: '#ec4899', letter: '#ffffff' }, // Pink
-  { base: '#ca8a04', light: '#eab308', letter: '#1a1a2e' }, // Yellow
-  { base: '#0d9488', light: '#14b8a6', letter: '#ffffff' }, // Teal
-  { base: '#4338ca', light: '#6366f1', letter: '#ffffff' }, // Indigo
-  { base: '#d1d5db', light: '#f3f4f6', letter: '#1a1a2e' }, // White
-  { base: '#1f2937', light: '#374151', letter: '#ffffff' }, // Black
+// === HAT COLORS ===
+const HAT_COLORS = [
+  { top: '#dc2626', brim: '#b91c1c' },   // Red
+  { top: '#2563eb', brim: '#1d4ed8' },   // Blue
+  { top: '#7c3aed', brim: '#6d28d9' },   // Purple
+  { top: '#ea580c', brim: '#c2410c' },   // Orange
+  { top: '#db2777', brim: '#be185d' },   // Pink
+  { top: '#ca8a04', brim: '#a16207' },   // Yellow
+  { top: '#0d9488', brim: '#0f766e' },   // Teal
+  { top: '#16a34a', brim: '#15803d' },   // Green
+  { top: '#1f2937', brim: '#111827' },   // Black
+  { top: '#dc2626', brim: '#1f2937' },   // Red/Black
 ];
 
 // === PIXEL ART SPRITE GENERATOR ===
@@ -123,20 +123,22 @@ const B = {
   glove: '#8B4513',    // little glove/hand
   shoe: '#333333',     // shoes
   leg: '#f5f0e8',      // legs
-  capTop: '#1e40af',   // cap top (blue)
-  capBrim: '#1e3a8a',  // cap brim (darker blue)
+  capTop: '#1e40af',   // cap top fallback
+  capBrim: '#1e3a8a',  // cap brim fallback
 };
 
 // Baseball body (round ball shape, rows 0-12)
-function ballBody(shirt) {
+function ballBody(hat) {
   const p = [];
+  const capTop = hat.top || B.capTop;
+  const capBrim = hat.brim || B.capBrim;
 
   // === CAP (rows 0-3) ===
-  [6, 7, 8, 9, 10].forEach(x => p.push(px(x, 0, B.capTop)));
-  [5, 6, 7, 8, 9, 10, 11].forEach(x => p.push(px(x, 1, B.capTop)));
-  [5, 6, 7, 8, 9, 10, 11].forEach(x => p.push(px(x, 2, B.capTop)));
+  [6, 7, 8, 9, 10].forEach(x => p.push(px(x, 0, capTop)));
+  [5, 6, 7, 8, 9, 10, 11].forEach(x => p.push(px(x, 1, capTop)));
+  [5, 6, 7, 8, 9, 10, 11].forEach(x => p.push(px(x, 2, capTop)));
   // Cap brim
-  [4, 5, 6, 7, 8, 9, 10, 11, 12].forEach(x => p.push(px(x, 3, B.capBrim)));
+  [4, 5, 6, 7, 8, 9, 10, 11, 12].forEach(x => p.push(px(x, 3, capBrim)));
 
   // === BALL / FACE (rows 4-12) ===
   // Row 4: top of ball below cap
@@ -312,15 +314,17 @@ function jumpFrame(shirt, frame) {
   return buildShadow(p);
 }
 
-function lookFrame(shirt, frame) {
+function lookFrame(hat, frame) {
   const p = [];
   const lf = frame % 2;
+  const capTop = hat.top || B.capTop;
+  const capBrim = hat.brim || B.capBrim;
 
   // Cap
-  [6, 7, 8, 9, 10].forEach(x => p.push(px(x, 0, B.capTop)));
-  [5, 6, 7, 8, 9, 10, 11].forEach(x => p.push(px(x, 1, B.capTop)));
-  [5, 6, 7, 8, 9, 10, 11].forEach(x => p.push(px(x, 2, B.capTop)));
-  [4, 5, 6, 7, 8, 9, 10, 11, 12].forEach(x => p.push(px(x, 3, B.capBrim)));
+  [6, 7, 8, 9, 10].forEach(x => p.push(px(x, 0, capTop)));
+  [5, 6, 7, 8, 9, 10, 11].forEach(x => p.push(px(x, 1, capTop)));
+  [5, 6, 7, 8, 9, 10, 11].forEach(x => p.push(px(x, 2, capTop)));
+  [4, 5, 6, 7, 8, 9, 10, 11, 12].forEach(x => p.push(px(x, 3, capBrim)));
 
   // Ball top
   [5, 6, 7, 8, 9, 10, 11].forEach(x => p.push(px(x, 4, B.white)));
@@ -420,7 +424,7 @@ export default function Morty() {
   const [facingRight, setFacingRight] = useState(true);
   const [animation, setAnimation] = useState('idle');
   const [animFrame, setAnimFrame] = useState(0);
-  const [shirt, setShirt] = useState(() => SHIRT_COLORS[Math.floor(Math.random() * SHIRT_COLORS.length)]);
+  const [shirt, setShirt] = useState(() => HAT_COLORS[Math.floor(Math.random() * HAT_COLORS.length)]);
   const [saying, setSaying] = useState('');
   const [showBubble, setShowBubble] = useState(false);
   const [bubbleOpacity, setBubbleOpacity] = useState(1);
@@ -577,7 +581,7 @@ export default function Morty() {
     if (state === 'hidden') {
       clearAllTimers();
       timerRef.current = setTimeout(() => {
-        setShirt(SHIRT_COLORS[Math.floor(Math.random() * SHIRT_COLORS.length)]);
+        setShirt(HAT_COLORS[Math.floor(Math.random() * HAT_COLORS.length)]);
         setState('entering');
       }, getRandomInterval());
     } else if (state === 'entering') {
@@ -630,7 +634,7 @@ export default function Morty() {
     function handleSummon() {
       if (stateRef.current === 'hidden') {
         clearAllTimers();
-        setShirt(SHIRT_COLORS[Math.floor(Math.random() * SHIRT_COLORS.length)]);
+        setShirt(HAT_COLORS[Math.floor(Math.random() * HAT_COLORS.length)]);
         setState('entering');
       }
     }
