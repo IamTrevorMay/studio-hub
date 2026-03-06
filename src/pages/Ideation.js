@@ -35,11 +35,12 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
     fetchTemplates();
   }, [profile?.id]);
 
-  // Handle deep-link from Projects page
+  // Handle deep-link from Projects page (works even when already mounted)
   useEffect(() => {
-    if (initialConceptId && concepts.length > 0 && !activeConcept) {
+    if (initialConceptId && concepts.length > 0) {
       const target = concepts.find(c => c.id === initialConceptId);
-      if (target) {
+      if (target && target.id !== activeConcept?.id) {
+        setActiveDoc(null);
         setActiveConcept(target);
         if (onConceptOpened) onConceptOpened();
       }

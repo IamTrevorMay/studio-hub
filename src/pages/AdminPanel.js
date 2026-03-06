@@ -30,6 +30,11 @@ export default function AdminPanel({ initialTab }) {
   const [gcalMessage, setGcalMessage] = useState('');
   const [gcalError, setGcalError] = useState('');
 
+  // Sync activeTab when navigated to externally (e.g., after Google OAuth redirect)
+  useEffect(() => {
+    if (initialTab) setActiveTab(initialTab);
+  }, [initialTab]);
+
   useEffect(() => {
     if (isAdmin) {
       fetchInvitations();
@@ -91,6 +96,17 @@ export default function AdminPanel({ initialTab }) {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleDeleteInvitation(inv) {
+    if (!window.confirm(`Delete invitation for ${inv.email}?`)) return;
+    const { error } = await supabase.from('invitations').delete().eq('id', inv.id);
+    if (error) {
+      console.error('Delete invitation failed:', error);
+      alert('Failed to delete invitation: ' + error.message);
+      return;
+    }
+    fetchInvitations();
   }
 
   async function handleRoleChange(userId, newRole) {
@@ -325,7 +341,8 @@ export default function AdminPanel({ initialTab }) {
             ) : (
               <div style={styles.inviteList}>
                 {invitations.map(inv => {
-                  const isAccepted = !!inv.accepted_at;
+                  const memberEmails = teamMembers.map(m => m.email?.toLowerCase());
+                  const isAccepted = !!inv.accepted_at || memberEmails.includes(inv.email?.toLowerCase());
                   return (
                     <div key={inv.id} style={styles.inviteItem}>
                       <div style={styles.inviteInfo}>
@@ -334,11 +351,20 @@ export default function AdminPanel({ initialTab }) {
                           Sent {new Date(inv.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                         </div>
                       </div>
-                      <div style={{
-                        ...styles.statusBadge,
-                        ...(isAccepted ? styles.statusAccepted : styles.statusPending),
-                      }}>
-                        {isAccepted ? '✓ Joined' : '● Pending'}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{
+                          ...styles.statusBadge,
+                          ...(isAccepted ? styles.statusAccepted : styles.statusPending),
+                        }}>
+                          {isAccepted ? '✓ Accepted' : '● Pending'}
+                        </div>
+                        <button
+                          onClick={() => handleDeleteInvitation(inv)}
+                          style={styles.inviteDeleteBtn}
+                          title="Delete invitation"
+                        >
+                          ✕
+                        </button>
                       </div>
                     </div>
                   );
@@ -553,6 +579,12 @@ const styles = {
   statusAccepted: {
     background: 'rgba(34,197,94,0.1)', color: '#86efac',
     border: '1px solid rgba(34,197,94,0.2)',
+  },
+  inviteDeleteBtn: {
+    padding: '4px 8px', background: 'transparent',
+    border: '1px solid rgba(239,68,68,0.3)', borderRadius: '6px',
+    color: '#ef4444', fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit',
+    flexShrink: 0, lineHeight: 1,
   },
   emptyText: { color: 'rgba(255,255,255,0.35)', fontSize: '14px', margin: 0 },
   teamList: { display: 'flex', flexDirection: 'column', gap: '6px' },

@@ -408,13 +408,37 @@ export function AuthProvider({ children }) {
     fetchUnreadNotificationCount();
   }, [fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions, fetchUnreadNotificationCount]);
 
-  // Initial fetch + 30s polling
+  // Initial fetch + real-time subscriptions + 5-min fallback poll
   useEffect(() => {
     if (!user) return;
     refreshNotifications();
-    const interval = setInterval(refreshNotifications, 30000);
-    return () => clearInterval(interval);
-  }, [user, refreshNotifications]);
+
+    const channel = supabase.channel('notification-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements' }, () => {
+        fetchUnreadAnnouncementCount();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'announcement_reads' }, () => {
+        fetchUnreadAnnouncementCount();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_itinerary' }, () => {
+        fetchNewItineraryCount();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'channel_messages' }, () => {
+        fetchUnreadMentions();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => {
+        fetchUnreadNotificationCount();
+      })
+      .subscribe();
+
+    // 5-minute fallback poll as safety net for dropped connections
+    const interval = setInterval(refreshNotifications, 300000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
+  }, [user, refreshNotifications, fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions, fetchUnreadNotificationCount]);
 
   const value = {
     user,

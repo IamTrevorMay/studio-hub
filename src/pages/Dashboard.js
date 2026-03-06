@@ -35,7 +35,7 @@ const STATUS_LABELS = {
 };
 
 export default function Dashboard({ onNavigate }) {
-  const { profile, updateProfile, isAdmin, isAssistant, refreshNotifications } = useAuth();
+  const { profile, updateProfile, isAdmin, isAssistant } = useAuth();
   const { safeQuery } = useSupabaseQuery();
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -104,26 +104,23 @@ export default function Dashboard({ onNavigate }) {
     if (!profile?.id) return;
     setAnnouncementsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('announcements')
-        .select('*, creator:profiles!created_by(full_name)')
-        .eq('target_date', todayStr)
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-
-      // Fetch reads for the current user
-      const announcementIds = (data || []).map(a => a.id);
-      let readIds = new Set();
-      if (announcementIds.length > 0) {
-        const { data: reads } = await supabase
+      const [announcementsResult, readsResult] = await Promise.all([
+        supabase
+          .from('announcements')
+          .select('*, creator:profiles!created_by(full_name)')
+          .eq('target_date', todayStr)
+          .order('created_at', { ascending: false }),
+        supabase
           .from('announcement_reads')
           .select('announcement_id')
-          .eq('user_id', profile.id)
-          .in('announcement_id', announcementIds);
-        readIds = new Set((reads || []).map(r => r.announcement_id));
-      }
+          .eq('user_id', profile.id),
+      ]);
 
-      setAnnouncements((data || []).map(a => ({ ...a, isRead: readIds.has(a.id) })));
+      if (announcementsResult.error) throw announcementsResult.error;
+      const data = announcementsResult.data || [];
+      const readIds = new Set((readsResult.data || []).map(r => r.announcement_id));
+
+      setAnnouncements(data.map(a => ({ ...a, isRead: readIds.has(a.id) })));
     } catch (err) {
       console.error('Error fetching announcements:', err);
       setAnnouncements([]);
@@ -204,42 +201,59 @@ export default function Dashboard({ onNavigate }) {
 
   async function addItineraryItem() {
     if (!newItemText.trim()) return;
+    const content = newItemText.trim();
+    const tempItem = {
+      id: `temp-${Date.now()}`,
+      created_by: profile.id,
+      target_date: todayStr,
+      content,
+      is_complete: false,
+      admin_comment: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      creator: { full_name: profile.full_name },
+    };
+    setNewItemText('');
+    setItineraryItems(prev => [...prev, tempItem]);
     try {
       const { error } = await supabase.from('daily_itinerary').insert({
         created_by: profile.id,
         target_date: todayStr,
-        content: newItemText.trim(),
+        content,
       });
       if (error) throw error;
-      setNewItemText('');
-      fetchItinerary();
-      refreshNotifications();
+      fetchItinerary(); // Re-fetch to get real ID
     } catch (err) {
       console.error('Error adding itinerary item:', err);
+      setItineraryItems(prev => prev.filter(i => i.id !== tempItem.id));
+      setNewItemText(content);
     }
   }
 
   async function updateItineraryItem(id, updates) {
+    const prev = itineraryItems;
+    setItineraryItems(items => items.map(i => i.id === id ? { ...i, ...updates, updated_at: new Date().toISOString() } : i));
     try {
       const { error } = await supabase
         .from('daily_itinerary')
         .update({ ...updates, updated_at: new Date().toISOString() })
         .eq('id', id);
       if (error) throw error;
-      fetchItinerary();
-      refreshNotifications();
     } catch (err) {
       console.error('Error updating itinerary item:', err);
+      setItineraryItems(prev);
     }
   }
 
   async function deleteItineraryItem(id) {
+    const prev = itineraryItems;
+    setItineraryItems(items => items.filter(i => i.id !== id));
     try {
       const { error } = await supabase.from('daily_itinerary').delete().eq('id', id);
       if (error) throw error;
-      fetchItinerary();
     } catch (err) {
       console.error('Error deleting itinerary item:', err);
+      setItineraryItems(prev);
     }
   }
 
@@ -253,28 +267,44 @@ export default function Dashboard({ onNavigate }) {
 
   // Admin comment handlers
   async function saveAdminComment(itemId) {
+    const newComment = commentText.trim() || null;
+    const prev = itineraryItems;
+    setItineraryItems(items => items.map(i => i.id === itemId ? { ...i, admin_comment: newComment, updated_at: new Date().toISOString() } : i));
+    setCommentingItemId(null);
+    setCommentText('');
     try {
       const { error } = await supabase
         .from('daily_itinerary')
-        .update({ admin_comment: commentText.trim() || null, updated_at: new Date().toISOString() })
+        .update({ admin_comment: newComment, updated_at: new Date().toISOString() })
         .eq('id', itemId);
       if (error) throw error;
-      setCommentingItemId(null);
-      setCommentText('');
-      fetchItinerary();
     } catch (err) {
       console.error('Error saving admin comment:', err);
+      setItineraryItems(prev);
     }
   }
 
   // Announcement handlers
   async function addAnnouncement() {
     if (!newAnnouncementText.trim()) return;
+    const content = newAnnouncementText.trim();
+    const tempAnnouncement = {
+      id: `temp-${Date.now()}`,
+      created_by: profile.id,
+      target_date: todayStr,
+      content,
+      created_at: new Date().toISOString(),
+      creator: { full_name: profile.full_name },
+      isRead: true,
+    };
+    setNewAnnouncementText('');
+    setShowAnnouncementInput(false);
+    setAnnouncements(prev => [tempAnnouncement, ...prev]);
     try {
       const { error } = await supabase.from('announcements').insert({
         created_by: profile.id,
         target_date: todayStr,
-        content: newAnnouncementText.trim(),
+        content,
       });
       if (error) throw error;
       // Notify all team members
@@ -287,7 +317,7 @@ export default function Dashboard({ onNavigate }) {
               user_id: m.id,
               type: 'announcement',
               title: 'New announcement',
-              body: newAnnouncementText.trim().substring(0, 100),
+              body: content.substring(0, 100),
               link_tab: 'dashboard',
             }));
           if (notifs.length > 0) {
@@ -297,35 +327,33 @@ export default function Dashboard({ onNavigate }) {
       } catch (e) {
         console.error('Error sending announcement notifications:', e);
       }
-      setNewAnnouncementText('');
-      setShowAnnouncementInput(false);
-      fetchAnnouncements();
-      refreshNotifications();
+      fetchAnnouncements(); // Re-fetch to get real ID
     } catch (err) {
       console.error('Error adding announcement:', err);
+      setAnnouncements(prev => prev.filter(a => a.id !== tempAnnouncement.id));
     }
   }
 
   async function deleteAnnouncement(id) {
+    const prev = announcements;
+    setAnnouncements(items => items.filter(a => a.id !== id));
     try {
       const { error } = await supabase.from('announcements').delete().eq('id', id);
       if (error) throw error;
-      fetchAnnouncements();
-      refreshNotifications();
     } catch (err) {
       console.error('Error deleting announcement:', err);
+      setAnnouncements(prev);
     }
   }
 
   async function markAnnouncementRead(announcementId) {
+    setAnnouncements(prev => prev.map(a => a.id === announcementId ? { ...a, isRead: true } : a));
     try {
       const { error } = await supabase.from('announcement_reads').insert({
         announcement_id: announcementId,
         user_id: profile.id,
       });
       if (error) throw error;
-      fetchAnnouncements();
-      refreshNotifications();
     } catch (err) {
       console.error('Error marking announcement read:', err);
     }
@@ -369,39 +397,55 @@ export default function Dashboard({ onNavigate }) {
 
   async function addBrainDumpItem() {
     if (!newBrainDumpText.trim() || !profile?.id) return;
+    const content = newBrainDumpText.trim();
+    const tempItem = {
+      id: `temp-${Date.now()}`,
+      created_by: profile.id,
+      content,
+      is_complete: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    setNewBrainDumpText('');
+    setBrainDumpItems(prev => [...prev, tempItem]);
     try {
       const { error } = await supabase.from('brain_dump').insert({
         created_by: profile.id,
-        content: newBrainDumpText.trim(),
+        content,
       });
       if (error) throw error;
-      setNewBrainDumpText('');
-      fetchBrainDump();
+      fetchBrainDump(); // Re-fetch to get real ID
     } catch (err) {
       console.error('Error adding brain dump item:', err);
+      setBrainDumpItems(prev => prev.filter(i => i.id !== tempItem.id));
+      setNewBrainDumpText(content);
     }
   }
 
   async function updateBrainDumpItem(id, updates) {
+    const prev = brainDumpItems;
+    setBrainDumpItems(items => items.map(i => i.id === id ? { ...i, ...updates, updated_at: new Date().toISOString() } : i));
     try {
       const { error } = await supabase
         .from('brain_dump')
         .update({ ...updates, updated_at: new Date().toISOString() })
         .eq('id', id);
       if (error) throw error;
-      fetchBrainDump();
     } catch (err) {
       console.error('Error updating brain dump item:', err);
+      setBrainDumpItems(prev);
     }
   }
 
   async function deleteBrainDumpItem(id) {
+    const prev = brainDumpItems;
+    setBrainDumpItems(items => items.filter(i => i.id !== id));
     try {
       const { error } = await supabase.from('brain_dump').delete().eq('id', id);
       if (error) throw error;
-      fetchBrainDump();
     } catch (err) {
       console.error('Error deleting brain dump item:', err);
+      setBrainDumpItems(prev);
     }
   }
 

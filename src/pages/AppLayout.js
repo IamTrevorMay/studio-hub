@@ -122,23 +122,11 @@ export default function AppLayout() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showNotifications]);
 
-  const renderPage = () => {
-    switch (activeTab) {
-      case 'dashboard': return <Dashboard onNavigate={navigateTo} />;
-      case 'projects': return <Projects onNavigate={navigateTo} />;
-      case 'calendar': return <Calendar onNavigate={navigateTo} />;
-      case 'ideation': return <Ideation initialConceptId={navTarget} onConceptOpened={() => setNavTarget(null)} />;
-      case 'resources': return <Resources />;
-      case 'analytics': return <Analytics />;
-      case 'research': return <Research />;
-      case 'reviews': return <Reviews />;
-      case 'goals': return <Goals />;
-      case 'channels': return <Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} />;
-      case 'messages': return <Messages onNavigate={navigateTo} />;
-      case 'admin': return <AdminPanel initialTab={adminInitialTab} />;
-      default: return <Dashboard />;
-    }
-  };
+  const tabStyle = (tab) => ({
+    display: activeTab === tab ? 'block' : 'none',
+    height: '100%',
+    overflow: 'auto',
+  });
 
   return (
     <div style={styles.layout}>
@@ -297,7 +285,18 @@ export default function AppLayout() {
           </div>
         </div>
         <div style={styles.mainContent}>
-          {renderPage()}
+          <div style={tabStyle('dashboard')}><Dashboard onNavigate={navigateTo} /></div>
+          <div style={tabStyle('projects')}><Projects onNavigate={navigateTo} /></div>
+          <div style={tabStyle('calendar')}><Calendar onNavigate={navigateTo} /></div>
+          <div style={tabStyle('ideation')}><Ideation initialConceptId={navTarget} onConceptOpened={() => setNavTarget(null)} /></div>
+          <div style={tabStyle('resources')}><Resources /></div>
+          {isAdmin && <div style={tabStyle('analytics')}><Analytics /></div>}
+          <div style={tabStyle('research')}><Research /></div>
+          <div style={tabStyle('reviews')}><Reviews /></div>
+          <div style={tabStyle('goals')}><Goals /></div>
+          <div style={tabStyle('channels')}><Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} /></div>
+          <div style={tabStyle('messages')}><Messages onNavigate={navigateTo} /></div>
+          {isAdmin && <div style={tabStyle('admin')}><AdminPanel initialTab={adminInitialTab} /></div>}
         </div>
       </main>
       {profile?.mascot_enabled !== false && <Morty />}
@@ -593,7 +592,7 @@ const styles = {
   },
   mainContent: {
     flex: 1,
-    overflow: 'auto',
+    overflow: 'hidden',
   },
   bellBtn: {
     position: 'relative',
