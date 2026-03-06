@@ -13,6 +13,7 @@ import Resources from './Resources';
 import Analytics from './Analytics';
 import Research from './Research';
 import Goals from './Goals';
+import Morty from '../components/Morty';
 
 const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard', icon: DashboardIcon },
@@ -299,6 +300,7 @@ export default function AppLayout() {
           {renderPage()}
         </div>
       </main>
+      {profile?.mascot_enabled !== false && <Morty />}
     </div>
   );
 }
