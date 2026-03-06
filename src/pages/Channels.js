@@ -2,6 +2,31 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 
+function applyFormatMarker(textareaRef, text, marker, setter) {
+  const el = textareaRef.current;
+  if (!el) return;
+  const start = el.selectionStart;
+  const end = el.selectionEnd;
+  const selected = text.substring(start, end);
+  if (selected) {
+    const newText = text.substring(0, start) + marker + selected + marker + text.substring(end);
+    setter(newText);
+    requestAnimationFrame(() => {
+      el.selectionStart = start + marker.length;
+      el.selectionEnd = end + marker.length;
+      el.focus();
+    });
+  } else {
+    const newText = text.substring(0, start) + marker + marker + text.substring(end);
+    setter(newText);
+    requestAnimationFrame(() => {
+      el.selectionStart = start + marker.length;
+      el.selectionEnd = start + marker.length;
+      el.focus();
+    });
+  }
+}
+
 export default function Channels({ initialChannelName, onChannelOpened }) {
   const { profile, isAdmin, unreadMentionChannelIds, markChannelSeen, refreshNotifications } = useAuth();
   const [channels, setChannels] = useState([]);
@@ -91,6 +116,13 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+      inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 150) + 'px';
+    }
+  }, [newMessage]);
 
   async function fetchPinnedMessages(channelId) {
     try {
@@ -230,7 +262,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
     const lastAtIndex = value.lastIndexOf('@');
     if (lastAtIndex >= 0) {
       const afterAt = value.substring(lastAtIndex + 1);
-      if (!afterAt.includes(' ') || afterAt.split(' ').length <= 2) {
+      if ((!afterAt.includes(' ') || afterAt.split(' ').length <= 2) && !afterAt.includes('\n')) {
         setShowMentions(true);
         setMentionFilter(afterAt.toLowerCase());
       } else {
@@ -249,13 +281,34 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
     inputRef.current?.focus();
   }
 
+  function handleKeyDown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage(e);
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
+      e.preventDefault();
+      applyFormatMarker(inputRef, newMessage, '**', setNewMessage);
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'i') {
+      e.preventDefault();
+      applyFormatMarker(inputRef, newMessage, '*', setNewMessage);
+    }
+  }
+
   const filteredMentions = teamMembers.filter(m =>
     m.full_name.toLowerCase().includes(mentionFilter)
   );
 
-  function formatMessageContent(content) {
-    const parts = content.split(/([@#]\w+(?:[- ]\w+)*)/g);
+  function formatInline(text) {
+    const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|[@#]\w+(?:[- ]\w+)*)/g);
     return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={i} style={{ fontWeight: 700, color: '#e2e8f0' }}>{part.slice(2, -2)}</strong>;
+      }
+      if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
+        return <em key={i} style={{ fontStyle: 'italic', color: 'rgba(255,255,255,0.85)' }}>{part.slice(1, -1)}</em>;
+      }
       if (part.startsWith('@')) {
         return <span key={i} style={msgStyles.mention}>{part}</span>;
       }
@@ -276,6 +329,42 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
       }
       return part;
     });
+  }
+
+  function formatMessageContent(content) {
+    if (!content.includes('\n') && !/^[-•] /.test(content)) {
+      return formatInline(content);
+    }
+    const lines = content.split('\n');
+    const result = [];
+    let bulletItems = [];
+    const flushBullets = () => {
+      if (bulletItems.length > 0) {
+        result.push(
+          <ul key={`ul-${result.length}`} style={msgStyles.bulletList}>
+            {bulletItems.map((item, j) => (
+              <li key={j} style={msgStyles.bulletItem}>{formatInline(item)}</li>
+            ))}
+          </ul>
+        );
+        bulletItems = [];
+      }
+    };
+    lines.forEach((line, i) => {
+      const bulletMatch = line.match(/^[-•] (.*)/);
+      if (bulletMatch) {
+        bulletItems.push(bulletMatch[1]);
+      } else {
+        flushBullets();
+        if (line.trim() === '') {
+          result.push(<div key={`line-${i}`} style={{ height: '8px' }} />);
+        } else {
+          result.push(<div key={`line-${i}`}>{formatInline(line)}</div>);
+        }
+      }
+    });
+    flushBullets();
+    return result;
   }
 
   function formatTime(dateStr) {
@@ -374,7 +463,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
                         {new Date(msg.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
                       </span>
                     </div>
-                    <p style={styles.pinnedItemText}>{msg.content}</p>
+                    <div style={styles.pinnedItemText}>{formatMessageContent(msg.content)}</div>
                     <button
                       onClick={() => handlePinMessage(msg.id, true)}
                       style={styles.unpinBtn}
@@ -444,10 +533,12 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
                 </div>
               )}
               <form onSubmit={handleSendMessage} style={styles.inputForm}>
-                <input
+                <textarea
                   ref={inputRef}
+                  rows={1}
                   value={newMessage}
                   onChange={handleInputChange}
+                  onKeyDown={handleKeyDown}
                   placeholder={`Message #${activeChannel.name}... (type @ to mention)`}
                   style={styles.messageInput}
                 />
@@ -457,6 +548,10 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
                   </svg>
                 </button>
               </form>
+              <div style={styles.formatHint}>
+                <span><strong>**bold**</strong>  <em>*italic*</em>  - bullet</span>
+                <span style={{ marginLeft: '12px' }}>Shift+Enter for new line</span>
+              </div>
             </div>
           </>
         ) : (
@@ -567,12 +662,27 @@ function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, formatCo
     setEditing(false);
   }
 
+  useEffect(() => {
+    if (editInputRef.current) {
+      editInputRef.current.style.height = 'auto';
+      editInputRef.current.style.height = Math.min(editInputRef.current.scrollHeight, 150) + 'px';
+    }
+  }, [editContent]);
+
   function handleEditKeyDown(e) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSaveEdit();
     } else if (e.key === 'Escape') {
       handleCancelEdit();
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
+      e.preventDefault();
+      applyFormatMarker(editInputRef, editContent, '**', setEditContent);
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'i') {
+      e.preventDefault();
+      applyFormatMarker(editInputRef, editContent, '*', setEditContent);
     }
   }
 
@@ -590,26 +700,27 @@ function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, formatCo
     >
       {editing ? (
         <div style={{ flex: 1 }}>
-          <input
+          <textarea
             ref={editInputRef}
+            rows={1}
             value={editContent}
             onChange={(e) => setEditContent(e.target.value)}
             onKeyDown={handleEditKeyDown}
             style={msgStyles.editInput}
           />
           <div style={msgStyles.editActions}>
-            <span style={msgStyles.editHint}>Enter to save, Esc to cancel</span>
+            <span style={msgStyles.editHint}>Shift+Enter for new line. Enter to save, Esc to cancel</span>
             <button onClick={handleCancelEdit} style={msgStyles.editCancelBtn}>Cancel</button>
             <button onClick={handleSaveEdit} style={msgStyles.editSaveBtn}>Save</button>
           </div>
         </div>
       ) : (
         <>
-          <p style={msgStyles.text}>
+          <div style={msgStyles.text}>
             {msg.is_pinned && <span style={msgStyles.pinBadge}>📌</span>}
             {formatContent(msg.content)}
             {msg.edited_at && <span style={msgStyles.editedTag}>(edited)</span>}
-          </p>
+          </div>
           <div style={{ position: 'relative', flexShrink: 0 }}>
             <button
               onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
@@ -847,6 +958,12 @@ const styles = {
     background: 'rgba(255,255,255,0.05)',
     border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px',
     color: '#fff', fontSize: '14px', fontFamily: 'inherit', outline: 'none',
+    resize: 'none', lineHeight: 1.5, minHeight: '42px', maxHeight: '150px',
+    overflow: 'auto',
+  },
+  formatHint: {
+    fontSize: '11px', color: 'rgba(255,255,255,0.2)', marginTop: '4px',
+    paddingLeft: '2px',
   },
   sendBtn: {
     width: '42px', height: '42px', display: 'flex',
@@ -923,6 +1040,15 @@ const msgStyles = {
     border: '1px solid rgba(99,102,241,0.4)', borderRadius: '8px',
     color: '#fff', fontSize: '14px', fontFamily: 'inherit', outline: 'none',
     boxSizing: 'border-box',
+    resize: 'none', lineHeight: 1.5, minHeight: '36px', maxHeight: '150px',
+    overflow: 'auto',
+  },
+  bulletList: {
+    margin: '4px 0', paddingLeft: '20px', listStyleType: 'disc',
+  },
+  bulletItem: {
+    fontSize: '14px', color: 'rgba(255,255,255,0.75)', lineHeight: 1.5,
+    marginBottom: '2px',
   },
   editActions: {
     display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px',

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
@@ -72,6 +72,23 @@ export default function Dashboard({ onNavigate }) {
   const [editingBrainDumpId, setEditingBrainDumpId] = useState(null);
   const [editingBrainDumpText, setEditingBrainDumpText] = useState('');
 
+  // Team presence state
+  const [teamProfiles, setTeamProfiles] = useState([]);
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [editingStatusNote, setEditingStatusNote] = useState(false);
+  const [statusNoteDraft, setStatusNoteDraft] = useState(profile?.status_note || '');
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false);
+  const statusMenuRef = useRef(null);
+
+  useEffect(() => {
+    if (!statusMenuOpen) return;
+    function handleClick(e) {
+      if (statusMenuRef.current && !statusMenuRef.current.contains(e.target)) setStatusMenuOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [statusMenuOpen]);
+
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
@@ -99,6 +116,24 @@ export default function Dashboard({ onNavigate }) {
       setItineraryLoading(false);
     }
   }, [profile?.id, isAdmin, todayStr]);
+
+  const fetchTeamProfiles = useCallback(async () => {
+    if (!profile?.id) return;
+    setTeamLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, title, avatar_url, status, status_note, last_seen_at')
+        .order('full_name');
+      if (error) throw error;
+      setTeamProfiles(data || []);
+    } catch (err) {
+      console.error('Error fetching team profiles:', err);
+      setTeamProfiles([]);
+    } finally {
+      setTeamLoading(false);
+    }
+  }, [profile?.id]);
 
   const fetchAnnouncements = useCallback(async () => {
     if (!profile?.id) return;
@@ -147,6 +182,24 @@ export default function Dashboard({ onNavigate }) {
       fetchAnnouncements();
     }
   }, [profile?.id, fetchAnnouncements]);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+    fetchTeamProfiles();
+    const channel = supabase
+      .channel('team-presence')
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'profiles',
+      }, (payload) => {
+        setTeamProfiles(prev => prev.map(p =>
+          p.id === payload.new.id
+            ? { ...p, status: payload.new.status, status_note: payload.new.status_note, last_seen_at: payload.new.last_seen_at }
+            : p
+        ));
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [profile?.id, fetchTeamProfiles]);
 
   const fetchTodayEvents = useCallback(async () => {
     if (!profile?.id) return;
@@ -369,6 +422,31 @@ export default function Dashboard({ onNavigate }) {
     await updateProfile({ full_name: nameDraft.trim() });
     await supabase.auth.updateUser({ data: { full_name: nameDraft.trim() } });
     setEditingName(false);
+  }
+
+  // ── Team status handlers ──
+  function getEffectiveStatus(member) {
+    if (member.status === 'away') return 'busy';
+    if (member.status === 'offline') return 'offline';
+    // If 'active' but last_seen_at is older than 2 minutes, treat as offline
+    if (member.last_seen_at) {
+      const lastSeen = new Date(member.last_seen_at);
+      const diff = Date.now() - lastSeen.getTime();
+      if (diff > 2 * 60 * 1000) return 'offline';
+    }
+    return 'online';
+  }
+
+  async function setMyStatus(newStatus) {
+    // Map UI status to DB values: online→active, busy→away, offline→offline
+    const dbStatus = newStatus === 'online' ? 'active' : newStatus === 'busy' ? 'away' : 'offline';
+    await updateProfile({ status: dbStatus });
+    setStatusMenuOpen(false);
+  }
+
+  async function saveStatusNote() {
+    await updateProfile({ status_note: statusNoteDraft.trim() || null });
+    setEditingStatusNote(false);
   }
 
   // ── Brain Dump handlers ──
@@ -821,6 +899,128 @@ export default function Dashboard({ onNavigate }) {
             </div>
             <div style={styles.statLabel}>Due Soon</div>
           </div>
+        </div>
+      </div>
+
+      {/* Team */}
+      <div style={styles.section}>
+        <h2 style={styles.sectionTitle}>Team</h2>
+        <div style={styles.teamCard}>
+          {/* My Status Controls */}
+          <div style={styles.myStatusRow}>
+            <span style={styles.myStatusLabel}>Your status:</span>
+            <div style={{ position: 'relative' }} ref={statusMenuRef}>
+              <button
+                onClick={() => setStatusMenuOpen(!statusMenuOpen)}
+                style={styles.statusPickerBtn}
+              >
+                <span style={{
+                  ...styles.statusDot,
+                  background: getEffectiveStatus({ status: profile?.status, last_seen_at: profile?.last_seen_at }) === 'online'
+                    ? '#22c55e' : getEffectiveStatus({ status: profile?.status, last_seen_at: profile?.last_seen_at }) === 'busy'
+                    ? '#f59e0b' : '#6b7280',
+                }} />
+                <span style={styles.statusPickerText}>
+                  {getEffectiveStatus({ status: profile?.status, last_seen_at: profile?.last_seen_at }) === 'online'
+                    ? 'Online' : getEffectiveStatus({ status: profile?.status, last_seen_at: profile?.last_seen_at }) === 'busy'
+                    ? 'Busy' : 'Offline'}
+                </span>
+                <span style={{ fontSize: '10px', opacity: 0.5 }}>▼</span>
+              </button>
+              {statusMenuOpen && (
+                <div style={styles.statusDropdown}>
+                  {[
+                    { key: 'online', label: 'Online', color: '#22c55e' },
+                    { key: 'busy', label: 'Busy', color: '#f59e0b' },
+                    { key: 'offline', label: 'Offline', color: '#6b7280' },
+                  ].map(opt => (
+                    <button
+                      key={opt.key}
+                      onClick={() => setMyStatus(opt.key)}
+                      style={styles.statusDropdownItem}
+                    >
+                      <span style={{ ...styles.statusDot, background: opt.color }} />
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={{ flex: 1 }} />
+            {editingStatusNote ? (
+              <div style={styles.noteEditRow}>
+                <input
+                  value={statusNoteDraft}
+                  onChange={(e) => setStatusNoteDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') saveStatusNote();
+                    if (e.key === 'Escape') { setEditingStatusNote(false); setStatusNoteDraft(profile?.status_note || ''); }
+                  }}
+                  placeholder="Set a status note..."
+                  style={styles.noteInput}
+                  autoFocus
+                  maxLength={100}
+                />
+                <button onClick={saveStatusNote} style={styles.noteSaveBtn}>Save</button>
+                <button onClick={() => { setEditingStatusNote(false); setStatusNoteDraft(profile?.status_note || ''); }} style={styles.noteCancelBtn}>Cancel</button>
+              </div>
+            ) : (
+              <button
+                onClick={() => { setStatusNoteDraft(profile?.status_note || ''); setEditingStatusNote(true); }}
+                style={styles.noteSetBtn}
+              >
+                {profile?.status_note || 'Set a note...'}
+              </button>
+            )}
+          </div>
+
+          {/* Team Members List */}
+          {teamLoading ? (
+            <p style={styles.emptyText}>Loading...</p>
+          ) : (
+            <div style={styles.teamList}>
+              {teamProfiles
+                .sort((a, b) => {
+                  const order = { online: 0, busy: 1, offline: 2 };
+                  return (order[getEffectiveStatus(a)] ?? 2) - (order[getEffectiveStatus(b)] ?? 2);
+                })
+                .map(member => {
+                  const effectiveStatus = getEffectiveStatus(member);
+                  const dotColor = effectiveStatus === 'online' ? '#22c55e' : effectiveStatus === 'busy' ? '#f59e0b' : '#6b7280';
+                  const isMe = member.id === profile?.id;
+                  return (
+                    <div key={member.id} style={{
+                      ...styles.teamMember,
+                      opacity: effectiveStatus === 'offline' ? 0.5 : 1,
+                    }}>
+                      <div style={styles.teamMemberAvatar}>
+                        {member.full_name?.charAt(0)?.toUpperCase() || '?'}
+                        <span style={{ ...styles.statusIndicator, background: dotColor }} />
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={styles.teamMemberName}>
+                          {member.full_name}{isMe && <span style={styles.youBadge}>you</span>}
+                        </div>
+                        <div style={styles.teamMemberMeta}>
+                          {member.title && <span>{member.title}</span>}
+                          {member.status_note && (
+                            <span style={styles.teamMemberNote}>
+                              {member.title ? ' · ' : ''}{member.status_note}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <span style={{
+                        ...styles.statusLabel,
+                        color: dotColor,
+                      }}>
+                        {effectiveStatus === 'online' ? 'Online' : effectiveStatus === 'busy' ? 'Busy' : 'Offline'}
+                      </span>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1639,6 +1839,201 @@ const styles = {
     fontSize: '11px',
     color: 'rgba(255,255,255,0.25)',
     marginLeft: '8px',
+  },
+  // Team styles
+  teamCard: {
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '14px',
+    padding: '20px',
+  },
+  myStatusRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    paddingBottom: '16px',
+    borderBottom: '1px solid rgba(255,255,255,0.06)',
+    marginBottom: '12px',
+    flexWrap: 'wrap',
+  },
+  myStatusLabel: {
+    fontSize: '13px',
+    color: 'rgba(255,255,255,0.45)',
+    fontWeight: 600,
+  },
+  statusPickerBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '6px 12px',
+    background: 'rgba(255,255,255,0.05)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '8px',
+    color: '#e2e8f0',
+    fontSize: '13px',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  statusDot: {
+    width: '8px',
+    height: '8px',
+    borderRadius: '50%',
+    flexShrink: 0,
+  },
+  statusPickerText: {
+    fontWeight: 600,
+  },
+  statusDropdown: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    marginTop: '4px',
+    background: '#1e1e36',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: '8px',
+    padding: '4px',
+    zIndex: 50,
+    minWidth: '120px',
+    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+  },
+  statusDropdownItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    width: '100%',
+    padding: '8px 10px',
+    background: 'none',
+    border: 'none',
+    borderRadius: '6px',
+    color: '#e2e8f0',
+    fontSize: '13px',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    textAlign: 'left',
+  },
+  noteEditRow: {
+    display: 'flex',
+    gap: '8px',
+    alignItems: 'center',
+  },
+  noteInput: {
+    padding: '6px 10px',
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.15)',
+    borderRadius: '6px',
+    color: '#fff',
+    fontSize: '13px',
+    fontFamily: 'inherit',
+    outline: 'none',
+    width: '200px',
+  },
+  noteSaveBtn: {
+    padding: '5px 12px',
+    background: '#6366f1',
+    border: 'none',
+    borderRadius: '6px',
+    color: '#fff',
+    fontSize: '12px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  noteCancelBtn: {
+    padding: '5px 12px',
+    background: 'transparent',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '6px',
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: '12px',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  noteSetBtn: {
+    padding: '6px 12px',
+    background: 'none',
+    border: '1px dashed rgba(255,255,255,0.1)',
+    borderRadius: '6px',
+    color: 'rgba(255,255,255,0.35)',
+    fontSize: '13px',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    fontStyle: 'italic',
+    maxWidth: '250px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  teamList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '2px',
+  },
+  teamMember: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '10px 12px',
+    borderRadius: '10px',
+    transition: 'background 0.1s',
+  },
+  teamMemberAvatar: {
+    width: '36px',
+    height: '36px',
+    borderRadius: '10px',
+    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '14px',
+    fontWeight: 700,
+    color: '#fff',
+    flexShrink: 0,
+    position: 'relative',
+  },
+  statusIndicator: {
+    position: 'absolute',
+    bottom: '-2px',
+    right: '-2px',
+    width: '12px',
+    height: '12px',
+    borderRadius: '50%',
+    border: '2px solid #0f0f1a',
+  },
+  teamMemberName: {
+    fontSize: '14px',
+    fontWeight: 600,
+    color: '#e2e8f0',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+  },
+  youBadge: {
+    fontSize: '10px',
+    fontWeight: 600,
+    color: '#a5b4fc',
+    background: 'rgba(99,102,241,0.15)',
+    padding: '1px 6px',
+    borderRadius: '4px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.3px',
+  },
+  teamMemberMeta: {
+    fontSize: '12px',
+    color: 'rgba(255,255,255,0.35)',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  teamMemberNote: {
+    color: 'rgba(255,255,255,0.45)',
+    fontStyle: 'italic',
+  },
+  statusLabel: {
+    fontSize: '11px',
+    fontWeight: 600,
+    textTransform: 'uppercase',
+    letterSpacing: '0.3px',
+    flexShrink: 0,
   },
   postAnnouncementBtn: {
     padding: '4px 12px',

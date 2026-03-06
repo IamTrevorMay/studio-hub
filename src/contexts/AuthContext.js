@@ -299,6 +299,30 @@ export function AuthProvider({ children }) {
     window.location.hash = '';
   }
 
+  // ── Presence heartbeat ──
+  useEffect(() => {
+    if (!user) return;
+
+    // Set online + update last_seen_at immediately
+    const ping = () => {
+      supabase.from('profiles').update({ status: 'active', last_seen_at: new Date().toISOString() }).eq('id', user.id).then(() => {});
+    };
+    ping();
+
+    const interval = setInterval(ping, 60000); // every 60s
+
+    const handleBeforeUnload = () => {
+      // Best-effort offline on tab close (sendBeacon not available for supabase, but the heartbeat stopping will show offline)
+      navigator.sendBeacon && supabase.from('profiles').update({ last_seen_at: new Date().toISOString() }).eq('id', user.id);
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [user]);
+
   // ── Notification state ──
   const [unreadAnnouncementCount, setUnreadAnnouncementCount] = useState(0);
   const [newItineraryCount, setNewItineraryCount] = useState(0);
