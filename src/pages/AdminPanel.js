@@ -8,6 +8,7 @@ const EVENT_TYPE_LABELS = {
   live_recording: 'Live/Recording',
   filming: 'Filming',
   video_post: 'Video Post',
+  sponsor: 'Sponsor',
   unavailable: 'Unavailable',
 };
 const EVENT_TYPES = Object.keys(EVENT_TYPE_LABELS);
