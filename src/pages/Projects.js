@@ -83,7 +83,7 @@ export default function Projects({ onNavigate }) {
   const [editingSponsor, setEditingSponsor] = useState(null);
   const [sponsorName, setSponsorName] = useState('');
   const [sponsorNotes, setSponsorNotes] = useState('');
-  const [showDeliverableForm, setShowDeliverableForm] = useState(null); // sponsorId or null
+  const [showDeliverableForm, setShowDeliverableForm] = useState(null); // campaignId or null
   const [editingDeliverable, setEditingDeliverable] = useState(null);
   const [deliverableTitle, setDeliverableTitle] = useState('');
   const [deliverableType, setDeliverableType] = useState('long_form_read');
@@ -541,7 +541,7 @@ export default function Projects({ onNavigate }) {
     setDeliverableNeedsReview(d.needs_review || false);
     setDeliverableCampaignId(d.campaign_id || '');
     setEditingDeliverable(d.id);
-    setShowDeliverableForm(d.sponsor_id);
+    setShowDeliverableForm(d.campaign_id);
   }
 
   async function handleSaveSponsor(e) {
@@ -579,7 +579,7 @@ export default function Projects({ onNavigate }) {
     fetchSponsors();
   }
 
-  async function handleSaveDeliverable(e, sponsorId) {
+  async function handleSaveDeliverable(e, sponsorId, campaignId) {
     e.preventDefault();
     const sponsor = sponsors.find(s => s.id === sponsorId);
     if (editingDeliverable) {
@@ -592,7 +592,7 @@ export default function Projects({ onNavigate }) {
         notes: deliverableNotes || null,
         platforms: deliverablePlatforms,
         needs_review: deliverableNeedsReview,
-        campaign_id: deliverableCampaignId || null,
+        campaign_id: campaignId || deliverableCampaignId || null,
         updated_at: new Date().toISOString(),
       }).eq('id', editingDeliverable);
       if (error) { alert('Error updating deliverable: ' + error.message); return; }
@@ -633,7 +633,7 @@ export default function Projects({ onNavigate }) {
         notes: deliverableNotes || null,
         platforms: deliverablePlatforms,
         needs_review: deliverableNeedsReview,
-        campaign_id: deliverableCampaignId || null,
+        campaign_id: campaignId || null,
       }).select().single();
       if (error) { alert('Error creating deliverable: ' + error.message); return; }
 
@@ -1617,92 +1617,75 @@ export default function Projects({ onNavigate }) {
                                 )}
                               </div>
                               {campaignDels.length > 0 && <div style={{ marginTop: '8px' }}>{campaignDels.map(d => renderDeliverableRow(d, sponsor))}</div>}
+                              {/* Add Deliverable inside campaign */}
+                              <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); resetDeliverableForm(); setDeliverableCampaignId(campaign.id); setShowDeliverableForm(showDeliverableForm === campaign.id ? null : campaign.id); }}
+                                  style={{ background: 'none', border: 'none', color: '#a5b4fc', fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}
+                                >
+                                  {showDeliverableForm === campaign.id && !editingDeliverable ? '✕ Cancel' : '+ Add Deliverable'}
+                                </button>
+                              </div>
+                              {showDeliverableForm === campaign.id && (
+                                <form onSubmit={(e) => handleSaveDeliverable(e, sponsor.id, campaign.id)} style={{ ...styles.formCard, marginTop: '8px' }}>
+                                  <div style={styles.formGrid}>
+                                    <div style={styles.field}>
+                                      <label style={styles.label}>Title *</label>
+                                      <input value={deliverableTitle} onChange={e => setDeliverableTitle(e.target.value)} placeholder="e.g. Mid-roll integration" required style={styles.input} />
+                                    </div>
+                                    <div style={styles.field}>
+                                      <label style={styles.label}>Type</label>
+                                      <select value={deliverableType} onChange={e => setDeliverableType(e.target.value)} style={styles.select}>
+                                        {Object.entries(DELIVERABLE_TYPES).map(([k, v]) => (
+                                          <option key={k} value={k}>{v.icon} {v.label}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    <div style={styles.field}>
+                                      <label style={styles.label}>Due Date</label>
+                                      <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} style={styles.input} />
+                                    </div>
+                                    <div style={styles.field}>
+                                      <label style={styles.label}>Platforms</label>
+                                      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                        {DELIVERABLE_PLATFORMS.map(p => (
+                                          <button key={p} type="button" onClick={() => setDeliverablePlatforms(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p])} style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', background: deliverablePlatforms.includes(p) ? 'rgba(99,102,241,0.2)' : 'transparent', color: deliverablePlatforms.includes(p) ? '#a5b4fc' : 'rgba(255,255,255,0.35)', borderColor: deliverablePlatforms.includes(p) ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.08)' }}>{p}</button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                    <div style={styles.field}>
+                                      <label style={styles.label}>Needs Review</label>
+                                      <select value={deliverableNeedsReview ? 'yes' : 'no'} onChange={e => setDeliverableNeedsReview(e.target.value === 'yes')} style={styles.select}>
+                                        <option value="no">No</option>
+                                        <option value="yes">Yes</option>
+                                      </select>
+                                    </div>
+                                  </div>
+                                  <div style={styles.field}>
+                                    <label style={styles.label}>Notes</label>
+                                    <textarea value={deliverableNotes} onChange={e => setDeliverableNotes(e.target.value)} placeholder="Requirements, talking points..." rows={2} style={{ ...styles.input, resize: 'vertical' }} />
+                                  </div>
+                                  <button type="submit" style={styles.submitBtn}>{editingDeliverable ? 'Update Deliverable' : 'Add Deliverable'}</button>
+                                </form>
+                              )}
                             </div>
                           );
                         })}
                       </div>
 
-                      {/* Uncampaigned Deliverables */}
+                      {/* Uncampaigned Deliverables (legacy) */}
                       {(() => {
                         const uncampaigned = deliverables.filter(d => !d.campaign_id);
-                        if (uncampaigned.length === 0 && campaigns.length > 0) return null;
+                        if (uncampaigned.length === 0) return null;
                         return (
                           <div style={styles.detailSection}>
-                            {campaigns.length > 0 && <h4 style={{ ...styles.detailLabel, marginBottom: '8px' }}>Uncampaigned</h4>}
+                            <h4 style={{ ...styles.detailLabel, marginBottom: '8px' }}>Uncampaigned</h4>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                               {uncampaigned.map(d => renderDeliverableRow(d, sponsor))}
-                              {uncampaigned.length === 0 && campaigns.length === 0 && showDeliverableForm !== sponsor.id && (
-                                <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.25)', margin: '4px 0' }}>No deliverables yet.</p>
-                              )}
                             </div>
                           </div>
                         );
                       })()}
-
-                      {/* Add Deliverable */}
-                      <div style={styles.detailSection}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                          <h4 style={styles.detailLabel}>Deliverables</h4>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); resetDeliverableForm(); setShowDeliverableForm(showDeliverableForm === sponsor.id ? null : sponsor.id); }}
-                            style={{ background: 'none', border: 'none', color: '#a5b4fc', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}
-                          >
-                            {showDeliverableForm === sponsor.id && !editingDeliverable ? '✕ Cancel' : '+ Add Deliverable'}
-                          </button>
-                        </div>
-
-                        {showDeliverableForm === sponsor.id && (
-                          <form onSubmit={(e) => handleSaveDeliverable(e, sponsor.id)} style={{ ...styles.formCard, marginBottom: '12px' }}>
-                            <div style={styles.formGrid}>
-                              <div style={styles.field}>
-                                <label style={styles.label}>Title *</label>
-                                <input value={deliverableTitle} onChange={e => setDeliverableTitle(e.target.value)} placeholder="e.g. Mid-roll integration" required style={styles.input} />
-                              </div>
-                              <div style={styles.field}>
-                                <label style={styles.label}>Type</label>
-                                <select value={deliverableType} onChange={e => setDeliverableType(e.target.value)} style={styles.select}>
-                                  {Object.entries(DELIVERABLE_TYPES).map(([k, v]) => (
-                                    <option key={k} value={k}>{v.icon} {v.label}</option>
-                                  ))}
-                                </select>
-                              </div>
-                              <div style={styles.field}>
-                                <label style={styles.label}>Due Date</label>
-                                <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} style={styles.input} />
-                              </div>
-                              <div style={styles.field}>
-                                <label style={styles.label}>Campaign</label>
-                                <select value={deliverableCampaignId} onChange={e => setDeliverableCampaignId(e.target.value)} style={styles.select}>
-                                  <option value="">No campaign</option>
-                                  {campaigns.map(c => (
-                                    <option key={c.id} value={c.id}>{c.name}</option>
-                                  ))}
-                                </select>
-                              </div>
-                              <div style={styles.field}>
-                                <label style={styles.label}>Platforms</label>
-                                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                                  {DELIVERABLE_PLATFORMS.map(p => (
-                                    <button key={p} type="button" onClick={() => setDeliverablePlatforms(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p])} style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', background: deliverablePlatforms.includes(p) ? 'rgba(99,102,241,0.2)' : 'transparent', color: deliverablePlatforms.includes(p) ? '#a5b4fc' : 'rgba(255,255,255,0.35)', borderColor: deliverablePlatforms.includes(p) ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.08)' }}>{p}</button>
-                                  ))}
-                                </div>
-                              </div>
-                              <div style={styles.field}>
-                                <label style={styles.label}>Needs Review</label>
-                                <select value={deliverableNeedsReview ? 'yes' : 'no'} onChange={e => setDeliverableNeedsReview(e.target.value === 'yes')} style={styles.select}>
-                                  <option value="no">No</option>
-                                  <option value="yes">Yes</option>
-                                </select>
-                              </div>
-                            </div>
-                            <div style={styles.field}>
-                              <label style={styles.label}>Notes</label>
-                              <textarea value={deliverableNotes} onChange={e => setDeliverableNotes(e.target.value)} placeholder="Requirements, talking points..." rows={2} style={{ ...styles.input, resize: 'vertical' }} />
-                            </div>
-                            <button type="submit" style={styles.submitBtn}>{editingDeliverable ? 'Update Deliverable' : 'Add Deliverable'}</button>
-                          </form>
-                        )}
-                      </div>
 
                       {/* Sponsor Actions */}
                       <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
