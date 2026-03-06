@@ -37,6 +37,15 @@ const STATUS_LABELS = {
   published: 'Published',
 };
 
+const DELIVERABLE_STAGE_COLORS = {
+  script: '#3b82f6', production: '#f59e0b', editing: '#f97316',
+  sent_for_review: '#ec4899', posted: '#22c55e',
+};
+const DELIVERABLE_STAGE_LABELS = {
+  script: 'Script', production: 'Production', editing: 'Editing',
+  sent_for_review: 'Sent for Review', posted: 'Posted',
+};
+
 export default function Dashboard({ onNavigate }) {
   const { profile, updateProfile, isAdmin, isAssistant } = useAuth();
   const { safeQuery } = useSupabaseQuery();
@@ -83,6 +92,14 @@ export default function Dashboard({ onNavigate }) {
   const [statusNoteDraft, setStatusNoteDraft] = useState(profile?.status_note || '');
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const statusMenuRef = useRef(null);
+
+  // Stage tasks state
+  const [stageTasks, setStageTasks] = useState([]);
+  const [stageTasksLoading, setStageTasksLoading] = useState(false);
+
+  // Sponsor deliverables state
+  const [sponsorDeliverables, setSponsorDeliverables] = useState([]);
+  const [sponsorDelLoading, setSponsorDelLoading] = useState(false);
 
   useEffect(() => {
     if (!statusMenuOpen) return;
@@ -172,8 +189,10 @@ export default function Dashboard({ onNavigate }) {
     if (!profile?.id) return;
     const timeout = setTimeout(() => setLoading(false), 5000);
     fetchAssignments().finally(() => clearTimeout(timeout));
+    fetchStageTasks();
+    fetchSponsorDeliverables();
     return () => clearTimeout(timeout);
-  }, [profile?.id]);
+  }, [profile?.id, fetchStageTasks, fetchSponsorDeliverables]);
 
   useEffect(() => {
     if ((isAdmin || isAssistant) && profile?.id) {
@@ -255,6 +274,94 @@ export default function Dashboard({ onNavigate }) {
       setLoading(false);
     }
   }
+
+  const fetchStageTasks = useCallback(async () => {
+    if (!profile?.id) return;
+    setStageTasksLoading(true);
+    try {
+      // Fetch project stage assignments
+      const { data: projectStageData } = await supabase
+        .from('project_stage_assignments')
+        .select('*, project:projects(id, name, status, deadline, type, channel)')
+        .eq('user_id', profile.id);
+
+      // Fetch deliverable stage assignments
+      const { data: deliverableStageData } = await supabase
+        .from('deliverable_stage_assignments')
+        .select('*, deliverable:sponsor_deliverables(id, title, status, due_date, deliverable_type, sponsor_id, sponsors(name))')
+        .eq('user_id', profile.id);
+
+      const tasks = [];
+
+      // Project stage tasks: only where current project status matches assigned stage
+      (projectStageData || []).forEach(a => {
+        if (a.project && a.project.status === a.stage && a.project.status !== 'published') {
+          tasks.push({
+            id: a.id,
+            type: 'project',
+            name: a.project.name,
+            stage: a.stage,
+            stageColor: STATUS_COLORS[a.stage] || '#6b7280',
+            stageLabel: STATUS_LABELS[a.stage] || a.stage,
+            deadline: a.project.deadline,
+            extra: a.project.channel || a.project.type?.replace('_', ' '),
+          });
+        }
+      });
+
+      // Deliverable stage tasks: only where current deliverable status matches assigned stage
+      (deliverableStageData || []).forEach(a => {
+        if (a.deliverable && a.deliverable.status === a.stage && a.deliverable.status !== 'posted') {
+          tasks.push({
+            id: a.id,
+            type: 'deliverable',
+            name: a.deliverable.title,
+            stage: a.stage,
+            stageColor: DELIVERABLE_STAGE_COLORS[a.stage] || '#6b7280',
+            stageLabel: DELIVERABLE_STAGE_LABELS[a.stage] || a.stage,
+            deadline: a.deliverable.due_date,
+            extra: a.deliverable.sponsors?.name || null,
+          });
+        }
+      });
+
+      setStageTasks(tasks);
+    } catch (err) {
+      console.error('Error fetching stage tasks:', err);
+      setStageTasks([]);
+    } finally {
+      setStageTasksLoading(false);
+    }
+  }, [profile?.id]);
+
+  const fetchSponsorDeliverables = useCallback(async () => {
+    if (!profile?.id) return;
+    setSponsorDelLoading(true);
+    try {
+      const { data } = await supabase
+        .from('deliverable_stage_assignments')
+        .select('stage, deliverable:sponsor_deliverables(id, title, status, due_date, deliverable_type, campaign_id, sponsor_id, sponsors(name), sponsor_campaigns(name))')
+        .eq('user_id', profile.id);
+
+      const items = [];
+      (data || []).forEach(a => {
+        if (a.deliverable && a.deliverable.status === a.stage && a.deliverable.status !== 'posted') {
+          items.push({
+            ...a.deliverable,
+            assigned_stage: a.stage,
+            sponsor_name: a.deliverable.sponsors?.name || 'Unknown Sponsor',
+            campaign_name: a.deliverable.sponsor_campaigns?.name || null,
+          });
+        }
+      });
+      setSponsorDeliverables(items);
+    } catch (err) {
+      console.error('Error fetching sponsor deliverables:', err);
+      setSponsorDeliverables([]);
+    } finally {
+      setSponsorDelLoading(false);
+    }
+  }, [profile?.id]);
 
   async function addItineraryItem() {
     if (!newItemText.trim()) return;
@@ -904,6 +1011,10 @@ export default function Dashboard({ onNavigate }) {
             </div>
             <div style={styles.statLabel}>Due Soon</div>
           </div>
+          <div style={styles.stat}>
+            <div style={styles.statValue}>{stageTasks.length}</div>
+            <div style={styles.statLabel}>Stage Tasks</div>
+          </div>
         </div>
       </div>
 
@@ -1218,6 +1329,111 @@ export default function Dashboard({ onNavigate }) {
           </div>
         )}
       </div>
+
+      {/* Sponsored Deliverables */}
+      {(sponsorDeliverables.length > 0 || sponsorDelLoading) && (
+        <div style={styles.section}>
+          <h2 style={styles.sectionTitle}>Sponsored</h2>
+          {sponsorDelLoading ? (
+            <p style={styles.emptyText}>Loading...</p>
+          ) : (
+            <div style={styles.projectGrid}>
+              {sponsorDeliverables.map(d => {
+                const days = d.due_date ? getDaysUntil(d.due_date) : null;
+                const urgency = days !== null ? getUrgencyColor(days) : null;
+                return (
+                  <div key={d.id} style={styles.projectCard}>
+                    <div style={styles.projectCardHeader}>
+                      <span style={{
+                        ...styles.statusBadge,
+                        background: `${DELIVERABLE_STAGE_COLORS[d.status] || '#6b7280'}20`,
+                        color: DELIVERABLE_STAGE_COLORS[d.status] || '#6b7280',
+                      }}>
+                        {DELIVERABLE_STAGE_LABELS[d.status] || d.status}
+                      </span>
+                      <span style={styles.roleBadge}>{DELIVERABLE_STAGE_LABELS[d.assigned_stage] || d.assigned_stage}</span>
+                    </div>
+                    <h3 style={styles.projectName}>{d.title}</h3>
+                    <p style={styles.projectChannel}>{d.sponsor_name}{d.campaign_name ? ` — ${d.campaign_name}` : ''}</p>
+                    {days !== null && (
+                      <>
+                        <div style={styles.projectDeadline}>
+                          <div style={{ ...styles.deadlineIndicator, background: urgency }} />
+                          <span style={{ color: urgency, fontWeight: 600, fontSize: '13px' }}>
+                            {days < 0
+                              ? `${Math.abs(days)} days overdue`
+                              : days === 0
+                                ? 'Due today'
+                                : `${days} days remaining`}
+                          </span>
+                        </div>
+                        <div style={styles.projectDates}>
+                          <span>Due {new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Stage Tasks */}
+      {stageTasks.length > 0 && (
+        <div style={styles.section}>
+          <h2 style={styles.sectionTitle}>Your Stage Tasks</h2>
+          {stageTasksLoading ? (
+            <p style={styles.emptyText}>Loading...</p>
+          ) : (
+            <div style={styles.projectGrid}>
+              {stageTasks.map(task => {
+                const days = task.deadline ? getDaysUntil(task.deadline) : null;
+                const urgency = days !== null ? getUrgencyColor(days) : 'rgba(255,255,255,0.4)';
+                return (
+                  <div key={task.id} style={styles.projectCard}>
+                    <div style={styles.projectCardHeader}>
+                      <span style={{
+                        ...styles.statusBadge,
+                        background: `${task.stageColor}20`,
+                        color: task.stageColor,
+                      }}>
+                        {task.stageLabel}
+                      </span>
+                      <span style={styles.roleBadge}>{task.type === 'project' ? 'Project' : 'Deliverable'}</span>
+                    </div>
+                    <h3 style={styles.projectName}>{task.name}</h3>
+                    {task.extra && (
+                      <p style={styles.projectChannel}>{task.extra}</p>
+                    )}
+                    {days !== null && (
+                      <div style={styles.projectDeadline}>
+                        <div style={{
+                          ...styles.deadlineIndicator,
+                          background: urgency,
+                        }} />
+                        <span style={{ color: urgency, fontWeight: 600, fontSize: '13px' }}>
+                          {days < 0
+                            ? `${Math.abs(days)} days overdue`
+                            : days === 0
+                              ? 'Due today'
+                              : `${days} days remaining`}
+                        </span>
+                      </div>
+                    )}
+                    {task.deadline && (
+                      <div style={styles.projectDates}>
+                        <span>Due {new Date(task.deadline + (task.deadline.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Completed Projects */}
       {completedAssignments.length > 0 && (
