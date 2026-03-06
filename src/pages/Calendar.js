@@ -26,7 +26,7 @@ const NETWORK_ICONS = {
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const WEEKDAYS_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-const EVENT_TYPES = ['deadline', 'meeting', 'live_recording', 'filming', 'video_post', 'unavailable'];
+const EVENT_TYPES = ['deadline', 'meeting', 'live_recording', 'filming', 'video_post', 'unavailable', 'sponsor'];
 const EVENT_TYPE_COLORS = {
   deadline: '#ef4444',
   meeting: '#3b82f6',
@@ -34,6 +34,7 @@ const EVENT_TYPE_COLORS = {
   filming: '#f59e0b',
   video_post: '#a855f7',
   unavailable: '#6b7280',
+  sponsor: '#10b981',
 };
 const EVENT_TYPE_LABELS = {
   deadline: 'Deadline',
@@ -42,6 +43,7 @@ const EVENT_TYPE_LABELS = {
   filming: 'Filming',
   video_post: 'Video Post',
   unavailable: 'Unavailable',
+  sponsor: 'Sponsor',
 };
 const EVENT_TYPE_ICONS = {
   deadline: '\u23F0',
@@ -50,6 +52,7 @@ const EVENT_TYPE_ICONS = {
   filming: '\uD83C\uDFAC',
   video_post: '\uD83D\uDCF9',
   unavailable: '\uD83D\uDEAB',
+  sponsor: '🤝',
 };
 
 const RECURRENCE_OPTIONS = [

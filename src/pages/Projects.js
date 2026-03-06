@@ -31,6 +31,18 @@ const SHORTS_STAGE_COLORS = {
 };
 const POSTING_PLATFORMS = ['YouTube Shorts', 'TikTok', 'Instagram Reels', 'X/Twitter', 'Facebook'];
 
+const DELIVERABLE_TYPES = {
+  video_integration: { label: 'Video Integration', icon: '🎬' },
+  dedicated_video: { label: 'Dedicated Video', icon: '📹' },
+  social_post: { label: 'Social Post', icon: '📱' },
+  story: { label: 'Story', icon: '📸' },
+  live_mention: { label: 'Live Mention', icon: '🎙️' },
+  other: { label: 'Other', icon: '📋' },
+};
+const SPONSOR_STATUS_COLORS = { active: '#10b981', completed: '#6366f1', cancelled: '#ef4444' };
+const PAYMENT_STATUS_COLORS = { unpaid: '#ef4444', partial: '#f59e0b', paid: '#10b981' };
+const DELIVERABLE_STATUS_COLORS = { pending: '#f59e0b', in_progress: '#6366f1', completed: '#10b981', cancelled: '#ef4444' };
+
 export default function Projects({ onNavigate }) {
   const { profile, isAdmin } = useAuth();
   const { safeQuery } = useSupabaseQuery();
@@ -55,6 +67,25 @@ export default function Projects({ onNavigate }) {
   });
   const [editingShort, setEditingShort] = useState(null);
   const [stagePrompt, setStagePrompt] = useState(null);
+
+  // Sponsors state
+  const [sponsors, setSponsors] = useState([]);
+  const [sponsorLoading, setSponsorLoading] = useState(false);
+  const [expandedSponsorId, setExpandedSponsorId] = useState(null);
+  const [showSponsorForm, setShowSponsorForm] = useState(false);
+  const [editingSponsor, setEditingSponsor] = useState(null);
+  const [sponsorName, setSponsorName] = useState('');
+  const [contactName, setContactName] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  const [sponsorNotes, setSponsorNotes] = useState('');
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentStatus, setPaymentStatus] = useState('unpaid');
+  const [showDeliverableForm, setShowDeliverableForm] = useState(null); // sponsorId or null
+  const [editingDeliverable, setEditingDeliverable] = useState(null);
+  const [deliverableTitle, setDeliverableTitle] = useState('');
+  const [deliverableType, setDeliverableType] = useState('video_integration');
+  const [dueDate, setDueDate] = useState('');
+  const [deliverableNotes, setDeliverableNotes] = useState('');
 
   // Form state
   const [form, setForm] = useState({
@@ -416,6 +447,197 @@ export default function Projects({ onNavigate }) {
     fetchProjects();
   }
 
+  // --- Sponsors ---
+  const fetchSponsors = useCallback(async () => {
+    setSponsorLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('sponsors')
+        .select('*, sponsor_deliverables(*)')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      setSponsors(data || []);
+    } catch (err) {
+      console.error('Error fetching sponsors:', err);
+      setSponsors([]);
+    } finally {
+      setSponsorLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeSection !== 'sponsors') return;
+    fetchSponsors();
+    const channel = supabase
+      .channel('sponsors-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sponsors' }, () => fetchSponsors())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sponsor_deliverables' }, () => fetchSponsors())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [activeSection, fetchSponsors]);
+
+  function resetSponsorForm() {
+    setSponsorName(''); setContactName(''); setContactEmail('');
+    setSponsorNotes(''); setPaymentAmount(''); setPaymentStatus('unpaid');
+    setEditingSponsor(null); setShowSponsorForm(false);
+  }
+
+  function resetDeliverableForm() {
+    setDeliverableTitle(''); setDeliverableType('video_integration');
+    setDueDate(''); setDeliverableNotes('');
+    setEditingDeliverable(null); setShowDeliverableForm(null);
+  }
+
+  function startEditSponsor(sponsor) {
+    setSponsorName(sponsor.name);
+    setContactName(sponsor.contact_name || '');
+    setContactEmail(sponsor.contact_email || '');
+    setSponsorNotes(sponsor.notes || '');
+    setPaymentAmount(sponsor.payment_amount || '');
+    setPaymentStatus(sponsor.payment_status);
+    setEditingSponsor(sponsor.id);
+    setShowSponsorForm(true);
+  }
+
+  function startEditDeliverable(d) {
+    setDeliverableTitle(d.title);
+    setDeliverableType(d.deliverable_type);
+    setDueDate(d.due_date || '');
+    setDeliverableNotes(d.notes || '');
+    setEditingDeliverable(d.id);
+    setShowDeliverableForm(d.sponsor_id);
+  }
+
+  async function handleSaveSponsor(e) {
+    e.preventDefault();
+    const payload = {
+      name: sponsorName,
+      contact_name: contactName || null,
+      contact_email: contactEmail || null,
+      notes: sponsorNotes || null,
+      payment_amount: paymentAmount ? parseFloat(paymentAmount) : 0,
+      payment_status: paymentStatus,
+      updated_at: new Date().toISOString(),
+    };
+    if (editingSponsor) {
+      const { error } = await supabase.from('sponsors').update(payload).eq('id', editingSponsor);
+      if (error) { alert('Error updating sponsor: ' + error.message); return; }
+    } else {
+      const { error } = await supabase.from('sponsors').insert({ ...payload, created_by: profile.id });
+      if (error) { alert('Error creating sponsor: ' + error.message); return; }
+    }
+    resetSponsorForm();
+    fetchSponsors();
+  }
+
+  async function handleDeleteSponsor(sponsorId) {
+    if (!window.confirm('Delete this sponsor and all its deliverables?')) return;
+    // Delete linked calendar events first
+    const sponsor = sponsors.find(s => s.id === sponsorId);
+    if (sponsor?.sponsor_deliverables) {
+      const eventIds = sponsor.sponsor_deliverables
+        .filter(d => d.calendar_event_id)
+        .map(d => d.calendar_event_id);
+      if (eventIds.length > 0) {
+        await supabase.from('calendar_events').delete().in('id', eventIds);
+      }
+    }
+    await supabase.from('sponsors').delete().eq('id', sponsorId);
+    if (expandedSponsorId === sponsorId) setExpandedSponsorId(null);
+    fetchSponsors();
+  }
+
+  async function handleSaveDeliverable(e, sponsorId) {
+    e.preventDefault();
+    const sponsor = sponsors.find(s => s.id === sponsorId);
+    if (editingDeliverable) {
+      // Update existing deliverable
+      const deliverable = sponsor?.sponsor_deliverables?.find(d => d.id === editingDeliverable);
+      const { error } = await supabase.from('sponsor_deliverables').update({
+        title: deliverableTitle,
+        deliverable_type: deliverableType,
+        due_date: dueDate || null,
+        notes: deliverableNotes || null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', editingDeliverable);
+      if (error) { alert('Error updating deliverable: ' + error.message); return; }
+
+      // Sync calendar event
+      if (dueDate && deliverable?.calendar_event_id) {
+        // Update existing event
+        await supabase.from('calendar_events').update({
+          title: `🤝 ${sponsor?.name}: ${deliverableTitle}`,
+          start_date: `${dueDate}T09:00:00`,
+          end_date: `${dueDate}T10:00:00`,
+        }).eq('id', deliverable.calendar_event_id);
+      } else if (dueDate && !deliverable?.calendar_event_id) {
+        // Create new event
+        const { data: evData } = await supabase.from('calendar_events').insert({
+          title: `🤝 ${sponsor?.name}: ${deliverableTitle}`,
+          event_type: 'sponsor',
+          start_date: `${dueDate}T09:00:00`,
+          end_date: `${dueDate}T10:00:00`,
+          all_day: true,
+          created_by: profile.id,
+        }).select().single();
+        if (evData) {
+          await supabase.from('sponsor_deliverables').update({ calendar_event_id: evData.id }).eq('id', editingDeliverable);
+        }
+      } else if (!dueDate && deliverable?.calendar_event_id) {
+        // Remove event
+        await supabase.from('calendar_events').delete().eq('id', deliverable.calendar_event_id);
+        await supabase.from('sponsor_deliverables').update({ calendar_event_id: null }).eq('id', editingDeliverable);
+      }
+    } else {
+      // Insert new deliverable
+      const { data: dData, error } = await supabase.from('sponsor_deliverables').insert({
+        sponsor_id: sponsorId,
+        title: deliverableTitle,
+        deliverable_type: deliverableType,
+        due_date: dueDate || null,
+        notes: deliverableNotes || null,
+      }).select().single();
+      if (error) { alert('Error creating deliverable: ' + error.message); return; }
+
+      // Auto-create calendar event if due_date set
+      if (dueDate && dData) {
+        const { data: evData } = await supabase.from('calendar_events').insert({
+          title: `🤝 ${sponsor?.name}: ${deliverableTitle}`,
+          event_type: 'sponsor',
+          start_date: `${dueDate}T09:00:00`,
+          end_date: `${dueDate}T10:00:00`,
+          all_day: true,
+          created_by: profile.id,
+        }).select().single();
+        if (evData) {
+          await supabase.from('sponsor_deliverables').update({ calendar_event_id: evData.id }).eq('id', dData.id);
+        }
+      }
+    }
+    resetDeliverableForm();
+    fetchSponsors();
+  }
+
+  async function handleDeleteDeliverable(deliverable) {
+    if (deliverable.calendar_event_id) {
+      await supabase.from('calendar_events').delete().eq('id', deliverable.calendar_event_id);
+    }
+    await supabase.from('sponsor_deliverables').delete().eq('id', deliverable.id);
+    fetchSponsors();
+  }
+
+  async function handleToggleDeliverableStatus(deliverable) {
+    const next = deliverable.status === 'pending' ? 'in_progress'
+      : deliverable.status === 'in_progress' ? 'completed' : 'pending';
+    const updates = {
+      status: next,
+      completed_at: next === 'completed' ? new Date().toISOString() : null,
+      updated_at: new Date().toISOString(),
+    };
+    await supabase.from('sponsor_deliverables').update(updates).eq('id', deliverable.id);
+    fetchSponsors();
+  }
+
   function onDragEnd(result) {
     if (!result.destination) return;
     const { draggableId, destination } = result;
@@ -441,6 +663,7 @@ export default function Projects({ onNavigate }) {
 
   const editingCount = shorts.filter(s => s.stage === 'editing').length;
   const readyCount = shorts.filter(s => s.stage === 'ready_to_post').length;
+  const activeSponsorsCount = sponsors.filter(s => s.status === 'active').length;
 
   return (
     <div style={styles.page}>
@@ -465,9 +688,21 @@ export default function Projects({ onNavigate }) {
             <span style={styles.sectionTabBadge}>{editingCount + readyCount}</span>
           )}
         </button>
+        <button
+          onClick={() => setActiveSection('sponsors')}
+          style={{
+            ...styles.sectionTab,
+            ...(activeSection === 'sponsors' ? styles.sectionTabActive : {}),
+          }}
+        >
+          Sponsors
+          {activeSponsorsCount > 0 && (
+            <span style={styles.sectionTabBadge}>{activeSponsorsCount}</span>
+          )}
+        </button>
       </div>
 
-      {activeSection === 'projects' ? (
+      {activeSection === 'projects' && (
       <>
       <div style={styles.topBar}>
         <div>
@@ -733,7 +968,9 @@ export default function Projects({ onNavigate }) {
         </DragDropContext>
       )}
       </>
-      ) : (
+      )}
+
+      {activeSection === 'shorts' && (
       /* ====== SHORTS QUEUE SECTION ====== */
       <>
       <div style={styles.topBar}>
@@ -913,6 +1150,222 @@ export default function Projects({ onNavigate }) {
             })}
           </div>
         </DragDropContext>
+      )}
+      </>
+      )}
+
+      {activeSection === 'sponsors' && (
+      /* ====== SPONSORS SECTION ====== */
+      <>
+      <div style={styles.topBar}>
+        <div>
+          <h1 style={styles.pageTitle}>Sponsors</h1>
+          <p style={styles.pageSubtitle}>
+            {activeSponsorsCount} active · {sponsors.filter(s => s.status === 'completed').length} completed
+          </p>
+        </div>
+        <button onClick={() => { resetSponsorForm(); setShowSponsorForm(!showSponsorForm); }} style={styles.addBtn}>
+          {showSponsorForm && !editingSponsor ? '✕ Cancel' : '+ New Sponsor'}
+        </button>
+      </div>
+
+      {/* Sponsor Form */}
+      {showSponsorForm && (
+        <form onSubmit={handleSaveSponsor} style={styles.formCard}>
+          <div style={styles.formGrid}>
+            <div style={styles.field}>
+              <label style={styles.label}>Sponsor Name *</label>
+              <input value={sponsorName} onChange={e => setSponsorName(e.target.value)} placeholder="e.g. NordVPN" required style={styles.input} />
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Contact Name</label>
+              <input value={contactName} onChange={e => setContactName(e.target.value)} placeholder="e.g. John Smith" style={styles.input} />
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Contact Email</label>
+              <input value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder="john@sponsor.com" type="email" style={styles.input} />
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Payment Amount</label>
+              <input value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} placeholder="0.00" type="number" step="0.01" min="0" style={styles.input} />
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Payment Status</label>
+              <select value={paymentStatus} onChange={e => setPaymentStatus(e.target.value)} style={styles.select}>
+                <option value="unpaid">Unpaid</option>
+                <option value="partial">Partial</option>
+                <option value="paid">Paid</option>
+              </select>
+            </div>
+          </div>
+          <div style={styles.field}>
+            <label style={styles.label}>Notes</label>
+            <textarea value={sponsorNotes} onChange={e => setSponsorNotes(e.target.value)} placeholder="Deal details, talking points..." rows={3} style={{ ...styles.input, resize: 'vertical' }} />
+          </div>
+          <button type="submit" style={styles.submitBtn}>{editingSponsor ? 'Update Sponsor' : 'Create Sponsor'}</button>
+        </form>
+      )}
+
+      {/* Sponsor List */}
+      {sponsorLoading ? (
+        <p style={styles.emptyText}>Loading sponsors...</p>
+      ) : sponsors.length === 0 ? (
+        <div style={styles.emptyCard}>
+          <p style={styles.emptyText}>No sponsors yet. Add one to get started.</p>
+        </div>
+      ) : (
+        <div style={styles.projectList}>
+          {sponsors.map(sponsor => {
+            const isExpanded = expandedSponsorId === sponsor.id;
+            const deliverables = sponsor.sponsor_deliverables || [];
+            const completedDels = deliverables.filter(d => d.status === 'completed').length;
+            return (
+              <div key={sponsor.id} style={styles.sponsorCard}>
+                <div style={styles.sponsorCardHeader} onClick={() => setExpandedSponsorId(isExpanded ? null : sponsor.id)}>
+                  <div style={styles.projectRowLeft}>
+                    <span style={{ fontSize: '18px' }}>🤝</span>
+                    <div>
+                      <div style={styles.projectRowName}>{sponsor.name}</div>
+                      <div style={styles.projectRowMeta}>
+                        {sponsor.contact_name && <>{sponsor.contact_name}</>}
+                        {sponsor.contact_email && <> ({sponsor.contact_email})</>}
+                        {!sponsor.contact_name && !sponsor.contact_email && 'No contact info'}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={styles.projectRowRight}>
+                    {sponsor.payment_amount > 0 && (
+                      <span style={{ ...styles.paymentBadge, background: `${PAYMENT_STATUS_COLORS[sponsor.payment_status]}15`, color: PAYMENT_STATUS_COLORS[sponsor.payment_status] }}>
+                        ${Number(sponsor.payment_amount).toLocaleString()}
+                      </span>
+                    )}
+                    <span style={{ ...styles.statusTag, background: `${PAYMENT_STATUS_COLORS[sponsor.payment_status]}15`, color: PAYMENT_STATUS_COLORS[sponsor.payment_status] }}>
+                      {sponsor.payment_status}
+                    </span>
+                    <span style={{ ...styles.statusTag, background: `${SPONSOR_STATUS_COLORS[sponsor.status]}15`, color: SPONSOR_STATUS_COLORS[sponsor.status] }}>
+                      {sponsor.status}
+                    </span>
+                    {deliverables.length > 0 && (
+                      <span style={styles.checklistBadge}>{completedDels}/{deliverables.length}</span>
+                    )}
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="rgba(255,255,255,0.3)"
+                      style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>
+                      <path d="M4 6l4 4 4-4" />
+                    </svg>
+                  </div>
+                </div>
+
+                {isExpanded && (
+                  <div style={styles.projectDetail}>
+                    {sponsor.notes && (
+                      <div style={styles.detailSection}>
+                        <h4 style={styles.detailLabel}>Notes</h4>
+                        <p style={{ margin: 0, fontSize: '13px', color: 'rgba(255,255,255,0.6)', whiteSpace: 'pre-wrap' }}>{sponsor.notes}</p>
+                      </div>
+                    )}
+
+                    {/* Deliverables */}
+                    <div style={styles.detailSection}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                        <h4 style={styles.detailLabel}>Deliverables</h4>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); resetDeliverableForm(); setShowDeliverableForm(showDeliverableForm === sponsor.id ? null : sponsor.id); }}
+                          style={{ background: 'none', border: 'none', color: '#a5b4fc', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}
+                        >
+                          {showDeliverableForm === sponsor.id && !editingDeliverable ? '✕ Cancel' : '+ Add Deliverable'}
+                        </button>
+                      </div>
+
+                      {/* Deliverable Form */}
+                      {showDeliverableForm === sponsor.id && (
+                        <form onSubmit={(e) => handleSaveDeliverable(e, sponsor.id)} style={{ ...styles.formCard, marginBottom: '12px' }}>
+                          <div style={styles.formGrid}>
+                            <div style={styles.field}>
+                              <label style={styles.label}>Title *</label>
+                              <input value={deliverableTitle} onChange={e => setDeliverableTitle(e.target.value)} placeholder="e.g. Mid-roll integration" required style={styles.input} />
+                            </div>
+                            <div style={styles.field}>
+                              <label style={styles.label}>Type</label>
+                              <select value={deliverableType} onChange={e => setDeliverableType(e.target.value)} style={styles.select}>
+                                {Object.entries(DELIVERABLE_TYPES).map(([k, v]) => (
+                                  <option key={k} value={k}>{v.icon} {v.label}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div style={styles.field}>
+                              <label style={styles.label}>Due Date</label>
+                              <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} style={styles.input} />
+                            </div>
+                          </div>
+                          <div style={styles.field}>
+                            <label style={styles.label}>Notes</label>
+                            <textarea value={deliverableNotes} onChange={e => setDeliverableNotes(e.target.value)} placeholder="Requirements, talking points..." rows={2} style={{ ...styles.input, resize: 'vertical' }} />
+                          </div>
+                          <button type="submit" style={styles.submitBtn}>{editingDeliverable ? 'Update Deliverable' : 'Add Deliverable'}</button>
+                        </form>
+                      )}
+
+                      {deliverables.length === 0 && showDeliverableForm !== sponsor.id ? (
+                        <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.25)', margin: '4px 0' }}>No deliverables yet.</p>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          {deliverables.map(d => (
+                            <div key={d.id} style={styles.deliverableRow}>
+                              <button
+                                onClick={() => handleToggleDeliverableStatus(d)}
+                                style={{
+                                  background: 'none', border: `2px solid ${DELIVERABLE_STATUS_COLORS[d.status]}`,
+                                  width: '20px', height: '20px', borderRadius: '4px', cursor: 'pointer',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  color: DELIVERABLE_STATUS_COLORS[d.status], fontSize: '12px', flexShrink: 0,
+                                  ...(d.status === 'completed' ? { background: `${DELIVERABLE_STATUS_COLORS.completed}20` } : {}),
+                                }}
+                                title={`Status: ${d.status} — click to advance`}
+                              >
+                                {d.status === 'completed' ? '✓' : d.status === 'in_progress' ? '◐' : ''}
+                              </button>
+                              <span style={{ fontSize: '14px', flexShrink: 0 }}>{DELIVERABLE_TYPES[d.deliverable_type]?.icon || '📋'}</span>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: '13px', color: d.status === 'completed' ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.85)', textDecoration: d.status === 'completed' ? 'line-through' : 'none' }}>
+                                  {d.title}
+                                </div>
+                                {d.notes && <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', marginTop: '2px' }}>{d.notes}</div>}
+                              </div>
+                              <span style={{ ...styles.statusTag, background: `${DELIVERABLE_STATUS_COLORS[d.status]}15`, color: DELIVERABLE_STATUS_COLORS[d.status], fontSize: '10px' }}>
+                                {d.status.replace('_', ' ')}
+                              </span>
+                              {d.due_date && (
+                                <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap' }}>
+                                  {new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                </span>
+                              )}
+                              <button
+                                onClick={() => startEditDeliverable(d)}
+                                style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }}
+                                title="Edit"
+                              >✎</button>
+                              <button
+                                onClick={() => handleDeleteDeliverable(d)}
+                                style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }}
+                                title="Delete"
+                              >✕</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Sponsor Actions */}
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                      <button onClick={() => startEditSponsor(sponsor)} style={{ ...styles.filterBtn, fontSize: '12px' }}>Edit</button>
+                      <button onClick={() => handleDeleteSponsor(sponsor.id)} style={{ ...styles.filterBtn, fontSize: '12px', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}>Delete</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
       </>
       )}
@@ -2165,5 +2618,37 @@ const styles = {
     padding: '24px',
     width: '420px',
     maxWidth: '90vw',
+  },
+  // --- Sponsors ---
+  sponsorCard: {
+    background: 'rgba(255,255,255,0.02)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '12px',
+    overflow: 'hidden',
+    transition: 'border-color 0.15s',
+  },
+  sponsorCardHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '14px 16px',
+    cursor: 'pointer',
+    gap: '12px',
+  },
+  paymentBadge: {
+    fontSize: '12px',
+    fontWeight: 700,
+    padding: '3px 10px',
+    borderRadius: '8px',
+    whiteSpace: 'nowrap',
+  },
+  deliverableRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '8px 10px',
+    borderRadius: '8px',
+    background: 'rgba(255,255,255,0.02)',
+    border: '1px solid rgba(255,255,255,0.04)',
   },
 };
