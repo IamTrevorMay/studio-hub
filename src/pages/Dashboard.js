@@ -761,62 +761,6 @@ export default function Dashboard({ onNavigate }) {
             </p>
           )}
           <p style={styles.profileEmail}>{profile?.email}</p>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-            marginTop: '8px',
-          }}>
-            <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)' }}>Morty</span>
-            {isAdmin && profile?.mascot_enabled !== false && (
-              <button
-                onClick={() => window.dispatchEvent(new Event('summon-morty'))}
-                style={{
-                  padding: '3px 8px',
-                  borderRadius: '6px',
-                  border: '1px solid rgba(99,102,241,0.3)',
-                  background: 'rgba(99,102,241,0.1)',
-                  color: '#a5b4fc',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                  transition: 'all 0.15s',
-                }}
-                title="Summon Morty now"
-              >
-                Summon
-              </button>
-            )}
-            <button
-              onClick={() => updateProfile({ mascot_enabled: profile?.mascot_enabled === false ? true : false })}
-              style={{
-                position: 'relative',
-                width: '40px',
-                height: '22px',
-                borderRadius: '11px',
-                border: 'none',
-                background: profile?.mascot_enabled !== false ? '#22c55e' : 'rgba(255,255,255,0.15)',
-                cursor: 'pointer',
-                transition: 'background 0.2s',
-                padding: 0,
-                flexShrink: 0,
-              }}
-            >
-              <div style={{
-                position: 'absolute',
-                top: '2px',
-                left: profile?.mascot_enabled !== false ? '20px' : '2px',
-                width: '18px',
-                height: '18px',
-                borderRadius: '50%',
-                background: '#fff',
-                transition: 'left 0.2s',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-              }} />
-            </button>
-          </div>
         </div>
         <div style={styles.statsRow}>
           <div style={styles.stat}>
@@ -1087,6 +1031,66 @@ export default function Dashboard({ onNavigate }) {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Morty Mascot Controls */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '12px',
+        padding: '16px 0',
+        marginTop: '24px',
+        borderTop: '1px solid rgba(255,255,255,0.06)',
+      }}>
+        <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.35)' }}>Morty</span>
+        <button
+          onClick={() => updateProfile({ mascot_enabled: profile?.mascot_enabled === false ? true : false })}
+          style={{
+            position: 'relative',
+            width: '40px',
+            height: '22px',
+            borderRadius: '11px',
+            border: 'none',
+            background: profile?.mascot_enabled !== false ? '#22c55e' : 'rgba(255,255,255,0.15)',
+            cursor: 'pointer',
+            transition: 'background 0.2s',
+            padding: 0,
+            flexShrink: 0,
+          }}
+        >
+          <div style={{
+            position: 'absolute',
+            top: '2px',
+            left: profile?.mascot_enabled !== false ? '20px' : '2px',
+            width: '18px',
+            height: '18px',
+            borderRadius: '50%',
+            background: '#fff',
+            transition: 'left 0.2s',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+          }} />
+        </button>
+        {isAdmin && profile?.mascot_enabled !== false && (
+          <button
+            onClick={() => window.dispatchEvent(new Event('summon-morty'))}
+            style={{
+              padding: '4px 10px',
+              borderRadius: '6px',
+              border: '1px solid rgba(99,102,241,0.3)',
+              background: 'rgba(99,102,241,0.1)',
+              color: '#a5b4fc',
+              fontSize: '11px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              transition: 'all 0.15s',
+            }}
+            title="Summon Morty now"
+          >
+            Summon
+          </button>
+        )}
       </div>
     </div>
   );

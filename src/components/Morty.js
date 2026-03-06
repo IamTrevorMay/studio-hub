@@ -58,6 +58,30 @@ const SAYINGS = [
   "Tell no one you saw me here.",
 ];
 
+// === DISAPPOINTED SAYINGS (on dismiss) ===
+const DISMISS_SAYINGS = [
+  "Fine. I'll just go be extinct.",
+  "Wow. Okay. Cool cool cool.",
+  "I was just trying to help...",
+  "My tiny arms can't hold back these tears.",
+  "Et tu, human?",
+  "I'll remember this.",
+  "Guess I'll go walk into a tar pit.",
+  "You'll miss me when I'm gone.",
+  "This is my villain origin story.",
+  "Ouch. Right in the scales.",
+  "I didn't want to be here anyway. (I did.)",
+  "Tell my eggs I love them.",
+  "The meteor hurt less than this.",
+  "Okay but I'm coming back.",
+  "Was it something I said?",
+  "Going... going... still here... okay NOW going.",
+  "You just lost your biggest fan.",
+  "Even the asteroid gave me more warning.",
+  "Alexa, play 'All By Myself.'",
+  "I'll be back. Probably. Definitely.",
+];
+
 // === SHIRT COLORS ===
 const SHIRT_COLORS = [
   { base: '#dc2626', light: '#ef4444', letter: '#ffffff' }, // Red
@@ -73,10 +97,11 @@ const SHIRT_COLORS = [
 ];
 
 // === PIXEL ART SPRITE GENERATOR ===
-// Each frame is a function that returns box-shadow CSS for a 1px element at 3x scale
-// Sprite is ~24x32 pixels
+// Side-view T-Rex profile — facing right
+// ~20 wide x 26 tall pixel grid at 3x scale
 
 const S = 3; // scale factor
+const SPRITE_H = 26; // sprite height in logical pixels
 
 function px(x, y, color) {
   return `${x * S}px ${y * S}px 0 0 ${color}`;
@@ -96,433 +121,287 @@ const C = {
   pupil: '#1a1a2e',
   teeth: '#ffffff',
   mouth: '#1a1a2e',
-  spike: '#1d6b3a',
   claw: '#f5e6c8',
 };
 
-function baseBody(shirt, frame) {
-  const pixels = [];
-  // === HEAD (rows 0-8) ===
-  // Top of head
-  [9,10,11,12,13,14].forEach(x => pixels.push(px(x, 0, C.body)));
-  [8,9,10,11,12,13,14,15].forEach(x => pixels.push(px(x, 1, C.body)));
-  // Eyes row
-  [7,8].forEach(x => pixels.push(px(x, 2, C.body)));
-  [9,10].forEach(x => pixels.push(px(x, 2, C.eye)));
-  [11].forEach(x => pixels.push(px(x, 2, C.body)));
-  [12,13].forEach(x => pixels.push(px(x, 2, C.eye)));
-  [14,15,16].forEach(x => pixels.push(px(x, 2, C.body)));
-  // Pupils
-  [7].forEach(x => pixels.push(px(x, 3, C.body)));
-  pixels.push(px(9, 3, C.eye)); pixels.push(px(10, 3, C.pupil));
-  pixels.push(px(11, 3, C.body));
-  pixels.push(px(12, 3, C.eye)); pixels.push(px(13, 3, C.pupil));
-  [14,15,16].forEach(x => pixels.push(px(x, 3, C.body)));
-  pixels.push(px(8, 3, C.body));
+// Side-view T-Rex base (head faces right, tail to left)
+function sideBase(shirt) {
+  const p = [];
+
+  // === TAIL (left side, rows 10-17) ===
+  p.push(px(0, 15, C.body));
+  p.push(px(1, 14, C.body)); p.push(px(1, 15, C.body));
+  p.push(px(2, 13, C.body)); p.push(px(2, 14, C.body));
+  p.push(px(3, 12, C.body)); p.push(px(3, 13, C.body));
+  p.push(px(4, 11, C.body)); p.push(px(4, 12, C.body)); p.push(px(4, 13, C.body));
+  p.push(px(5, 10, C.dark)); p.push(px(5, 11, C.body)); p.push(px(5, 12, C.body));
+
+  // === BODY (rows 6-18) ===
+  // Back ridge / spikes
+  p.push(px(8, 4, C.dark));
+  p.push(px(10, 3, C.dark));
+  p.push(px(12, 4, C.dark));
+
+  // Upper back
+  for (let x = 7; x <= 13; x++) p.push(px(x, 5, C.dark));
+  for (let x = 6; x <= 14; x++) p.push(px(x, 6, C.body));
+  for (let x = 6; x <= 15; x++) p.push(px(x, 7, C.body));
+
+  // === HEAD (rows 0-8, right side) ===
+  // Top of skull
+  [14, 15, 16].forEach(x => p.push(px(x, 0, C.body)));
+  [13, 14, 15, 16, 17].forEach(x => p.push(px(x, 1, C.body)));
+  [13, 14].forEach(x => p.push(px(x, 2, C.body)));
+  p.push(px(15, 2, C.eye)); p.push(px(16, 2, C.pupil));
+  p.push(px(17, 2, C.body));
   // Snout
-  [7,8,9,10,11,12,13,14,15,16].forEach(x => pixels.push(px(x, 4, C.body)));
-  // Mouth with teeth
-  [7,8].forEach(x => pixels.push(px(x, 5, C.body)));
-  pixels.push(px(9, 5, C.mouth));
-  [10,12,14].forEach(x => pixels.push(px(x, 5, C.teeth)));
-  [11,13].forEach(x => pixels.push(px(x, 5, C.mouth)));
-  pixels.push(px(15, 5, C.mouth));
-  pixels.push(px(16, 5, C.body));
-  // Jaw
-  [8,9,10,11,12,13,14,15].forEach(x => pixels.push(px(x, 6, C.body)));
+  [13, 14, 15, 16, 17, 18].forEach(x => p.push(px(x, 3, C.body)));
+  [14, 15, 16, 17, 18, 19].forEach(x => p.push(px(x, 4, C.body)));
+  // Jaw with teeth
+  [14, 15].forEach(x => p.push(px(x, 5, C.body)));
+  p.push(px(16, 5, C.mouth)); p.push(px(17, 5, C.teeth));
+  p.push(px(18, 5, C.mouth)); p.push(px(19, 5, C.teeth));
+  // Lower jaw
+  [15, 16, 17, 18].forEach(x => p.push(px(x, 6, C.body)));
+
   // Neck
-  [9,10,11,12,13,14].forEach(x => pixels.push(px(x, 7, C.body)));
+  [14, 15].forEach(x => p.push(px(x, 7, C.body)));
 
-  // === BACK SPIKES ===
-  pixels.push(px(8, 0, C.spike));
-  pixels.push(px(7, 1, C.spike));
-  pixels.push(px(6, 7, C.spike));
-  pixels.push(px(7, 6, C.spike));
-  pixels.push(px(6, 8, C.spike));
-
-  // === BODY + SHIRT (rows 8-18) ===
-  // Shirt area
-  for (let y = 8; y <= 16; y++) {
-    const rowWidth = y <= 10 ? [8,9,10,11,12,13,14,15] :
-                     y <= 13 ? [7,8,9,10,11,12,13,14,15,16] :
-                     y <= 15 ? [8,9,10,11,12,13,14,15,16] :
-                     [9,10,11,12,13,14,15];
-    rowWidth.forEach(x => {
-      // "MM" letters on shirt (rows 10-14, centered)
-      if (y >= 10 && y <= 14 && x >= 9 && x <= 15) {
-        // M pattern
-        if (y === 10 && (x === 9 || x === 12 || x === 15)) pixels.push(px(x, y, shirt.letter));
-        else if (y === 11 && (x === 9 || x === 10 || x === 11 || x === 12 || x === 13 || x === 14 || x === 15)) pixels.push(px(x, y, shirt.letter));
-        else if (y === 12 && (x === 9 || x === 11 || x === 12 || x === 13 || x === 15)) pixels.push(px(x, y, shirt.letter));
-        else if (y === 13 && (x === 9 || x === 12 || x === 15)) pixels.push(px(x, y, shirt.letter));
-        else if (y === 14 && (x === 9 || x === 12 || x === 15)) pixels.push(px(x, y, shirt.letter));
-        else pixels.push(px(x, y, shirt.base));
+  // === SHIRT (rows 8-14) ===
+  for (let y = 8; y <= 14; y++) {
+    const left = y <= 10 ? 6 : y <= 12 ? 7 : 8;
+    const right = y <= 9 ? 14 : y <= 12 ? 13 : 12;
+    for (let x = left; x <= right; x++) {
+      // MM letters on shirt (rows 10-13)
+      if (y >= 10 && y <= 13 && x >= 8 && x <= 12) {
+        const isLetter =
+          (y === 10 && (x === 8 || x === 10 || x === 12)) ||
+          (y === 11 && (x === 8 || x === 9 || x === 10 || x === 11 || x === 12)) ||
+          (y === 12 && (x === 8 || x === 10 || x === 12)) ||
+          (y === 13 && (x === 8 || x === 10 || x === 12));
+        p.push(px(x, y, isLetter ? shirt.letter : shirt.base));
       } else {
-        pixels.push(px(x, y, shirt.base));
+        p.push(px(x, y, shirt.base));
       }
-    });
-    // Light edge on shirt
-    if (y >= 8 && y <= 15) {
-      const edgeX = y <= 10 ? 15 : y <= 13 ? 16 : y <= 15 ? 16 : 15;
-      pixels.push(px(edgeX, y, shirt.light));
     }
+    // Light edge
+    if (y <= 12) p.push(px(right + 1, y, shirt.light));
   }
 
-  // Belly area
-  for (let y = 17; y <= 19; y++) {
-    [9,10,11,12,13,14].forEach(x => pixels.push(px(x, y, C.belly)));
-    [8,15].forEach(x => pixels.push(px(x, y, C.body)));
+  // === BELLY (rows 15-17) ===
+  for (let y = 15; y <= 17; y++) {
+    const left = y === 15 ? 8 : y === 16 ? 9 : 9;
+    const right = y === 15 ? 12 : y === 16 ? 11 : 11;
+    for (let x = left; x <= right; x++) p.push(px(x, y, C.belly));
+    // Body edges
+    if (y === 15) { p.push(px(7, y, C.body)); p.push(px(13, y, C.body)); }
+    if (y === 16) { p.push(px(8, y, C.body)); p.push(px(12, y, C.body)); }
+    if (y === 17) { p.push(px(8, y, C.body)); p.push(px(12, y, C.body)); }
   }
 
-  // === LEGS (rows 20-25) ===
-  // Upper legs
-  [9,10,11].forEach(x => pixels.push(px(x, 20, C.body)));
-  [13,14,15].forEach(x => pixels.push(px(x, 20, C.body)));
-  [12].forEach(x => pixels.push(px(x, 20, C.belly)));
+  // === TINY ARM (row 9-10) ===
+  p.push(px(14, 9, C.body)); p.push(px(15, 9, C.body));
+  p.push(px(15, 10, C.claw));
 
-  return pixels;
+  return p;
+}
+
+// Standing legs helper
+function standingLegs(p) {
+  // Left leg
+  [8, 9].forEach(x => { p.push(px(x, 18, C.body)); p.push(px(x, 19, C.body)); });
+  [8, 9].forEach(x => p.push(px(x, 20, C.body)));
+  p.push(px(7, 21, C.claw)); p.push(px(8, 21, C.claw)); p.push(px(9, 21, C.body));
+  // Right leg
+  [11, 12].forEach(x => { p.push(px(x, 18, C.body)); p.push(px(x, 19, C.body)); });
+  [11, 12].forEach(x => p.push(px(x, 20, C.body)));
+  p.push(px(11, 21, C.body)); p.push(px(12, 21, C.claw)); p.push(px(13, 21, C.claw));
 }
 
 function walkFrame(shirt, frame) {
-  const pixels = baseBody(shirt, frame);
-  const legFrame = frame % 4;
+  const p = sideBase(shirt);
+  const f = frame % 4;
 
-  if (legFrame === 0) {
-    // Both feet on ground
-    [9,10,11].forEach(x => pixels.push(px(x, 21, C.body)));
-    [13,14,15].forEach(x => pixels.push(px(x, 21, C.body)));
-    [9,10].forEach(x => pixels.push(px(x, 22, C.body)));
-    [14,15].forEach(x => pixels.push(px(x, 22, C.body)));
-    [9,10].forEach(x => pixels.push(px(x, 23, C.claw)));
-    [14,15].forEach(x => pixels.push(px(x, 23, C.claw)));
-  } else if (legFrame === 1) {
-    // Left forward, right back
-    [8,9,10].forEach(x => pixels.push(px(x, 21, C.body)));
-    [14,15,16].forEach(x => pixels.push(px(x, 21, C.body)));
-    [7,8,9].forEach(x => pixels.push(px(x, 22, C.body)));
-    [15,16].forEach(x => pixels.push(px(x, 22, C.body)));
-    [7,8].forEach(x => pixels.push(px(x, 23, C.claw)));
-    [15,16].forEach(x => pixels.push(px(x, 23, C.claw)));
-  } else if (legFrame === 2) {
-    // Both feet on ground (passing)
-    [9,10,11].forEach(x => pixels.push(px(x, 21, C.body)));
-    [13,14,15].forEach(x => pixels.push(px(x, 21, C.body)));
-    [9,10].forEach(x => pixels.push(px(x, 22, C.body)));
-    [14,15].forEach(x => pixels.push(px(x, 22, C.body)));
-    [9,10].forEach(x => pixels.push(px(x, 23, C.claw)));
-    [14,15].forEach(x => pixels.push(px(x, 23, C.claw)));
+  if (f === 0) {
+    // Left leg forward, right back
+    [7, 8].forEach(x => { p.push(px(x, 18, C.body)); p.push(px(x, 19, C.body)); });
+    p.push(px(6, 20, C.claw)); p.push(px(7, 20, C.claw)); p.push(px(8, 20, C.body));
+    [12, 13].forEach(x => { p.push(px(x, 18, C.body)); p.push(px(x, 19, C.body)); });
+    p.push(px(12, 20, C.body)); p.push(px(13, 20, C.claw)); p.push(px(14, 20, C.claw));
+  } else if (f === 1) {
+    standingLegs(p);
+  } else if (f === 2) {
+    // Right leg forward, left back
+    [9, 10].forEach(x => { p.push(px(x, 18, C.body)); p.push(px(x, 19, C.body)); });
+    p.push(px(9, 20, C.body)); p.push(px(10, 20, C.claw)); p.push(px(11, 20, C.claw));
+    [11, 12].forEach(x => { p.push(px(x, 18, C.body)); p.push(px(x, 19, C.body)); });
+    p.push(px(10, 20, C.claw)); p.push(px(11, 20, C.body)); p.push(px(12, 20, C.body));
   } else {
-    // Right forward, left back
-    [10,11,12].forEach(x => pixels.push(px(x, 21, C.body)));
-    [12,13,14].forEach(x => pixels.push(px(x, 21, C.body)));
-    [10,11].forEach(x => pixels.push(px(x, 22, C.body)));
-    [13,14,15].forEach(x => pixels.push(px(x, 22, C.body)));
-    [10,11].forEach(x => pixels.push(px(x, 23, C.claw)));
-    [15,16].forEach(x => pixels.push(px(x, 23, C.claw)));
+    standingLegs(p);
   }
 
-  // Arms (small T-rex arms)
-  if (legFrame % 2 === 0) {
-    [6,7].forEach(x => pixels.push(px(x, 10, C.body)));
-    pixels.push(px(5, 11, C.claw));
-    pixels.push(px(6, 11, C.body));
-  } else {
-    [6,7].forEach(x => pixels.push(px(x, 9, C.body)));
-    pixels.push(px(5, 10, C.claw));
-    pixels.push(px(6, 10, C.body));
+  // Tail wag
+  if (f % 2 === 1) {
+    p.push(px(0, 14, C.body));
   }
 
-  // Tail
-  [6,7,8].forEach(x => pixels.push(px(x, 17, C.body)));
-  [4,5,6].forEach(x => pixels.push(px(x, 18, C.body)));
-  [3,4].forEach(x => pixels.push(px(x, 19, C.body)));
-  pixels.push(px(2, 20, C.body));
-  pixels.push(px(1, 21, C.body));
-
-  return buildShadow(pixels);
+  return buildShadow(p);
 }
 
 function idleFrame(shirt, frame) {
-  const pixels = baseBody(shirt, frame);
-  const breathe = frame % 2;
+  const p = sideBase(shirt);
+  standingLegs(p);
 
-  // Legs standing
-  [9,10,11].forEach(x => pixels.push(px(x, 21, C.body)));
-  [13,14,15].forEach(x => pixels.push(px(x, 21, C.body)));
-  [9,10].forEach(x => pixels.push(px(x, 22, C.body)));
-  [14,15].forEach(x => pixels.push(px(x, 22, C.body)));
-  [9,10].forEach(x => pixels.push(px(x, 23, C.claw)));
-  [14,15].forEach(x => pixels.push(px(x, 23, C.claw)));
-
-  // Arms
-  if (breathe === 0) {
-    [6,7].forEach(x => pixels.push(px(x, 10, C.body)));
-    pixels.push(px(5, 11, C.claw));
-    pixels.push(px(6, 11, C.body));
-  } else {
-    [6,7].forEach(x => pixels.push(px(x, 10, C.body)));
-    pixels.push(px(5, 11, C.claw));
-    pixels.push(px(6, 11, C.body));
+  // Subtle tail movement
+  if (frame % 2 === 1) {
+    p.push(px(0, 14, C.body));
   }
 
-  // Tail
-  [6,7,8].forEach(x => pixels.push(px(x, 17, C.body)));
-  [4,5,6].forEach(x => pixels.push(px(x, 18, C.body)));
-  [3,4].forEach(x => pixels.push(px(x, 19, C.body)));
-  pixels.push(px(2, 20, C.body));
-  pixels.push(px(breathe === 0 ? 1 : 2, 21, C.body));
-
-  return buildShadow(pixels);
+  return buildShadow(p);
 }
 
 function waveFrame(shirt, frame) {
-  const pixels = baseBody(shirt, frame);
+  const p = sideBase(shirt);
+  standingLegs(p);
   const wf = frame % 3;
 
-  // Legs standing
-  [9,10,11].forEach(x => pixels.push(px(x, 21, C.body)));
-  [13,14,15].forEach(x => pixels.push(px(x, 21, C.body)));
-  [9,10].forEach(x => pixels.push(px(x, 22, C.body)));
-  [14,15].forEach(x => pixels.push(px(x, 22, C.body)));
-  [9,10].forEach(x => pixels.push(px(x, 23, C.claw)));
-  [14,15].forEach(x => pixels.push(px(x, 23, C.claw)));
-
-  // Waving arm (right side raised)
+  // Override arm to wave position
   if (wf === 0) {
-    [16,17].forEach(x => pixels.push(px(x, 8, C.body)));
-    pixels.push(px(18, 7, C.claw));
-    pixels.push(px(17, 8, C.body));
+    p.push(px(15, 8, C.body)); p.push(px(16, 7, C.claw));
   } else if (wf === 1) {
-    [16,17].forEach(x => pixels.push(px(x, 7, C.body)));
-    pixels.push(px(18, 6, C.claw));
-    pixels.push(px(17, 7, C.body));
+    p.push(px(15, 7, C.body)); p.push(px(16, 6, C.claw));
   } else {
-    [16,17].forEach(x => pixels.push(px(x, 8, C.body)));
-    pixels.push(px(18, 8, C.claw));
-    pixels.push(px(17, 9, C.body));
+    p.push(px(15, 8, C.body)); p.push(px(16, 8, C.claw));
   }
 
-  // Left arm normal
-  [6,7].forEach(x => pixels.push(px(x, 10, C.body)));
-  pixels.push(px(5, 11, C.claw));
-  pixels.push(px(6, 11, C.body));
-
-  // Tail
-  [6,7,8].forEach(x => pixels.push(px(x, 17, C.body)));
-  [4,5,6].forEach(x => pixels.push(px(x, 18, C.body)));
-  [3,4].forEach(x => pixels.push(px(x, 19, C.body)));
-  pixels.push(px(2, 20, C.body));
-  pixels.push(px(1, 21, C.body));
-
-  return buildShadow(pixels);
+  return buildShadow(p);
 }
 
 function jumpFrame(shirt, frame) {
-  const pixels = baseBody(shirt, frame);
+  const p = sideBase(shirt);
   const jf = frame % 3;
-  const yOff = jf === 1 ? -3 : jf === 2 ? -1 : 0;
 
-  // Legs (tucked when jumping)
   if (jf === 1) {
-    [9,10,11].forEach(x => pixels.push(px(x, 21 + yOff, C.body)));
-    [13,14,15].forEach(x => pixels.push(px(x, 21 + yOff, C.body)));
-    [9,10].forEach(x => pixels.push(px(x, 22 + yOff, C.claw)));
-    [14,15].forEach(x => pixels.push(px(x, 22 + yOff, C.claw)));
+    // In air — tucked legs
+    [9, 10].forEach(x => p.push(px(x, 18, C.body)));
+    [9, 10].forEach(x => p.push(px(x, 19, C.claw)));
+    [11, 12].forEach(x => p.push(px(x, 18, C.body)));
+    [11, 12].forEach(x => p.push(px(x, 19, C.claw)));
   } else {
-    [9,10,11].forEach(x => pixels.push(px(x, 21, C.body)));
-    [13,14,15].forEach(x => pixels.push(px(x, 21, C.body)));
-    [9,10].forEach(x => pixels.push(px(x, 22, C.body)));
-    [14,15].forEach(x => pixels.push(px(x, 22, C.body)));
-    [9,10].forEach(x => pixels.push(px(x, 23, C.claw)));
-    [14,15].forEach(x => pixels.push(px(x, 23, C.claw)));
+    standingLegs(p);
   }
 
-  // Arms up when jumping
-  [6,7].forEach(x => pixels.push(px(x, 9 + (jf === 1 ? -2 : 0), C.body)));
-  pixels.push(px(5, 8 + (jf === 1 ? -2 : 0), C.claw));
-
-  // Tail
-  [6,7,8].forEach(x => pixels.push(px(x, 17, C.body)));
-  [4,5,6].forEach(x => pixels.push(px(x, 18, C.body)));
-  [3,4].forEach(x => pixels.push(px(x, 19, C.body)));
-  pixels.push(px(2, 20, C.body));
-  pixels.push(px(1, 21, C.body));
-
-  return buildShadow(pixels);
+  return buildShadow(p);
 }
 
-function lookFrame(shirt, frame) {
-  const pixels = [];
+function lookFrameWithShirt(shirt, frame) {
+  const p = [];
   const lf = frame % 2;
 
-  // Build head with different pupil positions
-  [9,10,11,12,13,14].forEach(x => pixels.push(px(x, 0, C.body)));
-  [8,9,10,11,12,13,14,15].forEach(x => pixels.push(px(x, 1, C.body)));
-  // Eyes with shifting pupils
-  [7,8].forEach(x => pixels.push(px(x, 2, C.body)));
-  [9,10].forEach(x => pixels.push(px(x, 2, C.eye)));
-  [11].forEach(x => pixels.push(px(x, 2, C.body)));
-  [12,13].forEach(x => pixels.push(px(x, 2, C.eye)));
-  [14,15,16].forEach(x => pixels.push(px(x, 2, C.body)));
-
-  [7,8].forEach(x => pixels.push(px(x, 3, C.body)));
+  // Head with shifted pupil
+  [14, 15, 16].forEach(x => p.push(px(x, 0, C.body)));
+  [13, 14, 15, 16, 17].forEach(x => p.push(px(x, 1, C.body)));
+  [13, 14].forEach(x => p.push(px(x, 2, C.body)));
   if (lf === 0) {
-    pixels.push(px(9, 3, C.pupil)); pixels.push(px(10, 3, C.eye));
-    pixels.push(px(11, 3, C.body));
-    pixels.push(px(12, 3, C.pupil)); pixels.push(px(13, 3, C.eye));
+    p.push(px(15, 2, C.pupil)); p.push(px(16, 2, C.eye));
   } else {
-    pixels.push(px(9, 3, C.eye)); pixels.push(px(10, 3, C.pupil));
-    pixels.push(px(11, 3, C.body));
-    pixels.push(px(12, 3, C.eye)); pixels.push(px(13, 3, C.pupil));
+    p.push(px(15, 2, C.eye)); p.push(px(16, 2, C.pupil));
   }
-  [14,15,16].forEach(x => pixels.push(px(x, 3, C.body)));
+  p.push(px(17, 2, C.body));
+  [13, 14, 15, 16, 17, 18].forEach(x => p.push(px(x, 3, C.body)));
+  [14, 15, 16, 17, 18, 19].forEach(x => p.push(px(x, 4, C.body)));
+  [14, 15].forEach(x => p.push(px(x, 5, C.body)));
+  p.push(px(16, 5, C.mouth)); p.push(px(17, 5, C.teeth));
+  p.push(px(18, 5, C.mouth)); p.push(px(19, 5, C.teeth));
+  [15, 16, 17, 18].forEach(x => p.push(px(x, 6, C.body)));
+  [14, 15].forEach(x => p.push(px(x, 7, C.body)));
 
-  // Rest of head
-  [7,8,9,10,11,12,13,14,15,16].forEach(x => pixels.push(px(x, 4, C.body)));
-  [7,8].forEach(x => pixels.push(px(x, 5, C.body)));
-  pixels.push(px(9, 5, C.mouth));
-  [10,12,14].forEach(x => pixels.push(px(x, 5, C.teeth)));
-  [11,13].forEach(x => pixels.push(px(x, 5, C.mouth)));
-  pixels.push(px(15, 5, C.mouth));
-  pixels.push(px(16, 5, C.body));
-  [8,9,10,11,12,13,14,15].forEach(x => pixels.push(px(x, 6, C.body)));
-  [9,10,11,12,13,14].forEach(x => pixels.push(px(x, 7, C.body)));
+  // Spikes + back
+  p.push(px(8, 4, C.dark)); p.push(px(10, 3, C.dark)); p.push(px(12, 4, C.dark));
+  for (let x = 7; x <= 13; x++) p.push(px(x, 5, C.dark));
+  for (let x = 6; x <= 14; x++) p.push(px(x, 6, C.body));
+  for (let x = 6; x <= 15; x++) p.push(px(x, 7, C.body));
 
-  // Spikes
-  pixels.push(px(8, 0, C.spike));
-  pixels.push(px(7, 1, C.spike));
-  pixels.push(px(6, 7, C.spike));
-  pixels.push(px(7, 6, C.spike));
-  pixels.push(px(6, 8, C.spike));
+  // Tail
+  p.push(px(0, 15, C.body));
+  p.push(px(1, 14, C.body)); p.push(px(1, 15, C.body));
+  p.push(px(2, 13, C.body)); p.push(px(2, 14, C.body));
+  p.push(px(3, 12, C.body)); p.push(px(3, 13, C.body));
+  p.push(px(4, 11, C.body)); p.push(px(4, 12, C.body)); p.push(px(4, 13, C.body));
+  p.push(px(5, 10, C.dark)); p.push(px(5, 11, C.body)); p.push(px(5, 12, C.body));
 
-  // Shirt + body
-  for (let y = 8; y <= 16; y++) {
-    const rowWidth = y <= 10 ? [8,9,10,11,12,13,14,15] :
-                     y <= 13 ? [7,8,9,10,11,12,13,14,15,16] :
-                     y <= 15 ? [8,9,10,11,12,13,14,15,16] :
-                     [9,10,11,12,13,14,15];
-    rowWidth.forEach(x => {
-      if (y >= 10 && y <= 14 && x >= 9 && x <= 15) {
-        if (y === 10 && (x === 9 || x === 12 || x === 15)) pixels.push(px(x, y, shirt.letter));
-        else if (y === 11 && (x === 9 || x === 10 || x === 11 || x === 12 || x === 13 || x === 14 || x === 15)) pixels.push(px(x, y, shirt.letter));
-        else if (y === 12 && (x === 9 || x === 11 || x === 12 || x === 13 || x === 15)) pixels.push(px(x, y, shirt.letter));
-        else if (y === 13 && (x === 9 || x === 12 || x === 15)) pixels.push(px(x, y, shirt.letter));
-        else if (y === 14 && (x === 9 || x === 12 || x === 15)) pixels.push(px(x, y, shirt.letter));
-        else pixels.push(px(x, y, shirt.base));
+  // Shirt with MM
+  for (let y = 8; y <= 14; y++) {
+    const left = y <= 10 ? 6 : y <= 12 ? 7 : 8;
+    const right = y <= 9 ? 14 : y <= 12 ? 13 : 12;
+    for (let x = left; x <= right; x++) {
+      if (y >= 10 && y <= 13 && x >= 8 && x <= 12) {
+        const isLetter =
+          (y === 10 && (x === 8 || x === 10 || x === 12)) ||
+          (y === 11 && (x === 8 || x === 9 || x === 10 || x === 11 || x === 12)) ||
+          (y === 12 && (x === 8 || x === 10 || x === 12)) ||
+          (y === 13 && (x === 8 || x === 10 || x === 12));
+        p.push(px(x, y, isLetter ? shirt.letter : shirt.base));
       } else {
-        pixels.push(px(x, y, shirt.base));
+        p.push(px(x, y, shirt.base));
       }
-    });
-    if (y >= 8 && y <= 15) {
-      const edgeX = y <= 10 ? 15 : 16;
-      pixels.push(px(edgeX, y, shirt.light));
     }
+    if (y <= 12) p.push(px(right + 1, y, shirt.light));
   }
 
   // Belly
-  for (let y = 17; y <= 19; y++) {
-    [9,10,11,12,13,14].forEach(x => pixels.push(px(x, y, C.belly)));
-    [8,15].forEach(x => pixels.push(px(x, y, C.body)));
+  for (let y = 15; y <= 17; y++) {
+    const left = y === 15 ? 8 : 9;
+    const right = y === 15 ? 12 : 11;
+    for (let x = left; x <= right; x++) p.push(px(x, y, C.belly));
+    if (y === 15) { p.push(px(7, y, C.body)); p.push(px(13, y, C.body)); }
+    if (y >= 16) { p.push(px(8, y, C.body)); p.push(px(12, y, C.body)); }
   }
-  [9,10,11].forEach(x => pixels.push(px(x, 20, C.body)));
-  [13,14,15].forEach(x => pixels.push(px(x, 20, C.body)));
-  [12].forEach(x => pixels.push(px(x, 20, C.belly)));
 
-  // Legs
-  [9,10,11].forEach(x => pixels.push(px(x, 21, C.body)));
-  [13,14,15].forEach(x => pixels.push(px(x, 21, C.body)));
-  [9,10].forEach(x => pixels.push(px(x, 22, C.body)));
-  [14,15].forEach(x => pixels.push(px(x, 22, C.body)));
-  [9,10].forEach(x => pixels.push(px(x, 23, C.claw)));
-  [14,15].forEach(x => pixels.push(px(x, 23, C.claw)));
+  // Arm
+  p.push(px(14, 9, C.body)); p.push(px(15, 9, C.body)); p.push(px(15, 10, C.claw));
 
-  // Arms
-  [6,7].forEach(x => pixels.push(px(x, 10, C.body)));
-  pixels.push(px(5, 11, C.claw));
-  pixels.push(px(6, 11, C.body));
+  // Legs standing
+  standingLegs(p);
 
-  // Tail
-  [6,7,8].forEach(x => pixels.push(px(x, 17, C.body)));
-  [4,5,6].forEach(x => pixels.push(px(x, 18, C.body)));
-  [3,4].forEach(x => pixels.push(px(x, 19, C.body)));
-  pixels.push(px(2, 20, C.body));
-  pixels.push(px(1, 21, C.body));
-
-  return buildShadow(pixels);
+  return buildShadow(p);
 }
 
 function danceFrame(shirt, frame, type) {
-  const pixels = baseBody(shirt, frame);
+  const p = sideBase(shirt);
   const df = frame % 4;
 
-  // All dances share base legs with variations
-  if (type === 'disco') {
-    // Arms alternate up/down disco style
-    if (df === 0) {
-      pixels.push(px(17, 7, C.body)); pixels.push(px(18, 6, C.claw));
-      [6,7].forEach(x => pixels.push(px(x, 12, C.body)));
-      pixels.push(px(5, 13, C.claw));
-    } else if (df === 1) {
-      [6,7].forEach(x => pixels.push(px(x, 8, C.body)));
-      pixels.push(px(5, 7, C.claw));
-      pixels.push(px(17, 12, C.body)); pixels.push(px(18, 13, C.claw));
-    } else if (df === 2) {
-      pixels.push(px(17, 7, C.body)); pixels.push(px(18, 6, C.claw));
-      pixels.push(px(5, 7, C.claw)); [6,7].forEach(x => pixels.push(px(x, 8, C.body)));
-    } else {
-      [6,7].forEach(x => pixels.push(px(x, 12, C.body)));
-      pixels.push(px(5, 13, C.claw));
-      pixels.push(px(17, 12, C.body)); pixels.push(px(18, 13, C.claw));
-    }
-  } else if (type === 'headbang') {
-    const hf = frame % 3;
-    // Arms normal
-    [6,7].forEach(x => pixels.push(px(x, 10, C.body)));
-    pixels.push(px(5, 11, C.claw));
-    pixels.push(px(6, 11, C.body));
-    // Head bob is simulated by body being in base already
-    if (hf === 1) {
-      // Extra emphasis pixels near head
-      pixels.push(px(10, 0, C.light));
-      pixels.push(px(13, 0, C.light));
-    }
-  } else {
-    // Default dance arms
-    if (df % 2 === 0) {
-      [6,7].forEach(x => pixels.push(px(x, 9, C.body)));
-      pixels.push(px(5, 8, C.claw));
-    } else {
-      [6,7].forEach(x => pixels.push(px(x, 11, C.body)));
-      pixels.push(px(5, 12, C.claw));
-    }
-  }
-
-  // Legs with dance movement
+  // Dance legs
   if (df === 0 || df === 2) {
-    [9,10,11].forEach(x => pixels.push(px(x, 21, C.body)));
-    [13,14,15].forEach(x => pixels.push(px(x, 21, C.body)));
-    [9,10].forEach(x => pixels.push(px(x, 22, C.body)));
-    [14,15].forEach(x => pixels.push(px(x, 22, C.body)));
-    [9,10].forEach(x => pixels.push(px(x, 23, C.claw)));
-    [14,15].forEach(x => pixels.push(px(x, 23, C.claw)));
+    standingLegs(p);
+  } else if (df === 1) {
+    // Left kick
+    [7, 8].forEach(x => { p.push(px(x, 18, C.body)); p.push(px(x, 19, C.body)); });
+    p.push(px(6, 19, C.claw)); p.push(px(7, 20, C.claw));
+    [11, 12].forEach(x => { p.push(px(x, 18, C.body)); p.push(px(x, 19, C.body)); p.push(px(x, 20, C.body)); });
+    p.push(px(11, 21, C.body)); p.push(px(12, 21, C.claw)); p.push(px(13, 21, C.claw));
   } else {
-    [8,9,10].forEach(x => pixels.push(px(x, 21, C.body)));
-    [14,15,16].forEach(x => pixels.push(px(x, 21, C.body)));
-    [8,9].forEach(x => pixels.push(px(x, 22, C.body)));
-    [15,16].forEach(x => pixels.push(px(x, 22, C.body)));
-    [8,9].forEach(x => pixels.push(px(x, 23, C.claw)));
-    [15,16].forEach(x => pixels.push(px(x, 23, C.claw)));
+    // Right kick
+    [8, 9].forEach(x => { p.push(px(x, 18, C.body)); p.push(px(x, 19, C.body)); p.push(px(x, 20, C.body)); });
+    p.push(px(7, 21, C.claw)); p.push(px(8, 21, C.claw)); p.push(px(9, 21, C.body));
+    [12, 13].forEach(x => { p.push(px(x, 18, C.body)); p.push(px(x, 19, C.body)); });
+    p.push(px(13, 19, C.claw)); p.push(px(14, 20, C.claw));
   }
 
-  // Tail
-  const tailWag = df % 2 === 0 ? 0 : 1;
-  [6,7,8].forEach(x => pixels.push(px(x, 17, C.body)));
-  [4,5,6].forEach(x => pixels.push(px(x, 18, C.body)));
-  [3,4].forEach(x => pixels.push(px(x + tailWag, 19, C.body)));
-  pixels.push(px(2 + tailWag, 20, C.body));
-  pixels.push(px(1 + tailWag, 21, C.body));
+  // Tail wag
+  if (df % 2 === 0) p.push(px(0, 14, C.body));
+  else p.push(px(0, 16, C.body));
 
-  return buildShadow(pixels);
+  // Disco arms
+  if (type === 'disco') {
+    if (df % 2 === 0) {
+      p.push(px(15, 7, C.body)); p.push(px(16, 6, C.claw));
+    } else {
+      p.push(px(15, 10, C.body)); p.push(px(16, 11, C.claw));
+    }
+  }
+
+  return buildShadow(p);
 }
 
 // === ANIMATION CONFIG ===
@@ -531,7 +410,7 @@ const ANIM_CONFIG = {
   idle: { frames: 2, speed: 500, fn: idleFrame },
   wave: { frames: 3, speed: 300, fn: waveFrame },
   jump: { frames: 3, speed: 250, fn: jumpFrame },
-  look: { frames: 2, speed: 400, fn: lookFrame },
+  look: { frames: 2, speed: 400, fn: lookFrameWithShirt },
   disco: { frames: 4, speed: 250, fn: (s, f) => danceFrame(s, f, 'disco') },
   spin: { frames: 4, speed: 200, fn: (s, f) => danceFrame(s, f, 'spin') },
   shuffle: { frames: 4, speed: 250, fn: (s, f) => danceFrame(s, f, 'shuffle') },
@@ -543,7 +422,7 @@ const DANCE_TYPES = ['disco', 'spin', 'shuffle', 'headbang', 'moonwalk'];
 
 // === MAIN COMPONENT ===
 export default function Morty() {
-  const [state, setState] = useState('hidden'); // hidden, entering, speaking, walking, idle, dancing, exiting
+  const [state, setState] = useState('hidden'); // hidden, entering, speaking, walking, idle, dancing, dismissing, exiting
   const [posX, setPosX] = useState(0);
   const [facingRight, setFacingRight] = useState(true);
   const [animation, setAnimation] = useState('idle');
@@ -555,7 +434,6 @@ export default function Morty() {
 
   const stateRef = useRef(state);
   const posRef = useRef(posX);
-  const facingRef = useRef(facingRight);
   const moveIntervalRef = useRef(null);
   const animIntervalRef = useRef(null);
   const timerRef = useRef(null);
@@ -566,14 +444,12 @@ export default function Morty() {
   // Sync refs
   useEffect(() => { stateRef.current = state; }, [state]);
   useEffect(() => { posRef.current = posX; }, [posX]);
-  useEffect(() => { facingRef.current = facingRight; }, [facingRight]);
 
   const getRandomSaying = useCallback(() => {
     return SAYINGS[Math.floor(Math.random() * SAYINGS.length)];
   }, []);
 
   const getRandomInterval = useCallback(() => {
-    // 12-18 minutes in ms
     return (12 + Math.random() * 6) * 60 * 1000;
   }, []);
 
@@ -643,6 +519,14 @@ export default function Morty() {
     }, 30);
   }, [startAnimation]);
 
+  const startWalkToRandom = useCallback(() => {
+    const minX = 48;
+    const maxX = window.innerWidth - 120;
+    const target = minX + Math.random() * (maxX - minX);
+    setState('walking');
+    startWalking(target);
+  }, [startWalking]);
+
   const startIdle = useCallback(() => {
     startAnimation('idle');
     const idleDuration = 3000 + Math.random() * 5000;
@@ -652,66 +536,58 @@ export default function Morty() {
 
       const roll = Math.random();
       if (roll < 0.05) {
-        // 5% chance: dance
         const danceType = DANCE_TYPES[Math.floor(Math.random() * DANCE_TYPES.length)];
         setState('dancing');
         startAnimation(danceType);
         setTimeout(() => {
-          if (stateRef.current === 'dancing') {
-            setState('idle');
-          }
+          if (stateRef.current === 'dancing') setState('idle');
         }, 3000 + Math.random() * 2000);
       } else if (roll < 0.20) {
-        // 15% chance: jump
         startAnimation('jump');
         setTimeout(() => {
-          if (stateRef.current === 'idle') {
-            startWalkToRandom();
-          }
+          if (stateRef.current === 'idle') startWalkToRandom();
         }, 750);
       } else if (roll < 0.35) {
-        // 15% chance: look around
         startAnimation('look');
         setTimeout(() => {
-          if (stateRef.current === 'idle') {
-            startWalkToRandom();
-          }
+          if (stateRef.current === 'idle') startWalkToRandom();
         }, 1600);
       } else if (roll < 0.45) {
-        // 10% chance: speak
         showSpeechBubble(getRandomSaying());
         setTimeout(() => {
-          if (stateRef.current === 'idle') {
-            startWalkToRandom();
-          }
+          if (stateRef.current === 'idle') startWalkToRandom();
         }, 5500);
       } else {
-        // Walk to new position
         startWalkToRandom();
       }
     }, idleDuration);
-  }, [startAnimation, showSpeechBubble, getRandomSaying]);
+  }, [startAnimation, showSpeechBubble, getRandomSaying, startWalkToRandom]);
 
-  const startWalkToRandom = useCallback(() => {
-    const minX = 48;
-    const maxX = window.innerWidth - 120;
-    const target = minX + Math.random() * (maxX - minX);
-    setState('walking');
-    startWalking(target);
-  }, [startWalking]);
+  // Dismiss: show disappointed saying, then exit
+  const dismissMorty = useCallback(() => {
+    if (stateRef.current === 'hidden' || stateRef.current === 'dismissing' || stateRef.current === 'exiting') return;
+    setState('dismissing');
+    startAnimation('idle');
+    const dismissSaying = DISMISS_SAYINGS[Math.floor(Math.random() * DISMISS_SAYINGS.length)];
+    showSpeechBubble(dismissSaying);
+    // After showing the disappointed message, walk off
+    setTimeout(() => {
+      if (stateRef.current === 'dismissing') {
+        setShowBubble(false);
+        setState('exiting');
+      }
+    }, 3000);
+  }, [startAnimation, showSpeechBubble]);
 
   // State machine transitions
   useEffect(() => {
     if (state === 'hidden') {
       clearAllTimers();
-      // Set respawn timer
       timerRef.current = setTimeout(() => {
-        // Pick new shirt
         setShirt(SHIRT_COLORS[Math.floor(Math.random() * SHIRT_COLORS.length)]);
         setState('entering');
       }, getRandomInterval());
     } else if (state === 'entering') {
-      // Enter from random edge
       const fromLeft = Math.random() > 0.5;
       const startPos = fromLeft ? -20 : window.innerWidth + 20;
       const targetPos = 100 + Math.random() * (window.innerWidth - 300);
@@ -730,17 +606,13 @@ export default function Morty() {
     } else if (state === 'idle') {
       startIdle();
     } else if (state === 'exiting') {
-      // Walk to nearest edge
       const leftDist = posRef.current;
       const rightDist = window.innerWidth - posRef.current;
       const exitTarget = leftDist < rightDist ? -80 : window.innerWidth + 80;
       startWalking(exitTarget);
-    } else if (state === 'dancing') {
-      // Dancing handled inline
     }
 
     return () => {
-      // Cleanup idle timeout on state change
       if (idleTimeoutRef.current) {
         clearTimeout(idleTimeoutRef.current);
         idleTimeoutRef.current = null;
@@ -748,6 +620,17 @@ export default function Morty() {
     };
   // eslint-disable-next-line
   }, [state]);
+
+  // Hotkey: Escape to dismiss
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if (e.key === 'Escape' && stateRef.current !== 'hidden' && stateRef.current !== 'dismissing' && stateRef.current !== 'exiting') {
+        dismissMorty();
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [dismissMorty]);
 
   // Listen for summon event
   useEffect(() => {
@@ -767,14 +650,6 @@ export default function Morty() {
     return () => clearAllTimers();
   }, [clearAllTimers]);
 
-  // Handle double-click to dismiss
-  const handleDoubleClick = useCallback(() => {
-    if (state !== 'hidden') {
-      setShowBubble(false);
-      setState('exiting');
-    }
-  }, [state]);
-
   // Get current sprite
   const config = ANIM_CONFIG[animation] || ANIM_CONFIG.idle;
   const spriteShadow = config.fn(shirt, animFrame);
@@ -785,15 +660,13 @@ export default function Morty() {
     <div
       style={{
         position: 'fixed',
-        bottom: S * 24,
+        bottom: S * SPRITE_H,
         left: posX,
         zIndex: 900,
-        cursor: 'pointer',
+        cursor: 'default',
         transition: 'none',
         transform: facingRight ? 'none' : 'scaleX(-1)',
       }}
-      onDoubleClick={handleDoubleClick}
-      title="Double-click to dismiss Morty"
     >
       {/* Speech Bubble */}
       {showBubble && (
