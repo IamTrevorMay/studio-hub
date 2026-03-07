@@ -194,11 +194,6 @@ export default function Dashboard({ onNavigate }) {
         .select('*, project:projects(id, name, status, deadline, type, channel)')
         .eq('user_id', profile.id);
 
-      const { data: deliverableStageData } = await supabase
-        .from('deliverable_stage_assignments')
-        .select('*, deliverable:sponsor_deliverables(id, title, status, due_date, deliverable_type, sponsor_id, sponsors(name))')
-        .eq('user_id', profile.id);
-
       const tasks = [];
       (projectStageData || []).forEach(a => {
         if (a.project && a.project.status === a.stage && a.project.status !== 'published') {
@@ -206,15 +201,6 @@ export default function Dashboard({ onNavigate }) {
             id: a.id, type: 'project', name: a.project.name, stage: a.stage,
             stageColor: STATUS_COLORS[a.stage] || '#6b7280', stageLabel: STATUS_LABELS[a.stage] || a.stage,
             deadline: a.project.deadline, extra: a.project.channel || a.project.type?.replace('_', ' '),
-          });
-        }
-      });
-      (deliverableStageData || []).forEach(a => {
-        if (a.deliverable && a.deliverable.status === a.stage && a.deliverable.status !== 'posted') {
-          tasks.push({
-            id: a.id, type: 'deliverable', name: a.deliverable.title, stage: a.stage,
-            stageColor: DELIVERABLE_STAGE_COLORS[a.stage] || '#6b7280', stageLabel: DELIVERABLE_STAGE_LABELS[a.stage] || a.stage,
-            deadline: a.deliverable.due_date, extra: a.deliverable.sponsors?.name || null,
           });
         }
       });
@@ -1310,7 +1296,7 @@ export default function Dashboard({ onNavigate }) {
       {/* Stage Tasks */}
       {stageTasks.length > 0 && (
         <div style={styles.section}>
-          <h2 style={styles.sectionTitle}>Your Stage Tasks</h2>
+          <h2 style={styles.sectionTitle}>Project Tasks</h2>
           {stageTasksLoading ? (
             <p style={styles.emptyText}>Loading...</p>
           ) : (
