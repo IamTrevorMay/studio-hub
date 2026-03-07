@@ -665,10 +665,10 @@ export default function Analytics() {
           {/* ── B. KPI Summary Cards ── */}
           {kpi && (
             <div style={styles.kpiGrid}>
-              <KPICard label="Total Views" value={formatCompact(kpi.totalViews)} change={kpi.viewsChange} color="#6366f1" />
+              <KPICard label="Total Views" value={Number(kpi.totalViews).toLocaleString()} change={kpi.viewsChange} color="#6366f1" />
               <KPICard label="Total Revenue" value={formatCurrency(kpi.totalRevenue)} change={kpi.revenueChange} color="#22c55e" />
-              <KPICard label="Net Followers" value={formatCompact(kpi.totalFollowers)}
-                change={kpi.followersChange} changeLabel={`${kpi.followersChange >= 0 ? '+' : ''}${formatCompact(kpi.followersChange)} this period`} color="#3b82f6" />
+              <KPICard label="Net Followers" value={Number(kpi.totalFollowers).toLocaleString()}
+                change={kpi.followersChange} changeLabel={`${kpi.followersChange >= 0 ? '+' : ''}${Number(kpi.followersChange).toLocaleString()} this period`} color="#3b82f6" />
               <KPICard label="Avg Engagement" value={(kpi.avgEngagement * 100).toFixed(2) + '%'} change={kpi.engagementChange} color="#f59e0b" />
             </div>
           )}
