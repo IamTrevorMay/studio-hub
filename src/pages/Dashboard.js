@@ -1257,61 +1257,6 @@ export default function Dashboard({ onNavigate }) {
         </div>
       )}
 
-      {/* Active Projects */}
-      <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>Your Active Projects</h2>
-        {loading ? (
-          <p style={styles.emptyText}>Loading...</p>
-        ) : activeAssignments.length === 0 ? (
-          <div style={styles.emptyCard}>
-            <p style={styles.emptyText}>No active projects assigned to you yet.</p>
-          </div>
-        ) : (
-          <div style={styles.projectGrid}>
-            {activeAssignments.map(({ project, assignment_role }) => {
-              const days = getDaysUntil(project.deadline);
-              const urgency = getUrgencyColor(days);
-              return (
-                <div key={project.id} style={styles.projectCard}>
-                  <div style={styles.projectCardHeader}>
-                    <span style={{
-                      ...styles.statusBadge,
-                      background: `${STATUS_COLORS[project.status]}20`,
-                      color: STATUS_COLORS[project.status],
-                    }}>
-                      {STATUS_LABELS[project.status]}
-                    </span>
-                    <span style={styles.roleBadge}>{assignment_role}</span>
-                  </div>
-                  <h3 style={styles.projectName}>{project.name}</h3>
-                  {project.channel && (
-                    <p style={styles.projectChannel}>{project.channel}</p>
-                  )}
-                  <div style={styles.projectDeadline}>
-                    <div style={{
-                      ...styles.deadlineIndicator,
-                      background: urgency,
-                    }} />
-                    <span style={{ color: urgency, fontWeight: 600, fontSize: '13px' }}>
-                      {days < 0
-                        ? `${Math.abs(days)} days overdue`
-                        : days === 0
-                          ? 'Due today'
-                          : `${days} days remaining`}
-                    </span>
-                  </div>
-                  <div style={styles.projectDates}>
-                    <span>{new Date(project.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                    <span style={styles.dateArrow}>→</span>
-                    <span>{new Date(project.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
       {/* Sponsored Deliverables */}
       {(sponsorDeliverables.length > 0 || sponsorDelLoading) && (
         <div style={styles.section}>

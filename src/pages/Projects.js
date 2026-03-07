@@ -2045,59 +2045,6 @@ function ProjectRow({
             </p>
           </div>
 
-          {/* Team Assignments */}
-          <div style={styles.detailSection}>
-            <h4 style={styles.detailLabel}>Team</h4>
-            <div style={styles.assignmentList}>
-              {project.project_assignments?.map(a => (
-                <div key={a.id} style={styles.assignmentItem}>
-                  <div style={styles.assignmentAvatar}>
-                    {a.profile?.full_name?.charAt(0)}
-                  </div>
-                  <span style={styles.assignmentName}>{a.profile?.full_name}</span>
-                  <span style={styles.assignmentRole}>{a.assignment_role}</span>
-                  <button
-                    onClick={() => onRemoveAssignment(a.id)}
-                    style={styles.removeBtn}
-                  >✕</button>
-                </div>
-              ))}
-            </div>
-            <div style={styles.assignForm}>
-              <select
-                value={assignUserId}
-                onChange={(e) => setAssignUserId(e.target.value)}
-                style={styles.smallSelect}
-              >
-                <option value="">Select person...</option>
-                {teamMembers.map(m => (
-                  <option key={m.id} value={m.id}>{m.full_name}</option>
-                ))}
-              </select>
-              <select
-                value={assignRole}
-                onChange={(e) => setAssignRole(e.target.value)}
-                style={styles.smallSelect}
-              >
-                {ASSIGNMENT_ROLES.map(r => (
-                  <option key={r} value={r}>{r}</option>
-                ))}
-              </select>
-              <button
-                onClick={() => {
-                  if (assignUserId) {
-                    onAssign(project.id, assignUserId, assignRole);
-                    setAssignUserId('');
-                  }
-                }}
-                style={styles.smallBtn}
-                disabled={!assignUserId}
-              >
-                Assign
-              </button>
-            </div>
-          </div>
-
           {/* Stage Assignments */}
           <div style={styles.detailSection}>
             <h4 style={styles.detailLabel}>Stage Assignments</h4>
