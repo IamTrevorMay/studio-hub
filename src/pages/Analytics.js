@@ -15,6 +15,15 @@ const PLATFORM_META = {
   stripe:    { label: 'Stripe',    color: '#635BFF', icon: '$' },
 };
 
+const REVENUE_CATEGORIES = {
+  merch:           { label: 'Merch',            color: '#f97316' },
+  subscription:    { label: 'Subscriptions',    color: '#8b5cf6' },
+  sponsorship:     { label: 'Sponsorships',     color: '#10b981' },
+  ad_revenue:      { label: 'Ad Revenue',       color: '#3b82f6' },
+  paid_newsletter: { label: 'Paid Newsletter',  color: '#ec4899' },
+  other:           { label: 'Other',            color: '#6b7280' },
+};
+
 const DATE_RANGES = [
   { key: '7d',  label: '7 days',  days: 7 },
   { key: '30d', label: '30 days', days: 30 },
@@ -217,6 +226,7 @@ export default function Analytics() {
   const [showIngestion, setShowIngestion] = useState(false);
   const [ingestionLogs, setIngestionLogs] = useState([]);
   const [viewMode, setViewMode] = useState('dashboard');
+  const [sponsorshipRevenue, setSponsorshipRevenue] = useState(0);
 
   // Analysis tools
   const [showAnalysis, setShowAnalysis] = useState(false);
@@ -369,8 +379,8 @@ export default function Analytics() {
       .select('net_amount_cents, event_type')
       .gte('occurred_at', start)
       .lte('occurred_at', end)
-      .in('event_type', ['charge', 'subscription_renewal']);
-    if (activeAccountIds.length > 0) rq = rq.in('platform_account_id', activeAccountIds);
+      .in('event_type', ['charge', 'subscription_renewal', 'sponsorship']);
+    if (activeAccountIds.length > 0) rq = rq.or(`platform_account_id.in.(${activeAccountIds.join(',')}),platform_account_id.is.null`);
     const { data: revenue } = await rq;
 
     let prq = supabase
@@ -378,8 +388,8 @@ export default function Analytics() {
       .select('net_amount_cents')
       .gte('occurred_at', prevStart)
       .lt('occurred_at', start)
-      .in('event_type', ['charge', 'subscription_renewal']);
-    if (activeAccountIds.length > 0) prq = prq.in('platform_account_id', activeAccountIds);
+      .in('event_type', ['charge', 'subscription_renewal', 'sponsorship']);
+    if (activeAccountIds.length > 0) prq = prq.or(`platform_account_id.in.(${activeAccountIds.join(',')}),platform_account_id.is.null`);
     const { data: prevRevenue } = await prq;
 
     // Audience
@@ -392,6 +402,8 @@ export default function Analytics() {
     const prevViews = (prevRollups || []).reduce((s, r) => s + Number(r.total_views), 0);
     const totalRev = (revenue || []).reduce((s, r) => s + r.net_amount_cents, 0);
     const prevRev = (prevRevenue || []).reduce((s, r) => s + r.net_amount_cents, 0);
+    const sponsorRev = (revenue || []).filter(r => r.event_type === 'sponsorship').reduce((s, r) => s + r.net_amount_cents, 0);
+    setSponsorshipRevenue(sponsorRev);
     const totalFollowers = (latestAudience || []).reduce((s, a) => s + Number(a.followers_total), 0);
     const followersGained = (latestAudience || []).reduce((s, a) => s + Number(a.followers_gained), 0);
 
@@ -499,6 +511,19 @@ export default function Analytics() {
       }))
       .sort((a, b) => b.views - a.views);
   }, [timeSeries]);
+
+  // ── Revenue donut (includes sponsorships) ──
+  const revenueDonutData = useMemo(() => {
+    const entries = platformBreakdown.filter(p => p.revenue > 0).map(p => ({ ...p }));
+    if (sponsorshipRevenue > 0) {
+      entries.push({
+        label: 'Sponsorships',
+        revenue: sponsorshipRevenue,
+        color: REVENUE_CATEGORIES.sponsorship.color,
+      });
+    }
+    return entries;
+  }, [platformBreakdown, sponsorshipRevenue]);
 
   // ── Sort content items ──
   const sortedContent = useMemo(() => {
@@ -652,8 +677,13 @@ export default function Analytics() {
       {/* ── View Mode Toggle ── */}
       <div style={styles.viewToggleBar}>
         <button onClick={() => setViewMode('dashboard')} style={viewMode === 'dashboard' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Dashboard</button>
+        <button onClick={() => setViewMode('revenues')} style={viewMode === 'revenues' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Revenues</button>
         <button onClick={() => setViewMode('advanced')} style={viewMode === 'advanced' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Advanced</button>
       </div>
+
+      {viewMode === 'revenues' && (
+        <RevenuesView accounts={accounts} start={start} end={end} activeAccountIds={activeAccountIds} />
+      )}
 
       {viewMode === 'advanced' && (
         <AdvancedView accounts={accounts} />
@@ -719,15 +749,15 @@ export default function Analytics() {
                 </div>
               )}
               {/* Revenue */}
-              {platformBreakdown.some(p => p.revenue > 0) && (
+              {revenueDonutData.length > 0 && (
                 <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px', borderLeft: '3px solid #f59e0b' }}>
-                  <span style={{ ...styles.chartTitle, color: '#f59e0b' }}>Revenue by Platform</span>
+                  <span style={{ ...styles.chartTitle, color: '#f59e0b' }}>Revenue by Source</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '24px', marginTop: '16px', flexWrap: 'wrap' }}>
-                    <DonutChart data={platformBreakdown} valueKey="revenue" centerLabel="total revenue"
+                    <DonutChart data={revenueDonutData} valueKey="revenue" centerLabel="total revenue"
                       formatValue={v => '$' + formatCompact(v / 100)} />
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      {platformBreakdown.filter(p => p.revenue > 0).map(p => {
-                        const total = platformBreakdown.reduce((s, x) => s + x.revenue, 0);
+                      {revenueDonutData.map(p => {
+                        const total = revenueDonutData.reduce((s, x) => s + x.revenue, 0);
                         return (
                           <div key={p.label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: p.color, flexShrink: 0 }} />
@@ -935,6 +965,311 @@ export default function Analytics() {
       .limit(50);
     if (data) setIngestionLogs(data);
   }
+}
+
+// ═══════════════════════════════════════════════
+// Revenues View
+// ═══════════════════════════════════════════════
+function RevenuesView({ accounts, start, end, activeAccountIds }) {
+  const [subView, setSubView] = useState('overview');
+  const [revData, setRevData] = useState({ byCategory: {}, events: [], trendData: [] });
+  const [prevByCategory, setPrevByCategory] = useState({});
+  const [revLoading, setRevLoading] = useState(true);
+  const [catFilter, setCatFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [sortCol, setSortCol] = useState('occurred_at');
+  const [sortDir, setSortDir] = useState('desc');
+
+  // Compute previous period
+  const daySpan = Math.max(1, Math.ceil((new Date(end) - new Date(start)) / 86400000));
+  const prevStart = daysAgoStr(daySpan * 2 + Math.ceil((new Date() - new Date(end)) / 86400000));
+  const prevEnd = start;
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setRevLoading(true);
+
+      const accountFilter = activeAccountIds.length > 0
+        ? `platform_account_id.in.(${activeAccountIds.join(',')}),platform_account_id.is.null`
+        : undefined;
+
+      // Current period by category
+      let q = supabase
+        .from('revenue_events')
+        .select('net_amount_cents, product_category, event_type, occurred_at')
+        .gte('occurred_at', start)
+        .lte('occurred_at', end)
+        .in('event_type', ['charge', 'subscription_renewal', 'sponsorship']);
+      if (accountFilter) q = q.or(accountFilter);
+      const { data: current } = await q;
+
+      // Previous period
+      let pq = supabase
+        .from('revenue_events')
+        .select('net_amount_cents, product_category')
+        .gte('occurred_at', prevStart)
+        .lt('occurred_at', prevEnd)
+        .in('event_type', ['charge', 'subscription_renewal', 'sponsorship']);
+      if (accountFilter) pq = pq.or(accountFilter);
+      const { data: prev } = await pq;
+
+      // All events for table
+      let eq = supabase
+        .from('revenue_events')
+        .select('id, net_amount_cents, product_category, event_type, occurred_at, description, platform_account_id, platform_accounts(platform, account_name)')
+        .gte('occurred_at', start)
+        .lte('occurred_at', end)
+        .in('event_type', ['charge', 'subscription_renewal', 'sponsorship'])
+        .order('occurred_at', { ascending: false });
+      if (accountFilter) eq = eq.or(accountFilter);
+      const { data: events } = await eq;
+
+      if (cancelled) return;
+
+      // Aggregate by category
+      const byCategory = {};
+      for (const r of (current || [])) {
+        const cat = r.product_category || 'other';
+        byCategory[cat] = (byCategory[cat] || 0) + r.net_amount_cents;
+      }
+      const prevByCat = {};
+      for (const r of (prev || [])) {
+        const cat = r.product_category || 'other';
+        prevByCat[cat] = (prevByCat[cat] || 0) + r.net_amount_cents;
+      }
+
+      // Trend data: daily totals per category
+      const dailyMap = {};
+      for (const r of (current || [])) {
+        const day = String(r.occurred_at).slice(0, 10);
+        const cat = r.product_category || 'other';
+        if (!dailyMap[day]) dailyMap[day] = { date: day };
+        dailyMap[day][cat] = (dailyMap[day][cat] || 0) + r.net_amount_cents;
+      }
+      const trendData = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
+
+      setRevData({ byCategory, events: events || [], trendData });
+      setPrevByCategory(prevByCat);
+      setRevLoading(false);
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [start, end, activeAccountIds.join(',')]);
+
+  function handleSort(col) {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortCol(col); setSortDir('desc'); }
+  }
+
+  // Donut data
+  const donutData = Object.entries(revData.byCategory)
+    .filter(([, v]) => v > 0)
+    .map(([cat, amount]) => ({
+      label: REVENUE_CATEGORIES[cat]?.label || cat,
+      color: REVENUE_CATEGORIES[cat]?.color || '#6b7280',
+      amount: amount / 100,
+    }));
+
+  // Trend metrics for chart
+  const activeCategories = Object.keys(revData.byCategory).filter(k => revData.byCategory[k] > 0);
+  const trendMetrics = activeCategories.map(cat => ({
+    key: cat,
+    label: REVENUE_CATEGORIES[cat]?.label || cat,
+    color: REVENUE_CATEGORIES[cat]?.color || '#6b7280',
+    getValue: r => ((r[cat] || 0) / 100),
+    formatValue: v => '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+  }));
+
+  // Filter and sort events
+  const filteredEvents = useMemo(() => {
+    let rows = revData.events;
+    if (catFilter !== 'all') rows = rows.filter(r => (r.product_category || 'other') === catFilter);
+    if (typeFilter !== 'all') rows = rows.filter(r => r.event_type === typeFilter);
+    return [...rows].sort((a, b) => {
+      let va, vb;
+      if (sortCol === 'occurred_at') { va = a.occurred_at || ''; vb = b.occurred_at || ''; }
+      else if (sortCol === 'net_amount_cents') { va = a.net_amount_cents || 0; vb = b.net_amount_cents || 0; }
+      else if (sortCol === 'product_category') { va = a.product_category || ''; vb = b.product_category || ''; }
+      else if (sortCol === 'event_type') { va = a.event_type || ''; vb = b.event_type || ''; }
+      else { va = a[sortCol] || ''; vb = b[sortCol] || ''; }
+      if (typeof va === 'string') return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+      return sortDir === 'asc' ? va - vb : vb - va;
+    });
+  }, [revData.events, catFilter, typeFilter, sortCol, sortDir]);
+
+  const eventTypes = useMemo(() => [...new Set(revData.events.map(r => r.event_type))], [revData.events]);
+
+  if (revLoading) return <p style={styles.loadingText}>Loading revenue data...</p>;
+
+  return (
+    <>
+      {/* Sub-toggle */}
+      <div style={styles.viewToggleBar}>
+        <button onClick={() => setSubView('overview')} style={subView === 'overview' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Overview</button>
+        <button onClick={() => setSubView('advanced')} style={subView === 'advanced' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Advanced</button>
+      </div>
+
+      {subView === 'overview' && (
+        <>
+          {/* KPI Cards */}
+          <div style={styles.kpiGrid}>
+            {Object.entries(REVENUE_CATEGORIES).map(([cat, meta]) => {
+              const amount = revData.byCategory[cat] || 0;
+              const prev = prevByCategory[cat] || 0;
+              const change = pctChange(amount, prev);
+              return (
+                <KPICard
+                  key={cat}
+                  label={meta.label}
+                  value={formatCurrency(amount)}
+                  change={change}
+                  color={meta.color}
+                />
+              );
+            })}
+          </div>
+
+          {/* Revenue by Source Donut */}
+          <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+            {donutData.length > 0 && (
+              <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px', borderLeft: '3px solid #f59e0b' }}>
+                <span style={{ ...styles.chartTitle, color: '#f59e0b' }}>Revenue by Source</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '24px', marginTop: '16px', flexWrap: 'wrap' }}>
+                  <DonutChart data={donutData} valueKey="amount" centerLabel="total revenue"
+                    formatValue={v => '$' + formatCompact(v)} />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {donutData.map(p => {
+                      const total = donutData.reduce((s, x) => s + x.amount, 0);
+                      return (
+                        <div key={p.label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: p.color, flexShrink: 0 }} />
+                          <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', minWidth: '100px' }}>{p.label}</span>
+                          <span style={{ fontSize: '12px', fontWeight: 600, color: '#fff' }}>${p.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>({(total > 0 ? (p.amount / total) * 100 : 0).toFixed(1)}%)</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Revenue Over Time */}
+          {revData.trendData.length > 0 && trendMetrics.length > 0 && (
+            <div style={styles.chartSection}>
+              <div style={styles.chartHeader}>
+                <span style={styles.chartTitle}>Revenue Over Time</span>
+                <div style={{ display: 'flex', gap: '14px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  {trendMetrics.map(m => (
+                    <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: m.color, flexShrink: 0 }} />
+                      <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>{m.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <TrendChart data={revData.trendData} metrics={trendMetrics} />
+            </div>
+          )}
+        </>
+      )}
+
+      {subView === 'advanced' && (
+        <>
+          {/* Filters */}
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <select value={catFilter} onChange={e => setCatFilter(e.target.value)} style={styles.select}>
+              <option value="all">All Categories</option>
+              {Object.entries(REVENUE_CATEGORIES).map(([k, v]) => (
+                <option key={k} value={k}>{v.label}</option>
+              ))}
+            </select>
+            <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={styles.select}>
+              <option value="all">All Types</option>
+              {eventTypes.map(t => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginLeft: 'auto' }}>
+              {filteredEvents.length} event{filteredEvents.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+
+          {/* Events Table */}
+          {filteredEvents.length > 0 ? (
+            <div style={styles.tableWrap}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={{ ...styles.th, cursor: 'pointer' }} onClick={() => handleSort('occurred_at')}>
+                      Date {sortCol === 'occurred_at' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                    </th>
+                    <th style={{ ...styles.th, cursor: 'pointer' }} onClick={() => handleSort('event_type')}>
+                      Type {sortCol === 'event_type' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                    </th>
+                    <th style={{ ...styles.th, cursor: 'pointer' }} onClick={() => handleSort('product_category')}>
+                      Category {sortCol === 'product_category' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                    </th>
+                    <th style={{ ...styles.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => handleSort('net_amount_cents')}>
+                      Amount {sortCol === 'net_amount_cents' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                    </th>
+                    <th style={styles.th}>Platform</th>
+                    <th style={styles.th}>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredEvents.map((ev, i) => {
+                    const cat = ev.product_category || 'other';
+                    const catMeta = REVENUE_CATEGORIES[cat] || REVENUE_CATEGORIES.other;
+                    const platform = ev.platform_accounts?.platform;
+                    const platMeta = platform ? PLATFORM_META[platform] : null;
+                    return (
+                      <tr key={ev.id} style={i % 2 === 0 ? styles.trEven : {}}>
+                        <td style={styles.td}>
+                          {ev.occurred_at ? new Date(ev.occurred_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                        </td>
+                        <td style={styles.td}>{ev.event_type}</td>
+                        <td style={styles.td}>
+                          <span style={{
+                            display: 'inline-block', padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600,
+                            background: catMeta.color + '22', color: catMeta.color,
+                          }}>
+                            {catMeta.label}
+                          </span>
+                        </td>
+                        <td style={{ ...styles.td, ...styles.tdValue, textAlign: 'right' }}>
+                          ${(ev.net_amount_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td style={styles.td}>
+                          {platMeta ? (
+                            <span style={{
+                              display: 'inline-block', padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600,
+                              background: platMeta.color + '22', color: platMeta.color,
+                            }}>
+                              {platMeta.label}{ev.platform_accounts?.account_name ? ` · ${ev.platform_accounts.account_name}` : ''}
+                            </span>
+                          ) : <span style={{ color: 'rgba(255,255,255,0.3)' }}>—</span>}
+                        </td>
+                        <td style={{ ...styles.td, maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {ev.description || '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div style={styles.emptyCard}>
+              <p style={styles.emptyText}>No revenue events found for this period.</p>
+            </div>
+          )}
+        </>
+      )}
+    </>
+  );
 }
 
 // ═══════════════════════════════════════════════
@@ -1708,6 +2043,7 @@ function TrendChart({ data, metrics }) {
 
   // Tooltip formatter
   function formatMetricValue(m, val) {
+    if (m.formatValue) return m.formatValue(val);
     if (m.key === 'revenue') return '$' + val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     if (m.key === 'engagement') return val.toFixed(2) + '%';
     return formatCompact(val);
