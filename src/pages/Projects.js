@@ -713,6 +713,24 @@ export default function Projects({ onNavigate }) {
         await supabase.from('sponsor_campaigns').update({ brief_url: urlData.publicUrl, brief_name: briefFile.name }).eq('id', campaignId);
       }
     }
+    // Sync revenue_event based on payment status
+    const revenueKey = `sponsor_campaign_${campaignId}`;
+    if (payload.payment_status === 'paid' && payload.payment_amount > 0) {
+      const amountCents = Math.round(payload.payment_amount * 100);
+      await supabase.from('revenue_events').upsert({
+        stripe_event_id: revenueKey,
+        event_type: 'sponsorship',
+        amount_cents: amountCents,
+        net_amount_cents: amountCents,
+        product_category: 'sponsorship',
+        occurred_at: payload.end_date || new Date().toISOString(),
+        platform_account_id: null,
+        metadata: { source: 'sponsor_campaign', campaign_id: campaignId, sponsor_id: sponsorId },
+      }, { onConflict: 'stripe_event_id' });
+    } else {
+      await supabase.from('revenue_events').delete().eq('stripe_event_id', revenueKey);
+    }
+
     resetCampaignForm();
     fetchSponsors();
   }
@@ -1398,6 +1416,15 @@ export default function Projects({ onNavigate }) {
           <h1 style={styles.pageTitle}>Sponsors</h1>
           <p style={styles.pageSubtitle}>
             {activeSponsorsCount} active · {sponsors.filter(s => s.status === 'completed').length} completed
+            {(() => {
+              const allCampaigns = sponsors.flatMap(s => s.sponsor_campaigns || []);
+              const totalPay = allCampaigns.reduce((sum, c) => sum + (parseFloat(c.payment_amount) || 0), 0);
+              const totalReceived = allCampaigns.filter(c => c.payment_status === 'paid').reduce((sum, c) => sum + (parseFloat(c.payment_amount) || 0), 0);
+              if (totalPay === 0) return null;
+              return <span style={{ color: '#22c55e', marginLeft: '8px' }}>
+                · ${totalReceived.toLocaleString()} received of ${totalPay.toLocaleString()}
+              </span>;
+            })()}
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -1436,6 +1463,35 @@ export default function Projects({ onNavigate }) {
           </button>
         </div>
       </div>
+
+      {/* Sponsor KPI Summary */}
+      {(() => {
+        const allCampaigns = sponsors.flatMap(s => s.sponsor_campaigns || []);
+        const totalDeal = allCampaigns.reduce((sum, c) => sum + (parseFloat(c.payment_amount) || 0), 0);
+        const totalPaid = allCampaigns.filter(c => c.payment_status === 'paid').reduce((sum, c) => sum + (parseFloat(c.payment_amount) || 0), 0);
+        const totalOwed = totalDeal - totalPaid;
+        if (totalDeal === 0) return null;
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+            {[
+              { label: 'Total Deal Value', value: totalDeal, color: '#6366f1' },
+              { label: 'Total Paid', value: totalPaid, color: '#22c55e' },
+              { label: 'Total Owed', value: totalOwed, color: totalOwed > 0 ? '#f59e0b' : '#22c55e' },
+            ].map(card => (
+              <div key={card.label} style={{
+                background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+                borderRadius: '14px', padding: '20px 24px', position: 'relative', overflow: 'hidden',
+              }}>
+                <div style={{ position: 'absolute', top: 0, left: 0, width: '3px', height: '100%', background: card.color }} />
+                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>{card.label}</div>
+                <div style={{ fontSize: '28px', fontWeight: 700, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>
+                  ${card.value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {/* Sponsor Form */}
       {showSponsorForm && (
