@@ -16,12 +16,11 @@ const PLATFORM_META = {
 };
 
 const REVENUE_CATEGORIES = {
-  merch:           { label: 'Merch',            color: '#f97316' },
-  subscription:    { label: 'Subscriptions',    color: '#8b5cf6' },
-  sponsorship:     { label: 'Sponsorships',     color: '#10b981' },
-  ad_revenue:      { label: 'Ad Revenue',       color: '#3b82f6' },
-  paid_newsletter: { label: 'Paid Newsletter',  color: '#ec4899' },
-  other:           { label: 'Other',            color: '#6b7280' },
+  merch:        { label: 'Merch',          color: '#f97316' },
+  subscription: { label: 'Subscriptions',  color: '#8b5cf6' },
+  sponsorship:  { label: 'Sponsorships',   color: '#10b981' },
+  ad_revenue:   { label: 'Ad Revenue',     color: '#3b82f6' },
+  other:        { label: 'Other',          color: '#6b7280' },
 };
 
 const DATE_RANGES = [
