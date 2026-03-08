@@ -974,6 +974,8 @@ function RevenuesView({ accounts, start, end, activeAccountIds }) {
   const [subView, setSubView] = useState('overview');
   const [revData, setRevData] = useState({ byCategory: {}, events: [], trendData: [] });
   const [prevByCategory, setPrevByCategory] = useState({});
+  const [merchStats, setMerchStats] = useState(null);
+  const [prevMerchStats, setPrevMerchStats] = useState(null);
   const [revLoading, setRevLoading] = useState(true);
   const [catFilter, setCatFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
@@ -1025,6 +1027,28 @@ function RevenuesView({ accounts, start, end, activeAccountIds }) {
       if (accountFilter) eq = eq.or(accountFilter);
       const { data: events } = await eq;
 
+      // Merch events (current period)
+      let mq = supabase
+        .from('revenue_events')
+        .select('net_amount_cents, amount_cents, metadata, customer_id')
+        .eq('product_category', 'merch')
+        .eq('event_type', 'charge')
+        .gte('occurred_at', start)
+        .lte('occurred_at', end);
+      if (accountFilter) mq = mq.or(accountFilter);
+      const { data: merchCurrent } = await mq;
+
+      // Merch events (previous period)
+      let mpq = supabase
+        .from('revenue_events')
+        .select('net_amount_cents, amount_cents, metadata, customer_id')
+        .eq('product_category', 'merch')
+        .eq('event_type', 'charge')
+        .gte('occurred_at', prevStart)
+        .lt('occurred_at', prevEnd);
+      if (accountFilter) mpq = mpq.or(accountFilter);
+      const { data: merchPrev } = await mpq;
+
       if (cancelled) return;
 
       // Aggregate by category
@@ -1049,6 +1073,41 @@ function RevenuesView({ accounts, start, end, activeAccountIds }) {
       }
       const trendData = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
 
+      // Compute merch stats
+      function computeMerchStats(rows) {
+        const stats = { totalOrders: 0, totalRevenue: 0, totalCost: 0, totalUnits: 0, customers: new Set(), productMap: {} };
+        for (const r of (rows || [])) {
+          stats.totalOrders++;
+          stats.totalRevenue += r.net_amount_cents || 0;
+          if (r.customer_id) stats.customers.add(r.customer_id);
+          const items = r.metadata?.items || [];
+          for (const item of items) {
+            const qty = item.quantity || 1;
+            const cost = Math.round((item.unit_cost || 0) * qty * 100);
+            const rev = Math.round((item.unit_price || 0) * qty * 100);
+            stats.totalCost += cost;
+            stats.totalUnits += qty;
+            const name = item.name || 'Unknown';
+            if (!stats.productMap[name]) stats.productMap[name] = { name, units: 0, revenue: 0, cost: 0 };
+            stats.productMap[name].units += qty;
+            stats.productMap[name].revenue += rev;
+            stats.productMap[name].cost += cost;
+          }
+        }
+        stats.totalProfit = stats.totalRevenue - stats.totalCost;
+        stats.uniqueCustomers = stats.customers.size;
+        stats.avgOrderValue = stats.totalOrders > 0 ? stats.totalRevenue / stats.totalOrders : 0;
+        stats.topProducts = Object.values(stats.productMap)
+          .map(p => ({ ...p, profit: p.revenue - p.cost }))
+          .sort((a, b) => b.revenue - a.revenue)
+          .slice(0, 10);
+        return stats;
+      }
+      const mStats = computeMerchStats(merchCurrent);
+      const mPrev = computeMerchStats(merchPrev);
+
+      setMerchStats(mStats);
+      setPrevMerchStats(mPrev);
       setRevData({ byCategory, events: events || [], trendData });
       setPrevByCategory(prevByCat);
       setRevLoading(false);
@@ -1172,6 +1231,71 @@ function RevenuesView({ accounts, start, end, activeAccountIds }) {
               </div>
               <TrendChart data={revData.trendData} metrics={trendMetrics} />
             </div>
+          )}
+
+          {/* Retail Section */}
+          {merchStats && merchStats.totalOrders > 0 && (
+            <>
+              <div style={{ ...styles.chartSection, borderLeft: '3px solid #E8451C' }}>
+                <span style={{ ...styles.chartTitle, color: '#E8451C' }}>Retail</span>
+                <div style={{ ...styles.kpiGrid, marginTop: '16px' }}>
+                  <KPICard
+                    label="Total Orders"
+                    value={merchStats.totalOrders.toLocaleString()}
+                    change={pctChange(merchStats.totalOrders, prevMerchStats?.totalOrders || 0)}
+                    color="#E8451C"
+                  />
+                  <KPICard
+                    label="Avg Order Value"
+                    value={formatCurrency(merchStats.avgOrderValue)}
+                    change={pctChange(merchStats.avgOrderValue, prevMerchStats?.avgOrderValue || 0)}
+                    color="#E8451C"
+                  />
+                  <KPICard
+                    label="Units Sold"
+                    value={merchStats.totalUnits.toLocaleString()}
+                    change={pctChange(merchStats.totalUnits, prevMerchStats?.totalUnits || 0)}
+                    color="#E8451C"
+                  />
+                  <KPICard
+                    label="Profit"
+                    value={formatCurrency(merchStats.totalProfit)}
+                    change={pctChange(merchStats.totalProfit, prevMerchStats?.totalProfit || 0)}
+                    color="#E8451C"
+                  />
+                </div>
+
+                {/* Top Products Table */}
+                {merchStats.topProducts.length > 0 && (
+                  <div style={{ ...styles.tableWrap, marginTop: '20px' }}>
+                    <table style={styles.table}>
+                      <thead>
+                        <tr>
+                          <th style={styles.th}>Product</th>
+                          <th style={{ ...styles.th, textAlign: 'right' }}>Units</th>
+                          <th style={{ ...styles.th, textAlign: 'right' }}>Revenue</th>
+                          <th style={{ ...styles.th, textAlign: 'right' }}>Cost</th>
+                          <th style={{ ...styles.th, textAlign: 'right' }}>Profit</th>
+                          <th style={{ ...styles.th, textAlign: 'right' }}>Margin</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {merchStats.topProducts.map((p, i) => (
+                          <tr key={p.name} style={i % 2 === 0 ? styles.trEven : {}}>
+                            <td style={styles.td}>{p.name}</td>
+                            <td style={{ ...styles.td, textAlign: 'right' }}>{p.units}</td>
+                            <td style={{ ...styles.td, textAlign: 'right' }}>{formatCurrency(p.revenue)}</td>
+                            <td style={{ ...styles.td, textAlign: 'right' }}>{formatCurrency(p.cost)}</td>
+                            <td style={{ ...styles.td, textAlign: 'right', color: p.profit >= 0 ? '#4ade80' : '#f87171' }}>{formatCurrency(p.profit)}</td>
+                            <td style={{ ...styles.td, textAlign: 'right' }}>{p.revenue > 0 ? ((p.profit / p.revenue) * 100).toFixed(1) + '%' : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </>
           )}
         </>
       )}
