@@ -45,6 +45,7 @@ const PLATFORM_META = {
   substack:  { label: 'Substack',  color: '#FF6719' },
   twitch:    { label: 'Twitch',    color: '#9146FF' },
   stripe:    { label: 'Stripe',    color: '#635BFF' },
+  fourthwall:{ label: 'Fourthwall',color: '#E8451C' },
 };
 
 const METRIC_OPTIONS = [

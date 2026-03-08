@@ -13,6 +13,7 @@ const PLATFORM_META = {
   substack:  { label: 'Substack',  color: '#FF6719', icon: 'SS' },
   twitch:    { label: 'Twitch',    color: '#9146FF', icon: 'TW' },
   stripe:    { label: 'Stripe',    color: '#635BFF', icon: '$' },
+  fourthwall:{ label: 'Fourthwall',color: '#E8451C', icon: 'FW' },
 };
 
 const REVENUE_CATEGORIES = {
