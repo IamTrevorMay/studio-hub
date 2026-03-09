@@ -13,6 +13,7 @@ import Resources from './Resources';
 import Analytics from './Analytics';
 import Research from './Research';
 import Goals from './Goals';
+import Tools from './Tools';
 import Morty from '../components/Morty';
 
 const NAV_ITEMS = [
@@ -25,6 +26,7 @@ const NAV_ITEMS = [
   { key: 'reviews', label: 'Reviews', icon: ReviewsIcon },
   { key: 'calendar', label: 'Calendar', icon: CalendarIcon },
   { key: 'goals', label: 'Goals', icon: GoalsIcon },
+  { key: 'tools', label: 'Tools', icon: ToolsIcon },
   { key: 'channels', label: 'Channels', icon: ChannelsIcon },
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
 ];
@@ -145,7 +147,7 @@ export default function AppLayout() {
               <rect x="18" y="18" width="12" height="8" rx="2" fill="#6366f1" />
             </svg>
           </div>
-          {!sidebarCollapsed && <span style={styles.logoText}>Mayday Media<br /><span style={styles.logoTextSub}>Creative</span></span>}
+          {!sidebarCollapsed && <span style={styles.logoText}>Mayday Studio</span>}
         </div>
 
         {/* Navigation */}
@@ -294,6 +296,7 @@ export default function AppLayout() {
           <div style={tabStyle('research')}><Research /></div>
           <div style={tabStyle('reviews')}><Reviews /></div>
           <div style={tabStyle('goals')}><Goals /></div>
+          <div style={tabStyle('tools')}><Tools /></div>
           <div style={tabStyle('channels')}><Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} /></div>
           <div style={tabStyle('messages')}><Messages onNavigate={navigateTo} /></div>
           {isAdmin && <div style={tabStyle('admin')}><AdminPanel initialTab={adminInitialTab} /></div>}
@@ -402,6 +405,16 @@ function GoalsIcon({ active }) {
       <circle cx="10" cy="10" r="7" />
       <circle cx="10" cy="10" r="4" />
       <circle cx="10" cy="10" r="1" fill={active ? '#a5b4fc' : '#6b7280'} />
+    </svg>
+  );
+}
+
+function ToolsIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <path d="M14.5 3.5a2.5 2.5 0 00-3.54 0L9.5 5l5 5 1.46-1.46a2.5 2.5 0 000-3.54l-1.46-1.5z" />
+      <path d="M9.5 5L3 11.5V15h3.5L13 8.5" />
+      <path d="M7.5 12.5L5 15" />
     </svg>
   );
 }
