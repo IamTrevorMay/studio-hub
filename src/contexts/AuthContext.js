@@ -326,6 +326,34 @@ export function AuthProvider({ children }) {
     };
   }, [user]);
 
+  // ── Reconnect everything when tab becomes visible ──
+  useEffect(() => {
+    if (!user) return;
+
+    const handleVisibility = async () => {
+      if (document.visibilityState !== 'visible') return;
+
+      try {
+        // 1. Refresh auth token (may have expired while backgrounded)
+        const { data } = await supabase.auth.getSession();
+        if (data?.session) {
+          const expiresAt = data.session.expires_at;
+          const now = Math.floor(Date.now() / 1000);
+          if (expiresAt - now < 120) {
+            await supabase.auth.refreshSession();
+          }
+          // 2. Reconnect realtime WebSocket with fresh token
+          supabase.realtime.setAuth(data.session.access_token);
+        }
+      } catch (e) {
+        console.warn('Visibility reconnect failed:', e);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [user]);
+
   // ── Notification state ──
   const [unreadAnnouncementCount, setUnreadAnnouncementCount] = useState(0);
   const [newItineraryCount, setNewItineraryCount] = useState(0);
@@ -461,9 +489,19 @@ export function AuthProvider({ children }) {
     // 5-minute fallback poll as safety net for dropped connections
     const interval = setInterval(refreshNotifications, 300000);
 
+    // Re-fetch notifications + re-ping presence when tab returns
+    const handleVisibilityRefresh = () => {
+      if (document.visibilityState === 'visible') {
+        refreshNotifications();
+        supabase.from('profiles').update({ status: 'active', last_seen_at: new Date().toISOString() }).eq('id', user.id).then(() => {});
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityRefresh);
+
     return () => {
       supabase.removeChannel(channel);
       clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityRefresh);
     };
   }, [user, refreshNotifications, fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions, fetchUnreadNotificationCount]);
 
