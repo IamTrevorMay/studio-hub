@@ -9,6 +9,22 @@ const TOOLS = [
     icon: '📺',
     color: '#6366f1',
   },
+  {
+    key: 'broadcast',
+    name: 'Broadcast',
+    description: 'Real-time OBS overlay controller with animated transitions and Stream Deck integration.',
+    icon: '📡',
+    color: '#ef4444',
+    href: 'https://tritonapex.io/broadcast',
+  },
+  {
+    key: 'scene-builder',
+    name: 'Scene Builder',
+    description: 'Visual scene composer for building data-driven broadcast graphics and overlays.',
+    icon: '🎨',
+    color: '#f59e0b',
+    href: 'https://tritonapex.io/visualize/scene-composer',
+  },
 ];
 
 export default function Tools() {
@@ -31,7 +47,13 @@ export default function Tools() {
         {TOOLS.map(tool => (
           <button
             key={tool.key}
-            onClick={() => setActiveTool(tool.key)}
+            onClick={() => {
+              if (tool.href) {
+                window.open(tool.href, '_blank', 'noopener');
+              } else {
+                setActiveTool(tool.key);
+              }
+            }}
             style={styles.card}
             onMouseEnter={e => {
               e.currentTarget.style.borderColor = 'rgba(99,102,241,0.3)';
@@ -43,7 +65,14 @@ export default function Tools() {
             <div style={{ ...styles.cardStripe, background: tool.color }} />
             <div style={styles.cardBody}>
               <span style={styles.cardIcon}>{tool.icon}</span>
-              <div style={styles.cardName}>{tool.name}</div>
+              <div style={styles.cardNameRow}>
+                <div style={styles.cardName}>{tool.name}</div>
+                {tool.href && (
+                  <svg style={styles.externalIcon} viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M3.75 2a.75.75 0 000 1.5h6.69L2.72 11.22a.75.75 0 101.06 1.06L11.5 4.56v6.69a.75.75 0 001.5 0V2.75a.75.75 0 00-.75-.75H3.75z" />
+                  </svg>
+                )}
+              </div>
               <div style={styles.cardDesc}>{tool.description}</div>
             </div>
           </button>
@@ -105,11 +134,22 @@ const styles = {
     display: 'block',
     marginBottom: '10px',
   },
+  cardNameRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    marginBottom: '6px',
+  },
   cardName: {
     fontSize: '16px',
     fontWeight: 700,
     color: '#e2e8f0',
-    marginBottom: '6px',
+  },
+  externalIcon: {
+    width: '13px',
+    height: '13px',
+    color: 'rgba(255,255,255,0.3)',
+    flexShrink: 0,
   },
   cardDesc: {
     fontSize: '13px',
