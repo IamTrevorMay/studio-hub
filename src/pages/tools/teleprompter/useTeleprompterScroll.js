@@ -10,8 +10,10 @@ export default function useTeleprompterScroll(speed, isPlaying) {
     if (lastTimeRef.current === null) {
       lastTimeRef.current = timestamp;
     }
-    const delta = timestamp - lastTimeRef.current;
+    const rawDelta = timestamp - lastTimeRef.current;
     lastTimeRef.current = timestamp;
+    // Cap delta so background tabs don't cause a massive scroll jump on return
+    const delta = Math.min(rawDelta, 100);
 
     // speed 1-10 → pixels per second (20-200)
     const pxPerSec = speed * 20;
