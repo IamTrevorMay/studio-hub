@@ -6,6 +6,8 @@ const DEFAULT_SETTINGS = {
   fontSize: 36,
   mirrored: false,
   textColor: '#ffffff',
+  fontFamily: 'sans-serif',
+  textAlign: 'center',
   textOpacity: 0.95,
   margins: 10,
   countdownSeconds: 3,

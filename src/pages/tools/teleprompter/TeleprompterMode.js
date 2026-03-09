@@ -17,7 +17,7 @@ export default function TeleprompterMode({
   const [countdown, setCountdown] = useState(null);
   const countdownRef = useRef(null);
 
-  const { speed, fontSize, mirrored, textOpacity, margins, layout } = settings;
+  const { speed, fontSize, mirrored, textOpacity, margins, layout, fontFamily, textAlign } = settings;
 
   const { scrollRef, resetScroll } = useTeleprompterScroll(speed, isPlaying);
 
@@ -175,6 +175,8 @@ export default function TeleprompterMode({
             fontSize: `${fontSize}px`,
             lineHeight: 1.5,
             fontWeight: 500,
+            fontFamily: fontFamily || 'sans-serif',
+            textAlign: textAlign || 'center',
             color: settings.textColor,
             opacity: textOpacity,
             transform: mirrored ? 'scaleX(-1)' : 'none',
@@ -203,6 +205,12 @@ export default function TeleprompterMode({
         onFontSizeChange={v => updateSetting('fontSize', v)}
         mirrored={mirrored}
         onMirrorToggle={() => updateSetting('mirrored', !mirrored)}
+        textColor={settings.textColor}
+        onTextColorChange={v => updateSetting('textColor', v)}
+        fontFamily={fontFamily}
+        onFontFamilyChange={v => updateSetting('fontFamily', v)}
+        textAlign={textAlign}
+        onTextAlignChange={v => updateSetting('textAlign', v)}
         textOpacity={textOpacity}
         onOpacityChange={v => updateSetting('textOpacity', v)}
         margins={margins}

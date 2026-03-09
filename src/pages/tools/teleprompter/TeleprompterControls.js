@@ -1,5 +1,16 @@
 import React from 'react';
 
+const FONT_OPTIONS = [
+  { label: 'Sans-serif', value: 'sans-serif' },
+  { label: 'Serif', value: 'serif' },
+  { label: 'Monospace', value: 'monospace' },
+  { label: 'Arial', value: 'Arial, sans-serif' },
+  { label: 'Georgia', value: 'Georgia, serif' },
+  { label: 'Courier New', value: '"Courier New", monospace' },
+  { label: 'Verdana', value: 'Verdana, sans-serif' },
+  { label: 'Times New Roman', value: '"Times New Roman", serif' },
+];
+
 export default function TeleprompterControls({
   isPlaying,
   onPlayPause,
@@ -11,6 +22,12 @@ export default function TeleprompterControls({
   onFontSizeChange,
   mirrored,
   onMirrorToggle,
+  textColor,
+  onTextColorChange,
+  fontFamily,
+  onFontFamilyChange,
+  textAlign,
+  onTextAlignChange,
   textOpacity,
   onOpacityChange,
   margins,
@@ -64,10 +81,73 @@ export default function TeleprompterControls({
 
       {/* Font size */}
       <div style={styles.group}>
-        <span style={styles.label}>Font</span>
+        <span style={styles.label}>Size</span>
         <button onClick={() => onFontSizeChange(Math.max(16, fontSize - 2))} style={styles.smBtn}>-</button>
         <span style={styles.value}>{fontSize}px</span>
         <button onClick={() => onFontSizeChange(Math.min(72, fontSize + 2))} style={styles.smBtn}>+</button>
+      </div>
+
+      <div style={styles.divider} />
+
+      {/* Text color */}
+      <div style={styles.group}>
+        <span style={styles.label}>Color</span>
+        <input
+          type="color"
+          value={textColor || '#ffffff'}
+          onChange={e => onTextColorChange(e.target.value)}
+          style={styles.colorInput}
+          title="Text color"
+        />
+      </div>
+
+      <div style={styles.divider} />
+
+      {/* Font family */}
+      <div style={styles.group}>
+        <span style={styles.label}>Font</span>
+        <select
+          value={fontFamily || 'sans-serif'}
+          onChange={e => onFontFamilyChange(e.target.value)}
+          style={styles.select}
+        >
+          {FONT_OPTIONS.map(f => (
+            <option key={f.value} value={f.value}>{f.label}</option>
+          ))}
+        </select>
+      </div>
+
+      <div style={styles.divider} />
+
+      {/* Text alignment */}
+      <div style={styles.group}>
+        <span style={styles.label}>Align</span>
+        {['left', 'center', 'right'].map(align => (
+          <button
+            key={align}
+            onClick={() => onTextAlignChange(align)}
+            style={{ ...styles.btn, ...(textAlign === align ? styles.btnActive : {}) }}
+            title={`Align ${align}`}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              {align === 'left' && (
+                <>
+                  <path d="M3 6h18M3 12h12M3 18h16" />
+                </>
+              )}
+              {align === 'center' && (
+                <>
+                  <path d="M3 6h18M6 12h12M4 18h16" />
+                </>
+              )}
+              {align === 'right' && (
+                <>
+                  <path d="M3 6h18M9 12h12M5 18h16" />
+                </>
+              )}
+            </svg>
+          </button>
+        ))}
       </div>
 
       <div style={styles.divider} />
@@ -221,6 +301,27 @@ const styles = {
     fontWeight: 600,
     cursor: 'pointer',
     fontFamily: 'inherit',
+  },
+  colorInput: {
+    width: '30px',
+    height: '26px',
+    padding: 0,
+    border: '1px solid rgba(255,255,255,0.15)',
+    borderRadius: '6px',
+    background: 'transparent',
+    cursor: 'pointer',
+  },
+  select: {
+    height: '28px',
+    padding: '0 6px',
+    border: '1px solid rgba(255,255,255,0.15)',
+    borderRadius: '6px',
+    background: 'rgba(255,255,255,0.06)',
+    color: '#e2e8f0',
+    fontSize: '12px',
+    fontFamily: 'inherit',
+    cursor: 'pointer',
+    outline: 'none',
   },
   slider: {
     width: '80px',
