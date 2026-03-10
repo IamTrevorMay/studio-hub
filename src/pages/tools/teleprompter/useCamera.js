@@ -30,7 +30,11 @@ export default function useCamera() {
 
     try {
       const constraints = {
-        video: deviceId ? { deviceId: { exact: deviceId } } : true,
+        video: {
+          ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
         audio: false,
       };
       const s = await navigator.mediaDevices.getUserMedia(constraints);

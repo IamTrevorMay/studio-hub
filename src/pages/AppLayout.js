@@ -140,12 +140,7 @@ export default function AppLayout() {
         {/* Logo */}
         <div style={styles.logoArea}>
           <div style={styles.logoIcon}>
-            <svg width="24" height="24" viewBox="0 0 32 32" fill="none">
-              <rect x="2" y="6" width="12" height="8" rx="2" fill="#6366f1" />
-              <rect x="18" y="6" width="12" height="8" rx="2" fill="#818cf8" />
-              <rect x="2" y="18" width="12" height="8" rx="2" fill="#818cf8" />
-              <rect x="18" y="18" width="12" height="8" rx="2" fill="#6366f1" />
-            </svg>
+            <img src="/logo.png" alt="Mayday Studio" width="28" height="28" />
           </div>
           {!sidebarCollapsed && <span style={styles.logoText}>Mayday Studio</span>}
         </div>
