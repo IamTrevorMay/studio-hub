@@ -17,7 +17,7 @@ export default function TeleprompterMode({
   const [countdown, setCountdown] = useState(null);
   const countdownRef = useRef(null);
 
-  const { speed, fontSize, mirrored, textOpacity, margins, layout, fontFamily, textAlign } = settings;
+  const { speed, fontSize, mirrored, textOpacity, margins, layout, fontFamily, textAlign, showCamera } = settings;
 
   const { scrollRef, resetScroll } = useTeleprompterScroll(speed, isPlaying);
 
@@ -109,6 +109,10 @@ export default function TeleprompterMode({
           e.preventDefault();
           updateSetting('fontSize', Math.max(16, fontSize - 2));
           break;
+        case 'c':
+        case 'C':
+          updateSetting('showCamera', !showCamera);
+          break;
         case 'm':
         case 'M':
           updateSetting('mirrored', !mirrored);
@@ -126,7 +130,7 @@ export default function TeleprompterMode({
     }
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [showEditor, togglePlay, updateSetting, speed, fontSize, mirrored, handleReset]);
+  }, [showEditor, togglePlay, updateSetting, speed, fontSize, mirrored, showCamera, handleReset]);
 
   const isSideBySide = layout === 'side-by-side';
   const marginPct = `${margins}%`;
@@ -138,25 +142,27 @@ export default function TeleprompterMode({
         flexDirection: isSideBySide ? 'row' : 'column',
       }}>
         {/* Camera feed */}
-        <div style={{
-          ...styles.cameraArea,
-          ...(isSideBySide ? { width: '50%', height: '100%' } : { width: '100%', height: '100%' }),
-          position: isSideBySide ? 'relative' : 'absolute',
-          inset: isSideBySide ? undefined : 0,
-          zIndex: isSideBySide ? 1 : 0,
-        }}>
-          {stream ? (
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              style={styles.video}
-            />
-          ) : (
-            <div style={styles.noCamera}>No camera</div>
-          )}
-        </div>
+        {showCamera && (
+          <div style={{
+            ...styles.cameraArea,
+            ...(isSideBySide ? { width: '50%', height: '100%' } : { width: '100%', height: '100%' }),
+            position: isSideBySide ? 'relative' : 'absolute',
+            inset: isSideBySide ? undefined : 0,
+            zIndex: isSideBySide ? 1 : 0,
+          }}>
+            {stream ? (
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                style={styles.video}
+              />
+            ) : (
+              <div style={styles.noCamera}>No camera</div>
+            )}
+          </div>
+        )}
 
         {/* Scrolling text */}
         <div
@@ -164,8 +170,8 @@ export default function TeleprompterMode({
           style={{
             ...styles.textArea,
             ...(isSideBySide
-              ? { width: '50%', position: 'relative', background: 'rgba(0,0,0,0.85)' }
-              : { position: 'absolute', inset: 0, zIndex: 1, background: 'transparent' }),
+              ? { width: showCamera ? '50%' : '100%', position: 'relative', background: 'rgba(0,0,0,0.85)' }
+              : { position: 'absolute', inset: 0, zIndex: 1, background: showCamera ? 'transparent' : '#000' }),
           }}
         >
           {/* Top spacer so text starts from bottom */}
@@ -215,6 +221,8 @@ export default function TeleprompterMode({
         onOpacityChange={v => updateSetting('textOpacity', v)}
         margins={margins}
         onMarginsChange={v => updateSetting('margins', v)}
+        showCamera={showCamera}
+        onCameraToggle={() => updateSetting('showCamera', !showCamera)}
         layout={layout}
         onLayoutToggle={() => updateSetting('layout', layout === 'overlay' ? 'side-by-side' : 'overlay')}
         onFullscreen={toggleFullscreen}

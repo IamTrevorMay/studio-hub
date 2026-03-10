@@ -32,6 +32,8 @@ export default function TeleprompterControls({
   onOpacityChange,
   margins,
   onMarginsChange,
+  showCamera,
+  onCameraToggle,
   layout,
   onLayoutToggle,
   onFullscreen,
@@ -154,6 +156,26 @@ export default function TeleprompterControls({
 
       {/* Toggles */}
       <div style={styles.group}>
+        <button
+          onClick={onCameraToggle}
+          style={{ ...styles.btn, ...(showCamera ? styles.btnActive : {}) }}
+          title={showCamera ? 'Hide camera (C)' : 'Show camera (C)'}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            {showCamera ? (
+              <>
+                <path d="M23 7l-7 5 7 5V7z" />
+                <rect x="1" y="5" width="15" height="14" rx="2" />
+              </>
+            ) : (
+              <>
+                <path d="M16.5 7.5L23 7v10l-6.5-5" />
+                <rect x="1" y="5" width="15" height="14" rx="2" />
+                <line x1="1" y1="1" x2="23" y2="23" strokeLinecap="round" />
+              </>
+            )}
+          </svg>
+        </button>
         <button
           onClick={onMirrorToggle}
           style={{ ...styles.btn, ...(mirrored ? styles.btnActive : {}) }}

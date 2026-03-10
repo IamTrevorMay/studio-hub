@@ -12,6 +12,7 @@ const DEFAULT_SETTINGS = {
   margins: 10,
   countdownSeconds: 3,
   layout: 'overlay',
+  showCamera: false,
 };
 
 export function loadSettings() {
