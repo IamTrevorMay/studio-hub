@@ -1,5 +1,6 @@
 const SETTINGS_KEY = 'studio-hub-teleprompter-settings';
 const SCRIPT_KEY = 'studio-hub-teleprompter-script';
+const SCRIPTS_LIBRARY_KEY = 'studio-hub-teleprompter-scripts';
 
 const DEFAULT_SETTINGS = {
   speed: 3,
@@ -46,5 +47,38 @@ export function saveScript(text) {
     localStorage.setItem(SCRIPT_KEY, text);
   } catch {
     // quota exceeded
+  }
+}
+
+export function loadSavedScripts() {
+  try {
+    const raw = localStorage.getItem(SCRIPTS_LIBRARY_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveScriptToLibrary(name, text) {
+  try {
+    const scripts = loadSavedScripts();
+    scripts.unshift({
+      id: Math.random().toString(36).slice(2, 10),
+      name,
+      text,
+      savedAt: Date.now(),
+    });
+    localStorage.setItem(SCRIPTS_LIBRARY_KEY, JSON.stringify(scripts));
+  } catch {
+    // quota exceeded
+  }
+}
+
+export function deleteSavedScript(id) {
+  try {
+    const scripts = loadSavedScripts().filter(s => s.id !== id);
+    localStorage.setItem(SCRIPTS_LIBRARY_KEY, JSON.stringify(scripts));
+  } catch {
+    // ignore
   }
 }

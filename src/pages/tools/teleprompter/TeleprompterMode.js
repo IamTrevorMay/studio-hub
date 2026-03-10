@@ -9,6 +9,8 @@ export default function TeleprompterMode({
   onScriptChange,
   settings,
   onSettingsChange,
+  focusMode,
+  onFocusModeChange,
 }) {
   const videoRef = useRef(null);
   const containerRef = useRef(null);
@@ -16,6 +18,8 @@ export default function TeleprompterMode({
   const [showEditor, setShowEditor] = useState(false);
   const [countdown, setCountdown] = useState(null);
   const countdownRef = useRef(null);
+  const [controlsVisible, setControlsVisible] = useState(false);
+  const hideTimerRef = useRef(null);
 
   const { speed, fontSize, mirrored, textOpacity, margins, layout, fontFamily, textAlign, showCamera } = settings;
 
@@ -75,7 +79,40 @@ export default function TeleprompterMode({
     } else {
       el.requestFullscreen();
     }
-  }, []);
+    onFocusModeChange(prev => !prev);
+  }, [onFocusModeChange]);
+
+  // Exit focus mode when exiting browser fullscreen via Escape
+  useEffect(() => {
+    function onFsChange() {
+      if (!document.fullscreenElement && focusMode) {
+        onFocusModeChange(false);
+      }
+    }
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, [focusMode, onFocusModeChange]);
+
+  // Mouse hover to reveal controls in focus mode
+  useEffect(() => {
+    if (!focusMode) {
+      setControlsVisible(false);
+      return;
+    }
+    function handleMouseMove(e) {
+      const nearBottom = e.clientY > window.innerHeight - 80;
+      if (nearBottom) {
+        setControlsVisible(true);
+        clearTimeout(hideTimerRef.current);
+        hideTimerRef.current = setTimeout(() => setControlsVisible(false), 3000);
+      }
+    }
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      clearTimeout(hideTimerRef.current);
+    };
+  }, [focusMode]);
 
   const updateSetting = useCallback((key, value) => {
     onSettingsChange(prev => ({ ...prev, [key]: value }));
@@ -121,7 +158,14 @@ export default function TeleprompterMode({
         case 'R':
           handleReset();
           break;
+        case 'f':
+        case 'F':
+          onFocusModeChange(prev => !prev);
+          break;
         case 'Escape':
+          if (focusMode) {
+            onFocusModeChange(false);
+          }
           if (document.fullscreenElement) document.exitFullscreen();
           break;
         default:
@@ -130,7 +174,7 @@ export default function TeleprompterMode({
     }
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [showEditor, togglePlay, updateSetting, speed, fontSize, mirrored, showCamera, handleReset]);
+  }, [showEditor, togglePlay, updateSetting, speed, fontSize, mirrored, showCamera, handleReset, focusMode, onFocusModeChange]);
 
   const isSideBySide = layout === 'side-by-side';
   const marginPct = `${margins}%`;
@@ -200,35 +244,39 @@ export default function TeleprompterMode({
         </div>
       </div>
 
-      <TeleprompterControls
-        isPlaying={isPlaying}
-        onPlayPause={togglePlay}
-        onReset={handleReset}
-        onCountdownStart={handleCountdownStart}
-        speed={speed}
-        onSpeedChange={v => updateSetting('speed', v)}
-        fontSize={fontSize}
-        onFontSizeChange={v => updateSetting('fontSize', v)}
-        mirrored={mirrored}
-        onMirrorToggle={() => updateSetting('mirrored', !mirrored)}
-        textColor={settings.textColor}
-        onTextColorChange={v => updateSetting('textColor', v)}
-        fontFamily={fontFamily}
-        onFontFamilyChange={v => updateSetting('fontFamily', v)}
-        textAlign={textAlign}
-        onTextAlignChange={v => updateSetting('textAlign', v)}
-        textOpacity={textOpacity}
-        onOpacityChange={v => updateSetting('textOpacity', v)}
-        margins={margins}
-        onMarginsChange={v => updateSetting('margins', v)}
-        showCamera={showCamera}
-        onCameraToggle={() => updateSetting('showCamera', !showCamera)}
-        layout={layout}
-        onLayoutToggle={() => updateSetting('layout', layout === 'overlay' ? 'side-by-side' : 'overlay')}
-        onFullscreen={toggleFullscreen}
-        onEditScript={() => setShowEditor(true)}
-        countdown={countdown}
-      />
+      {(!focusMode || controlsVisible) && (
+        <div style={focusMode ? { position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10 } : undefined}>
+          <TeleprompterControls
+            isPlaying={isPlaying}
+            onPlayPause={togglePlay}
+            onReset={handleReset}
+            onCountdownStart={handleCountdownStart}
+            speed={speed}
+            onSpeedChange={v => updateSetting('speed', v)}
+            fontSize={fontSize}
+            onFontSizeChange={v => updateSetting('fontSize', v)}
+            mirrored={mirrored}
+            onMirrorToggle={() => updateSetting('mirrored', !mirrored)}
+            textColor={settings.textColor}
+            onTextColorChange={v => updateSetting('textColor', v)}
+            fontFamily={fontFamily}
+            onFontFamilyChange={v => updateSetting('fontFamily', v)}
+            textAlign={textAlign}
+            onTextAlignChange={v => updateSetting('textAlign', v)}
+            textOpacity={textOpacity}
+            onOpacityChange={v => updateSetting('textOpacity', v)}
+            margins={margins}
+            onMarginsChange={v => updateSetting('margins', v)}
+            showCamera={showCamera}
+            onCameraToggle={() => updateSetting('showCamera', !showCamera)}
+            layout={layout}
+            onLayoutToggle={() => updateSetting('layout', layout === 'overlay' ? 'side-by-side' : 'overlay')}
+            onFullscreen={toggleFullscreen}
+            onEditScript={() => setShowEditor(true)}
+            countdown={countdown}
+          />
+        </div>
+      )}
 
       {showEditor && (
         <ScriptEditor
