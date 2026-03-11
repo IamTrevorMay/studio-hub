@@ -26,7 +26,7 @@ const NAV_ITEMS = [
   { key: 'reviews', label: 'Reviews', icon: ReviewsIcon },
   { key: 'calendar', label: 'Calendar', icon: CalendarIcon },
   { key: 'goals', label: 'Goals', icon: GoalsIcon },
-  { key: 'tools', label: 'Tools', icon: ToolsIcon },
+  { key: 'tools', label: 'Toolbox', icon: ToolsIcon },
   { key: 'channels', label: 'Channels', icon: ChannelsIcon },
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
 ];

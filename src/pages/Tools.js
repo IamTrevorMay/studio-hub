@@ -1,31 +1,51 @@
 import React, { useState } from 'react';
+import { supabase } from '../supabaseClient';
 import Teleprompter from './tools/Teleprompter';
+import Organize from './tools/Organize';
 
 const TOOLS = [
   {
     key: 'teleprompter',
     name: 'Teleprompter',
     description: 'Camera monitor with smooth-scrolling script overlay for recording and live presentations.',
-    icon: '📺',
     color: '#6366f1',
   },
   {
     key: 'broadcast',
     name: 'Broadcast',
     description: 'Real-time OBS overlay controller with animated transitions and Stream Deck integration.',
-    icon: '📡',
     color: '#ef4444',
-    href: 'https://tritonapex.io/broadcast',
+    tritonPath: '/broadcast',
   },
   {
     key: 'scene-builder',
     name: 'Scene Builder',
     description: 'Visual scene composer for building data-driven broadcast graphics and overlays.',
-    icon: '🎨',
     color: '#f59e0b',
-    href: 'https://tritonapex.io/visualize/scene-composer',
+    tritonPath: '/visualize/scene-composer',
+  },
+  {
+    key: 'organize',
+    name: 'Organize',
+    description: 'Browser-based media file organizer. Tag files by type and subtype, then sort them into folders.',
+    color: '#10b981',
   },
 ];
+
+const TRITON_BASE = 'https://tritonapex.io';
+
+async function openTritonTool(targetPath) {
+  try {
+    const { data, error } = await supabase.functions.invoke('triton-link', {
+      body: { target: targetPath },
+    });
+    if (error || !data?.url) throw new Error(error?.message || 'No URL returned');
+    window.open(data.url, '_blank', 'noopener');
+  } catch {
+    // Fallback: open Triton directly (user will see login page)
+    window.open(`${TRITON_BASE}${targetPath}`, '_blank', 'noopener');
+  }
+}
 
 export default function Tools() {
   const [activeTool, setActiveTool] = useState(null);
@@ -33,12 +53,15 @@ export default function Tools() {
   if (activeTool === 'teleprompter') {
     return <Teleprompter onBack={() => setActiveTool(null)} />;
   }
+  if (activeTool === 'organize') {
+    return <Organize onBack={() => setActiveTool(null)} />;
+  }
 
   return (
     <div style={styles.page}>
       <div style={styles.topBar}>
         <div>
-          <h1 style={styles.pageTitle}>Tools</h1>
+          <h1 style={styles.pageTitle}>Toolbox</h1>
           <p style={styles.pageSubtitle}>Utility apps for content creation and production</p>
         </div>
       </div>
@@ -48,8 +71,8 @@ export default function Tools() {
           <button
             key={tool.key}
             onClick={() => {
-              if (tool.href) {
-                window.open(tool.href, '_blank', 'noopener');
+              if (tool.tritonPath) {
+                openTritonTool(tool.tritonPath);
               } else {
                 setActiveTool(tool.key);
               }
@@ -64,10 +87,9 @@ export default function Tools() {
           >
             <div style={{ ...styles.cardStripe, background: tool.color }} />
             <div style={styles.cardBody}>
-              <span style={styles.cardIcon}>{tool.icon}</span>
               <div style={styles.cardNameRow}>
                 <div style={styles.cardName}>{tool.name}</div>
-                {tool.href && (
+                {tool.tritonPath && (
                   <svg style={styles.externalIcon} viewBox="0 0 16 16" fill="currentColor">
                     <path d="M3.75 2a.75.75 0 000 1.5h6.69L2.72 11.22a.75.75 0 101.06 1.06L11.5 4.56v6.69a.75.75 0 001.5 0V2.75a.75.75 0 00-.75-.75H3.75z" />
                   </svg>
@@ -128,11 +150,6 @@ const styles = {
   },
   cardBody: {
     padding: '20px',
-  },
-  cardIcon: {
-    fontSize: '28px',
-    display: 'block',
-    marginBottom: '10px',
   },
   cardNameRow: {
     display: 'flex',
