@@ -40,6 +40,23 @@ export default function useTeleprompterScroll(speed, isPlaying) {
     };
   }, [isPlaying, tick]);
 
+  // Arrow-key scrolling (up/down)
+  useEffect(() => {
+    const SCROLL_STEP = 60;
+    const handleKeyDown = (e) => {
+      if (!scrollRef.current) return;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        scrollRef.current.scrollTop += SCROLL_STEP;
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        scrollRef.current.scrollTop -= SCROLL_STEP;
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const resetScroll = useCallback(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
   }, []);
