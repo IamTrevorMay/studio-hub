@@ -22,6 +22,14 @@ export function getFileExtension(name) {
   return (name.split('.').pop() || '').toLowerCase();
 }
 
+export function sanitizeFilename(title) {
+  return title
+    .replace(/[<>:"/\\|?*]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    || 'Untitled';
+}
+
 export function getMediaCategory(ext) {
   if (VIDEO_EXTENSIONS.has(ext)) return 'video';
   if (AUDIO_EXTENSIONS.has(ext)) return 'audio';

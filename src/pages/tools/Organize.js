@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { SUPPORTED_EXTENSIONS, getFileExtension, getMediaCategory } from './organize/organizeConstants';
-import { readMetadata, writeMetadata, readBackup, writeBackup, deleteBackup } from './organize/organizeStorage';
+import { SUPPORTED_EXTENSIONS, getFileExtension, getMediaCategory, sanitizeFilename } from './organize/organizeConstants';
+import { readMetadata, writeMetadata, readBackup, writeBackup, deleteBackup, writeXmpSidecar, removeXmpSidecar } from './organize/organizeStorage';
 import OrganizeToolbar from './organize/OrganizeToolbar';
 import FileGrid from './organize/FileGrid';
 import FileList from './organize/FileList';
@@ -150,7 +150,13 @@ export default function Organize({ onBack }) {
       for (const file of files) {
         const meta = metadata[file.path];
         if (isMetaComplete(meta)) {
-          backup[file.path] = { type: meta.type, subtype: meta.subtype };
+          const newName = sanitizeFilename(meta.title) + '.' + file.ext;
+          backup[file.path] = {
+            type: meta.type,
+            subtype: meta.subtype,
+            originalName: file.name,
+            newName,
+          };
           toMove.push(file);
         }
       }
@@ -159,22 +165,29 @@ export default function Organize({ onBack }) {
       await writeBackup(dirHandle, backup);
       setHasBackup(true);
 
-      // Move files
+      // Move and rename files, write XMP sidecars
       for (const file of toMove) {
         const meta = metadata[file.path];
+        const info = backup[file.path];
         const destParts = [meta.type, meta.subtype];
         const destDir = await getOrCreateSubdir(dirHandle, destParts);
-        const destPath = `${meta.type}/${meta.subtype}/${file.name}`;
+        const destPath = `${meta.type}/${meta.subtype}/${info.newName}`;
 
-        // Skip if already in correct location
-        if (file.path === destPath) continue;
+        // Skip if already in correct location with correct name
+        if (file.path === destPath) {
+          await writeXmpSidecar(destDir, info.newName, meta);
+          continue;
+        }
 
-        // Read file data, write to new location, remove old
+        // Read file data, write to new location with new name, remove old
         const fileData = await file.handle.getFile();
-        const newHandle = await destDir.getFileHandle(file.name, { create: true });
+        const newHandle = await destDir.getFileHandle(info.newName, { create: true });
         const writable = await newHandle.createWritable();
         await writable.write(await fileData.arrayBuffer());
         await writable.close();
+
+        // Write XMP sidecar next to the organized file
+        await writeXmpSidecar(destDir, info.newName, meta);
 
         // Remove from original location
         const origParts = file.path.split('/');
@@ -221,15 +234,12 @@ export default function Organize({ onBack }) {
       const backup = await readBackup(dirHandle);
       if (!backup) { setOrganizing(false); return; }
 
-      // For each entry in backup, move from Type/Subtype/filename back to root-level original path
+      // For each entry in backup, move from Type/Subtype/newName back to original path with original name
       for (const [origPath, info] of Object.entries(backup)) {
-        const fileName = origPath.split('/').pop();
-        const currentPath = `${info.type}/${info.subtype}/${fileName}`;
-        const currentParts = currentPath.split('/');
-        const currentName = currentParts.pop();
-        const currentParent = currentParts.length > 0
-          ? await getSubdir(dirHandle, currentParts)
-          : dirHandle;
+        const currentName = info.newName || origPath.split('/').pop();
+        const currentPath = `${info.type}/${info.subtype}/${currentName}`;
+        const currentParts = [info.type, info.subtype];
+        const currentParent = await getSubdir(dirHandle, currentParts);
 
         if (!currentParent) continue;
 
@@ -240,7 +250,10 @@ export default function Organize({ onBack }) {
           continue; // file not found at expected location
         }
 
-        // Read and write to original location
+        // Remove XMP sidecar from organized location
+        await removeXmpSidecar(currentParent, currentName);
+
+        // Read and write to original location with original name
         const origParts = origPath.split('/');
         const origName = origParts.pop();
         const origParent = origParts.length > 0
