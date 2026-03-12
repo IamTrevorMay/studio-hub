@@ -201,7 +201,13 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
 
   useEffect(() => {
     fetchVersions();
-    return () => { if (timeInterval.current) clearInterval(timeInterval.current); };
+    return () => {
+      if (timeInterval.current) clearInterval(timeInterval.current);
+      if (ytPlayerRef.current?.destroy) {
+        ytPlayerRef.current.destroy();
+        ytPlayerRef.current = null;
+      }
+    };
   }, [review.id]);
 
   // When active version changes, reload player and comments
@@ -253,6 +259,8 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
     setDuration(0);
 
     function create() {
+      // Guard: if the DOM ref is gone (component unmounted), bail out
+      if (!playerRef.current) return;
       ytPlayerRef.current = new window.YT.Player(playerRef.current, {
         videoId,
         playerVars: { autoplay: 0, modestbranding: 1, rel: 0, fs: 1 },
@@ -279,7 +287,16 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
         tag.src = 'https://www.youtube.com/iframe_api';
         document.head.appendChild(tag);
       }
-      window.onYouTubeIframeAPIReady = create;
+      // Use a polling approach instead of one-shot callback, since
+      // onYouTubeIframeAPIReady only fires once per page load
+      const poll = setInterval(() => {
+        if (window.YT && window.YT.Player) {
+          clearInterval(poll);
+          create();
+        }
+      }, 100);
+      // Store poll interval so cleanup can clear it
+      timeInterval.current = poll;
     }
   }
 
