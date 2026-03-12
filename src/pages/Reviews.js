@@ -536,10 +536,12 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
         </form>
       )}
 
-      {/* Video + Notes row — notes flush with video bottom */}
       <div style={styles.playerLayout}>
-        <div style={styles.videoWrap}>
-          <div ref={playerRef} style={styles.videoEmbed} />
+        {/* Video */}
+        <div style={styles.videoCol}>
+          <div style={styles.videoWrap}>
+            <div ref={playerRef} style={styles.videoEmbed} />
+          </div>
         </div>
 
         {/* Comments Column */}
@@ -919,8 +921,9 @@ const styles = {
   addVersionSubmit: { padding: '8px 16px', background: '#6366f1', border: 'none', borderRadius: '6px', color: '#fff', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
 
   // Player layout
-  playerLayout: { display: 'flex', gap: '24px' },
-  videoWrap: { position: 'relative', flex: 1, minWidth: 0, aspectRatio: '16/9', background: '#000', borderRadius: '12px', overflow: 'hidden' },
+  playerLayout: { display: 'flex', gap: '24px', alignItems: 'stretch' },
+  videoCol: { flex: 1, minWidth: 0 },
+  videoWrap: { position: 'relative', width: '100%', aspectRatio: '16/9', background: '#000', borderRadius: '12px', overflow: 'hidden' },
   videoEmbed: { width: '100%', height: '100%' },
   timeline: { position: 'relative', height: '12px', background: 'rgba(255,255,255,0.06)', borderRadius: '6px', marginTop: '8px', cursor: 'pointer', overflow: 'visible' },
   timelineProgress: { position: 'absolute', top: 0, left: 0, height: '100%', background: 'rgba(99,102,241,0.3)', borderRadius: '6px', transition: 'width 0.25s linear', pointerEvents: 'none' },
