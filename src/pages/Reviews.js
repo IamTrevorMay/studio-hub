@@ -199,8 +199,19 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
   const [filterResolved, setFilterResolved] = useState('all'); // all, open, resolved
   const timeInterval = useRef(null);
 
+  // Details section state (tied to review.id, not version)
+  const [thumbnails, setThumbnails] = useState([]);
+  const [titles, setTitles] = useState([]);
+  const [description, setDescription] = useState(review.description || '');
+  const [detailsComments, setDetailsComments] = useState([]);
+  const [newTitleText, setNewTitleText] = useState('');
+  const [showDetailComments, setShowDetailComments] = useState({}); // { 'thumbnail-id': true, ... }
+  const [detailCommentText, setDetailCommentText] = useState({});
+  const thumbnailInputRef = useRef(null);
+
   useEffect(() => {
     fetchVersions();
+    fetchDetails();
     return () => {
       if (timeInterval.current) clearInterval(timeInterval.current);
       if (ytPlayerRef.current?.destroy) {
@@ -373,6 +384,94 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
     if (ytPlayerRef.current?.seekTo) ytPlayerRef.current.seekTo(seconds, true);
   }
 
+  // ─── Details CRUD ──────────────────────────────────────────────────────────
+  async function fetchDetails() {
+    const [thumbRes, titleRes, commentRes] = await Promise.all([
+      supabase.from('review_thumbnails')
+        .select('*, uploader:profiles!review_thumbnails_uploaded_by_fkey(full_name)')
+        .eq('review_id', review.id).order('created_at', { ascending: true }),
+      supabase.from('review_titles')
+        .select('*, creator:profiles!review_titles_created_by_fkey(full_name)')
+        .eq('review_id', review.id).order('created_at', { ascending: true }),
+      supabase.from('review_details_comments')
+        .select('*, commenter:profiles!review_details_comments_user_id_fkey(full_name)')
+        .eq('review_id', review.id).order('created_at', { ascending: true }),
+    ]);
+    setThumbnails(thumbRes.data || []);
+    setTitles(titleRes.data || []);
+    setDetailsComments(commentRes.data || []);
+    // Refresh description from DB
+    const { data: rev } = await supabase.from('reviews').select('description').eq('id', review.id).single();
+    if (rev) setDescription(rev.description || '');
+  }
+
+  async function handleUploadThumbnail(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const ext = file.name.split('.').pop();
+    const path = `${review.id}/${Date.now()}.${ext}`;
+    const { error: uploadErr } = await supabase.storage.from('review-thumbnails').upload(path, file);
+    if (uploadErr) { console.error('Upload error:', uploadErr); return; }
+    await supabase.from('review_thumbnails').insert({
+      review_id: review.id, file_path: path, file_name: file.name, uploaded_by: profile.id,
+    });
+    fetchDetails();
+  }
+
+  async function handleDeleteThumbnail(thumb) {
+    await supabase.storage.from('review-thumbnails').remove([thumb.file_path]);
+    await supabase.from('review_thumbnails').delete().eq('id', thumb.id);
+    fetchDetails();
+  }
+
+  async function handleAddTitle() {
+    if (!newTitleText.trim()) return;
+    await supabase.from('review_titles').insert({
+      review_id: review.id, title: newTitleText.trim(), created_by: profile.id,
+    });
+    setNewTitleText('');
+    fetchDetails();
+  }
+
+  async function handleDeleteTitle(titleId) {
+    await supabase.from('review_titles').delete().eq('id', titleId);
+    fetchDetails();
+  }
+
+  async function handleSaveDescription() {
+    await supabase.from('reviews').update({ description }).eq('id', review.id);
+  }
+
+  async function handleAddDetailComment(targetType, targetId) {
+    const key = targetId || targetType;
+    const text = detailCommentText[key];
+    if (!text?.trim()) return;
+    await supabase.from('review_details_comments').insert({
+      review_id: review.id, target_type: targetType, target_id: targetId || null,
+      user_id: profile.id, content: text.trim(),
+    });
+    setDetailCommentText(prev => ({ ...prev, [key]: '' }));
+    fetchDetails();
+  }
+
+  async function handleDeleteDetailComment(commentId) {
+    await supabase.from('review_details_comments').delete().eq('id', commentId);
+    fetchDetails();
+  }
+
+  function toggleDetailComments(key) {
+    setShowDetailComments(prev => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  function getCommentsFor(targetType, targetId) {
+    return detailsComments.filter(c => c.target_type === targetType && (targetId ? c.target_id === targetId : !c.target_id));
+  }
+
+  function getThumbnailUrl(filePath) {
+    const { data } = supabase.storage.from('review-thumbnails').getPublicUrl(filePath);
+    return data?.publicUrl;
+  }
+
   // Filter comments
   const filteredComments = comments.filter(c => {
     if (filterResolved === 'open') return !c.is_resolved;
@@ -525,6 +624,168 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
           </div>
         </div>
       </div>
+
+      {/* ─── Details Section (tied to review.id, static across versions) ─── */}
+      <div style={styles.detailsSection}>
+        <h2 style={styles.detailsSectionTitle}>Details</h2>
+
+        {/* Thumbnails */}
+        <div style={styles.detailsBlock}>
+          <div style={styles.detailsBlockHeader}>
+            <h3 style={styles.detailsBlockTitle}>Thumbnails</h3>
+            <button onClick={() => thumbnailInputRef.current?.click()} style={styles.detailsAddBtn}>+ Upload</button>
+            <input ref={thumbnailInputRef} type="file" accept="image/*" onChange={handleUploadThumbnail} style={{ display: 'none' }} />
+          </div>
+          {thumbnails.length === 0 ? (
+            <p style={styles.detailsEmpty}>No thumbnails uploaded yet.</p>
+          ) : (
+            <div style={styles.thumbnailGrid}>
+              {thumbnails.map(t => {
+                const tComments = getCommentsFor('thumbnail', t.id);
+                const commentKey = `thumbnail-${t.id}`;
+                return (
+                  <div key={t.id} style={styles.thumbnailCard}>
+                    <img src={getThumbnailUrl(t.file_path)} alt={t.file_name} style={styles.thumbnailImg} />
+                    <div style={styles.thumbnailMeta}>
+                      <span style={styles.thumbnailUploader}>{t.uploader?.full_name}</span>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button onClick={() => toggleDetailComments(commentKey)} style={styles.detailsCommentToggle}>
+                          💬 {tComments.length > 0 ? tComments.length : ''}
+                        </button>
+                        {(t.uploaded_by === profile?.id || isAdmin) && (
+                          <button onClick={() => handleDeleteThumbnail(t)} style={styles.detailsDeleteBtn}>✕</button>
+                        )}
+                      </div>
+                    </div>
+                    {showDetailComments[commentKey] && (
+                      <div style={styles.detailsCommentThread}>
+                        {tComments.map(dc => (
+                          <div key={dc.id} style={styles.detailsComment}>
+                            <span style={styles.detailsCommentAuthor}>{dc.commenter?.full_name}</span>
+                            <span style={styles.detailsCommentText}>{dc.content}</span>
+                            {(dc.user_id === profile?.id || isAdmin) && (
+                              <button onClick={() => handleDeleteDetailComment(dc.id)} style={styles.detailsCommentDelete}>✕</button>
+                            )}
+                          </div>
+                        ))}
+                        <div style={styles.detailsCommentForm}>
+                          <input
+                            value={detailCommentText[t.id] || ''}
+                            onChange={(e) => setDetailCommentText(prev => ({ ...prev, [t.id]: e.target.value }))}
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleAddDetailComment('thumbnail', t.id); }}
+                            placeholder="Comment..."
+                            style={styles.detailsCommentInput}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Titles */}
+        <div style={styles.detailsBlock}>
+          <div style={styles.detailsBlockHeader}>
+            <h3 style={styles.detailsBlockTitle}>Title Suggestions</h3>
+          </div>
+          <div style={styles.titlesList}>
+            {titles.map(t => {
+              const tComments = getCommentsFor('title', t.id);
+              const commentKey = `title-${t.id}`;
+              return (
+                <div key={t.id} style={styles.titleItem}>
+                  <div style={styles.titleItemMain}>
+                    <span style={styles.titleText}>{t.title}</span>
+                    <span style={styles.titleCreator}>{t.creator?.full_name}</span>
+                    <button onClick={() => toggleDetailComments(commentKey)} style={styles.detailsCommentToggle}>
+                      💬 {tComments.length > 0 ? tComments.length : ''}
+                    </button>
+                    {(t.created_by === profile?.id || isAdmin) && (
+                      <button onClick={() => handleDeleteTitle(t.id)} style={styles.detailsDeleteBtn}>✕</button>
+                    )}
+                  </div>
+                  {showDetailComments[commentKey] && (
+                    <div style={styles.detailsCommentThread}>
+                      {tComments.map(dc => (
+                        <div key={dc.id} style={styles.detailsComment}>
+                          <span style={styles.detailsCommentAuthor}>{dc.commenter?.full_name}</span>
+                          <span style={styles.detailsCommentText}>{dc.content}</span>
+                          {(dc.user_id === profile?.id || isAdmin) && (
+                            <button onClick={() => handleDeleteDetailComment(dc.id)} style={styles.detailsCommentDelete}>✕</button>
+                          )}
+                        </div>
+                      ))}
+                      <div style={styles.detailsCommentForm}>
+                        <input
+                          value={detailCommentText[t.id] || ''}
+                          onChange={(e) => setDetailCommentText(prev => ({ ...prev, [t.id]: e.target.value }))}
+                          onKeyDown={(e) => { if (e.key === 'Enter') handleAddDetailComment('title', t.id); }}
+                          placeholder="Comment..."
+                          style={styles.detailsCommentInput}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div style={styles.titleAddForm}>
+            <input
+              value={newTitleText}
+              onChange={(e) => setNewTitleText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleAddTitle(); }}
+              placeholder="Suggest a title..."
+              style={styles.detailsCommentInput}
+            />
+            <button onClick={handleAddTitle} style={styles.detailsAddBtn} disabled={!newTitleText.trim()}>Add</button>
+          </div>
+        </div>
+
+        {/* Description */}
+        <div style={styles.detailsBlock}>
+          <div style={styles.detailsBlockHeader}>
+            <h3 style={styles.detailsBlockTitle}>Description</h3>
+          </div>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            onBlur={handleSaveDescription}
+            placeholder="Write the video description..."
+            style={styles.descriptionTextarea}
+          />
+          <div style={{ marginTop: '8px' }}>
+            <button onClick={() => toggleDetailComments('description')} style={styles.detailsCommentToggle}>
+              💬 Comments {getCommentsFor('description').length > 0 ? `(${getCommentsFor('description').length})` : ''}
+            </button>
+          </div>
+          {showDetailComments['description'] && (
+            <div style={styles.detailsCommentThread}>
+              {getCommentsFor('description').map(dc => (
+                <div key={dc.id} style={styles.detailsComment}>
+                  <span style={styles.detailsCommentAuthor}>{dc.commenter?.full_name}</span>
+                  <span style={styles.detailsCommentText}>{dc.content}</span>
+                  {(dc.user_id === profile?.id || isAdmin) && (
+                    <button onClick={() => handleDeleteDetailComment(dc.id)} style={styles.detailsCommentDelete}>✕</button>
+                  )}
+                </div>
+              ))}
+              <div style={styles.detailsCommentForm}>
+                <input
+                  value={detailCommentText['description'] || ''}
+                  onChange={(e) => setDetailCommentText(prev => ({ ...prev, description: e.target.value }))}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleAddDetailComment('description', null); }}
+                  placeholder="Comment on description..."
+                  style={styles.detailsCommentInput}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -624,7 +885,7 @@ function CommentCard({ comment: c, profile, isAdmin, onSeek, onResolve, onDelete
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 const styles = {
-  page: { padding: '32px 40px', height: '100%', display: 'flex', flexDirection: 'column' },
+  page: { padding: '32px 40px', minHeight: '100%', display: 'flex', flexDirection: 'column', overflow: 'auto' },
   topBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', flexShrink: 0 },
   pageTitle: { fontSize: '28px', fontWeight: 700, color: '#ffffff', margin: '0 0 4px 0', letterSpacing: '-0.5px' },
   pageSubtitle: { fontSize: '14px', color: 'rgba(255,255,255,0.4)', margin: 0 },
@@ -707,4 +968,34 @@ const styles = {
   replyForm: { display: 'flex', gap: '6px', marginTop: '8px' },
   replyInput: { flex: 1, padding: '6px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', color: '#fff', fontSize: '12px', fontFamily: 'inherit', outline: 'none' },
   replySubmitBtn: { padding: '6px 12px', background: '#6366f1', border: 'none', borderRadius: '6px', color: '#fff', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+
+  // Details section
+  detailsSection: { marginTop: '32px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '24px' },
+  detailsSectionTitle: { fontSize: '20px', fontWeight: 700, color: '#e2e8f0', margin: '0 0 20px', letterSpacing: '-0.3px' },
+  detailsBlock: { marginBottom: '24px', padding: '16px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px' },
+  detailsBlockHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' },
+  detailsBlockTitle: { fontSize: '14px', fontWeight: 700, color: '#a5b4fc', margin: 0, textTransform: 'uppercase', letterSpacing: '0.5px' },
+  detailsAddBtn: { padding: '5px 14px', background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '6px', color: '#a5b4fc', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  detailsEmpty: { color: 'rgba(255,255,255,0.25)', fontSize: '13px', margin: '4px 0' },
+  thumbnailGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' },
+  thumbnailCard: { background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', overflow: 'hidden' },
+  thumbnailImg: { width: '100%', aspectRatio: '16/9', objectFit: 'cover', display: 'block' },
+  thumbnailMeta: { padding: '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
+  thumbnailUploader: { fontSize: '11px', color: 'rgba(255,255,255,0.4)' },
+  titlesList: { display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '10px' },
+  titleItem: { background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px', padding: '8px 12px' },
+  titleItemMain: { display: 'flex', alignItems: 'center', gap: '10px' },
+  titleText: { flex: 1, fontSize: '14px', color: '#e2e8f0', fontWeight: 500 },
+  titleCreator: { fontSize: '11px', color: 'rgba(255,255,255,0.3)' },
+  titleAddForm: { display: 'flex', gap: '8px' },
+  descriptionTextarea: { width: '100%', minHeight: '100px', padding: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', color: '#fff', fontSize: '14px', fontFamily: 'inherit', outline: 'none', resize: 'vertical', lineHeight: 1.6, boxSizing: 'border-box' },
+  detailsCommentToggle: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit', padding: '2px 4px' },
+  detailsDeleteBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' },
+  detailsCommentThread: { marginTop: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.04)' },
+  detailsComment: { display: 'flex', alignItems: 'baseline', gap: '6px', padding: '4px 0', fontSize: '12px' },
+  detailsCommentAuthor: { fontWeight: 600, color: '#818cf8', fontSize: '11px', flexShrink: 0 },
+  detailsCommentText: { color: 'rgba(255,255,255,0.55)', fontSize: '12px' },
+  detailsCommentDelete: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.15)', cursor: 'pointer', fontSize: '10px', padding: '0 2px', marginLeft: 'auto', flexShrink: 0 },
+  detailsCommentForm: { marginTop: '6px' },
+  detailsCommentInput: { width: '100%', padding: '6px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', color: '#fff', fontSize: '12px', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' },
 };

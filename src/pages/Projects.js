@@ -191,6 +191,15 @@ export default function Projects({ onNavigate }) {
     fetchProjects();
   }
 
+  async function handleUpdateProject(projectId, updates) {
+    const { error } = await supabase.from('projects').update(updates).eq('id', projectId);
+    if (error) {
+      console.error('Error updating project:', error);
+      return;
+    }
+    fetchProjects();
+  }
+
   async function handleStatusChange(projectId, newStatus) {
     const project = projects.find(p => p.id === projectId);
     await supabase.from('projects').update({ status: newStatus }).eq('id', projectId);
@@ -1167,6 +1176,7 @@ export default function Projects({ onNavigate }) {
                 onDeleteChecklistItem={handleDeleteChecklistItem}
                 onAssignProjectStage={handleAssignProjectStage}
                 onRemoveProjectStageAssignment={handleRemoveProjectStageAssignment}
+                onUpdateProject={handleUpdateProject}
               />
             ))}
           </div>
@@ -1826,6 +1836,7 @@ function ProjectRow({
   isAdmin,
   onAddChecklistItem, onToggleChecklistItem, onDeleteChecklistItem,
   onAssignProjectStage, onRemoveProjectStageAssignment,
+  onUpdateProject,
 }) {
   const [assignUserId, setAssignUserId] = useState('');
   const [assignRole, setAssignRole] = useState('editor');
@@ -1836,6 +1847,20 @@ function ProjectRow({
   const [loadingComments, setLoadingComments] = useState(false);
   const [newChecklistContent, setNewChecklistContent] = useState('');
   const [showAllStages, setShowAllStages] = useState(false);
+
+  // Inline editing state
+  const [editingField, setEditingField] = useState(null);
+  const [editName, setEditName] = useState(project.name || '');
+  const [editType, setEditType] = useState(project.type || 'youtube_video');
+  const [editChannel, setEditChannel] = useState(project.channel || '');
+  const [editStartDate, setEditStartDate] = useState(project.start_date || '');
+  const [editDeadline, setEditDeadline] = useState(project.deadline || '');
+  const [editNotes, setEditNotes] = useState(project.notes || '');
+
+  function saveField(field, value) {
+    onUpdateProject(project.id, { [field]: value });
+    setEditingField(null);
+  }
 
   useEffect(() => {
     if (!isSelected) return;
@@ -1895,7 +1920,7 @@ function ProjectRow({
               {project.is_archived && <span style={styles.archivedTag}>Archived</span>}
             </div>
             <div style={styles.projectRowMeta}>
-              {project.type.replace('_', ' ')}
+              {PROJECT_TYPES.find(t => t.value === project.type)?.label || project.type.replace('_', ' ')}
               {project.channel && ` · ${project.channel}`}
               {' · '}
               <span style={{ color: daysLeft < 0 ? '#ef4444' : daysLeft <= 3 ? '#f97316' : 'inherit' }}>
@@ -1940,6 +1965,63 @@ function ProjectRow({
 
       {isSelected && (
         <div style={styles.projectDetail}>
+          {/* Editable Name / Type / Channel */}
+          <div style={styles.detailSection}>
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div style={{ flex: 2, minWidth: '180px' }}>
+                <label style={styles.detailLabel}>Name</label>
+                {editingField === 'name' ? (
+                  <input
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    onBlur={() => { if (editName.trim() && editName !== project.name) saveField('name', editName.trim()); else setEditingField(null); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { setEditName(project.name); setEditingField(null); } }}
+                    style={styles.inlineInput}
+                    autoFocus
+                  />
+                ) : (
+                  <div onClick={() => { setEditName(project.name || ''); setEditingField('name'); }} style={styles.inlineDisplay}>{project.name}</div>
+                )}
+              </div>
+              <div style={{ flex: 1, minWidth: '140px' }}>
+                <label style={styles.detailLabel}>Type</label>
+                {editingField === 'type' ? (
+                  <select
+                    value={editType}
+                    onChange={(e) => { setEditType(e.target.value); saveField('type', e.target.value); }}
+                    onBlur={() => setEditingField(null)}
+                    style={styles.inlineInput}
+                    autoFocus
+                  >
+                    {PROJECT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                ) : (
+                  <div onClick={() => { setEditType(project.type || 'youtube_video'); setEditingField('type'); }} style={styles.inlineDisplay}>
+                    {PROJECT_TYPES.find(t => t.value === project.type)?.label || project.type}
+                  </div>
+                )}
+              </div>
+              <div style={{ flex: 1, minWidth: '140px' }}>
+                <label style={styles.detailLabel}>Channel</label>
+                {editingField === 'channel' ? (
+                  <input
+                    value={editChannel}
+                    onChange={(e) => setEditChannel(e.target.value)}
+                    onBlur={() => { if (editChannel !== project.channel) saveField('channel', editChannel); else setEditingField(null); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { setEditChannel(project.channel || ''); setEditingField(null); } }}
+                    style={styles.inlineInput}
+                    placeholder="e.g. Main, Clips..."
+                    autoFocus
+                  />
+                ) : (
+                  <div onClick={() => { setEditChannel(project.channel || ''); setEditingField('channel'); }} style={styles.inlineDisplay}>
+                    {project.channel || <span style={{ color: 'rgba(255,255,255,0.2)' }}>No channel</span>}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
           {/* Status Pipeline */}
           <div style={styles.detailSection}>
             <h4 style={styles.detailLabel}>Status Pipeline</h4>
@@ -2084,21 +2166,64 @@ function ProjectRow({
           </div>
 
           {/* Notes */}
-          {project.notes && (
-            <div style={styles.detailSection}>
-              <h4 style={styles.detailLabel}>Notes</h4>
-              <p style={styles.notesText}>{project.notes}</p>
-            </div>
-          )}
+          <div style={styles.detailSection}>
+            <h4 style={styles.detailLabel}>Notes</h4>
+            {editingField === 'notes' ? (
+              <textarea
+                value={editNotes}
+                onChange={(e) => setEditNotes(e.target.value)}
+                onBlur={() => { if (editNotes !== (project.notes || '')) saveField('notes', editNotes); else setEditingField(null); }}
+                onKeyDown={(e) => { if (e.key === 'Escape') { setEditNotes(project.notes || ''); setEditingField(null); } }}
+                style={{ ...styles.inlineInput, minHeight: '80px', resize: 'vertical' }}
+                autoFocus
+              />
+            ) : (
+              <div onClick={() => { setEditNotes(project.notes || ''); setEditingField('notes'); }} style={{ ...styles.inlineDisplay, whiteSpace: 'pre-wrap', minHeight: '32px' }}>
+                {project.notes || <span style={{ color: 'rgba(255,255,255,0.2)' }}>Click to add notes...</span>}
+              </div>
+            )}
+          </div>
 
-          {/* Dates */}
+          {/* Timeline */}
           <div style={styles.detailSection}>
             <h4 style={styles.detailLabel}>Timeline</h4>
-            <p style={styles.datesText}>
-              {new Date(project.start_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-              {' → '}
-              {new Date(project.deadline).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-            </p>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <div>
+                <label style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', display: 'block', marginBottom: '4px' }}>Start</label>
+                {editingField === 'start_date' ? (
+                  <input
+                    type="date"
+                    value={editStartDate}
+                    onChange={(e) => setEditStartDate(e.target.value)}
+                    onBlur={() => { if (editStartDate !== project.start_date) saveField('start_date', editStartDate); else setEditingField(null); }}
+                    style={styles.inlineInput}
+                    autoFocus
+                  />
+                ) : (
+                  <div onClick={() => { setEditStartDate(project.start_date || ''); setEditingField('start_date'); }} style={styles.inlineDisplay}>
+                    {project.start_date ? new Date(project.start_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : <span style={{ color: 'rgba(255,255,255,0.2)' }}>Set start date</span>}
+                  </div>
+                )}
+              </div>
+              <span style={{ color: 'rgba(255,255,255,0.2)', marginTop: '16px' }}>→</span>
+              <div>
+                <label style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', display: 'block', marginBottom: '4px' }}>Deadline</label>
+                {editingField === 'deadline' ? (
+                  <input
+                    type="date"
+                    value={editDeadline}
+                    onChange={(e) => setEditDeadline(e.target.value)}
+                    onBlur={() => { if (editDeadline !== project.deadline) saveField('deadline', editDeadline); else setEditingField(null); }}
+                    style={styles.inlineInput}
+                    autoFocus
+                  />
+                ) : (
+                  <div onClick={() => { setEditDeadline(project.deadline || ''); setEditingField('deadline'); }} style={styles.inlineDisplay}>
+                    {project.deadline ? new Date(project.deadline).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : <span style={{ color: 'rgba(255,255,255,0.2)' }}>Set deadline</span>}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Stage Assignments */}
@@ -2730,6 +2855,19 @@ const styles = {
   },
   datesText: {
     fontSize: '14px', color: 'rgba(255,255,255,0.5)', margin: 0,
+  },
+  inlineInput: {
+    padding: '8px 10px', background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(99,102,241,0.4)', borderRadius: '6px',
+    color: '#fff', fontSize: '13px', fontFamily: 'inherit',
+    outline: 'none', width: '100%', boxSizing: 'border-box',
+  },
+  inlineDisplay: {
+    padding: '8px 10px', borderRadius: '6px',
+    border: '1px solid transparent', cursor: 'pointer',
+    fontSize: '13px', color: 'rgba(255,255,255,0.6)',
+    transition: 'border-color 0.15s, background 0.15s',
+    background: 'transparent',
   },
   assignmentList: { display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '10px' },
   assignmentItem: {
