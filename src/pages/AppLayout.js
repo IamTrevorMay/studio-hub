@@ -595,7 +595,7 @@ const styles = {
   },
   mainContent: {
     flex: 1,
-    overflow: 'hidden',
+    overflow: 'auto',
   },
   bellBtn: {
     position: 'relative',
