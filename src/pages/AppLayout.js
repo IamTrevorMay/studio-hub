@@ -124,11 +124,6 @@ export default function AppLayout() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showNotifications]);
 
-  const tabStyle = (tab) => ({
-    display: activeTab === tab ? 'block' : 'none',
-    height: '100%',
-    overflow: 'auto',
-  });
 
   return (
     <div style={styles.layout}>
@@ -282,19 +277,19 @@ export default function AppLayout() {
           </div>
         </div>
         <div style={styles.mainContent}>
-          <div style={tabStyle('dashboard')}><Dashboard onNavigate={navigateTo} /></div>
-          <div style={tabStyle('projects')}><Projects onNavigate={navigateTo} /></div>
-          <div style={tabStyle('calendar')}><Calendar onNavigate={navigateTo} /></div>
-          <div style={tabStyle('ideation')}><Ideation initialConceptId={navTarget} onConceptOpened={() => setNavTarget(null)} /></div>
-          <div style={tabStyle('resources')}><Resources /></div>
-          {isAdmin && <div style={tabStyle('analytics')}><Analytics /></div>}
-          <div style={tabStyle('research')}><Research /></div>
-          <div style={tabStyle('reviews')}><Reviews /></div>
-          <div style={tabStyle('goals')}><Goals /></div>
-          <div style={tabStyle('tools')}><Tools /></div>
-          <div style={tabStyle('channels')}><Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} /></div>
-          <div style={tabStyle('messages')}><Messages onNavigate={navigateTo} /></div>
-          {isAdmin && <div style={tabStyle('admin')}><AdminPanel initialTab={adminInitialTab} /></div>}
+          {activeTab === 'dashboard' && <Dashboard onNavigate={navigateTo} />}
+          {activeTab === 'projects' && <Projects onNavigate={navigateTo} />}
+          {activeTab === 'calendar' && <Calendar onNavigate={navigateTo} />}
+          {activeTab === 'ideation' && <Ideation initialConceptId={navTarget} onConceptOpened={() => setNavTarget(null)} />}
+          {activeTab === 'resources' && <Resources />}
+          {isAdmin && activeTab === 'analytics' && <Analytics />}
+          {activeTab === 'research' && <Research />}
+          {activeTab === 'reviews' && <Reviews />}
+          {activeTab === 'goals' && <Goals />}
+          {activeTab === 'tools' && <Tools />}
+          {activeTab === 'channels' && <Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} />}
+          {activeTab === 'messages' && <Messages onNavigate={navigateTo} />}
+          {isAdmin && activeTab === 'admin' && <AdminPanel initialTab={adminInitialTab} />}
         </div>
       </main>
       {profile?.mascot_enabled !== false && <Morty />}
