@@ -536,46 +536,10 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
         </form>
       )}
 
+      {/* Video + Notes row — notes flush with video bottom */}
       <div style={styles.playerLayout}>
-        {/* Video Column */}
-        <div style={styles.videoCol}>
-          <div style={styles.videoWrap}>
-            <div ref={playerRef} style={styles.videoEmbed} />
-          </div>
-
-          {/* Timeline */}
-          <div style={styles.timeline}>
-            {duration > 0 && (
-              <div style={{ ...styles.timelineProgress, width: `${(currentTime / duration) * 100}%` }} />
-            )}
-            {markers.map(m => (
-              <button
-                key={m.id}
-                onClick={() => seekTo(m.timestamp_seconds)}
-                style={{ ...styles.timelineMarker, left: `${m.pct}%` }}
-                title={`${formatTimestamp(m.timestamp_seconds)} — ${m.commenter?.full_name}: ${m.content.substring(0, 40)}`}
-              />
-            ))}
-          </div>
-
-          <div style={styles.timeDisplay}>
-            <span>{formatTimestamp(currentTime)}</span>
-            {duration > 0 && <span style={{ color: 'rgba(255,255,255,0.25)' }}> / {formatTimestamp(duration)}</span>}
-          </div>
-
-          {/* Comment Input */}
-          <form onSubmit={handleAddComment} style={styles.commentForm}>
-            <div style={styles.commentTimeTag}>
-              {formatTimestamp(ytPlayerRef.current?.getCurrentTime?.() || 0)}
-            </div>
-            <input
-              value={commentText}
-              onChange={(e) => setCommentText(e.target.value)}
-              placeholder="Add a note at current timestamp..."
-              style={styles.commentInput}
-            />
-            <button type="submit" style={styles.commentSubmitBtn} disabled={!commentText.trim()}>Post</button>
-          </form>
+        <div style={styles.videoWrap}>
+          <div ref={playerRef} style={styles.videoEmbed} />
         </div>
 
         {/* Comments Column */}
@@ -624,6 +588,37 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
           </div>
         </div>
       </div>
+
+      {/* Timeline + Comment Input (below video+notes row) */}
+      <div style={styles.timeline}>
+        {duration > 0 && (
+          <div style={{ ...styles.timelineProgress, width: `${(currentTime / duration) * 100}%` }} />
+        )}
+        {markers.map(m => (
+          <button
+            key={m.id}
+            onClick={() => seekTo(m.timestamp_seconds)}
+            style={{ ...styles.timelineMarker, left: `${m.pct}%` }}
+            title={`${formatTimestamp(m.timestamp_seconds)} — ${m.commenter?.full_name}: ${m.content.substring(0, 40)}`}
+          />
+        ))}
+      </div>
+      <div style={styles.timeDisplay}>
+        <span>{formatTimestamp(currentTime)}</span>
+        {duration > 0 && <span style={{ color: 'rgba(255,255,255,0.25)' }}> / {formatTimestamp(duration)}</span>}
+      </div>
+      <form onSubmit={handleAddComment} style={styles.commentForm}>
+        <div style={styles.commentTimeTag}>
+          {formatTimestamp(ytPlayerRef.current?.getCurrentTime?.() || 0)}
+        </div>
+        <input
+          value={commentText}
+          onChange={(e) => setCommentText(e.target.value)}
+          placeholder="Add a note at current timestamp..."
+          style={styles.commentInput}
+        />
+        <button type="submit" style={styles.commentSubmitBtn} disabled={!commentText.trim()}>Post</button>
+      </form>
 
       {/* ─── Details Section (tied to review.id, static across versions) ─── */}
       <div style={styles.detailsSection}>
@@ -925,8 +920,7 @@ const styles = {
 
   // Player layout
   playerLayout: { display: 'flex', gap: '24px' },
-  videoCol: { flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 },
-  videoWrap: { position: 'relative', width: '100%', aspectRatio: '16/9', background: '#000', borderRadius: '12px', overflow: 'hidden', flexShrink: 0 },
+  videoWrap: { position: 'relative', flex: 1, minWidth: 0, aspectRatio: '16/9', background: '#000', borderRadius: '12px', overflow: 'hidden' },
   videoEmbed: { width: '100%', height: '100%' },
   timeline: { position: 'relative', height: '12px', background: 'rgba(255,255,255,0.06)', borderRadius: '6px', marginTop: '8px', cursor: 'pointer', overflow: 'visible' },
   timelineProgress: { position: 'absolute', top: 0, left: 0, height: '100%', background: 'rgba(99,102,241,0.3)', borderRadius: '6px', transition: 'width 0.25s linear', pointerEvents: 'none' },
