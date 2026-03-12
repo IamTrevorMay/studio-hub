@@ -885,7 +885,7 @@ function CommentCard({ comment: c, profile, isAdmin, onSeek, onResolve, onDelete
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 const styles = {
-  page: { padding: '32px 40px', minHeight: '100%', display: 'flex', flexDirection: 'column', overflow: 'auto' },
+  page: { padding: '32px 40px' },
   topBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', flexShrink: 0 },
   pageTitle: { fontSize: '28px', fontWeight: 700, color: '#ffffff', margin: '0 0 4px 0', letterSpacing: '-0.5px' },
   pageSubtitle: { fontSize: '14px', color: 'rgba(255,255,255,0.4)', margin: 0 },
@@ -921,7 +921,7 @@ const styles = {
   addVersionSubmit: { padding: '8px 16px', background: '#6366f1', border: 'none', borderRadius: '6px', color: '#fff', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
 
   // Player layout
-  playerLayout: { display: 'flex', gap: '24px', flex: 1, minHeight: 0 },
+  playerLayout: { display: 'flex', gap: '24px', height: 'calc(100vh - 220px)', minHeight: '400px' },
   videoCol: { flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 },
   videoWrap: { position: 'relative', width: '100%', aspectRatio: '16/9', background: '#000', borderRadius: '12px', overflow: 'hidden', flexShrink: 0 },
   videoEmbed: { width: '100%', height: '100%' },
