@@ -628,6 +628,7 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
       {/* ─── Details Section (tied to review.id, static across versions) ─── */}
       <div style={styles.detailsSection}>
         <h2 style={styles.detailsSectionTitle}>Details</h2>
+        <div style={styles.detailsGrid}>
 
         {/* Thumbnails */}
         <div style={styles.detailsBlock}>
@@ -785,6 +786,8 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
             </div>
           )}
         </div>
+
+        </div>{/* end detailsGrid */}
       </div>
     </div>
   );
@@ -921,7 +924,7 @@ const styles = {
   addVersionSubmit: { padding: '8px 16px', background: '#6366f1', border: 'none', borderRadius: '6px', color: '#fff', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
 
   // Player layout
-  playerLayout: { display: 'flex', gap: '24px', height: 'calc(100vh - 220px)', minHeight: '400px' },
+  playerLayout: { display: 'flex', gap: '24px' },
   videoCol: { flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 },
   videoWrap: { position: 'relative', width: '100%', aspectRatio: '16/9', background: '#000', borderRadius: '12px', overflow: 'hidden', flexShrink: 0 },
   videoEmbed: { width: '100%', height: '100%' },
@@ -972,7 +975,8 @@ const styles = {
   // Details section
   detailsSection: { marginTop: '32px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '24px' },
   detailsSectionTitle: { fontSize: '20px', fontWeight: 700, color: '#e2e8f0', margin: '0 0 20px', letterSpacing: '-0.3px' },
-  detailsBlock: { marginBottom: '24px', padding: '16px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px' },
+  detailsGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' },
+  detailsBlock: { padding: '16px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', display: 'flex', flexDirection: 'column' },
   detailsBlockHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' },
   detailsBlockTitle: { fontSize: '14px', fontWeight: 700, color: '#a5b4fc', margin: 0, textTransform: 'uppercase', letterSpacing: '0.5px' },
   detailsAddBtn: { padding: '5px 14px', background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '6px', color: '#a5b4fc', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
