@@ -205,20 +205,26 @@ export default function Goals() {
 
     const { data: items } = await supabase
       .from('content_items')
-      .select('id, content_type, platform_account_id, published_at')
+      .select('id, content_type, platform_account_id, published_at, duration_seconds')
       .gte('published_at', yearStart)
       .lte('published_at', yearEnd)
       .in('platform_account_id', allAccountIds);
 
     if (!items) return;
 
+    const LONGFORM_THRESHOLD = 180; // seconds
     const result = {};
     for (const mg of mGoals) {
       const goalAccountIds = mg.platform_account_ids || [];
-      const filtered = items.filter(item =>
-        item.content_type === mg.content_type_filter &&
-        goalAccountIds.includes(item.platform_account_id)
-      );
+      const filtered = items.filter(item => {
+        if (!goalAccountIds.includes(item.platform_account_id)) return false;
+        if (mg.content_type_filter === 'video') {
+          // Longform: only videos longer than 3 minutes
+          return item.content_type === 'video' && (item.duration_seconds || 0) > LONGFORM_THRESHOLD;
+        }
+        // Short: explicitly tagged shorts OR short-duration videos
+        return item.content_type === 'short' || (item.content_type === 'video' && (item.duration_seconds || 0) <= LONGFORM_THRESHOLD);
+      });
       const byMonth = {};
       for (const item of filtered) {
         const month = item.published_at.substring(0, 7);
