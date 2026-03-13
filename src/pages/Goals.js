@@ -403,6 +403,11 @@ export default function Goals() {
     await supabase.from('initiatives').delete().eq('id', id);
     fetchAll();
   }
+  async function handleToggleInitComplete(initiative) {
+    const newVal = initiative.completed_at ? null : new Date().toISOString();
+    await supabase.from('initiatives').update({ completed_at: newVal }).eq('id', initiative.id);
+    fetchAll();
+  }
 
   // --- Monthly goal CRUD ---
   function openCreateMonthly(parentGoalId) {
@@ -485,8 +490,7 @@ export default function Goals() {
 
   const quarterlyGoals = goals.filter(g => g.category === 'quarterly');
   const yearlyGoals = goals.filter(g => g.category === 'yearly');
-  const quarterlyInits = initiatives.filter(i => i.category === 'quarterly');
-  const yearlyInits = initiatives.filter(i => i.category === 'yearly');
+  const sortedInitiatives = [...initiatives].sort((a, b) => (a.deadline || '').localeCompare(b.deadline || ''));
   const totalCount = goals.length + initiatives.length + monthlyGoals.length;
 
   if (loading) {
@@ -656,22 +660,12 @@ export default function Goals() {
             style={styles.input}
             autoFocus
           />
-          <div style={styles.formRow}>
-            <input
-              type="date"
-              value={initForm.deadline}
-              onChange={e => setInitForm({ ...initForm, deadline: e.target.value })}
-              style={{ ...styles.input, flex: 1 }}
-            />
-            <select
-              value={initForm.category}
-              onChange={e => setInitForm({ ...initForm, category: e.target.value })}
-              style={styles.select}
-            >
-              <option value="quarterly">Quarterly</option>
-              <option value="yearly">Yearly</option>
-            </select>
-          </div>
+          <input
+            type="date"
+            value={initForm.deadline}
+            onChange={e => setInitForm({ ...initForm, deadline: e.target.value })}
+            style={styles.input}
+          />
           <button type="submit" style={styles.submitBtn}>
             {editingInitId ? 'Update Initiative' : 'Create Initiative'}
           </button>
@@ -756,22 +750,19 @@ export default function Goals() {
       )}
 
       {/* Quarterly Section */}
-      {(quarterlyGoals.length > 0 || quarterlyInits.length > 0) && (
+      {quarterlyGoals.length > 0 && (
         <div style={styles.section}>
           <h2 style={styles.sectionTitle}>Quarterly</h2>
           <div style={styles.list}>
             {quarterlyGoals.map(g => (
               <GoalCard key={g.id} goal={g} rollupData={rollupData} accounts={accounts} isAdmin={isAdmin} onEdit={openEditGoal} onDelete={handleDeleteGoal} />
             ))}
-            {quarterlyInits.map(i => (
-              <InitiativeCard key={i.id} initiative={i} isAdmin={isAdmin} onEdit={openEditInit} onDelete={handleDeleteInit} />
-            ))}
           </div>
         </div>
       )}
 
       {/* Yearly Section */}
-      {(yearlyGoals.length > 0 || yearlyInits.length > 0) && (
+      {yearlyGoals.length > 0 && (
         <div style={styles.section}>
           <h2 style={styles.sectionTitle}>Yearly</h2>
           <div style={styles.list}>
@@ -867,8 +858,17 @@ export default function Goals() {
                 </div>
               );
             })}
-            {yearlyInits.map(i => (
-              <InitiativeCard key={i.id} initiative={i} isAdmin={isAdmin} onEdit={openEditInit} onDelete={handleDeleteInit} />
+          </div>
+        </div>
+      )}
+
+      {/* Road Map */}
+      {sortedInitiatives.length > 0 && (
+        <div style={styles.section}>
+          <h2 style={styles.sectionTitle}>Road Map</h2>
+          <div style={styles.list}>
+            {sortedInitiatives.map(i => (
+              <InitiativeCard key={i.id} initiative={i} isAdmin={isAdmin} onEdit={openEditInit} onDelete={handleDeleteInit} onToggleComplete={handleToggleInitComplete} />
             ))}
           </div>
         </div>
@@ -1057,38 +1057,48 @@ function GoalCard({ goal, rollupData, accounts, isAdmin, onEdit, onDelete }) {
   );
 }
 
-function InitiativeCard({ initiative, isAdmin, onEdit, onDelete }) {
+function InitiativeCard({ initiative, isAdmin, onEdit, onDelete, onToggleComplete }) {
   const dl = formatDeadline(initiative.deadline);
+  const done = !!initiative.completed_at;
 
   return (
-    <div style={styles.card}>
+    <div style={{ ...styles.card, ...(done ? styles.cardCompleted : {}) }}>
       <div style={styles.cardHeader}>
         <div style={styles.cardTitleRow}>
-          <span style={styles.initBadge}>Initiative</span>
-          <span style={styles.cardTitle}>{initiative.title}</span>
+          <span style={{ ...styles.initBadge, ...(done ? styles.initBadgeCompleted : {}) }}>
+            {done ? 'Completed' : 'Initiative'}
+          </span>
+          <span style={{ ...styles.cardTitle, ...(done ? { color: '#bbf7d0' } : {}) }}>{initiative.title}</span>
         </div>
-        {isAdmin && (
-          <div style={styles.cardActions}>
-            <button onClick={() => onEdit(initiative)} style={styles.iconBtn} title="Edit">
-              <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M14.5 3.5l2 2L6 16H4v-2L14.5 3.5z" />
-              </svg>
+        <div style={styles.cardActions}>
+          {isAdmin && (
+            <button onClick={() => onToggleComplete(initiative)} style={{ ...styles.completeBtn, ...(done ? styles.completeBtnDone : {}) }} title={done ? 'Mark incomplete' : 'Mark completed'}>
+              {done ? '✓ Done' : '✓ Complete'}
             </button>
-            <button onClick={() => onDelete(initiative.id)} style={styles.iconBtn} title="Delete">
-              <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M5 6h10M8 6V4h4v2M6 6v10a1 1 0 001 1h6a1 1 0 001-1V6" />
-              </svg>
-            </button>
-          </div>
-        )}
+          )}
+          {isAdmin && (
+            <>
+              <button onClick={() => onEdit(initiative)} style={styles.iconBtn} title="Edit">
+                <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M14.5 3.5l2 2L6 16H4v-2L14.5 3.5z" />
+                </svg>
+              </button>
+              <button onClick={() => onDelete(initiative.id)} style={styles.iconBtn} title="Delete">
+                <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M5 6h10M8 6V4h4v2M6 6v10a1 1 0 001 1h6a1 1 0 001-1V6" />
+                </svg>
+              </button>
+            </>
+          )}
+        </div>
       </div>
       <div style={styles.deadlineRow}>
-        <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke={dl.color} strokeWidth="1.5" style={{ flexShrink: 0 }}>
+        <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke={done ? '#4ade80' : dl.color} strokeWidth="1.5" style={{ flexShrink: 0 }}>
           <rect x="3" y="4" width="14" height="13" rx="2" />
           <path d="M3 8h14M7 2v4M13 2v4" />
         </svg>
-        <span style={{ color: dl.color, fontSize: '13px', fontWeight: 500 }}>{dl.label}</span>
-        <span style={{ color: dl.color, fontSize: '12px', opacity: 0.8 }}>{dl.sub}</span>
+        <span style={{ color: done ? '#4ade80' : dl.color, fontSize: '13px', fontWeight: 500 }}>{dl.label}</span>
+        {!done && <span style={{ color: dl.color, fontSize: '12px', opacity: 0.8 }}>{dl.sub}</span>}
       </div>
     </div>
   );
@@ -1396,6 +1406,30 @@ const styles = {
     padding: '3px 8px',
     borderRadius: '4px',
     flexShrink: 0,
+  },
+  initBadgeCompleted: {
+    color: '#4ade80',
+    background: 'rgba(74,222,128,0.15)',
+  },
+  cardCompleted: {
+    background: 'rgba(74,222,128,0.08)',
+    border: '1px solid rgba(74,222,128,0.2)',
+  },
+  completeBtn: {
+    padding: '3px 10px',
+    borderRadius: '6px',
+    border: '1px solid rgba(255,255,255,0.1)',
+    background: 'rgba(255,255,255,0.05)',
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: '11px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  completeBtnDone: {
+    background: 'rgba(74,222,128,0.15)',
+    borderColor: 'rgba(74,222,128,0.3)',
+    color: '#4ade80',
   },
   metricTag: {
     fontSize: '10px',
