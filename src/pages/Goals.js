@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -115,6 +115,19 @@ export default function Goals() {
   const [monthlyProgress, setMonthlyProgress] = useState({});
   const [expandedYearlyGoals, setExpandedYearlyGoals] = useState({});
   const [showMonthlyForm, setShowMonthlyForm] = useState(null);
+  const [showGoalDropdown, setShowGoalDropdown] = useState(false);
+  const goalDropdownRef = useRef(null);
+
+  useEffect(() => {
+    if (!showGoalDropdown) return;
+    function handleClick(e) {
+      if (goalDropdownRef.current && !goalDropdownRef.current.contains(e.target)) {
+        setShowGoalDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [showGoalDropdown]);
   const [editingMonthlyId, setEditingMonthlyId] = useState(null);
   const [monthlyForm, setMonthlyForm] = useState(EMPTY_MONTHLY);
 
@@ -492,12 +505,21 @@ export default function Goals() {
         </div>
         {isAdmin && (
           <div style={styles.headerActions}>
-            <button onClick={showGoalForm ? cancelGoalForm : openCreateGoal} style={styles.addBtn}>
-              {showGoalForm ? '✕ Cancel' : '+ Add Goal'}
-            </button>
-            <button onClick={showMonthlyForm === 'standalone' ? cancelMonthlyForm : () => openCreateMonthly(null)} style={styles.addBtn}>
-              {showMonthlyForm === 'standalone' ? '✕ Cancel' : '+ Monthly Goal'}
-            </button>
+            <div ref={goalDropdownRef} style={styles.dropdownWrap}>
+              <button onClick={() => setShowGoalDropdown(!showGoalDropdown)} style={styles.addBtn}>
+                + Goal ▾
+              </button>
+              {showGoalDropdown && (
+                <div style={styles.dropdown}>
+                  <button style={styles.dropdownItem} onClick={() => { setShowGoalDropdown(false); openCreateGoal(); }}>
+                    Yearly / Quarterly Goal
+                  </button>
+                  <button style={styles.dropdownItem} onClick={() => { setShowGoalDropdown(false); openCreateMonthly(null); }}>
+                    Monthly Goal
+                  </button>
+                </div>
+              )}
+            </div>
             <button onClick={showInitForm ? cancelInitForm : openCreateInit} style={styles.addBtn}>
               {showInitForm ? '✕ Cancel' : '+ Add Initiative'}
             </button>
@@ -1178,6 +1200,34 @@ const styles = {
     color: '#a5b4fc',
     fontSize: '13px',
     fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  dropdownWrap: {
+    position: 'relative',
+  },
+  dropdown: {
+    position: 'absolute',
+    top: '110%',
+    left: 0,
+    background: '#1e1e2e',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '10px',
+    overflow: 'hidden',
+    zIndex: 50,
+    minWidth: '180px',
+    boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+  },
+  dropdownItem: {
+    display: 'block',
+    width: '100%',
+    padding: '10px 16px',
+    border: 'none',
+    background: 'transparent',
+    color: '#e2e8f0',
+    fontSize: '13px',
+    fontWeight: 500,
+    textAlign: 'left',
     cursor: 'pointer',
     fontFamily: 'inherit',
   },
