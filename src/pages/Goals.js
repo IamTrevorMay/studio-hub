@@ -90,6 +90,7 @@ function displayTargetForMetric(key, value) {
 
 const EMPTY_GOAL = { title: '', current_value: '', target_value: '', category: 'quarterly', goal_type: 'manual', metrics: [], platform_account_ids: [] };
 const EMPTY_INITIATIVE = { title: '', deadline: '', category: 'quarterly' };
+const EMPTY_MONTHLY = { title: '', content_type_filter: 'video', target_value: '', platform_account_ids: [] };
 
 export default function Goals() {
   const { profile, isAdmin } = useAuth();
@@ -109,28 +110,44 @@ export default function Goals() {
   const [editingInitId, setEditingInitId] = useState(null);
   const [initForm, setInitForm] = useState(EMPTY_INITIATIVE);
 
+  // Monthly goals state
+  const [monthlyGoals, setMonthlyGoals] = useState([]);
+  const [monthlyProgress, setMonthlyProgress] = useState({});
+  const [expandedYearlyGoals, setExpandedYearlyGoals] = useState({});
+  const [showMonthlyForm, setShowMonthlyForm] = useState(null);
+  const [editingMonthlyId, setEditingMonthlyId] = useState(null);
+  const [monthlyForm, setMonthlyForm] = useState(EMPTY_MONTHLY);
+
   useEffect(() => {
     if (profile?.id) fetchAll();
   }, [profile?.id]);
 
   async function fetchAll() {
     try {
-      const [goalsRes, initRes, acctRes] = await Promise.all([
+      const [goalsRes, initRes, acctRes, monthlyRes] = await Promise.all([
         supabase.from('goals').select('*').order('created_at', { ascending: false }),
         supabase.from('initiatives').select('*').order('deadline', { ascending: true }),
         supabase.from('platform_accounts').select('*').eq('is_active', true).order('platform'),
+        supabase.from('monthly_goals').select('*').order('created_at'),
       ]);
       if (goalsRes.error) throw goalsRes.error;
       if (initRes.error) throw initRes.error;
       const goalsData = goalsRes.data || [];
+      const monthlyData = monthlyRes.data || [];
       setGoals(goalsData);
       setInitiatives(initRes.data || []);
       setAccounts(acctRes.data || []);
+      setMonthlyGoals(monthlyData);
 
       // Fetch rollup data for metric goals
       const metricGoals = goalsData.filter(g => g.goal_type === 'metric');
       if (metricGoals.length > 0) {
         await fetchRollupData(metricGoals);
+      }
+
+      // Fetch progress for monthly goals
+      if (monthlyData.length > 0) {
+        await fetchMonthlyProgress(monthlyData);
       }
     } catch (err) {
       console.error('Error fetching:', err);
@@ -177,6 +194,39 @@ export default function Goals() {
       result[goal.id] = sums;
     }
     setRollupData(result);
+  }
+
+  async function fetchMonthlyProgress(mGoals) {
+    const now = new Date();
+    const yearStart = `${now.getFullYear()}-01-01`;
+    const yearEnd = now.toISOString();
+    const allAccountIds = [...new Set(mGoals.flatMap(g => g.platform_account_ids || []))];
+    if (!allAccountIds.length) return;
+
+    const { data: items } = await supabase
+      .from('content_items')
+      .select('id, content_type, platform_account_id, published_at')
+      .gte('published_at', yearStart)
+      .lte('published_at', yearEnd)
+      .in('platform_account_id', allAccountIds);
+
+    if (!items) return;
+
+    const result = {};
+    for (const mg of mGoals) {
+      const goalAccountIds = mg.platform_account_ids || [];
+      const filtered = items.filter(item =>
+        item.content_type === mg.content_type_filter &&
+        goalAccountIds.includes(item.platform_account_id)
+      );
+      const byMonth = {};
+      for (const item of filtered) {
+        const month = item.published_at.substring(0, 7);
+        byMonth[month] = (byMonth[month] || 0) + 1;
+      }
+      result[mg.id] = byMonth;
+    }
+    setMonthlyProgress(result);
   }
 
   // --- Goal CRUD ---
@@ -296,6 +346,59 @@ export default function Goals() {
     fetchAll();
   }
 
+  // --- Monthly goal CRUD ---
+  function openCreateMonthly(parentGoalId) {
+    setEditingMonthlyId(null);
+    setMonthlyForm(EMPTY_MONTHLY);
+    setShowMonthlyForm(parentGoalId);
+  }
+  function openEditMonthly(mg) {
+    setEditingMonthlyId(mg.id);
+    setMonthlyForm({
+      title: mg.title,
+      content_type_filter: mg.content_type_filter,
+      target_value: String(mg.target_value),
+      platform_account_ids: mg.platform_account_ids || [],
+    });
+    setShowMonthlyForm(mg.parent_goal_id);
+  }
+  function cancelMonthlyForm() {
+    setShowMonthlyForm(null);
+    setEditingMonthlyId(null);
+    setMonthlyForm(EMPTY_MONTHLY);
+  }
+  async function handleMonthlySubmit(e, parentGoalId) {
+    e.preventDefault();
+    const title = monthlyForm.title.trim();
+    if (!title || !monthlyForm.platform_account_ids.length) {
+      alert('Please fill in all fields and select at least one platform.');
+      return;
+    }
+    const target_value = parseInt(monthlyForm.target_value) || 1;
+    if (editingMonthlyId) {
+      const { error } = await supabase.from('monthly_goals').update({
+        title, content_type_filter: monthlyForm.content_type_filter,
+        target_value, platform_account_ids: monthlyForm.platform_account_ids,
+        updated_at: new Date().toISOString(),
+      }).eq('id', editingMonthlyId);
+      if (error) { alert('Error: ' + error.message); return; }
+    } else {
+      const { error } = await supabase.from('monthly_goals').insert({
+        title, content_type_filter: monthlyForm.content_type_filter,
+        target_value, platform_account_ids: monthlyForm.platform_account_ids,
+        parent_goal_id: parentGoalId, created_by: profile.id,
+      });
+      if (error) { alert('Error: ' + error.message); return; }
+    }
+    cancelMonthlyForm();
+    fetchAll();
+  }
+  async function handleDeleteMonthly(id) {
+    if (!window.confirm('Delete this monthly goal?')) return;
+    await supabase.from('monthly_goals').delete().eq('id', id);
+    fetchAll();
+  }
+
   // --- Metric form helpers ---
   function toggleMetric(key) {
     setGoalForm(prev => {
@@ -313,11 +416,19 @@ export default function Goals() {
     });
   }
 
+  function toggleMonthlyPlatformAccount(id) {
+    setMonthlyForm(prev => {
+      const cur = prev.platform_account_ids || [];
+      if (cur.includes(id)) return { ...prev, platform_account_ids: cur.filter(a => a !== id) };
+      return { ...prev, platform_account_ids: [...cur, id] };
+    });
+  }
+
   const quarterlyGoals = goals.filter(g => g.category === 'quarterly');
   const yearlyGoals = goals.filter(g => g.category === 'yearly');
   const quarterlyInits = initiatives.filter(i => i.category === 'quarterly');
   const yearlyInits = initiatives.filter(i => i.category === 'yearly');
-  const totalCount = goals.length + initiatives.length;
+  const totalCount = goals.length + initiatives.length + monthlyGoals.length;
 
   if (loading) {
     return <div style={styles.page}><div style={styles.loading}>Loading goals...</div></div>;
@@ -516,15 +627,169 @@ export default function Goals() {
         <div style={styles.section}>
           <h2 style={styles.sectionTitle}>Yearly</h2>
           <div style={styles.list}>
-            {yearlyGoals.map(g => (
-              <GoalCard key={g.id} goal={g} rollupData={rollupData} accounts={accounts} isAdmin={isAdmin} onEdit={openEditGoal} onDelete={handleDeleteGoal} />
-            ))}
+            {yearlyGoals.map(g => {
+              const childGoals = monthlyGoals.filter(mg => mg.parent_goal_id === g.id);
+              const isExpanded = expandedYearlyGoals[g.id];
+              return (
+                <div key={g.id}>
+                  <GoalCard goal={g} rollupData={rollupData} accounts={accounts} isAdmin={isAdmin} onEdit={openEditGoal} onDelete={handleDeleteGoal} />
+                  {(childGoals.length > 0 || isAdmin) && (
+                    <div style={styles.monthlyToggleRow}>
+                      <button
+                        onClick={() => setExpandedYearlyGoals(prev => ({ ...prev, [g.id]: !prev[g.id] }))}
+                        style={styles.monthlyToggleBtn}
+                      >
+                        <span style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)', display: 'inline-block', transition: 'transform 0.15s', fontSize: '10px' }}>▶</span>
+                        {' '}{childGoals.length} monthly goal{childGoals.length !== 1 ? 's' : ''}
+                      </button>
+                    </div>
+                  )}
+                  {isExpanded && (
+                    <div style={styles.monthlyNest}>
+                      {childGoals.map(mg => (
+                        <MonthlyGoalCard
+                          key={mg.id}
+                          goal={mg}
+                          progress={monthlyProgress[mg.id] || {}}
+                          accounts={accounts}
+                          isAdmin={isAdmin}
+                          onEdit={openEditMonthly}
+                          onDelete={handleDeleteMonthly}
+                        />
+                      ))}
+                      {isAdmin && showMonthlyForm === g.id ? (
+                        <form onSubmit={(e) => handleMonthlySubmit(e, g.id)} style={styles.monthlyFormBox}>
+                          <div style={styles.formLabel}>{editingMonthlyId ? 'Edit Monthly Goal' : 'New Monthly Goal'}</div>
+                          <input
+                            value={monthlyForm.title}
+                            onChange={e => setMonthlyForm({ ...monthlyForm, title: e.target.value })}
+                            placeholder="Monthly goal title"
+                            style={styles.input}
+                            autoFocus
+                          />
+                          <div style={styles.formRow}>
+                            <button type="button" onClick={() => setMonthlyForm({ ...monthlyForm, content_type_filter: 'video' })}
+                              style={{ ...styles.typeBtn, ...(monthlyForm.content_type_filter === 'video' ? styles.typeBtnActive : {}) }}>
+                              Longform Video
+                            </button>
+                            <button type="button" onClick={() => setMonthlyForm({ ...monthlyForm, content_type_filter: 'short' })}
+                              style={{ ...styles.typeBtn, ...(monthlyForm.content_type_filter === 'short' ? styles.typeBtnActive : {}) }}>
+                              Short
+                            </button>
+                          </div>
+                          <input
+                            value={monthlyForm.target_value}
+                            onChange={e => setMonthlyForm({ ...monthlyForm, target_value: e.target.value })}
+                            placeholder="How many per month?"
+                            style={styles.input}
+                            inputMode="numeric"
+                          />
+                          <div>
+                            <div style={styles.formSubLabel}>Platforms</div>
+                            <div style={styles.chipRow}>
+                              {accounts.map(acct => {
+                                const selected = (monthlyForm.platform_account_ids || []).includes(acct.id);
+                                const pm = PLATFORM_META[acct.platform] || {};
+                                return (
+                                  <button key={acct.id} type="button" onClick={() => toggleMonthlyPlatformAccount(acct.id)}
+                                    style={{
+                                      ...styles.chip,
+                                      ...(selected ? { background: (pm.color || '#666') + '22', borderColor: (pm.color || '#666') + '66', color: pm.color || '#fff' } : {}),
+                                    }}>
+                                    {acct.account_name}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          <div style={styles.formRow}>
+                            <button type="submit" style={styles.submitBtn}>
+                              {editingMonthlyId ? 'Update' : 'Create'}
+                            </button>
+                            <button type="button" onClick={cancelMonthlyForm} style={{ ...styles.addBtn, color: 'rgba(255,255,255,0.5)' }}>
+                              Cancel
+                            </button>
+                          </div>
+                        </form>
+                      ) : isAdmin && (
+                        <button onClick={() => openCreateMonthly(g.id)} style={styles.addMonthlyBtn}>+ Monthly Goal</button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
             {yearlyInits.map(i => (
               <InitiativeCard key={i.id} initiative={i} isAdmin={isAdmin} onEdit={openEditInit} onDelete={handleDeleteInit} />
             ))}
           </div>
         </div>
       )}
+
+      {/* Monthly Results */}
+      {monthlyGoals.length > 0 && (() => {
+        const now = new Date();
+        const currentMonthIdx = now.getMonth();
+        const year = now.getFullYear();
+        const hasResults = monthlyGoals.some(mg => {
+          const createdDate = new Date(mg.created_at);
+          const startMonth = createdDate.getFullYear() === year ? createdDate.getMonth() : 0;
+          return startMonth < currentMonthIdx;
+        });
+        if (!hasResults) return null;
+        return (
+          <div style={styles.section}>
+            <h2 style={styles.sectionTitle}>Monthly Results</h2>
+            <div style={styles.resultsList}>
+              {monthlyGoals.map(mg => {
+                const createdDate = new Date(mg.created_at);
+                const createdMonthIdx = createdDate.getFullYear() === year ? createdDate.getMonth() : 0;
+                const createdYear = createdDate.getFullYear();
+                const progress = monthlyProgress[mg.id] || {};
+                const contentLabel = mg.content_type_filter === 'video' ? 'Video' : 'Short';
+                const months = [];
+                for (let m = 0; m < currentMonthIdx; m++) {
+                  if (createdYear === year && m < createdMonthIdx) continue;
+                  if (createdYear > year) continue;
+                  const monthKey = `${year}-${String(m + 1).padStart(2, '0')}`;
+                  const count = progress[monthKey] || 0;
+                  const met = count >= mg.target_value;
+                  months.push({
+                    monthKey,
+                    label: new Date(year, m).toLocaleDateString('en-US', { month: 'short' }),
+                    count,
+                    met,
+                  });
+                }
+                if (months.length === 0) return null;
+                return (
+                  <div key={mg.id} style={styles.resultsRow}>
+                    <div style={styles.resultsLabel}>
+                      <span style={styles.resultsGoalTitle}>{mg.title}</span>
+                      <span style={styles.resultsGoalMeta}>{contentLabel} · {mg.target_value}/mo</span>
+                    </div>
+                    <div style={styles.resultsMonths}>
+                      {months.map(m => (
+                        <div key={m.monthKey} style={{
+                          ...styles.resultsCell,
+                          background: m.met ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.1)',
+                          borderColor: m.met ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.2)',
+                        }}>
+                          <div style={styles.resultsCellMonth}>{m.label}</div>
+                          <div style={{
+                            ...styles.resultsCellCount,
+                            color: m.met ? '#4ade80' : '#f87171',
+                          }}>{m.count}/{mg.target_value}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -677,6 +942,71 @@ function InitiativeCard({ initiative, isAdmin, onEdit, onDelete }) {
         <span style={{ color: dl.color, fontSize: '13px', fontWeight: 500 }}>{dl.label}</span>
         <span style={{ color: dl.color, fontSize: '12px', opacity: 0.8 }}>{dl.sub}</span>
       </div>
+    </div>
+  );
+}
+
+function MonthlyGoalCard({ goal, progress, accounts, isAdmin, onEdit, onDelete }) {
+  const now = new Date();
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const currentCount = progress[currentMonth] || 0;
+  const target = goal.target_value || 1;
+  const pct = Math.min(currentCount / target, 1);
+  const pctDisplay = Math.round(pct * 100);
+  const color = progressColor(pct);
+
+  const monthLabel = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const contentLabel = goal.content_type_filter === 'video' ? 'Video' : 'Short';
+  const contentColor = goal.content_type_filter === 'video' ? '#f472b6' : '#38bdf8';
+
+  const platformLabels = (goal.platform_account_ids || []).map(id => {
+    const acct = accounts.find(a => a.id === id);
+    return acct ? acct.account_name : '';
+  }).filter(Boolean);
+
+  return (
+    <div style={styles.monthlyCard}>
+      <div style={styles.cardHeader}>
+        <div style={styles.cardTitleRow}>
+          <span style={styles.monthlyBadge}>Monthly</span>
+          <span style={{
+            fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px',
+            color: contentColor, background: contentColor + '18', padding: '3px 8px', borderRadius: '4px', flexShrink: 0,
+          }}>{contentLabel}</span>
+          <span style={styles.cardTitle}>{goal.title}</span>
+        </div>
+        {isAdmin && (
+          <div style={styles.cardActions}>
+            <button onClick={() => onEdit(goal)} style={styles.iconBtn} title="Edit">
+              <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M14.5 3.5l2 2L6 16H4v-2L14.5 3.5z" />
+              </svg>
+            </button>
+            <button onClick={() => onDelete(goal.id)} style={styles.iconBtn} title="Delete">
+              <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M5 6h10M8 6V4h4v2M6 6v10a1 1 0 001 1h6a1 1 0 001-1V6" />
+              </svg>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {platformLabels.length > 0 && (
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
+          {platformLabels.map((name, i) => (
+            <span key={i} style={styles.platformTag}>{name}</span>
+          ))}
+        </div>
+      )}
+
+      <div style={styles.barBg}>
+        <div style={{ ...styles.barFill, width: `${pctDisplay}%`, background: color }} />
+      </div>
+      <div style={styles.cardFooter}>
+        <span style={styles.cardNumbers}>{currentCount} / {target}</span>
+        <span style={{ ...styles.cardPct, color }}>{pctDisplay}%</span>
+      </div>
+      <div style={styles.cardUpdated}>{monthLabel} — live</div>
     </div>
   );
 }
@@ -969,5 +1299,119 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
+  },
+  monthlyToggleRow: {
+    marginTop: '-1px',
+    paddingLeft: '16px',
+  },
+  monthlyToggleBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '6px 12px',
+    border: 'none',
+    background: 'transparent',
+    color: 'rgba(255,255,255,0.35)',
+    fontSize: '12px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  monthlyNest: {
+    marginLeft: '16px',
+    paddingLeft: '16px',
+    borderLeft: '2px solid rgba(255,255,255,0.06)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    marginBottom: '8px',
+  },
+  monthlyCard: {
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '10px',
+    padding: '14px',
+    width: '100%',
+  },
+  monthlyBadge: {
+    fontSize: '10px',
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+    color: '#fbbf24',
+    background: 'rgba(251,191,36,0.1)',
+    padding: '3px 8px',
+    borderRadius: '4px',
+    flexShrink: 0,
+  },
+  monthlyFormBox: {
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '10px',
+    padding: '14px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px',
+  },
+  addMonthlyBtn: {
+    padding: '6px 14px',
+    borderRadius: '8px',
+    border: '1px dashed rgba(255,255,255,0.12)',
+    background: 'transparent',
+    color: 'rgba(255,255,255,0.3)',
+    fontSize: '12px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    alignSelf: 'flex-start',
+  },
+  resultsList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px',
+  },
+  resultsRow: {
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '10px',
+    padding: '14px',
+  },
+  resultsLabel: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: '10px',
+    marginBottom: '10px',
+  },
+  resultsGoalTitle: {
+    fontSize: '13px',
+    fontWeight: 600,
+    color: '#e2e8f0',
+  },
+  resultsGoalMeta: {
+    fontSize: '11px',
+    color: 'rgba(255,255,255,0.35)',
+  },
+  resultsMonths: {
+    display: 'flex',
+    gap: '6px',
+    flexWrap: 'wrap',
+  },
+  resultsCell: {
+    border: '1px solid',
+    borderRadius: '8px',
+    padding: '6px 10px',
+    textAlign: 'center',
+    minWidth: '52px',
+  },
+  resultsCellMonth: {
+    fontSize: '10px',
+    fontWeight: 600,
+    color: 'rgba(255,255,255,0.4)',
+    textTransform: 'uppercase',
+    marginBottom: '2px',
+  },
+  resultsCellCount: {
+    fontSize: '13px',
+    fontWeight: 700,
   },
 };
