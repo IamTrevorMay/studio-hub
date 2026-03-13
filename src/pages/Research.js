@@ -56,6 +56,46 @@ export default function Research() {
   const [currentCardDate, setCurrentCardDate] = useState(null);
   const [cardsLoading, setCardsLoading] = useState(false);
   const [selectedCard, setSelectedCard] = useState(null);
+  const [regeneratingBrief, setRegeneratingBrief] = useState(false);
+  const [regeneratingCards, setRegeneratingCards] = useState(false);
+
+  const handleRegenerateBrief = async () => {
+    if (!window.confirm('Regenerate the brief for this date? This will delete the existing brief and create a new one.')) return;
+    setRegeneratingBrief(true);
+    try {
+      const res = await fetch('https://www.tritonapex.io/api/cron/briefs?force=true', {
+        headers: { Authorization: `Bearer ${process.env.REACT_APP_TRITON_CRON_SECRET}` },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to regenerate brief');
+      await fetchBriefs();
+      if (currentBriefDate) await fetchFullBrief(currentBriefDate);
+    } catch (err) {
+      console.error('Error regenerating brief:', err);
+      alert('Failed to regenerate brief: ' + err.message);
+    } finally {
+      setRegeneratingBrief(false);
+    }
+  };
+
+  const handleRegenerateCards = async () => {
+    if (!window.confirm('Regenerate cards for this date? This will delete existing cards and create new ones.')) return;
+    setRegeneratingCards(true);
+    try {
+      const res = await fetch('https://www.tritonapex.io/api/cron/daily-cards?force=true', {
+        headers: { Authorization: `Bearer ${process.env.REACT_APP_TRITON_CRON_SECRET}` },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to regenerate cards');
+      await fetchCardsArchive();
+      if (currentCardDate) await fetchCardsForDate(currentCardDate);
+    } catch (err) {
+      console.error('Error regenerating cards:', err);
+      alert('Failed to regenerate cards: ' + err.message);
+    } finally {
+      setRegeneratingCards(false);
+    }
+  };
 
   const fetchArticles = useCallback(async () => {
     try {
@@ -674,6 +714,13 @@ export default function Research() {
                     <button onClick={() => openItem(currentBrief, 'brief')} style={s.briefActionBtn}>
                       Full View
                     </button>
+                    <button onClick={handleRegenerateBrief} disabled={regeneratingBrief} style={{ ...s.briefActionBtn, marginLeft: 'auto', opacity: regeneratingBrief ? 0.5 : 1 }}>
+                      {regeneratingBrief ? (
+                        <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite', marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Regenerating…</>
+                      ) : (
+                        <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Regenerate</>
+                      )}
+                    </button>
                   </div>
                 </div>
               ) : currentBriefDate ? (
@@ -784,6 +831,13 @@ export default function Research() {
                     style={s.briefNavBtn}
                   >
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 3l5 5-5 5" /></svg>
+                  </button>
+                  <button onClick={handleRegenerateCards} disabled={regeneratingCards} style={{ ...s.briefActionBtn, marginLeft: '12px', opacity: regeneratingCards ? 0.5 : 1 }}>
+                    {regeneratingCards ? (
+                      <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite', marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Regenerating…</>
+                    ) : (
+                      <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Regenerate</>
+                    )}
                   </button>
                 </div>
               )}
