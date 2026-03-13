@@ -47,6 +47,9 @@ const DELIVERABLE_STAGE_LABELS = {
   sent_for_review: 'Sent for Review', posted: 'Posted',
 };
 
+const CHECKIN_COLORS = { 1: '#ef4444', 2: '#f97316', 3: '#eab308', 4: '#84cc16', 5: '#22c55e' };
+const CHECKIN_LABELS = { 1: 'Red', 2: 'Orange', 3: 'Yellow', 4: 'Light Green', 5: 'Green' };
+
 export default function Dashboard({ onNavigate }) {
   const { profile, updateProfile, isAdmin, isAssistant } = useAuth();
   const { safeQuery } = useSupabaseQuery();
@@ -95,6 +98,15 @@ export default function Dashboard({ onNavigate }) {
   // Sponsor deliverables state
   const [sponsorDeliverables, setSponsorDeliverables] = useState([]);
   const [sponsorDelLoading, setSponsorDelLoading] = useState(false);
+
+  // Check In state
+  const [todayCheckin, setTodayCheckin] = useState(null);
+  const [checkinLoading, setCheckinLoading] = useState(false);
+  const [checkinRating, setCheckinRating] = useState(null);
+  const [checkinNote, setCheckinNote] = useState('');
+  const [checkinEditing, setCheckinEditing] = useState(false);
+  const [checkinHistory, setCheckinHistory] = useState([]);
+  const [checkinView, setCheckinView] = useState('week'); // 'week' | 'month'
 
   useEffect(() => {
     if (!statusMenuOpen) return;
@@ -236,6 +248,67 @@ export default function Dashboard({ onNavigate }) {
     }
   }, [profile?.id]);
 
+  const fetchCheckins = useCallback(async () => {
+    if (!profile?.id) return;
+    setCheckinLoading(true);
+    try {
+      const now = new Date();
+      const startDate = new Date(now);
+      startDate.setDate(now.getDate() - 30);
+      const startStr = startDate.toISOString().split('T')[0];
+
+      const { data, error } = await supabase
+        .from('daily_checkins')
+        .select('*')
+        .eq('user_id', profile.id)
+        .gte('date', startStr)
+        .order('date', { ascending: false });
+
+      if (error) throw error;
+      const all = data || [];
+      const todayRecord = all.find(r => r.date === todayStr) || null;
+      setTodayCheckin(todayRecord);
+      if (todayRecord) {
+        setCheckinRating(todayRecord.rating);
+        setCheckinNote(todayRecord.note || '');
+      }
+      setCheckinHistory(all);
+    } catch (err) {
+      console.error('Error fetching checkins:', err);
+    } finally {
+      setCheckinLoading(false);
+    }
+  }, [profile?.id, todayStr]);
+
+  const saveCheckin = useCallback(async () => {
+    if (!checkinRating || !profile?.id) return;
+    try {
+      if (todayCheckin) {
+        const { data, error } = await supabase
+          .from('daily_checkins')
+          .update({ rating: checkinRating, note: checkinNote || null })
+          .eq('id', todayCheckin.id)
+          .select()
+          .single();
+        if (error) throw error;
+        setTodayCheckin(data);
+        setCheckinHistory(prev => prev.map(r => r.id === data.id ? data : r));
+      } else {
+        const { data, error } = await supabase
+          .from('daily_checkins')
+          .insert({ user_id: profile.id, date: todayStr, rating: checkinRating, note: checkinNote || null })
+          .select()
+          .single();
+        if (error) throw error;
+        setTodayCheckin(data);
+        setCheckinHistory(prev => [data, ...prev]);
+      }
+      setCheckinEditing(false);
+    } catch (err) {
+      console.error('Error saving checkin:', err);
+    }
+  }, [checkinRating, checkinNote, todayCheckin, profile?.id, todayStr]);
+
   useEffect(() => {
     if (!profile?.id) return;
     const timeout = setTimeout(() => setLoading(false), 5000);
@@ -274,6 +347,10 @@ export default function Dashboard({ onNavigate }) {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [profile?.id, fetchTeamProfiles]);
+
+  useEffect(() => {
+    if (profile?.id) fetchCheckins();
+  }, [profile?.id, fetchCheckins]);
 
   const fetchTodayEvents = useCallback(async () => {
     if (!profile?.id) return;
@@ -895,125 +972,287 @@ export default function Dashboard({ onNavigate }) {
         </div>
       </div>
 
-      {/* Team */}
+      {/* Team + Check In */}
       <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>Team</h2>
-        <div style={styles.teamCard}>
-          {/* My Status Controls */}
-          <div style={styles.myStatusRow}>
-            <span style={styles.myStatusLabel}>Your status:</span>
-            <div style={{ position: 'relative' }} ref={statusMenuRef}>
-              <button
-                onClick={() => setStatusMenuOpen(!statusMenuOpen)}
-                style={styles.statusPickerBtn}
-              >
-                <span style={{
-                  ...styles.statusDot,
-                  background: getEffectiveStatus({ status: profile?.status, last_seen_at: profile?.last_seen_at }) === 'online'
-                    ? '#22c55e' : getEffectiveStatus({ status: profile?.status, last_seen_at: profile?.last_seen_at }) === 'busy'
-                    ? '#f59e0b' : '#6b7280',
-                }} />
-                <span style={styles.statusPickerText}>
-                  {getEffectiveStatus({ status: profile?.status, last_seen_at: profile?.last_seen_at }) === 'online'
-                    ? 'Online' : getEffectiveStatus({ status: profile?.status, last_seen_at: profile?.last_seen_at }) === 'busy'
-                    ? 'Busy' : 'Offline'}
-                </span>
-                <span style={{ fontSize: '10px', opacity: 0.5 }}>▼</span>
-              </button>
-              {statusMenuOpen && (
-                <div style={styles.statusDropdown}>
-                  {[
-                    { key: 'online', label: 'Online', color: '#22c55e' },
-                    { key: 'busy', label: 'Busy', color: '#f59e0b' },
-                    { key: 'offline', label: 'Offline', color: '#6b7280' },
-                  ].map(opt => (
-                    <button
-                      key={opt.key}
-                      onClick={() => setMyStatus(opt.key)}
-                      style={styles.statusDropdownItem}
-                    >
-                      <span style={{ ...styles.statusDot, background: opt.color }} />
-                      {opt.label}
-                    </button>
-                  ))}
+        <div style={styles.teamCheckinRow}>
+
+          {/* Team Column */}
+          <div style={styles.teamCol}>
+            <h2 style={styles.sectionTitle}>Team</h2>
+            <div style={{ ...styles.teamCard, flex: 1 }}>
+              {/* My Status Controls */}
+              <div style={styles.myStatusRow}>
+                <span style={styles.myStatusLabel}>Your status:</span>
+                <div style={{ position: 'relative' }} ref={statusMenuRef}>
+                  <button
+                    onClick={() => setStatusMenuOpen(!statusMenuOpen)}
+                    style={styles.statusPickerBtn}
+                  >
+                    <span style={{
+                      ...styles.statusDot,
+                      background: getEffectiveStatus({ status: profile?.status, last_seen_at: profile?.last_seen_at }) === 'online'
+                        ? '#22c55e' : getEffectiveStatus({ status: profile?.status, last_seen_at: profile?.last_seen_at }) === 'busy'
+                        ? '#f59e0b' : '#6b7280',
+                    }} />
+                    <span style={styles.statusPickerText}>
+                      {getEffectiveStatus({ status: profile?.status, last_seen_at: profile?.last_seen_at }) === 'online'
+                        ? 'Online' : getEffectiveStatus({ status: profile?.status, last_seen_at: profile?.last_seen_at }) === 'busy'
+                        ? 'Busy' : 'Offline'}
+                    </span>
+                    <span style={{ fontSize: '10px', opacity: 0.5 }}>▼</span>
+                  </button>
+                  {statusMenuOpen && (
+                    <div style={styles.statusDropdown}>
+                      {[
+                        { key: 'online', label: 'Online', color: '#22c55e' },
+                        { key: 'busy', label: 'Busy', color: '#f59e0b' },
+                        { key: 'offline', label: 'Offline', color: '#6b7280' },
+                      ].map(opt => (
+                        <button
+                          key={opt.key}
+                          onClick={() => setMyStatus(opt.key)}
+                          style={styles.statusDropdownItem}
+                        >
+                          <span style={{ ...styles.statusDot, background: opt.color }} />
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div style={{ flex: 1 }} />
+                {editingStatusNote ? (
+                  <div style={styles.noteEditRow}>
+                    <input
+                      value={statusNoteDraft}
+                      onChange={(e) => setStatusNoteDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') saveStatusNote();
+                        if (e.key === 'Escape') { setEditingStatusNote(false); setStatusNoteDraft(profile?.status_note || ''); }
+                      }}
+                      placeholder="Set a status note..."
+                      style={styles.noteInput}
+                      autoFocus
+                      maxLength={100}
+                    />
+                    <button onClick={saveStatusNote} style={styles.noteSaveBtn}>Save</button>
+                    <button onClick={() => { setEditingStatusNote(false); setStatusNoteDraft(profile?.status_note || ''); }} style={styles.noteCancelBtn}>Cancel</button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => { setStatusNoteDraft(profile?.status_note || ''); setEditingStatusNote(true); }}
+                    style={styles.noteSetBtn}
+                  >
+                    {profile?.status_note || 'Set a note...'}
+                  </button>
+                )}
+              </div>
+
+              {/* Team Members List */}
+              {teamLoading ? (
+                <p style={styles.emptyText}>Loading...</p>
+              ) : (
+                <div style={styles.teamList}>
+                  {teamProfiles
+                    .sort((a, b) => {
+                      const order = { online: 0, busy: 1, offline: 2 };
+                      return (order[getEffectiveStatus(a)] ?? 2) - (order[getEffectiveStatus(b)] ?? 2);
+                    })
+                    .map(member => {
+                      const effectiveStatus = getEffectiveStatus(member);
+                      const dotColor = effectiveStatus === 'online' ? '#22c55e' : effectiveStatus === 'busy' ? '#f59e0b' : '#6b7280';
+                      const isMe = member.id === profile?.id;
+                      return (
+                        <div key={member.id} style={{
+                          ...styles.teamMember,
+                          opacity: effectiveStatus === 'offline' ? 0.5 : 1,
+                        }}>
+                          <div style={styles.teamMemberAvatar}>
+                            {member.full_name?.charAt(0)?.toUpperCase() || '?'}
+                            <span style={{ ...styles.statusIndicator, background: dotColor }} />
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={styles.teamMemberName}>
+                              {member.full_name}{isMe && <span style={styles.youBadge}>you</span>}
+                            </div>
+                            <div style={styles.teamMemberMeta}>
+                              {member.title && <span>{member.title}</span>}
+                              {member.status_note && (
+                                <span style={styles.teamMemberNote}>
+                                  {member.title ? ' · ' : ''}{member.status_note}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <span style={{ ...styles.statusLabel, color: dotColor }}>
+                            {effectiveStatus === 'online' ? 'Online' : effectiveStatus === 'busy' ? 'Busy' : 'Offline'}
+                          </span>
+                        </div>
+                      );
+                    })}
                 </div>
               )}
             </div>
-            <div style={{ flex: 1 }} />
-            {editingStatusNote ? (
-              <div style={styles.noteEditRow}>
-                <input
-                  value={statusNoteDraft}
-                  onChange={(e) => setStatusNoteDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') saveStatusNote();
-                    if (e.key === 'Escape') { setEditingStatusNote(false); setStatusNoteDraft(profile?.status_note || ''); }
-                  }}
-                  placeholder="Set a status note..."
-                  style={styles.noteInput}
-                  autoFocus
-                  maxLength={100}
-                />
-                <button onClick={saveStatusNote} style={styles.noteSaveBtn}>Save</button>
-                <button onClick={() => { setEditingStatusNote(false); setStatusNoteDraft(profile?.status_note || ''); }} style={styles.noteCancelBtn}>Cancel</button>
-              </div>
-            ) : (
-              <button
-                onClick={() => { setStatusNoteDraft(profile?.status_note || ''); setEditingStatusNote(true); }}
-                style={styles.noteSetBtn}
-              >
-                {profile?.status_note || 'Set a note...'}
-              </button>
-            )}
           </div>
 
-          {/* Team Members List */}
-          {teamLoading ? (
-            <p style={styles.emptyText}>Loading...</p>
-          ) : (
-            <div style={styles.teamList}>
-              {teamProfiles
-                .sort((a, b) => {
-                  const order = { online: 0, busy: 1, offline: 2 };
-                  return (order[getEffectiveStatus(a)] ?? 2) - (order[getEffectiveStatus(b)] ?? 2);
-                })
-                .map(member => {
-                  const effectiveStatus = getEffectiveStatus(member);
-                  const dotColor = effectiveStatus === 'online' ? '#22c55e' : effectiveStatus === 'busy' ? '#f59e0b' : '#6b7280';
-                  const isMe = member.id === profile?.id;
-                  return (
-                    <div key={member.id} style={{
-                      ...styles.teamMember,
-                      opacity: effectiveStatus === 'offline' ? 0.5 : 1,
+          {/* Check In Column */}
+          <div style={styles.checkinCol}>
+            <h2 style={styles.sectionTitle}>Check In</h2>
+            <div style={styles.checkinCard}>
+              {checkinLoading ? (
+                <p style={styles.emptyText}>Loading...</p>
+              ) : (todayCheckin && !checkinEditing) ? (
+                /* Locked view */
+                <div style={styles.checkinLockedView}>
+                  <p style={styles.checkinQuestion}>What do I have today?</p>
+                  <div style={styles.checkinLockedResult}>
+                    <span style={{
+                      ...styles.checkinRatingBadge,
+                      background: `${CHECKIN_COLORS[todayCheckin.rating]}20`,
+                      color: CHECKIN_COLORS[todayCheckin.rating],
+                      borderColor: `${CHECKIN_COLORS[todayCheckin.rating]}40`,
                     }}>
-                      <div style={styles.teamMemberAvatar}>
-                        {member.full_name?.charAt(0)?.toUpperCase() || '?'}
-                        <span style={{ ...styles.statusIndicator, background: dotColor }} />
+                      {todayCheckin.rating} — {CHECKIN_LABELS[todayCheckin.rating]}
+                    </span>
+                    <button
+                      onClick={() => { setCheckinRating(todayCheckin.rating); setCheckinNote(todayCheckin.note || ''); setCheckinEditing(true); }}
+                      style={styles.checkinEditBtn}
+                    >
+                      Edit
+                    </button>
+                  </div>
+                  {todayCheckin.note && (
+                    <p style={styles.checkinLockedNote}>{todayCheckin.note}</p>
+                  )}
+                </div>
+              ) : (
+                /* Input form */
+                <div style={styles.checkinForm}>
+                  <p style={styles.checkinQuestion}>What do I have today?</p>
+                  <div style={styles.checkinOptions}>
+                    {[1, 2, 3, 4, 5].map(r => (
+                      <button
+                        key={r}
+                        onClick={() => setCheckinRating(r)}
+                        style={{
+                          ...styles.checkinOption,
+                          borderColor: checkinRating === r ? CHECKIN_COLORS[r] : 'rgba(255,255,255,0.08)',
+                          background: checkinRating === r ? `${CHECKIN_COLORS[r]}18` : 'rgba(255,255,255,0.03)',
+                          color: checkinRating === r ? CHECKIN_COLORS[r] : 'rgba(255,255,255,0.55)',
+                        }}
+                      >
+                        <span style={{
+                          width: '10px', height: '10px', borderRadius: '50%',
+                          background: CHECKIN_COLORS[r], flexShrink: 0,
+                          display: 'inline-block',
+                        }} />
+                        {r} — {CHECKIN_LABELS[r]}
+                      </button>
+                    ))}
+                  </div>
+                  <textarea
+                    value={checkinNote}
+                    onChange={e => setCheckinNote(e.target.value)}
+                    placeholder="Optional note..."
+                    style={styles.checkinNoteInput}
+                    rows={2}
+                    maxLength={300}
+                  />
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      onClick={saveCheckin}
+                      disabled={!checkinRating}
+                      style={{
+                        ...styles.checkinSubmitBtn,
+                        opacity: checkinRating ? 1 : 0.4,
+                        cursor: checkinRating ? 'pointer' : 'default',
+                      }}
+                    >
+                      {todayCheckin ? 'Update' : 'Submit'}
+                    </button>
+                    {checkinEditing && (
+                      <button
+                        onClick={() => setCheckinEditing(false)}
+                        style={styles.checkinCancelBtn}
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Graph */}
+              {(() => {
+                const days = checkinView === 'week' ? 7 : 30;
+                const graphData = [];
+                for (let i = days - 1; i >= 0; i--) {
+                  const d = new Date();
+                  d.setDate(d.getDate() - i);
+                  const dateStr = d.toISOString().split('T')[0];
+                  const record = checkinHistory.find(r => r.date === dateStr);
+                  graphData.push({
+                    date: dateStr,
+                    rating: record ? record.rating : null,
+                    label: checkinView === 'week'
+                      ? d.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 2)
+                      : (i === 0 ? 'T' : d.getDate() % 5 === 0 ? d.getDate().toString() : ''),
+                  });
+                }
+                const validRatings = graphData.filter(d => d.rating !== null).map(d => d.rating);
+                const avg = validRatings.length > 0
+                  ? (validRatings.reduce((a, b) => a + b, 0) / validRatings.length).toFixed(1)
+                  : null;
+                return (
+                  <div style={styles.checkinGraph}>
+                    <div style={styles.checkinGraphHeader}>
+                      <div style={styles.checkinViewToggle}>
+                        {['week', 'month'].map(v => (
+                          <button
+                            key={v}
+                            onClick={() => setCheckinView(v)}
+                            style={{
+                              ...styles.checkinViewBtn,
+                              background: checkinView === v ? 'rgba(255,255,255,0.1)' : 'transparent',
+                              color: checkinView === v ? '#e2e8f0' : 'rgba(255,255,255,0.35)',
+                            }}
+                          >
+                            {v.charAt(0).toUpperCase() + v.slice(1)}
+                          </button>
+                        ))}
                       </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={styles.teamMemberName}>
-                          {member.full_name}{isMe && <span style={styles.youBadge}>you</span>}
-                        </div>
-                        <div style={styles.teamMemberMeta}>
-                          {member.title && <span>{member.title}</span>}
-                          {member.status_note && (
-                            <span style={styles.teamMemberNote}>
-                              {member.title ? ' · ' : ''}{member.status_note}
-                            </span>
+                      {avg !== null && (
+                        <span style={styles.checkinAvg}>
+                          Avg <span style={{ color: CHECKIN_COLORS[Math.round(Number(avg))] || '#e2e8f0', fontWeight: 700 }}>{avg}</span>
+                        </span>
+                      )}
+                    </div>
+                    <div style={styles.checkinBars}>
+                      {graphData.map((day, i) => (
+                        <div key={i} style={styles.checkinBarCol}>
+                          <div style={styles.checkinBarTrack}>
+                            {day.rating !== null ? (
+                              <div style={{
+                                ...styles.checkinBar,
+                                height: `${(day.rating / 5) * 100}%`,
+                                background: CHECKIN_COLORS[day.rating],
+                              }} />
+                            ) : (
+                              <div style={styles.checkinBarEmpty} />
+                            )}
+                          </div>
+                          {day.label && (
+                            <span style={styles.checkinBarLabel}>{day.label}</span>
                           )}
                         </div>
-                      </div>
-                      <span style={{
-                        ...styles.statusLabel,
-                        color: dotColor,
-                      }}>
-                        {effectiveStatus === 'online' ? 'Online' : effectiveStatus === 'busy' ? 'Busy' : 'Offline'}
-                      </span>
+                      ))}
                     </div>
-                  );
-                })}
+                  </div>
+                );
+              })()}
             </div>
-          )}
+          </div>
+
         </div>
       </div>
 
@@ -2074,5 +2313,210 @@ const styles = {
     color: 'rgba(255,255,255,0.3)',
     margin: '4px 0 0 0',
     lineHeight: 1.4,
+  },
+  // Team + Check In layout
+  teamCheckinRow: {
+    display: 'flex',
+    gap: '20px',
+    alignItems: 'stretch',
+  },
+  teamCol: {
+    flex: 2,
+    display: 'flex',
+    flexDirection: 'column',
+    minWidth: 0,
+  },
+  checkinCol: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    minWidth: 0,
+  },
+  // Check In card styles
+  checkinCard: {
+    flex: 1,
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '14px',
+    padding: '20px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '16px',
+  },
+  checkinQuestion: {
+    fontSize: '14px',
+    fontWeight: 600,
+    color: 'rgba(255,255,255,0.7)',
+    margin: '0 0 10px 0',
+  },
+  checkinLockedView: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  },
+  checkinLockedResult: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+  },
+  checkinRatingBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '6px 14px',
+    borderRadius: '8px',
+    border: '1px solid',
+    fontSize: '14px',
+    fontWeight: 700,
+  },
+  checkinEditBtn: {
+    padding: '5px 12px',
+    background: 'rgba(255,255,255,0.05)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '6px',
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: '12px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  checkinLockedNote: {
+    fontSize: '13px',
+    color: 'rgba(255,255,255,0.4)',
+    margin: 0,
+    lineHeight: 1.4,
+    fontStyle: 'italic',
+  },
+  checkinForm: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  },
+  checkinOptions: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+  },
+  checkinOption: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '8px 12px',
+    border: '1px solid',
+    borderRadius: '8px',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    textAlign: 'left',
+    transition: 'background 0.1s, border-color 0.1s',
+  },
+  checkinNoteInput: {
+    padding: '8px 12px',
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '8px',
+    color: '#e2e8f0',
+    fontSize: '13px',
+    fontFamily: 'inherit',
+    outline: 'none',
+    resize: 'none',
+    lineHeight: 1.4,
+  },
+  checkinSubmitBtn: {
+    padding: '8px 20px',
+    background: '#6366f1',
+    border: 'none',
+    borderRadius: '8px',
+    color: '#fff',
+    fontSize: '13px',
+    fontWeight: 600,
+    fontFamily: 'inherit',
+    transition: 'opacity 0.15s',
+  },
+  checkinCancelBtn: {
+    padding: '8px 14px',
+    background: 'transparent',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '8px',
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  // Graph styles
+  checkinGraph: {
+    marginTop: 'auto',
+    paddingTop: '16px',
+    borderTop: '1px solid rgba(255,255,255,0.06)',
+  },
+  checkinGraphHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: '10px',
+  },
+  checkinViewToggle: {
+    display: 'flex',
+    gap: '2px',
+    background: 'rgba(255,255,255,0.04)',
+    borderRadius: '6px',
+    padding: '2px',
+  },
+  checkinViewBtn: {
+    padding: '3px 10px',
+    border: 'none',
+    borderRadius: '5px',
+    fontSize: '12px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    transition: 'background 0.15s, color 0.15s',
+  },
+  checkinAvg: {
+    fontSize: '12px',
+    color: 'rgba(255,255,255,0.4)',
+    fontWeight: 600,
+  },
+  checkinBars: {
+    display: 'flex',
+    alignItems: 'flex-end',
+    gap: '3px',
+    height: '60px',
+  },
+  checkinBarCol: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    height: '100%',
+    gap: '3px',
+  },
+  checkinBarTrack: {
+    flex: 1,
+    width: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'flex-end',
+    borderRadius: '3px',
+    overflow: 'hidden',
+    background: 'rgba(255,255,255,0.04)',
+  },
+  checkinBar: {
+    width: '100%',
+    borderRadius: '3px 3px 0 0',
+    transition: 'height 0.3s',
+  },
+  checkinBarEmpty: {
+    width: '100%',
+    height: '2px',
+    background: 'rgba(255,255,255,0.06)',
+  },
+  checkinBarLabel: {
+    fontSize: '9px',
+    color: 'rgba(255,255,255,0.3)',
+    textAlign: 'center',
+    lineHeight: 1,
   },
 };
