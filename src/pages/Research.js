@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
+import { tritonSupabase } from '../tritonClient';
 import { useAuth } from '../contexts/AuthContext';
 
-const SECTIONS = ['news', 'newsletters', 'reports'];
+const SECTIONS = ['news', 'newsletters', 'reports', 'briefs'];
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
@@ -42,6 +43,12 @@ export default function Research() {
   const [selectedItems, setSelectedItems] = useState([]);
   const [generating, setGenerating] = useState(false);
   const [generatedReport, setGeneratedReport] = useState(null);
+
+  // Briefs state
+  const [briefs, setBriefs] = useState([]);
+  const [currentBrief, setCurrentBrief] = useState(null);
+  const [currentBriefDate, setCurrentBriefDate] = useState(null);
+  const [briefLoading, setBriefLoading] = useState(false);
 
   const fetchArticles = useCallback(async () => {
     try {
@@ -94,16 +101,56 @@ export default function Research() {
     }
   }, []);
 
+  const fetchBriefs = useCallback(async () => {
+    if (!tritonSupabase) return;
+    try {
+      const { data, error } = await tritonSupabase
+        .from('briefs')
+        .select('id, date, title, summary, metadata')
+        .order('date', { ascending: false })
+        .limit(30);
+      if (!error && data) {
+        setBriefs(data);
+        if (data.length > 0 && !currentBriefDate) {
+          setCurrentBriefDate(data[0].date);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching briefs:', err);
+    }
+  }, [currentBriefDate]);
+
+  const fetchFullBrief = useCallback(async (date) => {
+    if (!tritonSupabase || !date) return;
+    setBriefLoading(true);
+    try {
+      const { data, error } = await tritonSupabase
+        .from('briefs')
+        .select('*')
+        .eq('date', date)
+        .maybeSingle();
+      if (!error) setCurrentBrief(data);
+    } catch (err) {
+      console.error('Error fetching brief:', err);
+    } finally {
+      setBriefLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (currentBriefDate) fetchFullBrief(currentBriefDate);
+  }, [currentBriefDate, fetchFullBrief]);
+
   useEffect(() => {
     const timeout = setTimeout(() => setLoading(false), 5000);
-    Promise.all([fetchArticles(), fetchNewsletters(), fetchReports()])
+    Promise.all([fetchArticles(), fetchNewsletters(), fetchReports(), fetchBriefs()])
       .finally(() => { setLoading(false); clearTimeout(timeout); });
     return () => clearTimeout(timeout);
-  }, [fetchArticles, fetchNewsletters, fetchReports]);
+  }, [fetchArticles, fetchNewsletters, fetchReports, fetchBriefs]);
 
   async function handleRefresh() {
     setRefreshing(true);
-    await Promise.all([fetchArticles(), fetchNewsletters(), fetchReports()]);
+    await Promise.all([fetchArticles(), fetchNewsletters(), fetchReports(), fetchBriefs()]);
     setRefreshing(false);
   }
 
@@ -266,6 +313,32 @@ export default function Research() {
               <div style={{ ...s.readerContent, marginTop: '20px' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(selectedItem.content) }} />
             </>
           )}
+          {selectedItem._type === 'brief' && (
+            <>
+              <div style={{ marginBottom: '12px' }}>
+                <span style={s.metaText}>
+                  {new Date(selectedItem.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                </span>
+              </div>
+              <h1 style={s.readerTitle}>{selectedItem.title}</h1>
+              <p style={{ fontSize: '14px', color: 'rgba(255,255,255,0.55)', marginBottom: '20px', lineHeight: 1.6 }}>{selectedItem.summary}</p>
+              {selectedItem.metadata && (
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+                  {selectedItem.metadata.finished_count !== undefined && (
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: 'rgba(255,255,255,0.45)', background: 'rgba(255,255,255,0.06)', padding: '3px 10px', borderRadius: '6px' }}>
+                      {selectedItem.metadata.finished_count || 0} games
+                    </span>
+                  )}
+                  {selectedItem.metadata.is_off_day && (
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: '#f59e0b', background: 'rgba(245,158,11,0.1)', padding: '3px 10px', borderRadius: '6px' }}>
+                      Off Day
+                    </span>
+                  )}
+                </div>
+              )}
+              <div style={s.readerContent} dangerouslySetInnerHTML={{ __html: selectedItem.content || '' }} />
+            </>
+          )}
         </div>
       </div>
     );
@@ -325,7 +398,7 @@ export default function Research() {
             onClick={() => setSection(sec)}
             style={{ ...s.sectionTab, ...(section === sec ? s.sectionTabActive : {}) }}
           >
-            {sec === 'news' ? 'News' : sec === 'newsletters' ? 'Newsletters' : 'Reports'}
+            {sec === 'news' ? 'News' : sec === 'newsletters' ? 'Newsletters' : sec === 'reports' ? 'Reports' : 'Briefs'}
             {sec === 'newsletters' && newsletters.filter(n => !n.read).length > 0 && (
               <span style={s.unreadBadge}>{newsletters.filter(n => !n.read).length}</span>
             )}
@@ -460,6 +533,131 @@ export default function Research() {
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5"><path d="M6 3l5 5-5 5" /></svg>
                   </div>
                 ))
+              )}
+            </div>
+          )}
+
+          {/* Briefs Section */}
+          {section === 'briefs' && (
+            <div>
+              {/* Date navigation */}
+              {currentBriefDate && (
+                <div style={s.briefDateNav}>
+                  <button
+                    onClick={() => {
+                      const idx = briefs.findIndex(b => b.date === currentBriefDate);
+                      if (idx < briefs.length - 1) setCurrentBriefDate(briefs[idx + 1].date);
+                    }}
+                    disabled={briefs.findIndex(b => b.date === currentBriefDate) >= briefs.length - 1}
+                    style={s.briefNavBtn}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 3L5 8l5 5" /></svg>
+                  </button>
+                  <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
+                    {new Date(currentBriefDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' })}
+                  </span>
+                  <button
+                    onClick={() => {
+                      const idx = briefs.findIndex(b => b.date === currentBriefDate);
+                      if (idx > 0) setCurrentBriefDate(briefs[idx - 1].date);
+                    }}
+                    disabled={briefs.findIndex(b => b.date === currentBriefDate) <= 0}
+                    style={s.briefNavBtn}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 3l5 5-5 5" /></svg>
+                  </button>
+                </div>
+              )}
+
+              {/* Current brief */}
+              {briefLoading ? (
+                <div style={s.briefCard}>
+                  <div style={{ height: '20px', width: '60%', background: 'rgba(255,255,255,0.06)', borderRadius: '6px', marginBottom: '12px' }} />
+                  <div style={{ height: '14px', width: '100%', background: 'rgba(255,255,255,0.04)', borderRadius: '4px', marginBottom: '8px' }} />
+                  <div style={{ height: '14px', width: '80%', background: 'rgba(255,255,255,0.04)', borderRadius: '4px' }} />
+                </div>
+              ) : currentBrief ? (
+                <div style={s.briefCard}>
+                  <div style={s.briefCardHeader}>
+                    <h2 style={s.briefTitle}>{currentBrief.title}</h2>
+                    <p style={s.briefSummary}>{currentBrief.summary}</p>
+                    {currentBrief.metadata && (
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                        {currentBrief.metadata.finished_count !== undefined && (
+                          <span style={s.briefBadge}>{currentBrief.metadata.finished_count || 0} games</span>
+                        )}
+                        {currentBrief.metadata.is_off_day && (
+                          <span style={s.briefBadgeOffDay}>Off Day</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div style={s.briefContent} dangerouslySetInnerHTML={{ __html: currentBrief.content || '' }} />
+                  <div style={s.briefActions}>
+                    <button
+                      onClick={() => {
+                        if (!currentBrief.content) return;
+                        const text = currentBrief.content
+                          .replace(/<h2[^>]*>(.*?)<\/h2>/gi, '\n## $1\n')
+                          .replace(/<h3[^>]*>(.*?)<\/h3>/gi, '\n### $1\n')
+                          .replace(/<strong>(.*?)<\/strong>/gi, '**$1**')
+                          .replace(/<a[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>/gi, '[$2]($1)')
+                          .replace(/<br\s*\/?>/gi, '\n')
+                          .replace(/<\/p>/gi, '\n\n')
+                          .replace(/<[^>]*>/g, '')
+                          .replace(/\n{3,}/g, '\n\n')
+                          .trim();
+                        navigator.clipboard.writeText(`# ${currentBrief.title}\n\n${currentBrief.summary}\n\n${text}`);
+                      }}
+                      style={s.briefActionBtn}
+                    >
+                      Copy Markdown
+                    </button>
+                    <button onClick={() => openItem(currentBrief, 'brief')} style={s.briefActionBtn}>
+                      Full View
+                    </button>
+                  </div>
+                </div>
+              ) : currentBriefDate ? (
+                <div style={s.emptyState}>No brief available for this date.</div>
+              ) : null}
+
+              {/* Archive grid */}
+              {briefs.length > 0 && (
+                <div style={{ marginTop: '32px' }}>
+                  <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#fff', marginBottom: '16px' }}>Archive</h3>
+                  <div style={s.briefArchiveGrid}>
+                    {briefs.map(brief => (
+                      <div
+                        key={brief.id}
+                        onClick={() => setCurrentBriefDate(brief.date)}
+                        style={{
+                          ...s.briefArchiveCard,
+                          ...(brief.date === currentBriefDate ? s.briefArchiveCardActive : {}),
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                          <span style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            {new Date(brief.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                          </span>
+                          {brief.metadata?.is_off_day && (
+                            <span style={{ fontSize: '9px', fontWeight: 600, color: '#f59e0b', background: 'rgba(245,158,11,0.1)', padding: '2px 6px', borderRadius: '4px' }}>Off Day</span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: '13px', fontWeight: 600, color: '#e2e8f0', marginBottom: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {brief.title}
+                        </div>
+                        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                          {brief.summary}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {!tritonSupabase && (
+                <div style={s.emptyState}>Briefs are not configured. Add Triton Supabase credentials to .env.</div>
               )}
             </div>
           )}
@@ -800,5 +998,106 @@ const s = {
     borderRadius: '8px',
     background: '#fff',
     marginTop: '16px',
+  },
+  // Briefs styles
+  briefDateNav: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '16px',
+    marginBottom: '20px',
+  },
+  briefNavBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '32px',
+    height: '32px',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '8px',
+    background: 'rgba(255,255,255,0.03)',
+    color: 'rgba(255,255,255,0.6)',
+    cursor: 'pointer',
+    transition: 'all 0.15s',
+  },
+  briefCard: {
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '14px',
+    overflow: 'hidden',
+  },
+  briefCardHeader: {
+    padding: '24px 28px',
+    borderBottom: '1px solid rgba(255,255,255,0.06)',
+  },
+  briefTitle: {
+    fontSize: '20px',
+    fontWeight: 700,
+    color: '#ffffff',
+    margin: '0 0 8px',
+    lineHeight: 1.3,
+  },
+  briefSummary: {
+    fontSize: '14px',
+    color: 'rgba(255,255,255,0.5)',
+    margin: 0,
+    lineHeight: 1.6,
+  },
+  briefBadge: {
+    fontSize: '11px',
+    fontWeight: 600,
+    color: 'rgba(255,255,255,0.45)',
+    background: 'rgba(255,255,255,0.06)',
+    padding: '3px 10px',
+    borderRadius: '6px',
+  },
+  briefBadgeOffDay: {
+    fontSize: '11px',
+    fontWeight: 600,
+    color: '#f59e0b',
+    background: 'rgba(245,158,11,0.1)',
+    padding: '3px 10px',
+    borderRadius: '6px',
+  },
+  briefContent: {
+    padding: '24px 28px',
+    fontSize: '15px',
+    lineHeight: 1.7,
+    color: 'rgba(255,255,255,0.75)',
+  },
+  briefActions: {
+    padding: '16px 28px',
+    borderTop: '1px solid rgba(255,255,255,0.06)',
+    display: 'flex',
+    gap: '8px',
+  },
+  briefActionBtn: {
+    padding: '6px 14px',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '8px',
+    background: 'rgba(255,255,255,0.03)',
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: '12px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    transition: 'all 0.15s',
+  },
+  briefArchiveGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+    gap: '12px',
+  },
+  briefArchiveCard: {
+    padding: '16px',
+    background: 'rgba(255,255,255,0.02)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '12px',
+    cursor: 'pointer',
+    transition: 'all 0.15s',
+  },
+  briefArchiveCardActive: {
+    borderColor: '#6366f1',
+    background: 'rgba(99,102,241,0.06)',
   },
 };
