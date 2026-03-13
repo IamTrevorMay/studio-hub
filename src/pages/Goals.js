@@ -395,7 +395,7 @@ export default function Goals() {
   function openCreateMonthly(parentGoalId) {
     setEditingMonthlyId(null);
     setMonthlyForm(EMPTY_MONTHLY);
-    setShowMonthlyForm(parentGoalId);
+    setShowMonthlyForm(parentGoalId === null ? 'standalone' : parentGoalId);
   }
   function openEditMonthly(mg) {
     setEditingMonthlyId(mg.id);
@@ -405,7 +405,7 @@ export default function Goals() {
       target_value: String(mg.target_value),
       platform_account_ids: mg.platform_account_ids || [],
     });
-    setShowMonthlyForm(mg.parent_goal_id);
+    setShowMonthlyForm(mg.parent_goal_id || 'standalone');
   }
   function cancelMonthlyForm() {
     setShowMonthlyForm(null);
@@ -431,7 +431,8 @@ export default function Goals() {
       const { error } = await supabase.from('monthly_goals').insert({
         title, content_type_filter: monthlyForm.content_type_filter,
         target_value, platform_account_ids: monthlyForm.platform_account_ids,
-        parent_goal_id: parentGoalId, created_by: profile.id,
+        parent_goal_id: parentGoalId === 'standalone' ? null : parentGoalId,
+        created_by: profile.id,
       });
       if (error) { alert('Error: ' + error.message); return; }
     }
@@ -493,6 +494,9 @@ export default function Goals() {
           <div style={styles.headerActions}>
             <button onClick={showGoalForm ? cancelGoalForm : openCreateGoal} style={styles.addBtn}>
               {showGoalForm ? '✕ Cancel' : '+ Add Goal'}
+            </button>
+            <button onClick={showMonthlyForm === 'standalone' ? cancelMonthlyForm : () => openCreateMonthly(null)} style={styles.addBtn}>
+              {showMonthlyForm === 'standalone' ? '✕ Cancel' : '+ Monthly Goal'}
             </button>
             <button onClick={showInitForm ? cancelInitForm : openCreateInit} style={styles.addBtn}>
               {showInitForm ? '✕ Cancel' : '+ Add Initiative'}
@@ -650,6 +654,83 @@ export default function Goals() {
             {editingInitId ? 'Update Initiative' : 'Create Initiative'}
           </button>
         </form>
+      )}
+
+      {/* Standalone Monthly Goal Form */}
+      {showMonthlyForm === 'standalone' && (
+        <form onSubmit={(e) => handleMonthlySubmit(e, 'standalone')} style={styles.form}>
+          <div style={styles.formLabel}>{editingMonthlyId ? 'Edit Monthly Goal' : 'New Monthly Goal'}</div>
+          <input
+            value={monthlyForm.title}
+            onChange={e => setMonthlyForm({ ...monthlyForm, title: e.target.value })}
+            placeholder="Monthly goal title"
+            style={styles.input}
+            autoFocus
+          />
+          <div style={styles.formRow}>
+            <button type="button" onClick={() => setMonthlyForm({ ...monthlyForm, content_type_filter: 'video' })}
+              style={{ ...styles.typeBtn, ...(monthlyForm.content_type_filter === 'video' ? styles.typeBtnActive : {}) }}>
+              Longform Video
+            </button>
+            <button type="button" onClick={() => setMonthlyForm({ ...monthlyForm, content_type_filter: 'short' })}
+              style={{ ...styles.typeBtn, ...(monthlyForm.content_type_filter === 'short' ? styles.typeBtnActive : {}) }}>
+              Short
+            </button>
+          </div>
+          <input
+            value={monthlyForm.target_value}
+            onChange={e => setMonthlyForm({ ...monthlyForm, target_value: e.target.value })}
+            placeholder="How many per month?"
+            style={styles.input}
+            inputMode="numeric"
+          />
+          <div>
+            <div style={styles.formSubLabel}>Platforms</div>
+            <div style={styles.chipRow}>
+              {accounts.map(acct => {
+                const selected = (monthlyForm.platform_account_ids || []).includes(acct.id);
+                const pm = PLATFORM_META[acct.platform] || {};
+                return (
+                  <button key={acct.id} type="button" onClick={() => toggleMonthlyPlatformAccount(acct.id)}
+                    style={{
+                      ...styles.chip,
+                      ...(selected ? { background: (pm.color || '#666') + '22', borderColor: (pm.color || '#666') + '66', color: pm.color || '#fff' } : {}),
+                    }}>
+                    {acct.account_name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div style={styles.formRow}>
+            <button type="submit" style={styles.submitBtn}>
+              {editingMonthlyId ? 'Update' : 'Create'}
+            </button>
+            <button type="button" onClick={cancelMonthlyForm} style={{ ...styles.addBtn, color: 'rgba(255,255,255,0.5)' }}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* Monthly Section (standalone monthly goals) */}
+      {monthlyGoals.filter(mg => !mg.parent_goal_id).length > 0 && (
+        <div style={styles.section}>
+          <h2 style={styles.sectionTitle}>Monthly</h2>
+          <div style={styles.list}>
+            {monthlyGoals.filter(mg => !mg.parent_goal_id).map(mg => (
+              <MonthlyGoalCard
+                key={mg.id}
+                goal={mg}
+                progress={monthlyProgress[mg.id] || {}}
+                accounts={accounts}
+                isAdmin={isAdmin}
+                onEdit={openEditMonthly}
+                onDelete={handleDeleteMonthly}
+              />
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Quarterly Section */}
