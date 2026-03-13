@@ -55,6 +55,7 @@ export default function Research() {
   const [currentCards, setCurrentCards] = useState([]);
   const [currentCardDate, setCurrentCardDate] = useState(null);
   const [cardsLoading, setCardsLoading] = useState(false);
+  const [selectedCard, setSelectedCard] = useState(null);
 
   const fetchArticles = useCallback(async () => {
     try {
@@ -722,6 +723,40 @@ export default function Research() {
           {/* Cards Section */}
           {section === 'cards' && (
             <div>
+              {/* Full-size card modal */}
+              {selectedCard && (
+                <div
+                  style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                  onClick={() => setSelectedCard(null)}
+                >
+                  <div style={{ position: 'relative', maxWidth: '95vw', maxHeight: '95vh' }} onClick={e => e.stopPropagation()}>
+                    <img
+                      src={`https://www.tritonapex.io/api/card-image?id=${selectedCard.id}`}
+                      alt={selectedCard.pitcher_name}
+                      style={{ maxWidth: '95vw', maxHeight: '85vh', borderRadius: '12px', boxShadow: '0 20px 60px rgba(0,0,0,0.6)' }}
+                    />
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', marginTop: '16px' }}>
+                      <span style={{ fontSize: '14px', fontWeight: 600, color: '#fff' }}>{selectedCard.pitcher_name}</span>
+                      <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>{selectedCard.game_info}</span>
+                      <a
+                        href={`https://www.tritonapex.io/api/card-image?id=${selectedCard.id}`}
+                        download={`${selectedCard.pitcher_name.replace(/\s+/g, '-')}-${selectedCard.date}.png`}
+                        style={{ padding: '6px 14px', background: '#6366f1', color: '#fff', borderRadius: '6px', fontSize: '12px', fontWeight: 600, textDecoration: 'none', marginLeft: '8px' }}
+                        onClick={e => e.stopPropagation()}
+                      >
+                        Download PNG
+                      </a>
+                      <button
+                        onClick={() => setSelectedCard(null)}
+                        style={{ padding: '6px 14px', background: 'rgba(255,255,255,0.1)', color: '#fff', borderRadius: '6px', fontSize: '12px', border: 'none', cursor: 'pointer' }}
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Date navigation */}
               {currentCardDate && (
                 <div style={s.briefDateNav}>
@@ -753,45 +788,40 @@ export default function Research() {
                 </div>
               )}
 
-              {/* Current day's cards */}
+              {/* Current day's cards as images */}
               {cardsLoading ? (
-                <div style={s.cardsGrid}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '16px' }}>
                   {[1,2,3,4,5].map(i => (
-                    <div key={i} style={s.cardSkeleton}>
-                      <div style={{ height: '20px', width: '40%', background: 'rgba(255,255,255,0.06)', borderRadius: '6px', marginBottom: '12px' }} />
-                      <div style={{ height: '16px', width: '70%', background: 'rgba(255,255,255,0.04)', borderRadius: '4px', marginBottom: '8px' }} />
-                      <div style={{ height: '14px', width: '50%', background: 'rgba(255,255,255,0.04)', borderRadius: '4px' }} />
-                    </div>
+                    <div key={i} style={{ aspectRatio: '16/9', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }} />
                   ))}
                 </div>
               ) : currentCards.length > 0 ? (
-                <div style={s.cardsGrid}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '16px' }}>
                   {currentCards.map(card => {
                     const ipFull = Math.floor(card.ip);
                     const ipPartial = Math.round((card.ip - ipFull) * 3);
                     const ipDisplay = `${ipFull}.${ipPartial}`;
                     return (
-                      <div key={card.id} style={s.cardItem}>
-                        <div style={s.cardRank}>{card.rank}</div>
-                        <div style={{ flex: 1 }}>
-                          <div style={s.cardPitcher}>{card.pitcher_name}</div>
-                          <div style={s.cardGame}>{card.game_info}</div>
-                          <div style={s.cardStats}>
-                            <span style={s.cardStatChip}>{ipDisplay} IP</span>
-                            <span style={s.cardStatChip}>{card.pitch_count} pitches</span>
+                      <div
+                        key={card.id}
+                        onClick={() => setSelectedCard(card)}
+                        style={{ cursor: 'pointer', borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)', transition: 'border-color 0.2s, transform 0.2s' }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'; e.currentTarget.style.transform = 'scale(1.02)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.transform = 'scale(1)'; }}
+                      >
+                        <img
+                          src={`https://www.tritonapex.io/api/card-image?id=${card.id}`}
+                          alt={card.pitcher_name}
+                          style={{ width: '100%', display: 'block', borderRadius: '12px 12px 0 0' }}
+                          loading="lazy"
+                        />
+                        <div style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255,255,255,0.02)' }}>
+                          <span style={{ fontSize: '16px', fontWeight: 800, color: '#6366f1', minWidth: '20px' }}>{card.rank}</span>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: '13px', fontWeight: 600, color: '#e2e8f0' }}>{card.pitcher_name}</div>
+                            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>{card.game_info} &middot; {ipDisplay} IP &middot; {card.pitch_count}P</div>
                           </div>
                         </div>
-                        <a
-                          href={`https://triton-apex.vercel.app/player/${card.pitcher_id}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={s.cardLink}
-                          title="View on Triton"
-                        >
-                          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                            <path d="M6 3l5 5-5 5" />
-                          </svg>
-                        </a>
                       </div>
                     );
                   })}
