@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { tritonSupabase } from '../tritonClient';
 import { useAuth } from '../contexts/AuthContext';
 
-const SECTIONS = ['news', 'newsletters', 'reports', 'briefs'];
+const SECTIONS = ['news', 'newsletters', 'reports', 'briefs', 'cards'];
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
@@ -49,6 +49,12 @@ export default function Research() {
   const [currentBrief, setCurrentBrief] = useState(null);
   const [currentBriefDate, setCurrentBriefDate] = useState(null);
   const [briefLoading, setBriefLoading] = useState(false);
+
+  // Cards state
+  const [cardsArchive, setCardsArchive] = useState([]); // [{date, cards: [...]}]
+  const [currentCards, setCurrentCards] = useState([]);
+  const [currentCardDate, setCurrentCardDate] = useState(null);
+  const [cardsLoading, setCardsLoading] = useState(false);
 
   const fetchArticles = useCallback(async () => {
     try {
@@ -141,16 +147,67 @@ export default function Research() {
     if (currentBriefDate) fetchFullBrief(currentBriefDate);
   }, [currentBriefDate, fetchFullBrief]);
 
+  const fetchCardsArchive = useCallback(async () => {
+    if (!tritonSupabase) return;
+    try {
+      const { data, error } = await tritonSupabase
+        .from('daily_cards')
+        .select('id, date, pitcher_id, pitcher_name, game_pk, game_info, ip, pitch_count, rank')
+        .order('date', { ascending: false })
+        .order('rank', { ascending: true })
+        .limit(150);
+      if (!error && data) {
+        // Group by date
+        const byDate = {};
+        for (const card of data) {
+          if (!byDate[card.date]) byDate[card.date] = [];
+          byDate[card.date].push(card);
+        }
+        const archive = Object.entries(byDate)
+          .sort(([a], [b]) => b.localeCompare(a))
+          .slice(0, 30)
+          .map(([date, cards]) => ({ date, cards }));
+        setCardsArchive(archive);
+        if (archive.length > 0 && !currentCardDate) {
+          setCurrentCardDate(archive[0].date);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching cards archive:', err);
+    }
+  }, [currentCardDate]);
+
+  const fetchCardsForDate = useCallback(async (date) => {
+    if (!tritonSupabase || !date) return;
+    setCardsLoading(true);
+    try {
+      const { data, error } = await tritonSupabase
+        .from('daily_cards')
+        .select('id, date, pitcher_id, pitcher_name, game_pk, game_info, ip, pitch_count, rank')
+        .eq('date', date)
+        .order('rank', { ascending: true });
+      if (!error) setCurrentCards(data || []);
+    } catch (err) {
+      console.error('Error fetching cards:', err);
+    } finally {
+      setCardsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (currentCardDate) fetchCardsForDate(currentCardDate);
+  }, [currentCardDate, fetchCardsForDate]);
+
   useEffect(() => {
     const timeout = setTimeout(() => setLoading(false), 5000);
-    Promise.all([fetchArticles(), fetchNewsletters(), fetchReports(), fetchBriefs()])
+    Promise.all([fetchArticles(), fetchNewsletters(), fetchReports(), fetchBriefs(), fetchCardsArchive()])
       .finally(() => { setLoading(false); clearTimeout(timeout); });
     return () => clearTimeout(timeout);
-  }, [fetchArticles, fetchNewsletters, fetchReports, fetchBriefs]);
+  }, [fetchArticles, fetchNewsletters, fetchReports, fetchBriefs, fetchCardsArchive]);
 
   async function handleRefresh() {
     setRefreshing(true);
-    await Promise.all([fetchArticles(), fetchNewsletters(), fetchReports(), fetchBriefs()]);
+    await Promise.all([fetchArticles(), fetchNewsletters(), fetchReports(), fetchBriefs(), fetchCardsArchive()]);
     setRefreshing(false);
   }
 
@@ -398,7 +455,7 @@ export default function Research() {
             onClick={() => setSection(sec)}
             style={{ ...s.sectionTab, ...(section === sec ? s.sectionTabActive : {}) }}
           >
-            {sec === 'news' ? 'News' : sec === 'newsletters' ? 'Newsletters' : sec === 'reports' ? 'Reports' : 'Briefs'}
+            {sec === 'news' ? 'News' : sec === 'newsletters' ? 'Newsletters' : sec === 'reports' ? 'Reports' : sec === 'briefs' ? 'Briefs' : 'Cards'}
             {sec === 'newsletters' && newsletters.filter(n => !n.read).length > 0 && (
               <span style={s.unreadBadge}>{newsletters.filter(n => !n.read).length}</span>
             )}
@@ -658,6 +715,127 @@ export default function Research() {
 
               {!tritonSupabase && (
                 <div style={s.emptyState}>Briefs are not configured. Add Triton Supabase credentials to .env.</div>
+              )}
+            </div>
+          )}
+
+          {/* Cards Section */}
+          {section === 'cards' && (
+            <div>
+              {/* Date navigation */}
+              {currentCardDate && (
+                <div style={s.briefDateNav}>
+                  <button
+                    onClick={() => {
+                      const dates = cardsArchive.map(a => a.date);
+                      const idx = dates.indexOf(currentCardDate);
+                      if (idx < dates.length - 1) setCurrentCardDate(dates[idx + 1]);
+                    }}
+                    disabled={(() => { const dates = cardsArchive.map(a => a.date); return dates.indexOf(currentCardDate) >= dates.length - 1; })()}
+                    style={s.briefNavBtn}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 3L5 8l5 5" /></svg>
+                  </button>
+                  <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
+                    {new Date(currentCardDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' })}
+                  </span>
+                  <button
+                    onClick={() => {
+                      const dates = cardsArchive.map(a => a.date);
+                      const idx = dates.indexOf(currentCardDate);
+                      if (idx > 0) setCurrentCardDate(dates[idx - 1]);
+                    }}
+                    disabled={(() => { const dates = cardsArchive.map(a => a.date); return dates.indexOf(currentCardDate) <= 0; })()}
+                    style={s.briefNavBtn}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 3l5 5-5 5" /></svg>
+                  </button>
+                </div>
+              )}
+
+              {/* Current day's cards */}
+              {cardsLoading ? (
+                <div style={s.cardsGrid}>
+                  {[1,2,3,4,5].map(i => (
+                    <div key={i} style={s.cardSkeleton}>
+                      <div style={{ height: '20px', width: '40%', background: 'rgba(255,255,255,0.06)', borderRadius: '6px', marginBottom: '12px' }} />
+                      <div style={{ height: '16px', width: '70%', background: 'rgba(255,255,255,0.04)', borderRadius: '4px', marginBottom: '8px' }} />
+                      <div style={{ height: '14px', width: '50%', background: 'rgba(255,255,255,0.04)', borderRadius: '4px' }} />
+                    </div>
+                  ))}
+                </div>
+              ) : currentCards.length > 0 ? (
+                <div style={s.cardsGrid}>
+                  {currentCards.map(card => {
+                    const ipFull = Math.floor(card.ip);
+                    const ipPartial = Math.round((card.ip - ipFull) * 3);
+                    const ipDisplay = `${ipFull}.${ipPartial}`;
+                    return (
+                      <div key={card.id} style={s.cardItem}>
+                        <div style={s.cardRank}>{card.rank}</div>
+                        <div style={{ flex: 1 }}>
+                          <div style={s.cardPitcher}>{card.pitcher_name}</div>
+                          <div style={s.cardGame}>{card.game_info}</div>
+                          <div style={s.cardStats}>
+                            <span style={s.cardStatChip}>{ipDisplay} IP</span>
+                            <span style={s.cardStatChip}>{card.pitch_count} pitches</span>
+                          </div>
+                        </div>
+                        <a
+                          href={`https://triton-apex.vercel.app/player/${card.pitcher_id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={s.cardLink}
+                          title="View on Triton"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <path d="M6 3l5 5-5 5" />
+                          </svg>
+                        </a>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : currentCardDate ? (
+                <div style={s.emptyState}>No cards available for this date.</div>
+              ) : null}
+
+              {/* Archive grid */}
+              {cardsArchive.length > 0 && (
+                <div style={{ marginTop: '32px' }}>
+                  <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#fff', marginBottom: '16px' }}>Archive</h3>
+                  <div style={s.briefArchiveGrid}>
+                    {cardsArchive.map(entry => (
+                      <div
+                        key={entry.date}
+                        onClick={() => setCurrentCardDate(entry.date)}
+                        style={{
+                          ...s.briefArchiveCard,
+                          ...(entry.date === currentCardDate ? s.briefArchiveCardActive : {}),
+                        }}
+                      >
+                        <div style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>
+                          {new Date(entry.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                        </div>
+                        {entry.cards.map((c, i) => {
+                          const ipF = Math.floor(c.ip);
+                          const ipP = Math.round((c.ip - ipF) * 3);
+                          return (
+                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                              <span style={{ fontSize: '11px', fontWeight: 700, color: '#6366f1', width: '14px' }}>{c.rank}</span>
+                              <span style={{ fontSize: '12px', color: '#e2e8f0' }}>{c.pitcher_name}</span>
+                              <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', marginLeft: 'auto' }}>{ipF}.{ipP} IP</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {!tritonSupabase && (
+                <div style={s.emptyState}>Cards are not configured. Add Triton Supabase credentials to .env.</div>
               )}
             </div>
           )}
@@ -1099,5 +1277,77 @@ const s = {
   briefArchiveCardActive: {
     borderColor: '#6366f1',
     background: 'rgba(99,102,241,0.06)',
+  },
+  // Cards styles
+  cardsGrid: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  },
+  cardSkeleton: {
+    padding: '20px',
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '12px',
+  },
+  cardItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '16px',
+    padding: '16px 20px',
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '12px',
+    transition: 'all 0.15s',
+  },
+  cardRank: {
+    width: '32px',
+    height: '32px',
+    borderRadius: '50%',
+    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    color: '#fff',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '14px',
+    fontWeight: 700,
+    flexShrink: 0,
+  },
+  cardPitcher: {
+    fontSize: '15px',
+    fontWeight: 600,
+    color: '#e2e8f0',
+    marginBottom: '2px',
+  },
+  cardGame: {
+    fontSize: '13px',
+    color: 'rgba(255,255,255,0.4)',
+    marginBottom: '6px',
+  },
+  cardStats: {
+    display: 'flex',
+    gap: '6px',
+  },
+  cardStatChip: {
+    fontSize: '11px',
+    fontWeight: 600,
+    color: 'rgba(255,255,255,0.55)',
+    background: 'rgba(255,255,255,0.06)',
+    padding: '3px 10px',
+    borderRadius: '6px',
+  },
+  cardLink: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '32px',
+    height: '32px',
+    borderRadius: '8px',
+    border: '1px solid rgba(255,255,255,0.1)',
+    background: 'rgba(255,255,255,0.03)',
+    color: 'rgba(255,255,255,0.4)',
+    flexShrink: 0,
+    transition: 'all 0.15s',
+    textDecoration: 'none',
   },
 };
