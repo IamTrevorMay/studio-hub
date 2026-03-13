@@ -147,7 +147,7 @@ export default function Goals() {
 
       // Fetch progress for monthly goals
       if (monthlyData.length > 0) {
-        await fetchMonthlyProgress(monthlyData);
+        await fetchMonthlyProgress(monthlyData, acctRes.data || []);
       }
     } catch (err) {
       console.error('Error fetching:', err);
@@ -196,33 +196,64 @@ export default function Goals() {
     setRollupData(result);
   }
 
-  async function fetchMonthlyProgress(mGoals) {
+  async function fetchMonthlyProgress(mGoals, accts) {
     const now = new Date();
-    const yearStart = `${now.getFullYear()}-01-01`;
+    const year = now.getFullYear();
+    const yearStart = `${year}-01-01`;
     const yearEnd = now.toISOString();
     const allAccountIds = [...new Set(mGoals.flatMap(g => g.platform_account_ids || []))];
     if (!allAccountIds.length) return;
+
+    // Find TikTok account IDs (content_items has no TikTok data — we use Metricool)
+    const tiktokAccountIds = new Set(
+      (accts || []).filter(a => a.platform === 'tiktok').map(a => a.id)
+    );
 
     const { data: items } = await supabase
       .from('content_items')
       .select('id, content_type, platform_account_id, published_at, duration_seconds')
       .gte('published_at', yearStart)
       .lte('published_at', yearEnd)
-      .in('platform_account_id', allAccountIds);
+      .in('platform_account_id', allAccountIds.filter(id => !tiktokAccountIds.has(id)));
 
-    if (!items) return;
+    // Fetch TikTok posts from Metricool if any goal uses TikTok
+    const needsTiktok = mGoals.some(mg =>
+      (mg.platform_account_ids || []).some(id => tiktokAccountIds.has(id))
+    );
+    let tiktokByMonth = {};
+    if (needsTiktok) {
+      try {
+        const startStr = `${year}-01-01T00:00:00`;
+        const endStr = `${year}-12-31T23:59:59`;
+        const res = await fetch(
+          `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/metricool-posts?start=${startStr}&end=${endStr}`
+        );
+        if (res.ok) {
+          const { posts } = await res.json();
+          const tiktokPosts = (posts || []).filter(p => p.network === 'tiktok' && p.status === 'PUBLISHED');
+          for (const p of tiktokPosts) {
+            const month = p.publicationDate?.dateTime?.substring(0, 7);
+            if (month) tiktokByMonth[month] = (tiktokByMonth[month] || 0) + 1;
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching TikTok posts from Metricool:', err);
+      }
+    }
 
     const LONGFORM_THRESHOLD = 180; // seconds
     const result = {};
     for (const mg of mGoals) {
       const goalAccountIds = mg.platform_account_ids || [];
-      const filtered = items.filter(item => {
-        if (!goalAccountIds.includes(item.platform_account_id)) return false;
+      const hasTiktok = goalAccountIds.some(id => tiktokAccountIds.has(id));
+      const nonTiktokIds = goalAccountIds.filter(id => !tiktokAccountIds.has(id));
+
+      // Count from content_items (YouTube etc)
+      const filtered = (items || []).filter(item => {
+        if (!nonTiktokIds.includes(item.platform_account_id)) return false;
         if (mg.content_type_filter === 'video') {
-          // Longform: only videos longer than 3 minutes
           return item.content_type === 'video' && (item.duration_seconds || 0) > LONGFORM_THRESHOLD;
         }
-        // Short: explicitly tagged shorts OR short-duration videos
         return item.content_type === 'short' || (item.content_type === 'video' && (item.duration_seconds || 0) <= LONGFORM_THRESHOLD);
       });
       const byMonth = {};
@@ -230,6 +261,14 @@ export default function Goals() {
         const month = item.published_at.substring(0, 7);
         byMonth[month] = (byMonth[month] || 0) + 1;
       }
+
+      // Add TikTok counts (all TikTok posts count as shorts)
+      if (hasTiktok && mg.content_type_filter === 'short') {
+        for (const [month, count] of Object.entries(tiktokByMonth)) {
+          byMonth[month] = (byMonth[month] || 0) + count;
+        }
+      }
+
       result[mg.id] = byMonth;
     }
     setMonthlyProgress(result);
