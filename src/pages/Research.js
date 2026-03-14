@@ -58,6 +58,7 @@ export default function Research() {
   const [selectedCard, setSelectedCard] = useState(null);
   const [regeneratingBrief, setRegeneratingBrief] = useState(false);
   const [regeneratingCards, setRegeneratingCards] = useState(false);
+  const [confirmRegenCards, setConfirmRegenCards] = useState(false);
 
   const handleRegenerateBrief = async () => {
     if (!window.confirm('Regenerate the brief for this date? This will delete the existing brief and create a new one.')) return;
@@ -79,7 +80,7 @@ export default function Research() {
   };
 
   const handleRegenerateCards = async () => {
-    if (!window.confirm('Regenerate cards for this date? This will delete existing cards and create new ones.')) return;
+    setConfirmRegenCards(false);
     setRegeneratingCards(true);
     try {
       const res = await fetch('https://www.tritonapex.io/api/cron/daily-cards?force=true', {
@@ -842,13 +843,21 @@ export default function Research() {
                   >
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 3l5 5-5 5" /></svg>
                   </button>
-                  <button onClick={handleRegenerateCards} disabled={regeneratingCards} style={{ ...s.briefActionBtn, marginLeft: '12px', opacity: regeneratingCards ? 0.5 : 1 }}>
-                    {regeneratingCards ? (
-                      <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite', marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Regenerating…</>
-                    ) : (
-                      <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Regenerate</>
-                    )}
-                  </button>
+                  {confirmRegenCards ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '12px' }}>
+                      <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>Sure?</span>
+                      <button onClick={handleRegenerateCards} style={{ ...s.briefActionBtn, borderColor: 'rgba(239,68,68,0.4)', color: '#ef4444' }}>Yes, regenerate</button>
+                      <button onClick={() => setConfirmRegenCards(false)} style={s.briefActionBtn}>Cancel</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setConfirmRegenCards(true)} disabled={regeneratingCards} style={{ ...s.briefActionBtn, marginLeft: '12px', opacity: regeneratingCards ? 0.5 : 1 }}>
+                      {regeneratingCards ? (
+                        <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite', marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Regenerating…</>
+                      ) : (
+                        <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Regenerate</>
+                      )}
+                    </button>
+                  )}
                 </div>
               )}
 
