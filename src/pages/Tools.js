@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { supabase } from '../supabaseClient';
 import Teleprompter from './tools/Teleprompter';
 import Organize from './tools/Organize';
+import PostShow from './tools/PostShow';
 
 const TOOLS = [
   {
@@ -30,6 +31,12 @@ const TOOLS = [
     description: 'Browser-based media file organizer. Tag files by type and subtype, then sort them into folders.',
     color: '#10b981',
   },
+  {
+    key: 'post-show',
+    name: 'Post Show',
+    description: 'End-to-end post-show workflow: video cutting, Drive uploads, Discord notifications, and Kanban sync.',
+    color: '#ec4899',
+  },
 ];
 
 const TRITON_BASE = 'https://tritonapex.io';
@@ -55,6 +62,9 @@ export default function Tools() {
   }
   if (activeTool === 'organize') {
     return <Organize onBack={() => setActiveTool(null)} />;
+  }
+  if (activeTool === 'post-show') {
+    return <PostShow onBack={() => setActiveTool(null)} />;
   }
 
   return (
