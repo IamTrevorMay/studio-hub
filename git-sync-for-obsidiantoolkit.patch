@@ -1,0 +1,1253 @@
+From 92041af695e5004c5c55212eadc1e3a0cbe2313e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 14 Mar 2026 20:06:46 +0000
+Subject: [PATCH] Add Git Sync agent and macOS dashboard integration
+
+New Python agent (git_sync.py) that monitors git repos and auto-generates
+Obsidian changelogs and living product docs from commits via Claude AI.
+Extends the existing Agent framework with CLI subcommands: list, add,
+remove, sync, sync-all.
+
+Adds a dedicated Git Sync tab to the macOS manager app with project cards,
+add/remove/sync controls, enable/disable toggles, and live output console.
+
+https://claude.ai/code/session_018PqZMGQbhPUgy9mkW8WRE6
+---
+ .../App/ContentView.swift                     |   2 +
+ .../Models/AppState.swift                     |   2 +
+ .../Models/GitSyncProject.swift               |  25 ++
+ .../Services/GitSyncService.swift             | 117 ++++++
+ .../GitSync/AddGitSyncProjectSheet.swift      | 155 +++++++
+ .../Views/GitSync/GitSyncProjectCard.swift    | 130 ++++++
+ .../Views/GitSync/GitSyncView.swift           | 205 +++++++++
+ toolkit/agents/__init__.py                    |   4 +
+ toolkit/agents/__main__.py                    |  10 +
+ toolkit/agents/git_sync.py                    | 392 ++++++++++++++++++
+ toolkit/manifest.json                         |  71 ++++
+ 11 files changed, 1113 insertions(+)
+ create mode 100644 manager/ObsidianToolkitManager/Models/GitSyncProject.swift
+ create mode 100644 manager/ObsidianToolkitManager/Services/GitSyncService.swift
+ create mode 100644 manager/ObsidianToolkitManager/Views/GitSync/AddGitSyncProjectSheet.swift
+ create mode 100644 manager/ObsidianToolkitManager/Views/GitSync/GitSyncProjectCard.swift
+ create mode 100644 manager/ObsidianToolkitManager/Views/GitSync/GitSyncView.swift
+ create mode 100644 toolkit/agents/git_sync.py
+
+diff --git a/manager/ObsidianToolkitManager/App/ContentView.swift b/manager/ObsidianToolkitManager/App/ContentView.swift
+index 910c15b..cf05073 100644
+--- a/manager/ObsidianToolkitManager/App/ContentView.swift
++++ b/manager/ObsidianToolkitManager/App/ContentView.swift
+@@ -30,6 +30,8 @@ struct ContentView: View {
+                     VaultBrowserView()
+                 case .reports:
+                     ReportListView()
++                case .gitSync:
++                    GitSyncView()
+                 case .settings:
+                     SettingsView()
+                 }
+diff --git a/manager/ObsidianToolkitManager/Models/AppState.swift b/manager/ObsidianToolkitManager/Models/AppState.swift
+index d7ea37c..f710d2c 100644
+--- a/manager/ObsidianToolkitManager/Models/AppState.swift
++++ b/manager/ObsidianToolkitManager/Models/AppState.swift
+@@ -93,6 +93,7 @@ enum SidebarTab: String, CaseIterable, Identifiable {
+     case agentRunner = "Agent Runner"
+     case vaultBrowser = "Vault Browser"
+     case reports = "Reports"
++    case gitSync = "Git Sync"
+     case settings = "Settings"
+ 
+     var id: String { rawValue }
+@@ -103,6 +104,7 @@ enum SidebarTab: String, CaseIterable, Identifiable {
+         case .agentRunner: return "terminal"
+         case .vaultBrowser: return "folder"
+         case .reports: return "doc.text.magnifyingglass"
++        case .gitSync: return "arrow.triangle.2.circlepath"
+         case .settings: return "gear"
+         }
+     }
+diff --git a/manager/ObsidianToolkitManager/Models/GitSyncProject.swift b/manager/ObsidianToolkitManager/Models/GitSyncProject.swift
+new file mode 100644
+index 0000000..d4c19dd
+--- /dev/null
++++ b/manager/ObsidianToolkitManager/Models/GitSyncProject.swift
+@@ -0,0 +1,25 @@
++import Foundation
++
++struct GitSyncProject: Codable, Identifiable, Equatable {
++    var id: String
++    var name: String
++    var repoPath: String
++    var branch: String
++    var changelogPath: String
++    var productDocPath: String
++    var lastCommit: String?
++    var enabled: Bool
++
++    enum CodingKeys: String, CodingKey {
++        case id, name, branch, enabled
++        case repoPath = "repo_path"
++        case changelogPath = "changelog_path"
++        case productDocPath = "product_doc_path"
++        case lastCommit = "last_commit"
++    }
++
++    var shortLastCommit: String {
++        guard let hash = lastCommit, !hash.isEmpty else { return "none" }
++        return String(hash.prefix(8))
++    }
++}
+diff --git a/manager/ObsidianToolkitManager/Services/GitSyncService.swift b/manager/ObsidianToolkitManager/Services/GitSyncService.swift
+new file mode 100644
+index 0000000..d6722b6
+--- /dev/null
++++ b/manager/ObsidianToolkitManager/Services/GitSyncService.swift
+@@ -0,0 +1,117 @@
++import Foundation
++
++struct GitSyncService {
++
++    // MARK: - Projects file I/O
++
++    static func projectsFileURL(toolkitPath: String) -> URL {
++        URL(fileURLWithPath: toolkitPath)
++            .appendingPathComponent("git_sync_projects.json")
++    }
++
++    static func loadProjects(toolkitPath: String) -> [GitSyncProject] {
++        let url = projectsFileURL(toolkitPath: toolkitPath)
++        guard let data = try? Data(contentsOf: url) else { return [] }
++        return (try? JSONDecoder().decode([GitSyncProject].self, from: data)) ?? []
++    }
++
++    static func saveProjects(_ projects: [GitSyncProject], toolkitPath: String) throws {
++        let url = projectsFileURL(toolkitPath: toolkitPath)
++        let encoder = JSONEncoder()
++        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
++        let data = try encoder.encode(projects)
++        try data.write(to: url, options: .atomic)
++    }
++
++    // MARK: - Run agent subcommands via Python
++
++    static func runCommand(
++        command: String,
++        args: [String] = [],
++        pythonPath: String,
++        toolkitPath: String,
++        environment: [String: String] = [:]
++    ) -> (UUID, AsyncStream<ProcessOutput>) {
++        var arguments = ["-m", "agents.git_sync"]
++        arguments.append(command)
++        arguments.append(contentsOf: args)
++
++        let configPath = (toolkitPath as NSString).appendingPathComponent("config.json")
++        arguments.append(contentsOf: ["--config", configPath])
++
++        let stream = AsyncStream<ProcessOutput> { continuation in
++            let process = Process()
++            let stdoutPipe = Pipe()
++            let stderrPipe = Pipe()
++
++            process.executableURL = URL(fileURLWithPath: pythonPath)
++            process.arguments = arguments
++            process.currentDirectoryURL = URL(fileURLWithPath: toolkitPath)
++            process.standardOutput = stdoutPipe
++            process.standardError = stderrPipe
++            if !environment.isEmpty {
++                process.environment = environment
++            }
++
++            let stdoutHandle = stdoutPipe.fileHandleForReading
++            let stderrHandle = stderrPipe.fileHandleForReading
++
++            stdoutHandle.readabilityHandler = { handle in
++                let data = handle.availableData
++                guard !data.isEmpty else { return }
++                if let str = String(data: data, encoding: .utf8) {
++                    for line in str.components(separatedBy: .newlines) where !line.isEmpty {
++                        continuation.yield(.stdout(line))
++                    }
++                }
++            }
++
++            stderrHandle.readabilityHandler = { handle in
++                let data = handle.availableData
++                guard !data.isEmpty else { return }
++                if let str = String(data: data, encoding: .utf8) {
++                    for line in str.components(separatedBy: .newlines) where !line.isEmpty {
++                        continuation.yield(.stderr(line))
++                    }
++                }
++            }
++
++            process.terminationHandler = { proc in
++                stdoutHandle.readabilityHandler = nil
++                stderrHandle.readabilityHandler = nil
++
++                let remainingStdout = stdoutHandle.readDataToEndOfFile()
++                if !remainingStdout.isEmpty, let str = String(data: remainingStdout, encoding: .utf8) {
++                    for line in str.components(separatedBy: .newlines) where !line.isEmpty {
++                        continuation.yield(.stdout(line))
++                    }
++                }
++                let remainingStderr = stderrHandle.readDataToEndOfFile()
++                if !remainingStderr.isEmpty, let str = String(data: remainingStderr, encoding: .utf8) {
++                    for line in str.components(separatedBy: .newlines) where !line.isEmpty {
++                        continuation.yield(.stderr(line))
++                    }
++                }
++
++                continuation.yield(.exit(proc.terminationStatus))
++                continuation.finish()
++            }
++
++            continuation.onTermination = { @Sendable _ in
++                if process.isRunning {
++                    process.terminate()
++                }
++            }
++
++            do {
++                try process.run()
++            } catch {
++                continuation.yield(.stderr("Failed to launch: \(error.localizedDescription)"))
++                continuation.yield(.exit(-1))
++                continuation.finish()
++            }
++        }
++
++        return (UUID(), stream)
++    }
++}
+diff --git a/manager/ObsidianToolkitManager/Views/GitSync/AddGitSyncProjectSheet.swift b/manager/ObsidianToolkitManager/Views/GitSync/AddGitSyncProjectSheet.swift
+new file mode 100644
+index 0000000..66f33b7
+--- /dev/null
++++ b/manager/ObsidianToolkitManager/Views/GitSync/AddGitSyncProjectSheet.swift
+@@ -0,0 +1,155 @@
++import SwiftUI
++import AppKit
++
++struct AddGitSyncProjectSheet: View {
++    let onAdd: (GitSyncProject) -> Void
++
++    @Environment(\.dismiss) private var dismiss
++
++    @State private var name = ""
++    @State private var repoPath = ""
++    @State private var branch = "main"
++    @State private var changelogPath = ""
++    @State private var productDocPath = ""
++    @State private var errorMessage: String?
++
++    var isValid: Bool {
++        !name.isEmpty && !repoPath.isEmpty && !changelogPath.isEmpty && !productDocPath.isEmpty
++    }
++
++    var body: some View {
++        VStack(spacing: 0) {
++            // Title
++            HStack {
++                Text("Connect Git Repository")
++                    .font(.title2.bold())
++                Spacer()
++                Button {
++                    dismiss()
++                } label: {
++                    Image(systemName: "xmark.circle.fill")
++                        .foregroundStyle(.secondary)
++                        .font(.title2)
++                }
++                .buttonStyle(.borderless)
++            }
++            .padding()
++
++            Divider()
++
++            Form {
++                Section("Git Repository") {
++                    TextField("Project Name", text: $name)
++                        .help("A display name for this project")
++
++                    HStack {
++                        TextField("Repository Path", text: $repoPath)
++                        Button("Browse...") {
++                            let panel = NSOpenPanel()
++                            panel.canChooseFiles = false
++                            panel.canChooseDirectories = true
++                            panel.message = "Select a git repository folder"
++                            if panel.runModal() == .OK, let url = panel.url {
++                                repoPath = url.path
++                                // Auto-fill name from folder name if empty
++                                if name.isEmpty {
++                                    name = url.lastPathComponent
++                                }
++                            }
++                        }
++                        .controlSize(.small)
++                    }
++
++                    TextField("Branch", text: $branch)
++                        .help("Git branch to monitor (default: main)")
++                }
++
++                Section("Obsidian Vault Targets") {
++                    HStack {
++                        TextField("Changelog Path", text: $changelogPath)
++                            .help("Where to write the changelog (e.g. /Users/you/Vault/Projects/MyApp Changelog.md)")
++                        Button("Browse...") {
++                            browseForFile(binding: $changelogPath, title: "Select changelog file location")
++                        }
++                        .controlSize(.small)
++                    }
++
++                    HStack {
++                        TextField("Product Doc Path", text: $productDocPath)
++                            .help("Where to write the product doc (e.g. /Users/you/Vault/Projects/MyApp Product Doc.md)")
++                        Button("Browse...") {
++                            browseForFile(binding: $productDocPath, title: "Select product doc file location")
++                        }
++                        .controlSize(.small)
++                    }
++                }
++
++                if let error = errorMessage {
++                    Section {
++                        Label(error, systemImage: "exclamationmark.triangle.fill")
++                            .foregroundStyle(.red)
++                            .font(.caption)
++                    }
++                }
++            }
++            .formStyle(.grouped)
++
++            Divider()
++
++            HStack {
++                Spacer()
++                Button("Cancel") {
++                    dismiss()
++                }
++                .keyboardShortcut(.cancelAction)
++
++                Button("Add Project") {
++                    addProject()
++                }
++                .buttonStyle(.borderedProminent)
++                .keyboardShortcut(.defaultAction)
++                .disabled(!isValid)
++            }
++            .padding()
++        }
++        .frame(width: 520, height: 440)
++    }
++
++    private func browseForFile(binding: Binding<String>, title: String) {
++        let panel = NSSavePanel()
++        panel.title = title
++        panel.allowedContentTypes = [.plainText]
++        panel.allowsOtherFileTypes = true
++        panel.canCreateDirectories = true
++        if panel.runModal() == .OK, let url = panel.url {
++            binding.wrappedValue = url.path
++        }
++    }
++
++    private func addProject() {
++        // Validate repo path
++        let repoURL = URL(fileURLWithPath: repoPath)
++        let gitDir = repoURL.appendingPathComponent(".git")
++        guard FileManager.default.fileExists(atPath: gitDir.path) else {
++            errorMessage = "Not a git repository — no .git folder found at \(repoPath)"
++            return
++        }
++
++        let timestamp = Int(Date().timeIntervalSince1970)
++        let randomSuffix = String(format: "%06x", Int.random(in: 0..<0xFFFFFF))
++
++        let project = GitSyncProject(
++            id: "\(timestamp)_\(randomSuffix)",
++            name: name,
++            repoPath: repoPath,
++            branch: branch.isEmpty ? "main" : branch,
++            changelogPath: changelogPath,
++            productDocPath: productDocPath,
++            lastCommit: nil,
++            enabled: true
++        )
++
++        onAdd(project)
++        dismiss()
++    }
++}
+diff --git a/manager/ObsidianToolkitManager/Views/GitSync/GitSyncProjectCard.swift b/manager/ObsidianToolkitManager/Views/GitSync/GitSyncProjectCard.swift
+new file mode 100644
+index 0000000..60dfbd4
+--- /dev/null
++++ b/manager/ObsidianToolkitManager/Views/GitSync/GitSyncProjectCard.swift
+@@ -0,0 +1,130 @@
++import SwiftUI
++
++struct GitSyncProjectCard: View {
++    let project: GitSyncProject
++    let isSyncing: Bool
++    let onSync: () -> Void
++    let onToggle: () -> Void
++    let onDelete: () -> Void
++
++    @State private var showDeleteConfirm = false
++
++    var body: some View {
++        VStack(alignment: .leading, spacing: 12) {
++            // Header row
++            HStack {
++                Image(systemName: "arrow.triangle.2.circlepath")
++                    .font(.title2)
++                    .foregroundStyle(project.enabled ? .blue : .gray)
++                    .frame(width: 32, height: 32)
++
++                VStack(alignment: .leading, spacing: 2) {
++                    Text(project.name)
++                        .font(.headline)
++                    Text(project.branch)
++                        .font(.caption)
++                        .foregroundStyle(.secondary)
++                }
++
++                Spacer()
++
++                Toggle("", isOn: Binding(
++                    get: { project.enabled },
++                    set: { _ in onToggle() }
++                ))
++                .toggleStyle(.switch)
++                .labelsHidden()
++            }
++
++            // Repo path
++            Label {
++                Text(project.repoPath)
++                    .font(.caption)
++                    .foregroundStyle(.secondary)
++                    .lineLimit(1)
++                    .truncationMode(.middle)
++            } icon: {
++                Image(systemName: "folder.fill")
++                    .font(.caption)
++                    .foregroundStyle(.secondary)
++            }
++
++            // Obsidian paths
++            VStack(alignment: .leading, spacing: 4) {
++                Label {
++                    Text(abbreviatePath(project.changelogPath))
++                        .font(.caption2)
++                        .foregroundStyle(.tertiary)
++                        .lineLimit(1)
++                } icon: {
++                    Image(systemName: "doc.text")
++                        .font(.caption2)
++                        .foregroundStyle(.orange)
++                }
++
++                Label {
++                    Text(abbreviatePath(project.productDocPath))
++                        .font(.caption2)
++                        .foregroundStyle(.tertiary)
++                        .lineLimit(1)
++                } icon: {
++                    Image(systemName: "book.closed")
++                        .font(.caption2)
++                        .foregroundStyle(.purple)
++                }
++            }
++
++            Divider()
++
++            // Footer
++            HStack {
++                // Last commit
++                HStack(spacing: 4) {
++                    Image(systemName: "number")
++                        .font(.caption2)
++                    Text(project.shortLastCommit)
++                        .font(.system(.caption2, design: .monospaced))
++                }
++                .foregroundStyle(.tertiary)
++
++                Spacer()
++
++                Button(role: .destructive) {
++                    showDeleteConfirm = true
++                } label: {
++                    Image(systemName: "trash")
++                }
++                .buttonStyle(.borderless)
++
++                if isSyncing {
++                    ProgressView()
++                        .controlSize(.small)
++                } else {
++                    Button("Sync Now", action: onSync)
++                        .buttonStyle(.borderedProminent)
++                        .controlSize(.small)
++                        .disabled(!project.enabled)
++                }
++            }
++        }
++        .padding()
++        .background(.background)
++        .clipShape(RoundedRectangle(cornerRadius: 10))
++        .shadow(color: .black.opacity(0.08), radius: 4, y: 2)
++        .opacity(project.enabled ? 1.0 : 0.6)
++        .confirmationDialog("Delete \"\(project.name)\"?", isPresented: $showDeleteConfirm) {
++            Button("Delete", role: .destructive, action: onDelete)
++            Button("Cancel", role: .cancel) {}
++        } message: {
++            Text("This removes the project from Git Sync. Your Obsidian files won't be deleted.")
++        }
++    }
++
++    private func abbreviatePath(_ path: String) -> String {
++        let components = path.components(separatedBy: "/")
++        if components.count > 3 {
++            return ".../" + components.suffix(3).joined(separator: "/")
++        }
++        return path
++    }
++}
+diff --git a/manager/ObsidianToolkitManager/Views/GitSync/GitSyncView.swift b/manager/ObsidianToolkitManager/Views/GitSync/GitSyncView.swift
+new file mode 100644
+index 0000000..c841306
+--- /dev/null
++++ b/manager/ObsidianToolkitManager/Views/GitSync/GitSyncView.swift
+@@ -0,0 +1,205 @@
++import SwiftUI
++import AppKit
++
++struct GitSyncView: View {
++    @Environment(AppState.self) private var appState
++    @State private var projects: [GitSyncProject] = []
++    @State private var showAddSheet = false
++    @State private var syncingIds: Set<String> = []
++    @State private var outputLines: [OutputLine] = []
++    @State private var showOutput = false
++
++    struct OutputLine: Identifiable {
++        let id = UUID()
++        let text: String
++        let isStderr: Bool
++    }
++
++    var body: some View {
++        VStack(spacing: 0) {
++            // Header
++            HStack {
++                VStack(alignment: .leading, spacing: 4) {
++                    Text("Git Sync")
++                        .font(.title.bold())
++                    Text("Connect git repositories to Obsidian docs — changelogs and product docs update automatically from commits.")
++                        .font(.subheadline)
++                        .foregroundStyle(.secondary)
++                }
++
++                Spacer()
++
++                Button {
++                    syncAll()
++                } label: {
++                    Label("Sync All", systemImage: "arrow.triangle.2.circlepath")
++                }
++                .buttonStyle(.bordered)
++                .disabled(!syncingIds.isEmpty)
++
++                Button {
++                    showAddSheet = true
++                } label: {
++                    Label("Add Project", systemImage: "plus")
++                }
++                .buttonStyle(.borderedProminent)
++            }
++            .padding()
++
++            Divider()
++
++            if projects.isEmpty {
++                ContentUnavailableView(
++                    "No Projects Connected",
++                    systemImage: "arrow.triangle.2.circlepath",
++                    description: Text("Add a git repository to start syncing commits into Obsidian changelog and product docs.")
++                )
++            } else {
++                ScrollView {
++                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 340, maximum: 500), spacing: 16)], spacing: 16) {
++                        ForEach(projects) { project in
++                            GitSyncProjectCard(
++                                project: project,
++                                isSyncing: syncingIds.contains(project.id),
++                                onSync: { syncProject(project) },
++                                onToggle: { toggleProject(project) },
++                                onDelete: { deleteProject(project) }
++                            )
++                        }
++                    }
++                    .padding()
++                }
++            }
++
++            // Output console (collapsible)
++            if showOutput && !outputLines.isEmpty {
++                Divider()
++                VStack(spacing: 0) {
++                    HStack {
++                        Text("Output")
++                            .font(.caption.bold())
++                        Spacer()
++                        Button("Clear") {
++                            outputLines.removeAll()
++                            showOutput = false
++                        }
++                        .buttonStyle(.borderless)
++                        .font(.caption)
++                    }
++                    .padding(.horizontal, 8)
++                    .padding(.vertical, 4)
++                    .background(.bar)
++
++                    ScrollView {
++                        LazyVStack(alignment: .leading, spacing: 1) {
++                            ForEach(outputLines) { line in
++                                Text(line.text)
++                                    .font(.system(.caption, design: .monospaced))
++                                    .foregroundStyle(line.isStderr ? .secondary : .primary)
++                                    .textSelection(.enabled)
++                                    .frame(maxWidth: .infinity, alignment: .leading)
++                            }
++                        }
++                        .padding(6)
++                    }
++                    .background(Color(nsColor: .textBackgroundColor))
++                    .frame(maxHeight: 150)
++                }
++            }
++        }
++        .navigationTitle("Git Sync")
++        .onAppear { loadProjects() }
++        .sheet(isPresented: $showAddSheet) {
++            AddGitSyncProjectSheet(onAdd: { project in
++                addProject(project)
++            })
++        }
++    }
++
++    // MARK: - Actions
++
++    private func loadProjects() {
++        projects = GitSyncService.loadProjects(toolkitPath: appState.toolkitPath)
++    }
++
++    private func addProject(_ project: GitSyncProject) {
++        var current = GitSyncService.loadProjects(toolkitPath: appState.toolkitPath)
++        current.append(project)
++        try? GitSyncService.saveProjects(current, toolkitPath: appState.toolkitPath)
++        loadProjects()
++    }
++
++    private func deleteProject(_ project: GitSyncProject) {
++        var current = GitSyncService.loadProjects(toolkitPath: appState.toolkitPath)
++        current.removeAll { $0.id == project.id }
++        try? GitSyncService.saveProjects(current, toolkitPath: appState.toolkitPath)
++        loadProjects()
++    }
++
++    private func toggleProject(_ project: GitSyncProject) {
++        var current = GitSyncService.loadProjects(toolkitPath: appState.toolkitPath)
++        if let idx = current.firstIndex(where: { $0.id == project.id }) {
++            current[idx].enabled.toggle()
++            try? GitSyncService.saveProjects(current, toolkitPath: appState.toolkitPath)
++        }
++        loadProjects()
++    }
++
++    private func syncProject(_ project: GitSyncProject) {
++        syncingIds.insert(project.id)
++        showOutput = true
++
++        Task {
++            let (_, stream) = GitSyncService.runCommand(
++                command: "sync",
++                args: ["--project-id", project.id],
++                pythonPath: appState.pythonPath,
++                toolkitPath: appState.toolkitPath,
++                environment: appState.shellEnvironment
++            )
++
++            for await output in stream {
++                await MainActor.run {
++                    switch output {
++                    case .stdout(let line):
++                        outputLines.append(OutputLine(text: line, isStderr: false))
++                    case .stderr(let line):
++                        outputLines.append(OutputLine(text: line, isStderr: true))
++                    case .exit:
++                        syncingIds.remove(project.id)
++                        loadProjects()
++                    }
++                }
++            }
++        }
++    }
++
++    private func syncAll() {
++        let enabled = projects.filter(\.enabled)
++        for p in enabled { syncingIds.insert(p.id) }
++        showOutput = true
++
++        Task {
++            let (_, stream) = GitSyncService.runCommand(
++                command: "sync-all",
++                pythonPath: appState.pythonPath,
++                toolkitPath: appState.toolkitPath,
++                environment: appState.shellEnvironment
++            )
++
++            for await output in stream {
++                await MainActor.run {
++                    switch output {
++                    case .stdout(let line):
++                        outputLines.append(OutputLine(text: line, isStderr: false))
++                    case .stderr(let line):
++                        outputLines.append(OutputLine(text: line, isStderr: true))
++                    case .exit:
++                        syncingIds.removeAll()
++                        loadProjects()
++                    }
++                }
++            }
++        }
++    }
++}
+diff --git a/toolkit/agents/__init__.py b/toolkit/agents/__init__.py
+index c81177a..5880076 100644
+--- a/toolkit/agents/__init__.py
++++ b/toolkit/agents/__init__.py
+@@ -35,6 +35,9 @@ def __getattr__(name):
+     if name == "TemplateEnforcerAgent":
+         from .template_enforcer import TemplateEnforcerAgent
+         return TemplateEnforcerAgent
++    if name == "GitSyncAgent":
++        from .git_sync import GitSyncAgent
++        return GitSyncAgent
+     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+ 
+ 
+@@ -50,4 +53,5 @@ __all__ = [
+     "EmptyFolderPrunerAgent",
+     "WeeklyDigestAgent",
+     "TemplateEnforcerAgent",
++    "GitSyncAgent",
+ ]
+diff --git a/toolkit/agents/__main__.py b/toolkit/agents/__main__.py
+index adfec8f..c143dae 100644
+--- a/toolkit/agents/__main__.py
++++ b/toolkit/agents/__main__.py
+@@ -77,6 +77,16 @@ AGENTS = {
+             "python -m agents.template_enforcer --folder 'Meeting Notes' --template 'Templates/Meeting.md' --fix",
+         ],
+     },
++    "git_sync": {
++        "description": "Sync git commits into Obsidian changelog & product docs",
++        "usage": [
++            "python -m agents.git_sync list",
++            "python -m agents.git_sync add --name 'My App' --repo-path /path/to/repo --changelog-path /vault/Changelog.md --product-doc-path /vault/Product.md",
++            "python -m agents.git_sync sync --project-id <id>",
++            "python -m agents.git_sync sync-all",
++            "python -m agents.git_sync remove --project-id <id>",
++        ],
++    },
+ }
+ 
+ 
+diff --git a/toolkit/agents/git_sync.py b/toolkit/agents/git_sync.py
+new file mode 100644
+index 0000000..207967f
+--- /dev/null
++++ b/toolkit/agents/git_sync.py
+@@ -0,0 +1,392 @@
++"""Git Sync agent — monitors git repos and updates Obsidian changelog & product docs."""
++
++import argparse
++import json
++import os
++import subprocess
++import sys
++from datetime import datetime
++from pathlib import Path
++
++from agents.framework import Agent
++
++
++class GitSyncAgent(Agent):
++    """Sync git commit history into Obsidian markdown notes."""
++
++    PROJECTS_FILE = "git_sync_projects.json"
++
++    def get_name(self) -> str:
++        return "git-sync"
++
++    def validate_config(self):
++        pass  # No vault-specific validation needed beyond base
++
++    # ------------------------------------------------------------------
++    # Project persistence
++    # ------------------------------------------------------------------
++
++    def _projects_path(self) -> Path:
++        return Path(__file__).parent.parent / self.PROJECTS_FILE
++
++    def _load_projects(self) -> list[dict]:
++        path = self._projects_path()
++        if not path.exists():
++            return []
++        with open(path, encoding="utf-8") as f:
++            return json.load(f)
++
++    def _save_projects(self, projects: list[dict]) -> None:
++        path = self._projects_path()
++        with open(path, "w", encoding="utf-8") as f:
++            json.dump(projects, f, indent=2)
++
++    def _find_project(self, projects: list[dict], project_id: str) -> dict | None:
++        return next((p for p in projects if p["id"] == project_id), None)
++
++    # ------------------------------------------------------------------
++    # Git helpers
++    # ------------------------------------------------------------------
++
++    @staticmethod
++    def _git(repo_path: str, *args: str) -> str:
++        """Run a git command and return stdout."""
++        result = subprocess.run(
++            ["git", *args],
++            cwd=repo_path,
++            capture_output=True,
++            text=True,
++            timeout=30,
++        )
++        if result.returncode != 0:
++            raise RuntimeError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
++        return result.stdout.strip()
++
++    def _fetch_remote(self, repo_path: str, branch: str) -> None:
++        try:
++            self._git(repo_path, "fetch", "origin", branch)
++        except (RuntimeError, subprocess.TimeoutExpired):
++            self.logger.debug("Fetch failed (offline?) — using local commits")
++
++    def _get_new_commits(self, project: dict) -> list[dict]:
++        repo = project["repo_path"]
++        branch = project.get("branch", "main")
++
++        self._fetch_remote(repo, branch)
++
++        if project.get("last_commit"):
++            fmt = "--pretty=format:%H||%s||%an||%ai"
++            raw = self._git(repo, "log", fmt, f"{project['last_commit']}..{branch}")
++        else:
++            fmt = "--pretty=format:%H||%s||%an||%ai"
++            raw = self._git(repo, "log", fmt, "-10", branch)
++
++        if not raw:
++            return []
++
++        commits = []
++        for line in raw.splitlines():
++            parts = line.split("||", 3)
++            if len(parts) == 4:
++                commits.append({
++                    "hash": parts[0],
++                    "message": parts[1],
++                    "author": parts[2],
++                    "date": parts[3],
++                })
++        return commits
++
++    def _get_diff(self, repo_path: str, commit_hash: str) -> str:
++        try:
++            return self._git(repo_path, "diff", f"{commit_hash}~1", commit_hash)
++        except RuntimeError:
++            return "Initial commit"
++
++    # ------------------------------------------------------------------
++    # Claude API helpers
++    # ------------------------------------------------------------------
++
++    def _generate_changelog(self, commits: list[dict], diffs: list[str]) -> str:
++        client = self.get_claude_client()
++        if not client:
++            raise RuntimeError("No API key — cannot generate changelog")
++
++        now = datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
++        commit_summary = "\n\n".join(
++            f"### Commit: {c['message']}\n```diff\n{d}\n```"
++            for c, d in zip(commits, diffs)
++        )
++
++        response = client.messages.create(
++            model="claude-sonnet-4-20250514",
++            max_tokens=2048,
++            messages=[{
++                "role": "user",
++                "content": (
++                    "You are a technical writer. Given the following git commits and diffs, "
++                    "write a concise **release-notes style changelog entry** in Markdown.\n\n"
++                    "Rules:\n"
++                    f"- Start with a heading: ## {now}\n"
++                    "- Group changes into categories like **Added**, **Changed**, **Fixed**, "
++                    "**Removed** (only include categories that apply)\n"
++                    "- Use bullet points\n"
++                    "- Be concise but informative\n"
++                    "- Do NOT include raw diff content\n"
++                    "- Do NOT wrap in code fences\n\n"
++                    f"Commits & Diffs:\n{commit_summary}"
++                ),
++            }],
++        )
++        return response.content[0].text
++
++    def _update_product_doc(self, current_doc: str, changelog_entry: str) -> str:
++        client = self.get_claude_client()
++        if not client:
++            raise RuntimeError("No API key — cannot update product doc")
++
++        response = client.messages.create(
++            model="claude-sonnet-4-20250514",
++            max_tokens=4096,
++            messages=[{
++                "role": "user",
++                "content": (
++                    "You are a technical writer maintaining a living **Product Document / "
++                    "User Manual** for a software project stored as an Obsidian markdown note.\n\n"
++                    "Here is the CURRENT product document:\n---\n"
++                    f"{current_doc or '*(empty — brand new product document)*'}\n---\n\n"
++                    "Here is the LATEST changelog entry:\n---\n"
++                    f"{changelog_entry}\n---\n\n"
++                    "Your job:\n"
++                    "1. Update the product document to reflect the changelog changes.\n"
++                    "2. Add new sections for new features.\n"
++                    "3. Update existing sections for modified features.\n"
++                    "4. Remove sections for removed features.\n"
++                    "5. Keep it well-organized with clear headings and descriptions.\n"
++                    "6. If empty, create a sensible structure: title, overview, feature sections.\n"
++                    "7. Write in user-facing product manual style.\n"
++                    "8. Output ONLY the full updated document in Markdown. No commentary."
++                ),
++            }],
++        )
++        return response.content[0].text
++
++    # ------------------------------------------------------------------
++    # Core sync
++    # ------------------------------------------------------------------
++
++    def _sync_project(self, project: dict) -> dict:
++        self.logger.info('Checking "%s" ...', project["name"])
++
++        commits = self._get_new_commits(project)
++        if not commits:
++            self.logger.info('No new commits for "%s".', project["name"])
++            return {"updated": False}
++
++        self.logger.info("Found %d new commit(s). Generating changelog ...", len(commits))
++
++        recent = commits[:5]
++        diffs = [self._get_diff(project["repo_path"], c["hash"]) for c in recent]
++
++        changelog_entry = self._generate_changelog(recent, diffs)
++
++        # Append to changelog
++        changelog_path = Path(project["changelog_path"])
++        changelog_path.parent.mkdir(parents=True, exist_ok=True)
++        existing = changelog_path.read_text(encoding="utf-8") if changelog_path.exists() else ""
++        divider = "\n\n---\n\n"
++        updated = changelog_entry + divider + existing if existing else changelog_entry
++        changelog_path.write_text(updated, encoding="utf-8")
++        self.logger.info("Changelog updated: %s", changelog_path)
++
++        # Update product doc
++        self.logger.info("Updating product document ...")
++        doc_path = Path(project["product_doc_path"])
++        doc_path.parent.mkdir(parents=True, exist_ok=True)
++        current_doc = doc_path.read_text(encoding="utf-8") if doc_path.exists() else ""
++        updated_doc = self._update_product_doc(current_doc, changelog_entry)
++        doc_path.write_text(updated_doc, encoding="utf-8")
++        self.logger.info("Product doc updated: %s", doc_path)
++
++        # Update last commit
++        project["last_commit"] = commits[0]["hash"]
++        projects = self._load_projects()
++        for p in projects:
++            if p["id"] == project["id"]:
++                p["last_commit"] = project["last_commit"]
++                break
++        self._save_projects(projects)
++
++        return {"updated": True, "commits": len(commits)}
++
++    # ------------------------------------------------------------------
++    # Public commands
++    # ------------------------------------------------------------------
++
++    def run(self, command: str = "list", **kwargs) -> str:
++        """Dispatch to the appropriate subcommand."""
++        dispatch = {
++            "list": self._cmd_list,
++            "add": self._cmd_add,
++            "remove": self._cmd_remove,
++            "sync": self._cmd_sync,
++            "sync-all": self._cmd_sync_all,
++        }
++        handler = dispatch.get(command)
++        if not handler:
++            raise ValueError(f"Unknown command: {command}. Use: {', '.join(dispatch)}")
++        return handler(**kwargs)
++
++    def _cmd_list(self, **_kwargs) -> str:
++        projects = self._load_projects()
++        if not projects:
++            print("No projects configured. Use 'add' to connect a git repo.")
++            return "empty"
++
++        print(f"\n{'Name':<25} {'Branch':<10} {'Enabled':<9} {'Last Commit':<12} Repo Path")
++        print("-" * 90)
++        for p in projects:
++            last = (p.get("last_commit") or "none")[:8]
++            enabled = "yes" if p.get("enabled", True) else "no"
++            print(f"{p['name']:<25} {p.get('branch', 'main'):<10} {enabled:<9} {last:<12} {p['repo_path']}")
++        print()
++        return "ok"
++
++    def _cmd_add(self, name: str = "", repo_path: str = "", branch: str = "main",
++                 changelog_path: str = "", product_doc_path: str = "", **_kwargs) -> str:
++        if not all([name, repo_path, changelog_path, product_doc_path]):
++            raise ValueError("Required: --name, --repo-path, --changelog-path, --product-doc-path")
++
++        repo_path = str(Path(repo_path).resolve())
++        changelog_path = str(Path(changelog_path).resolve())
++        product_doc_path = str(Path(product_doc_path).resolve())
++
++        if not Path(repo_path).is_dir():
++            raise ValueError(f"Repo path does not exist: {repo_path}")
++        if not (Path(repo_path) / ".git").exists():
++            raise ValueError(f"Not a git repository: {repo_path}")
++
++        projects = self._load_projects()
++        project = {
++            "id": f"{int(datetime.now().timestamp())}_{os.urandom(3).hex()}",
++            "name": name,
++            "repo_path": repo_path,
++            "branch": branch,
++            "changelog_path": changelog_path,
++            "product_doc_path": product_doc_path,
++            "last_commit": None,
++            "enabled": True,
++        }
++        projects.append(project)
++        self._save_projects(projects)
++        print(f'Added project "{name}" (id: {project["id"]})')
++        return project["id"]
++
++    def _cmd_remove(self, project_id: str = "", **_kwargs) -> str:
++        if not project_id:
++            raise ValueError("Required: --project-id")
++
++        projects = self._load_projects()
++        before = len(projects)
++        projects = [p for p in projects if p["id"] != project_id]
++        if len(projects) == before:
++            raise ValueError(f"Project not found: {project_id}")
++
++        self._save_projects(projects)
++        print(f"Removed project {project_id}")
++        return "removed"
++
++    def _cmd_sync(self, project_id: str = "", **_kwargs) -> str:
++        if not project_id:
++            raise ValueError("Required: --project-id")
++
++        projects = self._load_projects()
++        project = self._find_project(projects, project_id)
++        if not project:
++            raise ValueError(f"Project not found: {project_id}")
++
++        result = self._sync_project(project)
++        if result["updated"]:
++            print(f'Synced {result["commits"]} commit(s) for "{project["name"]}"')
++        else:
++            print(f'No new commits for "{project["name"]}"')
++        return "synced" if result["updated"] else "no_changes"
++
++    def _cmd_sync_all(self, **_kwargs) -> str:
++        projects = self._load_projects()
++        enabled = [p for p in projects if p.get("enabled", True)]
++        if not enabled:
++            print("No enabled projects to sync.")
++            return "empty"
++
++        synced = 0
++        for project in enabled:
++            try:
++                result = self._sync_project(project)
++                if result["updated"]:
++                    synced += 1
++            except Exception as e:
++                self.logger.error('Error syncing "%s": %s', project["name"], e)
++
++        print(f"Sync complete. {synced}/{len(enabled)} projects had updates.")
++        return f"synced_{synced}"
++
++
++# ----------------------------------------------------------------------
++# CLI
++# ----------------------------------------------------------------------
++
++def main():
++    parser = argparse.ArgumentParser(
++        description="Sync git commits into Obsidian changelog & product docs"
++    )
++    parser.add_argument("--config", help="Path to config.json")
++
++    sub = parser.add_subparsers(dest="command", help="Command to run")
++
++    # list
++    sub.add_parser("list", help="List configured projects")
++
++    # add
++    add_p = sub.add_parser("add", help="Add a project to monitor")
++    add_p.add_argument("--name", required=True, help="Project name")
++    add_p.add_argument("--repo-path", required=True, help="Path to git repository")
++    add_p.add_argument("--branch", default="main", help="Branch to monitor (default: main)")
++    add_p.add_argument("--changelog-path", required=True, help="Path to changelog markdown file")
++    add_p.add_argument("--product-doc-path", required=True, help="Path to product doc markdown file")
++
++    # remove
++    rm_p = sub.add_parser("remove", help="Remove a project")
++    rm_p.add_argument("--project-id", required=True, help="Project ID to remove")
++
++    # sync
++    sync_p = sub.add_parser("sync", help="Sync a specific project now")
++    sync_p.add_argument("--project-id", required=True, help="Project ID to sync")
++
++    # sync-all
++    sub.add_parser("sync-all", help="Sync all enabled projects")
++
++    args = parser.parse_args()
++
++    if not args.command:
++        parser.print_help()
++        sys.exit(1)
++
++    agent = GitSyncAgent(config_path=args.config)
++
++    kwargs = {}
++    if args.command == "add":
++        kwargs = {
++            "name": args.name,
++            "repo_path": args.repo_path,
++            "branch": args.branch,
++            "changelog_path": args.changelog_path,
++            "product_doc_path": args.product_doc_path,
++        }
++    elif args.command in ("remove", "sync"):
++        kwargs = {"project_id": args.project_id}
++
++    agent.run(command=args.command, **kwargs)
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/toolkit/manifest.json b/toolkit/manifest.json
+index baa893a..e42dfae 100644
+--- a/toolkit/manifest.json
++++ b/toolkit/manifest.json
+@@ -483,6 +483,77 @@
+           "args": ["--folder", "Meeting Notes", "--template", "Templates/Meeting.md", "--fix"]
+         }
+       ]
++    },
++    {
++      "id": "git_sync",
++      "name": "Git Sync",
++      "description": "Monitor git repositories and automatically generate Obsidian changelogs and living product docs from commits using AI.",
++      "module": "agents.git_sync",
++      "icon": "arrow.triangle.2.circlepath",
++      "parameters": [
++        {
++          "name": "name",
++          "flag": "--name",
++          "type": "string",
++          "required": false,
++          "default": null,
++          "description": "Project name (for 'add' command)"
++        },
++        {
++          "name": "repo_path",
++          "flag": "--repo-path",
++          "type": "file_path",
++          "required": false,
++          "default": null,
++          "description": "Path to git repository (for 'add' command)"
++        },
++        {
++          "name": "branch",
++          "flag": "--branch",
++          "type": "string",
++          "required": false,
++          "default": "main",
++          "description": "Branch to monitor"
++        },
++        {
++          "name": "changelog_path",
++          "flag": "--changelog-path",
++          "type": "file_path",
++          "required": false,
++          "default": null,
++          "description": "Path to changelog markdown file in Obsidian vault"
++        },
++        {
++          "name": "product_doc_path",
++          "flag": "--product-doc-path",
++          "type": "file_path",
++          "required": false,
++          "default": null,
++          "description": "Path to product doc markdown file in Obsidian vault"
++        },
++        {
++          "name": "project_id",
++          "flag": "--project-id",
++          "type": "string",
++          "required": false,
++          "default": null,
++          "description": "Project ID (for 'sync' and 'remove' commands)"
++        }
++      ],
++      "examples": [
++        {
++          "description": "List all configured projects",
++          "args": ["list"]
++        },
++        {
++          "description": "Add a project to monitor",
++          "args": ["add", "--name", "My App", "--repo-path", "/path/to/repo", "--changelog-path", "/vault/Changelog.md", "--product-doc-path", "/vault/Product.md"]
++        },
++        {
++          "description": "Sync all enabled projects",
++          "args": ["sync-all"]
++        }
++      ]
+     }
+   ]
+ }
+-- 
+2.43.0
+
