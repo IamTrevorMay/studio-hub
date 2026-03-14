@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "Mayday Studio",
+    "slug": "mayday-studio",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0f0f1a",
+      "resizeMode": "contain"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.maydaystudio.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Used for teleprompter and video recording",
+        "NSMicrophoneUsageDescription": "Used for audio recording during shows"
+      }
+    },
+    "plugins": [
+      "expo-secure-store"
+    ]
+  }
+}
