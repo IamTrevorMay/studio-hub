@@ -7,5 +7,3 @@ build
 .env*.local
 .DS_Store
 supabase/.temp
-git-obsidian-sync/projects.json
-git-obsidian-sync/logs/
