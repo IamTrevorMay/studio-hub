@@ -85,10 +85,17 @@ export default function Research() {
       const res = await fetch('https://www.tritonapex.io/api/cron/daily-cards?force=true', {
         headers: { Authorization: `Bearer ${process.env.REACT_APP_TRITON_CRON_SECRET}` },
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to regenerate cards');
-      await fetchCardsArchive();
-      if (currentCardDate) await fetchCardsForDate(currentCardDate);
+      if (!res.ok) {
+        let msg = 'Failed to regenerate cards';
+        try { const j = await res.json(); msg = j.error || msg; } catch {}
+        throw new Error(msg);
+      }
+      const newArchive = await fetchCardsArchive();
+      const latestDate = newArchive.length > 0 ? newArchive[0].date : currentCardDate;
+      if (latestDate) {
+        setCurrentCardDate(latestDate);
+        await fetchCardsForDate(latestDate);
+      }
     } catch (err) {
       console.error('Error regenerating cards:', err);
       alert('Failed to regenerate cards: ' + err.message);
@@ -189,7 +196,7 @@ export default function Research() {
   }, [currentBriefDate, fetchFullBrief]);
 
   const fetchCardsArchive = useCallback(async () => {
-    if (!tritonSupabase) return;
+    if (!tritonSupabase) return [];
     try {
       const { data, error } = await tritonSupabase
         .from('daily_cards')
@@ -212,9 +219,12 @@ export default function Research() {
         if (archive.length > 0 && !currentCardDate) {
           setCurrentCardDate(archive[0].date);
         }
+        return archive;
       }
+      return [];
     } catch (err) {
       console.error('Error fetching cards archive:', err);
+      return [];
     }
   }, [currentCardDate]);
 
