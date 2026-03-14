@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Git → Obsidian Sync</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #16213e;
+      border-bottom: 1px solid #0f3460;
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    header h1 {
+      font-size: 20px;
+      font-weight: 600;
+      color: #e94560;
+    }
+
+    header .status {
+      font-size: 13px;
+      color: #888;
+    }
+
+    header .status .dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #4caf50;
+      margin-right: 6px;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    main { max-width: 900px; margin: 32px auto; padding: 0 24px; }
+
+    .card {
+      background: #16213e;
+      border: 1px solid #0f3460;
+      border-radius: 10px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+
+    .card h2 {
+      font-size: 16px;
+      margin-bottom: 16px;
+      color: #e94560;
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .form-row.full { grid-template-columns: 1fr; }
+
+    label {
+      display: block;
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 10px 12px;
+      background: #1a1a2e;
+      border: 1px solid #0f3460;
+      border-radius: 6px;
+      color: #e0e0e0;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input[type="text"]:focus { border-color: #e94560; }
+
+    input[type="text"]::placeholder { color: #555; }
+
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+
+    .btn:hover { opacity: 0.85; }
+
+    .btn-primary { background: #e94560; color: #fff; }
+
+    .btn-sm {
+      padding: 6px 14px;
+      font-size: 12px;
+    }
+
+    .btn-outline {
+      background: transparent;
+      border: 1px solid #0f3460;
+      color: #e0e0e0;
+    }
+
+    .btn-danger {
+      background: transparent;
+      border: 1px solid #c0392b;
+      color: #e74c3c;
+    }
+
+    .project-list { list-style: none; }
+
+    .project-item {
+      background: #1a1a2e;
+      border: 1px solid #0f3460;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .project-info h3 {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .project-info p {
+      font-size: 12px;
+      color: #888;
+    }
+
+    .project-actions { display: flex; gap: 8px; align-items: center; }
+
+    .toggle {
+      position: relative;
+      width: 40px;
+      height: 22px;
+    }
+
+    .toggle input { opacity: 0; width: 0; height: 0; }
+
+    .toggle .slider {
+      position: absolute;
+      inset: 0;
+      background: #333;
+      border-radius: 11px;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+
+    .toggle .slider::before {
+      content: "";
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      left: 3px;
+      bottom: 3px;
+      background: #fff;
+      border-radius: 50%;
+      transition: 0.3s;
+    }
+
+    .toggle input:checked + .slider { background: #4caf50; }
+    .toggle input:checked + .slider::before { transform: translateX(18px); }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px;
+      color: #555;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid #555;
+      border-top-color: #e94560;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #16213e;
+      border: 1px solid #0f3460;
+      border-radius: 8px;
+      padding: 12px 20px;
+      font-size: 13px;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: all 0.3s;
+      pointer-events: none;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Git → Obsidian Sync</h1>
+    <div class="status" id="status"><span class="dot"></span>Loading…</div>
+  </header>
+
+  <main>
+    <!-- Add project form -->
+    <div class="card">
+      <h2>Add Project</h2>
+      <div class="form-row">
+        <div>
+          <label>Project Name</label>
+          <input type="text" id="f-name" placeholder="My Awesome App" />
+        </div>
+        <div>
+          <label>Branch</label>
+          <input type="text" id="f-branch" placeholder="main" value="main" />
+        </div>
+      </div>
+      <div class="form-row full">
+        <div>
+          <label>Git Repository Path</label>
+          <input type="text" id="f-repo" placeholder="/Users/you/projects/my-app" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div>
+          <label>Changelog Note Path (.md)</label>
+          <input type="text" id="f-changelog" placeholder="/Users/you/Obsidian/Vault/Changelog.md" />
+        </div>
+        <div>
+          <label>Product Doc Note Path (.md)</label>
+          <input type="text" id="f-productdoc" placeholder="/Users/you/Obsidian/Vault/Product Doc.md" />
+        </div>
+      </div>
+      <div style="margin-top: 8px;">
+        <button class="btn btn-primary" onclick="addProject()">Add Project</button>
+      </div>
+    </div>
+
+    <!-- Projects list -->
+    <div class="card">
+      <h2>Monitored Projects</h2>
+      <ul class="project-list" id="project-list">
+        <li class="empty-state">No projects yet. Add one above.</li>
+      </ul>
+    </div>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const $ = (s) => document.querySelector(s);
+
+    function toast(msg) {
+      const el = $("#toast");
+      el.textContent = msg;
+      el.classList.add("show");
+      setTimeout(() => el.classList.remove("show"), 3000);
+    }
+
+    async function api(method, url, body) {
+      const opts = { method, headers: { "Content-Type": "application/json" } };
+      if (body) opts.body = JSON.stringify(body);
+      const res = await fetch(url, opts);
+      return res.json();
+    }
+
+    async function loadStatus() {
+      try {
+        const s = await api("GET", "/api/status");
+        $("#status").innerHTML = s.apiKeySet
+          ? `<span class="dot"></span>Running · ${s.projects} project(s) · polling every ${s.pollIntervalSeconds}s`
+          : `<span class="dot" style="background:#e74c3c"></span>No API key set — add ANTHROPIC_API_KEY to .env`;
+      } catch {
+        $("#status").innerHTML = `<span class="dot" style="background:#e74c3c"></span>Server offline`;
+      }
+    }
+
+    async function loadProjects() {
+      const projects = await api("GET", "/api/projects");
+      const list = $("#project-list");
+
+      if (!projects.length) {
+        list.innerHTML = '<li class="empty-state">No projects yet. Add one above.</li>';
+        return;
+      }
+
+      list.innerHTML = projects
+        .map(
+          (p) => `
+        <li class="project-item" data-id="${p.id}">
+          <div class="project-info">
+            <h3>${esc(p.name)}</h3>
+            <p>${esc(p.repoPath)} (${esc(p.branch)})</p>
+            <p style="margin-top:2px;font-size:11px;color:#666;">
+              Last commit: ${p.lastCommit ? p.lastCommit.slice(0, 7) : "none yet"}
+            </p>
+          </div>
+          <div class="project-actions">
+            <button class="btn btn-sm btn-outline" onclick="syncNow('${p.id}', this)">Sync Now</button>
+            <label class="toggle">
+              <input type="checkbox" ${p.enabled ? "checked" : ""} onchange="toggleProject('${p.id}', this.checked)" />
+              <span class="slider"></span>
+            </label>
+            <button class="btn btn-sm btn-danger" onclick="deleteProject('${p.id}')">Delete</button>
+          </div>
+        </li>`
+        )
+        .join("");
+    }
+
+    function esc(s) {
+      const d = document.createElement("div");
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    async function addProject() {
+      const data = {
+        name: $("#f-name").value.trim(),
+        repoPath: $("#f-repo").value.trim(),
+        branch: $("#f-branch").value.trim() || "main",
+        changelogPath: $("#f-changelog").value.trim(),
+        productDocPath: $("#f-productdoc").value.trim(),
+      };
+
+      if (!data.name || !data.repoPath || !data.changelogPath || !data.productDocPath) {
+        toast("Please fill in all fields");
+        return;
+      }
+
+      await api("POST", "/api/projects", data);
+      toast(`Added "${data.name}"`);
+      $("#f-name").value = "";
+      $("#f-repo").value = "";
+      $("#f-changelog").value = "";
+      $("#f-productdoc").value = "";
+      loadProjects();
+      loadStatus();
+    }
+
+    async function syncNow(id, btn) {
+      const orig = btn.innerHTML;
+      btn.innerHTML = '<span class="spinner"></span>';
+      btn.disabled = true;
+      try {
+        const result = await api("POST", `/api/projects/${id}/sync`);
+        toast(result.updated ? `Synced! ${result.commits} commit(s) processed.` : "Already up to date.");
+      } catch (err) {
+        toast("Sync failed — check server logs.");
+      }
+      btn.innerHTML = orig;
+      btn.disabled = false;
+      loadProjects();
+    }
+
+    async function toggleProject(id, enabled) {
+      await api("PUT", `/api/projects/${id}`, { enabled });
+      toast(enabled ? "Project enabled" : "Project paused");
+    }
+
+    async function deleteProject(id) {
+      if (!confirm("Delete this project?")) return;
+      await api("DELETE", `/api/projects/${id}`);
+      toast("Project deleted");
+      loadProjects();
+      loadStatus();
+    }
+
+    // Init
+    loadStatus();
+    loadProjects();
+
+    // Refresh every 30s
+    setInterval(() => { loadStatus(); loadProjects(); }, 30000);
+  </script>
+</body>
+</html>
