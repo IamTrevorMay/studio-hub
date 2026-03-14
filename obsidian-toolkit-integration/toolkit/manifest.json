@@ -1,0 +1,559 @@
+{
+  "version": 1,
+  "agents": [
+    {
+      "id": "dictation_ingestion",
+      "name": "Dictation Ingestion",
+      "description": "Ingest dictation text or transcripts into the Obsidian vault as formatted notes with frontmatter and tags.",
+      "module": "agents.dictation_ingestion",
+      "icon": "mic.fill",
+      "parameters": [
+        {
+          "name": "text",
+          "flag": "--text",
+          "type": "string",
+          "required": false,
+          "default": null,
+          "description": "Dictation text content to ingest",
+          "mutually_exclusive_group": "input"
+        },
+        {
+          "name": "file",
+          "flag": "--file",
+          "type": "file_path",
+          "required": false,
+          "default": null,
+          "description": "Path to a text file to ingest",
+          "mutually_exclusive_group": "input"
+        },
+        {
+          "name": "source",
+          "flag": "--source",
+          "type": "string",
+          "required": false,
+          "default": "manual",
+          "description": "Source identifier for the dictation",
+          "suggestions": ["manual", "voice_memo", "meeting", "lecture", "interview"]
+        },
+        {
+          "name": "title",
+          "flag": "--title",
+          "type": "string",
+          "required": false,
+          "default": null,
+          "description": "Custom note title (auto-generated if omitted)"
+        },
+        {
+          "name": "tags",
+          "flag": "--tags",
+          "type": "string_array",
+          "required": false,
+          "default": null,
+          "description": "Additional tags to apply to the note"
+        },
+        {
+          "name": "dry_run",
+          "flag": "--dry-run",
+          "type": "bool",
+          "required": false,
+          "default": false,
+          "description": "Print formatted output without creating a file"
+        }
+      ],
+      "examples": [
+        {
+          "description": "Ingest text with source tag",
+          "args": ["--text", "Meeting notes: discussed Q2 roadmap", "--source", "voice_memo"]
+        },
+        {
+          "description": "Ingest from file with tags",
+          "args": ["--file", "transcript.txt", "--source", "manual", "--tags", "meeting", "followup"]
+        },
+        {
+          "description": "Dry run to preview output",
+          "args": ["--text", "Test note content", "--source", "manual", "--dry-run"]
+        }
+      ]
+    },
+    {
+      "id": "vault_audit",
+      "name": "Vault Audit",
+      "description": "Analyze vault health and generate a comprehensive report covering structure, tags, links, and naming conventions.",
+      "module": "agents.vault_audit",
+      "icon": "checkmark.shield.fill",
+      "parameters": [
+        {
+          "name": "no_ai",
+          "flag": "--no-ai",
+          "type": "bool",
+          "required": false,
+          "default": false,
+          "description": "Skip AI recommendations (faster, no API key needed)"
+        },
+        {
+          "name": "output",
+          "flag": "--output",
+          "type": "string",
+          "required": false,
+          "default": "output/audit_report.md",
+          "description": "Output path for the audit report"
+        },
+        {
+          "name": "sections",
+          "flag": "--sections",
+          "type": "string_array",
+          "required": false,
+          "default": null,
+          "description": "Specific audit sections to run",
+          "suggestions": ["overview", "folders", "tags", "links", "naming"]
+        }
+      ],
+      "examples": [
+        {
+          "description": "Full audit with AI recommendations",
+          "args": []
+        },
+        {
+          "description": "Quick audit without AI",
+          "args": ["--no-ai"]
+        },
+        {
+          "description": "Audit only tags and links",
+          "args": ["--sections", "tags", "links"]
+        }
+      ]
+    },
+    {
+      "id": "daily_note_archiver",
+      "name": "Daily Note Archiver",
+      "description": "Archive old daily notes into year-based folders. Parses date-named files and moves them to Archive/Daily Notes/YYYY/.",
+      "module": "agents.daily_note_archiver",
+      "icon": "archivebox.fill",
+      "parameters": [
+        {
+          "name": "months",
+          "flag": "--months",
+          "type": "int",
+          "required": false,
+          "default": 6,
+          "description": "Archive notes older than N months"
+        },
+        {
+          "name": "dry_run",
+          "flag": "--dry-run",
+          "type": "bool",
+          "required": false,
+          "default": true,
+          "description": "Preview without moving files (default)"
+        },
+        {
+          "name": "execute",
+          "flag": "--execute",
+          "type": "bool",
+          "required": false,
+          "default": false,
+          "description": "Actually move files"
+        }
+      ],
+      "examples": [
+        {
+          "description": "Preview archivable notes",
+          "args": ["--dry-run"]
+        },
+        {
+          "description": "Archive notes older than 3 months",
+          "args": ["--months", "3", "--execute"]
+        }
+      ]
+    },
+    {
+      "id": "auto_tagger",
+      "name": "Auto Tagger",
+      "description": "Suggest and apply tags to untagged notes using AI. Builds a tag taxonomy from your vault and uses Claude to suggest relevant tags.",
+      "module": "agents.auto_tagger",
+      "icon": "tag.fill",
+      "parameters": [
+        {
+          "name": "batch_size",
+          "flag": "--batch-size",
+          "type": "int",
+          "required": false,
+          "default": 20,
+          "description": "Number of files to process per run"
+        },
+        {
+          "name": "dry_run",
+          "flag": "--dry-run",
+          "type": "bool",
+          "required": false,
+          "default": true,
+          "description": "Preview suggestions without applying (default)"
+        },
+        {
+          "name": "apply",
+          "flag": "--apply",
+          "type": "bool",
+          "required": false,
+          "default": false,
+          "description": "Apply suggested tags to files"
+        },
+        {
+          "name": "folder",
+          "flag": "--folder",
+          "type": "string",
+          "required": false,
+          "default": null,
+          "description": "Limit to a specific folder"
+        }
+      ],
+      "examples": [
+        {
+          "description": "Preview tag suggestions",
+          "args": ["--dry-run"]
+        },
+        {
+          "description": "Tag 10 files in a specific folder",
+          "args": ["--batch-size", "10", "--folder", "Meeting Notes", "--apply"]
+        }
+      ]
+    },
+    {
+      "id": "broken_link_fixer",
+      "name": "Broken Link Fixer",
+      "description": "Find and fix broken wiki links. Categorizes by type: case mismatch, missing extension, similar name, and truly broken.",
+      "module": "agents.broken_link_fixer",
+      "icon": "link.badge.plus",
+      "parameters": [
+        {
+          "name": "dry_run",
+          "flag": "--dry-run",
+          "type": "bool",
+          "required": false,
+          "default": true,
+          "description": "Preview without fixing (default)"
+        },
+        {
+          "name": "auto_fix",
+          "flag": "--auto-fix",
+          "type": "bool",
+          "required": false,
+          "default": false,
+          "description": "Auto-fix safe categories (case mismatch, missing extension)"
+        }
+      ],
+      "examples": [
+        {
+          "description": "Preview broken links",
+          "args": ["--dry-run"]
+        },
+        {
+          "description": "Auto-fix safe categories",
+          "args": ["--auto-fix"]
+        }
+      ]
+    },
+    {
+      "id": "orphan_connector",
+      "name": "Orphan Connector",
+      "description": "Find orphaned notes (no incoming links) and suggest connections using folder proximity, shared tags, and optional AI scoring.",
+      "module": "agents.orphan_connector",
+      "icon": "point.3.connected.trianglepath.dotted",
+      "parameters": [
+        {
+          "name": "batch_size",
+          "flag": "--batch-size",
+          "type": "int",
+          "required": false,
+          "default": 10,
+          "description": "Number of orphans to process"
+        },
+        {
+          "name": "dry_run",
+          "flag": "--dry-run",
+          "type": "bool",
+          "required": false,
+          "default": true,
+          "description": "Report only (default)"
+        },
+        {
+          "name": "min_score",
+          "flag": "--min-score",
+          "type": "float",
+          "required": false,
+          "default": 0.7,
+          "description": "Minimum connection score (0.0-1.0)"
+        }
+      ],
+      "examples": [
+        {
+          "description": "Find connections for orphaned notes",
+          "args": ["--dry-run"]
+        },
+        {
+          "description": "Process more orphans with lower threshold",
+          "args": ["--batch-size", "20", "--min-score", "0.5"]
+        }
+      ]
+    },
+    {
+      "id": "tag_cleanup",
+      "name": "Tag Cleanup",
+      "description": "Detect and fix tag inconsistencies: case variants, similar tags, and orphaned single-use tags.",
+      "module": "agents.tag_cleanup",
+      "icon": "tag.slash.fill",
+      "parameters": [
+        {
+          "name": "dry_run",
+          "flag": "--dry-run",
+          "type": "bool",
+          "required": false,
+          "default": true,
+          "description": "Preview without changes (default)"
+        },
+        {
+          "name": "execute",
+          "flag": "--execute",
+          "type": "bool",
+          "required": false,
+          "default": false,
+          "description": "Apply fixes"
+        },
+        {
+          "name": "remove_orphans",
+          "flag": "--remove-orphans",
+          "type": "bool",
+          "required": false,
+          "default": false,
+          "description": "Remove single-use tags"
+        },
+        {
+          "name": "merge",
+          "flag": "--merge",
+          "type": "bool",
+          "required": false,
+          "default": false,
+          "description": "Normalize case variants to most-used form"
+        }
+      ],
+      "examples": [
+        {
+          "description": "Preview tag issues",
+          "args": ["--dry-run"]
+        },
+        {
+          "description": "Merge case variants",
+          "args": ["--execute", "--merge"]
+        },
+        {
+          "description": "Remove orphaned tags",
+          "args": ["--execute", "--remove-orphans"]
+        }
+      ]
+    },
+    {
+      "id": "empty_folder_pruner",
+      "name": "Empty Folder Pruner",
+      "description": "Remove empty folders or create index files in them. Processes deepest folders first to handle nested empties.",
+      "module": "agents.empty_folder_pruner",
+      "icon": "folder.badge.minus",
+      "parameters": [
+        {
+          "name": "mode",
+          "flag": "--mode",
+          "type": "string",
+          "required": false,
+          "default": "delete",
+          "description": "Operation mode",
+          "suggestions": ["delete", "index"]
+        },
+        {
+          "name": "dry_run",
+          "flag": "--dry-run",
+          "type": "bool",
+          "required": false,
+          "default": true,
+          "description": "Preview without changes (default)"
+        },
+        {
+          "name": "execute",
+          "flag": "--execute",
+          "type": "bool",
+          "required": false,
+          "default": false,
+          "description": "Actually perform the operation"
+        }
+      ],
+      "examples": [
+        {
+          "description": "Preview empty folders",
+          "args": ["--dry-run"]
+        },
+        {
+          "description": "Delete empty folders",
+          "args": ["--execute"]
+        },
+        {
+          "description": "Create index files instead",
+          "args": ["--mode", "index", "--execute"]
+        }
+      ]
+    },
+    {
+      "id": "weekly_digest",
+      "name": "Weekly Digest",
+      "description": "Generate a summary of recent vault activity grouped by folder with tag counts and optional AI narrative.",
+      "module": "agents.weekly_digest",
+      "icon": "newspaper.fill",
+      "parameters": [
+        {
+          "name": "days",
+          "flag": "--days",
+          "type": "int",
+          "required": false,
+          "default": 7,
+          "description": "Look back N days"
+        },
+        {
+          "name": "output",
+          "flag": "--output",
+          "type": "string",
+          "required": false,
+          "default": null,
+          "description": "Output file path"
+        }
+      ],
+      "examples": [
+        {
+          "description": "Generate weekly digest",
+          "args": []
+        },
+        {
+          "description": "Generate 2-week digest",
+          "args": ["--days", "14"]
+        }
+      ]
+    },
+    {
+      "id": "template_enforcer",
+      "name": "Template Enforcer",
+      "description": "Check notes have required frontmatter fields and optionally auto-add missing fields.",
+      "module": "agents.template_enforcer",
+      "icon": "doc.badge.gearshape.fill",
+      "parameters": [
+        {
+          "name": "folder",
+          "flag": "--folder",
+          "type": "string",
+          "required": false,
+          "default": "Daily Notes",
+          "description": "Target folder to check"
+        },
+        {
+          "name": "template",
+          "flag": "--template",
+          "type": "string",
+          "required": false,
+          "default": null,
+          "description": "Path to template file (relative to vault)"
+        },
+        {
+          "name": "dry_run",
+          "flag": "--dry-run",
+          "type": "bool",
+          "required": false,
+          "default": true,
+          "description": "Preview without changes (default)"
+        },
+        {
+          "name": "fix",
+          "flag": "--fix",
+          "type": "bool",
+          "required": false,
+          "default": false,
+          "description": "Auto-add missing frontmatter fields"
+        }
+      ],
+      "examples": [
+        {
+          "description": "Check daily notes compliance",
+          "args": ["--dry-run"]
+        },
+        {
+          "description": "Fix missing frontmatter in a folder",
+          "args": ["--folder", "Meeting Notes", "--template", "Templates/Meeting.md", "--fix"]
+        }
+      ]
+    },
+    {
+      "id": "git_sync",
+      "name": "Git Sync",
+      "description": "Monitor git repositories and automatically generate Obsidian changelogs and living product docs from commits using AI.",
+      "module": "agents.git_sync",
+      "icon": "arrow.triangle.2.circlepath",
+      "parameters": [
+        {
+          "name": "name",
+          "flag": "--name",
+          "type": "string",
+          "required": false,
+          "default": null,
+          "description": "Project name (for 'add' command)"
+        },
+        {
+          "name": "repo_path",
+          "flag": "--repo-path",
+          "type": "file_path",
+          "required": false,
+          "default": null,
+          "description": "Path to git repository (for 'add' command)"
+        },
+        {
+          "name": "branch",
+          "flag": "--branch",
+          "type": "string",
+          "required": false,
+          "default": "main",
+          "description": "Branch to monitor"
+        },
+        {
+          "name": "changelog_path",
+          "flag": "--changelog-path",
+          "type": "file_path",
+          "required": false,
+          "default": null,
+          "description": "Path to changelog markdown file in Obsidian vault"
+        },
+        {
+          "name": "product_doc_path",
+          "flag": "--product-doc-path",
+          "type": "file_path",
+          "required": false,
+          "default": null,
+          "description": "Path to product doc markdown file in Obsidian vault"
+        },
+        {
+          "name": "project_id",
+          "flag": "--project-id",
+          "type": "string",
+          "required": false,
+          "default": null,
+          "description": "Project ID (for 'sync' and 'remove' commands)"
+        }
+      ],
+      "examples": [
+        {
+          "description": "List all configured projects",
+          "args": ["list"]
+        },
+        {
+          "description": "Add a project to monitor",
+          "args": ["add", "--name", "My App", "--repo-path", "/path/to/repo", "--changelog-path", "/vault/Changelog.md", "--product-doc-path", "/vault/Product.md"]
+        },
+        {
+          "description": "Sync all enabled projects",
+          "args": ["sync-all"]
+        }
+      ]
+    }
+  ]
+}
