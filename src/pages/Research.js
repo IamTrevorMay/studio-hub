@@ -59,6 +59,47 @@ export default function Research() {
   const [regeneratingBrief, setRegeneratingBrief] = useState(false);
   const [regeneratingCards, setRegeneratingCards] = useState(false);
 
+  // Cards config state
+  const [cardsConfig, setCardsConfig] = useState(null);
+  const [availableTemplates, setAvailableTemplates] = useState([]);
+  const [showCardsConfig, setShowCardsConfig] = useState(false);
+  const [savingConfig, setSavingConfig] = useState(false);
+
+  const fetchCardsConfig = useCallback(async () => {
+    try {
+      const res = await fetch('https://www.tritonapex.io/api/daily-cards-config');
+      if (!res.ok) return;
+      const data = await res.json();
+      setCardsConfig(data.config);
+      setAvailableTemplates(data.templates || []);
+    } catch (err) {
+      console.error('Error fetching cards config:', err);
+    }
+  }, []);
+
+  const updateCardsConfig = async (templateId, topN) => {
+    setSavingConfig(true);
+    try {
+      const res = await fetch('https://www.tritonapex.io/api/daily-cards-config', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.REACT_APP_TRITON_CRON_SECRET}`,
+        },
+        body: JSON.stringify({ template_id: templateId, ...(topN !== undefined ? { top_n: topN } : {}) }),
+      });
+      if (!res.ok) {
+        const j = await res.json();
+        throw new Error(j.error || 'Failed to update config');
+      }
+      await fetchCardsConfig();
+    } catch (err) {
+      alert('Failed to save config: ' + err.message);
+    } finally {
+      setSavingConfig(false);
+    }
+  };
+
   const handleRegenerateBrief = async () => {
     if (!window.confirm('Regenerate the brief for this date? This will delete the existing brief and create a new one.')) return;
     setRegeneratingBrief(true);
@@ -251,14 +292,14 @@ export default function Research() {
 
   useEffect(() => {
     const timeout = setTimeout(() => setLoading(false), 5000);
-    Promise.all([fetchArticles(), fetchNewsletters(), fetchReports(), fetchBriefs(), fetchCardsArchive()])
+    Promise.all([fetchArticles(), fetchNewsletters(), fetchReports(), fetchBriefs(), fetchCardsArchive(), fetchCardsConfig()])
       .finally(() => { setLoading(false); clearTimeout(timeout); });
     return () => clearTimeout(timeout);
-  }, [fetchArticles, fetchNewsletters, fetchReports, fetchBriefs, fetchCardsArchive]);
+  }, [fetchArticles, fetchNewsletters, fetchReports, fetchBriefs, fetchCardsArchive, fetchCardsConfig]);
 
   async function handleRefresh() {
     setRefreshing(true);
-    await Promise.all([fetchArticles(), fetchNewsletters(), fetchReports(), fetchBriefs(), fetchCardsArchive()]);
+    await Promise.all([fetchArticles(), fetchNewsletters(), fetchReports(), fetchBriefs(), fetchCardsArchive(), fetchCardsConfig()]);
     setRefreshing(false);
   }
 
@@ -849,6 +890,52 @@ export default function Research() {
                       <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Regenerate</>
                     )}
                   </button>
+                  <div style={{ position: 'relative', marginLeft: '4px' }}>
+                    <button
+                      onClick={() => setShowCardsConfig(!showCardsConfig)}
+                      style={{ ...s.briefActionBtn, background: showCardsConfig ? 'rgba(99,102,241,0.2)' : undefined }}
+                      title="Card settings"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <circle cx="10" cy="10" r="3" />
+                        <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.93 4.93l1.41 1.41M13.66 13.66l1.41 1.41M4.93 15.07l1.41-1.41M13.66 6.34l1.41-1.41" />
+                      </svg>
+                    </button>
+                    {showCardsConfig && (
+                      <div style={s.cardsConfigPanel}>
+                        <div style={{ fontSize: '13px', fontWeight: 700, color: '#e2e8f0', marginBottom: '12px' }}>Card Generation Settings</div>
+                        <label style={s.configLabel}>Template</label>
+                        <select
+                          value={cardsConfig?.template_id || ''}
+                          onChange={e => updateCardsConfig(e.target.value, cardsConfig?.top_n)}
+                          disabled={savingConfig}
+                          style={s.configSelect}
+                        >
+                          <option value="" disabled>Select template...</option>
+                          {availableTemplates.map(t => (
+                            <option key={t.id} value={t.id}>{t.name}</option>
+                          ))}
+                        </select>
+                        {cardsConfig?.template_id && (
+                          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', marginTop: '4px' }}>
+                            {availableTemplates.find(t => t.id === cardsConfig.template_id)?.name || 'Unknown'}
+                          </div>
+                        )}
+                        <label style={{ ...s.configLabel, marginTop: '14px' }}>Cards per day</label>
+                        <select
+                          value={cardsConfig?.top_n || 5}
+                          onChange={e => updateCardsConfig(cardsConfig?.template_id, parseInt(e.target.value))}
+                          disabled={savingConfig || !cardsConfig?.template_id}
+                          style={s.configSelect}
+                        >
+                          {[3, 5, 8, 10].map(n => (
+                            <option key={n} value={n}>{n}</option>
+                          ))}
+                        </select>
+                        {savingConfig && <div style={{ fontSize: '11px', color: '#a5b4fc', marginTop: '8px' }}>Saving...</div>}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -1354,6 +1441,40 @@ const s = {
     cursor: 'pointer',
     fontFamily: 'inherit',
     transition: 'all 0.15s',
+  },
+  cardsConfigPanel: {
+    position: 'absolute',
+    top: '100%',
+    right: 0,
+    marginTop: '8px',
+    width: '260px',
+    padding: '16px',
+    background: '#1a1a2e',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '12px',
+    boxShadow: '0 12px 40px rgba(0,0,0,0.5)',
+    zIndex: 50,
+  },
+  configLabel: {
+    display: 'block',
+    fontSize: '11px',
+    fontWeight: 600,
+    color: 'rgba(255,255,255,0.45)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+    marginBottom: '6px',
+  },
+  configSelect: {
+    width: '100%',
+    padding: '8px 10px',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '8px',
+    background: 'rgba(255,255,255,0.04)',
+    color: '#e2e8f0',
+    fontSize: '13px',
+    fontFamily: 'inherit',
+    outline: 'none',
+    cursor: 'pointer',
   },
   briefArchiveGrid: {
     display: 'grid',
