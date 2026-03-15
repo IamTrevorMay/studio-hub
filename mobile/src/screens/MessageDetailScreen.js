@@ -5,9 +5,9 @@ import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
 import { supabase } from '../services/supabase';
 import { colors, spacing, radius, fontSize } from '../utils/theme';
 
-export default function ChannelDetailScreen({ route }) {
-  const { channelId, channelName } = route.params;
-  const { user, markChannelSeen } = useAuth();
+export default function MessageDetailScreen({ route }) {
+  const { conversationId, conversationName } = route.params;
+  const { user } = useAuth();
   const { safeQuery } = useSupabaseQuery();
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
@@ -16,40 +16,45 @@ export default function ChannelDetailScreen({ route }) {
 
   const fetchMessages = useCallback(async () => {
     const { data } = await safeQuery(() =>
-      supabase.from('channel_messages')
-        .select('*, profiles:user_id(full_name)')
-        .eq('channel_id', channelId)
+      supabase.from('direct_messages')
+        .select('*, profile:profiles(id, full_name, title)')
+        .eq('conversation_id', conversationId)
         .order('created_at', { ascending: true })
         .limit(100)
     );
     if (data) setMessages(data);
-    markChannelSeen(channelId);
-  }, [safeQuery, channelId, markChannelSeen]);
+  }, [safeQuery, conversationId]);
 
   useEffect(() => { fetchMessages(); }, [fetchMessages]);
 
-  // Realtime subscription
+  // Realtime subscription for new DMs
   useEffect(() => {
-    const channel = supabase.channel(`channel-${channelId}`)
+    const channel = supabase.channel(`dm-${conversationId}`)
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
-        table: 'channel_messages',
-        filter: `channel_id=eq.${channelId}`,
-      }, (payload) => {
-        setMessages(prev => [...prev, payload.new]);
+        table: 'direct_messages',
+        filter: `conversation_id=eq.${conversationId}`,
+      }, async (payload) => {
+        // Fetch the full message with profile join
+        const { data } = await supabase
+          .from('direct_messages')
+          .select('*, profile:profiles(id, full_name, title)')
+          .eq('id', payload.new.id)
+          .single();
+        if (data) setMessages(prev => [...prev, data]);
       })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [channelId]);
+  }, [conversationId]);
 
   async function handleSend() {
     if (!newMessage.trim() || sending) return;
     setSending(true);
     try {
-      await supabase.from('channel_messages').insert({
-        channel_id: channelId,
+      await supabase.from('direct_messages').insert({
+        conversation_id: conversationId,
         user_id: user.id,
         content: newMessage.trim(),
       });
@@ -63,7 +68,7 @@ export default function ChannelDetailScreen({ route }) {
 
   function renderMessage({ item }) {
     const isMe = item.user_id === user?.id;
-    const senderName = item.profiles?.full_name || 'Unknown';
+    const senderName = item.profile?.full_name || 'Unknown';
     return (
       <View style={[styles.msgRow, isMe && styles.msgRowMe]}>
         <Text style={styles.msgSender}>{senderName}</Text>
@@ -94,7 +99,7 @@ export default function ChannelDetailScreen({ route }) {
       <View style={styles.inputBar}>
         <TextInput
           style={styles.input}
-          placeholder={`Message #${channelName}`}
+          placeholder={`Message ${conversationName}`}
           placeholderTextColor={colors.textTertiary}
           value={newMessage}
           onChangeText={setNewMessage}

@@ -10,6 +10,7 @@ import AdminPanel from './AdminPanel';
 import Ideation from './Ideation';
 import Reviews from './Reviews';
 import Resources from './Resources';
+import Assets from './Assets';
 import Analytics from './Analytics';
 import Research from './Research';
 import Goals from './Goals';
@@ -21,6 +22,7 @@ const NAV_ITEMS = [
   { key: 'projects', label: 'Projects', icon: ProjectsIcon },
   { key: 'ideation', label: 'Create', icon: IdeationIcon },
   { key: 'resources', label: 'Resources', icon: ResourcesIcon },
+  { key: 'assets', label: 'Assets', icon: AssetsIcon },
   { key: 'analytics', label: 'Analytics', icon: AnalyticsIcon, adminOnly: true },
   { key: 'research', label: 'Research', icon: ResearchIcon },
   { key: 'reviews', label: 'Reviews', icon: ReviewsIcon },
@@ -282,6 +284,7 @@ export default function AppLayout() {
           {activeTab === 'calendar' && <Calendar onNavigate={navigateTo} />}
           {activeTab === 'ideation' && <Ideation initialConceptId={navTarget} onConceptOpened={() => setNavTarget(null)} />}
           {activeTab === 'resources' && <Resources />}
+          {activeTab === 'assets' && <Assets />}
           {isAdmin && activeTab === 'analytics' && <Analytics />}
           {activeTab === 'research' && <Research />}
           {activeTab === 'reviews' && <Reviews />}
@@ -375,6 +378,16 @@ function ResourcesIcon({ active }) {
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
       <path d="M4 4h5l2 2h5a1 1 0 011 1v8a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z" />
       <path d="M8 12h4M8 9.5h4" />
+    </svg>
+  );
+}
+
+function AssetsIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <rect x="2" y="3" width="16" height="12" rx="2" />
+      <path d="M2 12l4-4 3 3 4-5 5 6" />
+      <circle cx="6.5" cy="7.5" r="1.5" />
     </svg>
   );
 }

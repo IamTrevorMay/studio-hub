@@ -1,0 +1,71 @@
+{
+  "id": "git_sync",
+  "name": "Git Sync",
+  "description": "Monitor git repositories and automatically generate Obsidian changelogs and living product docs from commits using AI.",
+  "module": "agents.git_sync",
+  "icon": "arrow.triangle.2.circlepath",
+  "parameters": [
+    {
+      "name": "name",
+      "flag": "--name",
+      "type": "string",
+      "required": false,
+      "default": null,
+      "description": "Project name (for 'add' command)"
+    },
+    {
+      "name": "repo_path",
+      "flag": "--repo-path",
+      "type": "file_path",
+      "required": false,
+      "default": null,
+      "description": "Path to git repository (for 'add' command)"
+    },
+    {
+      "name": "branch",
+      "flag": "--branch",
+      "type": "string",
+      "required": false,
+      "default": "main",
+      "description": "Branch to monitor"
+    },
+    {
+      "name": "changelog_path",
+      "flag": "--changelog-path",
+      "type": "file_path",
+      "required": false,
+      "default": null,
+      "description": "Path to changelog markdown file in Obsidian vault"
+    },
+    {
+      "name": "product_doc_path",
+      "flag": "--product-doc-path",
+      "type": "file_path",
+      "required": false,
+      "default": null,
+      "description": "Path to product doc markdown file in Obsidian vault"
+    },
+    {
+      "name": "project_id",
+      "flag": "--project-id",
+      "type": "string",
+      "required": false,
+      "default": null,
+      "description": "Project ID (for 'sync' and 'remove' commands)"
+    }
+  ],
+  "examples": [
+    {
+      "description": "List all configured projects",
+      "args": ["list"]
+    },
+    {
+      "description": "Add a project to monitor",
+      "args": ["add", "--name", "My App", "--repo-path", "/path/to/repo", "--changelog-path", "/vault/Changelog.md", "--product-doc-path", "/vault/Product.md"]
+    },
+    {
+      "description": "Sync all enabled projects",
+      "args": ["sync-all"]
+    }
+  ]
+}

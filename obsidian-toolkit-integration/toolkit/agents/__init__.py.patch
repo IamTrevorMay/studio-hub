@@ -1,0 +1,9 @@
+Add the following to toolkit/agents/__init__.py:
+
+1. In __getattr__, add this block before the raise AttributeError line:
+
+    if name == "GitSyncAgent":
+        from .git_sync import GitSyncAgent
+        return GitSyncAgent
+
+2. In __all__, add "GitSyncAgent" to the list.

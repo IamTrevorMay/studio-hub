@@ -1,0 +1,14 @@
+Modifications to AppState.swift to add the Git Sync tab:
+
+1. Add to the SidebarTab enum (after .reports, before .settings):
+
+    case gitSync = "Git Sync"
+
+2. Add the icon case in the `icon` computed property:
+
+    case .gitSync: return "arrow.triangle.2.circlepath"
+
+3. In your main ContentView / sidebar, add the tab routing:
+
+    case .gitSync:
+        GitSyncView()

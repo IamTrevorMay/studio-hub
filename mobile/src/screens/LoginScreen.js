@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
-import { colors, spacing, radius, fontSize, fontWeight } from '../utils/theme';
+import { colors, spacing, radius, fontSize } from '../utils/theme';
 
 export default function LoginScreen() {
   const { signIn } = useAuth();
@@ -89,7 +89,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: fontSize.xxl,
-    fontWeight: fontWeight.bold,
+    fontWeight: '700',
     color: colors.text,
     textAlign: 'center',
     marginBottom: spacing.xs,
@@ -131,7 +131,7 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     fontSize: fontSize.base,
-    fontWeight: fontWeight.semibold,
+    fontWeight: '600',
     color: '#fff',
   },
 });

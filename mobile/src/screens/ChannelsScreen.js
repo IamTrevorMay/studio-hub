@@ -3,7 +3,7 @@ import { View, Text, FlatList, StyleSheet, RefreshControl, TouchableOpacity } fr
 import { useAuth } from '../contexts/AuthContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
 import { supabase } from '../services/supabase';
-import { colors, spacing, radius, fontSize, fontWeight } from '../utils/theme';
+import { colors, spacing, radius, fontSize } from '../utils/theme';
 
 export default function ChannelsScreen({ navigation }) {
   const { unreadMentionChannelIds } = useAuth();
@@ -73,9 +73,9 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     marginBottom: spacing.sm,
   },
-  hash: { fontSize: fontSize.lg, color: colors.textTertiary, marginRight: spacing.sm, fontWeight: fontWeight.bold },
+  hash: { fontSize: fontSize.lg, color: colors.textTertiary, marginRight: spacing.sm, fontWeight: '700' },
   channelName: { fontSize: fontSize.base, color: colors.textSecondary, flex: 1 },
-  channelNameUnread: { color: colors.text, fontWeight: fontWeight.semibold },
+  channelNameUnread: { color: colors.text, fontWeight: '600' },
   unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary },
   emptyCard: { padding: spacing.xxxl, alignItems: 'center' },
   emptyText: { fontSize: fontSize.md, color: colors.textTertiary },

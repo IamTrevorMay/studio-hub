@@ -1,0 +1,15 @@
+{
+  "name": "git-obsidian-sync",
+  "version": "1.0.0",
+  "description": "Automatically updates Obsidian changelog and product docs when git repos are updated",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
+    "express": "^4.21.0",
+    "simple-git": "^3.27.0"
+  }
+}
