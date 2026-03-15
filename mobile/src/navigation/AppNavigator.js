@@ -14,10 +14,20 @@ import MessagesScreen from '../screens/MessagesScreen';
 import MessageDetailScreen from '../screens/MessageDetailScreen';
 import CalendarScreen from '../screens/CalendarScreen';
 import MoreScreen from '../screens/MoreScreen';
+import AssetsScreen from '../screens/AssetsScreen';
+import ReviewsScreen from '../screens/ReviewsScreen';
+import ReviewDetailScreen from '../screens/ReviewDetailScreen';
+import CreateScreen from '../screens/CreateScreen';
+import ConceptDetailScreen from '../screens/ConceptDetailScreen';
+import DocumentEditorScreen from '../screens/DocumentEditorScreen';
+import AnalyticsScreen from '../screens/AnalyticsScreen';
+import ResearchScreen from '../screens/ResearchScreen';
+import GoalsScreen from '../screens/GoalsScreen';
 
 const Tab = createBottomTabNavigator();
 const ChannelStack = createNativeStackNavigator();
 const MessageStack = createNativeStackNavigator();
+const MoreStack = createNativeStackNavigator();
 
 // ── SVG tab icons ──
 
@@ -134,6 +144,42 @@ function MessagesStackScreen() {
   );
 }
 
+// ── More stack (menu → sub-screens) ──
+function MoreStackScreen() {
+  return (
+    <MoreStack.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.surface },
+        headerTintColor: colors.text,
+        headerTitleStyle: { fontWeight: '600', fontSize: fontSize.lg },
+      }}
+    >
+      <MoreStack.Screen name="MoreMenu" component={MoreScreen} options={{ title: 'More' }} />
+      <MoreStack.Screen name="Assets" component={AssetsScreen} options={{ title: 'Assets' }} />
+      <MoreStack.Screen name="Reviews" component={ReviewsScreen} options={{ title: 'Reviews' }} />
+      <MoreStack.Screen
+        name="ReviewDetail"
+        component={ReviewDetailScreen}
+        options={({ route }) => ({ title: route.params?.title || 'Review' })}
+      />
+      <MoreStack.Screen name="Create" component={CreateScreen} options={{ title: 'Create' }} />
+      <MoreStack.Screen
+        name="ConceptDetail"
+        component={ConceptDetailScreen}
+        options={({ route }) => ({ title: route.params?.name || 'Concept' })}
+      />
+      <MoreStack.Screen
+        name="DocumentEditor"
+        component={DocumentEditorScreen}
+        options={({ route }) => ({ title: route.params?.title || 'Editor' })}
+      />
+      <MoreStack.Screen name="Analytics" component={AnalyticsScreen} options={{ title: 'Analytics' }} />
+      <MoreStack.Screen name="Research" component={ResearchScreen} options={{ title: 'Research' }} />
+      <MoreStack.Screen name="Goals" component={GoalsScreen} options={{ title: 'Goals' }} />
+    </MoreStack.Navigator>
+  );
+}
+
 // ── Main tab navigator ──
 export default function AppNavigator() {
   const { unreadNotificationCount, unreadMentionChannelIds } = useAuth();
@@ -202,8 +248,9 @@ export default function AppNavigator() {
       />
       <Tab.Screen
         name="More"
-        component={MoreScreen}
+        component={MoreStackScreen}
         options={{
+          headerShown: false,
           tabBarIcon: ({ color }) => <DotsIcon color={color} />,
         }}
       />

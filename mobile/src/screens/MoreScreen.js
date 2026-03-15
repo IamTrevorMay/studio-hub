@@ -4,13 +4,12 @@ import { useAuth } from '../contexts/AuthContext';
 import { colors, spacing, radius, fontSize } from '../utils/theme';
 
 const MENU_ITEMS = [
-  { key: 'resources', label: 'Resources', icon: 'folder' },
-  { key: 'ideation', label: 'Create', icon: 'lightbulb' },
-  { key: 'analytics', label: 'Analytics', icon: 'chart', adminOnly: true },
-  { key: 'research', label: 'Research', icon: 'search' },
-  { key: 'reviews', label: 'Reviews', icon: 'star' },
-  { key: 'goals', label: 'Goals', icon: 'target' },
-  { key: 'tools', label: 'Toolbox', icon: 'wrench' },
+  { key: 'assets', label: 'Assets', icon: 'folder', route: 'Assets' },
+  { key: 'ideation', label: 'Create', icon: 'lightbulb', route: 'Create' },
+  { key: 'analytics', label: 'Analytics', icon: 'chart', adminOnly: true, route: 'Analytics' },
+  { key: 'research', label: 'Research', icon: 'search', route: 'Research' },
+  { key: 'reviews', label: 'Reviews', icon: 'star', route: 'Reviews' },
+  { key: 'goals', label: 'Goals', icon: 'target', route: 'Goals' },
 ];
 
 export default function MoreScreen({ navigation }) {
@@ -47,8 +46,11 @@ export default function MoreScreen({ navigation }) {
             key={item.key}
             style={styles.menuRow}
             onPress={() => {
-              // Navigate to dedicated screen when built, or show coming soon
-              Alert.alert(item.label, 'This section is available on the web dashboard. Mobile version coming soon.');
+              if (item.route) {
+                navigation.navigate(item.route);
+              } else {
+                Alert.alert(item.label, 'This section is available on the web dashboard. Mobile version coming soon.');
+              }
             }}
           >
             <Text style={styles.menuLabel}>{item.label}</Text>
