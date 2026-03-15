@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, ScrollView, StyleSheet, RefreshControl, TouchableOpacity } from 'react-native';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
 import { supabase } from '../services/supabase';
-import { colors, spacing, radius, fontSize, fontWeight } from '../utils/theme';
+import { colors, spacing, radius, fontSize } from '../utils/theme';
 
 const STATUSES = ['concept', 'script', 'production', 'edit', 'review', 'published'];
 const STATUS_LABELS = {
@@ -111,7 +111,7 @@ const styles = StyleSheet.create({
     marginRight: spacing.sm,
   },
   chipActive: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
-  chipText: { fontSize: fontSize.sm, fontWeight: fontWeight.semibold, color: colors.textSecondary },
+  chipText: { fontSize: fontSize.sm, fontWeight: '600', color: colors.textSecondary },
   chipTextActive: { color: colors.primary },
   card: {
     backgroundColor: colors.surface,
@@ -122,9 +122,9 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.xs },
-  cardTitle: { fontSize: fontSize.base, fontWeight: fontWeight.semibold, color: colors.text, flex: 1, marginRight: spacing.sm },
+  cardTitle: { fontSize: fontSize.base, fontWeight: '600', color: colors.text, flex: 1, marginRight: spacing.sm },
   badge: { paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: radius.sm },
-  badgeText: { fontSize: fontSize.xs, fontWeight: fontWeight.semibold },
+  badgeText: { fontSize: fontSize.xs, fontWeight: '600' },
   cardDesc: { fontSize: fontSize.md, color: colors.textSecondary, marginBottom: spacing.sm, lineHeight: 18 },
   cardMeta: { fontSize: fontSize.xs, color: colors.textTertiary },
   emptyCard: {

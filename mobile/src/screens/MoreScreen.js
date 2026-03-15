@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
-import { colors, spacing, radius, fontSize, fontWeight } from '../utils/theme';
+import { colors, spacing, radius, fontSize } from '../utils/theme';
 
 const MENU_ITEMS = [
   { key: 'resources', label: 'Resources', icon: 'folder' },
@@ -89,9 +89,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarText: { fontSize: fontSize.xl, fontWeight: fontWeight.bold, color: colors.primary },
+  avatarText: { fontSize: fontSize.xl, fontWeight: '700', color: colors.primary },
   profileInfo: { flex: 1 },
-  profileName: { fontSize: fontSize.lg, fontWeight: fontWeight.bold, color: colors.text },
+  profileName: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text },
   profileRole: { fontSize: fontSize.sm, color: colors.textSecondary, textTransform: 'capitalize', marginTop: 2 },
   menuSection: {
     backgroundColor: colors.surface,
@@ -118,6 +118,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.lg,
   },
-  signOutText: { fontSize: fontSize.base, fontWeight: fontWeight.semibold, color: colors.red },
+  signOutText: { fontSize: fontSize.base, fontWeight: '600', color: colors.red },
   version: { fontSize: fontSize.xs, color: colors.textTertiary, textAlign: 'center' },
 });

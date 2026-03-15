@@ -55,14 +55,14 @@ export const fontSize = {
   xxxl: 28,
 };
 
-export const fontWeight = {
+export const fw = {
   normal: '400',
   medium: '500',
   semibold: '600',
   bold: '700',
 };
 
-// React Navigation dark theme
+// React Navigation v7 dark theme (requires fonts property)
 export const navigationTheme = {
   dark: true,
   colors: {
@@ -72,5 +72,11 @@ export const navigationTheme = {
     text: colors.text,
     border: colors.border,
     notification: colors.red,
+  },
+  fonts: {
+    regular: { fontFamily: 'System', fontWeight: '400' },
+    medium: { fontFamily: 'System', fontWeight: '500' },
+    bold: { fontFamily: 'System', fontWeight: '700' },
+    heavy: { fontFamily: 'System', fontWeight: '800' },
   },
 };

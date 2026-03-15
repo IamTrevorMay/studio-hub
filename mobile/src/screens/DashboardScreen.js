@@ -3,7 +3,7 @@ import { View, Text, ScrollView, StyleSheet, RefreshControl, TouchableOpacity } 
 import { useAuth } from '../contexts/AuthContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
 import { supabase } from '../services/supabase';
-import { colors, spacing, radius, fontSize, fontWeight } from '../utils/theme';
+import { colors, spacing, radius, fontSize } from '../utils/theme';
 
 export default function DashboardScreen() {
   const { user, profile } = useAuth();
@@ -128,14 +128,14 @@ const styles = StyleSheet.create({
   content: { padding: spacing.xl },
   greeting: {
     fontSize: fontSize.xxl,
-    fontWeight: fontWeight.bold,
+    fontWeight: '700',
     color: colors.text,
     marginBottom: spacing.xxl,
   },
   section: { marginBottom: spacing.xxl },
   sectionTitle: {
     fontSize: fontSize.lg,
-    fontWeight: fontWeight.bold,
+    fontWeight: '700',
     color: colors.text,
     marginBottom: spacing.md,
   },
@@ -149,7 +149,7 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     fontSize: fontSize.base,
-    fontWeight: fontWeight.semibold,
+    fontWeight: '600',
     color: colors.text,
     marginBottom: spacing.xs,
   },
@@ -176,13 +176,13 @@ const styles = StyleSheet.create({
   },
   timeSlot: {
     fontSize: fontSize.sm,
-    fontWeight: fontWeight.semibold,
+    fontWeight: '600',
     color: colors.primary,
     width: 60,
     paddingTop: 2,
   },
   itineraryInfo: { flex: 1 },
-  itineraryTitle: { fontSize: fontSize.md, fontWeight: fontWeight.medium, color: colors.text },
+  itineraryTitle: { fontSize: fontSize.md, fontWeight: '500', color: colors.text },
   itineraryDesc: { fontSize: fontSize.sm, color: colors.textTertiary, marginTop: 2 },
   presenceGrid: {
     flexDirection: 'row',
@@ -200,7 +200,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   avatarOnline: { borderWidth: 2, borderColor: colors.green },
-  avatarText: { fontSize: fontSize.lg, fontWeight: fontWeight.bold, color: colors.textSecondary },
+  avatarText: { fontSize: fontSize.lg, fontWeight: '700', color: colors.textSecondary },
   memberName: { fontSize: fontSize.xs, color: colors.textSecondary, textAlign: 'center' },
   statusDot: { width: 6, height: 6, borderRadius: 3, marginTop: 2 },
 });

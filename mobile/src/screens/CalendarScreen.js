@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, ScrollView, StyleSheet, RefreshControl } from 'react-native';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
 import { supabase } from '../services/supabase';
-import { colors, spacing, radius, fontSize, fontWeight } from '../utils/theme';
+import { colors, spacing, radius, fontSize } from '../utils/theme';
 
 export default function CalendarScreen() {
   const { safeQuery } = useSupabaseQuery();
@@ -78,7 +78,7 @@ const styles = StyleSheet.create({
   dayGroup: { marginBottom: spacing.xxl },
   dateHeader: {
     fontSize: fontSize.base,
-    fontWeight: fontWeight.bold,
+    fontWeight: '700',
     color: colors.text,
     marginBottom: spacing.md,
   },
@@ -93,7 +93,7 @@ const styles = StyleSheet.create({
   },
   eventStripe: { width: 4 },
   eventInfo: { flex: 1, padding: spacing.md },
-  eventTitle: { fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: colors.text },
+  eventTitle: { fontSize: fontSize.md, fontWeight: '600', color: colors.text },
   eventTime: { fontSize: fontSize.sm, color: colors.textTertiary, marginTop: 2 },
   emptyCard: {
     padding: spacing.xxxl,
