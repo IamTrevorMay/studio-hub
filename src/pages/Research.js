@@ -136,11 +136,12 @@ export default function Research() {
       } else {
         setRegenerateError(null);
       }
-      const newArchive = await fetchCardsArchive();
-      const latestDate = newArchive.length > 0 ? newArchive[0].date : currentCardDate;
-      if (latestDate) {
-        setCurrentCardDate(latestDate);
-        await fetchCardsForDate(latestDate);
+      await fetchCardsArchive();
+      // Use the date from the cron response (the date it actually generated for)
+      const generatedDate = json.date || currentCardDate;
+      if (generatedDate) {
+        setCurrentCardDate(generatedDate);
+        await fetchCardsForDate(generatedDate);
       }
     } catch (err) {
       console.error('Error regenerating cards:', err);
