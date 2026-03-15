@@ -101,7 +101,6 @@ export default function Research() {
   };
 
   const handleRegenerateBrief = async () => {
-    if (!window.confirm('Regenerate the brief for this date? This will delete the existing brief and create a new one.')) return;
     setRegeneratingBrief(true);
     try {
       const res = await fetch('https://www.tritonapex.io/api/cron/briefs?force=true', {
@@ -119,17 +118,23 @@ export default function Research() {
     }
   };
 
+  const [regenerateError, setRegenerateError] = useState(null);
+
   const handleRegenerateCards = async () => {
-    if (!window.confirm('Regenerate cards for this date? This will delete existing cards and create new ones.')) return;
     setRegeneratingCards(true);
+    setRegenerateError(null);
     try {
       const res = await fetch('https://www.tritonapex.io/api/cron/daily-cards?force=true', {
         headers: { Authorization: `Bearer ${process.env.REACT_APP_TRITON_CRON_SECRET}` },
       });
+      const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        let msg = 'Failed to regenerate cards';
-        try { const j = await res.json(); msg = j.error || msg; } catch {}
-        throw new Error(msg);
+        throw new Error(json.error || `Server error ${res.status}`);
+      }
+      if (json.skipped) {
+        setRegenerateError(`Skipped: ${json.reason === 'no_games' ? 'No finished games for this date' : json.reason === 'no_starters' ? 'No starting pitchers found' : json.reason || 'unknown'}`);
+      } else {
+        setRegenerateError(null);
       }
       const newArchive = await fetchCardsArchive();
       const latestDate = newArchive.length > 0 ? newArchive[0].date : currentCardDate;
@@ -139,7 +144,7 @@ export default function Research() {
       }
     } catch (err) {
       console.error('Error regenerating cards:', err);
-      alert('Failed to regenerate cards: ' + err.message);
+      setRegenerateError(err.message);
     } finally {
       setRegeneratingCards(false);
     }
@@ -936,6 +941,12 @@ export default function Research() {
                       </div>
                     )}
                   </div>
+                </div>
+              )}
+
+              {regenerateError && (
+                <div style={{ padding: '8px 14px', borderRadius: '8px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#fca5a5', fontSize: '12px', marginBottom: '12px' }}>
+                  {regenerateError}
                 </div>
               )}
 
