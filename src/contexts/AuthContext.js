@@ -519,6 +519,7 @@ export function AuthProvider({ children }) {
     ensureSession,
     isAdmin: profile?.role === 'admin',
     isAssistant: profile?.role === 'assistant',
+    canPost: profile?.role === 'admin' || profile?.posting_allowed === true,
     unreadAnnouncementCount,
     newItineraryCount,
     markDashboardSeen,

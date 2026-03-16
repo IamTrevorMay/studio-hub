@@ -18,6 +18,7 @@ import Research from './Research';
 import Goals from './Goals';
 import Tools from './Tools';
 import ShowPlanning from './ShowPlanning';
+import Posting from './Posting';
 import Morty from '../components/Morty';
 
 const NAV_ITEMS = [
@@ -33,6 +34,7 @@ const NAV_ITEMS = [
   { key: 'showplanning', label: 'Show Planning', icon: ShowPlanningIcon },
   { key: 'goals', label: 'Goals', icon: GoalsIcon },
   { key: 'tools', label: 'Toolbox', icon: ToolsIcon },
+  { key: 'posting', label: 'Posting', icon: PostingIcon },
   { key: 'channels', label: 'Channels', icon: ChannelsIcon },
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
 ];
@@ -50,12 +52,13 @@ const NAV_ICON_MAP = {
   showplanning: ShowPlanningIcon,
   goals: GoalsIcon,
   tools: ToolsIcon,
+  posting: PostingIcon,
   channels: ChannelsIcon,
   messages: MessagesIcon,
 };
 
 export default function AppLayout() {
-  const { profile, signOut, isAdmin, isAssistant, unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, refreshNotifications } = useAuth();
+  const { profile, signOut, isAdmin, isAssistant, canPost, unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, refreshNotifications } = useAuth();
   const { getResolvedNav, saveConfig, saving } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => localStorage.getItem('studio-hub-tab') || 'dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -75,7 +78,9 @@ export default function AppLayout() {
     localStorage.setItem('nav-folder-state', JSON.stringify(folderCollapseState));
   }, [folderCollapseState]);
 
-  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin);
+  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin).filter(
+    entry => entry.key !== 'posting' || canPost
+  );
 
   function toggleFolder(folderId) {
     setFolderCollapseState(prev => ({ ...prev, [folderId]: !prev[folderId] }));
@@ -475,6 +480,7 @@ export default function AppLayout() {
           {activeTab === 'reviews' && <Reviews />}
           {activeTab === 'goals' && <Goals />}
           {activeTab === 'tools' && <Tools />}
+          {activeTab === 'posting' && canPost && <Posting />}
           {activeTab === 'channels' && <Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} />}
           {activeTab === 'messages' && <Messages onNavigate={navigateTo} />}
           {isAdmin && activeTab === 'admin' && <AdminPanel initialTab={adminInitialTab} />}
@@ -613,6 +619,14 @@ function ToolsIcon({ active }) {
       <path d="M14.5 3.5a2.5 2.5 0 00-3.54 0L9.5 5l5 5 1.46-1.46a2.5 2.5 0 000-3.54l-1.46-1.5z" />
       <path d="M9.5 5L3 11.5V15h3.5L13 8.5" />
       <path d="M7.5 12.5L5 15" />
+    </svg>
+  );
+}
+
+function PostingIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <path d="M17 3l-10 10M17 3l-4 14-3-7-7-3 14-4z" />
     </svg>
   );
 }
