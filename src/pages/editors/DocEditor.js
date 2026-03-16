@@ -88,7 +88,8 @@ export default function DocEditor({ docId, title, docType, onBack, onSaveTemplat
     loadDoc();
   }, [docId, editor]);
 
-  const tableName = docType === 'resource_documents' ? 'resource_documents' : 'concept_documents';
+  const TABLE_MAP = { resource_documents: 'resource_documents', show_documents: 'show_documents' };
+  const tableName = TABLE_MAP[docType] || 'concept_documents';
 
   async function loadDoc() {
     const { data } = await supabase.from(tableName)

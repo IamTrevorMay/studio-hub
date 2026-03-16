@@ -23,10 +23,13 @@ export default function StickyBoard({ docId, title, docType, onBack, onSaveTempl
   const dragOffset = useRef({ x: 0, y: 0 });
   const resizeStart = useRef({ x: 0, y: 0, w: 0, h: 0 });
 
+  const TABLE_MAP = { resource_documents: 'resource_documents', show_documents: 'show_documents' };
+  const tableName = TABLE_MAP[docType] || 'concept_documents';
+
   useEffect(() => { loadDoc(); }, [docId]);
 
   async function loadDoc() {
-    const { data } = await supabase.from('concept_documents')
+    const { data } = await supabase.from(tableName)
       .select('content').eq('id', docId).single();
     if (data?.content?.notes) setNotes(data.content.notes);
     setLoaded(true);
@@ -34,11 +37,11 @@ export default function StickyBoard({ docId, title, docType, onBack, onSaveTempl
 
   const save = useCallback(async (notesToSave) => {
     setSaving(true);
-    await supabase.from('concept_documents')
+    await supabase.from(tableName)
       .update({ content: { notes: notesToSave || notes }, updated_at: new Date().toISOString() })
       .eq('id', docId);
     setSaving(false);
-  }, [notes, docId]);
+  }, [notes, docId, tableName]);
 
   // Auto-save debounced
   useEffect(() => {

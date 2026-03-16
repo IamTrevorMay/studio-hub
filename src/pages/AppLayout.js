@@ -15,6 +15,7 @@ import Analytics from './Analytics';
 import Research from './Research';
 import Goals from './Goals';
 import Tools from './Tools';
+import ShowPlanning from './ShowPlanning';
 import Morty from '../components/Morty';
 
 const NAV_ITEMS = [
@@ -27,6 +28,7 @@ const NAV_ITEMS = [
   { key: 'research', label: 'Research', icon: ResearchIcon },
   { key: 'reviews', label: 'Reviews', icon: ReviewsIcon },
   { key: 'calendar', label: 'Calendar', icon: CalendarIcon },
+  { key: 'showplanning', label: 'Show Planning', icon: ShowPlanningIcon },
   { key: 'goals', label: 'Goals', icon: GoalsIcon },
   { key: 'tools', label: 'Toolbox', icon: ToolsIcon },
   { key: 'channels', label: 'Channels', icon: ChannelsIcon },
@@ -282,6 +284,7 @@ export default function AppLayout() {
           {activeTab === 'dashboard' && <Dashboard onNavigate={navigateTo} />}
           {activeTab === 'projects' && <Projects onNavigate={navigateTo} />}
           {activeTab === 'calendar' && <Calendar onNavigate={navigateTo} />}
+          {activeTab === 'showplanning' && <ShowPlanning />}
           {activeTab === 'ideation' && <Ideation initialConceptId={navTarget} onConceptOpened={() => setNavTarget(null)} />}
           {activeTab === 'resources' && <Resources />}
           {activeTab === 'assets' && <Assets />}
@@ -398,6 +401,16 @@ function ResearchIcon({ active }) {
       <circle cx="8" cy="8" r="5" />
       <path d="M12 12l5 5" />
       <path d="M6 5h4M6 8h3" />
+    </svg>
+  );
+}
+
+function ShowPlanningIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <rect x="3" y="4" width="14" height="13" rx="2" />
+      <path d="M3 8h14M7 2v4M13 2v4" />
+      <circle cx="10" cy="13" r="1.5" fill={active ? '#a5b4fc' : '#6b7280'} stroke="none" />
     </svg>
   );
 }

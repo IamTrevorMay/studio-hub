@@ -21,8 +21,11 @@ export default function Whiteboard({ docId, title, docType, onBack, onSaveTempla
     loadDoc();
   }, [docId]);
 
+  const TABLE_MAP = { resource_documents: 'resource_documents', show_documents: 'show_documents' };
+  const tableName = TABLE_MAP[docType] || 'concept_documents';
+
   async function loadDoc() {
-    const { data } = await supabase.from('concept_documents')
+    const { data } = await supabase.from(tableName)
       .select('content').eq('id', docId).single();
     if (data?.content?.strokes) setStrokes(data.content.strokes);
     setLoaded(true);
@@ -130,11 +133,11 @@ export default function Whiteboard({ docId, title, docType, onBack, onSaveTempla
 
   const save = useCallback(async () => {
     setSaving(true);
-    await supabase.from('concept_documents')
+    await supabase.from(tableName)
       .update({ content: { strokes }, updated_at: new Date().toISOString() })
       .eq('id', docId);
     setSaving(false);
-  }, [strokes, docId]);
+  }, [strokes, docId, tableName]);
 
   // Auto-save on stroke changes (debounced)
   useEffect(() => {

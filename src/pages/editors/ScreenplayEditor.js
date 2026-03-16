@@ -51,7 +51,8 @@ export default function ScreenplayEditor({ docId, title, docType, onBack, onSave
   const suppressSync = useRef(false);
   const editorScrollRef = useRef(null);
 
-  const tableName = docType === 'resource_documents' ? 'resource_documents' : 'concept_documents';
+  const TABLE_MAP = { resource_documents: 'resource_documents', show_documents: 'show_documents' };
+  const tableName = TABLE_MAP[docType] || 'concept_documents';
 
   // ─── Load doc ───
   useEffect(() => {
