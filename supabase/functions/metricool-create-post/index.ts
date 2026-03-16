@@ -67,7 +67,7 @@ serve(async (req) => {
     }
 
     // Parse request body
-    const { text, networks, scheduledDate, scheduledTimezone } = await req.json();
+    const { text, networks, scheduledDate, scheduledTimezone, mediaUrl } = await req.json();
 
     if (!text || !networks || !Array.isArray(networks) || networks.length === 0) {
       return new Response(
@@ -88,6 +88,24 @@ serve(async (req) => {
       );
     }
 
+    // If an image URL is provided, normalize it via Metricool to get a mediaId
+    let mediaId: string | null = null;
+    if (mediaUrl) {
+      const normalizeRes = await fetch(
+        `https://app.metricool.com/api/actions/normalize/image/url?url=${encodeURIComponent(mediaUrl)}`,
+        { headers: { "X-Mc-Auth": mcToken } }
+      );
+      if (!normalizeRes.ok) {
+        const errText = await normalizeRes.text();
+        return new Response(
+          JSON.stringify({ error: `Image normalize failed: ${normalizeRes.status}`, details: errText }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      const normalizeData = await normalizeRes.json();
+      mediaId = normalizeData.mediaId || normalizeData.data?.mediaId || normalizeData.id || null;
+    }
+
     const mcBody: Record<string, unknown> = {
       text,
       providers: networks.map((network: string) => ({ network })),
@@ -100,6 +118,10 @@ serve(async (req) => {
         dateTime: scheduledDate,
         timezone: scheduledTimezone || "America/Los_Angeles",
       };
+    }
+
+    if (mediaId) {
+      mcBody.media = { mediaId };
     }
 
     const mcResponse = await fetch(

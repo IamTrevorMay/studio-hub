@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -45,6 +45,12 @@ export default function Posting() {
   const [scheduledDate, setScheduledDate] = useState('');
   const [posting, setPosting] = useState(false);
   const [postStatus, setPostStatus] = useState(null); // { type: 'success'|'error', message }
+
+  // Image attachment state
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
 
   // Posts state
   const [recentPosts, setRecentPosts] = useState([]);
@@ -132,6 +138,36 @@ export default function Posting() {
     );
   }
 
+  function handleImageSelect(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate type
+    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowed.includes(file.type)) {
+      setPostStatus({ type: 'error', message: 'Only JPG, PNG, GIF, and WebP images are supported' });
+      return;
+    }
+
+    // Validate size (10MB max)
+    if (file.size > 10 * 1024 * 1024) {
+      setPostStatus({ type: 'error', message: 'Image must be under 10 MB' });
+      return;
+    }
+
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
+    setPostStatus(null);
+    // Reset the input so the same file can be re-selected
+    e.target.value = '';
+  }
+
+  function removeImage() {
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImageFile(null);
+    setImagePreview(null);
+  }
+
   async function handlePost() {
     if (!text.trim() || selectedNetworks.length === 0) return;
     setPosting(true);
@@ -150,6 +186,24 @@ export default function Posting() {
       if (scheduleMode && scheduledDate) {
         body.scheduledDate = scheduledDate;
         body.scheduledTimezone = 'America/Los_Angeles';
+      }
+
+      // Upload image to Supabase Storage if attached
+      if (imageFile) {
+        setUploading(true);
+        const ext = imageFile.name.split('.').pop() || 'jpg';
+        const filePath = `${profile.id}/${Date.now()}.${ext}`;
+        const { error: uploadErr } = await supabase.storage
+          .from('posting-media')
+          .upload(filePath, imageFile);
+        setUploading(false);
+
+        if (uploadErr) throw new Error(`Image upload failed: ${uploadErr.message}`);
+
+        const { data: urlData } = supabase.storage
+          .from('posting-media')
+          .getPublicUrl(filePath);
+        body.mediaUrl = urlData.publicUrl;
       }
 
       const res = await fetch(`${supabaseUrl}/functions/v1/metricool-create-post`, {
@@ -172,6 +226,7 @@ export default function Posting() {
       setText('');
       setScheduleMode(false);
       setScheduledDate('');
+      removeImage();
 
       // Refresh posts after a short delay to let Metricool process
       setTimeout(fetchPosts, 2000);
@@ -179,6 +234,7 @@ export default function Posting() {
       setPostStatus({ type: 'error', message: err.message });
     } finally {
       setPosting(false);
+      setUploading(false);
     }
   }
 
@@ -228,6 +284,28 @@ export default function Posting() {
           </div>
         </div>
 
+        {/* Image preview */}
+        {imagePreview && (
+          <div style={styles.imagePreviewWrap}>
+            <img src={imagePreview} alt="Attachment" style={styles.imagePreview} />
+            <button onClick={removeImage} style={styles.imageRemoveBtn} title="Remove image">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <path d="M11 3L3 11M3 3l8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none" />
+              </svg>
+            </button>
+            <span style={styles.imageFileName}>{imageFile?.name}</span>
+          </div>
+        )}
+
+        {/* Hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/gif,image/webp"
+          onChange={handleImageSelect}
+          style={{ display: 'none' }}
+        />
+
         {/* Network checkboxes */}
         <div style={styles.networkRow}>
           {NETWORKS.map(n => (
@@ -255,7 +333,21 @@ export default function Posting() {
               opacity: (posting || !text.trim() || selectedNetworks.length === 0) ? 0.5 : 1,
             }}
           >
-            {posting ? 'Sending...' : scheduleMode ? 'Schedule' : 'Post Now'}
+            {uploading ? 'Uploading image...' : posting ? 'Sending...' : scheduleMode ? 'Schedule' : 'Post Now'}
+          </button>
+
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={posting}
+            style={styles.attachBtn}
+            title="Attach image"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <rect x="1" y="2" width="14" height="11" rx="2" />
+              <circle cx="5" cy="6" r="1.5" />
+              <path d="M1 11l3.5-4 2.5 3 3-4L14 11" />
+            </svg>
+            {imageFile ? '1 image' : 'Image'}
           </button>
 
           <button
@@ -438,6 +530,58 @@ const styles = {
   },
   charCount: {
     fontSize: '12px',
+  },
+  imagePreviewWrap: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    padding: '10px',
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '10px',
+    marginBottom: '12px',
+  },
+  imagePreview: {
+    width: '64px',
+    height: '64px',
+    objectFit: 'cover',
+    borderRadius: '8px',
+    flexShrink: 0,
+  },
+  imageRemoveBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '24px',
+    height: '24px',
+    borderRadius: '6px',
+    border: 'none',
+    background: 'rgba(239,68,68,0.15)',
+    color: '#ef4444',
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
+  imageFileName: {
+    fontSize: '12px',
+    color: 'rgba(255,255,255,0.4)',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  attachBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '10px 16px',
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '10px',
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: '14px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    transition: 'all 0.15s',
   },
   networkRow: {
     display: 'flex',
