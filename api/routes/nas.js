@@ -1,21 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const path = require('path');
-const fetch = require('node-fetch');
+const fs = require('fs');
+const fsp = fs.promises;
 const multer = require('multer');
 const { createClient } = require('@supabase/supabase-js');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } });
 
-function getTrueNASConfig() {
-  const apiUrl = process.env.TRUENAS_API_URL;
-  const apiKey = process.env.TRUENAS_API_KEY;
-  const assetsRoot = process.env.TRUENAS_ASSETS_ROOT;
-  if (!apiUrl || !apiKey || !assetsRoot) {
-    throw new Error('Missing TrueNAS env vars (TRUENAS_API_URL, TRUENAS_API_KEY, TRUENAS_ASSETS_ROOT)');
-  }
-  return { apiUrl, apiKey, assetsRoot };
-}
+const ASSETS_ROOT = process.env.ASSETS_ROOT || '/Volumes/May Server';
 
 function sanitizePath(requestedPath, assetsRoot) {
   const resolved = path.resolve(assetsRoot, requestedPath || '');
@@ -32,66 +25,53 @@ function getSupabaseServiceClient() {
   return createClient(url, key);
 }
 
-function nasHeaders(apiKey) {
-  return {
-    'Authorization': `Bearer ${apiKey}`,
-    'Content-Type': 'application/json',
+function getMimeType(ext) {
+  const types = {
+    mp4: 'video/mp4', mov: 'video/quicktime', avi: 'video/x-msvideo', mkv: 'video/x-matroska',
+    mp3: 'audio/mpeg', wav: 'audio/wav', flac: 'audio/flac', aac: 'audio/aac',
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp',
+    pdf: 'application/pdf', zip: 'application/zip',
   };
+  return types[ext] || 'application/octet-stream';
 }
 
-// GET /api/nas/health — Check TrueNAS connectivity
+// GET /api/nas/health — Check that the local SSD is mounted and accessible
 router.get('/health', async (req, res) => {
   try {
-    const { apiUrl, apiKey } = getTrueNASConfig();
-    const response = await fetch(`${apiUrl}/system/info`, {
-      headers: nasHeaders(apiKey),
-    });
-    if (!response.ok) {
-      return res.json({ connected: false, error: `TrueNAS responded ${response.status}` });
-    }
-    const info = await response.json();
-    res.json({
-      connected: true,
-      hostname: info.hostname,
-      version: info.version,
-      uptime_seconds: info.uptime_seconds,
-    });
+    await fsp.access(ASSETS_ROOT, fs.constants.R_OK | fs.constants.W_OK);
+    res.json({ connected: true, assetsRoot: ASSETS_ROOT });
   } catch (err) {
-    res.json({ connected: false, error: err.message });
+    res.json({ connected: false, error: `Cannot access ${ASSETS_ROOT}: ${err.message}` });
   }
 });
 
 // GET /api/nas/list?path=/video&sort=name&order=asc — List directory contents
 router.get('/list', async (req, res) => {
   try {
-    const { apiUrl, apiKey, assetsRoot } = getTrueNASConfig();
     const requestedPath = req.query.path || '';
-    const fullPath = sanitizePath(requestedPath, assetsRoot);
+    const fullPath = sanitizePath(requestedPath, ASSETS_ROOT);
     const sort = req.query.sort || 'name';
     const order = req.query.order || 'asc';
 
-    const response = await fetch(`${apiUrl}/filesystem/listdir`, {
-      method: 'POST',
-      headers: nasHeaders(apiKey),
-      body: JSON.stringify({ path: fullPath }),
-    });
+    const entries = await fsp.readdir(fullPath, { withFileTypes: true });
 
-    if (!response.ok) {
-      const text = await response.text();
-      return res.status(response.status).json({ error: `TrueNAS error: ${text}` });
-    }
-
-    let items = await response.json();
-
-    // Map to a clean shape
-    items = items.map(item => ({
-      name: item.name,
-      path: path.relative(assetsRoot, item.path),
-      type: item.type === 'DIRECTORY' ? 'directory' : 'file',
-      size: item.size || 0,
-      modified: item.mtime?.$date || item.mtime || null,
-      extension: item.type !== 'DIRECTORY' ? path.extname(item.name).toLowerCase().slice(1) : null,
-    }));
+    let items = (await Promise.all(entries.map(async (entry) => {
+      try {
+        const entryPath = path.join(fullPath, entry.name);
+        const stat = await fsp.stat(entryPath);
+        const isDir = entry.isDirectory();
+        return {
+          name: entry.name,
+          path: path.relative(ASSETS_ROOT, entryPath),
+          type: isDir ? 'directory' : 'file',
+          size: stat.size,
+          modified: stat.mtime.toISOString(),
+          extension: isDir ? null : path.extname(entry.name).toLowerCase().slice(1) || null,
+        };
+      } catch {
+        return null; // skip inaccessible entries
+      }
+    }))).filter(Boolean);
 
     // Sort
     items.sort((a, b) => {
@@ -113,29 +93,17 @@ router.get('/list', async (req, res) => {
 // GET /api/nas/stat?path=/video/ep42.mp4 — Get single file metadata
 router.get('/stat', async (req, res) => {
   try {
-    const { apiUrl, apiKey, assetsRoot } = getTrueNASConfig();
     const requestedPath = req.query.path;
     if (!requestedPath) return res.status(400).json({ error: 'path query param required' });
-    const fullPath = sanitizePath(requestedPath, assetsRoot);
+    const fullPath = sanitizePath(requestedPath, ASSETS_ROOT);
 
-    const response = await fetch(`${apiUrl}/filesystem/stat`, {
-      method: 'POST',
-      headers: nasHeaders(apiKey),
-      body: JSON.stringify({ path: fullPath }),
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      return res.status(response.status).json({ error: `TrueNAS error: ${text}` });
-    }
-
-    const stat = await response.json();
+    const stat = await fsp.stat(fullPath);
     res.json({
       name: path.basename(fullPath),
       path: requestedPath,
-      type: stat.type === 'DIRECTORY' ? 'directory' : 'file',
-      size: stat.size || 0,
-      modified: stat.mtime?.$date || stat.mtime || null,
+      type: stat.isDirectory() ? 'directory' : 'file',
+      size: stat.size,
+      modified: stat.mtime.toISOString(),
       extension: path.extname(fullPath).toLowerCase().slice(1) || null,
     });
   } catch (err) {
@@ -146,34 +114,23 @@ router.get('/stat', async (req, res) => {
 // GET /api/nas/download?path=/video/ep42.mp4 — Stream file download
 router.get('/download', async (req, res) => {
   try {
-    const { apiUrl, apiKey, assetsRoot } = getTrueNASConfig();
     const requestedPath = req.query.path;
     if (!requestedPath) return res.status(400).json({ error: 'path query param required' });
-    const fullPath = sanitizePath(requestedPath, assetsRoot);
+    const fullPath = sanitizePath(requestedPath, ASSETS_ROOT);
     const fileName = path.basename(fullPath);
 
-    const response = await fetch(`${apiUrl}/filesystem/get`, {
-      method: 'POST',
-      headers: nasHeaders(apiKey),
-      body: JSON.stringify({ path: fullPath }),
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      return res.status(response.status).json({ error: `TrueNAS error: ${text}` });
+    const stat = await fsp.stat(fullPath);
+    if (stat.isDirectory()) {
+      return res.status(400).json({ error: 'Cannot download a directory' });
     }
 
-    // Set download headers
+    const ext = path.extname(fileName).toLowerCase().slice(1);
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    if (response.headers.get('content-type')) {
-      res.setHeader('Content-Type', response.headers.get('content-type'));
-    }
-    if (response.headers.get('content-length')) {
-      res.setHeader('Content-Length', response.headers.get('content-length'));
-    }
+    res.setHeader('Content-Type', getMimeType(ext));
+    res.setHeader('Content-Length', stat.size);
 
-    // Stream — no memory buffering
-    response.body.pipe(res);
+    const stream = fs.createReadStream(fullPath);
+    stream.pipe(res);
 
     // Log access asynchronously
     const userId = req.query.user_id;
@@ -196,32 +153,20 @@ router.get('/download', async (req, res) => {
 // POST /api/nas/upload — Upload file via multipart form
 router.post('/upload', upload.single('file'), async (req, res) => {
   try {
-    const { apiUrl, apiKey, assetsRoot } = getTrueNASConfig();
     const targetPath = req.body.path || '';
     if (!req.file) return res.status(400).json({ error: 'No file provided' });
 
-    const destDir = sanitizePath(targetPath, assetsRoot);
+    const destDir = sanitizePath(targetPath, ASSETS_ROOT);
     const destPath = path.join(destDir, req.file.originalname);
 
     // Ensure destination is still within assets root
-    if (!destPath.startsWith(assetsRoot)) {
+    if (!destPath.startsWith(ASSETS_ROOT)) {
       return res.status(400).json({ error: 'Path traversal blocked' });
     }
 
-    const response = await fetch(`${apiUrl}/filesystem/put`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/octet-stream',
-        'X-TrueNAS-Path': destPath,
-      },
-      body: req.file.buffer,
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      return res.status(response.status).json({ error: `TrueNAS error: ${text}` });
-    }
+    // Ensure target directory exists
+    await fsp.mkdir(destDir, { recursive: true });
+    await fsp.writeFile(destPath, req.file.buffer);
 
     // Log access
     const userId = req.body.user_id;
@@ -246,39 +191,50 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 // GET /api/nas/search?q=episode&dataset=video — Search files by name
 router.get('/search', async (req, res) => {
   try {
-    const { apiUrl, apiKey, assetsRoot } = getTrueNASConfig();
     const query = req.query.q;
     if (!query) return res.status(400).json({ error: 'q query param required' });
     const dataset = req.query.dataset || '';
-    const searchRoot = sanitizePath(dataset, assetsRoot);
-
-    // List all files recursively and filter by name
-    const response = await fetch(`${apiUrl}/filesystem/listdir`, {
-      method: 'POST',
-      headers: nasHeaders(apiKey),
-      body: JSON.stringify({ path: searchRoot }),
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      return res.status(response.status).json({ error: `TrueNAS error: ${text}` });
-    }
-
-    let items = await response.json();
+    const searchRoot = sanitizePath(dataset, ASSETS_ROOT);
     const lowerQuery = query.toLowerCase();
 
-    items = items
-      .filter(item => item.name.toLowerCase().includes(lowerQuery))
-      .map(item => ({
-        name: item.name,
-        path: path.relative(assetsRoot, item.path),
-        type: item.type === 'DIRECTORY' ? 'directory' : 'file',
-        size: item.size || 0,
-        modified: item.mtime?.$date || item.mtime || null,
-        extension: item.type !== 'DIRECTORY' ? path.extname(item.name).toLowerCase().slice(1) : null,
-      }));
+    async function walk(dir) {
+      let results = [];
+      let entries;
+      try {
+        entries = await fsp.readdir(dir, { withFileTypes: true });
+      } catch {
+        return results; // skip inaccessible directories
+      }
+      for (const entry of entries) {
+        try {
+          const entryPath = path.join(dir, entry.name);
+          const isDir = entry.isDirectory();
 
-    res.json({ query, results: items });
+          if (entry.name.toLowerCase().includes(lowerQuery)) {
+            const stat = await fsp.stat(entryPath);
+            results.push({
+              name: entry.name,
+              path: path.relative(ASSETS_ROOT, entryPath),
+              type: isDir ? 'directory' : 'file',
+              size: stat.size,
+              modified: stat.mtime.toISOString(),
+              extension: isDir ? null : path.extname(entry.name).toLowerCase().slice(1) || null,
+            });
+          }
+
+          if (isDir) {
+            const subResults = await walk(entryPath);
+            results = results.concat(subResults);
+          }
+        } catch {
+          continue; // skip inaccessible entries
+        }
+      }
+      return results;
+    }
+
+    const results = await walk(searchRoot);
+    res.json({ query, results });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

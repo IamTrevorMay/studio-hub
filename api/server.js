@@ -3,11 +3,14 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 
-const videosRouter = require('./routes/videos');
-const driveRouter = require('./routes/drive');
-const discordRouter = require('./routes/discord');
-const kanbanRouter = require('./routes/kanban');
 const nasRouter = require('./routes/nas');
+
+// Optional route modules — load if present
+function tryRequire(mod) { try { return require(mod); } catch { return null; } }
+const videosRouter = tryRequire('./routes/videos');
+const driveRouter = tryRequire('./routes/drive');
+const discordRouter = tryRequire('./routes/discord');
+const kanbanRouter = tryRequire('./routes/kanban');
 
 const app = express();
 const PORT = process.env.PORT || 4400;
@@ -20,10 +23,10 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'mayday-postshow-api', port: PORT });
 });
 
-app.use('/api/videos', videosRouter);
-app.use('/api/drive', driveRouter);
-app.use('/api/discord', discordRouter);
-app.use('/api/kanban', kanbanRouter);
+if (videosRouter) app.use('/api/videos', videosRouter);
+if (driveRouter) app.use('/api/drive', driveRouter);
+if (discordRouter) app.use('/api/discord', discordRouter);
+if (kanbanRouter) app.use('/api/kanban', kanbanRouter);
 app.use('/api/nas', nasRouter);
 
 // Global error handler
