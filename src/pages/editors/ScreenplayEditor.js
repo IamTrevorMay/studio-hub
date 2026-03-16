@@ -646,7 +646,16 @@ export default function ScreenplayEditor({ docId, title, docType, onBack, onSave
                 <React.Fragment key={el.id}>
                   {typeDef.blankBefore && idx > 0 && <div style={s.blankLine} />}
                   <div
-                    ref={node => { blockRefs.current[el.id] = node; }}
+                    ref={node => {
+                      if (node) {
+                        blockRefs.current[el.id] = node;
+                        // Set text only on first mount — never let React overwrite contentEditable
+                        if (!node.dataset.init) {
+                          node.textContent = el.text;
+                          node.dataset.init = '1';
+                        }
+                      }
+                    }}
                     contentEditable
                     suppressContentEditableWarning
                     spellCheck={false}
@@ -670,7 +679,7 @@ export default function ScreenplayEditor({ docId, title, docType, onBack, onSave
                       textAlign: el.type === 'transition' ? 'right' : 'left',
                       ...(focusedIdx === idx ? s.blockFocused : {}),
                     }}
-                  >{el.text}</div>
+                  />
                   {isPageBreak && <div style={s.pageBreak}><span style={s.pageBreakLabel}>page break</span></div>}
                 </React.Fragment>
               );

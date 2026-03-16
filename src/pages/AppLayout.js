@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import useNavConfig from '../hooks/useNavConfig';
+import SidebarEditMode from '../components/SidebarEditMode';
 import Dashboard from './Dashboard';
 import Projects from './Projects';
 import Calendar from './Calendar';
@@ -35,8 +37,26 @@ const NAV_ITEMS = [
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
 ];
 
+const NAV_ICON_MAP = {
+  dashboard: DashboardIcon,
+  projects: ProjectsIcon,
+  ideation: IdeationIcon,
+  resources: ResourcesIcon,
+  assets: AssetsIcon,
+  analytics: AnalyticsIcon,
+  research: ResearchIcon,
+  reviews: ReviewsIcon,
+  calendar: CalendarIcon,
+  showplanning: ShowPlanningIcon,
+  goals: GoalsIcon,
+  tools: ToolsIcon,
+  channels: ChannelsIcon,
+  messages: MessagesIcon,
+};
+
 export default function AppLayout() {
   const { profile, signOut, isAdmin, isAssistant, unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, refreshNotifications } = useAuth();
+  const { getResolvedNav, saveConfig, saving } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => localStorage.getItem('studio-hub-tab') || 'dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [navTarget, setNavTarget] = useState(null);
@@ -45,6 +65,21 @@ export default function AppLayout() {
   const [notifications, setNotifications] = useState([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const notifPanelRef = React.useRef(null);
+  const [editMode, setEditMode] = useState(false);
+  const [folderCollapseState, setFolderCollapseState] = useState(() =>
+    JSON.parse(localStorage.getItem('nav-folder-state') || '{}')
+  );
+
+  // Persist folder collapse state
+  useEffect(() => {
+    localStorage.setItem('nav-folder-state', JSON.stringify(folderCollapseState));
+  }, [folderCollapseState]);
+
+  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin);
+
+  function toggleFolder(folderId) {
+    setFolderCollapseState(prev => ({ ...prev, [folderId]: !prev[folderId] }));
+  }
 
   // Persist active tab to localStorage
   useEffect(() => {
@@ -146,29 +181,155 @@ export default function AppLayout() {
 
         {/* Navigation */}
         <nav style={styles.nav}>
-          {NAV_ITEMS.filter(item => !item.adminOnly || isAdmin).map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              onClick={() => handleNavClick(key)}
-              style={{
-                ...styles.navItem,
-                ...(activeTab === key ? styles.navItemActive : {}),
-                justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-                position: 'relative',
+          {editMode && isAdmin && !sidebarCollapsed ? (
+            <SidebarEditMode
+              resolvedNav={resolvedNav}
+              navIconMap={NAV_ICON_MAP}
+              onSave={async (items) => {
+                await saveConfig({ version: 1, items }, profile?.id);
+                setEditMode(false);
               }}
-              title={sidebarCollapsed ? label : undefined}
-            >
-              <Icon active={activeTab === key} />
-              {!sidebarCollapsed && <span>{label}</span>}
-              {key === 'dashboard' && dashboardNotifCount > 0 && (
-                <span style={styles.navBadge}>{dashboardNotifCount}</span>
-              )}
-              {key === 'channels' && unreadMentionChannelIds.length > 0 && (
-                <span style={styles.navBadge}>{unreadMentionChannelIds.length}</span>
-              )}
-            </button>
-          ))}
+              onReset={async () => {
+                await saveConfig({}, profile?.id);
+                setEditMode(false);
+              }}
+              onCancel={() => setEditMode(false)}
+              saving={saving}
+            />
+          ) : (
+            <>
+              {(() => {
+                // Build folder structure for rendering
+                const folders = {};
+                resolvedNav.filter(e => e.type === 'folder').forEach(f => {
+                  folders[f.id] = { ...f, children: [] };
+                });
+                const topLevel = [];
+                resolvedNav.forEach(entry => {
+                  if (entry.type === 'folder') {
+                    topLevel.push({ ...entry, children: folders[entry.id].children });
+                  } else if (entry.folderId && folders[entry.folderId]) {
+                    folders[entry.folderId].children.push(entry);
+                  } else {
+                    topLevel.push(entry);
+                  }
+                });
 
+                return topLevel.map(entry => {
+                  if (entry.type === 'folder') {
+                    // When sidebar collapsed, render children as top-level icons
+                    if (sidebarCollapsed) {
+                      return entry.children.map(child => {
+                        const Icon = NAV_ICON_MAP[child.key];
+                        return (
+                          <button
+                            key={child.key}
+                            onClick={() => handleNavClick(child.key)}
+                            style={{
+                              ...styles.navItem,
+                              ...(activeTab === child.key ? styles.navItemActive : {}),
+                              justifyContent: 'center',
+                              position: 'relative',
+                            }}
+                            title={child.label}
+                          >
+                            {Icon && <Icon active={activeTab === child.key} />}
+                            {child.key === 'dashboard' && dashboardNotifCount > 0 && (
+                              <span style={styles.navBadge}>{dashboardNotifCount}</span>
+                            )}
+                            {child.key === 'channels' && unreadMentionChannelIds.length > 0 && (
+                              <span style={styles.navBadge}>{unreadMentionChannelIds.length}</span>
+                            )}
+                          </button>
+                        );
+                      });
+                    }
+                    const isCollapsed = folderCollapseState[entry.id] ?? entry.collapsed;
+                    return (
+                      <React.Fragment key={entry.id}>
+                        <button
+                          onClick={() => toggleFolder(entry.id)}
+                          style={{
+                            ...styles.navItem,
+                            justifyContent: 'flex-start',
+                            color: 'rgba(255,255,255,0.4)',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.5px',
+                            padding: '6px 12px',
+                            marginTop: '8px',
+                          }}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" style={{
+                            transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+                            transition: 'transform 0.15s',
+                          }}>
+                            <path d="M3 4l3 3 3-3" />
+                          </svg>
+                          <span>{entry.label}</span>
+                          <span style={{ marginLeft: 'auto', fontSize: '11px', opacity: 0.5 }}>{entry.children.length}</span>
+                        </button>
+                        {!isCollapsed && entry.children.map(child => {
+                          const Icon = NAV_ICON_MAP[child.key];
+                          return (
+                            <button
+                              key={child.key}
+                              onClick={() => handleNavClick(child.key)}
+                              style={{
+                                ...styles.navItem,
+                                ...(activeTab === child.key ? styles.navItemActive : {}),
+                                justifyContent: 'flex-start',
+                                paddingLeft: '32px',
+                                position: 'relative',
+                              }}
+                              title={child.label}
+                            >
+                              {Icon && <Icon active={activeTab === child.key} />}
+                              <span>{child.label}</span>
+                              {child.key === 'dashboard' && dashboardNotifCount > 0 && (
+                                <span style={styles.navBadge}>{dashboardNotifCount}</span>
+                              )}
+                              {child.key === 'channels' && unreadMentionChannelIds.length > 0 && (
+                                <span style={styles.navBadge}>{unreadMentionChannelIds.length}</span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </React.Fragment>
+                    );
+                  }
+
+                  // Regular top-level item
+                  const Icon = NAV_ICON_MAP[entry.key];
+                  return (
+                    <button
+                      key={entry.key}
+                      onClick={() => handleNavClick(entry.key)}
+                      style={{
+                        ...styles.navItem,
+                        ...(activeTab === entry.key ? styles.navItemActive : {}),
+                        justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                        position: 'relative',
+                      }}
+                      title={sidebarCollapsed ? entry.label : undefined}
+                    >
+                      {Icon && <Icon active={activeTab === entry.key} />}
+                      {!sidebarCollapsed && <span>{entry.label}</span>}
+                      {entry.key === 'dashboard' && dashboardNotifCount > 0 && (
+                        <span style={styles.navBadge}>{dashboardNotifCount}</span>
+                      )}
+                      {entry.key === 'channels' && unreadMentionChannelIds.length > 0 && (
+                        <span style={styles.navBadge}>{unreadMentionChannelIds.length}</span>
+                      )}
+                    </button>
+                  );
+                });
+              })()}
+            </>
+          )}
+
+          {/* Admin button - always last */}
           {isAdmin && (
             <button
               onClick={() => setActiveTab('admin')}
@@ -182,6 +343,27 @@ export default function AppLayout() {
             >
               <AdminIcon active={activeTab === 'admin'} />
               {!sidebarCollapsed && <span>Admin</span>}
+            </button>
+          )}
+
+          {/* Edit mode toggle - admin only, expanded sidebar only */}
+          {isAdmin && !sidebarCollapsed && !editMode && (
+            <button
+              onClick={() => setEditMode(true)}
+              style={{
+                ...styles.navItem,
+                justifyContent: 'center',
+                color: 'rgba(255,255,255,0.25)',
+                fontSize: '11px',
+                marginTop: '4px',
+                padding: '6px 12px',
+              }}
+              title="Customize navigation"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2">
+                <path d="M10 1.5l2.5 2.5L4.5 12H2v-2.5L10 1.5z" />
+              </svg>
+              <span>Edit nav</span>
             </button>
           )}
         </nav>
