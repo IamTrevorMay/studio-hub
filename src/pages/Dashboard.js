@@ -239,6 +239,16 @@ export default function Dashboard({ onNavigate }) {
         return;
       }
 
+      // Get max position in inbox for ordering
+      const { data: inboxTasks } = await supabase
+        .from('personal_tasks')
+        .select('position')
+        .eq('created_by', profile.id)
+        .eq('status', 'inbox')
+        .order('position', { ascending: false })
+        .limit(1);
+      const nextPos = (inboxTasks?.[0]?.position || 0) + 10;
+
       const { error } = await supabase.from('personal_tasks').insert({
         created_by: profile.id,
         content: `${task.name} — ${task.stageLabel}`,
@@ -246,7 +256,7 @@ export default function Dashboard({ onNavigate }) {
         project_id: task.projectId,
         project_stage: task.stage,
         status: 'inbox',
-        position: Date.now(),
+        position: nextPos,
       });
       if (error) throw error;
       setAddedToBoard(prev => ({ ...prev, [task.id]: 'added' }));
