@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import Whiteboard from './editors/Whiteboard';
@@ -28,6 +28,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
   const [showCreateDoc, setShowCreateDoc] = useState(false);
   const [docForm, setDocForm] = useState({ title: '', type: 'stickyboard', templateId: '' });
   const [templates, setTemplates] = useState([]);
+  const mdUploadRef = useRef(null);
 
   useEffect(() => {
     if (!profile?.id) return;
@@ -142,6 +143,41 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
     fetchDocuments(activeConcept.id);
   }
 
+  async function handleMdUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file || !activeConcept) return;
+    if (mdUploadRef.current) mdUploadRef.current.value = '';
+
+    try {
+      const text = await file.text();
+      const html = text.split('\n').map(line => {
+        if (!line.trim()) return '<p></p>';
+        if (line.startsWith('### ')) return `<h3>${line.slice(4)}</h3>`;
+        if (line.startsWith('## ')) return `<h2>${line.slice(3)}</h2>`;
+        if (line.startsWith('# ')) return `<h1>${line.slice(2)}</h1>`;
+        if (line.startsWith('- ')) return `<li>${line.slice(2)}</li>`;
+        line = line.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        line = line.replace(/\*(.+?)\*/g, '<em>$1</em>');
+        line = line.replace(/`(.+?)`/g, '<code>$1</code>');
+        return `<p>${line}</p>`;
+      }).join('');
+
+      const title = file.name.replace(/\.md$/i, '');
+      const { error } = await supabase.from('concept_documents').insert({
+        concept_id: activeConcept.id,
+        type: 'document',
+        title,
+        content: { html },
+        created_by: profile.id,
+      });
+      if (error) throw error;
+      setShowCreateDoc(false);
+      fetchDocuments(activeConcept.id);
+    } catch (err) {
+      console.error('Error uploading markdown:', err);
+    }
+  }
+
   async function handleDeleteDoc(docId) {
     if (!window.confirm('Delete this document?')) return;
     await supabase.from('concept_documents').delete().eq('id', docId);
@@ -240,7 +276,28 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
                 </select>
               </div>
             )}
-            <button type="submit" style={styles.submitBtn}>Create Document</button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button type="submit" style={{ ...styles.submitBtn, flex: 1 }}>Create Document</button>
+              <button
+                type="button"
+                onClick={() => mdUploadRef.current?.click()}
+                style={{
+                  ...styles.submitBtn,
+                  flex: 0, whiteSpace: 'nowrap',
+                  background: 'rgba(139,92,246,0.15)', color: '#a78bfa',
+                  border: '1px solid rgba(139,92,246,0.25)',
+                }}
+              >
+                Upload .md
+              </button>
+            </div>
+            <input
+              ref={mdUploadRef}
+              type="file"
+              accept=".md,text/markdown"
+              onChange={handleMdUpload}
+              style={{ display: 'none' }}
+            />
           </form>
         )}
 
