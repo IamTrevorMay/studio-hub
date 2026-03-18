@@ -90,6 +90,73 @@ const Indent = Extension.create({
   },
 });
 
+/* ─── Page Constants ────────────────────────────────────────────── */
+
+const PAGE_HEIGHT = 1056; // 11" at 96dpi
+const PAGE_GAP = 16;      // visual gap between pages
+const PAGE_MARGIN = 96;   // 1" margin
+const USABLE = PAGE_HEIGHT - PAGE_MARGIN * 2; // 864px of content per page
+const PAGE_SKIP = PAGE_MARGIN + PAGE_GAP + PAGE_MARGIN; // 208px — bottom margin + gap + top margin
+
+/**
+ * Block-level pagination: walks the editor's top-level DOM nodes,
+ * detects which blocks would cross a page boundary, and adds
+ * margin-top to push them to the next page's content area.
+ * This makes content stop at the footer margin and resume after
+ * the header margin on the next page — like Google Docs.
+ */
+function paginateContent(editorEl) {
+  const blocks = Array.from(editorEl.children);
+  if (!blocks.length) return;
+
+  // 1. Reset any pagination margins from the previous pass
+  for (const b of blocks) {
+    if (b.dataset.pbreak) {
+      b.style.marginTop = '';
+      delete b.dataset.pbreak;
+    }
+  }
+
+  // 2. Force synchronous reflow so measurements are accurate
+  void editorEl.offsetHeight;
+
+  // 3. Measure each block's natural position relative to editor element
+  const editorTop = editorEl.getBoundingClientRect().top;
+  const infos = blocks.map((el, i, arr) => {
+    const rect = el.getBoundingClientRect();
+    const top = rect.top - editorTop;
+    const height = rect.height;
+    // Space this block occupies = distance from this block's top to the next block's top
+    const space = (i < arr.length - 1)
+      ? (arr[i + 1].getBoundingClientRect().top - editorTop) - top
+      : height;
+    return { el, top, height, space };
+  });
+
+  // 4. Forward pass — accumulate content used on current page
+  let usedOnPage = 0;
+
+  for (const info of infos) {
+    // Would this block cross the page boundary?
+    if (usedOnPage > 0 && usedOnPage + info.height > USABLE) {
+      // Push it to the next page's content area
+      const remaining = USABLE - usedOnPage;
+      const extraMargin = remaining + PAGE_SKIP;
+      const currentMt = parseFloat(getComputedStyle(info.el).marginTop) || 0;
+      info.el.style.marginTop = `${currentMt + extraMargin}px`;
+      info.el.dataset.pbreak = '1';
+      usedOnPage = info.space;
+    } else {
+      usedOnPage += info.space;
+    }
+
+    // Handle blocks taller than one page (e.g. long lists, big images)
+    while (usedOnPage > USABLE) {
+      usedOnPage -= USABLE;
+    }
+  }
+}
+
 /* ─── Color Picker Popover ──────────────────────────────────────── */
 
 const PRESET_COLORS = [
@@ -280,18 +347,28 @@ export default function DocEditor({ docId, title, docType, onBack, onSaveTemplat
     };
   }, [editor, loaded, save]);
 
-  // Page dimensions
-  const PAGE_HEIGHT = 1056; // 11" at 96dpi
-  const PAGE_GAP = 16;     // visual gap between pages
+  // Pagination: push blocks to next page when they cross a page boundary
+  useEffect(() => {
+    if (!editor || !loaded) return;
+    const run = () => {
+      requestAnimationFrame(() => {
+        if (editor.view && editor.view.dom) paginateContent(editor.view.dom);
+      });
+    };
+    run(); // initial pagination after content loads
+    editor.on('update', run);
+    return () => editor.off('update', run);
+  }, [editor, loaded]);
 
-  // Page counting via ResizeObserver on the editor DOM element
+  // Page counting via ResizeObserver — runs AFTER pagination adjusts margins
   useEffect(() => {
     if (!editor) return;
     const editorEl = editor.view.dom;
     const obs = new ResizeObserver(() => {
       const contentH = editorEl.scrollHeight;
-      const totalH = contentH + 192; // add padding (96 top + 96 bottom)
-      setPageCount(Math.max(1, Math.ceil(totalH / PAGE_HEIGHT)));
+      const totalH = contentH + PAGE_MARGIN * 2; // add wrapper padding
+      const pages = Math.max(1, Math.ceil((totalH + PAGE_GAP) / (PAGE_HEIGHT + PAGE_GAP)));
+      setPageCount(pages);
     });
     obs.observe(editorEl);
     contentObserverRef.current = obs;
@@ -756,6 +833,7 @@ export default function DocEditor({ docId, title, docType, onBack, onSaveTemplat
           outline: none;
           min-height: 864px;
           caret-color: #000;
+          position: relative;
         }
         .doc-editor-content h1 { font-size: 24pt; font-weight: 400; margin: 20px 0 8px; color: #000; }
         .doc-editor-content h2 { font-size: 18pt; font-weight: 400; margin: 18px 0 6px; color: #000; }
