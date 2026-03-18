@@ -1,14 +1,22 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
 import TextAlign from '@tiptap/extension-text-align';
 import Placeholder from '@tiptap/extension-placeholder';
-import { Mark, mergeAttributes } from '@tiptap/core';
+import { TextStyleKit } from '@tiptap/extension-text-style';
+import { Highlight } from '@tiptap/extension-highlight';
+import { Image } from '@tiptap/extension-image';
+import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table';
+import { Subscript } from '@tiptap/extension-subscript';
+import { Superscript } from '@tiptap/extension-superscript';
+import { Link } from '@tiptap/extension-link';
+import { Mark, mergeAttributes, Extension } from '@tiptap/core';
 import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
 
-// Custom Comment Mark extension
+/* ─── Custom Extensions ─────────────────────────────────────────── */
+
 const CommentMark = Mark.create({
   name: 'comment',
   addAttributes() {
@@ -33,6 +41,125 @@ const CommentMark = Mark.create({
   },
 });
 
+// Indent — manages margin-left in 40px increments for paragraphs
+const Indent = Extension.create({
+  name: 'indent',
+  addGlobalAttributes() {
+    return [{
+      types: ['paragraph', 'heading'],
+      attributes: {
+        indent: {
+          default: 0,
+          parseHTML: el => {
+            const ml = parseInt(el.style.marginLeft, 10);
+            return ml ? Math.round(ml / 40) : 0;
+          },
+          renderHTML: attrs => {
+            if (!attrs.indent || attrs.indent <= 0) return {};
+            return { style: `margin-left: ${attrs.indent * 40}px` };
+          },
+        },
+      },
+    }];
+  },
+  addCommands() {
+    return {
+      indent: () => ({ tr, state, dispatch }) => {
+        const { from, to } = state.selection;
+        state.doc.nodesBetween(from, to, (node, pos) => {
+          if (node.type.name === 'paragraph' || node.type.name === 'heading') {
+            const cur = node.attrs.indent || 0;
+            tr.setNodeMarkup(pos, undefined, { ...node.attrs, indent: Math.min(cur + 1, 10) });
+          }
+        });
+        if (dispatch) dispatch(tr);
+        return true;
+      },
+      outdent: () => ({ tr, state, dispatch }) => {
+        const { from, to } = state.selection;
+        state.doc.nodesBetween(from, to, (node, pos) => {
+          if (node.type.name === 'paragraph' || node.type.name === 'heading') {
+            const cur = node.attrs.indent || 0;
+            tr.setNodeMarkup(pos, undefined, { ...node.attrs, indent: Math.max(cur - 1, 0) });
+          }
+        });
+        if (dispatch) dispatch(tr);
+        return true;
+      },
+    };
+  },
+});
+
+/* ─── Color Picker Popover ──────────────────────────────────────── */
+
+const PRESET_COLORS = [
+  '#000000', '#434343', '#666666', '#999999', '#b7b7b7', '#cccccc', '#d9d9d9', '#efefef', '#f3f3f3', '#ffffff',
+  '#980000', '#ff0000', '#ff9900', '#ffff00', '#00ff00', '#00ffff', '#4a86e8', '#0000ff', '#9900ff', '#ff00ff',
+];
+
+function ColorPickerPopover({ onSelect, onClose, currentColor }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  return (
+    <div ref={ref} style={popStyles.colorPopover}>
+      <div style={popStyles.colorGrid}>
+        {PRESET_COLORS.map(c => (
+          <button key={c} onClick={() => { onSelect(c); onClose(); }} style={{
+            ...popStyles.colorSwatch,
+            background: c,
+            border: c === '#ffffff' ? '1px solid #dadce0' : c === currentColor ? '2px solid #1a73e8' : '1px solid transparent',
+          }} />
+        ))}
+      </div>
+      <div style={popStyles.customRow}>
+        <span style={popStyles.customLabel}>Custom:</span>
+        <input type="color" value={currentColor || '#000000'} onChange={(e) => { onSelect(e.target.value); onClose(); }} style={popStyles.customInput} />
+      </div>
+    </div>
+  );
+}
+
+/* ─── Table Insert Grid ─────────────────────────────────────────── */
+
+function TableInsertGrid({ onInsert, onClose }) {
+  const [hover, setHover] = useState({ r: 0, c: 0 });
+  const ref = useRef(null);
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  return (
+    <div ref={ref} style={popStyles.tablePopover}>
+      <div style={popStyles.tableLabel}>{hover.r}x{hover.c} table</div>
+      <div style={popStyles.tableGrid}>
+        {Array.from({ length: 8 }, (_, r) => (
+          <div key={r} style={{ display: 'flex' }}>
+            {Array.from({ length: 8 }, (_, c) => (
+              <div key={c}
+                onMouseEnter={() => setHover({ r: r + 1, c: c + 1 })}
+                onClick={() => { onInsert(hover.r, hover.c); onClose(); }}
+                style={{
+                  width: 20, height: 20, border: '1px solid #dadce0', margin: 1, cursor: 'pointer',
+                  background: (r < hover.r && c < hover.c) ? 'rgba(26,115,232,0.3)' : '#fff',
+                }}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Main DocEditor ────────────────────────────────────────────── */
+
 export default function DocEditor({ docId, title, docType, onBack, onSaveTemplate }) {
   const { profile } = useAuth();
   const [saving, setSaving] = useState(false);
@@ -41,22 +168,50 @@ export default function DocEditor({ docId, title, docType, onBack, onSaveTemplat
   const [commentText, setCommentText] = useState('');
   const [hoveredComment, setHoveredComment] = useState(null);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(100);
+  const [pageCount, setPageCount] = useState(1);
+  const [wordCount, setWordCount] = useState(0);
+  const [charCount, setCharCount] = useState(0);
+  const [showTextColor, setShowTextColor] = useState(false);
+  const [showHighlightColor, setShowHighlightColor] = useState(false);
+  const [showTableGrid, setShowTableGrid] = useState(false);
   const commentInputRef = useRef(null);
   const editorWrapRef = useRef(null);
+  const pageRef = useRef(null);
+  const contentObserverRef = useRef(null);
+
+  const TABLE_MAP = { resource_documents: 'resource_documents', show_documents: 'show_documents' };
+  const tableName = TABLE_MAP[docType] || 'concept_documents';
 
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
       Underline,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       Placeholder.configure({ placeholder: 'Start writing...' }),
+      TextStyleKit.configure({
+        textStyle: true,
+        color: true,
+        fontFamily: true,
+        fontSize: true,
+        lineHeight: true,
+      }),
+      Highlight.configure({ multicolor: true }),
+      Image.configure({ inline: false, allowBase64: true }),
+      Table.configure({ resizable: true }),
+      TableRow,
+      TableCell,
+      TableHeader,
+      Subscript,
+      Superscript,
+      Link.configure({ openOnClick: false }),
       CommentMark,
+      Indent,
     ],
     content: '',
     editorProps: {
       attributes: {
         class: 'doc-editor-content',
-        style: 'outline: none; min-height: 100%; padding: 40px 60px; font-size: 15px; line-height: 1.7; color: rgba(255,255,255,0.85);',
       },
       handleDOMEvents: {
         mouseover: (view, event) => {
@@ -81,25 +236,27 @@ export default function DocEditor({ docId, title, docType, onBack, onSaveTemplat
         },
       },
     },
+    onUpdate: ({ editor: ed }) => {
+      const text = ed.state.doc.textContent;
+      const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+      setWordCount(words);
+      setCharCount(text.length);
+    },
   });
 
+  // Load document
   useEffect(() => {
     if (!editor) return;
-    loadDoc();
-  }, [docId, editor]);
+    (async () => {
+      const { data } = await supabase.from(tableName).select('content').eq('id', docId).single();
+      if (data?.content?.html && editor) {
+        editor.commands.setContent(data.content.html);
+      }
+      setLoaded(true);
+    })();
+  }, [docId, editor, tableName]);
 
-  const TABLE_MAP = { resource_documents: 'resource_documents', show_documents: 'show_documents' };
-  const tableName = TABLE_MAP[docType] || 'concept_documents';
-
-  async function loadDoc() {
-    const { data } = await supabase.from(tableName)
-      .select('content').eq('id', docId).single();
-    if (data?.content?.html && editor) {
-      editor.commands.setContent(data.content.html);
-    }
-    setLoaded(true);
-  }
-
+  // Auto-save (2s debounce)
   const save = useCallback(async () => {
     if (!editor) return;
     setSaving(true);
@@ -123,13 +280,25 @@ export default function DocEditor({ docId, title, docType, onBack, onSaveTemplat
     };
   }, [editor, loaded, save]);
 
+  // Page counting via ResizeObserver
+  useEffect(() => {
+    if (!pageRef.current) return;
+    const el = pageRef.current;
+    const obs = new ResizeObserver(() => {
+      const ch = el.scrollHeight;
+      const usable = 864; // 1056 - 96*2 = usable content area
+      setPageCount(Math.max(1, Math.ceil(ch / usable)));
+    });
+    obs.observe(el);
+    contentObserverRef.current = obs;
+    return () => obs.disconnect();
+  }, [editor]);
+
+  // Comments
   function handleAddComment() {
     if (!editor) return;
     const { from, to } = editor.state.selection;
-    if (from === to) {
-      alert('Select some text first to add a comment.');
-      return;
-    }
+    if (from === to) { alert('Select some text first to add a comment.'); return; }
     setShowCommentInput(true);
     setCommentText('');
     setTimeout(() => commentInputRef.current?.focus(), 50);
@@ -139,16 +308,12 @@ export default function DocEditor({ docId, title, docType, onBack, onSaveTemplat
     if (!editor || !commentText.trim()) return;
     const { from, to } = editor.state.selection;
     if (from === to) return;
-
-    editor.chain().focus()
-      .setMark('comment', {
-        commentId: Date.now().toString(),
-        author: profile?.full_name || 'Unknown',
-        text: commentText.trim(),
-        createdAt: new Date().toISOString(),
-      })
-      .run();
-
+    editor.chain().focus().setMark('comment', {
+      commentId: Date.now().toString(),
+      author: profile?.full_name || 'Unknown',
+      text: commentText.trim(),
+      createdAt: new Date().toISOString(),
+    }).run();
     setCommentText('');
     setShowCommentInput(false);
   }
@@ -166,20 +331,57 @@ export default function DocEditor({ docId, title, docType, onBack, onSaveTemplat
         }
       });
     });
-    if (found) {
-      editor.view.dispatch(tr);
-      setHoveredComment(null);
-    }
+    if (found) { editor.view.dispatch(tr); setHoveredComment(null); }
   }
 
+  // Image upload
+  async function handleImageUpload() {
+    if (!editor) return;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const ext = file.name.split('.').pop();
+      const filePath = `${docId}/${Date.now()}.${ext}`;
+      const { error } = await supabase.storage.from('doc-images').upload(filePath, file);
+      if (error) { alert('Image upload failed.'); return; }
+      const { data } = supabase.storage.from('doc-images').getPublicUrl(filePath);
+      if (data?.publicUrl) {
+        editor.chain().focus().setImage({ src: data.publicUrl }).run();
+      }
+    };
+    input.click();
+  }
+
+  // Link
+  function handleInsertLink() {
+    if (!editor) return;
+    const prev = editor.getAttributes('link').href;
+    const url = prompt('Enter URL:', prev || 'https://');
+    if (url === null) return;
+    if (url === '') { editor.chain().focus().extendMarkRange('link').unsetLink().run(); return; }
+    editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+  }
+
+  // DOCX Export
   async function handleExportDocx() {
     if (!editor) return;
     try {
-      const { Document, Packer, Paragraph, TextRun, HeadingLevel } = await import('docx');
+      const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, TableRow: DocxRow, TableCell: DocxCell, Table: DocxTable, WidthType, BorderStyle } = await import('docx');
       const html = editor.getHTML();
       const parser = new DOMParser();
-      const doc = parser.parseFromString(html, 'text/html');
+      const parsed = parser.parseFromString(html, 'text/html');
       const children = [];
+
+      function getAlign(el) {
+        const ta = el.style?.textAlign;
+        if (ta === 'center') return AlignmentType.CENTER;
+        if (ta === 'right') return AlignmentType.RIGHT;
+        if (ta === 'justify') return AlignmentType.JUSTIFIED;
+        return undefined;
+      }
 
       function processNode(node) {
         if (node.nodeType === Node.TEXT_NODE) {
@@ -195,38 +397,90 @@ export default function DocEditor({ docId, title, docType, onBack, onSaveTemplat
             if (tag === 'em' || tag === 'i') run.italics = true;
             if (tag === 'u') run.underline = {};
             if (tag === 's') run.strike = true;
+            if (tag === 'sub') run.subScript = true;
+            if (tag === 'sup') run.superScript = true;
+            // Inline color
+            const color = node.style?.color;
+            if (color && tag === 'span') {
+              try {
+                const temp = document.createElement('div');
+                temp.style.color = color;
+                document.body.appendChild(temp);
+                const computed = getComputedStyle(temp).color;
+                document.body.removeChild(temp);
+                const match = computed.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+                if (match) {
+                  const hex = [match[1], match[2], match[3]].map(n => parseInt(n).toString(16).padStart(2, '0')).join('');
+                  run.color = hex;
+                }
+              } catch (e) { /* skip */ }
+            }
+            // Font family
+            const ff = node.style?.fontFamily;
+            if (ff && tag === 'span') run.font = { name: ff.replace(/['"]/g, '').split(',')[0].trim() };
+            // Font size
+            const fs = node.style?.fontSize;
+            if (fs && tag === 'span') {
+              const pt = parseFloat(fs);
+              if (pt) run.size = pt * 2; // docx uses half-points
+            }
           });
           runs.push(...childRuns);
         }
         return runs;
       }
 
-      for (const child of doc.body.childNodes) {
+      function processTopLevel(child) {
         if (child.nodeType === Node.TEXT_NODE && child.textContent.trim()) {
           children.push(new Paragraph({ children: [new TextRun(child.textContent)] }));
-          continue;
+          return;
         }
-        if (child.nodeType !== Node.ELEMENT_NODE) continue;
+        if (child.nodeType !== Node.ELEMENT_NODE) return;
         const tag = child.tagName.toLowerCase();
         const runs = processNode(child);
-        if (tag === 'h1') children.push(new Paragraph({ children: runs, heading: HeadingLevel.HEADING_1 }));
-        else if (tag === 'h2') children.push(new Paragraph({ children: runs, heading: HeadingLevel.HEADING_2 }));
-        else if (tag === 'h3') children.push(new Paragraph({ children: runs, heading: HeadingLevel.HEADING_3 }));
+        const alignment = getAlign(child);
+        if (tag === 'h1') children.push(new Paragraph({ children: runs, heading: HeadingLevel.HEADING_1, alignment }));
+        else if (tag === 'h2') children.push(new Paragraph({ children: runs, heading: HeadingLevel.HEADING_2, alignment }));
+        else if (tag === 'h3') children.push(new Paragraph({ children: runs, heading: HeadingLevel.HEADING_3, alignment }));
         else if (tag === 'ul' || tag === 'ol') {
           for (const li of child.querySelectorAll('li')) {
-            const liRuns = processNode(li);
             children.push(new Paragraph({
-              children: liRuns,
+              children: processNode(li),
               bullet: tag === 'ul' ? { level: 0 } : undefined,
               numbering: tag === 'ol' ? { reference: 'default-numbering', level: 0 } : undefined,
+            }));
+          }
+        } else if (tag === 'table') {
+          const rows = [];
+          for (const tr of child.querySelectorAll('tr')) {
+            const cells = [];
+            for (const td of tr.querySelectorAll('td, th')) {
+              cells.push(new DocxCell({ children: [new Paragraph({ children: processNode(td) })] }));
+            }
+            if (cells.length) rows.push(new DocxRow({ children: cells }));
+          }
+          if (rows.length) {
+            children.push(new DocxTable({
+              rows,
+              width: { size: 100, type: WidthType.PERCENTAGE },
+              borders: {
+                top: { style: BorderStyle.SINGLE, size: 1, color: 'dadce0' },
+                bottom: { style: BorderStyle.SINGLE, size: 1, color: 'dadce0' },
+                left: { style: BorderStyle.SINGLE, size: 1, color: 'dadce0' },
+                right: { style: BorderStyle.SINGLE, size: 1, color: 'dadce0' },
+                insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: 'dadce0' },
+                insideVertical: { style: BorderStyle.SINGLE, size: 1, color: 'dadce0' },
+              },
             }));
           }
         } else if (tag === 'blockquote') {
           children.push(new Paragraph({ children: processNode(child), indent: { left: 720 } }));
         } else {
-          children.push(runs.length > 0 ? new Paragraph({ children: runs }) : new Paragraph({}));
+          children.push(runs.length > 0 ? new Paragraph({ children: runs, alignment }) : new Paragraph({}));
         }
       }
+
+      for (const child of parsed.body.childNodes) processTopLevel(child);
 
       const docx = new Document({ sections: [{ children }] });
       const blob = await Packer.toBlob(docx);
@@ -242,63 +496,187 @@ export default function DocEditor({ docId, title, docType, onBack, onSaveTemplat
     }
   }
 
+  // Zoom
+  const zoomIn = () => setZoom(z => Math.min(z + 10, 200));
+  const zoomOut = () => setZoom(z => Math.max(z - 10, 50));
+
+  // Current font attrs for toolbar display
+  const currentFontFamily = editor?.getAttributes('textStyle')?.fontFamily || 'Arial';
+  const currentFontSize = editor?.getAttributes('textStyle')?.fontSize || '11pt';
+  const currentTextColor = editor?.getAttributes('textStyle')?.color || '#000000';
+
+  // Page break overlays
+  const pageBreaks = useMemo(() => {
+    const breaks = [];
+    for (let i = 1; i < pageCount; i++) {
+      breaks.push(i * 864 + 96); // offset by top padding
+    }
+    return breaks;
+  }, [pageCount]);
+
   if (!editor) return null;
 
   return (
     <div style={styles.page}>
-      {/* Toolbar */}
-      <div style={styles.toolbar}>
+      {/* Row 1: Action Bar */}
+      <div style={styles.actionBar}>
         <button onClick={onBack} style={styles.backBtn}>← Back</button>
         <span style={styles.titleText}>{title}</span>
-
-        <div style={styles.toolGroup}>
-          <ToolBtn active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()} label="B" style={{ fontWeight: 700 }} />
-          <ToolBtn active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()} label="I" style={{ fontStyle: 'italic' }} />
-          <ToolBtn active={editor.isActive('underline')} onClick={() => editor.chain().focus().toggleUnderline().run()} label="U" style={{ textDecoration: 'underline' }} />
-          <ToolBtn active={editor.isActive('strike')} onClick={() => editor.chain().focus().toggleStrike().run()} label="S" style={{ textDecoration: 'line-through' }} />
-        </div>
-
-        <div style={styles.toolGroup}>
-          <ToolBtn active={editor.isActive('heading', { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} label="H1" />
-          <ToolBtn active={editor.isActive('heading', { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} label="H2" />
-          <ToolBtn active={editor.isActive('heading', { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} label="H3" />
-        </div>
-
-        <div style={styles.toolGroup}>
-          <ToolBtn active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()} label="•" />
-          <ToolBtn active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()} label="1." />
-          <ToolBtn active={editor.isActive('blockquote')} onClick={() => editor.chain().focus().toggleBlockquote().run()} label="❝" />
-        </div>
-
-        <div style={styles.toolGroup}>
-          <ToolBtn onClick={() => editor.chain().focus().setTextAlign('left').run()} active={editor.isActive({ textAlign: 'left' })} label="⫷" />
-          <ToolBtn onClick={() => editor.chain().focus().setTextAlign('center').run()} active={editor.isActive({ textAlign: 'center' })} label="≡" />
-          <ToolBtn onClick={() => editor.chain().focus().setTextAlign('right').run()} active={editor.isActive({ textAlign: 'right' })} label="⫸" />
-        </div>
-
-        <div style={styles.toolGroup}>
-          <ToolBtn onClick={() => editor.chain().focus().undo().run()} label="↩" />
-          <ToolBtn onClick={() => editor.chain().focus().redo().run()} label="↪" />
-        </div>
-
-        <div style={styles.toolGroup}>
-          <button onClick={handleAddComment} style={styles.commentBtn}>💬 Comment</button>
-        </div>
-
-        <button onClick={handleExportDocx} style={styles.exportBtn}>📄 Export .docx</button>
-        <button onClick={save} style={styles.saveBtn}>
-          {saving ? 'Saving...' : '💾 Save'}
-        </button>
+        <div style={{ flex: 1 }} />
+        <button onClick={handleAddComment} style={styles.commentBtn}>Comment</button>
+        <button onClick={handleExportDocx} style={styles.exportBtn}>Export .docx</button>
+        <button onClick={save} style={styles.saveBtn}>{saving ? 'Saving...' : 'Save'}</button>
         <button onClick={() => {
           const name = prompt('Template name:');
           if (name && editor) onSaveTemplate(name, 'document', { html: editor.getHTML() });
-        }} style={styles.templateBtn}>📋 Save as Template</button>
+        }} style={styles.templateBtn}>Save as Template</button>
+      </div>
+
+      {/* Row 2: Formatting Bar */}
+      <div style={styles.formatBar}>
+        {/* Undo/Redo */}
+        <div style={styles.fGroup}>
+          <FmtBtn onClick={() => editor.chain().focus().undo().run()} title="Undo" label="↩" />
+          <FmtBtn onClick={() => editor.chain().focus().redo().run()} title="Redo" label="↪" />
+        </div>
+
+        <div style={styles.fSep} />
+
+        {/* Font Family */}
+        <select value={currentFontFamily} onChange={(e) => editor.chain().focus().setFontFamily(e.target.value).run()} style={styles.selectDropdown} title="Font">
+          {['Arial', 'Times New Roman', 'Georgia', 'Courier New', 'Verdana', 'Garamond'].map(f => (
+            <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>
+          ))}
+        </select>
+
+        <div style={styles.fSep} />
+
+        {/* Font Size */}
+        <select value={currentFontSize.replace('pt', '')} onChange={(e) => editor.chain().focus().setFontSize(`${e.target.value}pt`).run()} style={{ ...styles.selectDropdown, width: 56 }} title="Font size">
+          {[8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72].map(s => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </select>
+
+        <div style={styles.fSep} />
+
+        {/* Inline: B I U S */}
+        <div style={styles.fGroup}>
+          <FmtBtn active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()} label="B" title="Bold" extraStyle={{ fontWeight: 700 }} />
+          <FmtBtn active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()} label="I" title="Italic" extraStyle={{ fontStyle: 'italic' }} />
+          <FmtBtn active={editor.isActive('underline')} onClick={() => editor.chain().focus().toggleUnderline().run()} label="U" title="Underline" extraStyle={{ textDecoration: 'underline' }} />
+          <FmtBtn active={editor.isActive('strike')} onClick={() => editor.chain().focus().toggleStrike().run()} label="S" title="Strikethrough" extraStyle={{ textDecoration: 'line-through' }} />
+        </div>
+
+        <div style={styles.fSep} />
+
+        {/* Text Color */}
+        <div style={{ position: 'relative' }}>
+          <FmtBtn onClick={() => { setShowTextColor(!showTextColor); setShowHighlightColor(false); setShowTableGrid(false); }}
+            title="Text color"
+            label={<span style={{ borderBottom: `3px solid ${currentTextColor}`, paddingBottom: 1 }}>A</span>}
+          />
+          {showTextColor && (
+            <ColorPickerPopover currentColor={currentTextColor} onSelect={(c) => editor.chain().focus().setColor(c).run()} onClose={() => setShowTextColor(false)} />
+          )}
+        </div>
+
+        {/* Highlight */}
+        <div style={{ position: 'relative' }}>
+          <FmtBtn onClick={() => { setShowHighlightColor(!showHighlightColor); setShowTextColor(false); setShowTableGrid(false); }}
+            title="Highlight color"
+            label={<span style={{ background: '#fef08a', padding: '0 3px', borderRadius: 2, color: '#000', fontSize: 11, fontWeight: 700 }}>ab</span>}
+          />
+          {showHighlightColor && (
+            <ColorPickerPopover currentColor="#fef08a" onSelect={(c) => editor.chain().focus().toggleHighlight({ color: c }).run()} onClose={() => setShowHighlightColor(false)} />
+          )}
+        </div>
+
+        <div style={styles.fSep} />
+
+        {/* Link */}
+        <FmtBtn onClick={handleInsertLink} active={editor.isActive('link')} title="Insert link" label="🔗" />
+
+        {/* Image */}
+        <FmtBtn onClick={handleImageUpload} title="Insert image" label="🖼" />
+
+        <div style={styles.fSep} />
+
+        {/* Alignment */}
+        <div style={styles.fGroup}>
+          <FmtBtn active={editor.isActive({ textAlign: 'left' })} onClick={() => editor.chain().focus().setTextAlign('left').run()} title="Left" label="⫷" />
+          <FmtBtn active={editor.isActive({ textAlign: 'center' })} onClick={() => editor.chain().focus().setTextAlign('center').run()} title="Center" label="≡" />
+          <FmtBtn active={editor.isActive({ textAlign: 'right' })} onClick={() => editor.chain().focus().setTextAlign('right').run()} title="Right" label="⫸" />
+          <FmtBtn active={editor.isActive({ textAlign: 'justify' })} onClick={() => editor.chain().focus().setTextAlign('justify').run()} title="Justify" label="☰" />
+        </div>
+
+        <div style={styles.fSep} />
+
+        {/* Line Spacing */}
+        <select value="1.15" onChange={(e) => editor.chain().focus().setLineHeight(e.target.value).run()} style={{ ...styles.selectDropdown, width: 56 }} title="Line spacing">
+          {[['1.0', '1'], ['1.15', '1.15'], ['1.5', '1.5'], ['2.0', '2']].map(([label, val]) => (
+            <option key={val} value={val}>{label}</option>
+          ))}
+        </select>
+
+        <div style={styles.fSep} />
+
+        {/* Lists */}
+        <div style={styles.fGroup}>
+          <FmtBtn active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()} title="Bullet list" label="•" />
+          <FmtBtn active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()} title="Numbered list" label="1." />
+        </div>
+
+        <div style={styles.fSep} />
+
+        {/* Indent */}
+        <div style={styles.fGroup}>
+          <FmtBtn onClick={() => {
+            if (editor.isActive('listItem')) editor.chain().focus().sinkListItem('listItem').run();
+            else editor.chain().focus().indent().run();
+          }} title="Increase indent" label="→" />
+          <FmtBtn onClick={() => {
+            if (editor.isActive('listItem')) editor.chain().focus().liftListItem('listItem').run();
+            else editor.chain().focus().outdent().run();
+          }} title="Decrease indent" label="←" />
+        </div>
+
+        <div style={styles.fSep} />
+
+        {/* Table */}
+        <div style={{ position: 'relative' }}>
+          <FmtBtn onClick={() => { setShowTableGrid(!showTableGrid); setShowTextColor(false); setShowHighlightColor(false); }}
+            title="Insert table" label="⊞"
+          />
+          {showTableGrid && (
+            <TableInsertGrid onInsert={(rows, cols) => editor.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run()} onClose={() => setShowTableGrid(false)} />
+          )}
+        </div>
+
+        <div style={styles.fSep} />
+
+        {/* Headings */}
+        <div style={styles.fGroup}>
+          <FmtBtn active={editor.isActive('heading', { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} label="H1" title="Heading 1" extraStyle={{ fontSize: 11, fontWeight: 700 }} />
+          <FmtBtn active={editor.isActive('heading', { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} label="H2" title="Heading 2" extraStyle={{ fontSize: 11, fontWeight: 700 }} />
+          <FmtBtn active={editor.isActive('heading', { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} label="H3" title="Heading 3" extraStyle={{ fontSize: 11, fontWeight: 700 }} />
+        </div>
+
+        <div style={styles.fSep} />
+
+        {/* Misc */}
+        <div style={styles.fGroup}>
+          <FmtBtn onClick={() => editor.chain().focus().setHorizontalRule().run()} title="Horizontal rule" label="—" />
+          <FmtBtn active={editor.isActive('subscript')} onClick={() => editor.chain().focus().toggleSubscript().run()} title="Subscript" label="X₂" extraStyle={{ fontSize: 10 }} />
+          <FmtBtn active={editor.isActive('superscript')} onClick={() => editor.chain().focus().toggleSuperscript().run()} title="Superscript" label="X²" extraStyle={{ fontSize: 10 }} />
+          <FmtBtn onClick={() => editor.chain().focus().unsetAllMarks().clearNodes().run()} title="Clear formatting" label="T̸" />
+        </div>
       </div>
 
       {/* Comment Input Popup */}
       {showCommentInput && (
         <div style={styles.commentInputBar}>
-          <span style={styles.commentInputLabel}>💬 Add comment on selected text:</span>
+          <span style={styles.commentInputLabel}>Add comment on selected text:</span>
           <input
             ref={commentInputRef}
             value={commentText}
@@ -312,93 +690,236 @@ export default function DocEditor({ docId, title, docType, onBack, onSaveTemplat
         </div>
       )}
 
-      {/* Editor */}
-      <div ref={editorWrapRef} style={styles.editorWrap}>
-        <div style={styles.editorPage}>
-          <EditorContent editor={editor} />
-        </div>
+      {/* Canvas + Page */}
+      <div ref={editorWrapRef} style={styles.canvas}>
+        <div style={{ ...styles.pageContainer, transform: `scale(${zoom / 100})`, transformOrigin: 'top center' }}>
+          <div ref={pageRef} style={styles.docPage}>
+            <EditorContent editor={editor} />
 
-        {/* Comment Tooltip */}
-        {hoveredComment && (
-          <div style={{
-            ...styles.commentTooltip,
-            left: `${tooltipPos.x}px`,
-            top: `${tooltipPos.y}px`,
-          }}>
-            <div style={styles.tooltipHeader}>
-              <span style={styles.tooltipAuthor}>{hoveredComment.author}</span>
-              <span style={styles.tooltipTime}>
-                {hoveredComment.createdAt ? new Date(hoveredComment.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}
-              </span>
-            </div>
-            <p style={styles.tooltipText}>{hoveredComment.text}</p>
-            <button onClick={removeComment} style={styles.tooltipRemoveBtn}>Remove comment</button>
+            {/* Page break overlays */}
+            {pageBreaks.map((top, i) => (
+              <div key={i} style={{
+                position: 'absolute', left: 0, right: 0, top: top,
+                height: 8, background: '#2a2a3e',
+                borderTop: '1px solid #dadce0', borderBottom: '1px solid #dadce0',
+                pointerEvents: 'none', zIndex: 10,
+              }} />
+            ))}
           </div>
-        )}
+
+          {/* Comment Tooltip */}
+          {hoveredComment && (
+            <div style={{
+              ...styles.commentTooltip,
+              left: `${tooltipPos.x}px`,
+              top: `${tooltipPos.y}px`,
+            }}>
+              <div style={styles.tooltipHeader}>
+                <span style={styles.tooltipAuthor}>{hoveredComment.author}</span>
+                <span style={styles.tooltipTime}>
+                  {hoveredComment.createdAt ? new Date(hoveredComment.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}
+                </span>
+              </div>
+              <p style={styles.tooltipText}>{hoveredComment.text}</p>
+              <button onClick={removeComment} style={styles.tooltipRemoveBtn}>Remove comment</button>
+            </div>
+          )}
+        </div>
       </div>
 
+      {/* Status Bar */}
+      <div style={styles.statusBar}>
+        <span style={styles.statusText}>{wordCount} words &middot; {charCount} characters</span>
+        <span style={styles.statusText}>Page {Math.min(pageCount, pageCount)} of {pageCount}</span>
+        <div style={{ flex: 1 }} />
+        <button onClick={zoomOut} style={styles.zoomBtn}>−</button>
+        <span style={styles.statusText}>{zoom}%</span>
+        <button onClick={zoomIn} style={styles.zoomBtn}>+</button>
+      </div>
+
+      {/* Editor styles */}
       <style>{`
         .doc-editor-content {
-          font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+          font-family: Arial, sans-serif;
+          font-size: 11pt;
+          line-height: 1.15;
+          color: #000;
+          outline: none;
+          min-height: 864px;
+          caret-color: #000;
         }
-        .doc-editor-content h1 { font-size: 28px; font-weight: 700; margin: 24px 0 12px; color: #fff; }
-        .doc-editor-content h2 { font-size: 22px; font-weight: 600; margin: 20px 0 10px; color: #fff; }
-        .doc-editor-content h3 { font-size: 18px; font-weight: 600; margin: 16px 0 8px; color: #e2e8f0; }
-        .doc-editor-content p { margin: 0 0 8px; }
-        .doc-editor-content ul, .doc-editor-content ol { padding-left: 24px; margin: 8px 0; }
-        .doc-editor-content li { margin: 4px 0; }
+        .doc-editor-content h1 { font-size: 24pt; font-weight: 400; margin: 20px 0 8px; color: #000; }
+        .doc-editor-content h2 { font-size: 18pt; font-weight: 400; margin: 18px 0 6px; color: #000; }
+        .doc-editor-content h3 { font-size: 14pt; font-weight: 700; margin: 14px 0 4px; color: #434343; }
+        .doc-editor-content p { margin: 0 0 4px; }
+        .doc-editor-content ul, .doc-editor-content ol { padding-left: 28px; margin: 4px 0; }
+        .doc-editor-content li { margin: 2px 0; }
         .doc-editor-content blockquote {
-          border-left: 3px solid rgba(99,102,241,0.4);
-          padding-left: 16px; margin: 12px 0;
-          color: rgba(255,255,255,0.6); font-style: italic;
+          border-left: 4px solid #dadce0;
+          padding-left: 16px; margin: 10px 0;
+          color: #5f6368; font-style: italic;
         }
+        .doc-editor-content table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+        .doc-editor-content th, .doc-editor-content td { border: 1px solid #dadce0; padding: 8px 12px; min-width: 50px; vertical-align: top; }
+        .doc-editor-content th { background: #f1f3f4; font-weight: 700; }
+        .doc-editor-content a { color: #1a73e8; text-decoration: underline; }
+        .doc-editor-content img { max-width: 100%; height: auto; margin: 8px 0; border-radius: 2px; }
+        .doc-editor-content ::selection { background: #d2e3fc; }
+        .doc-editor-content hr { border: none; border-top: 1px solid #dadce0; margin: 16px 0; }
         .doc-editor-content p.is-editor-empty:first-child::before {
           content: attr(data-placeholder);
-          color: rgba(255,255,255,0.2);
+          color: #aaa;
           pointer-events: none;
           float: left; height: 0;
         }
+        .doc-editor-content .tableWrapper { overflow-x: auto; }
+        .doc-editor-content .selectedCell { background: #d2e3fc; }
       `}</style>
     </div>
   );
 }
 
-function ToolBtn({ active, onClick, label, style = {} }) {
+/* ─── Formatting Toolbar Button ─────────────────────────────────── */
+
+function FmtBtn({ active, onClick, label, title, extraStyle = {} }) {
   return (
-    <button onClick={onClick} style={{
-      ...btnStyles.btn,
-      ...(active ? btnStyles.btnActive : {}),
-      ...style,
+    <button onClick={onClick} title={title} style={{
+      ...fmtBtnStyle.btn,
+      ...(active ? fmtBtnStyle.active : {}),
+      ...extraStyle,
     }}>{label}</button>
   );
 }
 
-const btnStyles = {
-  btn: { minWidth: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '5px', color: 'rgba(255,255,255,0.5)', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit', padding: '0 6px' },
-  btnActive: { background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.3)', color: '#a5b4fc' },
+const fmtBtnStyle = {
+  btn: {
+    minWidth: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    background: 'transparent', border: '1px solid transparent', borderRadius: 4,
+    color: '#444', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', padding: '0 5px',
+    transition: 'background 0.1s',
+  },
+  active: { background: '#d2e3fc', borderColor: '#a8c7fa', color: '#1a73e8' },
 };
 
+/* ─── Popover Styles ────────────────────────────────────────────── */
+
+const popStyles = {
+  colorPopover: {
+    position: 'absolute', top: 34, left: 0, zIndex: 300, background: '#fff', border: '1px solid #dadce0',
+    borderRadius: 8, padding: 10, boxShadow: '0 4px 16px rgba(0,0,0,0.15)', width: 230,
+  },
+  colorGrid: { display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 3, marginBottom: 8 },
+  colorSwatch: { width: 20, height: 20, borderRadius: 3, cursor: 'pointer', padding: 0 },
+  customRow: { display: 'flex', alignItems: 'center', gap: 8, paddingTop: 6, borderTop: '1px solid #eee' },
+  customLabel: { fontSize: 11, color: '#666' },
+  customInput: { width: 32, height: 24, border: '1px solid #dadce0', borderRadius: 4, cursor: 'pointer', padding: 0 },
+  tablePopover: {
+    position: 'absolute', top: 34, left: 0, zIndex: 300, background: '#fff', border: '1px solid #dadce0',
+    borderRadius: 8, padding: 10, boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+  },
+  tableLabel: { fontSize: 12, color: '#666', textAlign: 'center', marginBottom: 6 },
+  tableGrid: { display: 'flex', flexDirection: 'column' },
+};
+
+/* ─── Main Layout Styles ────────────────────────────────────────── */
+
 const styles = {
-  page: { display: 'flex', flexDirection: 'column', height: '100%' },
-  toolbar: { display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)', flexWrap: 'wrap' },
-  backBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.45)', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 500, padding: '6px 10px' },
-  titleText: { fontSize: '15px', fontWeight: 600, color: '#e2e8f0', marginRight: 'auto' },
-  toolGroup: { display: 'flex', alignItems: 'center', gap: '3px', padding: '0 6px', borderLeft: '1px solid rgba(255,255,255,0.06)' },
-  commentBtn: { padding: '5px 10px', background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: '5px', color: '#fbbf24', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
-  exportBtn: { padding: '6px 14px', background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: '6px', color: '#93c5fd', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
-  saveBtn: { padding: '6px 14px', background: '#22c55e', border: 'none', borderRadius: '6px', color: '#fff', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
-  templateBtn: { padding: '6px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', color: 'rgba(255,255,255,0.45)', fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit' },
-  commentInputBar: { display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 16px', background: 'rgba(251,191,36,0.06)', borderBottom: '1px solid rgba(251,191,36,0.15)' },
-  commentInputLabel: { fontSize: '12px', color: '#fbbf24', fontWeight: 600, whiteSpace: 'nowrap' },
-  commentInputField: { flex: 1, padding: '8px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: '#fff', fontSize: '13px', fontFamily: 'inherit', outline: 'none' },
-  commentSubmitBtn: { padding: '6px 14px', background: '#fbbf24', border: 'none', borderRadius: '6px', color: '#000', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
-  commentCancelBtn: { padding: '6px 10px', background: 'none', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: 'rgba(255,255,255,0.4)', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' },
-  editorWrap: { flex: 1, overflow: 'auto', display: 'flex', justifyContent: 'center', padding: '20px', background: '#0a0a14', position: 'relative' },
-  editorPage: { width: '100%', maxWidth: '800px', minHeight: '100%', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' },
-  commentTooltip: { position: 'absolute', transform: 'translate(-50%, -100%)', background: '#2a2a40', border: '1px solid rgba(251,191,36,0.3)', borderRadius: '10px', padding: '10px 14px', zIndex: 200, minWidth: '200px', maxWidth: '300px', boxShadow: '0 8px 24px rgba(0,0,0,0.5)', pointerEvents: 'auto' },
-  tooltipHeader: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' },
-  tooltipAuthor: { fontSize: '12px', fontWeight: 700, color: '#fbbf24' },
-  tooltipTime: { fontSize: '10px', color: 'rgba(255,255,255,0.3)' },
-  tooltipText: { fontSize: '13px', color: 'rgba(255,255,255,0.75)', margin: '0 0 8px', lineHeight: 1.4 },
-  tooltipRemoveBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.25)', fontSize: '10px', cursor: 'pointer', padding: 0, fontFamily: 'inherit' },
+  page: { display: 'flex', flexDirection: 'column', height: '100%', background: '#f0f0f0' },
+
+  // Row 1: Action bar
+  actionBar: {
+    display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px',
+    background: '#fff', borderBottom: '1px solid #e0e0e0',
+  },
+  backBtn: {
+    background: 'none', border: 'none', color: '#5f6368', fontSize: 13,
+    cursor: 'pointer', fontFamily: 'inherit', fontWeight: 500, padding: '6px 10px',
+  },
+  titleText: { fontSize: 16, fontWeight: 600, color: '#202124', marginLeft: 4 },
+  commentBtn: {
+    padding: '5px 12px', background: '#fef9e7', border: '1px solid #f9e79f', borderRadius: 5,
+    color: '#7d6608', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+  },
+  exportBtn: {
+    padding: '5px 12px', background: '#e8f0fe', border: '1px solid #a8c7fa', borderRadius: 5,
+    color: '#1a73e8', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+  },
+  saveBtn: {
+    padding: '5px 14px', background: '#1a73e8', border: 'none', borderRadius: 5,
+    color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+  },
+  templateBtn: {
+    padding: '5px 12px', background: '#f1f3f4', border: '1px solid #dadce0', borderRadius: 5,
+    color: '#5f6368', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
+  },
+
+  // Row 2: Formatting bar
+  formatBar: {
+    display: 'flex', alignItems: 'center', gap: 2, padding: '4px 12px',
+    background: '#f9fbfd', borderBottom: '1px solid #e0e0e0', flexWrap: 'wrap', minHeight: 36,
+  },
+  fGroup: { display: 'flex', alignItems: 'center', gap: 1 },
+  fSep: { width: 1, height: 20, background: '#dadce0', margin: '0 4px' },
+  selectDropdown: {
+    height: 28, padding: '0 4px', border: '1px solid #dadce0', borderRadius: 4,
+    background: '#fff', color: '#202124', fontSize: 12, fontFamily: 'inherit',
+    cursor: 'pointer', outline: 'none', width: 130,
+  },
+
+  // Comment input
+  commentInputBar: {
+    display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px',
+    background: '#fef9e7', borderBottom: '1px solid #f9e79f',
+  },
+  commentInputLabel: { fontSize: 12, color: '#7d6608', fontWeight: 600, whiteSpace: 'nowrap' },
+  commentInputField: {
+    flex: 1, padding: '6px 12px', background: '#fff', border: '1px solid #dadce0',
+    borderRadius: 6, color: '#202124', fontSize: 13, fontFamily: 'inherit', outline: 'none',
+  },
+  commentSubmitBtn: {
+    padding: '5px 14px', background: '#f4b400', border: 'none', borderRadius: 5,
+    color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+  },
+  commentCancelBtn: {
+    padding: '5px 10px', background: 'none', border: '1px solid #dadce0', borderRadius: 5,
+    color: '#5f6368', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
+  },
+
+  // Canvas
+  canvas: {
+    flex: 1, overflow: 'auto', display: 'flex', justifyContent: 'center',
+    padding: '30px 20px', background: '#2a2a3e', position: 'relative',
+  },
+  pageContainer: {
+    position: 'relative',
+  },
+  docPage: {
+    width: 816, minHeight: 1056, background: '#fff', padding: 96,
+    boxShadow: '0 2px 12px rgba(0,0,0,0.3)', position: 'relative',
+  },
+
+  // Comment tooltip
+  commentTooltip: {
+    position: 'absolute', transform: 'translate(-50%, -100%)',
+    background: '#fff', border: '1px solid #f4b400', borderRadius: 10,
+    padding: '10px 14px', zIndex: 200, minWidth: 200, maxWidth: 300,
+    boxShadow: '0 4px 16px rgba(0,0,0,0.15)', pointerEvents: 'auto',
+  },
+  tooltipHeader: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 },
+  tooltipAuthor: { fontSize: 12, fontWeight: 700, color: '#7d6608' },
+  tooltipTime: { fontSize: 10, color: '#999' },
+  tooltipText: { fontSize: 13, color: '#333', margin: '0 0 8px', lineHeight: 1.4 },
+  tooltipRemoveBtn: { background: 'none', border: 'none', color: '#999', fontSize: 10, cursor: 'pointer', padding: 0, fontFamily: 'inherit' },
+
+  // Status bar
+  statusBar: {
+    display: 'flex', alignItems: 'center', gap: 16, padding: '4px 16px',
+    background: '#fff', borderTop: '1px solid #e0e0e0', minHeight: 28,
+  },
+  statusText: { fontSize: 11, color: '#5f6368' },
+  zoomBtn: {
+    width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center',
+    background: '#f1f3f4', border: '1px solid #dadce0', borderRadius: 4,
+    color: '#5f6368', fontSize: 14, cursor: 'pointer', fontFamily: 'inherit',
+  },
 };
