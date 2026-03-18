@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { tritonSupabase } from '../tritonClient';
 import { useAuth } from '../contexts/AuthContext';
 
-const SECTIONS = ['news', 'newsletters', 'reports', 'briefs', 'cards'];
+const SECTIONS = ['briefs', 'cards', 'news', 'newsletters', 'reports'];
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
