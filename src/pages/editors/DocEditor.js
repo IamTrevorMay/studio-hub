@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
@@ -280,16 +280,20 @@ export default function DocEditor({ docId, title, docType, onBack, onSaveTemplat
     };
   }, [editor, loaded, save]);
 
-  // Page counting via ResizeObserver
+  // Page dimensions
+  const PAGE_HEIGHT = 1056; // 11" at 96dpi
+  const PAGE_GAP = 16;     // visual gap between pages
+
+  // Page counting via ResizeObserver on the editor DOM element
   useEffect(() => {
-    if (!pageRef.current) return;
-    const el = pageRef.current;
+    if (!editor) return;
+    const editorEl = editor.view.dom;
     const obs = new ResizeObserver(() => {
-      const ch = el.scrollHeight;
-      const usable = 864; // 1056 - 96*2 = usable content area
-      setPageCount(Math.max(1, Math.ceil(ch / usable)));
+      const contentH = editorEl.scrollHeight;
+      const totalH = contentH + 192; // add padding (96 top + 96 bottom)
+      setPageCount(Math.max(1, Math.ceil(totalH / PAGE_HEIGHT)));
     });
-    obs.observe(el);
+    obs.observe(editorEl);
     contentObserverRef.current = obs;
     return () => obs.disconnect();
   }, [editor]);
@@ -505,16 +509,9 @@ export default function DocEditor({ docId, title, docType, onBack, onSaveTemplat
   const currentFontSize = editor?.getAttributes('textStyle')?.fontSize || '11pt';
   const currentTextColor = editor?.getAttributes('textStyle')?.color || '#000000';
 
-  // Page break overlays
-  const pageBreaks = useMemo(() => {
-    const breaks = [];
-    for (let i = 1; i < pageCount; i++) {
-      breaks.push(i * 864 + 96); // offset by top padding
-    }
-    return breaks;
-  }, [pageCount]);
-
   if (!editor) return null;
+
+  const totalPageHeight = pageCount * PAGE_HEIGHT + Math.max(0, pageCount - 1) * PAGE_GAP;
 
   return (
     <div style={styles.page}>
@@ -690,21 +687,33 @@ export default function DocEditor({ docId, title, docType, onBack, onSaveTemplat
         </div>
       )}
 
-      {/* Canvas + Page */}
+      {/* Canvas + Pages */}
       <div ref={editorWrapRef} style={styles.canvas}>
-        <div style={{ ...styles.pageContainer, transform: `scale(${zoom / 100})`, transformOrigin: 'top center' }}>
-          <div ref={pageRef} style={styles.docPage}>
-            <EditorContent editor={editor} />
+        <div style={{
+          ...styles.pageContainer,
+          transform: `scale(${zoom / 100})`,
+          transformOrigin: 'top center',
+          width: 816,
+          minHeight: totalPageHeight,
+        }}>
+          {/* White page backgrounds */}
+          {Array.from({ length: pageCount }, (_, i) => (
+            <div key={`pg-${i}`} style={{
+              position: 'absolute',
+              top: i * (PAGE_HEIGHT + PAGE_GAP),
+              left: 0, width: 816, height: PAGE_HEIGHT,
+              background: '#fff',
+              boxShadow: '0 1px 4px rgba(0,0,0,0.2), 0 0 1px rgba(0,0,0,0.1)',
+            }} />
+          ))}
 
-            {/* Page break overlays */}
-            {pageBreaks.map((top, i) => (
-              <div key={i} style={{
-                position: 'absolute', left: 0, right: 0, top: top,
-                height: 8, background: '#2a2a3e',
-                borderTop: '1px solid #dadce0', borderBottom: '1px solid #dadce0',
-                pointerEvents: 'none', zIndex: 10,
-              }} />
-            ))}
+          {/* Content layer — flows on top of page backgrounds */}
+          <div ref={pageRef} style={{
+            position: 'relative', zIndex: 1,
+            width: 816, padding: 96,
+            minHeight: totalPageHeight,
+          }}>
+            <EditorContent editor={editor} />
           </div>
 
           {/* Comment Tooltip */}
@@ -892,10 +901,6 @@ const styles = {
   },
   pageContainer: {
     position: 'relative',
-  },
-  docPage: {
-    width: 816, minHeight: 1056, background: '#fff', padding: 96,
-    boxShadow: '0 2px 12px rgba(0,0,0,0.3)', position: 'relative',
   },
 
   // Comment tooltip
