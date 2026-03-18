@@ -30,7 +30,7 @@ function renderMarkdown(text) {
 export default function Research() {
   const { profile } = useAuth();
   const [view, setView] = useState('feed'); // feed | reader | report
-  const [section, setSection] = useState('news');
+  const [section, setSection] = useState('briefs');
   const [articles, setArticles] = useState([]);
   const [feeds, setFeeds] = useState([]);
   const [newsletters, setNewsletters] = useState([]);
