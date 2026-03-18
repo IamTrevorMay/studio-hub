@@ -207,11 +207,14 @@ export default function Research() {
   const fetchBriefs = useCallback(async () => {
     if (!tritonSupabase) return;
     try {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 5);
+      const cutoffDate = cutoff.toISOString().slice(0, 10);
       const { data, error } = await tritonSupabase
         .from('briefs')
         .select('id, date, title, summary, metadata')
-        .order('date', { ascending: false })
-        .limit(30);
+        .gte('date', cutoffDate)
+        .order('date', { ascending: false });
       if (!error && data) {
         setBriefs(data);
         if (data.length > 0 && !currentBriefDate) {
@@ -247,12 +250,15 @@ export default function Research() {
   const fetchCardsArchive = useCallback(async () => {
     if (!tritonSupabase) return [];
     try {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 5);
+      const cutoffDate = cutoff.toISOString().slice(0, 10);
       const { data, error } = await tritonSupabase
         .from('daily_cards')
         .select('id, date, pitcher_id, pitcher_name, game_pk, game_info, ip, pitch_count, rank')
+        .gte('date', cutoffDate)
         .order('date', { ascending: false })
-        .order('rank', { ascending: true })
-        .limit(150);
+        .order('rank', { ascending: true });
       if (!error && data) {
         // Group by date
         const byDate = {};
