@@ -14,7 +14,6 @@ const CATEGORY_OPTIONS = [
   { value: 'idea', label: 'Idea', color: '#f59e0b' },
   { value: 'follow_up', label: 'Follow-up', color: '#ec4899' },
   { value: 'note', label: 'Note', color: '#8b5cf6' },
-  { value: 'sponsor', label: 'Sponsor', color: '#10b981' },
 ];
 
 const PROJECT_STATUSES = ['concept', 'script', 'production', 'edit', 'review', 'published'];
@@ -28,7 +27,7 @@ const PRIORITY_OPTIONS = [
 ];
 
 // ─── TaskCard ───────────────────────────────────────────────
-function TaskCard({ task, index, onClick, projectsMap }) {
+function TaskCard({ task, index, onClick, projectsMap, campaignsMap }) {
   const cat = CATEGORY_OPTIONS.find(c => c.value === task.category);
   const priorityColor = task.priority ? PRIORITY_COLORS[task.priority] : null;
 
@@ -66,6 +65,11 @@ function TaskCard({ task, index, onClick, projectsMap }) {
                 {projectsMap[task.project_id]}
               </span>
             )}
+            {task.campaign_id && campaignsMap[task.campaign_id] && (
+              <span style={{ fontSize: '10px', color: '#10b981', background: 'rgba(16,185,129,0.15)', padding: '1px 5px', borderRadius: '4px' }}>
+                {campaignsMap[task.campaign_id]}
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -74,7 +78,7 @@ function TaskCard({ task, index, onClick, projectsMap }) {
 }
 
 // ─── TaskDetailModal ────────────────────────────────────────
-function TaskDetailModal({ task, onClose, onSave, onDelete, projects, concepts }) {
+function TaskDetailModal({ task, onClose, onSave, onDelete, projects, concepts, campaigns }) {
   const [form, setForm] = useState({
     content: task.content,
     category: task.category,
@@ -82,6 +86,7 @@ function TaskDetailModal({ task, onClose, onSave, onDelete, projects, concepts }
     due_date: task.due_date || '',
     project_id: task.project_id || '',
     concept_id: task.concept_id || '',
+    campaign_id: task.campaign_id || '',
   });
 
   function handleSave() {
@@ -92,6 +97,7 @@ function TaskDetailModal({ task, onClose, onSave, onDelete, projects, concepts }
       due_date: form.due_date || null,
       project_id: form.project_id || null,
       concept_id: form.concept_id || null,
+      campaign_id: form.campaign_id || null,
     });
     onClose();
   }
@@ -153,6 +159,15 @@ function TaskDetailModal({ task, onClose, onSave, onDelete, projects, concepts }
           </select>
         </div>
 
+        {/* Sponsor Campaign link */}
+        <div style={{ marginTop: '12px' }}>
+          <label style={labelStyle}>Sponsor Campaign</label>
+          <select value={form.campaign_id} onChange={e => setForm({ ...form, campaign_id: e.target.value })} style={inputStyle}>
+            <option value="">None</option>
+            {campaigns.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+          </select>
+        </div>
+
         {/* Actions */}
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '20px' }}>
           <button onClick={() => { onDelete(task.id); onClose(); }} style={deleteBtnStyle}>Delete</button>
@@ -174,10 +189,13 @@ export default function MyBoard({ profile, onNavigate }) {
   const [editingTask, setEditingTask] = useState(null);
   const [projects, setProjects] = useState([]);
   const [concepts, setConcepts] = useState([]);
+  const [campaigns, setCampaigns] = useState([]);
   const [showAllDone, setShowAllDone] = useState(false);
 
   const projectsMap = {};
   projects.forEach(p => { projectsMap[p.id] = p.name; });
+  const campaignsMap = {};
+  campaigns.forEach(c => { campaignsMap[c.id] = c.label; });
 
   // ── Fetch tasks ──
   const fetchTasks = useCallback(async () => {
@@ -197,15 +215,20 @@ export default function MyBoard({ profile, onNavigate }) {
     }
   }, [profile?.id]);
 
-  // ── Fetch projects + concepts for linking ──
+  // ── Fetch projects + concepts + campaigns for linking ──
   useEffect(() => {
     async function fetchMeta() {
-      const [projRes, concRes] = await Promise.all([
+      const [projRes, concRes, campRes] = await Promise.all([
         supabase.from('projects').select('id, name').eq('is_archived', false).order('name'),
         supabase.from('concepts').select('id, name').order('name'),
+        supabase.from('sponsor_campaigns').select('id, name, sponsor_id, sponsors(name)').order('name'),
       ]);
       if (projRes.data) setProjects(projRes.data);
       if (concRes.data) setConcepts(concRes.data);
+      if (campRes.data) setCampaigns(campRes.data.map(c => ({
+        id: c.id, name: c.name, sponsor_id: c.sponsor_id,
+        label: `${c.sponsors?.name || 'Sponsor'} — ${c.name}`,
+      })));
     }
     fetchMeta();
   }, []);
@@ -431,6 +454,7 @@ export default function MyBoard({ profile, onNavigate }) {
                           index={index}
                           onClick={setEditingTask}
                           projectsMap={projectsMap}
+                          campaignsMap={campaignsMap}
                         />
                       ))}
                       {provided.placeholder}
@@ -462,6 +486,7 @@ export default function MyBoard({ profile, onNavigate }) {
           onDelete={deleteTask}
           projects={projects}
           concepts={concepts}
+          campaigns={campaigns}
         />
       )}
     </div>

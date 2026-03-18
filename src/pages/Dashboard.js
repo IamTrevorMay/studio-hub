@@ -94,6 +94,7 @@ export default function Dashboard({ onNavigate }) {
   // Stage tasks state
   const [stageTasks, setStageTasks] = useState([]);
   const [stageTasksLoading, setStageTasksLoading] = useState(false);
+  const [addedToBoard, setAddedToBoard] = useState({});
 
   // Sponsor deliverables state
   const [sponsorDeliverables, setSponsorDeliverables] = useState([]);
@@ -221,7 +222,8 @@ export default function Dashboard({ onNavigate }) {
   }, [profile?.id]);
 
   async function addStageTaskToBoard(task) {
-    if (!profile?.id) return;
+    if (!profile?.id || addedToBoard[task.id] === 'loading') return;
+    setAddedToBoard(prev => ({ ...prev, [task.id]: 'loading' }));
     try {
       // Check for duplicate: same project_id + project_stage, not done
       const { data: existing } = await supabase
@@ -232,7 +234,10 @@ export default function Dashboard({ onNavigate }) {
         .eq('project_stage', task.stage)
         .neq('status', 'done')
         .limit(1);
-      if (existing && existing.length > 0) return; // Already on board
+      if (existing && existing.length > 0) {
+        setAddedToBoard(prev => ({ ...prev, [task.id]: 'duplicate' }));
+        return;
+      }
 
       const { error } = await supabase.from('personal_tasks').insert({
         created_by: profile.id,
@@ -244,8 +249,10 @@ export default function Dashboard({ onNavigate }) {
         position: Date.now(),
       });
       if (error) throw error;
+      setAddedToBoard(prev => ({ ...prev, [task.id]: 'added' }));
     } catch (err) {
       console.error('Error adding stage task to board:', err);
+      setAddedToBoard(prev => ({ ...prev, [task.id]: 'error' }));
     }
   }
 
@@ -1519,14 +1526,28 @@ export default function Dashboard({ onNavigate }) {
                     )}
                     <button
                       onClick={() => addStageTaskToBoard(task)}
+                      disabled={addedToBoard[task.id] === 'loading' || addedToBoard[task.id] === 'added'}
                       style={{
                         marginTop: '10px', width: '100%', padding: '6px 0',
-                        background: 'rgba(99,102,241,0.12)', color: '#818cf8',
-                        border: '1px solid rgba(99,102,241,0.2)', borderRadius: '6px',
-                        fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                        background: addedToBoard[task.id] === 'added' ? 'rgba(34,197,94,0.12)'
+                          : addedToBoard[task.id] === 'duplicate' ? 'rgba(234,179,8,0.12)'
+                          : 'rgba(99,102,241,0.12)',
+                        color: addedToBoard[task.id] === 'added' ? '#22c55e'
+                          : addedToBoard[task.id] === 'duplicate' ? '#eab308'
+                          : '#818cf8',
+                        border: `1px solid ${addedToBoard[task.id] === 'added' ? 'rgba(34,197,94,0.2)'
+                          : addedToBoard[task.id] === 'duplicate' ? 'rgba(234,179,8,0.2)'
+                          : 'rgba(99,102,241,0.2)'}`,
+                        borderRadius: '6px',
+                        fontSize: '12px', fontWeight: 600,
+                        cursor: addedToBoard[task.id] === 'added' ? 'default' : 'pointer',
+                        opacity: addedToBoard[task.id] === 'loading' ? 0.5 : 1,
                       }}
                     >
-                      Add to Board
+                      {addedToBoard[task.id] === 'loading' ? 'Adding...'
+                        : addedToBoard[task.id] === 'added' ? 'Added to Board'
+                        : addedToBoard[task.id] === 'duplicate' ? 'Already on Board'
+                        : 'Add to Board'}
                     </button>
                   </div>
                 );
