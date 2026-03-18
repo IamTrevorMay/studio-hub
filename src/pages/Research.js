@@ -697,7 +697,7 @@ export default function Research() {
           {/* Briefs Section */}
           {section === 'briefs' && (
             <div>
-              {/* Date navigation */}
+              {/* Date navigation + Regenerate */}
               {currentBriefDate && (
                 <div style={s.briefDateNav}>
                   <button
@@ -722,6 +722,13 @@ export default function Research() {
                     style={s.briefNavBtn}
                   >
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 3l5 5-5 5" /></svg>
+                  </button>
+                  <button onClick={handleRegenerateBrief} disabled={regeneratingBrief} style={{ ...s.briefActionBtn, marginLeft: 'auto', opacity: regeneratingBrief ? 0.5 : 1 }}>
+                    {regeneratingBrief ? (
+                      <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite', marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Regenerating…</>
+                    ) : (
+                      <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Regenerate</>
+                    )}
                   </button>
                 </div>
               )}
@@ -772,13 +779,6 @@ export default function Research() {
                     </button>
                     <button onClick={() => openItem(currentBrief, 'brief')} style={s.briefActionBtn}>
                       Full View
-                    </button>
-                    <button onClick={handleRegenerateBrief} disabled={regeneratingBrief} style={{ ...s.briefActionBtn, marginLeft: 'auto', opacity: regeneratingBrief ? 0.5 : 1 }}>
-                      {regeneratingBrief ? (
-                        <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite', marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Regenerating…</>
-                      ) : (
-                        <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Regenerate</>
-                      )}
                     </button>
                   </div>
                 </div>
