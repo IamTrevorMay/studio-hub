@@ -205,7 +205,7 @@ export default function Dashboard({ onNavigate }) {
       (projectStageData || []).forEach(a => {
         if (a.project && a.project.status === a.stage && a.project.status !== 'published') {
           tasks.push({
-            id: a.id, type: 'project', name: a.project.name, stage: a.stage,
+            id: a.id, type: 'project', projectId: a.project.id, name: a.project.name, stage: a.stage,
             stageColor: STATUS_COLORS[a.stage] || '#6b7280', stageLabel: STATUS_LABELS[a.stage] || a.stage,
             deadline: a.project.deadline, extra: a.project.channel || a.project.type?.replace('_', ' '),
           });
@@ -219,6 +219,35 @@ export default function Dashboard({ onNavigate }) {
       setStageTasksLoading(false);
     }
   }, [profile?.id]);
+
+  async function addStageTaskToBoard(task) {
+    if (!profile?.id) return;
+    try {
+      // Check for duplicate: same project_id + project_stage, not done
+      const { data: existing } = await supabase
+        .from('personal_tasks')
+        .select('id')
+        .eq('created_by', profile.id)
+        .eq('project_id', task.projectId)
+        .eq('project_stage', task.stage)
+        .neq('status', 'done')
+        .limit(1);
+      if (existing && existing.length > 0) return; // Already on board
+
+      const { error } = await supabase.from('personal_tasks').insert({
+        created_by: profile.id,
+        content: `${task.name} — ${task.stageLabel}`,
+        category: 'task',
+        project_id: task.projectId,
+        project_stage: task.stage,
+        status: 'inbox',
+        position: Date.now(),
+      });
+      if (error) throw error;
+    } catch (err) {
+      console.error('Error adding stage task to board:', err);
+    }
+  }
 
   const fetchSponsorDeliverables = useCallback(async () => {
     if (!profile?.id) return;
@@ -1488,6 +1517,17 @@ export default function Dashboard({ onNavigate }) {
                         <span>Due {new Date(task.deadline + (task.deadline.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
                       </div>
                     )}
+                    <button
+                      onClick={() => addStageTaskToBoard(task)}
+                      style={{
+                        marginTop: '10px', width: '100%', padding: '6px 0',
+                        background: 'rgba(99,102,241,0.12)', color: '#818cf8',
+                        border: '1px solid rgba(99,102,241,0.2)', borderRadius: '6px',
+                        fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                      }}
+                    >
+                      Add to Board
+                    </button>
                   </div>
                 );
               })}

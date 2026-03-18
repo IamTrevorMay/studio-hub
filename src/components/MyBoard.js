@@ -14,7 +14,10 @@ const CATEGORY_OPTIONS = [
   { value: 'idea', label: 'Idea', color: '#f59e0b' },
   { value: 'follow_up', label: 'Follow-up', color: '#ec4899' },
   { value: 'note', label: 'Note', color: '#8b5cf6' },
+  { value: 'sponsor', label: 'Sponsor', color: '#10b981' },
 ];
+
+const PROJECT_STATUSES = ['concept', 'script', 'production', 'edit', 'review', 'published'];
 
 const PRIORITY_COLORS = { high: '#ef4444', medium: '#f59e0b', low: '#6b7280' };
 const PRIORITY_OPTIONS = [
@@ -283,6 +286,25 @@ export default function MyBoard({ profile, onNavigate }) {
     }
   }
 
+  // ── Auto-advance project stage ──
+  async function advanceProjectStage(projectId, expectedStage) {
+    try {
+      const { data: project, error } = await supabase
+        .from('projects')
+        .select('id, status')
+        .eq('id', projectId)
+        .single();
+      if (error || !project) return;
+      if (project.status !== expectedStage) return; // stale task
+      const currentIndex = PROJECT_STATUSES.indexOf(project.status);
+      if (currentIndex < 0 || currentIndex >= PROJECT_STATUSES.length - 1) return; // already published
+      const nextStatus = PROJECT_STATUSES[currentIndex + 1];
+      await supabase.from('projects').update({ status: nextStatus }).eq('id', projectId);
+    } catch (err) {
+      console.error('Error advancing project stage:', err);
+    }
+  }
+
   // ── Drag-and-drop handler ──
   function onDragEnd(result) {
     const { source, destination, draggableId } = result;
@@ -318,6 +340,10 @@ export default function MyBoard({ profile, onNavigate }) {
     };
 
     updateTask(draggableId, updates);
+
+    if (newStatus === 'done' && task.project_id && task.project_stage) {
+      advanceProjectStage(task.project_id, task.project_stage);
+    }
   }
 
   // ── Filter done tasks (hide >7 days old unless toggled) ──
