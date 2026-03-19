@@ -1,4 +1,5 @@
-@import "tailwindcss" without(preflight);
+@import "tailwindcss/theme.css";
+@import "tailwindcss/utilities.css";
 @source "./";
 
 @theme {
