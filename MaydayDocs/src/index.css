@@ -1,0 +1,400 @@
+@import "tailwindcss";
+
+@theme {
+  --color-navy-950: #0a0e1a;
+  --color-navy-900: #0f1629;
+  --color-navy-800: #151d38;
+  --color-navy-700: #1c2747;
+  --color-navy-600: #243156;
+  --color-navy-500: #2e3f6e;
+  --color-navy-400: #4a5a8a;
+  --color-navy-300: #7080aa;
+  --color-navy-200: #a0acc8;
+  --color-navy-100: #d0d6e4;
+  --color-navy-50: #ebeef4;
+}
+
+/* ── Light theme overrides ── */
+[data-theme="light"] {
+  --color-navy-950: #f8fafc;
+  --color-navy-900: #f1f5f9;
+  --color-navy-800: #e2e8f0;
+  --color-navy-700: #cbd5e1;
+  --color-navy-600: #94a3b8;
+  --color-navy-500: #64748b;
+  --color-navy-400: #475569;
+  --color-navy-300: #334155;
+  --color-navy-200: #1e293b;
+  --color-navy-100: #0f172a;
+  --color-navy-50: #020617;
+}
+
+body {
+  @apply bg-navy-950 text-navy-100 m-0 font-sans antialiased;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+#root {
+  @apply min-h-screen flex flex-col;
+}
+
+/* ── White canvas editor styles ── */
+.prose-editor {
+  @apply outline-none min-h-[800px] text-gray-800 leading-relaxed;
+  font-family: Arial, sans-serif;
+  font-size: 11pt;
+  line-height: 1.15;
+}
+
+.prose-editor p {
+  @apply my-1;
+}
+
+.prose-editor h1 {
+  @apply text-2xl font-bold text-gray-900 mt-6 mb-2;
+}
+
+.prose-editor h2 {
+  @apply text-xl font-semibold text-gray-900 mt-5 mb-2;
+}
+
+.prose-editor h3 {
+  @apply text-lg font-semibold text-gray-900 mt-4 mb-1;
+}
+
+.prose-editor ul,
+.prose-editor ol {
+  @apply pl-6 my-2;
+}
+
+.prose-editor ul {
+  @apply list-disc;
+}
+
+.prose-editor ol {
+  @apply list-decimal;
+}
+
+.prose-editor li p {
+  @apply my-0;
+}
+
+.prose-editor blockquote {
+  @apply border-l-4 border-gray-300 pl-4 italic text-gray-500 my-4;
+}
+
+.prose-editor code {
+  @apply bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded text-sm font-mono;
+}
+
+.prose-editor pre {
+  @apply bg-gray-900 border border-gray-200 rounded-lg p-4 my-4 overflow-x-auto;
+  color: #e2e8f0;
+}
+
+.prose-editor pre code {
+  @apply bg-transparent p-0 text-inherit;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.prose-editor hr {
+  @apply border-gray-200 my-6;
+}
+
+.prose-editor a {
+  @apply text-blue-600 underline;
+}
+
+.prose-editor img {
+  @apply max-w-full h-auto rounded my-4;
+}
+
+.prose-editor table {
+  @apply border-collapse w-full my-4;
+}
+
+.prose-editor th,
+.prose-editor td {
+  @apply border border-gray-300 px-3 py-2 text-left;
+}
+
+.prose-editor th {
+  @apply bg-gray-100 font-semibold text-gray-900;
+}
+
+/* Placeholder styling */
+.prose-editor p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  @apply text-gray-300 float-left h-0 pointer-events-none;
+}
+
+/* ── Selection highlights for embedded elements ── */
+
+/* Selected image */
+.prose-editor img.ProseMirror-selectednode {
+  outline: 3px solid #3b82f6;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Selected code block */
+.prose-editor pre.ProseMirror-selectednode {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* Selected horizontal rule */
+.prose-editor hr.ProseMirror-selectednode {
+  outline: 2px solid #3b82f6;
+  outline-offset: 4px;
+  border-radius: 2px;
+}
+
+/* Selected table */
+.prose-editor .tableWrapper.ProseMirror-selectednode {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ── Lowlight syntax highlighting tokens ── */
+.hljs-comment,
+.hljs-quote {
+  color: #6b7280;
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-addition {
+  color: #c084fc;
+}
+
+.hljs-number,
+.hljs-string,
+.hljs-meta .hljs-meta-string,
+.hljs-literal,
+.hljs-doctag,
+.hljs-regexp {
+  color: #34d399;
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: #60a5fa;
+}
+
+.hljs-attribute,
+.hljs-attr,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-class .hljs-title,
+.hljs-type {
+  color: #fbbf24;
+}
+
+.hljs-symbol,
+.hljs-bullet,
+.hljs-subst,
+.hljs-meta,
+.hljs-meta .hljs-keyword,
+.hljs-selector-attr,
+.hljs-selector-pseudo,
+.hljs-link {
+  color: #fb923c;
+}
+
+.hljs-built_in,
+.hljs-deletion {
+  color: #f87171;
+}
+
+.hljs-formula {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 700;
+}
+
+/* ── Code block language label ── */
+.prose-editor pre {
+  position: relative;
+}
+
+/* ── Table resize handle ── */
+.prose-editor .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: #3b82f6;
+  cursor: col-resize;
+}
+
+.prose-editor .selectedCell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(59, 130, 246, 0.1);
+  pointer-events: none;
+}
+
+.prose-editor td,
+.prose-editor th {
+  position: relative;
+}
+
+/* ── Find & Replace search highlights ── */
+.search-match {
+  background: rgba(250, 204, 21, 0.4);
+  border-radius: 2px;
+}
+
+.search-match-active {
+  background: rgba(250, 204, 21, 0.8);
+  outline: 2px solid #eab308;
+  outline-offset: -1px;
+  border-radius: 2px;
+}
+
+/* ── Find & Replace slide-in animation ── */
+.find-replace-panel {
+  animation: slideIn 0.15s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Sidebar GPU hint ── */
+aside {
+  will-change: width;
+}
+
+/* ── Page break indicator ── */
+.page-break-indicator {
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+
+/* ── Print stylesheet ── */
+@media print {
+  /* Hide everything except the page canvas */
+  body {
+    background: white !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Hide app chrome */
+  aside,
+  header,
+  nav,
+  .bg-navy-900,
+  .border-navy-700,
+  .border-navy-800,
+  .page-break-indicator,
+  .comment-panel,
+  .sticky {
+    display: none !important;
+  }
+
+  #root {
+    display: block !important;
+    min-height: auto !important;
+  }
+
+  /* Reset zoom and layout */
+  .page-canvas {
+    transform: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+  }
+
+  /* The canvas area should not clip */
+  .overflow-auto,
+  .overflow-y-auto {
+    overflow: visible !important;
+    height: auto !important;
+    padding: 0 !important;
+    background: white !important;
+  }
+
+  .flex.h-screen {
+    display: block !important;
+    height: auto !important;
+  }
+
+  .flex-1.flex.flex-col {
+    display: block !important;
+  }
+
+  /* Title prints black */
+  .print-title {
+    color: black !important;
+  }
+
+  /* Editor content prints with proper colors */
+  .prose-editor {
+    color: black !important;
+    min-height: auto !important;
+  }
+
+  .prose-editor h1,
+  .prose-editor h2,
+  .prose-editor h3 {
+    color: black !important;
+  }
+
+  .prose-editor pre {
+    background: #f3f4f6 !important;
+    color: #1f2937 !important;
+    border-color: #d1d5db !important;
+  }
+
+  .prose-editor code {
+    background: #f3f4f6 !important;
+    color: #1f2937 !important;
+  }
+
+  .prose-editor a {
+    color: #2563eb !important;
+  }
+
+  /* Page breaks at natural boundaries */
+  .prose-editor h1,
+  .prose-editor h2,
+  .prose-editor h3 {
+    break-after: avoid;
+  }
+
+  .prose-editor table,
+  .prose-editor pre,
+  .prose-editor blockquote {
+    break-inside: avoid;
+  }
+
+  .prose-editor img {
+    break-inside: avoid;
+    max-width: 100% !important;
+  }
+}
