@@ -63,7 +63,7 @@ export default function DocEditor({ docId, title, docType, onBack, onSaveTemplat
   }, [docId, editor, tableName])
 
   // Auto-save to Supabase
-  const save = useAutoSave(editor, docId, tableName)
+  const save = useAutoSave(editor, docId, tableName, loaded)
 
   if (!editor) return null
 

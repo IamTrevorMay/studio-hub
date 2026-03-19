@@ -5,13 +5,19 @@ import { supabase } from '../../../../supabaseClient'
 
 const SAVE_INTERVAL = 2000
 
-export function useAutoSave(editor: Editor | null, docId: string, tableName: string) {
+export function useAutoSave(editor: Editor | null, docId: string, tableName: string, loaded: boolean) {
   const { setSaving, setLastSavedAt } = useEditorStore()
   const dirtyRef = useRef(false)
+  const loadedRef = useRef(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Keep a ref in sync so flush() always sees the latest value
+  useEffect(() => {
+    loadedRef.current = loaded
+  }, [loaded])
+
   const flush = useCallback(() => {
-    if (!dirtyRef.current || !editor || !docId) return
+    if (!dirtyRef.current || !editor || !docId || !loadedRef.current) return
     dirtyRef.current = false
     setSaving(true)
     const html = editor.getHTML()
@@ -29,6 +35,7 @@ export function useAutoSave(editor: Editor | null, docId: string, tableName: str
     if (!editor) return
 
     const onUpdate = () => {
+      if (!loadedRef.current) return // Ignore setContent() during initial load
       dirtyRef.current = true
       if (timerRef.current) clearTimeout(timerRef.current)
       timerRef.current = setTimeout(flush, SAVE_INTERVAL)
