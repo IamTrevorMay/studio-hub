@@ -252,11 +252,13 @@ const styles = {
     background: 'rgba(15,15,30,0.95)',
     borderTop: '1px solid rgba(255,255,255,0.08)',
     flexShrink: 0,
+    overflowX: 'auto',
   },
   group: {
     display: 'flex',
     alignItems: 'center',
     gap: '6px',
+    flexShrink: 0,
   },
   divider: {
     width: '1px',
