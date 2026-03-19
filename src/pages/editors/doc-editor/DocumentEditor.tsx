@@ -28,6 +28,8 @@ interface Props {
   onSaveTemplate: ((name: string, type: string, content: any) => void) | null
   onSave: () => void
   loaded: boolean
+  reviewData?: any
+  onSendForReview?: (htmlContent: string) => void
 }
 
 export default function DocumentEditor({
@@ -38,6 +40,8 @@ export default function DocumentEditor({
   onSaveTemplate,
   onSave,
   loaded,
+  reviewData,
+  onSendForReview,
 }: Props) {
   const {
     zoom,
@@ -177,6 +181,19 @@ export default function DocumentEditor({
                 title="Save as template"
               >
                 Template
+              </button>
+            )}
+
+            {/* Send for Review */}
+            {onSendForReview && (
+              <button
+                type="button"
+                onClick={() => onSendForReview(editor.getHTML())}
+                className="flex items-center gap-1.5 px-3 py-1 text-xs rounded font-bold transition-colors cursor-pointer"
+                style={{ background: 'linear-gradient(135deg, #c5d600, #e8ff47)', color: '#0f0f1a' }}
+                title="Send revision to reviewer"
+              >
+                Send for Review
               </button>
             )}
 

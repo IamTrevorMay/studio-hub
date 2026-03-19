@@ -19,9 +19,11 @@ interface Props {
   docType: string
   onBack: () => void
   onSaveTemplate: ((name: string, type: string, content: any) => void) | null
+  reviewData?: any
+  onSendForReview?: (htmlContent: string) => void
 }
 
-export default function DocEditor({ docId, title, docType, onBack, onSaveTemplate }: Props) {
+export default function DocEditor({ docId, title, docType, onBack, onSaveTemplate, reviewData, onSendForReview }: Props) {
   const { profile } = useAuth() as any
   const [loaded, setLoaded] = useState(false)
   const tableName = TABLE_MAP[docType] || 'concept_documents'
@@ -74,6 +76,8 @@ export default function DocEditor({ docId, title, docType, onBack, onSaveTemplat
       onSaveTemplate={onSaveTemplate}
       onSave={save}
       loaded={loaded}
+      reviewData={reviewData}
+      onSendForReview={onSendForReview}
     />
   )
 }
