@@ -19,6 +19,7 @@ import Goals from './Goals';
 import Tools from './Tools';
 import ShowPlanning from './ShowPlanning';
 import Posting from './Posting';
+import Screenwriter from './Screenwriter';
 import Morty from '../components/Morty';
 
 const NAV_ITEMS = [
@@ -34,10 +35,19 @@ const NAV_ITEMS = [
   { key: 'showplanning', label: 'Show Planning', icon: ShowPlanningIcon },
   { key: 'goals', label: 'Goals', icon: GoalsIcon },
   { key: 'tools', label: 'Toolbox', icon: ToolsIcon },
+  { key: 'screenwriter', label: 'Screenwriter', icon: ScreenwriterIcon },
   { key: 'posting', label: 'Posting', icon: PostingIcon },
   { key: 'channels', label: 'Channels', icon: ChannelsIcon },
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
 ];
+
+const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin'));
+
+function getTabFromPath() {
+  const path = window.location.pathname.replace(/^\/+/, '').split('/')[0];
+  if (path && VALID_TAB_KEYS.has(path)) return path;
+  return null;
+}
 
 const NAV_ICON_MAP = {
   dashboard: DashboardIcon,
@@ -52,6 +62,7 @@ const NAV_ICON_MAP = {
   showplanning: ShowPlanningIcon,
   goals: GoalsIcon,
   tools: ToolsIcon,
+  screenwriter: ScreenwriterIcon,
   posting: PostingIcon,
   channels: ChannelsIcon,
   messages: MessagesIcon,
@@ -60,7 +71,7 @@ const NAV_ICON_MAP = {
 export default function AppLayout() {
   const { profile, signOut, isAdmin, isAssistant, canPost, unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, refreshNotifications } = useAuth();
   const { getResolvedNav, saveConfig, saving } = useNavConfig();
-  const [activeTab, setActiveTab] = useState(() => localStorage.getItem('studio-hub-tab') || 'dashboard');
+  const [activeTab, setActiveTab] = useState(() => getTabFromPath() || localStorage.getItem('studio-hub-tab') || 'dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [navTarget, setNavTarget] = useState(null);
   const [adminInitialTab, setAdminInitialTab] = useState(null);
@@ -86,10 +97,24 @@ export default function AppLayout() {
     setFolderCollapseState(prev => ({ ...prev, [folderId]: !prev[folderId] }));
   }
 
-  // Persist active tab to localStorage
+  // Persist active tab to localStorage and URL
   useEffect(() => {
     localStorage.setItem('studio-hub-tab', activeTab);
+    const expectedPath = '/' + activeTab;
+    if (window.location.pathname !== expectedPath) {
+      window.history.pushState({}, '', expectedPath);
+    }
   }, [activeTab]);
+
+  // Handle browser back/forward
+  useEffect(() => {
+    function handlePopState() {
+      const tab = getTabFromPath();
+      if (tab) setActiveTab(tab);
+    }
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Handle Google Calendar OAuth redirect
   useEffect(() => {
@@ -480,6 +505,7 @@ export default function AppLayout() {
           {activeTab === 'reviews' && <Reviews />}
           {activeTab === 'goals' && <Goals />}
           {activeTab === 'tools' && <Tools />}
+          {activeTab === 'screenwriter' && <Screenwriter initialScriptId={navTarget} onScriptOpened={() => setNavTarget(null)} />}
           {activeTab === 'posting' && canPost && <Posting />}
           {activeTab === 'channels' && <Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} />}
           {activeTab === 'messages' && <Messages onNavigate={navigateTo} />}
@@ -627,6 +653,15 @@ function PostingIcon({ active }) {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
       <path d="M17 3l-10 10M17 3l-4 14-3-7-7-3 14-4z" />
+    </svg>
+  );
+}
+
+function ScreenwriterIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <rect x="4" y="2" width="12" height="16" rx="1.5" />
+      <path d="M7 6h6M7 9h6M7 12h4" />
     </svg>
   );
 }
