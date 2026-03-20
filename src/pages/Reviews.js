@@ -148,7 +148,7 @@ export default function Reviews() {
   async function fetchScriptReviews() {
     try {
       const { data, error } = await supabase.from('script_reviews')
-        .select('*, creator:profiles!script_reviews_created_by_fkey(full_name), concept:concepts!script_reviews_concept_id_fkey(title)')
+        .select('*, creator:profiles!script_reviews_created_by_fkey(full_name), concept:concepts!script_reviews_concept_id_fkey(name)')
         .order('created_at', { ascending: false });
       if (error) throw error;
       // Fetch latest version number per review
@@ -171,7 +171,7 @@ export default function Reviews() {
 
   async function fetchConceptsForScript() {
     const { data } = await supabase.from('concepts')
-      .select('id, title')
+      .select('id, name')
       .order('created_at', { ascending: false });
     setConcepts(data || []);
   }
@@ -537,7 +537,7 @@ export default function Reviews() {
                   style={styles.scriptModalSelect}
                 >
                   <option value="">Select a concept...</option>
-                  {concepts.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+                  {concepts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
 
                 {conceptDocs.length > 0 && (
@@ -608,7 +608,7 @@ export default function Reviews() {
                   style={styles.scriptModalSelect}
                 >
                   <option value="">None</option>
-                  {concepts.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+                  {concepts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
 
                 <button
@@ -1350,7 +1350,7 @@ const HIGHLIGHT_COLOR_OPTIONS = [
 
 // ─── Document Viewer ──────────────────────────────────────────────────────────
 
-function DocumentViewer({ version, fileUrl, isLatest, onSwitchToCurrent, onTextSelect, annotations, activeAnnotationId, onAnnotationClick }) {
+function DocumentViewer({ version, fileUrl, conceptDocHtml, isLatest, onSwitchToCurrent, onTextSelect, annotations, activeAnnotationId, onAnnotationClick }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -1388,18 +1388,26 @@ function DocumentViewer({ version, fileUrl, isLatest, onSwitchToCurrent, onTextS
 
   // ─── Load document when version changes ────────────────────────────────
   useEffect(() => {
-    if (!version || !fileUrl) return;
+    if (!version) return;
     setError(null);
     setHtmlContent('');
     setPdfDoc(null);
     setPdfPages(0);
     setCurrentPage(1);
 
+    // Concept-linked doc: content passed directly as HTML
+    if (!fileUrl && conceptDocHtml) {
+      setHtmlContent(conceptDocHtml);
+      return;
+    }
+
+    if (!fileUrl) return;
+
     if (fileType === 'pdf') loadPdf();
     else if (fileType === 'docx') loadDocx();
     else if (fileType === 'html') loadHtml();
     else if (fileType === 'md') loadMarkdown();
-  }, [version?.id, fileUrl]);
+  }, [version?.id, fileUrl, conceptDocHtml]);
 
   // ─── PDF loading ───────────────────────────────────────────────────────
   async function loadPdf() {
@@ -1683,7 +1691,7 @@ function DocumentViewer({ version, fileUrl, isLatest, onSwitchToCurrent, onTextS
   }
 
   // No file attached (concept-only version)
-  if (!fileUrl) {
+  if (!fileUrl && !htmlContent) {
     return (
       <div style={dv.container}>
         {!isLatest && (
@@ -1696,12 +1704,9 @@ function DocumentViewer({ version, fileUrl, isLatest, onSwitchToCurrent, onTextS
           <span style={dv.emptyIcon}>📎</span>
           <p style={dv.emptyText}>
             {version.concept_document_id
-              ? 'This version references a concept document'
+              ? 'Loading concept document...'
               : 'No file attached to this version'}
           </p>
-          {version.concept_document_id && (
-            <p style={dv.emptyHint}>Concept documents are rendered inline — content will display here.</p>
-          )}
         </div>
       </div>
     );
@@ -1748,14 +1753,16 @@ function DocumentViewer({ version, fileUrl, isLatest, onSwitchToCurrent, onTextS
             </>
           )}
         </div>
-        <a
-          href={fileUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={dv.downloadBtn}
-        >
-          ↓ Download
-        </a>
+        {fileUrl && (
+          <a
+            href={fileUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={dv.downloadBtn}
+          >
+            ↓ Download
+          </a>
+        )}
       </div>
 
       {/* Document area */}
@@ -2191,6 +2198,20 @@ function ScriptReviewDetail({ review, onBack, profile, isAdmin }) {
   const [shareUrl, setShareUrl] = useState(null);
   const uploadRef = useRef(null);
   const [newVersionAlert, setNewVersionAlert] = useState(false);
+  const [conceptDocHtml, setConceptDocHtml] = useState('');
+
+  // Fetch concept document content when version is concept-linked (no file_url)
+  useEffect(() => {
+    if (!activeVersion) { setConceptDocHtml(''); return; }
+    if (activeVersion.file_url || !activeVersion.concept_document_id) { setConceptDocHtml(''); return; }
+    (async () => {
+      const { data } = await supabase.from('concept_documents')
+        .select('content')
+        .eq('id', activeVersion.concept_document_id)
+        .single();
+      setConceptDocHtml(data?.content?.html || '');
+    })();
+  }, [activeVersion?.id]);
 
   // Annotation state
   const [annotations, setAnnotations] = useState([]);
@@ -2703,12 +2724,12 @@ ${clone.innerHTML}
           <span style={sri.statusLabel}>Last updated</span>
           <span style={sri.statusValue}>{timeAgo(review.updated_at)}</span>
         </div>
-        {review.concept?.title && (
+        {review.concept?.name && (
           <>
             <div style={sri.statusDivider} />
             <div style={sri.statusItem}>
               <span style={sri.statusLabel}>Concept</span>
-              <span style={sri.statusValue}>{review.concept.title}</span>
+              <span style={sri.statusValue}>{review.concept.name}</span>
             </div>
           </>
         )}
@@ -2835,6 +2856,7 @@ ${clone.innerHTML}
           <DocumentViewer
             version={activeVersion}
             fileUrl={activeVersion?.file_url ? getDownloadUrl(activeVersion.file_url) : null}
+            conceptDocHtml={conceptDocHtml}
             isLatest={isLatest}
             onSwitchToCurrent={() => { if (versions.length > 0) setActiveVersion(versions[0]); }}
             onTextSelect={status === 'ready' ? null : handleTextSelect}
@@ -2932,7 +2954,7 @@ ${clone.innerHTML}
                       <span style={sfuStyles.destIcon}>✓</span>
                       <div>
                         <div style={sfuStyles.destTitle}>Linked to Concept</div>
-                        <div style={sfuStyles.destSub}>Annotations will be saved to the concept document version history{review.concept?.title ? ` for "${review.concept.title}"` : ''}.</div>
+                        <div style={sfuStyles.destSub}>Annotations will be saved to the concept document version history{review.concept?.name ? ` for "${review.concept.name}"` : ''}.</div>
                       </div>
                     </div>
                   ) : (
