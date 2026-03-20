@@ -402,24 +402,48 @@ export default function Dashboard({ onNavigate }) {
     if (!profile?.id) return;
     setEventsLoading(true);
     try {
-      const dayStart = new Date(todayStr + 'T00:00:00').toISOString();
-      const dayEnd = new Date(todayStr + 'T23:59:59').toISOString();
-      const { data, error } = await supabase
-        .from('calendar_events')
-        .select('*, creator:profiles!created_by(id, full_name)')
-        .lte('start_date', dayEnd)
-        .gte('end_date', dayStart)
-        .order('all_day', { ascending: false })
-        .order('start_date', { ascending: true });
-      if (error) throw error;
-      setTodayEvents(data || []);
+      if (isAdmin) {
+        // Admin: pull today's events from personal Google Calendar
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          const res = await fetch(
+            `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/google-calendar-fetch`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${session.access_token}`,
+                'apikey': process.env.REACT_APP_SUPABASE_ANON_KEY,
+              },
+              body: JSON.stringify({ date: todayStr }),
+            }
+          );
+          const result = await res.json();
+          setTodayEvents(result.events || []);
+        } else {
+          setTodayEvents([]);
+        }
+      } else {
+        // Non-admin: show Mayday calendar events as before
+        const dayStart = new Date(todayStr + 'T00:00:00').toISOString();
+        const dayEnd = new Date(todayStr + 'T23:59:59').toISOString();
+        const { data, error } = await supabase
+          .from('calendar_events')
+          .select('*, creator:profiles!created_by(id, full_name)')
+          .lte('start_date', dayEnd)
+          .gte('end_date', dayStart)
+          .order('all_day', { ascending: false })
+          .order('start_date', { ascending: true });
+        if (error) throw error;
+        setTodayEvents(data || []);
+      }
     } catch (err) {
       console.error('Error fetching today events:', err);
       setTodayEvents([]);
     } finally {
       setEventsLoading(false);
     }
-  }, [profile?.id, todayStr]);
+  }, [profile?.id, todayStr, isAdmin]);
 
   useEffect(() => {
     if (profile?.id) fetchTodayEvents();
@@ -884,6 +908,7 @@ export default function Dashboard({ onNavigate }) {
 
   // ── Today's Schedule renderer ──
   function renderTodaySchedule() {
+    const isGoogleSource = isAdmin && todayEvents.length > 0 && todayEvents[0]?.source === 'google';
     return (
       <div style={styles.scheduleSection}>
         <h3 style={styles.subSectionTitle}>Today's Schedule</h3>
@@ -894,8 +919,12 @@ export default function Dashboard({ onNavigate }) {
         ) : (
           <div style={styles.scheduleList}>
             {todayEvents.map(ev => {
-              const color = EVENT_TYPE_COLORS[ev.event_type] || '#6b7280';
-              const icon = EVENT_TYPE_ICONS[ev.event_type] || '\u2022';
+              const color = isGoogleSource
+                ? '#3b82f6'
+                : (EVENT_TYPE_COLORS[ev.event_type] || '#6b7280');
+              const icon = isGoogleSource
+                ? '\u2022'
+                : (EVENT_TYPE_ICONS[ev.event_type] || '\u2022');
               const startD = new Date(ev.start_date);
               const endD = new Date(ev.end_date);
               const timeStr = ev.all_day
@@ -906,7 +935,9 @@ export default function Dashboard({ onNavigate }) {
                   <div style={styles.scheduleItemHeader}>
                     <span style={{ fontSize: '13px' }}>{icon}</span>
                     <span style={{ ...styles.scheduleItemTitle, color }}>{ev.title}</span>
-                    <span style={styles.scheduleItemType}>{EVENT_TYPE_LABELS[ev.event_type]}</span>
+                    {!isGoogleSource && ev.event_type && (
+                      <span style={styles.scheduleItemType}>{EVENT_TYPE_LABELS[ev.event_type]}</span>
+                    )}
                   </div>
                   <div style={styles.scheduleItemMeta}>
                     <span>{timeStr}</span>
