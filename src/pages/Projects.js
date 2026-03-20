@@ -1032,18 +1032,6 @@ export default function Projects({ onNavigate }) {
           )}
         </button>
         <button
-          onClick={() => setActiveSection('series')}
-          style={{
-            ...styles.sectionTab,
-            ...(activeSection === 'series' ? styles.sectionTabActive : {}),
-          }}
-        >
-          Series
-          {seriesList.length > 0 && (
-            <span style={styles.sectionTabBadge}>{seriesList.length}</span>
-          )}
-        </button>
-        <button
           onClick={() => setActiveSection('sponsors')}
           style={{
             ...styles.sectionTab,
@@ -1064,9 +1052,14 @@ export default function Projects({ onNavigate }) {
           <h1 style={styles.pageTitle}>Projects</h1>
           <p style={styles.pageSubtitle}>{projects.length - archivedCount} active{archivedCount > 0 ? ` · ${archivedCount} archived` : ''}</p>
         </div>
-        <button onClick={() => setShowForm(!showForm)} style={styles.addBtn}>
-          {showForm ? '✕ Cancel' : '+ New Project'}
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button onClick={() => { resetSeriesForm(); setShowSeriesForm(!showSeriesForm); setShowForm(false); }} style={{ ...styles.addBtn, background: 'rgba(255,255,255,0.04)' }}>
+            {showSeriesForm && !editingSeries ? '✕ Cancel' : '+ New Series'}
+          </button>
+          <button onClick={() => { setShowForm(!showForm); setShowSeriesForm(false); }} style={styles.addBtn}>
+            {showForm ? '✕ Cancel' : '+ New Project'}
+          </button>
+        </div>
       </div>
 
       {/* Create Form */}
@@ -1327,6 +1320,100 @@ export default function Projects({ onNavigate }) {
           </div>
         </DragDropContext>
       )}
+
+      {/* ─── Series Section (below projects) ─── */}
+      {showSeriesForm && (
+        <form onSubmit={handleSaveSeries} style={{ ...styles.formCard, marginTop: '24px' }}>
+          <div style={styles.formGrid}>
+            <div style={styles.field}>
+              <label style={styles.label}>Series Title *</label>
+              <input
+                value={seriesForm.title}
+                onChange={(e) => setSeriesForm({ ...seriesForm, title: e.target.value })}
+                placeholder="e.g. iPhone Review Series"
+                required
+                style={styles.input}
+              />
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Description</label>
+              <textarea
+                value={seriesForm.description}
+                onChange={(e) => setSeriesForm({ ...seriesForm, description: e.target.value })}
+                placeholder="What is this series about?"
+                rows={2}
+                style={{ ...styles.input, resize: 'vertical' }}
+              />
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button type="submit" style={styles.submitBtn}>{editingSeries ? 'Update Series' : 'Create Series'}</button>
+            {editingSeries && <button type="button" onClick={resetSeriesForm} style={{ ...styles.submitBtn, background: 'rgba(255,255,255,0.06)' }}>Cancel</button>}
+          </div>
+        </form>
+      )}
+
+      {seriesList.length > 0 && (
+        <div style={{ marginTop: '32px' }}>
+          <h2 style={{ fontSize: '18px', fontWeight: 600, color: '#fff', margin: '0 0 16px' }}>Series</h2>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {seriesList.map(s => {
+              const seriesProjects = projects.filter(p => p.series_id === s.id && !p.is_archived);
+              const isExpanded = expandedSeriesId === s.id;
+              return (
+                <div key={s.id} style={seriesStyles.folder}>
+                  <div
+                    style={seriesStyles.folderHeader}
+                    onClick={() => setExpandedSeriesId(isExpanded ? null : s.id)}
+                  >
+                    <div style={seriesStyles.folderLeft}>
+                      <span style={seriesStyles.folderIcon}>{isExpanded ? '▾' : '▸'}</span>
+                      <div>
+                        <div style={seriesStyles.folderTitle}>{s.title}</div>
+                        {s.description && <div style={seriesStyles.folderDesc}>{s.description}</div>}
+                      </div>
+                    </div>
+                    <div style={seriesStyles.folderRight}>
+                      <span style={seriesStyles.projectCount}>{seriesProjects.length} project{seriesProjects.length !== 1 ? 's' : ''}</span>
+                      <button onClick={(e) => { e.stopPropagation(); startEditSeries(s); }} style={seriesStyles.iconBtn} title="Edit">✎</button>
+                      <button onClick={(e) => { e.stopPropagation(); handleDeleteSeries(s.id); }} style={seriesStyles.iconBtn} title="Delete">✕</button>
+                    </div>
+                  </div>
+                  {isExpanded && (
+                    <div style={seriesStyles.folderBody}>
+                      {seriesProjects.length === 0 ? (
+                        <p style={seriesStyles.emptyFolder}>No projects in this series. Assign projects from the project detail view.</p>
+                      ) : (
+                        seriesProjects.map(p => (
+                          <div key={p.id} style={seriesStyles.projectItem}>
+                            <div style={{ ...seriesStyles.statusDot, background: STATUS_COLORS[p.status] || '#666' }} />
+                            <div style={seriesStyles.projectInfo}>
+                              <span style={seriesStyles.projectName}>{p.name}</span>
+                              <span style={seriesStyles.projectMeta}>
+                                {STATUS_LABELS[p.status]} · {PROJECT_TYPES.find(t => t.value === p.type)?.label || p.type}
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => handleAssignProjectToSeries(p.id, null)}
+                              style={seriesStyles.removeBtn}
+                              title="Remove from series"
+                            >✕</button>
+                          </div>
+                        ))
+                      )}
+                      <SeriesProjectAdder
+                        seriesId={s.id}
+                        projects={projects.filter(p => !p.series_id && !p.is_archived)}
+                        onAssign={handleAssignProjectToSeries}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
       </>
       )}
 
@@ -1511,151 +1598,6 @@ export default function Projects({ onNavigate }) {
           </div>
         </DragDropContext>
       )}
-      </>
-      )}
-
-      {activeSection === 'series' && (
-      /* ====== SERIES SECTION ====== */
-      <>
-      <div style={styles.topBar}>
-        <div>
-          <h1 style={styles.pageTitle}>Series</h1>
-          <p style={styles.pageSubtitle}>{seriesList.length} series</p>
-        </div>
-        <button onClick={() => { resetSeriesForm(); setShowSeriesForm(!showSeriesForm); }} style={styles.addBtn}>
-          {showSeriesForm && !editingSeries ? '✕ Cancel' : '+ New Series'}
-        </button>
-      </div>
-
-      {showSeriesForm && (
-        <form onSubmit={handleSaveSeries} style={styles.formCard}>
-          <div style={styles.formGrid}>
-            <div style={styles.field}>
-              <label style={styles.label}>Series Title *</label>
-              <input
-                value={seriesForm.title}
-                onChange={(e) => setSeriesForm({ ...seriesForm, title: e.target.value })}
-                placeholder="e.g. iPhone Review Series"
-                required
-                style={styles.input}
-              />
-            </div>
-            <div style={styles.field}>
-              <label style={styles.label}>Description</label>
-              <textarea
-                value={seriesForm.description}
-                onChange={(e) => setSeriesForm({ ...seriesForm, description: e.target.value })}
-                placeholder="What is this series about?"
-                rows={2}
-                style={{ ...styles.input, resize: 'vertical' }}
-              />
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button type="submit" style={styles.submitBtn}>{editingSeries ? 'Update Series' : 'Create Series'}</button>
-            {editingSeries && <button type="button" onClick={resetSeriesForm} style={{ ...styles.submitBtn, background: 'rgba(255,255,255,0.06)' }}>Cancel</button>}
-          </div>
-        </form>
-      )}
-
-      {seriesLoading ? (
-        <p style={styles.emptyText}>Loading series...</p>
-      ) : seriesList.length === 0 ? (
-        <div style={styles.emptyCard}>
-          <p style={styles.emptyText}>No series yet. Create one to group projects together.</p>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {seriesList.map(s => {
-            const seriesProjects = projects.filter(p => p.series_id === s.id && !p.is_archived);
-            const isExpanded = expandedSeriesId === s.id;
-            return (
-              <div key={s.id} style={seriesStyles.folder}>
-                <div
-                  style={seriesStyles.folderHeader}
-                  onClick={() => setExpandedSeriesId(isExpanded ? null : s.id)}
-                >
-                  <div style={seriesStyles.folderLeft}>
-                    <span style={seriesStyles.folderIcon}>{isExpanded ? '▾' : '▸'}</span>
-                    <span style={seriesStyles.folderEmoji}>📁</span>
-                    <div>
-                      <div style={seriesStyles.folderTitle}>{s.title}</div>
-                      {s.description && <div style={seriesStyles.folderDesc}>{s.description}</div>}
-                    </div>
-                  </div>
-                  <div style={seriesStyles.folderRight}>
-                    <span style={seriesStyles.projectCount}>{seriesProjects.length} project{seriesProjects.length !== 1 ? 's' : ''}</span>
-                    <button onClick={(e) => { e.stopPropagation(); startEditSeries(s); }} style={seriesStyles.iconBtn} title="Edit">✎</button>
-                    <button onClick={(e) => { e.stopPropagation(); handleDeleteSeries(s.id); }} style={seriesStyles.iconBtn} title="Delete">✕</button>
-                  </div>
-                </div>
-                {isExpanded && (
-                  <div style={seriesStyles.folderBody}>
-                    {seriesProjects.length === 0 ? (
-                      <p style={seriesStyles.emptyFolder}>No projects in this series. Assign projects from the project detail view.</p>
-                    ) : (
-                      seriesProjects.map(p => (
-                        <div key={p.id} style={seriesStyles.projectItem}>
-                          <div style={{ ...seriesStyles.statusDot, background: STATUS_COLORS[p.status] || '#666' }} />
-                          <div style={seriesStyles.projectInfo}>
-                            <span style={seriesStyles.projectName}>{p.name}</span>
-                            <span style={seriesStyles.projectMeta}>
-                              {STATUS_LABELS[p.status]} · {PROJECT_TYPES.find(t => t.value === p.type)?.label || p.type}
-                            </span>
-                          </div>
-                          <button
-                            onClick={() => handleAssignProjectToSeries(p.id, null)}
-                            style={seriesStyles.removeBtn}
-                            title="Remove from series"
-                          >✕</button>
-                        </div>
-                      ))
-                    )}
-                    {/* Add project to series */}
-                    <SeriesProjectAdder
-                      seriesId={s.id}
-                      projects={projects.filter(p => !p.series_id && !p.is_archived)}
-                      onAssign={handleAssignProjectToSeries}
-                    />
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Unassigned projects */}
-      {(() => {
-        const unassigned = projects.filter(p => !p.series_id && !p.is_archived);
-        if (unassigned.length === 0) return null;
-        return (
-          <div style={{ marginTop: '24px' }}>
-            <h3 style={seriesStyles.unassignedTitle}>Unassigned Projects ({unassigned.length})</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              {unassigned.map(p => (
-                <div key={p.id} style={seriesStyles.projectItem}>
-                  <div style={{ ...seriesStyles.statusDot, background: STATUS_COLORS[p.status] || '#666' }} />
-                  <div style={seriesStyles.projectInfo}>
-                    <span style={seriesStyles.projectName}>{p.name}</span>
-                    <span style={seriesStyles.projectMeta}>
-                      {STATUS_LABELS[p.status]} · {PROJECT_TYPES.find(t => t.value === p.type)?.label || p.type}
-                    </span>
-                  </div>
-                  <select
-                    value=""
-                    onChange={(e) => { if (e.target.value) handleAssignProjectToSeries(p.id, e.target.value); }}
-                    style={seriesStyles.assignSelect}
-                  >
-                    <option value="">Add to series...</option>
-                    {seriesList.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
-                  </select>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })()}
       </>
       )}
 
@@ -2164,7 +2106,7 @@ function ProjectRow({
             <div style={styles.projectRowMeta}>
               {PROJECT_TYPES.find(t => t.value === project.type)?.label || project.type.replace('_', ' ')}
               {project.channel && ` · ${project.channel}`}
-              {project.series && <span style={{ color: 'rgba(255,255,255,0.35)' }}> · 📁 {project.series.title}</span>}
+              {project.series && <span style={{ color: 'rgba(255,255,255,0.35)' }}> · {project.series.title}</span>}
               {' · '}
               <span style={{ color: daysLeft < 0 ? '#ef4444' : daysLeft <= 3 ? '#f97316' : 'inherit' }}>
                 {daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue` : `${daysLeft}d left`}
@@ -2622,7 +2564,6 @@ function ProjectRow({
             <h4 style={styles.detailLabel}>Series</h4>
             {project.series ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '14px' }}>📁</span>
                 <span style={{ fontSize: '13px', color: '#fff' }}>{project.series.title}</span>
                 <button onClick={() => onAssignSeries(project.id, null)} style={styles.removeBtn}>✕</button>
               </div>
@@ -3031,9 +2972,6 @@ const seriesStyles = {
     fontSize: '12px',
     color: 'rgba(255,255,255,0.4)',
     width: '16px',
-  },
-  folderEmoji: {
-    fontSize: '20px',
   },
   folderTitle: {
     fontSize: '15px',
