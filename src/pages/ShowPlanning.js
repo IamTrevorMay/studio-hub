@@ -5,7 +5,7 @@ import Whiteboard from './editors/Whiteboard';
 import StickyBoard from './editors/StickyBoard';
 import DocEditor from './editors/DocEditor';
 import Storyboard from './editors/Storyboard';
-import ScreenplayEditor from './editors/ScreenplayEditor';
+import ScriptEditor from './editors/screenplay-editor/components/editor/ScriptEditor';
 
 const SEASONS = [
   { key: 'rampup', label: 'Ramp Up', start: '02-01', end: '03-14', color: '#22c55e' },
@@ -209,7 +209,8 @@ export default function ShowPlanning() {
     const EditorComponent = activeDoc.type === 'whiteboard' ? Whiteboard
       : activeDoc.type === 'stickyboard' ? StickyBoard
       : activeDoc.type === 'storyboard' ? Storyboard
-      : activeDoc.type === 'screenplay' ? ScreenplayEditor
+      : activeDoc.type === 'screenplay' ? ScriptEditor
+      : activeDoc.type === 'screenwriter' ? ScriptEditor
       : DocEditor;
     return (
       <EditorComponent

@@ -5,7 +5,7 @@ import Whiteboard from './editors/Whiteboard';
 import StickyBoard from './editors/StickyBoard';
 import DocEditor from './editors/DocEditor';
 import Storyboard from './editors/Storyboard';
-import ScreenplayEditor from './editors/ScreenplayEditor';
+import ScriptEditor from './editors/screenplay-editor/components/editor/ScriptEditor';
 
 const CONCEPT_COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#22c55e', '#3b82f6', '#ef4444', '#14b8a6'];
 const DOC_TYPES = {
@@ -13,7 +13,7 @@ const DOC_TYPES = {
   stickyboard: { label: 'Sticky Board', icon: '📌', desc: 'Drag & drop sticky notes' },
   document: { label: 'Document', icon: '📝', desc: 'Rich text editor with export' },
   storyboard: { label: 'Storyboard', icon: '🎬', desc: 'Multi-page visual storyboard' },
-  screenplay: { label: 'Screenplay', icon: '🎭', desc: 'Industry-standard screenwriting' },
+  screenwriter: { label: 'Screenwriter', icon: '🎬', desc: 'Industry-standard screenplay editor' },
 };
 
 export default function Ideation({ initialConceptId, onConceptOpened }) {
@@ -140,7 +140,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
       content = docForm.type === 'whiteboard' ? { strokes: [] }
         : docForm.type === 'stickyboard' ? { notes: [] }
         : docForm.type === 'storyboard' ? { pageCount: 1 }
-        : docForm.type === 'screenplay' ? { titlePage: { title: '', writtenBy: '', basedOn: '', draft: '', date: '', contact: '' }, elements: [{ id: Date.now().toString(), type: 'sceneHeading', text: '' }], notes: [] }
+        : docForm.type === 'screenwriter' ? { titlePage: { title: '', writtenBy: '', basedOn: '', draft: '', date: '', contact: '' }, elements: [], notes: [] }
         : { html: '' };
     }
 
@@ -508,7 +508,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
     const EditorComponent = activeDoc.type === 'whiteboard' ? Whiteboard
       : activeDoc.type === 'stickyboard' ? StickyBoard
       : activeDoc.type === 'storyboard' ? Storyboard
-      : activeDoc.type === 'screenplay' ? ScreenplayEditor
+      : activeDoc.type === 'screenwriter' ? ScriptEditor
       : DocEditor;
 
     const editorProps = {

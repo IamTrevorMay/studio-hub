@@ -182,7 +182,7 @@ export default function Reviews() {
     const { data } = await supabase.from('concept_documents')
       .select('id, title, type')
       .eq('concept_id', conceptId)
-      .in('type', ['document', 'screenplay'])
+      .in('type', ['document', 'screenplay', 'screenwriter'])
       .order('created_at', { ascending: false });
     setConceptDocs(data || []);
   }

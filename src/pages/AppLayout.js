@@ -504,7 +504,7 @@ export default function AppLayout() {
           {activeTab === 'research' && <Research />}
           {activeTab === 'reviews' && <Reviews />}
           {activeTab === 'goals' && <Goals />}
-          {activeTab === 'tools' && <Tools />}
+          {activeTab === 'tools' && <Tools onNavigate={navigateTo} />}
           {activeTab === 'screenwriter' && <Screenwriter initialScriptId={navTarget} onScriptOpened={() => setNavTarget(null)} />}
           {activeTab === 'posting' && canPost && <Posting />}
           {activeTab === 'channels' && <Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} />}

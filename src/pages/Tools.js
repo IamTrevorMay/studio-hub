@@ -37,6 +37,13 @@ const TOOLS = [
     description: 'End-to-end post-show workflow: video cutting, Drive uploads, Discord notifications, and Kanban sync.',
     color: '#ec4899',
   },
+  {
+    key: 'screenwriter',
+    name: 'Screenwriter',
+    description: 'Industry-standard screenplay editor with scene navigation, character manager, and FDX/PDF export.',
+    color: '#a78bfa',
+    navigateTo: 'screenwriter',
+  },
 ];
 
 const TRITON_BASE = 'https://tritonapex.io';
@@ -54,7 +61,7 @@ async function openTritonTool(targetPath) {
   }
 }
 
-export default function Tools() {
+export default function Tools({ onNavigate }) {
   const [activeTool, setActiveTool] = useState(null);
 
   if (activeTool === 'teleprompter') {
@@ -81,7 +88,9 @@ export default function Tools() {
           <button
             key={tool.key}
             onClick={() => {
-              if (tool.tritonPath) {
+              if (tool.navigateTo && onNavigate) {
+                onNavigate(tool.navigateTo);
+              } else if (tool.tritonPath) {
                 openTritonTool(tool.tritonPath);
               } else {
                 setActiveTool(tool.key);
