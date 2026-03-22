@@ -327,6 +327,8 @@ export function AuthProvider({ children }) {
   }, [user]);
 
   // ── Reconnect everything when tab becomes visible ──
+  // Refreshes auth token first, THEN dispatches 'app-tab-restored' so pages
+  // can re-fetch with a valid token (avoids race condition with stale tokens).
   useEffect(() => {
     if (!user) return;
     let hiddenAt = null;
@@ -338,13 +340,11 @@ export function AuthProvider({ children }) {
       }
       if (document.visibilityState !== 'visible') return;
 
-      // Only do the heavy reconnect if tab was hidden for 5+ seconds
       const away = hiddenAt ? Date.now() - hiddenAt : Infinity;
       hiddenAt = null;
-      if (away < 5000) return;
 
       try {
-        // 1. Always refresh auth token after being away (it may have expired)
+        // 1. Always refresh auth token after being away
         const { data: refreshData } = await supabase.auth.refreshSession();
         const session = refreshData?.session;
         if (session) {
@@ -357,6 +357,9 @@ export function AuthProvider({ children }) {
       } catch (e) {
         console.warn('Visibility reconnect failed:', e);
       }
+
+      // 4. Signal pages to re-fetch (token is now valid)
+      window.dispatchEvent(new CustomEvent('app-tab-restored', { detail: { away } }));
     };
 
     document.addEventListener('visibilitychange', handleVisibility);
