@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 export default function Messages({ onNavigate }) {
   const { profile } = useAuth();
@@ -21,6 +22,11 @@ export default function Messages({ onNavigate }) {
     fetchConversations();
     fetchTeamMembers();
   }, [profile?.id]);
+
+  useVisibilityRefresh(() => {
+    fetchConversations();
+    fetchTeamMembers();
+  });
 
   const fetchMessages = useCallback(async (conversationId) => {
     setLoadingMessages(true);

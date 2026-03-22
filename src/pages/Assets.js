@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:4400';
 
@@ -64,6 +65,8 @@ export default function Assets() {
   }, []);
 
   useEffect(() => { checkHealth(); }, [checkHealth]);
+
+  useVisibilityRefresh(() => { fetchListing(); checkHealth(); });
 
   // Fetch directory listing
   const fetchListing = useCallback(async (dirPath) => {

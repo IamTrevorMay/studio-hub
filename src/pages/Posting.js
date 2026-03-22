@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 const NETWORKS = [
   { key: 'twitter', label: 'Twitter/X', icon: '\uD83D\uDC26' },
@@ -116,6 +117,8 @@ export default function Posting() {
   useEffect(() => {
     fetchPosts();
   }, [fetchPosts]);
+
+  useVisibilityRefresh(() => { fetchPosts(); });
 
   // Fetch team members for admin permissions widget
   useEffect(() => {

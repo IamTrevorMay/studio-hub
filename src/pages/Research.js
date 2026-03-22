@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { tritonSupabase } from '../tritonClient';
 import { useAuth } from '../contexts/AuthContext';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 const SECTIONS = ['briefs', 'cards', 'news', 'newsletters', 'reports'];
 
@@ -310,6 +311,8 @@ export default function Research() {
       .finally(() => { setLoading(false); clearTimeout(timeout); });
     return () => clearTimeout(timeout);
   }, [fetchArticles, fetchNewsletters, fetchReports, fetchBriefs, fetchCardsArchive, fetchCardsConfig]);
+
+  useVisibilityRefresh(() => { fetchArticles(); fetchNewsletters(); fetchReports(); fetchBriefs(); fetchCardsArchive(); fetchCardsConfig(); });
 
   async function handleRefresh() {
     setRefreshing(true);

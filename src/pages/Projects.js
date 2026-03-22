@@ -3,6 +3,7 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 const STATUSES = ['concept', 'script', 'production', 'edit', 'review', 'published'];
 const STATUS_LABELS = {
@@ -178,6 +179,13 @@ export default function Projects({ onNavigate }) {
       supabase.removeChannel(channel);
     };
   }, [fetchProjects]);
+
+  useVisibilityRefresh(() => {
+    fetchProjects();
+    fetchTeamMembers();
+    fetchConcepts();
+    fetchSeries();
+  });
 
   async function fetchTeamMembers() {
     try {

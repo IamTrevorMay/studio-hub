@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 function applyFormatMarker(textareaRef, text, marker, setter) {
   const el = textareaRef.current;
@@ -50,6 +51,11 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
     fetchChannels();
     fetchTeamMembers();
   }, [profile?.id]);
+
+  useVisibilityRefresh(() => {
+    fetchChannels();
+    fetchTeamMembers();
+  });
 
   useEffect(() => {
     if (!initialChannelName || channels.length === 0) return;

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import MyBoard from '../components/MyBoard';
 
 const STATUS_COLORS = {
@@ -363,6 +364,12 @@ export default function Dashboard({ onNavigate }) {
     fetchSponsorDeliverables();
     return () => clearTimeout(timeout);
   }, [profile?.id, fetchStageTasks, fetchSponsorDeliverables]);
+
+  useVisibilityRefresh(() => {
+    fetchAssignments();
+    fetchStageTasks();
+    fetchSponsorDeliverables();
+  });
 
   useEffect(() => {
     if ((isAdmin || isAssistant) && profile?.id) {

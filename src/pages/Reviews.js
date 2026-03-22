@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import * as mammoth from 'mammoth';
 import { marked } from 'marked';
 
@@ -168,6 +169,11 @@ export default function Reviews() {
       fetchScriptReviews();
     }
   }, [profile?.id]);
+
+  useVisibilityRefresh(() => {
+    fetchReviews();
+    fetchScriptReviews();
+  });
 
   // Realtime subscription for new writer versions on script review cards
   useEffect(() => {

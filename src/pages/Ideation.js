@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import Whiteboard from './editors/Whiteboard';
 import StickyBoard from './editors/StickyBoard';
 import DocEditor from './editors/DocEditor';
@@ -49,6 +50,8 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
     fetchConcepts();
     fetchTemplates();
   }, [profile?.id]);
+
+  useVisibilityRefresh(() => { fetchConcepts(); fetchTemplates(); });
 
   // Handle deep-link from Projects page (works even when already mounted)
   useEffect(() => {

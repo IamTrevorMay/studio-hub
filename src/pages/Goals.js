@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 function formatDate(dateStr) {
   if (!dateStr) return '';
@@ -134,6 +135,8 @@ export default function Goals() {
   useEffect(() => {
     if (profile?.id) fetchAll();
   }, [profile?.id]);
+
+  useVisibilityRefresh(() => { fetchAll(); });
 
   async function fetchAll() {
     try {

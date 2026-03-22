@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 const STATUSES = ['concept', 'script', 'production', 'edit', 'review', 'published'];
 const STATUS_COLORS = {
@@ -257,6 +258,8 @@ export default function Calendar({ onNavigate }) {
       .finally(() => clearTimeout(timeout));
     return () => clearTimeout(timeout);
   }, []);
+
+  useVisibilityRefresh(() => { fetchProjects(); fetchCalendarEvents(); fetchHubUsers(); });
 
   useEffect(() => {
     fetchCalendarEvents();

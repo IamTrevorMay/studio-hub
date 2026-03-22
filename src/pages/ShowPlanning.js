@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import Whiteboard from './editors/Whiteboard';
 import StickyBoard from './editors/StickyBoard';
 import DocEditor from './editors/DocEditor';
@@ -68,6 +69,8 @@ export default function ShowPlanning() {
     if (!profile?.id) return;
     fetchData();
   }, [profile?.id, year]);
+
+  useVisibilityRefresh(() => { fetchData(); });
 
   async function fetchData() {
     setLoading(true);

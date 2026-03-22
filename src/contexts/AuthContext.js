@@ -329,22 +329,31 @@ export function AuthProvider({ children }) {
   // ── Reconnect everything when tab becomes visible ──
   useEffect(() => {
     if (!user) return;
+    let hiddenAt = null;
 
     const handleVisibility = async () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now();
+        return;
+      }
       if (document.visibilityState !== 'visible') return;
 
+      // Only do the heavy reconnect if tab was hidden for 5+ seconds
+      const away = hiddenAt ? Date.now() - hiddenAt : Infinity;
+      hiddenAt = null;
+      if (away < 5000) return;
+
       try {
-        // 1. Refresh auth token (may have expired while backgrounded)
-        const { data } = await supabase.auth.getSession();
-        if (data?.session) {
-          const expiresAt = data.session.expires_at;
-          const now = Math.floor(Date.now() / 1000);
-          if (expiresAt - now < 120) {
-            await supabase.auth.refreshSession();
-          }
-          // 2. Reconnect realtime WebSocket with fresh token
-          supabase.realtime.setAuth(data.session.access_token);
+        // 1. Always refresh auth token after being away (it may have expired)
+        const { data: refreshData } = await supabase.auth.refreshSession();
+        const session = refreshData?.session;
+        if (session) {
+          // 2. Reconnect realtime WebSocket with the fresh token
+          supabase.realtime.setAuth(session.access_token);
         }
+
+        // 3. Re-ping presence so status goes back to active immediately
+        supabase.from('profiles').update({ status: 'active', last_seen_at: new Date().toISOString() }).eq('id', user.id).then(() => {});
       } catch (e) {
         console.warn('Visibility reconnect failed:', e);
       }

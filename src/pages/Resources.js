@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import DocEditor from './editors/DocEditor';
 
 const FOLDER_COLORS = ['#3b82f6', '#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#22c55e', '#ef4444', '#14b8a6'];
@@ -26,6 +27,8 @@ export default function Resources() {
     if (!profile?.id) return;
     fetchFolders();
   }, [profile?.id]);
+
+  useVisibilityRefresh(() => { fetchFolders(); });
 
   useEffect(() => {
     if (activeFolder) fetchDocuments(activeFolder.id);
