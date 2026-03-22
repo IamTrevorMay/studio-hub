@@ -739,6 +739,9 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
   const [newVersionLabel, setNewVersionLabel] = useState('');
   const [filterResolved, setFilterResolved] = useState('all'); // all, open, resolved
   const timeInterval = useRef(null);
+  const commentsListRef = useRef(null);
+  const videoColRef = useRef(null);
+  const [videoColHeight, setVideoColHeight] = useState(null);
 
   // Details section state (tied to review.id, not version)
   const [thumbnails, setThumbnails] = useState([]);
@@ -769,6 +772,25 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
       loadPlayer(activeVersion.youtube_video_id);
     }
   }, [activeVersion?.id]);
+
+  // Measure video column height so comments panel matches it exactly
+  useEffect(() => {
+    const el = videoColRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setVideoColHeight(entry.contentRect.height);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // Auto-scroll comments list to bottom when comments change
+  useEffect(() => {
+    const el = commentsListRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [comments, filterResolved]);
 
   async function fetchVersions() {
     const { data } = await supabase.from('review_versions')
@@ -1079,14 +1101,14 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
 
       <div style={styles.playerLayout}>
         {/* Video */}
-        <div style={styles.videoCol}>
+        <div ref={videoColRef} style={styles.videoCol}>
           <div style={styles.videoWrap}>
             <div ref={playerRef} style={styles.videoEmbed} />
           </div>
         </div>
 
         {/* Comments Column */}
-        <div style={styles.commentsCol}>
+        <div style={{ ...styles.commentsCol, ...(videoColHeight ? { height: videoColHeight } : {}) }}>
           <div style={styles.commentsPanelHeader}>
             <h3 style={styles.commentsPanelTitle}>
               Notes
@@ -1107,7 +1129,7 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
               >Resolved{resolvedCount > 0 && ` (${resolvedCount})`}</button>
             </div>
           </div>
-          <div style={styles.commentsList}>
+          <div ref={commentsListRef} style={styles.commentsList}>
             {filteredComments.length === 0 ? (
               <p style={styles.emptyComments}>
                 {filterResolved === 'all' ? 'No comments yet. Play the video and add your first note.' :
@@ -3163,7 +3185,7 @@ const styles = {
   addVersionSubmit: { padding: '8px 16px', background: '#6366f1', border: 'none', borderRadius: '6px', color: '#fff', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
 
   // Player layout
-  playerLayout: { display: 'flex', gap: '24px', alignItems: 'stretch', position: 'relative' },
+  playerLayout: { display: 'flex', gap: '24px', position: 'relative' },
   videoCol: { flex: 1, minWidth: 0 },
   videoWrap: { position: 'relative', width: '100%', aspectRatio: '16/9', background: '#000', borderRadius: '12px', overflow: 'hidden' },
   videoEmbed: { width: '100%', height: '100%' },
@@ -3178,7 +3200,7 @@ const styles = {
   formatBtn: { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', color: 'rgba(255,255,255,0.5)', fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit', padding: '2px 7px', lineHeight: 1 },
 
   // Comments panel
-  commentsCol: { width: '340px', minWidth: '340px', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', overflow: 'hidden', minHeight: 0 },
+  commentsCol: { width: '340px', minWidth: '340px', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', overflow: 'hidden', flexShrink: 0 },
   commentsPanelHeader: { padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 },
   commentsPanelTitle: { fontSize: '14px', fontWeight: 700, color: '#e2e8f0', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: '8px' },
   commentCount: { background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '10px' },
