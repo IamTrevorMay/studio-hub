@@ -38,6 +38,101 @@ function timeAgo(dateStr) {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+// ─── Rich text helpers (bold/italic via markdown-style **bold** and *italic*) ─
+
+function renderFormattedText(text) {
+  if (!text) return text;
+  // Split into segments: **bold**, *italic*, and plain text
+  const parts = [];
+  let remaining = text;
+  let key = 0;
+  // Regex matches **bold** or *italic* (non-greedy)
+  const regex = /(\*\*(.+?)\*\*|\*(.+?)\*)/g;
+  let lastIndex = 0;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    // Push plain text before match
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    if (match[2]) {
+      // **bold**
+      parts.push(<strong key={key++} style={{ fontWeight: 700, color: 'rgba(255,255,255,0.9)' }}>{match[2]}</strong>);
+    } else if (match[3]) {
+      // *italic*
+      parts.push(<em key={key++}>{match[3]}</em>);
+    }
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+  return parts.length > 0 ? parts : text;
+}
+
+function FormattedCommentInput({ value, onChange, onSubmit, placeholder, style, autoFocus }) {
+  const ref = useRef(null);
+
+  function wrapSelection(before, after) {
+    const el = ref.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const text = value;
+    const selected = text.slice(start, end);
+    const newText = text.slice(0, start) + before + selected + after + text.slice(end);
+    onChange(newText);
+    // Restore cursor after the wrapped text
+    setTimeout(() => {
+      el.selectionStart = start + before.length;
+      el.selectionEnd = end + before.length;
+      el.focus();
+    }, 0);
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === 'b' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      wrapSelection('**', '**');
+    } else if (e.key === 'i' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      wrapSelection('*', '*');
+    } else if (e.key === 'Enter' && !e.shiftKey && onSubmit) {
+      e.preventDefault();
+      onSubmit(e);
+    }
+  }
+
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+      <div style={{ display: 'flex', gap: '2px' }}>
+        <button
+          type="button"
+          onClick={() => wrapSelection('**', '**')}
+          style={styles.formatBtn}
+          title="Bold (Ctrl+B)"
+        ><strong>B</strong></button>
+        <button
+          type="button"
+          onClick={() => wrapSelection('*', '*')}
+          style={styles.formatBtn}
+          title="Italic (Ctrl+I)"
+        ><em>I</em></button>
+      </div>
+      <textarea
+        ref={ref}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder={placeholder}
+        style={{ ...style, resize: 'none', minHeight: '36px', maxHeight: '100px' }}
+        autoFocus={autoFocus}
+        rows={1}
+      />
+    </div>
+  );
+}
+
 // ─── Review List ─────────────────────────────────────────────────────────────
 
 export default function Reviews() {
@@ -1059,9 +1154,10 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
         <div style={styles.commentTimeTag}>
           {formatTimestamp(ytPlayerRef.current?.getCurrentTime?.() || 0)}
         </div>
-        <input
+        <FormattedCommentInput
           value={commentText}
-          onChange={(e) => setCommentText(e.target.value)}
+          onChange={setCommentText}
+          onSubmit={handleAddComment}
           placeholder="Add a note at current timestamp..."
           style={styles.commentInput}
         />
@@ -1267,7 +1363,7 @@ function CommentCard({ comment: c, profile, isAdmin, onSeek, onResolve, onDelete
           {new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
         </span>
       </div>
-      <p style={styles.commentBody}>{c.content}</p>
+      <p style={styles.commentBody}>{renderFormattedText(c.content)}</p>
 
       {/* Action bar */}
       <div style={styles.commentActions}>
@@ -1305,7 +1401,7 @@ function CommentCard({ comment: c, profile, isAdmin, onSeek, onResolve, onDelete
                   <button onClick={() => onDeleteReply(r.id)} style={styles.replyDeleteBtn}>✕</button>
                 )}
               </div>
-              <p style={styles.replyBody}>{r.content}</p>
+              <p style={styles.replyBody}>{renderFormattedText(r.content)}</p>
             </div>
           ))}
         </div>
@@ -1314,9 +1410,10 @@ function CommentCard({ comment: c, profile, isAdmin, onSeek, onResolve, onDelete
       {/* Reply input */}
       {showReplyInput && (
         <form onSubmit={handleSubmitReply} style={styles.replyForm}>
-          <input
+          <FormattedCommentInput
             value={replyText}
-            onChange={(e) => setReplyText(e.target.value)}
+            onChange={setReplyText}
+            onSubmit={handleSubmitReply}
             placeholder="Write a reply..."
             style={styles.replyInput}
             autoFocus
@@ -3066,7 +3163,7 @@ const styles = {
   addVersionSubmit: { padding: '8px 16px', background: '#6366f1', border: 'none', borderRadius: '6px', color: '#fff', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
 
   // Player layout
-  playerLayout: { display: 'flex', gap: '24px', alignItems: 'stretch' },
+  playerLayout: { display: 'flex', gap: '24px', alignItems: 'stretch', position: 'relative' },
   videoCol: { flex: 1, minWidth: 0 },
   videoWrap: { position: 'relative', width: '100%', aspectRatio: '16/9', background: '#000', borderRadius: '12px', overflow: 'hidden' },
   videoEmbed: { width: '100%', height: '100%' },
@@ -3078,16 +3175,17 @@ const styles = {
   commentTimeTag: { padding: '5px 10px', background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: '6px', color: '#fbbf24', fontSize: '12px', fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' },
   commentInput: { flex: 1, padding: '10px 14px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '13px', fontFamily: 'inherit', outline: 'none' },
   commentSubmitBtn: { padding: '10px 18px', background: '#6366f1', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  formatBtn: { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', color: 'rgba(255,255,255,0.5)', fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit', padding: '2px 7px', lineHeight: 1 },
 
   // Comments panel
-  commentsCol: { width: '340px', minWidth: '340px', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', overflow: 'hidden' },
+  commentsCol: { width: '340px', minWidth: '340px', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', overflow: 'hidden', minHeight: 0 },
   commentsPanelHeader: { padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 },
   commentsPanelTitle: { fontSize: '14px', fontWeight: 700, color: '#e2e8f0', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: '8px' },
   commentCount: { background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '10px' },
   filterTabs: { display: 'flex', gap: '4px' },
   filterTab: { padding: '4px 10px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '6px', color: 'rgba(255,255,255,0.35)', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   filterTabActive: { background: 'rgba(99,102,241,0.1)', borderColor: 'rgba(99,102,241,0.25)', color: '#a5b4fc' },
-  commentsList: { flex: 1, overflow: 'auto', padding: '12px' },
+  commentsList: { flex: 1, overflow: 'auto', padding: '12px', minHeight: 0 },
   emptyComments: { color: 'rgba(255,255,255,0.25)', fontSize: '13px', textAlign: 'center', padding: '20px 0' },
 
   // Comment card
