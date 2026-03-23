@@ -24,6 +24,9 @@ export default function Resources() {
   const [contextMenu, setContextMenu] = useState(null); // { x, y, folder }
   const [renamingFolder, setRenamingFolder] = useState(null);
   const [renameValue, setRenameValue] = useState('');
+  const [docContextMenu, setDocContextMenu] = useState(null); // { x, y, doc }
+  const [renamingDoc, setRenamingDoc] = useState(null);
+  const [renameDocValue, setRenameDocValue] = useState('');
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -243,6 +246,15 @@ export default function Resources() {
     alert(`Created editable copy: "${doc.title} (editable)"`);
   }
 
+  async function handleRenameDoc(docId, newTitle) {
+    if (!newTitle.trim()) return;
+    const { error } = await supabase.from('resource_documents').update({ title: newTitle.trim() }).eq('id', docId);
+    if (error) { console.error(error); return; }
+    setRenamingDoc(null);
+    setRenameDocValue('');
+    if (activeFolder) fetchDocuments(activeFolder.id);
+  }
+
   async function handleMoveDoc(docId, newFolderId) {
     const { error } = await supabase.from('resource_documents')
       .update({ folder_id: newFolderId })
@@ -387,20 +399,41 @@ export default function Resources() {
             <p style={styles.emptyText}>No documents yet. Create one or upload files!</p>
           </div>
         ) : (
-          <div style={styles.docGrid}>
+          <div style={styles.docGrid} onClick={() => setDocContextMenu(null)}>
             {documents.map(doc => (
               <div
                 key={doc.id}
                 style={styles.docCard}
                 onClick={() => {
+                  if (renamingDoc === doc.id) return;
                   if (doc.type === 'upload') setViewingFile(doc);
                   else setActiveDoc(doc);
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDocContextMenu({ x: e.clientX, y: e.clientY, doc });
                 }}
               >
                 <div style={styles.docCardIcon}>
                   {doc.type === 'upload' ? getFileIcon(doc.file_type) : '📝'}
                 </div>
-                <div style={styles.docCardTitle}>{doc.title}</div>
+                {renamingDoc === doc.id ? (
+                  <input
+                    autoFocus
+                    value={renameDocValue}
+                    onChange={(e) => setRenameDocValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleRenameDoc(doc.id, renameDocValue);
+                      if (e.key === 'Escape') { setRenamingDoc(null); setRenameDocValue(''); }
+                    }}
+                    onBlur={() => handleRenameDoc(doc.id, renameDocValue)}
+                    onClick={(e) => e.stopPropagation()}
+                    style={styles.renameInput}
+                  />
+                ) : (
+                  <div style={styles.docCardTitle}>{doc.title}</div>
+                )}
                 <div style={styles.docCardMeta}>
                   {doc.type === 'upload' ? (
                     <>{doc.file_type?.toUpperCase()} · {formatFileSize(doc.file_size)}</>
@@ -426,6 +459,34 @@ export default function Resources() {
               </div>
             ))}
           </div>
+        )}
+
+        {/* Right-click context menu for documents */}
+        {docContextMenu && (
+          <>
+            <div style={styles.contextOverlay} onClick={() => setDocContextMenu(null)} onContextMenu={(e) => { e.preventDefault(); setDocContextMenu(null); }} />
+            <div style={{ ...styles.contextMenu, top: docContextMenu.y, left: docContextMenu.x }}>
+              <button
+                style={styles.contextMenuItem}
+                onClick={() => {
+                  setRenamingDoc(docContextMenu.doc.id);
+                  setRenameDocValue(docContextMenu.doc.title);
+                  setDocContextMenu(null);
+                }}
+              >
+                ✏️ Rename
+              </button>
+              <button
+                style={{ ...styles.contextMenuItem, color: '#ef4444' }}
+                onClick={() => {
+                  handleDeleteDoc(docContextMenu.doc.id);
+                  setDocContextMenu(null);
+                }}
+              >
+                🗑 Delete
+              </button>
+            </div>
+          </>
         )}
 
         {/* Move document modal */}

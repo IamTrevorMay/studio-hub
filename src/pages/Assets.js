@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
-const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:4400';
+const API_BASE = process.env.REACT_APP_API_URL || 'https://assets.maydaystudio.net';
 
 const DATASETS = [
   { key: 'video', label: 'Video', color: '#6366f1', icon: 'M4 4h12a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2zM9 8l4 2.5L9 13V8z' },
