@@ -790,13 +790,15 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
     return () => observer.disconnect();
   }, []);
 
-  // Auto-scroll comments list to bottom when comments change
+  // Auto-scroll comments list to bottom only when new comments are added
+  const prevCommentsLengthRef = useRef(0);
   useEffect(() => {
     const el = commentsListRef.current;
-    if (el) {
+    if (el && comments.length > prevCommentsLengthRef.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [comments, filterResolved]);
+    prevCommentsLengthRef.current = comments.length;
+  }, [comments]);
 
   async function fetchVersions() {
     const { data } = await supabase.from('review_versions')
@@ -1161,14 +1163,23 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
       </div>
 
       {/* Timeline + Comment Input (below video+notes row) */}
-      <div style={styles.timeline}>
+      <div
+        style={styles.timeline}
+        onClick={(e) => {
+          if (duration > 0) {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+            seekTo(pct * duration);
+          }
+        }}
+      >
         {duration > 0 && (
           <div style={{ ...styles.timelineProgress, width: `${(currentTime / duration) * 100}%` }} />
         )}
         {markers.map(m => (
           <button
             key={m.id}
-            onClick={() => seekTo(m.timestamp_seconds)}
+            onClick={(e) => { e.stopPropagation(); seekTo(m.timestamp_seconds); }}
             style={{ ...styles.timelineMarker, left: `${m.pct}%` }}
             title={`${formatTimestamp(m.timestamp_seconds)} — ${m.commenter?.full_name}: ${m.content.substring(0, 40)}`}
           />

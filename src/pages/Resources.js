@@ -21,6 +21,9 @@ export default function Resources() {
   const [viewingFile, setViewingFile] = useState(null);
   const [editingUpload, setEditingUpload] = useState(null);
   const [movingDoc, setMovingDoc] = useState(null);
+  const [contextMenu, setContextMenu] = useState(null); // { x, y, folder }
+  const [renamingFolder, setRenamingFolder] = useState(null);
+  const [renameValue, setRenameValue] = useState('');
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -97,6 +100,15 @@ export default function Resources() {
     if (!window.confirm('Delete this folder and all its documents?')) return;
     await supabase.from('resource_folders').delete().eq('id', folderId);
     if (activeFolder?.id === folderId) { setActiveFolder(null); setActiveDoc(null); }
+    fetchFolders();
+  }
+
+  async function handleRenameFolder(folderId, newName) {
+    if (!newName.trim()) return;
+    const { error } = await supabase.from('resource_folders').update({ name: newName.trim() }).eq('id', folderId);
+    if (error) { console.error(error); return; }
+    setRenamingFolder(null);
+    setRenameValue('');
     fetchFolders();
   }
 
@@ -495,17 +507,37 @@ export default function Resources() {
           <p style={styles.emptyText}>No resource folders yet. Create one to get started!</p>
         </div>
       ) : (
-        <div style={styles.folderGrid}>
+        <div style={styles.folderGrid} onClick={() => setContextMenu(null)}>
           {folders.map(folder => (
             <div
               key={folder.id}
               style={styles.folderCard}
               onClick={() => setActiveFolder(folder)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setContextMenu({ x: e.clientX, y: e.clientY, folder });
+              }}
             >
               <div style={{ ...styles.folderCardStripe, background: folder.color }} />
               <div style={styles.folderCardBody}>
                 <div style={{ fontSize: '28px', marginBottom: '8px' }}>📁</div>
-                <h3 style={styles.folderCardName}>{folder.name}</h3>
+                {renamingFolder === folder.id ? (
+                  <input
+                    autoFocus
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleRenameFolder(folder.id, renameValue);
+                      if (e.key === 'Escape') { setRenamingFolder(null); setRenameValue(''); }
+                    }}
+                    onBlur={() => handleRenameFolder(folder.id, renameValue)}
+                    onClick={(e) => e.stopPropagation()}
+                    style={styles.renameInput}
+                  />
+                ) : (
+                  <h3 style={styles.folderCardName}>{folder.name}</h3>
+                )}
                 {folder.description && <p style={styles.folderCardDesc}>{folder.description}</p>}
                 <div style={styles.folderCardFooter}>
                   <span style={styles.folderCardMeta}>
@@ -520,6 +552,35 @@ export default function Resources() {
             </div>
           ))}
         </div>
+
+      )}
+
+      {/* Right-click context menu */}
+      {contextMenu && (
+        <>
+          <div style={styles.contextOverlay} onClick={() => setContextMenu(null)} onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }} />
+          <div style={{ ...styles.contextMenu, top: contextMenu.y, left: contextMenu.x }}>
+            <button
+              style={styles.contextMenuItem}
+              onClick={() => {
+                setRenamingFolder(contextMenu.folder.id);
+                setRenameValue(contextMenu.folder.name);
+                setContextMenu(null);
+              }}
+            >
+              ✏️ Rename
+            </button>
+            <button
+              style={{ ...styles.contextMenuItem, color: '#ef4444' }}
+              onClick={() => {
+                handleDeleteFolder(contextMenu.folder.id);
+                setContextMenu(null);
+              }}
+            >
+              🗑 Delete
+            </button>
+          </div>
+        </>
       )}
     </div>
   );
@@ -585,4 +646,8 @@ const styles = {
   modalList: { display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '16px', maxHeight: '300px', overflow: 'auto' },
   modalItem: { display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', color: '#e2e8f0', fontSize: '14px', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 500, textAlign: 'left' },
   modalCancel: { width: '100%', padding: '10px', background: 'none', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: 'rgba(255,255,255,0.5)', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' },
+  contextOverlay: { position: 'fixed', inset: 0, zIndex: 999 },
+  contextMenu: { position: 'fixed', zIndex: 1000, background: '#1e1e32', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '10px', padding: '4px', minWidth: '160px', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' },
+  contextMenuItem: { display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '8px 12px', background: 'none', border: 'none', borderRadius: '6px', color: '#e2e8f0', fontSize: '13px', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' },
+  renameInput: { width: '100%', padding: '4px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(99,102,241,0.5)', borderRadius: '6px', color: '#fff', fontSize: '16px', fontWeight: 700, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' },
 };
