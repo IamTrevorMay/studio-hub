@@ -1625,7 +1625,7 @@ export default function Dashboard({ onNavigate }) {
       )}
 
       {/* My Board */}
-      <MyBoard profile={profile} onNavigate={onNavigate} />
+      <MyBoard profile={profile} onNavigate={onNavigate} todayEvents={todayEvents} />
 
       {/* Morty Mascot Controls */}
       <div style={{

@@ -18,6 +18,22 @@ const CATEGORY_OPTIONS = [
 
 const PROJECT_STATUSES = ['concept', 'script', 'production', 'edit', 'review', 'published'];
 
+const EVENT_TYPE_COLORS = {
+  deadline: '#ef4444', meeting: '#3b82f6', live_recording: '#22c55e',
+  filming: '#f59e0b', video_post: '#a855f7', unavailable: '#6b7280',
+  sponsor: '#10b981',
+};
+const EVENT_TYPE_LABELS = {
+  deadline: 'Deadline', meeting: 'Meeting', live_recording: 'Live/Recording',
+  filming: 'Filming', video_post: 'Video Post', unavailable: 'Unavailable',
+  sponsor: 'Sponsor',
+};
+const EVENT_TYPE_ICONS = {
+  deadline: '\u23F0', meeting: '\uD83D\uDC65', live_recording: '\uD83D\uDD34',
+  filming: '\uD83C\uDFAC', video_post: '\uD83D\uDCF9', unavailable: '\uD83D\uDEAB',
+  sponsor: '\uD83E\uDD1D',
+};
+
 const PRIORITY_COLORS = { high: '#ef4444', medium: '#f59e0b', low: '#6b7280' };
 const PRIORITY_OPTIONS = [
   { value: null, label: 'None' },
@@ -74,6 +90,49 @@ function TaskCard({ task, index, onClick, projectsMap, campaignsMap }) {
         </div>
       )}
     </Draggable>
+  );
+}
+
+// ─── ScheduleCard (auto-generated from calendar events) ────
+function ScheduleCard({ event }) {
+  const typeColor = EVENT_TYPE_COLORS[event.event_type] || '#6b7280';
+  const typeLabel = EVENT_TYPE_LABELS[event.event_type] || event.event_type;
+  const typeIcon = EVENT_TYPE_ICONS[event.event_type] || '';
+
+  let timeStr = 'All day';
+  if (!event.all_day) {
+    const start = new Date(event.start_date);
+    const end = new Date(event.end_date);
+    const fmt = (d) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    timeStr = `${fmt(start)} – ${fmt(end)}`;
+  }
+
+  return (
+    <div style={{
+      ...cardStyle,
+      borderLeft: `3px solid ${typeColor}`,
+      background: `${typeColor}0a`,
+      opacity: 0.95,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+        <span style={{ fontSize: '12px' }}>{typeIcon}</span>
+        <span style={{ fontSize: '13px', color: '#e2e8f0', lineHeight: '1.4', fontWeight: 500 }}>
+          {event.title}
+        </span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+        <span style={{
+          fontSize: '10px', padding: '1px 6px', borderRadius: '4px',
+          background: `${typeColor}22`, color: typeColor,
+          fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px',
+        }}>
+          {typeLabel}
+        </span>
+        <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)' }}>
+          {timeStr}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -182,7 +241,7 @@ function TaskDetailModal({ task, onClose, onSave, onDelete, projects, concepts, 
 }
 
 // ─── MyBoard (main export) ──────────────────────────────────
-export default function MyBoard({ profile, onNavigate }) {
+export default function MyBoard({ profile, onNavigate, todayEvents = [] }) {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newTaskText, setNewTaskText] = useState('');
@@ -422,7 +481,7 @@ export default function MyBoard({ profile, onNavigate }) {
         <div style={boardStyle}>
           {COLUMNS.map(col => {
             const colTasks = getVisibleTasks(col.id);
-            const totalCount = tasks.filter(t => t.status === col.id).length;
+            const totalCount = tasks.filter(t => t.status === col.id).length + (col.id === 'today' ? todayEvents.length : 0);
             const hiddenCount = col.id === 'done' ? getDoneHiddenCount() : 0;
 
             return (
@@ -447,6 +506,10 @@ export default function MyBoard({ profile, onNavigate }) {
 
                     {/* Cards */}
                     <div style={columnBodyStyle}>
+                      {/* Schedule cards auto-populated from Today's Schedule */}
+                      {col.id === 'today' && todayEvents.length > 0 && todayEvents.map(evt => (
+                        <ScheduleCard key={`sched-${evt.id}`} event={evt} />
+                      ))}
                       {colTasks.map((task, index) => (
                         <TaskCard
                           key={task.id}
