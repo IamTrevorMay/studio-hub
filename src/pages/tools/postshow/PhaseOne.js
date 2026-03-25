@@ -3,7 +3,14 @@ import { createClip, isClipReady, isValidTimestamp, formatTimestamp, parseTimest
 
 // ─── Clip Row ───────────────────────────────────────────────────────────
 function ClipRow({ clip, index, onChange, onRemove, onPreview, recipients }) {
-  const update = (field, value) => onChange(index, { ...clip, [field]: value });
+  const update = (field, value) => {
+    if (field === 'assignee') {
+      const recipient = recipients.find(r => r.id === value);
+      onChange(index, { ...clip, assignee: value, driveFolder: recipient?.driveFolderPath || '' });
+    } else {
+      onChange(index, { ...clip, [field]: value });
+    }
+  };
 
   return (
     <div style={st.clipRow}>

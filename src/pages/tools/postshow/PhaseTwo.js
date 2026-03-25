@@ -38,14 +38,17 @@ export default function PhaseTwo({ session, onSessionChange, recipients, setting
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          clips: toUpload.map(c => ({
-            id: c.id,
-            title: c.title,
-            type: c.type,
-            outputFormat: c.outputFormat,
-            assignee: c.assignee,
-            driveFolder: c.driveFolder,
-          })),
+          clips: toUpload.map(c => {
+            const r = recipients.find(r => r.id === c.assignee);
+            return {
+              id: c.id,
+              title: c.title,
+              type: c.type,
+              outputFormat: c.outputFormat,
+              assignee: c.assignee,
+              driveFolder: c.driveFolder || r?.driveFolderPath || '',
+            };
+          }),
         }),
       });
 

@@ -23,11 +23,23 @@ router.post('/upload', async (req, res) => {
 
   let driveClient;
   try {
-    const auth = new google.auth.GoogleAuth({
-      keyFile: credentialsPath,
-      scopes: ['https://www.googleapis.com/auth/drive'],
-    });
-    driveClient = google.drive({ version: 'v3', auth });
+    const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+    const refreshToken = process.env.GOOGLE_OAUTH_REFRESH_TOKEN;
+
+    if (clientId && clientSecret && refreshToken) {
+      // Use OAuth2 (uploads as you, uses your Drive quota)
+      const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+      oauth2Client.setCredentials({ refresh_token: refreshToken });
+      driveClient = google.drive({ version: 'v3', auth: oauth2Client });
+    } else {
+      // Fallback to service account
+      const auth = new google.auth.GoogleAuth({
+        keyFile: credentialsPath,
+        scopes: ['https://www.googleapis.com/auth/drive'],
+      });
+      driveClient = google.drive({ version: 'v3', auth });
+    }
   } catch (err) {
     return res.status(500).json({ error: `Google auth failed: ${err.message}` });
   }
@@ -49,6 +61,7 @@ router.post('/upload', async (req, res) => {
 
     try {
       // Resolve or create the Drive folder path
+      console.log(`[Drive] "${title}" → driveFolder: "${driveFolder || '(none)'}"`);
       const targetFolderId = await resolveFolder(driveClient, rootFolderId, driveFolder, folderCache);
 
       // Upload the file
@@ -93,6 +106,8 @@ async function resolveFolder(drive, rootId, folderPath, cache) {
     const searchRes = await drive.files.list({
       q: `'${currentId}' in parents and name = '${part}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
       fields: 'files(id)',
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
     });
 
     if (searchRes.data.files.length > 0) {
@@ -106,6 +121,7 @@ async function resolveFolder(drive, rootId, folderPath, cache) {
           parents: [currentId],
         },
         fields: 'id',
+        supportsAllDrives: true,
       });
       currentId = createRes.data.id;
     }
