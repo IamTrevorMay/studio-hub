@@ -4,6 +4,7 @@ import { STATUS_COLORS, STATUS_LABELS } from './postShowConstants';
 export default function PhaseTwo({ session, onSessionChange, recipients, settings }) {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
+  const [clipProgress, setClipProgress] = useState({}); // { [clipId]: 'waiting' | 'uploading' | 'done' | 'error' }
 
   const clips = (session.clips || []).filter(c => c.status === 'cut' || c.status === 'uploaded' || c.status === 'uploading');
   const shorts = clips.filter(c => c.type === 'short');
@@ -27,51 +28,63 @@ export default function PhaseTwo({ session, onSessionChange, recipients, setting
     setUploading(true);
     setUploadProgress({ done: 0, total: toUpload.length });
 
-    // Mark uploading
+    // Initialize all clip progress to waiting
+    const initialProgress = {};
+    toUpload.forEach(c => { initialProgress[c.id] = 'waiting'; });
+    setClipProgress(initialProgress);
+
+    // Mark all as uploading status in session
     let allClips = session.clips.map(c =>
       toUpload.find(u => u.id === c.id) ? { ...c, status: 'uploading' } : c
     );
     onSessionChange({ ...session, clips: allClips });
 
-    try {
-      const resp = await fetch(`${settings.apiBaseUrl}/api/drive/upload`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          clips: toUpload.map(c => {
-            const r = recipients.find(r => r.id === c.assignee);
-            return {
-              id: c.id,
-              title: c.title,
-              type: c.type,
-              outputFormat: c.outputFormat,
-              assignee: c.assignee,
-              driveFolder: c.driveFolder || r?.driveFolderPath || '',
-            };
+    let doneCount = 0;
+
+    for (const clip of toUpload) {
+      // Set this clip to uploading
+      setClipProgress(prev => ({ ...prev, [clip.id]: 'uploading' }));
+
+      try {
+        const r = recipients.find(r => r.id === clip.assignee);
+        const resp = await fetch(`${settings.apiBaseUrl}/api/drive/upload`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            clips: [{
+              id: clip.id,
+              title: clip.title,
+              type: clip.type,
+              outputFormat: clip.outputFormat,
+              assignee: clip.assignee,
+              driveFolder: clip.driveFolder || r?.driveFolderPath || '',
+            }],
           }),
-        }),
-      });
+        });
 
-      if (!resp.ok) throw new Error(await resp.text() || 'Upload failed');
-      const result = await resp.json();
+        if (!resp.ok) throw new Error(await resp.text() || 'Upload failed');
+        const result = await resp.json();
+        const clipResult = (result.results || [])[0];
 
-      const statusMap = {};
-      (result.results || []).forEach(r => {
-        statusMap[r.id] = r.success ? 'uploaded' : 'error';
-      });
-      allClips = session.clips.map(c => statusMap[c.id] ? { ...c, status: statusMap[c.id], driveLink: result.results?.find(r => r.id === c.id)?.driveLink || '' } : c);
+        if (clipResult?.success) {
+          setClipProgress(prev => ({ ...prev, [clip.id]: 'done' }));
+          allClips = allClips.map(c => c.id === clip.id ? { ...c, status: 'uploaded', driveLink: clipResult.driveLink || '' } : c);
+        } else {
+          setClipProgress(prev => ({ ...prev, [clip.id]: 'error' }));
+          allClips = allClips.map(c => c.id === clip.id ? { ...c, status: 'cut' } : c);
+        }
+      } catch (err) {
+        console.error(`Upload error for clip ${clip.id}:`, err);
+        setClipProgress(prev => ({ ...prev, [clip.id]: 'error' }));
+        allClips = allClips.map(c => c.id === clip.id ? { ...c, status: 'cut' } : c);
+      }
+
+      doneCount++;
+      setUploadProgress({ done: doneCount, total: toUpload.length });
       onSessionChange({ ...session, clips: allClips });
-      setUploadProgress({ done: toUpload.length, total: toUpload.length });
-    } catch (err) {
-      console.error('Upload error:', err);
-      alert(`Upload failed: ${err.message}\n\nMake sure the local API service is running at ${settings.apiBaseUrl}`);
-      allClips = session.clips.map(c =>
-        toUpload.find(u => u.id === c.id) ? { ...c, status: 'cut' } : c
-      );
-      onSessionChange({ ...session, clips: allClips });
-    } finally {
-      setUploading(false);
     }
+
+    setUploading(false);
   }
 
   function renderClipGroup(title, groupClips) {
@@ -88,28 +101,45 @@ export default function PhaseTwo({ session, onSessionChange, recipients, setting
           </div>
           {groupClips.map(clip => {
             const recipient = recipients.find(r => r.id === clip.assignee);
+            const progress = clipProgress[clip.id];
             return (
               <div key={clip.id} style={st.tableRow}>
-                <span style={{ ...st.cell, flex: 2, color: '#e2e8f0', fontWeight: 500 }}>{clip.title}</span>
-                <span style={st.cell}>
-                  <span style={{ ...st.badge, background: STATUS_COLORS[clip.status] + '22', color: STATUS_COLORS[clip.status] }}>
-                    {STATUS_LABELS[clip.status]}
-                  </span>
-                </span>
-                <span style={{ ...st.cell, flex: 1.5 }}>
-                  <select
-                    style={st.select}
-                    value={clip.assignee}
-                    onChange={e => updateClipAssignee(clip.id, e.target.value)}
-                    disabled={clip.status === 'uploading'}
-                  >
-                    <option value="">Assign...</option>
-                    {recipients.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                  </select>
-                </span>
-                <span style={{ ...st.cell, color: 'rgba(255,255,255,0.3)', fontSize: '12px' }}>
-                  {recipient?.driveFolderPath || '—'}
-                </span>
+                <div style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: '0' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ ...st.cell, flex: 2, color: '#e2e8f0', fontWeight: 500 }}>{clip.title}</span>
+                    <span style={st.cell}>
+                      <span style={{ ...st.badge, background: STATUS_COLORS[clip.status] + '22', color: STATUS_COLORS[clip.status] }}>
+                        {STATUS_LABELS[clip.status]}
+                      </span>
+                    </span>
+                    <span style={{ ...st.cell, flex: 1.5 }}>
+                      <select
+                        style={st.select}
+                        value={clip.assignee}
+                        onChange={e => updateClipAssignee(clip.id, e.target.value)}
+                        disabled={clip.status === 'uploading'}
+                      >
+                        <option value="">Assign...</option>
+                        {recipients.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                      </select>
+                    </span>
+                    <span style={{ ...st.cell, color: 'rgba(255,255,255,0.3)', fontSize: '12px' }}>
+                      {recipient?.driveFolderPath || '—'}
+                    </span>
+                  </div>
+                  {/* Per-clip progress bar */}
+                  {progress && (
+                    <div style={st.progressBarTrack}>
+                      <div style={{
+                        ...st.progressBarFill,
+                        ...(progress === 'waiting' ? st.progressWaiting : {}),
+                        ...(progress === 'uploading' ? st.progressUploading : {}),
+                        ...(progress === 'done' ? st.progressDone : {}),
+                        ...(progress === 'error' ? st.progressError : {}),
+                      }} />
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}
@@ -122,6 +152,12 @@ export default function PhaseTwo({ session, onSessionChange, recipients, setting
 
   return (
     <div style={st.phase}>
+      <style>{`
+        @keyframes progressShimmer {
+          0% { background-position: -200% 0; }
+          100% { background-position: 200% 0; }
+        }
+      `}</style>
       {clips.length === 0 ? (
         <div style={st.emptyState}>
           <p style={st.emptyText}>No cut clips yet. Complete Phase 1 to cut video clips first.</p>
@@ -163,7 +199,7 @@ const st = {
     color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.5px',
   },
   tableRow: {
-    display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px',
+    display: 'flex', alignItems: 'stretch', gap: '0', padding: '10px 14px',
     borderTop: '1px solid rgba(255,255,255,0.04)', fontSize: '13px', color: 'rgba(255,255,255,0.5)',
   },
   cell: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
@@ -190,4 +226,23 @@ const st = {
     border: '1px dashed rgba(255,255,255,0.08)', borderRadius: '10px',
   },
   emptyText: { fontSize: '13px', color: 'rgba(255,255,255,0.3)', margin: 0 },
+
+  // Per-clip progress bars
+  progressBarTrack: {
+    height: '3px', borderRadius: '2px', background: 'rgba(255,255,255,0.06)',
+    width: '100%', marginTop: '6px', overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%', borderRadius: '2px', transition: 'width 0.3s, background 0.3s',
+    width: '100%',
+  },
+  progressWaiting: { background: 'rgba(255,255,255,0.1)', width: '100%' },
+  progressUploading: {
+    background: 'linear-gradient(90deg, #6366f1, #818cf8, #6366f1)',
+    backgroundSize: '200% 100%',
+    animation: 'progressShimmer 1.5s ease-in-out infinite',
+    width: '100%',
+  },
+  progressDone: { background: '#22c55e', width: '100%' },
+  progressError: { background: '#ef4444', width: '100%' },
 };

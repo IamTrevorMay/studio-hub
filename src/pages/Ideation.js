@@ -10,6 +10,12 @@ import Storyboard from './editors/Storyboard';
 import ScriptEditor from './editors/screenplay-editor/components/editor/ScriptEditor';
 
 const CONCEPT_COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#22c55e', '#3b82f6', '#ef4444', '#14b8a6'];
+const CONCEPT_CATEGORIES = [
+  { value: 'articles', label: 'Articles' },
+  { value: 'long_form_video', label: 'Long Form Video' },
+  { value: 'short_form_video', label: 'Short Form Video' },
+  { value: 'other', label: 'Other' },
+];
 const DOC_TYPES = {
   whiteboard: { label: 'Whiteboard', icon: '🎨', desc: 'Freehand drawing canvas' },
   stickyboard: { label: 'Sticky Board', icon: '📌', desc: 'Drag & drop sticky notes' },
@@ -23,7 +29,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
   const [concepts, setConcepts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreateConcept, setShowCreateConcept] = useState(false);
-  const [conceptForm, setConceptForm] = useState({ name: '', description: '', color: '#6366f1' });
+  const [conceptForm, setConceptForm] = useState({ name: '', description: '', color: '#6366f1', category: 'other' });
   const [activeConcept, setActiveConcept] = useState(null);
   const [documents, setDocuments] = useState([]);
   const [activeDoc, setActiveDoc] = useState(null);
@@ -53,13 +59,23 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
   const [toast, setToast] = useState(null);
   const [feedbackFilter, setFeedbackFilter] = useState('all');
 
+  // Document context menu & rename state
+  const [docContextMenu, setDocContextMenu] = useState(null); // { x, y, doc }
+  const [renamingDoc, setRenamingDoc] = useState(null);
+  const [renameDocValue, setRenameDocValue] = useState('');
+
+  // All Documents section
+  const [allDocs, setAllDocs] = useState([]);
+  const [allDocsLoading, setAllDocsLoading] = useState(false);
+
   useEffect(() => {
     if (!profile?.id) return;
     fetchConcepts();
     fetchTemplates();
+    fetchAllDocs();
   }, [profile?.id]);
 
-  useVisibilityRefresh(() => { fetchConcepts(); fetchTemplates(); });
+  useVisibilityRefresh(() => { fetchConcepts(); fetchTemplates(); fetchAllDocs(); });
 
   // Handle deep-link from Projects page (works even when already mounted)
   useEffect(() => {
@@ -97,7 +113,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
       const { data, error } = await supabase.from('concept_documents')
         .select('id, concept_id, type, title, created_at, updated_at, created_by')
         .eq('concept_id', conceptId)
-        .order('created_at', { ascending: true });
+        .order('sort_order', { ascending: true });
       if (error) throw error;
       setDocuments(data || []);
     } catch (err) {
@@ -116,6 +132,42 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
     }
   }
 
+  async function fetchAllDocs() {
+    setAllDocsLoading(true);
+    try {
+      const { data } = await supabase.from('concept_documents')
+        .select('id, concept_id, type, title, created_at, updated_at')
+        .order('updated_at', { ascending: false })
+        .limit(100);
+      setAllDocs(data || []);
+    } catch (err) {
+      console.error('Error fetching all docs:', err);
+    } finally {
+      setAllDocsLoading(false);
+    }
+  }
+
+  async function handleRenameDoc(docId, newTitle) {
+    if (!newTitle.trim()) { setRenamingDoc(null); setRenameDocValue(''); return; }
+    await supabase.from('concept_documents').update({ title: newTitle.trim() }).eq('id', docId);
+    setRenamingDoc(null);
+    setRenameDocValue('');
+    if (activeConcept) fetchDocuments(activeConcept.id);
+    fetchAllDocs();
+  }
+
+  const handleDocDragEnd = useCallback(async (result) => {
+    if (!result.destination || result.source.index === result.destination.index) return;
+    const reordered = Array.from(documents);
+    const [moved] = reordered.splice(result.source.index, 1);
+    reordered.splice(result.destination.index, 0, moved);
+    setDocuments(reordered);
+
+    for (let i = 0; i < reordered.length; i++) {
+      await supabase.from('concept_documents').update({ sort_order: i }).eq('id', reordered[i].id);
+    }
+  }, [documents]);
+
   async function handleCreateConcept(e) {
     e.preventDefault();
     if (!conceptForm.name.trim()) return;
@@ -123,11 +175,12 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
       name: conceptForm.name.trim(),
       description: conceptForm.description.trim(),
       color: conceptForm.color,
+      category: conceptForm.category,
       created_by: profile.id,
       sort_order: concepts.length,
     });
     if (error) { console.error(error); return; }
-    setConceptForm({ name: '', description: '', color: '#6366f1' });
+    setConceptForm({ name: '', description: '', color: '#6366f1', category: 'other' });
     setShowCreateConcept(false);
     fetchConcepts();
   }
@@ -162,6 +215,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
       title: docForm.title.trim(),
       content,
       created_by: profile.id,
+      sort_order: documents.length,
     });
     if (error) { console.error(error); return; }
     setDocForm({ title: '', type: 'stickyboard', templateId: '' });
@@ -363,15 +417,15 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
     }
   }
 
-  // ─── Close context menu on click outside or Escape ───────────────────
+  // ─── Close context menus on click outside or Escape ──────────────────
   useEffect(() => {
-    if (!contextMenu) return;
-    const handleClick = () => setContextMenu(null);
-    const handleKey = (e) => { if (e.key === 'Escape') setContextMenu(null); };
+    if (!contextMenu && !docContextMenu) return;
+    const handleClick = () => { setContextMenu(null); setDocContextMenu(null); };
+    const handleKey = (e) => { if (e.key === 'Escape') { setContextMenu(null); setDocContextMenu(null); } };
     window.addEventListener('click', handleClick);
     window.addEventListener('keydown', handleKey);
     return () => { window.removeEventListener('click', handleClick); window.removeEventListener('keydown', handleKey); };
-  }, [contextMenu]);
+  }, [contextMenu, docContextMenu]);
 
   // ─── Drag-and-Drop Handler ──────────────────────────────────────────
   const handleDragEnd = useCallback(async (result) => {
@@ -395,6 +449,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
       name: editingConcept.name.trim(),
       description: editingConcept.description.trim(),
       color: editingConcept.color,
+      category: editingConcept.category || 'other',
     }).eq('id', editingConcept.id);
     if (error) { console.error(error); return; }
     setEditingConcept(null);
@@ -762,25 +817,86 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
             <p style={styles.emptyText}>No documents yet. Create one to start developing this idea.</p>
           </div>
         ) : (
-          <div style={styles.docGrid}>
-            {documents.map(doc => {
-              const typeInfo = DOC_TYPES[doc.type];
-              return (
-                <div key={doc.id} style={styles.docCard} onClick={() => setActiveDoc(doc)}>
-                  <div style={styles.docCardIcon}>{typeInfo.icon}</div>
-                  <div style={styles.docCardTitle}>{doc.title}</div>
-                  <div style={styles.docCardMeta}>{typeInfo.label}</div>
-                  <div style={styles.docCardMeta}>
-                    {new Date(doc.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-                  </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleDeleteDoc(doc.id); }}
-                    style={styles.docDeleteBtn}
-                  >✕</button>
+          <DragDropContext onDragEnd={handleDocDragEnd}>
+            <Droppable droppableId="concept-docs" direction="horizontal">
+              {(provided) => (
+                <div ref={provided.innerRef} {...provided.droppableProps} style={styles.docGrid}>
+                  {documents.map((doc, index) => {
+                    const typeInfo = DOC_TYPES[doc.type];
+                    return (
+                      <Draggable key={doc.id} draggableId={doc.id} index={index}>
+                        {(dragProvided, dragSnapshot) => (
+                          <div
+                            ref={dragProvided.innerRef}
+                            {...dragProvided.draggableProps}
+                            {...dragProvided.dragHandleProps}
+                            style={{
+                              ...styles.docCard,
+                              ...(dragSnapshot.isDragging ? { boxShadow: '0 8px 32px rgba(99,102,241,0.3)', borderColor: 'rgba(99,102,241,0.4)' } : {}),
+                              ...dragProvided.draggableProps.style,
+                            }}
+                            onClick={() => { if (renamingDoc !== doc.id) setActiveDoc(doc); }}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setDocContextMenu({ x: e.clientX, y: e.clientY, doc });
+                            }}
+                          >
+                            <div style={styles.docCardIcon}>{typeInfo.icon}</div>
+                            {renamingDoc === doc.id ? (
+                              <input
+                                autoFocus
+                                value={renameDocValue}
+                                onChange={(e) => setRenameDocValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleRenameDoc(doc.id, renameDocValue);
+                                  if (e.key === 'Escape') { setRenamingDoc(null); setRenameDocValue(''); }
+                                }}
+                                onBlur={() => handleRenameDoc(doc.id, renameDocValue)}
+                                onClick={(e) => e.stopPropagation()}
+                                style={styles.renameInput}
+                              />
+                            ) : (
+                              <div style={styles.docCardTitle}>{doc.title}</div>
+                            )}
+                            <div style={styles.docCardMeta}>{typeInfo.label}</div>
+                            <div style={styles.docCardMeta}>
+                              {new Date(doc.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                            </div>
+                          </div>
+                        )}
+                      </Draggable>
+                    );
+                  })}
+                  {provided.placeholder}
                 </div>
-              );
-            })}
-          </div>
+              )}
+            </Droppable>
+          </DragDropContext>
+        )}
+
+        {/* Document Right-Click Context Menu */}
+        {docContextMenu && (
+          <>
+            <div style={styles.contextOverlay} onClick={() => setDocContextMenu(null)} onContextMenu={(e) => { e.preventDefault(); setDocContextMenu(null); }} />
+            <div style={{ ...styles.ctxMenu, top: docContextMenu.y, left: docContextMenu.x }}>
+              <button
+                style={styles.ctxMenuItem}
+                onClick={() => {
+                  setRenamingDoc(docContextMenu.doc.id);
+                  setRenameDocValue(docContextMenu.doc.title);
+                  setDocContextMenu(null);
+                }}
+              >Rename</button>
+              <button
+                style={{ ...styles.ctxMenuItem, color: '#f87171' }}
+                onClick={() => {
+                  handleDeleteDoc(docContextMenu.doc.id);
+                  setDocContextMenu(null);
+                }}
+              >Delete</button>
+            </div>
+          </>
         )}
       </div>
     );
@@ -814,6 +930,15 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
             placeholder="Brief description (optional)"
             style={styles.input}
           />
+          <select
+            value={conceptForm.category}
+            onChange={(e) => setConceptForm({ ...conceptForm, category: e.target.value })}
+            style={styles.input}
+          >
+            {CONCEPT_CATEGORIES.map(cat => (
+              <option key={cat.value} value={cat.value}>{cat.label}</option>
+            ))}
+          </select>
           <div style={styles.colorPicker}>
             {CONCEPT_COLORS.map(c => (
               <button
@@ -869,6 +994,11 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
                         <div style={styles.conceptCardBody}>
                           <h3 style={styles.conceptCardName}>{concept.name}</h3>
                           {concept.description && <p style={styles.conceptCardDesc}>{concept.description}</p>}
+                          {concept.category && concept.category !== 'other' && (
+                            <span style={styles.categoryBadge}>
+                              {CONCEPT_CATEGORIES.find(c => c.value === concept.category)?.label || concept.category}
+                            </span>
+                          )}
                           <div style={styles.conceptCardFooter}>
                             <span style={styles.conceptCardMeta}>
                               {concept.creator?.full_name} · {new Date(concept.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
@@ -933,6 +1063,15 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
               placeholder="Brief description (optional)"
               style={styles.input}
             />
+            <select
+              value={editingConcept.category || 'other'}
+              onChange={(e) => setEditingConcept({ ...editingConcept, category: e.target.value })}
+              style={styles.input}
+            >
+              {CONCEPT_CATEGORIES.map(cat => (
+                <option key={cat.value} value={cat.value}>{cat.label}</option>
+              ))}
+            </select>
             <div style={styles.colorPicker}>
               {CONCEPT_COLORS.map(c => (
                 <button
@@ -999,6 +1138,60 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
               >Merge</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* All Documents Section */}
+      {allDocs.length > 0 && (
+        <div style={styles.allDocsSection}>
+          <h2 style={styles.allDocsSectionTitle}>All Documents</h2>
+          {allDocsLoading ? (
+            <p style={styles.emptyText}>Loading...</p>
+          ) : (
+            <div style={styles.allDocsTable}>
+              <div style={styles.allDocsHeader}>
+                <span style={{ ...styles.allDocsCell, flex: 2 }}>Title</span>
+                <span style={styles.allDocsCell}>Type</span>
+                <span style={{ ...styles.allDocsCell, flex: 1.5 }}>Concept</span>
+                <span style={styles.allDocsCell}>Updated</span>
+              </div>
+              {allDocs.map(doc => {
+                const concept = concepts.find(c => c.id === doc.concept_id);
+                const typeInfo = DOC_TYPES[doc.type] || { icon: '📄', label: doc.type };
+                return (
+                  <div key={doc.id} style={styles.allDocsRow}>
+                    <span
+                      style={{ ...styles.allDocsCell, flex: 2, color: '#a5b4fc', fontWeight: 500, cursor: 'pointer' }}
+                      onClick={() => {
+                        if (concept) {
+                          setActiveConcept(concept);
+                          // After documents load, the user can click the doc
+                          setTimeout(() => setActiveDoc(doc), 100);
+                        }
+                      }}
+                    >{typeInfo.icon} {doc.title}</span>
+                    <span style={styles.allDocsCell}>{typeInfo.label}</span>
+                    <span style={{ ...styles.allDocsCell, flex: 1.5 }}>
+                      {concept ? (
+                        <span
+                          style={{ ...styles.allDocsConceptTag, cursor: 'pointer' }}
+                          onClick={() => setActiveConcept(concept)}
+                        >
+                          <span style={{ ...styles.conceptDot, background: concept.color, width: '8px', height: '8px', borderRadius: '3px' }} />
+                          {concept.name}
+                        </span>
+                      ) : (
+                        <span style={{ color: 'rgba(255,255,255,0.2)' }}>—</span>
+                      )}
+                    </span>
+                    <span style={{ ...styles.allDocsCell, color: 'rgba(255,255,255,0.3)' }}>
+                      {new Date(doc.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -1098,6 +1291,24 @@ const styles = {
   templateItemName: { flex: 1, fontSize: '13px', color: '#e2e8f0', fontWeight: 500 },
   templateItemDate: { fontSize: '11px', color: 'rgba(255,255,255,0.25)' },
   templateDeleteBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '13px', padding: '2px 4px' },
+
+  // Category badge
+  categoryBadge: { display: 'inline-block', padding: '2px 8px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '4px', fontSize: '10px', color: 'rgba(255,255,255,0.4)', fontWeight: 600, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.3px' },
+
+  // Rename input
+  renameInput: { padding: '4px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '4px', color: '#fff', fontSize: '13px', fontFamily: 'inherit', outline: 'none', width: '100%', boxSizing: 'border-box' },
+
+  // Context overlay
+  contextOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999 },
+
+  // All Documents section
+  allDocsSection: { marginTop: '40px', paddingTop: '24px', borderTop: '1px solid rgba(255,255,255,0.06)' },
+  allDocsSectionTitle: { fontSize: '18px', fontWeight: 700, color: '#ffffff', margin: '0 0 16px 0' },
+  allDocsTable: { border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', overflow: 'hidden' },
+  allDocsHeader: { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', background: 'rgba(255,255,255,0.03)', fontSize: '11px', fontWeight: 600, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.5px' },
+  allDocsRow: { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', borderTop: '1px solid rgba(255,255,255,0.04)', fontSize: '13px', color: 'rgba(255,255,255,0.5)' },
+  allDocsCell: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  allDocsConceptTag: { display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'rgba(255,255,255,0.5)', fontWeight: 500 },
 };
 
 // ─── Review Feedback Styles ──────────────────────────────────────────────────

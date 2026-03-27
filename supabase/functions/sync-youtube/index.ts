@@ -359,7 +359,7 @@ serve(async (req) => {
                     amount_cents: Math.round(day.revenue * 100),
                     net_amount_cents: Math.round(day.revenue * 100),
                     currency: "usd",
-                    product_category: "other",
+                    product_category: "ad_revenue",
                     product_name: `YouTube Ad Revenue - ${account.account_name}`,
                     is_recurring: false,
                     occurred_at: `${day.date}T00:00:00Z`,
