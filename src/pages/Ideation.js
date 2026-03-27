@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
@@ -30,6 +31,13 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
   const [docForm, setDocForm] = useState({ title: '', type: 'stickyboard', templateId: '' });
   const [templates, setTemplates] = useState([]);
   const mdUploadRef = useRef(null);
+
+  // Context menu & editing state
+  const [contextMenu, setContextMenu] = useState(null);
+  const [editingConcept, setEditingConcept] = useState(null);
+  const [mergingConcept, setMergingConcept] = useState(null);
+  const [mergeTargetId, setMergeTargetId] = useState('');
+  const [mergeName, setMergeName] = useState('');
 
   // Review feedback state
   const [pendingReview, setPendingReview] = useState(null);
@@ -73,7 +81,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
     try {
       const { data, error } = await supabase.from('concepts')
         .select('*, creator:profiles!concepts_profile_fk(full_name)')
-        .order('created_at', { ascending: false });
+        .order('sort_order', { ascending: true });
       if (error) throw error;
       setConcepts(data || []);
     } catch (err) {
@@ -116,6 +124,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
       description: conceptForm.description.trim(),
       color: conceptForm.color,
       created_by: profile.id,
+      sort_order: concepts.length,
     });
     if (error) { console.error(error); return; }
     setConceptForm({ name: '', description: '', color: '#6366f1' });
@@ -351,6 +360,79 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
       setTimeout(() => setToast(null), 5000);
     } finally {
       setSendingRevision(false);
+    }
+  }
+
+  // ─── Close context menu on click outside or Escape ───────────────────
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handleClick = () => setContextMenu(null);
+    const handleKey = (e) => { if (e.key === 'Escape') setContextMenu(null); };
+    window.addEventListener('click', handleClick);
+    window.addEventListener('keydown', handleKey);
+    return () => { window.removeEventListener('click', handleClick); window.removeEventListener('keydown', handleKey); };
+  }, [contextMenu]);
+
+  // ─── Drag-and-Drop Handler ──────────────────────────────────────────
+  const handleDragEnd = useCallback(async (result) => {
+    if (!result.destination || result.source.index === result.destination.index) return;
+    const reordered = Array.from(concepts);
+    const [moved] = reordered.splice(result.source.index, 1);
+    reordered.splice(result.destination.index, 0, moved);
+    setConcepts(reordered);
+
+    const updates = reordered.map((c, i) => ({ id: c.id, sort_order: i }));
+    for (const u of updates) {
+      await supabase.from('concepts').update({ sort_order: u.sort_order }).eq('id', u.id);
+    }
+  }, [concepts]);
+
+  // ─── Edit Concept Handler ──────────────────────────────────────────
+  async function handleEditConcept(e) {
+    e.preventDefault();
+    if (!editingConcept) return;
+    const { error } = await supabase.from('concepts').update({
+      name: editingConcept.name.trim(),
+      description: editingConcept.description.trim(),
+      color: editingConcept.color,
+    }).eq('id', editingConcept.id);
+    if (error) { console.error(error); return; }
+    setEditingConcept(null);
+    fetchConcepts();
+  }
+
+  // ─── Merge Concept Handler ─────────────────────────────────────────
+  async function handleMergeConcept() {
+    if (!mergingConcept || !mergeTargetId) return;
+    const targetId = mergeTargetId;
+    const sourceId = mergingConcept.id;
+    const finalName = mergeName.trim();
+
+    // Move all documents from source to target
+    await supabase.from('concept_documents').update({ concept_id: targetId }).eq('concept_id', sourceId);
+    // Update target name if changed
+    if (finalName) {
+      await supabase.from('concepts').update({ name: finalName }).eq('id', targetId);
+    }
+    // Delete source concept
+    await supabase.from('concepts').delete().eq('id', sourceId);
+
+    // If active concept was the source, switch to target
+    if (activeConcept?.id === sourceId) {
+      setActiveDoc(null);
+      // Will be resolved after fetchConcepts
+    }
+
+    setMergingConcept(null);
+    setMergeTargetId('');
+    setMergeName('');
+    await fetchConcepts();
+
+    if (activeConcept?.id === sourceId) {
+      const { data } = await supabase.from('concepts')
+        .select('*, creator:profiles!concepts_profile_fk(full_name)')
+        .eq('id', targetId).single();
+      if (data) setActiveConcept(data);
     }
   }
 
@@ -758,31 +840,165 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
           <p style={styles.emptyText}>No concepts yet. Start brainstorming!</p>
         </div>
       ) : (
-        <div style={styles.conceptGrid}>
-          {concepts.map(concept => (
-            <div
-              key={concept.id}
-              style={styles.conceptCard}
-              onClick={() => setActiveConcept(concept)}
-            >
-              <div style={{ ...styles.conceptCardStripe, background: concept.color }} />
-              <div style={styles.conceptCardBody}>
-                <h3 style={styles.conceptCardName}>{concept.name}</h3>
-                {concept.description && <p style={styles.conceptCardDesc}>{concept.description}</p>}
-                <div style={styles.conceptCardFooter}>
-                  <span style={styles.conceptCardMeta}>
-                    {concept.creator?.full_name} · {new Date(concept.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  </span>
-                  {(concept.created_by === profile?.id || isAdmin) && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDeleteConcept(concept.id); }}
-                      style={styles.deleteBtn}
-                    >✕</button>
-                  )}
-                </div>
+        <DragDropContext onDragEnd={handleDragEnd}>
+          <Droppable droppableId="concepts" direction="horizontal">
+            {(provided) => (
+              <div ref={provided.innerRef} {...provided.droppableProps} style={styles.conceptGrid}>
+                {concepts.map((concept, index) => (
+                  <Draggable key={concept.id} draggableId={concept.id} index={index}>
+                    {(provided, snapshot) => (
+                      <div
+                        ref={provided.innerRef}
+                        {...provided.draggableProps}
+                        {...provided.dragHandleProps}
+                        style={{
+                          ...styles.conceptCard,
+                          ...(snapshot.isDragging ? { boxShadow: '0 8px 32px rgba(99,102,241,0.3)', borderColor: 'rgba(99,102,241,0.4)' } : {}),
+                          ...provided.draggableProps.style,
+                        }}
+                        onClick={() => setActiveConcept(concept)}
+                        onContextMenu={(e) => {
+                          if (concept.created_by === profile?.id || isAdmin) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setContextMenu({ x: e.clientX, y: e.clientY, concept });
+                          }
+                        }}
+                      >
+                        <div style={{ ...styles.conceptCardStripe, background: concept.color }} />
+                        <div style={styles.conceptCardBody}>
+                          <h3 style={styles.conceptCardName}>{concept.name}</h3>
+                          {concept.description && <p style={styles.conceptCardDesc}>{concept.description}</p>}
+                          <div style={styles.conceptCardFooter}>
+                            <span style={styles.conceptCardMeta}>
+                              {concept.creator?.full_name} · {new Date(concept.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </Draggable>
+                ))}
+                {provided.placeholder}
               </div>
+            )}
+          </Droppable>
+        </DragDropContext>
+      )}
+
+      {/* Context Menu */}
+      {contextMenu && (
+        <div
+          style={{ ...styles.ctxMenu, top: contextMenu.y, left: contextMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            style={styles.ctxMenuItem}
+            onClick={() => { setEditingConcept({ ...contextMenu.concept }); setContextMenu(null); }}
+          >Edit</button>
+          <button
+            style={styles.ctxMenuItem}
+            onClick={() => {
+              setMergingConcept(contextMenu.concept);
+              setMergeTargetId('');
+              setMergeName('');
+              setContextMenu(null);
+            }}
+          >Merge</button>
+          <button
+            style={{ ...styles.ctxMenuItem, color: '#f87171' }}
+            onClick={() => { const id = contextMenu.concept.id; setContextMenu(null); handleDeleteConcept(id); }}
+          >Delete</button>
+        </div>
+      )}
+
+      {/* Edit Concept Modal */}
+      {editingConcept && (
+        <div style={styles.modalOverlay} onClick={() => setEditingConcept(null)}>
+          <form onSubmit={handleEditConcept} style={styles.editModal} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.editModalHeader}>
+              <h2 style={styles.editModalTitle}>Edit Concept</h2>
+              <button type="button" onClick={() => setEditingConcept(null)} style={styles.editModalClose}>✕</button>
             </div>
-          ))}
+            <input
+              value={editingConcept.name}
+              onChange={(e) => setEditingConcept({ ...editingConcept, name: e.target.value })}
+              placeholder="Concept name..."
+              required
+              style={styles.input}
+            />
+            <input
+              value={editingConcept.description || ''}
+              onChange={(e) => setEditingConcept({ ...editingConcept, description: e.target.value })}
+              placeholder="Brief description (optional)"
+              style={styles.input}
+            />
+            <div style={styles.colorPicker}>
+              {CONCEPT_COLORS.map(c => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setEditingConcept({ ...editingConcept, color: c })}
+                  style={{
+                    ...styles.colorDot,
+                    background: c,
+                    outline: editingConcept.color === c ? `2px solid ${c}` : 'none',
+                    outlineOffset: '2px',
+                  }}
+                />
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button type="button" onClick={() => setEditingConcept(null)} style={styles.editCancelBtn}>Cancel</button>
+              <button type="submit" style={styles.submitBtn}>Save Changes</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Merge Concept Modal */}
+      {mergingConcept && (
+        <div style={styles.modalOverlay} onClick={() => setMergingConcept(null)}>
+          <div style={styles.editModal} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.editModalHeader}>
+              <h2 style={styles.editModalTitle}>Merge "{mergingConcept.name}" into...</h2>
+              <button onClick={() => setMergingConcept(null)} style={styles.editModalClose}>✕</button>
+            </div>
+            <div style={styles.mergeTargetList}>
+              {concepts.filter(c => c.id !== mergingConcept.id).map(c => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => { setMergeTargetId(c.id); setMergeName(c.name); }}
+                  style={{
+                    ...styles.mergeTargetItem,
+                    ...(mergeTargetId === c.id ? styles.mergeTargetItemActive : {}),
+                  }}
+                >
+                  <span style={{ ...styles.conceptDot, background: c.color }} />
+                  <span>{c.name}</span>
+                </button>
+              ))}
+            </div>
+            {mergeTargetId && (
+              <>
+                <label style={styles.mergeLabel}>Merged concept name:</label>
+                <input
+                  value={mergeName}
+                  onChange={(e) => setMergeName(e.target.value)}
+                  style={styles.input}
+                />
+              </>
+            )}
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
+              <button onClick={() => setMergingConcept(null)} style={styles.editCancelBtn}>Cancel</button>
+              <button
+                onClick={handleMergeConcept}
+                disabled={!mergeTargetId}
+                style={mergeTargetId ? styles.submitBtn : { ...styles.submitBtn, opacity: 0.4, cursor: 'not-allowed' }}
+              >Merge</button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -844,6 +1060,18 @@ const styles = {
   conceptCardFooter: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   conceptCardMeta: { fontSize: '11px', color: 'rgba(255,255,255,0.25)' },
   deleteBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '14px', padding: '2px 6px' },
+  ctxMenu: { position: 'fixed', zIndex: 1000, background: '#1e1e2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '4px 0', minWidth: '140px', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' },
+  ctxMenuItem: { display: 'block', width: '100%', padding: '8px 16px', background: 'none', border: 'none', color: 'rgba(255,255,255,0.7)', fontSize: '13px', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left' },
+  modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' },
+  editModal: { width: '460px', background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '12px', boxShadow: '0 24px 48px rgba(0,0,0,0.5)' },
+  editModalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' },
+  editModalTitle: { fontSize: '18px', fontWeight: 700, color: '#e2e8f0', margin: 0 },
+  editModalClose: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', fontSize: '18px', cursor: 'pointer', padding: '4px 8px', fontFamily: 'inherit' },
+  editCancelBtn: { padding: '9px 20px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', color: 'rgba(255,255,255,0.5)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  mergeTargetList: { display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '240px', overflowY: 'auto' },
+  mergeTargetItem: { display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', cursor: 'pointer', fontFamily: 'inherit', color: 'rgba(255,255,255,0.6)', fontSize: '14px', fontWeight: 500 },
+  mergeTargetItemActive: { background: 'rgba(99,102,241,0.1)', borderColor: 'rgba(99,102,241,0.3)', color: '#a5b4fc' },
+  mergeLabel: { fontSize: '12px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 },
   typeSelector: { display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px' },
   typeOption: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', padding: '16px 12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', cursor: 'pointer', fontFamily: 'inherit', color: 'rgba(255,255,255,0.5)', transition: 'all 0.15s' },
   typeOptionActive: { background: 'rgba(99,102,241,0.1)', borderColor: 'rgba(99,102,241,0.3)', color: '#a5b4fc' },

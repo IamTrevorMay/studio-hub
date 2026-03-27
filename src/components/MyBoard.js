@@ -10,10 +10,17 @@ const COLUMNS = [
 ];
 
 const CATEGORY_OPTIONS = [
-  { value: 'task', label: 'Task', color: '#6366f1' },
-  { value: 'idea', label: 'Idea', color: '#f59e0b' },
-  { value: 'follow_up', label: 'Follow-up', color: '#ec4899' },
-  { value: 'note', label: 'Note', color: '#8b5cf6' },
+  { value: 'administration', label: 'Administration', color: '#3b82f6' },
+  { value: 'communication', label: 'Communication', color: '#f59e0b' },
+  { value: 'creative', label: 'Creative', color: '#ec4899' },
+  { value: 'production', label: 'Production', color: '#22c55e' },
+];
+
+const SUBCATEGORY_OPTIONS = [
+  { value: 'task', label: 'Task' },
+  { value: 'idea', label: 'Idea' },
+  { value: 'follow_up', label: 'Follow-up' },
+  { value: 'document', label: 'Document' },
 ];
 
 const PROJECT_STATUSES = ['concept', 'script', 'production', 'edit', 'review', 'published'];
@@ -45,6 +52,7 @@ const PRIORITY_OPTIONS = [
 // ─── TaskCard ───────────────────────────────────────────────
 function TaskCard({ task, index, onClick, projectsMap, campaignsMap }) {
   const cat = CATEGORY_OPTIONS.find(c => c.value === task.category);
+  const subcat = SUBCATEGORY_OPTIONS.find(c => c.value === task.subcategory);
   const priorityColor = task.priority ? PRIORITY_COLORS[task.priority] : null;
 
   return (
@@ -69,6 +77,11 @@ function TaskCard({ task, index, onClick, projectsMap, campaignsMap }) {
             {cat && (
               <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', background: `${cat.color}22`, color: cat.color, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 {cat.label}
+              </span>
+            )}
+            {subcat && (
+              <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.45)', fontWeight: 600 }}>
+                {subcat.label}
               </span>
             )}
             {task.due_date && (
@@ -273,7 +286,8 @@ function EventDetailModal({ event, onClose, onSave, onDelete }) {
 function TaskDetailModal({ task, onClose, onSave, onDelete, projects, concepts, campaigns }) {
   const [form, setForm] = useState({
     content: task.content,
-    category: task.category,
+    category: task.category || 'administration',
+    subcategory: task.subcategory || 'task',
     priority: task.priority || null,
     due_date: task.due_date || '',
     project_id: task.project_id || '',
@@ -285,6 +299,7 @@ function TaskDetailModal({ task, onClose, onSave, onDelete, projects, concepts, 
     onSave(task.id, {
       content: form.content.trim(),
       category: form.category,
+      subcategory: form.subcategory,
       priority: form.priority || null,
       due_date: form.due_date || null,
       project_id: form.project_id || null,
@@ -311,12 +326,18 @@ function TaskDetailModal({ task, onClose, onSave, onDelete, projects, concepts, 
           style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }}
         />
 
-        {/* Category + Priority row */}
+        {/* Category + Subcategory + Priority row */}
         <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
           <div style={{ flex: 1 }}>
             <label style={labelStyle}>Category</label>
             <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} style={inputStyle}>
               {CATEGORY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={labelStyle}>Subcategory</label>
+            <select value={form.subcategory} onChange={e => setForm({ ...form, subcategory: e.target.value })} style={inputStyle}>
+              {SUBCATEGORY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
           <div style={{ flex: 1 }}>
