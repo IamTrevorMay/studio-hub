@@ -4,6 +4,7 @@ import { supabase } from '../supabaseClient';
 
 const COLUMNS = [
   { id: 'inbox', label: 'Inbox', color: '#a78bfa' },
+  { id: 'backlog', label: 'Backlog', color: '#f97316' },
   { id: 'today', label: 'Today', color: '#f59e0b' },
   { id: 'this_week', label: 'This Week', color: '#3b82f6' },
   { id: 'done', label: 'Done', color: '#22c55e' },
@@ -11,6 +12,7 @@ const COLUMNS = [
 
 const CATEGORY_OPTIONS = [
   { value: 'administration', label: 'Administration', color: '#3b82f6' },
+  { value: 'business_development', label: 'Business Dev', color: '#f97316' },
   { value: 'communication', label: 'Communication', color: '#f59e0b' },
   { value: 'creative', label: 'Creative', color: '#ec4899' },
   { value: 'production', label: 'Production', color: '#22c55e' },
@@ -41,19 +43,22 @@ const EVENT_TYPE_ICONS = {
   sponsor: '\uD83E\uDD1D',
 };
 
-const PRIORITY_COLORS = { high: '#ef4444', medium: '#f59e0b', low: '#6b7280' };
+const POINT_COLORS = { '15': '#ef4444', '10': '#f97316', '6': '#f59e0b', '3': '#3b82f6', '1': '#6b7280' };
 const PRIORITY_OPTIONS = [
-  { value: null, label: 'None' },
-  { value: 'high', label: 'High' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'low', label: 'Low' },
+  { value: null, label: 'None', points: 0 },
+  { value: '1', label: '1 pt', points: 1 },
+  { value: '3', label: '3 pts', points: 3 },
+  { value: '6', label: '6 pts', points: 6 },
+  { value: '10', label: '10 pts', points: 10 },
+  { value: '15', label: '15 pts', points: 15 },
 ];
 
 // ─── TaskCard ───────────────────────────────────────────────
-function TaskCard({ task, index, onClick, projectsMap, campaignsMap }) {
+function TaskCard({ task, index, onClick, projectsMap, campaignsMap, activeSprint }) {
   const cat = CATEGORY_OPTIONS.find(c => c.value === task.category);
   const subcat = SUBCATEGORY_OPTIONS.find(c => c.value === task.subcategory);
-  const priorityColor = task.priority ? PRIORITY_COLORS[task.priority] : null;
+  const priorityColor = task.priority ? POINT_COLORS[task.priority] : null;
+  const inSprint = activeSprint && task.sprint_id === activeSprint.id;
 
   return (
     <Draggable draggableId={task.id} index={index}>
@@ -66,14 +71,27 @@ function TaskCard({ task, index, onClick, projectsMap, campaignsMap }) {
           style={{
             ...cardStyle,
             borderLeft: priorityColor ? `3px solid ${priorityColor}` : '3px solid transparent',
+            ...(inSprint ? { borderRight: '3px solid #6366f1' } : {}),
             ...(snapshot.isDragging ? { boxShadow: '0 8px 24px rgba(0,0,0,0.4)', border: '1px solid rgba(99,102,241,0.3)', borderLeft: priorityColor ? `3px solid ${priorityColor}` : '3px solid rgba(99,102,241,0.3)' } : {}),
             ...provided.draggableProps.style,
           }}
         >
-          <div style={{ fontSize: '13px', color: '#e2e8f0', lineHeight: '1.4', wordBreak: 'break-word' }}>
-            {task.content}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '6px' }}>
+            <div style={{ fontSize: '13px', color: '#e2e8f0', lineHeight: '1.4', wordBreak: 'break-word', flex: 1 }}>
+              {task.content}
+            </div>
+            {task.priority && (
+              <span style={{ fontSize: '10px', fontWeight: 700, color: POINT_COLORS[task.priority], flexShrink: 0, lineHeight: '1.4' }}>
+                {task.priority}pt
+              </span>
+            )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
+            {inSprint && (
+              <span style={{ fontSize: '9px', padding: '1px 5px', borderRadius: '4px', background: 'rgba(99,102,241,0.2)', color: '#a5b4fc', fontWeight: 700, letterSpacing: '0.3px' }}>
+                SPRINT
+              </span>
+            )}
             {cat && (
               <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', background: `${cat.color}22`, color: cat.color, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 {cat.label}
@@ -283,7 +301,7 @@ function EventDetailModal({ event, onClose, onSave, onDelete }) {
 }
 
 // ─── TaskDetailModal ────────────────────────────────────────
-function TaskDetailModal({ task, onClose, onSave, onDelete, projects, concepts, campaigns }) {
+function TaskDetailModal({ task, onClose, onSave, onDelete, projects, concepts, campaigns, activeSprint, onMoveToBacklog }) {
   const [form, setForm] = useState({
     content: task.content,
     category: task.category || 'administration',
@@ -381,8 +399,39 @@ function TaskDetailModal({ task, onClose, onSave, onDelete, projects, concepts, 
           </select>
         </div>
 
+        {/* Sprint / Backlog controls */}
+        <div style={{ display: 'flex', gap: '8px', marginTop: '14px', flexWrap: 'wrap' }}>
+          {task.status !== 'backlog' && (
+            <button
+              onClick={() => { onMoveToBacklog(task.id); onClose(); }}
+              style={{ background: 'rgba(99,102,241,0.1)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '6px', padding: '6px 12px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+            >
+              Move to Backlog
+            </button>
+          )}
+          {activeSprint && !task.sprint_id && task.status !== 'backlog' && (
+            <button
+              onClick={() => { onSave(task.id, { sprint_id: activeSprint.id }); onClose(); }}
+              style={{ background: 'rgba(99,102,241,0.1)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '6px', padding: '6px 12px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+            >
+              Add to Sprint
+            </button>
+          )}
+          {activeSprint && task.sprint_id === activeSprint.id && (
+            <span style={{ fontSize: '10px', padding: '4px 10px', borderRadius: '6px', background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+              🏃 In Sprint
+              <button
+                onClick={() => { onSave(task.id, { sprint_id: null }); onClose(); }}
+                style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '12px', padding: '0 2px' }}
+              >
+                ×
+              </button>
+            </span>
+          )}
+        </div>
+
         {/* Actions */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '14px' }}>
           <button onClick={() => { onDelete(task.id); onClose(); }} style={deleteBtnStyle}>Delete</button>
           <div style={{ display: 'flex', gap: '8px' }}>
             <button onClick={onClose} style={cancelBtnStyle}>Cancel</button>
@@ -395,7 +444,7 @@ function TaskDetailModal({ task, onClose, onSave, onDelete, projects, concepts, 
 }
 
 // ─── MyBoard (main export) ──────────────────────────────────
-export default function MyBoard({ profile, onNavigate, todayEvents = [] }) {
+export default function MyBoard({ profile, onNavigate, todayEvents = [], onBoardChange, sprintVersion }) {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newTaskText, setNewTaskText] = useState('');
@@ -407,6 +456,19 @@ export default function MyBoard({ profile, onNavigate, todayEvents = [] }) {
   const [eventColumns, setEventColumns] = useState({});
   const [editingEvent, setEditingEvent] = useState(null);
   const [eventOverrides, setEventOverrides] = useState({});
+  const [activeSprint, setActiveSprint] = useState(null);
+
+  // ── Fetch active sprint ──
+  useEffect(() => {
+    if (!profile?.id) return;
+    supabase
+      .from('sprints')
+      .select('id')
+      .eq('user_id', profile.id)
+      .eq('status', 'active')
+      .maybeSingle()
+      .then(({ data }) => { if (data) setActiveSprint(data); });
+  }, [profile?.id]);
 
   // Merge local overrides into events and compute column placement
   const mergedEvents = todayEvents.map(evt => ({ ...evt, ...(eventOverrides[evt.id] || {}) }));
@@ -458,7 +520,7 @@ export default function MyBoard({ profile, onNavigate, todayEvents = [] }) {
 
   useEffect(() => {
     if (profile?.id) fetchTasks();
-  }, [profile?.id, fetchTasks]);
+  }, [profile?.id, fetchTasks, sprintVersion]);
 
   // ── Quick capture ──
   async function addTask() {
@@ -558,6 +620,23 @@ export default function MyBoard({ profile, onNavigate, todayEvents = [] }) {
     }
   }
 
+  // ── Move task to backlog ──
+  async function moveToBacklog(id) {
+    const prev = tasks;
+    setTasks(ts => ts.filter(t => t.id !== id));
+    try {
+      const { error } = await supabase
+        .from('personal_tasks')
+        .update({ status: 'backlog', sprint_id: null, updated_at: new Date().toISOString() })
+        .eq('id', id);
+      if (error) throw error;
+      if (onBoardChange) onBoardChange();
+    } catch (err) {
+      console.error('Error moving task to backlog:', err);
+      setTasks(prev);
+    }
+  }
+
   // ── Auto-advance project stage ──
   async function advanceProjectStage(projectId, expectedStage) {
     try {
@@ -587,6 +666,16 @@ export default function MyBoard({ profile, onNavigate, todayEvents = [] }) {
     if (draggableId.startsWith('sched-')) {
       const eventId = draggableId.replace('sched-', '');
       setEventColumns(prev => ({ ...prev, [eventId]: destination.droppableId }));
+      return;
+    }
+
+    // Handle drop onto sprint zone
+    if (destination.droppableId === 'sprint') {
+      if (!activeSprint) return;
+      const task = tasks.find(t => t.id === draggableId);
+      if (!task) return;
+      updateTask(draggableId, { sprint_id: activeSprint.id, status: 'this_week' });
+      if (onBoardChange) onBoardChange();
       return;
     }
 
@@ -679,6 +768,37 @@ export default function MyBoard({ profile, onNavigate, todayEvents = [] }) {
 
       {/* Kanban columns */}
       <DragDropContext onDragEnd={onDragEnd}>
+        {/* Sprint + Backlog drop zones */}
+        <div style={{ display: 'flex', gap: '12px', marginBottom: '12px' }}>
+          {activeSprint && (
+            <Droppable droppableId="sprint" direction="horizontal">
+              {(provided, snapshot) => (
+                <div
+                  ref={provided.innerRef}
+                  {...provided.droppableProps}
+                  style={{
+                    flex: 1,
+                    border: `2px dashed ${snapshot.isDraggingOver ? '#6366f1' : 'rgba(99,102,241,0.2)'}`,
+                    borderRadius: '10px',
+                    padding: '10px 16px',
+                    textAlign: 'center',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: snapshot.isDraggingOver ? '#a5b4fc' : 'rgba(99,102,241,0.4)',
+                    background: snapshot.isDraggingOver ? 'rgba(99,102,241,0.08)' : 'transparent',
+                    transition: 'all 0.15s',
+                    minHeight: '20px',
+                    position: 'relative',
+                    overflow: 'hidden',
+                  }}
+                >
+                  Drop to add to sprint
+                  <div style={{ position: 'absolute', left: -9999 }}>{provided.placeholder}</div>
+                </div>
+              )}
+            </Droppable>
+          )}
+        </div>
         <div style={boardStyle}>
           {COLUMNS.map(col => {
             const colTasks = getVisibleTasks(col.id);
@@ -720,6 +840,7 @@ export default function MyBoard({ profile, onNavigate, todayEvents = [] }) {
                           onClick={setEditingTask}
                           projectsMap={projectsMap}
                           campaignsMap={campaignsMap}
+                          activeSprint={activeSprint}
                         />
                       ))}
                       {provided.placeholder}
@@ -752,6 +873,8 @@ export default function MyBoard({ profile, onNavigate, todayEvents = [] }) {
           projects={projects}
           concepts={concepts}
           campaigns={campaigns}
+          activeSprint={activeSprint}
+          onMoveToBacklog={moveToBacklog}
         />
       )}
       {editingEvent && (
@@ -808,7 +931,7 @@ const captureButtonStyle = {
 
 const boardStyle = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(4, 1fr)',
+  gridTemplateColumns: 'repeat(5, 1fr)',
   gap: '12px',
 };
 

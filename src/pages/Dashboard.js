@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import MyBoard from '../components/MyBoard';
+import SprintPanel from '../components/SprintPanel';
 
 const STATUS_COLORS = {
   concept: '#8b5cf6',
@@ -60,6 +61,10 @@ export default function Dashboard({ onNavigate }) {
   const [titleDraft, setTitleDraft] = useState(profile?.title || '');
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(profile?.full_name || '');
+
+  // Cross-component refresh counters
+  const [boardVersion, setBoardVersion] = useState(0);   // MyBoard changed → SprintPanel re-fetches
+  const [sprintVersion, setSprintVersion] = useState(0); // SprintPanel changed → MyBoard re-fetches
 
   // Itinerary state
   const [itineraryItems, setItineraryItems] = useState([]);
@@ -290,7 +295,7 @@ export default function Dashboard({ onNavigate }) {
       const { error } = await supabase.from('personal_tasks').insert({
         created_by: profile.id,
         content: `${task.name} — ${task.stageLabel}`,
-        category: 'task',
+        category: 'production',
         project_id: task.projectId,
         project_stage: task.stage,
         status: 'inbox',
@@ -298,6 +303,7 @@ export default function Dashboard({ onNavigate }) {
       });
       if (error) throw error;
       setAddedToBoard(prev => ({ ...prev, [task.id]: 'added' }));
+      setSprintVersion(v => v + 1); // trigger MyBoard re-fetch
     } catch (err) {
       console.error('Error adding stage task to board:', err);
       setAddedToBoard(prev => ({ ...prev, [task.id]: 'error' }));
@@ -1661,8 +1667,11 @@ export default function Dashboard({ onNavigate }) {
         </div>
       )}
 
+      {/* Sprint Planning */}
+      <SprintPanel profile={profile} boardVersion={boardVersion} onSprintChange={() => setSprintVersion(v => v + 1)} />
+
       {/* My Board */}
-      <MyBoard profile={profile} onNavigate={onNavigate} todayEvents={todayEvents} />
+      <MyBoard profile={profile} onNavigate={onNavigate} todayEvents={todayEvents} onBoardChange={() => setBoardVersion(v => v + 1)} sprintVersion={sprintVersion} />
 
       {/* Morty Mascot Controls */}
       <div style={{
