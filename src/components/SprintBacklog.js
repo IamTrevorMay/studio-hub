@@ -66,7 +66,7 @@ export default function SprintBacklog({ profile, activeSprint, onTasksChanged, b
     if (!activeSprint) return;
     const { error } = await supabase
       .from('personal_tasks')
-      .update({ status: 'this_week', sprint_id: activeSprint.id, updated_at: new Date().toISOString() })
+      .update({ status: 'ready', sprint_id: activeSprint.id, updated_at: new Date().toISOString() })
       .eq('id', task.id);
     if (!error) {
       fetchBacklog();

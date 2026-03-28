@@ -1670,7 +1670,7 @@ export default function Dashboard({ onNavigate }) {
       {/* Sprint Planning */}
       <SprintPanel profile={profile} boardVersion={boardVersion} onSprintChange={() => setSprintVersion(v => v + 1)} />
 
-      {/* My Board */}
+      {/* Sprint */}
       <MyBoard profile={profile} onNavigate={onNavigate} todayEvents={todayEvents} onBoardChange={() => setBoardVersion(v => v + 1)} sprintVersion={sprintVersion} />
 
       {/* Morty Mascot Controls */}
