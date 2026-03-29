@@ -2129,6 +2129,19 @@ function ProjectRow({
   const [editStartDate, setEditStartDate] = useState(project.start_date || '');
   const [editDeadline, setEditDeadline] = useState(project.deadline || '');
   const [editNotes, setEditNotes] = useState(project.notes || '');
+  const [editStageTimelines, setEditStageTimelines] = useState(project.stage_timelines || {});
+
+  useEffect(() => {
+    setEditStageTimelines(project.stage_timelines || {});
+  }, [project.stage_timelines]);
+
+  function saveStageDate(stage, field, value) {
+    const updated = { ...editStageTimelines, [stage]: { ...(editStageTimelines[stage] || {}), [field]: value } };
+    // Remove empty entries
+    if (!updated[stage].start && !updated[stage].end) delete updated[stage];
+    setEditStageTimelines(updated);
+    onUpdateProject(project.id, { stage_timelines: updated });
+  }
 
   function saveField(field, value) {
     onUpdateProject(project.id, { [field]: value });
@@ -2502,19 +2515,35 @@ function ProjectRow({
             </div>
           </div>
 
-          {/* Stage Assignments */}
+          {/* Stage Timeline & Assignments */}
           <div style={styles.detailSection}>
-            <h4 style={styles.detailLabel}>Stage Assignments</h4>
+            <h4 style={styles.detailLabel}>Stage Timeline & Assignments</h4>
             <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', margin: '0 0 10px 0' }}>
-              Assign team members to stages. They'll see this on their dashboard when the project enters their stage.
+              Set date ranges and assign team members to each stage.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               {STATUSES.map(stage => {
                 const stageAs = (project.project_stage_assignments || []).filter(a => a.stage === stage);
                 const isCurrentStage = project.status === stage;
+                const stageDates = editStageTimelines[stage] || {};
                 return (
                   <div key={stage} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', borderRadius: '6px', background: isCurrentStage ? `${STATUS_COLORS[stage]}08` : 'transparent', borderLeft: isCurrentStage ? `2px solid ${STATUS_COLORS[stage]}` : '2px solid transparent' }}>
                     <span style={{ fontSize: '11px', fontWeight: 600, color: STATUS_COLORS[stage], width: '80px', flexShrink: 0 }}>{STATUS_LABELS[stage]}</span>
+                    <input
+                      type="date"
+                      value={stageDates.start || ''}
+                      onChange={(e) => saveStageDate(stage, 'start', e.target.value)}
+                      title="Stage start"
+                      style={{ padding: '2px 4px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '4px', color: stageDates.start ? '#fff' : 'rgba(255,255,255,0.2)', fontSize: '10px', fontFamily: 'inherit', outline: 'none', width: '110px', flexShrink: 0 }}
+                    />
+                    <span style={{ color: 'rgba(255,255,255,0.15)', fontSize: '10px', flexShrink: 0 }}>→</span>
+                    <input
+                      type="date"
+                      value={stageDates.end || ''}
+                      onChange={(e) => saveStageDate(stage, 'end', e.target.value)}
+                      title="Stage end"
+                      style={{ padding: '2px 4px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '4px', color: stageDates.end ? '#fff' : 'rgba(255,255,255,0.2)', fontSize: '10px', fontFamily: 'inherit', outline: 'none', width: '110px', flexShrink: 0 }}
+                    />
                     <div style={{ display: 'flex', gap: '4px', flex: 1, flexWrap: 'wrap', alignItems: 'center' }}>
                       {stageAs.map(a => (
                         <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(99,102,241,0.1)', padding: '2px 6px', borderRadius: '6px' }}>

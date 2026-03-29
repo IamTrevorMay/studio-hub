@@ -487,7 +487,6 @@ export default function MyBoard({ profile, onNavigate, todayEvents = [], onBoard
   // Sprint state
   const [selectedWeek, setSelectedWeek] = useState(getSprintWeek());
   const [sprintForWeek, setSprintForWeek] = useState(null);
-  const [sprintGoals, setSprintGoals] = useState([]);
   const [sprintLoading, setSprintLoading] = useState(true);
 
   // Plan a Sprint state
@@ -529,17 +528,6 @@ export default function MyBoard({ profile, onNavigate, todayEvents = [], onBoard
     if (!error) setSprintForWeek(data);
     setSprintLoading(false);
   }, [profile?.id, selectedWeek.start]);
-
-  // ── Fetch goals for sprint ──
-  const fetchSprintGoals = useCallback(async () => {
-    if (!sprintForWeek) { setSprintGoals([]); return; }
-    const { data, error } = await supabase
-      .from('sprint_goals')
-      .select('*')
-      .eq('sprint_id', sprintForWeek.id)
-      .order('position');
-    if (!error) setSprintGoals(data || []);
-  }, [sprintForWeek]);
 
   // ── Fetch plan sprint (for Plan a Sprint section) ──
   const fetchPlanSprint = useCallback(async () => {
@@ -601,7 +589,6 @@ export default function MyBoard({ profile, onNavigate, todayEvents = [], onBoard
 
   useEffect(() => { if (profile?.id) fetchTasks(); }, [profile?.id, fetchTasks, sprintVersion]);
   useEffect(() => { fetchSprintForWeek(); }, [fetchSprintForWeek]);
-  useEffect(() => { fetchSprintGoals(); }, [fetchSprintGoals]);
   useEffect(() => { fetchPlanSprint(); }, [fetchPlanSprint]);
   useEffect(() => { fetchPlanGoals(); }, [fetchPlanGoals]);
 
@@ -886,7 +873,6 @@ export default function MyBoard({ profile, onNavigate, todayEvents = [], onBoard
   if (loading) {
     return (
       <div style={sectionStyle}>
-        <h2 style={sectionTitleStyle}>Sprint</h2>
         <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px' }}>Loading...</p>
       </div>
     );
@@ -897,7 +883,6 @@ export default function MyBoard({ profile, onNavigate, todayEvents = [], onBoard
       {/* ── Header: Sprint title + week selector ── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <h2 style={{ ...sectionTitleStyle, marginBottom: 0 }}>Sprint</h2>
           {isArchived && (
             <span style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
               Archived
@@ -951,27 +936,6 @@ export default function MyBoard({ profile, onNavigate, todayEvents = [], onBoard
         </div>
       )}
 
-      {/* ── Sprint goals (when viewing a sprint) ── */}
-      {sprintForWeek && sprintGoals.length > 0 && (
-        <div style={{ marginBottom: '12px', padding: '10px 14px', background: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.04)' }}>
-          <div style={{ fontSize: '11px', fontWeight: 600, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>
-            Sprint Goals
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            {sprintGoals.map(g => (
-              <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ fontSize: '12px', color: g.is_complete ? '#22c55e' : 'rgba(255,255,255,0.3)' }}>
-                  {g.is_complete ? '\u2713' : '\u25CB'}
-                </span>
-                <span style={{ fontSize: '13px', color: g.is_complete ? 'rgba(255,255,255,0.35)' : '#e2e8f0', textDecoration: g.is_complete ? 'line-through' : 'none' }}>
-                  {g.text}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* ── No sprint for this week ── */}
       {!sprintLoading && !sprintForWeek && isViewingCurrentWeek && (
         <div style={{ textAlign: 'center', padding: '16px', marginBottom: '12px' }}>
@@ -980,24 +944,6 @@ export default function MyBoard({ profile, onNavigate, todayEvents = [], onBoard
           </button>
         </div>
       )}
-
-      {/* Quick capture */}
-      <div style={captureRowStyle}>
-        <input
-          value={newTaskText}
-          onChange={e => setNewTaskText(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && addTask()}
-          placeholder="Drop a task, idea, or note..."
-          style={captureInputStyle}
-        />
-        <button
-          onClick={addTask}
-          disabled={!newTaskText.trim()}
-          style={{ ...captureButtonStyle, opacity: newTaskText.trim() ? 1 : 0.4 }}
-        >
-          Add
-        </button>
-      </div>
 
       {/* ── Kanban: single DragDropContext for sprint + buckets ── */}
       <DragDropContext onDragEnd={onDragEnd}>
@@ -1105,6 +1051,24 @@ export default function MyBoard({ profile, onNavigate, todayEvents = [], onBoard
               )}
             </div>
           )}
+        </div>
+
+        {/* Quick capture (below Plan a Sprint) */}
+        <div style={captureRowStyle}>
+          <input
+            value={newTaskText}
+            onChange={e => setNewTaskText(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && addTask()}
+            placeholder="Drop a task, idea, or note..."
+            style={captureInputStyle}
+          />
+          <button
+            onClick={addTask}
+            disabled={!newTaskText.trim()}
+            style={{ ...captureButtonStyle, opacity: newTaskText.trim() ? 1 : 0.4 }}
+          >
+            Add
+          </button>
         </div>
 
         {/* ── Bucket columns (Inbox + Backlog side by side) ── */}
