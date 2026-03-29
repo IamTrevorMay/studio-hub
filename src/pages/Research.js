@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { tritonSupabase } from '../tritonClient';
 import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
-const SECTIONS = ['briefs', 'cards', 'news', 'newsletters', 'reports'];
+const SECTIONS = ['inbox', 'briefs', 'cards', 'news', 'newsletters', 'trends'];
+const SECTION_LABELS = { inbox: 'Inbox', briefs: 'Briefs', cards: 'Cards', news: 'News', newsletters: 'Newsletters', trends: 'Trends' };
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
@@ -16,34 +17,17 @@ function timeAgo(dateStr) {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-function renderMarkdown(text) {
-  if (!text) return '';
-  return text
-    .replace(/^## (.+)$/gm, '<h2 style="font-size:18px;font-weight:700;color:#e2e8f0;margin:24px 0 12px;">$1</h2>')
-    .replace(/^### (.+)$/gm, '<h3 style="font-size:15px;font-weight:600;color:#e2e8f0;margin:20px 0 8px;">$1</h3>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong style="color:#e2e8f0">$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/^- (.+)$/gm, '<li style="margin:4px 0;margin-left:16px;">$1</li>')
-    .replace(/\n\n/g, '<br/><br/>')
-    .replace(/\n/g, '<br/>');
-}
-
 export default function Research() {
   const { profile } = useAuth();
-  const [view, setView] = useState('feed'); // feed | reader | report
-  const [section, setSection] = useState('briefs');
+  const [view, setView] = useState('feed'); // feed | reader
+  const [section, setSection] = useState('inbox');
   const [articles, setArticles] = useState([]);
   const [feeds, setFeeds] = useState([]);
   const [newsletters, setNewsletters] = useState([]);
-  const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState('all');
   const [selectedItem, setSelectedItem] = useState(null);
-  const [selectMode, setSelectMode] = useState(false);
-  const [selectedItems, setSelectedItems] = useState([]);
-  const [generating, setGenerating] = useState(false);
-  const [generatedReport, setGeneratedReport] = useState(null);
 
   // Briefs state
   const [briefs, setBriefs] = useState([]);
@@ -52,7 +36,7 @@ export default function Research() {
   const [briefLoading, setBriefLoading] = useState(false);
 
   // Cards state
-  const [cardsArchive, setCardsArchive] = useState([]); // [{date, cards: [...]}]
+  const [cardsArchive, setCardsArchive] = useState([]);
   const [currentCards, setCurrentCards] = useState([]);
   const [currentCardDate, setCurrentCardDate] = useState(null);
   const [cardsLoading, setCardsLoading] = useState(false);
@@ -66,6 +50,15 @@ export default function Research() {
   const [availableTemplates, setAvailableTemplates] = useState([]);
   const [showCardsConfig, setShowCardsConfig] = useState(false);
   const [savingConfig, setSavingConfig] = useState(false);
+
+  // Trends state
+  const [trends, setTrends] = useState([]);
+  const [currentTrend, setCurrentTrend] = useState(null);
+  const [currentTrendDate, setCurrentTrendDate] = useState(null);
+  const [trendLoading, setTrendLoading] = useState(false);
+
+  // Inbox state
+  const [inboxState, setInboxState] = useState([]);
 
   const fetchCardsConfig = useCallback(async () => {
     try {
@@ -140,7 +133,6 @@ export default function Research() {
         setRegenerateError(null);
       }
       await fetchCardsArchive();
-      // Use the date from the cron response (the date it actually generated for)
       const generatedDate = json.date || currentCardDate;
       if (generatedDate) {
         setCurrentCardDate(generatedDate);
@@ -189,19 +181,6 @@ export default function Research() {
       if (!error) setNewsletters(data || []);
     } catch (err) {
       console.error('Error fetching newsletters:', err);
-    }
-  }, []);
-
-  const fetchReports = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .from('research_reports')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(50);
-      if (!error) setReports(data || []);
-    } catch (err) {
-      console.error('Error fetching reports:', err);
     }
   }, []);
 
@@ -261,7 +240,6 @@ export default function Research() {
         .order('date', { ascending: false })
         .order('rank', { ascending: true });
       if (!error && data) {
-        // Group by date
         const byDate = {};
         for (const card of data) {
           if (!byDate[card.date]) byDate[card.date] = [];
@@ -305,102 +283,165 @@ export default function Research() {
     if (currentCardDate) fetchCardsForDate(currentCardDate);
   }, [currentCardDate, fetchCardsForDate]);
 
+  // Trends fetching
+  const fetchTrends = useCallback(async () => {
+    try {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 30);
+      const cutoffDate = cutoff.toISOString().slice(0, 10);
+      const { data, error } = await supabase
+        .from('research_trends')
+        .select('*')
+        .gte('date', cutoffDate)
+        .order('date', { ascending: false });
+      if (!error && data) {
+        setTrends(data);
+        if (data.length > 0 && !currentTrendDate) {
+          setCurrentTrendDate(data[0].date);
+          setCurrentTrend(data[0]);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching trends:', err);
+    }
+  }, [currentTrendDate]);
+
+  useEffect(() => {
+    if (currentTrendDate && trends.length > 0) {
+      const trend = trends.find(t => t.date === currentTrendDate);
+      if (trend) setCurrentTrend(trend);
+    }
+  }, [currentTrendDate, trends]);
+
+  // Inbox state fetching
+  const fetchInboxState = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('research_inbox_state')
+        .select('*')
+        .is('archived_at', null);
+      if (!error) setInboxState(data || []);
+    } catch (err) {
+      console.error('Error fetching inbox state:', err);
+    }
+  }, []);
+
+  // Build inbox items from briefs, cards archive, and trends
+  const inboxItems = useMemo(() => {
+    const items = [];
+    const stateMap = {};
+    for (const row of inboxState) {
+      stateMap[`${row.item_type}-${row.item_date}`] = row;
+    }
+
+    for (const brief of briefs) {
+      const key = `brief-${brief.date}`;
+      const state = stateMap[key];
+      items.push({
+        type: 'brief',
+        date: brief.date,
+        title: brief.title,
+        summary: brief.summary,
+        read: state?.read || false,
+      });
+    }
+
+    const seenCardDates = new Set();
+    for (const entry of cardsArchive) {
+      if (seenCardDates.has(entry.date)) continue;
+      seenCardDates.add(entry.date);
+      const key = `cards-${entry.date}`;
+      const state = stateMap[key];
+      const topNames = entry.cards.slice(0, 3).map(c => c.pitcher_name).join(', ');
+      items.push({
+        type: 'cards',
+        date: entry.date,
+        title: `Daily Cards`,
+        summary: topNames || `${entry.cards.length} cards`,
+        read: state?.read || false,
+      });
+    }
+
+    for (const trend of trends) {
+      const key = `trends-${trend.date}`;
+      const state = stateMap[key];
+      items.push({
+        type: 'trends',
+        date: trend.date,
+        title: 'Trends Report',
+        summary: trend.summary || `${trend.source_count || 0} sources analyzed`,
+        read: state?.read || false,
+      });
+    }
+
+    items.sort((a, b) => b.date.localeCompare(a.date));
+    return items;
+  }, [briefs, cardsArchive, trends, inboxState]);
+
+  const unreadInboxCount = useMemo(() => inboxItems.filter(i => !i.read).length, [inboxItems]);
+
+  const markInboxRead = useCallback(async (type, date) => {
+    // Optimistic update
+    setInboxState(prev => {
+      const key = `${type}-${date}`;
+      const exists = prev.find(r => r.item_type === type && r.item_date === date);
+      if (exists) return prev.map(r => r.item_type === type && r.item_date === date ? { ...r, read: true } : r);
+      return [...prev, { item_type: type, item_date: date, read: true, archived_at: null }];
+    });
+    try {
+      await supabase.from('research_inbox_state').upsert(
+        { user_id: profile?.id, item_type: type, item_date: date, read: true },
+        { onConflict: 'user_id,item_type,item_date' }
+      );
+    } catch (err) {
+      console.error('Error marking inbox read:', err);
+    }
+  }, [profile?.id]);
+
+  const archiveInboxItem = useCallback(async (type, date) => {
+    setInboxState(prev => prev.filter(r => !(r.item_type === type && r.item_date === date)));
+    try {
+      await supabase.from('research_inbox_state').upsert(
+        { user_id: profile?.id, item_type: type, item_date: date, read: true, archived_at: new Date().toISOString() },
+        { onConflict: 'user_id,item_type,item_date' }
+      );
+    } catch (err) {
+      console.error('Error archiving inbox item:', err);
+    }
+  }, [profile?.id]);
+
+  const handleInboxItemClick = useCallback((item) => {
+    markInboxRead(item.type, item.date);
+    if (item.type === 'brief') {
+      setSection('briefs');
+      setCurrentBriefDate(item.date);
+    } else if (item.type === 'cards') {
+      setSection('cards');
+      setCurrentCardDate(item.date);
+    } else if (item.type === 'trends') {
+      setSection('trends');
+      setCurrentTrendDate(item.date);
+    }
+  }, [markInboxRead]);
+
   useEffect(() => {
     const timeout = setTimeout(() => setLoading(false), 5000);
-    Promise.all([fetchArticles(), fetchNewsletters(), fetchReports(), fetchBriefs(), fetchCardsArchive(), fetchCardsConfig()])
+    Promise.all([fetchArticles(), fetchNewsletters(), fetchBriefs(), fetchCardsArchive(), fetchCardsConfig(), fetchTrends(), fetchInboxState()])
       .finally(() => { setLoading(false); clearTimeout(timeout); });
     return () => clearTimeout(timeout);
-  }, [fetchArticles, fetchNewsletters, fetchReports, fetchBriefs, fetchCardsArchive, fetchCardsConfig]);
+  }, [fetchArticles, fetchNewsletters, fetchBriefs, fetchCardsArchive, fetchCardsConfig, fetchTrends, fetchInboxState]);
 
-  useVisibilityRefresh(() => { fetchArticles(); fetchNewsletters(); fetchReports(); fetchBriefs(); fetchCardsArchive(); fetchCardsConfig(); });
+  useVisibilityRefresh(() => { fetchArticles(); fetchNewsletters(); fetchBriefs(); fetchCardsArchive(); fetchCardsConfig(); fetchTrends(); fetchInboxState(); });
 
   async function handleRefresh() {
     setRefreshing(true);
-    await Promise.all([fetchArticles(), fetchNewsletters(), fetchReports(), fetchBriefs(), fetchCardsArchive(), fetchCardsConfig()]);
+    await Promise.all([fetchArticles(), fetchNewsletters(), fetchBriefs(), fetchCardsArchive(), fetchCardsConfig(), fetchTrends(), fetchInboxState()]);
     setRefreshing(false);
   }
 
   function openItem(item, type) {
     setSelectedItem({ ...item, _type: type });
     setView('reader');
-  }
-
-  function toggleSelect(item, type) {
-    const key = `${type}-${item.id}`;
-    setSelectedItems(prev => {
-      const exists = prev.find(s => s._key === key);
-      if (exists) return prev.filter(s => s._key !== key);
-      return [...prev, { ...item, _key: key, _type: type }];
-    });
-  }
-
-  function isSelected(item, type) {
-    return selectedItems.some(s => s._key === `${type}-${item.id}`);
-  }
-
-  async function handleGenerateReport() {
-    setGenerating(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-
-      const articleItems = selectedItems.filter(s => s._type === 'article').map(a => ({
-        id: a.id,
-        title: a.title,
-        description: a.description,
-        content: a.content,
-        pub_date: a.pub_date,
-        source: a.feed?.name || 'Unknown',
-      }));
-      const newsletterItems = selectedItems.filter(s => s._type === 'newsletter').map(n => ({
-        id: n.id,
-        from_name: n.from_name,
-        from_address: n.from_address,
-        subject: n.subject,
-        text_content: n.text_content,
-      }));
-
-      const response = await fetch(
-        `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/generate-report`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`,
-            'apikey': process.env.REACT_APP_SUPABASE_ANON_KEY,
-          },
-          body: JSON.stringify({ articles: articleItems, newsletters: newsletterItems, save: true }),
-        }
-      );
-      const result = await response.json();
-      if (response.ok) {
-        setGeneratedReport(result);
-        setView('report');
-        setSelectMode(false);
-        setSelectedItems([]);
-        fetchReports();
-      } else {
-        alert('Error generating report: ' + (result.error || 'Unknown error'));
-      }
-    } catch (err) {
-      console.error('Error generating report:', err);
-      alert('Error generating report');
-    } finally {
-      setGenerating(false);
-    }
-  }
-
-  async function handleDeleteReport(reportId, e) {
-    if (e) e.stopPropagation();
-    if (!window.confirm('Delete this report?')) return;
-    const { error } = await supabase.from('research_reports').delete().eq('id', reportId);
-    if (!error) {
-      setReports(prev => prev.filter(r => r.id !== reportId));
-      if (view === 'reader' && selectedItem?.id === reportId) {
-        setView('feed');
-        setSelectedItem(null);
-      }
-    }
   }
 
   const filteredArticles = activeFilter === 'all'
@@ -461,24 +502,6 @@ export default function Research() {
               )}
             </>
           )}
-          {selectedItem._type === 'report' && (
-            <>
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' }}>
-                <h1 style={s.readerTitle}>{selectedItem.title}</h1>
-                <button
-                  onClick={() => handleDeleteReport(selectedItem.id)}
-                  style={s.deleteBtn}
-                  title="Delete report"
-                >
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="M2 4h12M5.33 4V2.67a1.33 1.33 0 011.34-1.34h2.66a1.33 1.33 0 011.34 1.34V4M12.67 4v9.33a1.33 1.33 0 01-1.34 1.34H4.67a1.33 1.33 0 01-1.34-1.34V4" />
-                  </svg>
-                </button>
-              </div>
-              <span style={s.metaText}>{timeAgo(selectedItem.created_at)}</span>
-              <div style={{ ...s.readerContent, marginTop: '20px' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(selectedItem.content) }} />
-            </>
-          )}
           {selectedItem._type === 'brief' && (
             <>
               <div style={{ marginBottom: '12px' }}>
@@ -510,50 +533,19 @@ export default function Research() {
     );
   }
 
-  // --- Report View (freshly generated) ---
-  if (view === 'report' && generatedReport) {
-    return (
-      <div style={s.container}>
-        <button onClick={() => { setView('feed'); setGeneratedReport(null); }} style={s.backBtn}>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 3L5 8l5 5" /></svg>
-          Back
-        </button>
-        <div style={s.readerWrap}>
-          <h1 style={s.readerTitle}>{generatedReport.title}</h1>
-          <div style={{ ...s.readerContent, marginTop: '20px' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(generatedReport.content) }} />
-        </div>
-      </div>
-    );
-  }
-
   // --- Feed View ---
   return (
     <div style={s.container}>
       {/* Header */}
       <div style={s.header}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <h1 style={s.title}>Research</h1>
-          <button
-            onClick={() => { setSelectMode(!selectMode); if (selectMode) setSelectedItems([]); }}
-            style={{ ...s.toggleBtn, ...(selectMode ? s.toggleBtnActive : {}) }}
-          >
-            {selectMode ? 'Cancel Selection' : 'Select for Report'}
-          </button>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          {selectMode && selectedItems.length > 0 && (
-            <button onClick={handleGenerateReport} disabled={generating} style={s.generateBtn}>
-              {generating ? 'Generating...' : `Generate Report (${selectedItems.length})`}
-            </button>
-          )}
-          <button onClick={handleRefresh} disabled={refreshing} style={s.refreshBtn}>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ animation: refreshing ? 'spin 1s linear infinite' : 'none' }}>
-              <path d="M2 8a6 6 0 0110.47-4M14 8a6 6 0 01-10.47 4" />
-              <path d="M14 2v4h-4M2 14v-4h4" />
-            </svg>
-            {refreshing ? 'Refreshing...' : 'Refresh'}
-          </button>
-        </div>
+        <h1 style={s.title}>Research</h1>
+        <button onClick={handleRefresh} disabled={refreshing} style={s.refreshBtn}>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ animation: refreshing ? 'spin 1s linear infinite' : 'none' }}>
+            <path d="M2 8a6 6 0 0110.47-4M14 8a6 6 0 01-10.47 4" />
+            <path d="M14 2v4h-4M2 14v-4h4" />
+          </svg>
+          {refreshing ? 'Refreshing...' : 'Refresh'}
+        </button>
       </div>
 
       {/* Section tabs */}
@@ -564,7 +556,10 @@ export default function Research() {
             onClick={() => setSection(sec)}
             style={{ ...s.sectionTab, ...(section === sec ? s.sectionTabActive : {}) }}
           >
-            {sec === 'news' ? 'News' : sec === 'newsletters' ? 'Newsletters' : sec === 'reports' ? 'Reports' : sec === 'briefs' ? 'Briefs' : 'Cards'}
+            {SECTION_LABELS[sec]}
+            {sec === 'inbox' && unreadInboxCount > 0 && (
+              <span style={s.unreadBadge}>{unreadInboxCount}</span>
+            )}
             {sec === 'newsletters' && newsletters.filter(n => !n.read).length > 0 && (
               <span style={s.unreadBadge}>{newsletters.filter(n => !n.read).length}</span>
             )}
@@ -576,10 +571,50 @@ export default function Research() {
         <div style={s.emptyState}>Loading...</div>
       ) : (
         <>
+          {/* Inbox Section */}
+          {section === 'inbox' && (
+            <div style={s.listContainer}>
+              {inboxItems.length === 0 ? (
+                <div style={s.emptyState}>No new items in your inbox.</div>
+              ) : (
+                inboxItems.map(item => (
+                  <div
+                    key={`${item.type}-${item.date}`}
+                    style={s.listItem}
+                    onClick={() => handleInboxItemClick(item)}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
+                      {!item.read && <span style={s.unreadDot} />}
+                      <span style={s.inboxTypeBadge}>
+                        {item.type === 'brief' ? 'Brief' : item.type === 'cards' ? 'Cards' : 'Trends'}
+                      </span>
+                      <span style={s.inboxDate}>
+                        {new Date(item.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={s.inboxTitle}>{item.title}</div>
+                        <div style={s.inboxSummary}>{item.summary}</div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); archiveInboxItem(item.type, item.date); }}
+                      style={s.archiveBtn}
+                      title="Archive"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <path d="M2 4h12M5.33 4V2.67a1.33 1.33 0 011.34-1.34h2.66a1.33 1.33 0 011.34 1.34V4M12.67 4v9.33a1.33 1.33 0 01-1.34 1.34H4.67a1.33 1.33 0 01-1.34-1.34V4" />
+                      </svg>
+                    </button>
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5"><path d="M6 3l5 5-5 5" /></svg>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
           {/* News Section */}
           {section === 'news' && (
             <>
-              {/* Source filter chips */}
               <div style={s.filterRow}>
                 <button
                   onClick={() => setActiveFilter('all')}
@@ -608,14 +643,9 @@ export default function Research() {
                   {filteredArticles.map(article => (
                     <div
                       key={article.id}
-                      style={{ ...s.articleCard, ...(isSelected(article, 'article') ? s.articleCardSelected : {}) }}
-                      onClick={() => selectMode ? toggleSelect(article, 'article') : openItem(article, 'article')}
+                      style={s.articleCard}
+                      onClick={() => openItem(article, 'article')}
                     >
-                      {selectMode && (
-                        <div style={{ ...s.checkbox, ...(isSelected(article, 'article') ? s.checkboxChecked : {}) }}>
-                          {isSelected(article, 'article') && '✓'}
-                        </div>
-                      )}
                       {article.image_url && (
                         <div style={s.articleImageWrap}>
                           <img src={article.image_url} alt="" style={s.articleImage} onError={e => e.target.parentElement.style.display = 'none'} />
@@ -649,14 +679,9 @@ export default function Research() {
                 newsletters.map(nl => (
                   <div
                     key={nl.id}
-                    style={{ ...s.listItem, ...(isSelected(nl, 'newsletter') ? s.articleCardSelected : {}) }}
-                    onClick={() => selectMode ? toggleSelect(nl, 'newsletter') : openItem(nl, 'newsletter')}
+                    style={s.listItem}
+                    onClick={() => openItem(nl, 'newsletter')}
                   >
-                    {selectMode && (
-                      <div style={{ ...s.checkbox, ...(isSelected(nl, 'newsletter') ? s.checkboxChecked : {}) }}>
-                        {isSelected(nl, 'newsletter') && '✓'}
-                      </div>
-                    )}
                     <div style={{ flex: 1 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                         {!nl.read && <span style={s.unreadDot} />}
@@ -671,42 +696,9 @@ export default function Research() {
             </div>
           )}
 
-          {/* Reports Section */}
-          {section === 'reports' && (
-            <div style={s.listContainer}>
-              {reports.length === 0 ? (
-                <div style={s.emptyState}>No reports yet. Select articles and newsletters to generate an AI analysis report.</div>
-              ) : (
-                reports.map(report => (
-                  <div
-                    key={report.id}
-                    style={s.listItem}
-                    onClick={() => openItem(report, 'report')}
-                  >
-                    <div style={{ flex: 1 }}>
-                      <div style={s.reportTitle}>{report.title}</div>
-                      <div style={s.timeText}>{timeAgo(report.created_at)}</div>
-                    </div>
-                    <button
-                      onClick={(e) => handleDeleteReport(report.id, e)}
-                      style={s.deleteBtn}
-                      title="Delete report"
-                    >
-                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                        <path d="M2 4h12M5.33 4V2.67a1.33 1.33 0 011.34-1.34h2.66a1.33 1.33 0 011.34 1.34V4M12.67 4v9.33a1.33 1.33 0 01-1.34 1.34H4.67a1.33 1.33 0 01-1.34-1.34V4" />
-                      </svg>
-                    </button>
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5"><path d="M6 3l5 5-5 5" /></svg>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-
           {/* Briefs Section */}
           {section === 'briefs' && (
             <div>
-              {/* Date navigation + Regenerate */}
               {currentBriefDate && (
                 <div style={s.briefDateNav}>
                   <button
@@ -742,7 +734,6 @@ export default function Research() {
                 </div>
               )}
 
-              {/* Current brief */}
               {briefLoading ? (
                 <div style={s.briefCard}>
                   <div style={{ height: '20px', width: '60%', background: 'rgba(255,255,255,0.06)', borderRadius: '6px', marginBottom: '12px' }} />
@@ -795,7 +786,6 @@ export default function Research() {
                 <div style={s.emptyState}>No brief available for this date.</div>
               ) : null}
 
-              {/* Archive grid */}
               {briefs.length > 0 && (
                 <div style={{ marginTop: '32px' }}>
                   <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#fff', marginBottom: '16px' }}>Archive</h3>
@@ -838,7 +828,6 @@ export default function Research() {
           {/* Cards Section */}
           {section === 'cards' && (
             <div>
-              {/* Full-size card modal */}
               {selectedCard && (
                 <div
                   style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
@@ -872,7 +861,6 @@ export default function Research() {
                 </div>
               )}
 
-              {/* Date navigation */}
               {currentCardDate && (
                 <div style={s.briefDateNav}>
                   <button
@@ -970,7 +958,6 @@ export default function Research() {
                 </div>
               )}
 
-              {/* Current day's cards as images */}
               {cardsLoading ? (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '16px' }}>
                   {[1,2,3,4,5].map(i => (
@@ -1012,7 +999,6 @@ export default function Research() {
                 <div style={s.emptyState}>No cards available for this date.</div>
               ) : null}
 
-              {/* Archive grid */}
               {cardsArchive.length > 0 && (
                 <div style={{ marginTop: '32px' }}>
                   <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#fff', marginBottom: '16px' }}>Archive</h3>
@@ -1051,6 +1037,137 @@ export default function Research() {
               )}
             </div>
           )}
+
+          {/* Trends Section */}
+          {section === 'trends' && (
+            <div>
+              {trends.length === 0 ? (
+                <div style={s.emptyState}>No trends reports yet.</div>
+              ) : (
+                <>
+                  {currentTrendDate && (
+                    <div style={s.briefDateNav}>
+                      <button
+                        onClick={() => {
+                          const idx = trends.findIndex(t => t.date === currentTrendDate);
+                          if (idx < trends.length - 1) setCurrentTrendDate(trends[idx + 1].date);
+                        }}
+                        disabled={trends.findIndex(t => t.date === currentTrendDate) >= trends.length - 1}
+                        style={s.briefNavBtn}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 3L5 8l5 5" /></svg>
+                      </button>
+                      <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
+                        {new Date(currentTrendDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' })}
+                      </span>
+                      <button
+                        onClick={() => {
+                          const idx = trends.findIndex(t => t.date === currentTrendDate);
+                          if (idx > 0) setCurrentTrendDate(trends[idx - 1].date);
+                        }}
+                        disabled={trends.findIndex(t => t.date === currentTrendDate) <= 0}
+                        style={s.briefNavBtn}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 3l5 5-5 5" /></svg>
+                      </button>
+                    </div>
+                  )}
+
+                  {currentTrend && (
+                    <div style={s.briefCard}>
+                      <div style={s.briefCardHeader}>
+                        <p style={s.briefSummary}>{currentTrend.summary}</p>
+                        {currentTrend.source_count > 0 && (
+                          <span style={{ ...s.briefBadge, marginTop: '12px', display: 'inline-block' }}>
+                            {currentTrend.source_count} sources
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ padding: '24px 28px' }}>
+                        {/* Current Events */}
+                        {currentTrend.current_events && currentTrend.current_events.length > 0 && (
+                          <div style={{ marginBottom: '28px' }}>
+                            <h3 style={s.trendSectionHeader}>Current Events</h3>
+                            <div style={s.trendItemGrid}>
+                              {currentTrend.current_events.map((topic, i) => (
+                                <div key={i} style={s.trendItem}>
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                    <div style={s.trendItemTitle}>{topic.title}</div>
+                                    {topic.priority && (
+                                      <span style={s.trendPriorityBadge}>{topic.priority}</span>
+                                    )}
+                                  </div>
+                                  {topic.angle && <div style={s.trendItemAngle}>{topic.angle}</div>}
+                                  {topic.reasoning && <div style={s.trendItemReasoning}>{topic.reasoning}</div>}
+                                  {topic.sources && topic.sources.length > 0 && (
+                                    <div style={{ marginTop: '8px', fontSize: '11px', color: 'rgba(255,255,255,0.3)' }}>
+                                      {topic.sources.length} source{topic.sources.length !== 1 ? 's' : ''}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Evergreen */}
+                        {currentTrend.evergreen && currentTrend.evergreen.length > 0 && (
+                          <div>
+                            <h3 style={s.trendSectionHeader}>Evergreen</h3>
+                            <div style={s.trendItemGrid}>
+                              {currentTrend.evergreen.map((topic, i) => (
+                                <div key={i} style={s.trendItem}>
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                    <div style={s.trendItemTitle}>{topic.title}</div>
+                                    {topic.priority && (
+                                      <span style={s.trendPriorityBadge}>{topic.priority}</span>
+                                    )}
+                                  </div>
+                                  {topic.angle && <div style={s.trendItemAngle}>{topic.angle}</div>}
+                                  {topic.reasoning && <div style={s.trendItemReasoning}>{topic.reasoning}</div>}
+                                  {topic.sources && topic.sources.length > 0 && (
+                                    <div style={{ marginTop: '8px', fontSize: '11px', color: 'rgba(255,255,255,0.3)' }}>
+                                      {topic.sources.length} source{topic.sources.length !== 1 ? 's' : ''}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Archive grid */}
+                  {trends.length > 1 && (
+                    <div style={{ marginTop: '32px' }}>
+                      <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#fff', marginBottom: '16px' }}>Archive</h3>
+                      <div style={s.briefArchiveGrid}>
+                        {trends.map(trend => (
+                          <div
+                            key={trend.id}
+                            onClick={() => setCurrentTrendDate(trend.date)}
+                            style={{
+                              ...s.briefArchiveCard,
+                              ...(trend.date === currentTrendDate ? s.briefArchiveCardActive : {}),
+                            }}
+                          >
+                            <div style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
+                              {new Date(trend.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                            </div>
+                            <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                              {trend.summary || 'No summary'}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </>
       )}
 
@@ -1076,35 +1193,6 @@ const s = {
     fontWeight: 700,
     color: '#ffffff',
     margin: 0,
-  },
-  toggleBtn: {
-    padding: '6px 14px',
-    border: '1px solid rgba(255,255,255,0.12)',
-    borderRadius: '8px',
-    background: 'transparent',
-    color: 'rgba(255,255,255,0.6)',
-    fontSize: '13px',
-    fontWeight: 500,
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-    transition: 'all 0.15s',
-  },
-  toggleBtnActive: {
-    background: 'rgba(99,102,241,0.15)',
-    borderColor: '#6366f1',
-    color: '#a5b4fc',
-  },
-  generateBtn: {
-    padding: '8px 20px',
-    border: 'none',
-    borderRadius: '8px',
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
-    color: '#fff',
-    fontSize: '13px',
-    fontWeight: 600,
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-    transition: 'all 0.15s',
   },
   refreshBtn: {
     display: 'flex',
@@ -1193,31 +1281,6 @@ const s = {
     transition: 'all 0.15s',
     position: 'relative',
   },
-  articleCardSelected: {
-    borderColor: '#6366f1',
-    background: 'rgba(99,102,241,0.08)',
-  },
-  checkbox: {
-    position: 'absolute',
-    top: '12px',
-    right: '12px',
-    width: '22px',
-    height: '22px',
-    borderRadius: '6px',
-    border: '2px solid rgba(255,255,255,0.2)',
-    background: 'rgba(0,0,0,0.3)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '12px',
-    fontWeight: 700,
-    color: '#fff',
-    zIndex: 2,
-  },
-  checkboxChecked: {
-    background: '#6366f1',
-    borderColor: '#6366f1',
-  },
   articleImageWrap: {
     width: '100%',
     height: '160px',
@@ -1304,12 +1367,6 @@ const s = {
     fontSize: '13px',
     color: 'rgba(255,255,255,0.5)',
   },
-  reportTitle: {
-    fontSize: '14px',
-    fontWeight: 600,
-    color: '#e2e8f0',
-    marginBottom: '4px',
-  },
   emptyState: {
     textAlign: 'center',
     padding: '60px 20px',
@@ -1367,19 +1424,6 @@ const s = {
   metaText: {
     fontSize: '13px',
     color: 'rgba(255,255,255,0.4)',
-  },
-  deleteBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '6px',
-    border: 'none',
-    borderRadius: '6px',
-    background: 'transparent',
-    color: 'rgba(255,255,255,0.3)',
-    cursor: 'pointer',
-    flexShrink: 0,
-    transition: 'all 0.15s',
   },
   newsletterFrame: {
     width: '100%',
@@ -1524,76 +1568,96 @@ const s = {
     borderColor: '#6366f1',
     background: 'rgba(99,102,241,0.06)',
   },
-  // Cards styles
-  cardsGrid: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-  },
-  cardSkeleton: {
-    padding: '20px',
-    background: 'rgba(255,255,255,0.03)',
-    border: '1px solid rgba(255,255,255,0.06)',
-    borderRadius: '12px',
-  },
-  cardItem: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '16px',
-    padding: '16px 20px',
-    background: 'rgba(255,255,255,0.03)',
-    border: '1px solid rgba(255,255,255,0.06)',
-    borderRadius: '12px',
-    transition: 'all 0.15s',
-  },
-  cardRank: {
-    width: '32px',
-    height: '32px',
-    borderRadius: '50%',
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
-    color: '#fff',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '14px',
-    fontWeight: 700,
+  // Inbox styles
+  inboxTypeBadge: {
+    padding: '2px 8px',
+    borderRadius: '4px',
+    fontSize: '11px',
+    fontWeight: 600,
+    background: 'rgba(99,102,241,0.15)',
+    color: '#a5b4fc',
+    whiteSpace: 'nowrap',
     flexShrink: 0,
   },
-  cardPitcher: {
-    fontSize: '15px',
+  inboxDate: {
+    fontSize: '12px',
+    color: 'rgba(255,255,255,0.4)',
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
+  },
+  inboxTitle: {
+    fontSize: '14px',
     fontWeight: 600,
     color: '#e2e8f0',
     marginBottom: '2px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
-  cardGame: {
-    fontSize: '13px',
+  inboxSummary: {
+    fontSize: '12px',
     color: 'rgba(255,255,255,0.4)',
-    marginBottom: '6px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
-  cardStats: {
-    display: 'flex',
-    gap: '6px',
-  },
-  cardStatChip: {
-    fontSize: '11px',
-    fontWeight: 600,
-    color: 'rgba(255,255,255,0.55)',
-    background: 'rgba(255,255,255,0.06)',
-    padding: '3px 10px',
-    borderRadius: '6px',
-  },
-  cardLink: {
+  archiveBtn: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    width: '32px',
-    height: '32px',
-    borderRadius: '8px',
-    border: '1px solid rgba(255,255,255,0.1)',
-    background: 'rgba(255,255,255,0.03)',
-    color: 'rgba(255,255,255,0.4)',
+    padding: '6px',
+    border: 'none',
+    borderRadius: '6px',
+    background: 'transparent',
+    color: 'rgba(255,255,255,0.3)',
+    cursor: 'pointer',
     flexShrink: 0,
     transition: 'all 0.15s',
-    textDecoration: 'none',
+  },
+  // Trends styles
+  trendSectionHeader: {
+    fontSize: '15px',
+    fontWeight: 700,
+    color: '#a5b4fc',
+    margin: '0 0 14px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+  },
+  trendItemGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+    gap: '12px',
+  },
+  trendItem: {
+    padding: '16px',
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '12px',
+  },
+  trendItemTitle: {
+    fontSize: '14px',
+    fontWeight: 600,
+    color: '#e2e8f0',
+  },
+  trendItemAngle: {
+    fontSize: '13px',
+    color: 'rgba(255,255,255,0.6)',
+    marginBottom: '6px',
+    lineHeight: 1.5,
+  },
+  trendItemReasoning: {
+    fontSize: '12px',
+    color: 'rgba(255,255,255,0.35)',
+    lineHeight: 1.5,
+  },
+  trendPriorityBadge: {
+    fontSize: '10px',
+    fontWeight: 700,
+    color: '#f59e0b',
+    background: 'rgba(245,158,11,0.1)',
+    padding: '2px 8px',
+    borderRadius: '4px',
+    textTransform: 'uppercase',
+    flexShrink: 0,
   },
 };
