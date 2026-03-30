@@ -60,6 +60,13 @@ export default function Research() {
   // Inbox state
   const [inboxState, setInboxState] = useState([]);
 
+  // Add feed state
+  const [showAddFeed, setShowAddFeed] = useState(null); // 'news' | 'newsletter' | null
+  const [addFeedUrl, setAddFeedUrl] = useState('');
+  const [addFeedName, setAddFeedName] = useState('');
+  const [addFeedSaving, setAddFeedSaving] = useState(false);
+  const [managingFeeds, setManagingFeeds] = useState(null); // 'news' | 'newsletter' | null
+
   const fetchCardsConfig = useCallback(async () => {
     try {
       const res = await fetch('https://www.tritonapex.io/api/daily-cards-config');
@@ -183,6 +190,44 @@ export default function Research() {
       console.error('Error fetching newsletters:', err);
     }
   }, []);
+
+  const handleAddFeed = async (sourceType) => {
+    if (!addFeedUrl.trim()) return;
+    setAddFeedSaving(true);
+    try {
+      const { error } = await supabase.from('research_feeds').insert({
+        url: addFeedUrl.trim(),
+        name: addFeedName.trim() || new URL(addFeedUrl.trim()).hostname.replace('www.', ''),
+        enabled: true,
+        source_type: sourceType,
+      });
+      if (error) throw error;
+      setAddFeedUrl('');
+      setAddFeedName('');
+      setShowAddFeed(null);
+      await fetchArticles();
+    } catch (err) {
+      console.error('Error adding feed:', err);
+      alert('Failed to add feed: ' + err.message);
+    } finally {
+      setAddFeedSaving(false);
+    }
+  };
+
+  const handleDeleteFeed = async (feedId) => {
+    try {
+      const { error } = await supabase.from('research_feeds').delete().eq('id', feedId);
+      if (error) throw error;
+      await fetchArticles();
+    } catch (err) {
+      console.error('Error deleting feed:', err);
+    }
+  };
+
+  const newsFeeds = useMemo(() => feeds.filter(f => !f.source_type || f.source_type === 'news'), [feeds]);
+  const newsletterFeeds = useMemo(() => feeds.filter(f => f.source_type === 'newsletter'), [feeds]);
+  const newsArticles = useMemo(() => articles.filter(a => !a.feed?.source_type || a.feed?.source_type === 'news'), [articles]);
+  const newsletterArticles = useMemo(() => articles.filter(a => a.feed?.source_type === 'newsletter'), [articles]);
 
   const fetchBriefs = useCallback(async () => {
     if (!tritonSupabase) return;
@@ -445,8 +490,12 @@ export default function Research() {
   }
 
   const filteredArticles = activeFilter === 'all'
-    ? articles
-    : articles.filter(a => a.feed?.id === activeFilter);
+    ? newsArticles
+    : newsArticles.filter(a => a.feed?.id === activeFilter);
+
+  const filteredNewsletterArticles = activeFilter === 'all'
+    ? newsletterArticles
+    : newsletterArticles.filter(a => a.feed?.id === activeFilter);
 
   // --- Reader View ---
   if (view === 'reader' && selectedItem) {
@@ -622,7 +671,7 @@ export default function Research() {
                 >
                   All Sources
                 </button>
-                {feeds.map(feed => (
+                {newsFeeds.map(feed => (
                   <button
                     key={feed.id}
                     onClick={() => setActiveFilter(feed.id)}
@@ -634,10 +683,64 @@ export default function Research() {
                     {feed.icon_emoji} {feed.name}
                   </button>
                 ))}
+                <button
+                  onClick={() => { setShowAddFeed(showAddFeed === 'news' ? null : 'news'); setAddFeedUrl(''); setAddFeedName(''); }}
+                  style={{ ...s.filterChip, ...(showAddFeed === 'news' ? s.filterChipActive : {}), display: 'flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 3v10M3 8h10" /></svg>
+                  Add
+                </button>
+                <button
+                  onClick={() => setManagingFeeds(managingFeeds === 'news' ? null : 'news')}
+                  style={{ ...s.filterChip, ...(managingFeeds === 'news' ? s.filterChipActive : {}), display: 'flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="8" cy="8" r="6" /><path d="M6 8h4" /></svg>
+                  Manage
+                </button>
               </div>
 
+              {showAddFeed === 'news' && (
+                <div style={s.addFeedForm}>
+                  <input
+                    type="text"
+                    placeholder="Feed URL (e.g. https://example.com/rss)"
+                    value={addFeedUrl}
+                    onChange={e => setAddFeedUrl(e.target.value)}
+                    style={s.addFeedInput}
+                    autoFocus
+                  />
+                  <input
+                    type="text"
+                    placeholder="Name (optional)"
+                    value={addFeedName}
+                    onChange={e => setAddFeedName(e.target.value)}
+                    style={{ ...s.addFeedInput, flex: '0 0 180px' }}
+                  />
+                  <button
+                    onClick={() => handleAddFeed('news')}
+                    disabled={addFeedSaving || !addFeedUrl.trim()}
+                    style={{ ...s.addFeedBtn, opacity: addFeedSaving || !addFeedUrl.trim() ? 0.5 : 1 }}
+                  >
+                    {addFeedSaving ? 'Adding...' : 'Add Source'}
+                  </button>
+                  <button onClick={() => setShowAddFeed(null)} style={s.addFeedCancelBtn}>Cancel</button>
+                </div>
+              )}
+
+              {managingFeeds === 'news' && newsFeeds.length > 0 && (
+                <div style={s.manageFeedsContainer}>
+                  {newsFeeds.map(feed => (
+                    <div key={feed.id} style={s.manageFeedRow}>
+                      <span style={{ fontSize: '13px', color: '#e2e8f0' }}>{feed.icon_emoji} {feed.name}</span>
+                      <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{feed.url}</span>
+                      <button onClick={() => handleDeleteFeed(feed.id)} style={s.manageFeedDeleteBtn}>Remove</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {filteredArticles.length === 0 ? (
-                <div style={s.emptyState}>No articles yet. Click Refresh to fetch RSS feeds.</div>
+                <div style={s.emptyState}>No articles yet. Add an RSS feed and click Refresh.</div>
               ) : (
                 <div style={s.articleGrid}>
                   {filteredArticles.map(article => (
@@ -672,28 +775,129 @@ export default function Research() {
 
           {/* Newsletters Section */}
           {section === 'newsletters' && (
-            <div style={s.listContainer}>
-              {newsletters.length === 0 ? (
-                <div style={s.emptyState}>No newsletters yet. Configure Mailgun inbound routing to start receiving newsletters.</div>
-              ) : (
-                newsletters.map(nl => (
-                  <div
-                    key={nl.id}
-                    style={s.listItem}
-                    onClick={() => openItem(nl, 'newsletter')}
+            <>
+              <div style={s.filterRow}>
+                <button
+                  onClick={() => setActiveFilter('all')}
+                  style={{ ...s.filterChip, ...(activeFilter === 'all' ? s.filterChipActive : {}) }}
+                >
+                  All Sources
+                </button>
+                {newsletterFeeds.map(feed => (
+                  <button
+                    key={feed.id}
+                    onClick={() => setActiveFilter(feed.id)}
+                    style={{
+                      ...s.filterChip,
+                      ...(activeFilter === feed.id ? { background: (feed.color || '#6366f1') + '22', color: feed.color || '#a5b4fc', borderColor: (feed.color || '#6366f1') + '44' } : {}),
+                    }}
                   >
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                        {!nl.read && <span style={s.unreadDot} />}
-                        <span style={s.nlFrom}>{nl.from_name || nl.from_address}</span>
-                        <span style={s.timeText}>{timeAgo(nl.received_at)}</span>
-                      </div>
-                      <div style={s.nlSubject}>{nl.subject}</div>
-                    </div>
-                  </div>
-                ))
+                    {feed.icon_emoji} {feed.name}
+                  </button>
+                ))}
+                <button
+                  onClick={() => { setShowAddFeed(showAddFeed === 'newsletter' ? null : 'newsletter'); setAddFeedUrl(''); setAddFeedName(''); }}
+                  style={{ ...s.filterChip, ...(showAddFeed === 'newsletter' ? s.filterChipActive : {}), display: 'flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 3v10M3 8h10" /></svg>
+                  Add
+                </button>
+                <button
+                  onClick={() => setManagingFeeds(managingFeeds === 'newsletter' ? null : 'newsletter')}
+                  style={{ ...s.filterChip, ...(managingFeeds === 'newsletter' ? s.filterChipActive : {}), display: 'flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="8" cy="8" r="6" /><path d="M6 8h4" /></svg>
+                  Manage
+                </button>
+              </div>
+
+              {showAddFeed === 'newsletter' && (
+                <div style={s.addFeedForm}>
+                  <input
+                    type="text"
+                    placeholder="Newsletter RSS URL (e.g. newsletter.substack.com/feed)"
+                    value={addFeedUrl}
+                    onChange={e => setAddFeedUrl(e.target.value)}
+                    style={s.addFeedInput}
+                    autoFocus
+                  />
+                  <input
+                    type="text"
+                    placeholder="Name (optional)"
+                    value={addFeedName}
+                    onChange={e => setAddFeedName(e.target.value)}
+                    style={{ ...s.addFeedInput, flex: '0 0 180px' }}
+                  />
+                  <button
+                    onClick={() => handleAddFeed('newsletter')}
+                    disabled={addFeedSaving || !addFeedUrl.trim()}
+                    style={{ ...s.addFeedBtn, opacity: addFeedSaving || !addFeedUrl.trim() ? 0.5 : 1 }}
+                  >
+                    {addFeedSaving ? 'Adding...' : 'Add Newsletter'}
+                  </button>
+                  <button onClick={() => setShowAddFeed(null)} style={s.addFeedCancelBtn}>Cancel</button>
+                </div>
               )}
-            </div>
+
+              {managingFeeds === 'newsletter' && newsletterFeeds.length > 0 && (
+                <div style={s.manageFeedsContainer}>
+                  {newsletterFeeds.map(feed => (
+                    <div key={feed.id} style={s.manageFeedRow}>
+                      <span style={{ fontSize: '13px', color: '#e2e8f0' }}>{feed.icon_emoji} {feed.name}</span>
+                      <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{feed.url}</span>
+                      <button onClick={() => handleDeleteFeed(feed.id)} style={s.manageFeedDeleteBtn}>Remove</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {filteredNewsletterArticles.length === 0 && newsletters.length === 0 ? (
+                <div style={s.emptyState}>No newsletters yet. Add a newsletter RSS feed to get started.</div>
+              ) : (
+                <div style={s.listContainer}>
+                  {filteredNewsletterArticles.map(article => (
+                    <div
+                      key={article.id}
+                      style={s.listItem}
+                      onClick={() => openItem(article, 'article')}
+                    >
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                          {article.feed && (
+                            <span style={{ ...s.sourceBadgeSmall, background: (article.feed.color || '#6366f1') + '22', color: article.feed.color || '#a5b4fc' }}>
+                              {article.feed.icon_emoji} {article.feed.name}
+                            </span>
+                          )}
+                          <span style={s.timeText}>{timeAgo(article.pub_date)}</span>
+                          {article.author && <span style={s.timeText}>by {article.author}</span>}
+                        </div>
+                        <div style={s.nlSubject}>{article.title}</div>
+                        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.35)', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {(article.description || '').replace(/<[^>]*>/g, '').substring(0, 120)}
+                        </div>
+                      </div>
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5"><path d="M6 3l5 5-5 5" /></svg>
+                    </div>
+                  ))}
+                  {newsletters.map(nl => (
+                    <div
+                      key={nl.id}
+                      style={s.listItem}
+                      onClick={() => openItem(nl, 'newsletter')}
+                    >
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                          {!nl.read && <span style={s.unreadDot} />}
+                          <span style={s.nlFrom}>{nl.from_name || nl.from_address}</span>
+                          <span style={s.timeText}>{timeAgo(nl.received_at)}</span>
+                        </div>
+                        <div style={s.nlSubject}>{nl.subject}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
 
           {/* Briefs Section */}
@@ -1135,6 +1339,36 @@ export default function Research() {
                             </div>
                           </div>
                         )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Suggestions */}
+                  {currentTrend && currentTrend.suggestions && currentTrend.suggestions.length > 0 && (
+                    <div style={s.briefCard}>
+                      <div style={{ padding: '24px 28px' }}>
+                        <h3 style={s.trendSectionHeader}>Topic Suggestions</h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                          {currentTrend.suggestions.map((sug, i) => {
+                            const gradeColor = sug.grade?.startsWith('A') ? '#22c55e'
+                              : sug.grade?.startsWith('B') ? '#6366f1'
+                              : sug.grade?.startsWith('C') ? '#f59e0b'
+                              : sug.grade?.startsWith('D') ? '#f97316'
+                              : '#ef4444';
+                            return (
+                              <div key={i} style={s.suggestionItem}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '6px' }}>
+                                  <span style={{ ...s.suggestionGrade, color: gradeColor, borderColor: gradeColor + '44', background: gradeColor + '15' }}>
+                                    {sug.grade}
+                                  </span>
+                                  <div style={s.trendItemTitle}>{sug.title}</div>
+                                </div>
+                                {sug.description && <div style={s.trendItemAngle}>{sug.description}</div>}
+                                {sug.reasoning && <div style={s.trendItemReasoning}>{sug.reasoning}</div>}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1658,6 +1892,97 @@ const s = {
     padding: '2px 8px',
     borderRadius: '4px',
     textTransform: 'uppercase',
+    flexShrink: 0,
+  },
+  // Suggestion styles
+  suggestionItem: {
+    padding: '16px',
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '12px',
+  },
+  suggestionGrade: {
+    fontSize: '14px',
+    fontWeight: 800,
+    padding: '4px 10px',
+    borderRadius: '6px',
+    border: '1px solid',
+    flexShrink: 0,
+    minWidth: '36px',
+    textAlign: 'center',
+  },
+  // Add feed form
+  addFeedForm: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '12px 16px',
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '10px',
+    marginBottom: '16px',
+  },
+  addFeedInput: {
+    flex: 1,
+    padding: '8px 12px',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '8px',
+    background: 'rgba(255,255,255,0.04)',
+    color: '#e2e8f0',
+    fontSize: '13px',
+    fontFamily: 'inherit',
+    outline: 'none',
+  },
+  addFeedBtn: {
+    padding: '8px 16px',
+    border: 'none',
+    borderRadius: '8px',
+    background: '#6366f1',
+    color: '#fff',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    whiteSpace: 'nowrap',
+  },
+  addFeedCancelBtn: {
+    padding: '8px 12px',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '8px',
+    background: 'transparent',
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: '13px',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    whiteSpace: 'nowrap',
+  },
+  manageFeedsContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+    marginBottom: '16px',
+    padding: '8px',
+    background: 'rgba(255,255,255,0.02)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '10px',
+  },
+  manageFeedRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '8px 10px',
+    borderRadius: '6px',
+  },
+  manageFeedDeleteBtn: {
+    padding: '4px 10px',
+    border: '1px solid rgba(239,68,68,0.3)',
+    borderRadius: '6px',
+    background: 'transparent',
+    color: '#ef4444',
+    fontSize: '11px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
     flexShrink: 0,
   },
 };

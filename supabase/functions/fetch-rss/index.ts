@@ -145,7 +145,7 @@ Deno.serve(async (req: Request) => {
     // Fetch articles with feed data for the response
     const { data: articles } = await adminClient
       .from("research_articles")
-      .select("*, feed:research_feeds(id, name, color, icon_emoji)")
+      .select("*, feed:research_feeds(id, name, color, icon_emoji, source_type)")
       .order("pub_date", { ascending: false })
       .limit(200);
 
