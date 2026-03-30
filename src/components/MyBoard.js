@@ -35,22 +35,6 @@ const SUBCATEGORY_OPTIONS = [
 
 const PROJECT_STATUSES = ['concept', 'script', 'production', 'edit', 'review', 'published'];
 
-const EVENT_TYPE_COLORS = {
-  deadline: '#ef4444', meeting: '#3b82f6', live_recording: '#22c55e',
-  filming: '#f59e0b', video_post: '#a855f7', unavailable: '#6b7280',
-  sponsor: '#10b981',
-};
-const EVENT_TYPE_LABELS = {
-  deadline: 'Deadline', meeting: 'Meeting', live_recording: 'Live/Recording',
-  filming: 'Filming', video_post: 'Video Post', unavailable: 'Unavailable',
-  sponsor: 'Sponsor',
-};
-const EVENT_TYPE_ICONS = {
-  deadline: '\u23F0', meeting: '\uD83D\uDC65', live_recording: '\uD83D\uDD34',
-  filming: '\uD83C\uDFAC', video_post: '\uD83D\uDCF9', unavailable: '\uD83D\uDEAB',
-  sponsor: '\uD83E\uDD1D',
-};
-
 const POINT_COLORS = { '15': '#ef4444', '10': '#f97316', '6': '#f59e0b', '3': '#3b82f6', '1': '#6b7280' };
 const PRIORITY_OPTIONS = [
   { value: null, label: 'None', points: 0 },
@@ -156,182 +140,6 @@ function TaskCard({ task, index, onClick, projectsMap, campaignsMap, readOnly })
         </div>
       )}
     </Draggable>
-  );
-}
-
-// ─── ScheduleCard (auto-generated from calendar events) ────
-function ScheduleCard({ event, index, onClick }) {
-  const typeColor = EVENT_TYPE_COLORS[event.event_type] || '#6b7280';
-  const typeLabel = EVENT_TYPE_LABELS[event.event_type] || event.event_type;
-  const typeIcon = EVENT_TYPE_ICONS[event.event_type] || '';
-
-  let timeStr = 'All day';
-  if (!event.all_day) {
-    const start = new Date(event.start_date);
-    const end = new Date(event.end_date);
-    const fmt = (d) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-    timeStr = `${fmt(start)} \u2013 ${fmt(end)}`;
-  }
-
-  return (
-    <Draggable draggableId={`sched-${event.id}`} index={index}>
-      {(provided, snapshot) => (
-        <div
-          ref={provided.innerRef}
-          {...provided.draggableProps}
-          {...provided.dragHandleProps}
-          onClick={() => onClick(event)}
-          style={{
-            ...cardStyle,
-            borderLeft: `3px solid ${typeColor}`,
-            background: `${typeColor}0a`,
-            opacity: 0.95,
-            ...(snapshot.isDragging ? { boxShadow: '0 8px 24px rgba(0,0,0,0.4)', border: `1px solid ${typeColor}40` } : {}),
-            ...provided.draggableProps.style,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
-            <span style={{ fontSize: '12px' }}>{typeIcon}</span>
-            <span style={{ fontSize: '13px', color: '#e2e8f0', lineHeight: '1.4', fontWeight: 500 }}>
-              {event.title}
-            </span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-            <span style={{
-              fontSize: '10px', padding: '1px 6px', borderRadius: '4px',
-              background: `${typeColor}22`, color: typeColor,
-              fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px',
-            }}>
-              {typeLabel}
-            </span>
-            <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)' }}>
-              {timeStr}
-            </span>
-          </div>
-        </div>
-      )}
-    </Draggable>
-  );
-}
-
-// ─── EventDetailModal ───────────────────────────────────────
-function EventDetailModal({ event, onClose, onSave, onDelete }) {
-  const isGoogle = event.source === 'google';
-  const formatDTLocal = (dateStr) => {
-    if (!dateStr) return '';
-    const d = new Date(dateStr);
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  };
-
-  const [form, setForm] = useState({
-    title: event.title || '',
-    event_type: event.event_type || 'meeting',
-    all_day: event.all_day || false,
-    start_local: formatDTLocal(event.start_date),
-    end_local: formatDTLocal(event.end_date),
-  });
-
-  function handleSave() {
-    onSave(event.id, {
-      title: form.title.trim(),
-      event_type: form.event_type,
-      all_day: form.all_day,
-      start_date: form.start_local ? new Date(form.start_local).toISOString() : event.start_date,
-      end_date: form.end_local ? new Date(form.end_local).toISOString() : event.end_date,
-    });
-    onClose();
-  }
-
-  return (
-    <div style={overlayStyle} onClick={onClose}>
-      <div style={modalStyle} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h3 style={{ margin: 0, fontSize: '16px', color: '#fff', fontWeight: 600 }}>
-            {isGoogle ? 'Event Details' : 'Edit Event'}
-          </h3>
-          <button onClick={onClose} style={closeBtnStyle}>{'\u2715'}</button>
-        </div>
-
-        {isGoogle && (
-          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginBottom: '12px', fontStyle: 'italic' }}>
-            Synced from Google Calendar — edit in Google Calendar to make changes
-          </div>
-        )}
-
-        <label style={labelStyle}>Title</label>
-        <input
-          value={form.title}
-          onChange={e => setForm({ ...form, title: e.target.value })}
-          disabled={isGoogle}
-          style={{ ...inputStyle, opacity: isGoogle ? 0.6 : 1 }}
-        />
-
-        <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
-          <div style={{ flex: 1 }}>
-            <label style={labelStyle}>Event Type</label>
-            <select
-              value={form.event_type}
-              onChange={e => setForm({ ...form, event_type: e.target.value })}
-              disabled={isGoogle}
-              style={{ ...inputStyle, opacity: isGoogle ? 0.6 : 1 }}
-            >
-              {Object.entries(EVENT_TYPE_LABELS).map(([val, label]) => (
-                <option key={val} value={val}>{label}</option>
-              ))}
-            </select>
-          </div>
-          <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', paddingBottom: '2px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(255,255,255,0.6)', fontSize: '13px', cursor: isGoogle ? 'default' : 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={form.all_day}
-                onChange={e => setForm({ ...form, all_day: e.target.checked })}
-                disabled={isGoogle}
-              />
-              All Day
-            </label>
-          </div>
-        </div>
-
-        {!form.all_day && (
-          <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Start</label>
-              <input
-                type="datetime-local"
-                value={form.start_local}
-                onChange={e => setForm({ ...form, start_local: e.target.value })}
-                disabled={isGoogle}
-                style={{ ...inputStyle, opacity: isGoogle ? 0.6 : 1 }}
-              />
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>End</label>
-              <input
-                type="datetime-local"
-                value={form.end_local}
-                onChange={e => setForm({ ...form, end_local: e.target.value })}
-                disabled={isGoogle}
-                style={{ ...inputStyle, opacity: isGoogle ? 0.6 : 1 }}
-              />
-            </div>
-          </div>
-        )}
-
-        <div style={{ display: 'flex', justifyContent: isGoogle ? 'flex-end' : 'space-between', marginTop: '20px' }}>
-          {!isGoogle && (
-            <button onClick={() => { onDelete(event.id); onClose(); }} style={deleteBtnStyle}>Delete</button>
-          )}
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button onClick={onClose} style={cancelBtnStyle}>{isGoogle ? 'Close' : 'Cancel'}</button>
-            {!isGoogle && (
-              <button onClick={handleSave} disabled={!form.title.trim()} style={{ ...saveBtnStyle, opacity: form.title.trim() ? 1 : 0.4 }}>Save</button>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -471,7 +279,7 @@ function TaskDetailModal({ task, onClose, onSave, onDelete, projects, concepts, 
 }
 
 // ─── MyBoard (main export) ──────────────────────────────────
-export default function MyBoard({ profile, onNavigate, todayEvents = [], onBoardChange, sprintVersion }) {
+export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVersion }) {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newTaskText, setNewTaskText] = useState('');
@@ -480,9 +288,6 @@ export default function MyBoard({ profile, onNavigate, todayEvents = [], onBoard
   const [concepts, setConcepts] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
   const [showAllDone, setShowAllDone] = useState(false);
-  const [eventColumns, setEventColumns] = useState({});
-  const [editingEvent, setEditingEvent] = useState(null);
-  const [eventOverrides, setEventOverrides] = useState({});
 
   // Sprint state
   const [selectedWeek, setSelectedWeek] = useState(getSprintWeek());
@@ -502,13 +307,6 @@ export default function MyBoard({ profile, onNavigate, todayEvents = [], onBoard
   const isViewingCurrentWeek = isCurrentWeek(selectedWeek.start);
   const isArchived = sprintForWeek && sprintForWeek.status === 'completed';
   const activeSprint = sprintForWeek && sprintForWeek.status === 'active' ? sprintForWeek : null;
-
-  // Merge local overrides into events and compute column placement
-  const mergedEvents = todayEvents.map(evt => ({ ...evt, ...(eventOverrides[evt.id] || {}) }));
-
-  const getColumnEvents = useCallback((columnId) => {
-    return mergedEvents.filter(evt => (eventColumns[evt.id] || 'in_progress') === columnId);
-  }, [mergedEvents, eventColumns]);
 
   const projectsMap = {};
   projects.forEach(p => { projectsMap[p.id] = p.name; });
@@ -734,32 +532,6 @@ export default function MyBoard({ profile, onNavigate, todayEvents = [], onBoard
     }
   }
 
-  // ── Update calendar event ──
-  async function updateEvent(id, updates) {
-    setEventOverrides(prev => ({ ...prev, [id]: updates }));
-    try {
-      const { error } = await supabase
-        .from('calendar_events')
-        .update({ ...updates, updated_at: new Date().toISOString() })
-        .eq('id', id);
-      if (error) throw error;
-    } catch (err) {
-      console.error('Error updating event:', err);
-    }
-  }
-
-  // ── Delete calendar event ──
-  async function deleteEvent(id) {
-    setEventOverrides(prev => { const next = { ...prev }; delete next[id]; return next; });
-    setEventColumns(prev => { const next = { ...prev }; delete next[id]; return next; });
-    try {
-      const { error } = await supabase.from('calendar_events').delete().eq('id', id);
-      if (error) throw error;
-    } catch (err) {
-      console.error('Error deleting event:', err);
-    }
-  }
-
   // ── Auto-advance project stage ──
   async function advanceProjectStage(projectId, expectedStage) {
     try {
@@ -785,20 +557,11 @@ export default function MyBoard({ profile, onNavigate, todayEvents = [], onBoard
     if (!destination) return;
     if (source.droppableId === destination.droppableId && source.index === destination.index) return;
 
-    // Handle schedule event cards (column move only, no DB persistence)
-    if (draggableId.startsWith('sched-')) {
-      const eventId = draggableId.replace('sched-', '');
-      setEventColumns(prev => ({ ...prev, [eventId]: destination.droppableId }));
-      return;
-    }
-
     const newStatus = destination.droppableId;
     const task = tasks.find(t => t.id === draggableId);
     if (!task) return;
 
-    // Adjust destination index to account for event cards above tasks
-    const destEventCount = getColumnEvents(newStatus).length;
-    const adjustedIndex = Math.max(0, destination.index - destEventCount);
+    const adjustedIndex = destination.index;
 
     // Build new column task list for position calculation
     const destTasks = tasks
@@ -951,8 +714,7 @@ export default function MyBoard({ profile, onNavigate, todayEvents = [], onBoard
         <div style={sprintGridStyle}>
           {SPRINT_COLUMNS.map(col => {
             const colTasks = getVisibleTasks(col.id);
-            const colEvents = col.id === 'in_progress' && isViewingCurrentWeek ? getColumnEvents(col.id) : [];
-            const totalCount = colTasks.length + colEvents.length;
+            const totalCount = colTasks.length;
             const hiddenCount = col.id === 'done' ? getDoneHiddenCount() : 0;
 
             return (
@@ -975,14 +737,11 @@ export default function MyBoard({ profile, onNavigate, todayEvents = [], onBoard
                       <span style={columnCountStyle}>{totalCount}</span>
                     </div>
                     <div style={columnBodyStyle}>
-                      {colEvents.map((evt, i) => (
-                        <ScheduleCard key={`sched-${evt.id}`} event={evt} index={i} onClick={setEditingEvent} />
-                      ))}
                       {colTasks.map((task, i) => (
                         <TaskCard
                           key={task.id}
                           task={task}
-                          index={colEvents.length + i}
+                          index={i}
                           onClick={setEditingTask}
                           projectsMap={projectsMap}
                           campaignsMap={campaignsMap}
@@ -1131,15 +890,6 @@ export default function MyBoard({ profile, onNavigate, todayEvents = [], onBoard
           activeSprint={activeSprint}
         />
       )}
-      {editingEvent && (
-        <EventDetailModal
-          event={editingEvent}
-          onClose={() => setEditingEvent(null)}
-          onSave={updateEvent}
-          onDelete={deleteEvent}
-        />
-      )}
-
       {/* Retro modal */}
       {showRetro && closeResult && (
         <SprintRetroModal
