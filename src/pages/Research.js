@@ -1343,6 +1343,36 @@ export default function Research() {
                     </div>
                   )}
 
+                  {/* Suggestions */}
+                  {currentTrend && currentTrend.suggestions && currentTrend.suggestions.length > 0 && (
+                    <div style={s.briefCard}>
+                      <div style={{ padding: '24px 28px' }}>
+                        <h3 style={s.trendSectionHeader}>Topic Suggestions</h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                          {currentTrend.suggestions.map((sug, i) => {
+                            const gradeColor = sug.grade?.startsWith('A') ? '#22c55e'
+                              : sug.grade?.startsWith('B') ? '#6366f1'
+                              : sug.grade?.startsWith('C') ? '#f59e0b'
+                              : sug.grade?.startsWith('D') ? '#f97316'
+                              : '#ef4444';
+                            return (
+                              <div key={i} style={s.suggestionItem}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '6px' }}>
+                                  <span style={{ ...s.suggestionGrade, color: gradeColor, borderColor: gradeColor + '44', background: gradeColor + '15' }}>
+                                    {sug.grade}
+                                  </span>
+                                  <div style={s.trendItemTitle}>{sug.title}</div>
+                                </div>
+                                {sug.description && <div style={s.trendItemAngle}>{sug.description}</div>}
+                                {sug.reasoning && <div style={s.trendItemReasoning}>{sug.reasoning}</div>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Archive grid */}
                   {trends.length > 1 && (
                     <div style={{ marginTop: '32px' }}>
@@ -1863,6 +1893,23 @@ const s = {
     borderRadius: '4px',
     textTransform: 'uppercase',
     flexShrink: 0,
+  },
+  // Suggestion styles
+  suggestionItem: {
+    padding: '16px',
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '12px',
+  },
+  suggestionGrade: {
+    fontSize: '14px',
+    fontWeight: 800,
+    padding: '4px 10px',
+    borderRadius: '6px',
+    border: '1px solid',
+    flexShrink: 0,
+    minWidth: '36px',
+    textAlign: 'center',
   },
   // Add feed form
   addFeedForm: {
