@@ -67,7 +67,7 @@ Deno.serve(async (req: Request) => {
       .select("id, title, description, content, author, pub_date, feed:research_feeds(id, name, source_type)")
       .gte("pub_date", cutoff.toISOString())
       .order("pub_date", { ascending: false })
-      .limit(100);
+      .limit(500);
 
     if (articlesError) {
       return new Response(
@@ -96,10 +96,10 @@ Deno.serve(async (req: Request) => {
     for (const a of articles) {
       const feedName = a.feed?.name || "Unknown";
       const feedType = a.feed?.source_type || "news";
-      const text = (a.content || a.description || "")
+      const desc = (a.description || a.content || "")
         .replace(/<[^>]*>/g, "")
-        .substring(0, 1500);
-      contentSummary += `### ${a.title}\nSource: ${feedName} (${feedType}) | Date: ${a.pub_date || "Unknown"}\n${text}\n\n`;
+        .substring(0, 400);
+      contentSummary += `- **${a.title}** [${feedName}, ${feedType}] ${desc}\n`;
     }
 
     const today = new Date().toISOString().slice(0, 10);

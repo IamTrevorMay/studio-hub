@@ -66,6 +66,17 @@ export default function Dashboard({ onNavigate }) {
   const [boardVersion, setBoardVersion] = useState(0);   // MyBoard changed → SprintPanel re-fetches
   const [sprintVersion, setSprintVersion] = useState(0); // SprintPanel changed → MyBoard re-fetches
 
+  // Itinerary state
+  const [itineraryItems, setItineraryItems] = useState([]);
+  const [itineraryLoading, setItineraryLoading] = useState(false);
+  const [newItemText, setNewItemText] = useState('');
+  const [showItineraryInput, setShowItineraryInput] = useState(false);
+  const [editingItemId, setEditingItemId] = useState(null);
+  const [editingItemText, setEditingItemText] = useState('');
+
+  // Admin comment state
+  const [commentingItemId, setCommentingItemId] = useState(null);
+  const [commentText, setCommentText] = useState('');
 
   // Announcements state
   const [announcements, setAnnouncements] = useState([]);
@@ -109,6 +120,13 @@ export default function Dashboard({ onNavigate }) {
   const [checkinHistory, setCheckinHistory] = useState([]);
   const [checkinView, setCheckinView] = useState('week'); // 'week' | 'month'
 
+  // "Do this more" goals state
+  const [goalTargets, setGoalTargets] = useState({}); // { ig_stories: { id, daily_target } }
+  const [storyCounts, setStoryCounts] = useState({}); // { '2026-03-28': 2, ... }
+  const [goalLoading, setGoalLoading] = useState(false);
+  const [editingGoalTarget, setEditingGoalTarget] = useState(null);
+  const [goalTargetDraft, setGoalTargetDraft] = useState('');
+
   useEffect(() => {
     if (!statusMenuOpen) return;
     function handleClick(e) {
@@ -121,6 +139,30 @@ export default function Dashboard({ onNavigate }) {
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
+  const fetchItinerary = useCallback(async () => {
+    if (!profile?.id) return;
+    setItineraryLoading(true);
+    try {
+      let query = supabase
+        .from('daily_itinerary')
+        .select(isAdmin ? '*, creator:profiles!created_by(full_name)' : '*')
+        .or(`is_complete.eq.false,target_date.eq.${todayStr}`)
+        .order('created_at', { ascending: true });
+
+      if (!isAdmin) {
+        query = query.eq('created_by', profile.id);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      setItineraryItems(data || []);
+    } catch (err) {
+      console.error('Error fetching itinerary:', err);
+      setItineraryItems([]);
+    } finally {
+      setItineraryLoading(false);
+    }
+  }, [profile?.id, isAdmin, todayStr]);
 
   const fetchTeamProfiles = useCallback(async () => {
     if (!profile?.id) return;
@@ -381,6 +423,11 @@ export default function Dashboard({ onNavigate }) {
     fetchStatsCounts();
   });
 
+  useEffect(() => {
+    if ((isAdmin || isAssistant) && profile?.id) {
+      fetchItinerary();
+    }
+  }, [isAdmin, isAssistant, profile?.id, fetchItinerary]);
 
   useEffect(() => {
     if (profile?.id) {
@@ -409,6 +456,69 @@ export default function Dashboard({ onNavigate }) {
   useEffect(() => {
     if (profile?.id) fetchCheckins();
   }, [profile?.id, fetchCheckins]);
+
+  // ── "Do this more" goals fetching ──
+  const fetchGoals = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const { data } = await supabase
+        .from('admin_goals')
+        .select('id, name, daily_target')
+        .eq('is_active', true);
+      const map = {};
+      for (const g of data || []) map[g.name] = { id: g.id, daily_target: g.daily_target };
+      // Fallback default if table doesn't exist yet or has no rows
+      if (!map.ig_stories) map.ig_stories = { id: null, daily_target: 1 };
+      setGoalTargets(map);
+    } catch (err) {
+      console.error('Error fetching goals:', err);
+      // Still show widget with default even if table doesn't exist
+      setGoalTargets(prev => prev.ig_stories ? prev : { ig_stories: { id: null, daily_target: 1 } });
+    }
+  }, [isAdmin]);
+
+  const fetchStoryCounts = useCallback(async () => {
+    if (!isAdmin) return;
+    setGoalLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
+      const resp = await fetch(
+        `${supabaseUrl}/functions/v1/metricool-stories?days=7`,
+        { headers: { Authorization: `Bearer ${session.access_token}`, apikey: process.env.REACT_APP_SUPABASE_ANON_KEY } }
+      );
+      if (resp.ok) {
+        const data = await resp.json();
+        setStoryCounts(data.countsByDate || {});
+      }
+    } catch (err) {
+      console.error('Error fetching story counts:', err);
+    } finally {
+      setGoalLoading(false);
+    }
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin || !profile?.id) return;
+    fetchGoals();
+    fetchStoryCounts();
+    const interval = setInterval(fetchStoryCounts, 30000);
+    return () => clearInterval(interval);
+  }, [isAdmin, profile?.id, fetchGoals, fetchStoryCounts]);
+
+  async function updateGoalTarget(goalId, newTarget) {
+    const val = Math.max(1, parseInt(newTarget, 10) || 1);
+    await supabase.from('admin_goals').update({ daily_target: val, updated_at: new Date().toISOString() }).eq('id', goalId);
+    setGoalTargets(prev => {
+      const updated = { ...prev };
+      for (const key of Object.keys(updated)) {
+        if (updated[key].id === goalId) updated[key] = { ...updated[key], daily_target: val };
+      }
+      return updated;
+    });
+    setEditingGoalTarget(null);
+  }
 
   const fetchTodayEvents = useCallback(async () => {
     if (!profile?.id) return;
@@ -482,6 +592,92 @@ export default function Dashboard({ onNavigate }) {
       setAssignments([]);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function addItineraryItem() {
+    if (!newItemText.trim()) return;
+    const content = newItemText.trim();
+    const tempItem = {
+      id: `temp-${Date.now()}`,
+      created_by: profile.id,
+      target_date: todayStr,
+      content,
+      is_complete: false,
+      admin_comment: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      creator: { full_name: profile.full_name },
+    };
+    setNewItemText('');
+    setShowItineraryInput(false);
+    setItineraryItems(prev => [...prev, tempItem]);
+    try {
+      const { error } = await supabase.from('daily_itinerary').insert({
+        created_by: profile.id,
+        target_date: todayStr,
+        content,
+      });
+      if (error) throw error;
+      fetchItinerary(); // Re-fetch to get real ID
+    } catch (err) {
+      console.error('Error adding itinerary item:', err);
+      setItineraryItems(prev => prev.filter(i => i.id !== tempItem.id));
+      setNewItemText(content);
+    }
+  }
+
+  async function updateItineraryItem(id, updates) {
+    const prev = itineraryItems;
+    setItineraryItems(items => items.map(i => i.id === id ? { ...i, ...updates, updated_at: new Date().toISOString() } : i));
+    try {
+      const { error } = await supabase
+        .from('daily_itinerary')
+        .update({ ...updates, updated_at: new Date().toISOString() })
+        .eq('id', id);
+      if (error) throw error;
+    } catch (err) {
+      console.error('Error updating itinerary item:', err);
+      setItineraryItems(prev);
+    }
+  }
+
+  async function deleteItineraryItem(id) {
+    const prev = itineraryItems;
+    setItineraryItems(items => items.filter(i => i.id !== id));
+    try {
+      const { error } = await supabase.from('daily_itinerary').delete().eq('id', id);
+      if (error) throw error;
+    } catch (err) {
+      console.error('Error deleting itinerary item:', err);
+      setItineraryItems(prev);
+    }
+  }
+
+  function handleEditSave(id) {
+    if (editingItemText.trim()) {
+      updateItineraryItem(id, { content: editingItemText.trim() });
+    }
+    setEditingItemId(null);
+    setEditingItemText('');
+  }
+
+  // Admin comment handlers
+  async function saveAdminComment(itemId) {
+    const newComment = commentText.trim() || null;
+    const prev = itineraryItems;
+    setItineraryItems(items => items.map(i => i.id === itemId ? { ...i, admin_comment: newComment, updated_at: new Date().toISOString() } : i));
+    setCommentingItemId(null);
+    setCommentText('');
+    try {
+      const { error } = await supabase
+        .from('daily_itinerary')
+        .update({ admin_comment: newComment, updated_at: new Date().toISOString() })
+        .eq('id', itemId);
+      if (error) throw error;
+    } catch (err) {
+      console.error('Error saving admin comment:', err);
+      setItineraryItems(prev);
     }
   }
 
@@ -638,6 +834,113 @@ export default function Dashboard({ onNavigate }) {
   const completedAssignments = assignments
     .filter(a => a.project && a.project.status === 'published');
 
+  // ── Itinerary item renderer ──
+  function renderItineraryItem(item) {
+    const isEditing = editingItemId === item.id;
+    const isCommenting = commentingItemId === item.id;
+    return (
+      <div key={item.id} style={styles.itineraryItemWrapper}>
+        <div style={styles.itineraryItem}>
+          <input
+            type="checkbox"
+            checked={item.is_complete}
+            onChange={() => updateItineraryItem(item.id, { is_complete: !item.is_complete })}
+            style={styles.itineraryCheckbox}
+          />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {isEditing ? (
+              <input
+                value={editingItemText}
+                onChange={(e) => setEditingItemText(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleEditSave(item.id)}
+                onBlur={() => handleEditSave(item.id)}
+                style={styles.itineraryEditInput}
+                autoFocus
+              />
+            ) : (
+              <span style={{
+                ...styles.itineraryContent,
+                textDecoration: item.is_complete ? 'line-through' : 'none',
+                opacity: item.is_complete ? 0.5 : 1,
+              }}>
+                {item.content}
+              </span>
+            )}
+            {isAdmin && item.creator && (
+              <span style={styles.itineraryCreator}>{item.creator.full_name}</span>
+            )}
+          </div>
+          <div style={styles.itineraryActions}>
+            {!isEditing && (isAdmin || isAssistant) && (
+              <button
+                onClick={() => { setEditingItemId(item.id); setEditingItemText(item.content); }}
+                style={styles.itineraryActionBtn}
+                title="Edit"
+              >
+                ✎
+              </button>
+            )}
+            {(isAdmin || isAssistant) && (
+              <button
+                onClick={() => deleteItineraryItem(item.id)}
+                style={{ ...styles.itineraryActionBtn, color: '#ef4444' }}
+                title="Delete"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
+        {/* Admin comment section */}
+        {isAdmin && (
+          <div style={styles.commentSection}>
+            {isCommenting ? (
+              <div style={styles.commentEditRow}>
+                <input
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && saveAdminComment(item.id)}
+                  placeholder="Add a comment..."
+                  style={styles.commentInput}
+                  autoFocus
+                />
+                <button onClick={() => saveAdminComment(item.id)} style={styles.commentSaveBtn}>Save</button>
+                <button onClick={() => { setCommentingItemId(null); setCommentText(''); }} style={styles.commentCancelBtn}>Cancel</button>
+              </div>
+            ) : item.admin_comment ? (
+              <div style={styles.commentDisplay}>
+                <span style={styles.commentLabel}>Admin:</span>
+                <span style={styles.commentText}>{item.admin_comment}</span>
+                <button
+                  onClick={() => { setCommentingItemId(item.id); setCommentText(item.admin_comment); }}
+                  style={styles.commentEditBtn}
+                >
+                  ✎
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => { setCommentingItemId(item.id); setCommentText(''); }}
+                style={styles.addCommentBtn}
+              >
+                + Add comment
+              </button>
+            )}
+          </div>
+        )}
+        {/* Assistant sees admin comment read-only */}
+        {isAssistant && item.admin_comment && (
+          <div style={styles.commentSection}>
+            <div style={styles.commentDisplay}>
+              <span style={styles.commentLabel}>Admin:</span>
+              <span style={styles.commentText}>{item.admin_comment}</span>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   // ── Announcements renderer ──
   function renderAnnouncements({ showInput }) {
     return (
@@ -774,6 +1077,8 @@ export default function Dashboard({ onNavigate }) {
     );
   }
 
+  const isMember = !isAdmin && !isAssistant;
+
   return (
     <div style={styles.page}>
       <div style={styles.header}>
@@ -792,168 +1097,281 @@ export default function Dashboard({ onNavigate }) {
         </div>
       </div>
 
-      {/* Row 1: Profile Card + Today side-by-side */}
-      <div style={styles.profileTeamRow}>
-        {/* Profile Card — info, announcements, stats */}
-        <div style={styles.profileCardRedesign}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <div style={styles.profileAvatar}>
-              {profile?.full_name?.charAt(0)?.toUpperCase()}
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              {editingName ? (
-                <div style={styles.titleEdit}>
-                  <input
-                    value={nameDraft}
-                    onChange={(e) => setNameDraft(e.target.value)}
-                    placeholder="Enter your name"
-                    style={styles.titleInput}
-                    autoFocus
-                    onKeyDown={(e) => e.key === 'Enter' && handleNameSave()}
-                  />
-                  <button onClick={handleNameSave} style={styles.saveTitleBtn}>Save</button>
-                  <button onClick={() => setEditingName(false)} style={styles.cancelTitleBtn}>Cancel</button>
-                </div>
-              ) : (
-                <h2
-                  style={{ ...styles.profileName, cursor: 'pointer' }}
-                  onClick={() => { setNameDraft(profile?.full_name || ''); setEditingName(true); }}
-                  title="Click to edit"
-                >
-                  {profile?.full_name} <span style={{ fontSize: '14px', opacity: 0.4 }}>✎</span>
-                </h2>
-              )}
-              {editingTitle ? (
-                <div style={styles.titleEdit}>
-                  <input
-                    value={titleDraft}
-                    onChange={(e) => setTitleDraft(e.target.value)}
-                    placeholder="Enter your title"
-                    style={styles.titleInput}
-                    autoFocus
-                    onKeyDown={(e) => e.key === 'Enter' && handleTitleSave()}
-                  />
-                  <button onClick={handleTitleSave} style={styles.saveTitleBtn}>Save</button>
-                  <button onClick={() => setEditingTitle(false)} style={styles.cancelTitleBtn}>Cancel</button>
-                </div>
-              ) : (
-                <p
-                  style={styles.profileTitle}
-                  onClick={() => { setTitleDraft(profile?.title || ''); setEditingTitle(true); }}
-                  title="Click to edit"
-                >
-                  {profile?.title || 'Click to set your title'} ✎
-                </p>
-              )}
-              <p style={styles.profileEmail}>{profile?.email}</p>
-            </div>
-          </div>
-          {/* Announcements */}
-          {renderAnnouncements({ showInput: isAdmin || isAssistant })}
-          {/* Stats bar pinned to bottom */}
-          <div style={styles.statsBar}>
-            <div style={styles.statCompact}>
-              <div style={styles.statValue}>{teamActiveCount}</div>
-              <div style={styles.statLabel}>Active</div>
-            </div>
-            <div style={styles.statDivider} />
-            <div style={styles.statCompact}>
-              <div style={styles.statValue}>{teamCompletedCount}</div>
-              <div style={styles.statLabel}>Completed</div>
-            </div>
-            <div style={styles.statDivider} />
-            <div style={styles.statCompact}>
-              <div style={styles.statValue}>{dueSoonCount}</div>
-              <div style={styles.statLabel}>Due Soon</div>
-            </div>
-            <div style={styles.statDivider} />
-            <div style={styles.statCompact}>
-              <div style={styles.statValue}>{stageTasks.length}</div>
-              <div style={styles.statLabel}>Tasks</div>
-            </div>
-          </div>
+      {/* Profile Card */}
+      <div style={styles.profileCard}>
+        <div style={styles.profileAvatar}>
+          {profile?.full_name?.charAt(0)?.toUpperCase()}
         </div>
-
-        {/* Today Card */}
-        <div style={styles.todayCardWrapper}>
-          <div style={{ ...styles.itineraryCard, flex: 1 }}>
-            {renderTodaySchedule()}
+        <div style={styles.profileInfo}>
+          {editingName ? (
+            <div style={styles.titleEdit}>
+              <input
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                placeholder="Enter your name"
+                style={styles.titleInput}
+                autoFocus
+                onKeyDown={(e) => e.key === 'Enter' && handleNameSave()}
+              />
+              <button onClick={handleNameSave} style={styles.saveTitleBtn}>Save</button>
+              <button onClick={() => setEditingName(false)} style={styles.cancelTitleBtn}>Cancel</button>
+            </div>
+          ) : (
+            <h2
+              style={{ ...styles.profileName, cursor: 'pointer' }}
+              onClick={() => { setNameDraft(profile?.full_name || ''); setEditingName(true); }}
+              title="Click to edit"
+            >
+              {profile?.full_name} <span style={{ fontSize: '14px', opacity: 0.4 }}>✎</span>
+            </h2>
+          )}
+          {editingTitle ? (
+            <div style={styles.titleEdit}>
+              <input
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                placeholder="Enter your title"
+                style={styles.titleInput}
+                autoFocus
+                onKeyDown={(e) => e.key === 'Enter' && handleTitleSave()}
+              />
+              <button onClick={handleTitleSave} style={styles.saveTitleBtn}>Save</button>
+              <button onClick={() => setEditingTitle(false)} style={styles.cancelTitleBtn}>Cancel</button>
+            </div>
+          ) : (
+            <p
+              style={styles.profileTitle}
+              onClick={() => { setTitleDraft(profile?.title || ''); setEditingTitle(true); }}
+              title="Click to edit"
+            >
+              {profile?.title || 'Click to set your title'} ✎
+            </p>
+          )}
+          <p style={styles.profileEmail}>{profile?.email}</p>
+        </div>
+        <div style={styles.statsRow}>
+          <div style={styles.stat}>
+            <div style={styles.statValue}>{teamActiveCount}</div>
+            <div style={styles.statLabel}>Active Projects</div>
+          </div>
+          <div style={styles.stat}>
+            <div style={styles.statValue}>{teamCompletedCount}</div>
+            <div style={styles.statLabel}>Completed</div>
+          </div>
+          <div style={styles.stat}>
+            <div style={styles.statValue}>{dueSoonCount}</div>
+            <div style={styles.statLabel}>Due Soon</div>
+          </div>
+          <div style={styles.stat}>
+            <div style={styles.statValue}>{stageTasks.length}</div>
+            <div style={styles.statLabel}>Stage Tasks</div>
           </div>
         </div>
       </div>
 
-      {/* Row 2: Team + Check In side-by-side */}
+      {/* Do this more — admin only */}
+      {isAdmin && goalTargets.ig_stories && (() => {
+        const goal = goalTargets.ig_stories;
+        const days = [];
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date();
+          d.setDate(d.getDate() - i);
+          const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          const dayLabel = i === 0 ? 'Today' : d.toLocaleDateString('en-US', { weekday: 'short' });
+          days.push({ dateStr, dayLabel, count: storyCounts[dateStr] || 0 });
+        }
+        const today = days[days.length - 1];
+        const todayPct = Math.min(100, Math.round((today.count / goal.daily_target) * 100));
+
+        return (
+          <div style={{ marginBottom: '36px' }}>
+            <div style={{
+              background: 'rgba(255,255,255,0.03)',
+              border: '1px solid rgba(255,255,255,0.06)',
+              borderRadius: '14px',
+              padding: '20px 24px',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                <h3 style={{ fontSize: '13px', fontWeight: 600, color: 'rgba(255,255,255,0.5)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Do this more
+                </h3>
+                {goalLoading && (
+                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.25)' }}>syncing...</span>
+                )}
+              </div>
+
+              {/* Goal row: label + editable target */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                <span style={{ fontSize: '14px', fontWeight: 600, color: '#e0e7ff' }}>IG Stories</span>
+                <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.35)' }}>daily goal:</span>
+                {editingGoalTarget === goal.id ? (
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <input
+                      type="number"
+                      min="1"
+                      value={goalTargetDraft}
+                      onChange={e => setGoalTargetDraft(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') updateGoalTarget(goal.id, goalTargetDraft); if (e.key === 'Escape') setEditingGoalTarget(null); }}
+                      style={{
+                        width: '48px', padding: '3px 6px', background: 'rgba(255,255,255,0.08)',
+                        border: '1px solid rgba(255,255,255,0.2)', borderRadius: '5px',
+                        color: '#fff', fontSize: '13px', fontFamily: 'inherit', textAlign: 'center', outline: 'none',
+                      }}
+                      autoFocus
+                    />
+                    <button
+                      onClick={() => updateGoalTarget(goal.id, goalTargetDraft)}
+                      style={{ padding: '3px 8px', background: '#6366f1', border: 'none', borderRadius: '5px', color: '#fff', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                    >Save</button>
+                  </div>
+                ) : (
+                  <span
+                    onClick={() => { setEditingGoalTarget(goal.id); setGoalTargetDraft(String(goal.daily_target)); }}
+                    style={{ fontSize: '14px', fontWeight: 700, color: '#a5b4fc', cursor: 'pointer', borderBottom: '1px dashed rgba(165,180,252,0.3)' }}
+                    title="Click to change"
+                  >
+                    {goal.daily_target}
+                  </span>
+                )}
+              </div>
+
+              {/* Today's progress bar */}
+              <div style={{ marginBottom: '18px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
+                  <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>Today</span>
+                  <span style={{ fontSize: '12px', color: todayPct >= 100 ? '#22c55e' : 'rgba(255,255,255,0.5)', fontWeight: 600 }}>
+                    {today.count}/{goal.daily_target}
+                  </span>
+                </div>
+                <div style={{ height: '8px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${todayPct}%`,
+                    background: todayPct >= 100 ? '#22c55e' : '#6366f1',
+                    borderRadius: '4px',
+                    transition: 'width 0.4s ease, background 0.3s ease',
+                  }} />
+                </div>
+              </div>
+
+              {/* Last 7 days */}
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'space-between' }}>
+                {days.map(day => {
+                  const pct = Math.min(100, Math.round((day.count / goal.daily_target) * 100));
+                  const met = pct >= 100;
+                  return (
+                    <div key={day.dateStr} style={{ flex: 1, textAlign: 'center', minWidth: 0 }}>
+                      <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', marginBottom: '6px', fontWeight: 500 }}>
+                        {day.dayLabel}
+                      </div>
+                      <div style={{
+                        height: '40px',
+                        background: 'rgba(255,255,255,0.04)',
+                        borderRadius: '6px',
+                        overflow: 'hidden',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'flex-end',
+                        border: met ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(255,255,255,0.04)',
+                      }}>
+                        <div style={{
+                          height: `${pct}%`,
+                          background: met ? '#22c55e' : 'rgba(99,102,241,0.5)',
+                          borderRadius: '0 0 5px 5px',
+                          transition: 'height 0.4s ease',
+                          minHeight: day.count > 0 ? '4px' : '0',
+                        }} />
+                      </div>
+                      <div style={{ marginTop: '4px', fontSize: '13px' }}>
+                        {met ? (
+                          <span style={{ color: '#22c55e' }}>&#10003;</span>
+                        ) : (
+                          <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: '11px' }}>{day.count}</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Team + Check In */}
       <div style={styles.section}>
         <div style={styles.teamCheckinRow}>
 
-          {/* Team Column (no header) */}
+          {/* Team Column */}
           <div style={styles.teamCol}>
-            <div style={styles.teamCardWrapper}>
-              <div style={styles.teamCardHeader}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <div style={{ position: 'relative' }} ref={statusMenuRef}>
-                    <button
-                      onClick={() => setStatusMenuOpen(!statusMenuOpen)}
-                      style={styles.statusPickerBtnCompact}
-                    >
-                      <span style={{
-                        ...styles.statusDot,
-                        background: getEffectiveStatus({ status: profile?.status, last_seen_at: profile?.last_seen_at }) === 'online'
-                          ? '#22c55e' : getEffectiveStatus({ status: profile?.status, last_seen_at: profile?.last_seen_at }) === 'busy'
-                          ? '#f59e0b' : '#6b7280',
-                      }} />
-                      <span style={{ fontSize: '12px', fontWeight: 600, color: '#e2e8f0' }}>
-                        {getEffectiveStatus({ status: profile?.status, last_seen_at: profile?.last_seen_at }) === 'online'
-                          ? 'Online' : getEffectiveStatus({ status: profile?.status, last_seen_at: profile?.last_seen_at }) === 'busy'
-                          ? 'Busy' : 'Offline'}
-                      </span>
-                      <span style={{ fontSize: '9px', opacity: 0.5 }}>▼</span>
-                    </button>
-                    {statusMenuOpen && (
-                      <div style={styles.statusDropdown}>
-                        {[
-                          { key: 'online', label: 'Online', color: '#22c55e' },
-                          { key: 'busy', label: 'Busy', color: '#f59e0b' },
-                          { key: 'offline', label: 'Offline', color: '#6b7280' },
-                        ].map(opt => (
-                          <button
-                            key={opt.key}
-                            onClick={() => setMyStatus(opt.key)}
-                            style={styles.statusDropdownItem}
-                          >
-                            <span style={{ ...styles.statusDot, background: opt.color }} />
-                            {opt.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  {editingStatusNote ? (
-                    <div style={styles.noteEditRow}>
-                      <input
-                        value={statusNoteDraft}
-                        onChange={(e) => setStatusNoteDraft(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') saveStatusNote();
-                          if (e.key === 'Escape') { setEditingStatusNote(false); setStatusNoteDraft(profile?.status_note || ''); }
-                        }}
-                        placeholder="Set a status note..."
-                        style={{ ...styles.noteInput, width: '160px', fontSize: '12px', padding: '4px 8px' }}
-                        autoFocus
-                        maxLength={100}
-                      />
-                      <button onClick={saveStatusNote} style={{ ...styles.noteSaveBtn, padding: '4px 8px', fontSize: '11px' }}>Save</button>
-                      <button onClick={() => { setEditingStatusNote(false); setStatusNoteDraft(profile?.status_note || ''); }} style={{ ...styles.noteCancelBtn, padding: '4px 8px', fontSize: '11px' }}>Cancel</button>
+            <h2 style={styles.sectionTitle}>Team</h2>
+            <div style={{ ...styles.teamCard, flex: 1 }}>
+              {/* My Status Controls */}
+              <div style={styles.myStatusRow}>
+                <span style={styles.myStatusLabel}>Your status:</span>
+                <div style={{ position: 'relative' }} ref={statusMenuRef}>
+                  <button
+                    onClick={() => setStatusMenuOpen(!statusMenuOpen)}
+                    style={styles.statusPickerBtn}
+                  >
+                    <span style={{
+                      ...styles.statusDot,
+                      background: getEffectiveStatus({ status: profile?.status, last_seen_at: profile?.last_seen_at }) === 'online'
+                        ? '#22c55e' : getEffectiveStatus({ status: profile?.status, last_seen_at: profile?.last_seen_at }) === 'busy'
+                        ? '#f59e0b' : '#6b7280',
+                    }} />
+                    <span style={styles.statusPickerText}>
+                      {getEffectiveStatus({ status: profile?.status, last_seen_at: profile?.last_seen_at }) === 'online'
+                        ? 'Online' : getEffectiveStatus({ status: profile?.status, last_seen_at: profile?.last_seen_at }) === 'busy'
+                        ? 'Busy' : 'Offline'}
+                    </span>
+                    <span style={{ fontSize: '10px', opacity: 0.5 }}>▼</span>
+                  </button>
+                  {statusMenuOpen && (
+                    <div style={styles.statusDropdown}>
+                      {[
+                        { key: 'online', label: 'Online', color: '#22c55e' },
+                        { key: 'busy', label: 'Busy', color: '#f59e0b' },
+                        { key: 'offline', label: 'Offline', color: '#6b7280' },
+                      ].map(opt => (
+                        <button
+                          key={opt.key}
+                          onClick={() => setMyStatus(opt.key)}
+                          style={styles.statusDropdownItem}
+                        >
+                          <span style={{ ...styles.statusDot, background: opt.color }} />
+                          {opt.label}
+                        </button>
+                      ))}
                     </div>
-                  ) : (
-                    <button
-                      onClick={() => { setStatusNoteDraft(profile?.status_note || ''); setEditingStatusNote(true); }}
-                      style={styles.noteSetBtnCompact}
-                    >
-                      {profile?.status_note || 'Set a note...'}
-                    </button>
                   )}
                 </div>
+                <div style={{ flex: 1 }} />
+                {editingStatusNote ? (
+                  <div style={styles.noteEditRow}>
+                    <input
+                      value={statusNoteDraft}
+                      onChange={(e) => setStatusNoteDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') saveStatusNote();
+                        if (e.key === 'Escape') { setEditingStatusNote(false); setStatusNoteDraft(profile?.status_note || ''); }
+                      }}
+                      placeholder="Set a status note..."
+                      style={styles.noteInput}
+                      autoFocus
+                      maxLength={100}
+                    />
+                    <button onClick={saveStatusNote} style={styles.noteSaveBtn}>Save</button>
+                    <button onClick={() => { setEditingStatusNote(false); setStatusNoteDraft(profile?.status_note || ''); }} style={styles.noteCancelBtn}>Cancel</button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => { setStatusNoteDraft(profile?.status_note || ''); setEditingStatusNote(true); }}
+                    style={styles.noteSetBtn}
+                  >
+                    {profile?.status_note || 'Set a note...'}
+                  </button>
+                )}
               </div>
 
               {/* Team Members List */}
@@ -972,18 +1390,18 @@ export default function Dashboard({ onNavigate }) {
                       const isMe = member.id === profile?.id;
                       return (
                         <div key={member.id} style={{
-                          ...styles.teamMemberCompact,
+                          ...styles.teamMember,
                           opacity: effectiveStatus === 'offline' ? 0.5 : 1,
                         }}>
-                          <div style={styles.teamMemberAvatarCompact}>
+                          <div style={styles.teamMemberAvatar}>
                             {member.full_name?.charAt(0)?.toUpperCase() || '?'}
-                            <span style={{ ...styles.statusIndicator, background: dotColor, width: '10px', height: '10px' }} />
+                            <span style={{ ...styles.statusIndicator, background: dotColor }} />
                           </div>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: '13px', fontWeight: 600, color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <div style={styles.teamMemberName}>
                               {member.full_name}{isMe && <span style={styles.youBadge}>you</span>}
                             </div>
-                            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <div style={styles.teamMemberMeta}>
                               {member.title && <span>{member.title}</span>}
                               {member.status_note && (
                                 <span style={styles.teamMemberNote}>
@@ -992,7 +1410,7 @@ export default function Dashboard({ onNavigate }) {
                               )}
                             </div>
                           </div>
-                          <span style={{ ...styles.statusLabel, color: dotColor, fontSize: '10px' }}>
+                          <span style={{ ...styles.statusLabel, color: dotColor }}>
                             {effectiveStatus === 'online' ? 'Online' : effectiveStatus === 'busy' ? 'Busy' : 'Offline'}
                           </span>
                         </div>
@@ -1005,6 +1423,7 @@ export default function Dashboard({ onNavigate }) {
 
           {/* Check In Column */}
           <div style={styles.checkinCol}>
+            <h2 style={styles.sectionTitle}>Check In</h2>
             <div style={styles.checkinCard}>
               {checkinLoading ? (
                 <p style={styles.emptyText}>Loading...</p>
@@ -1163,14 +1582,192 @@ export default function Dashboard({ onNavigate }) {
         </div>
       </div>
 
-      {/* Sprint */}
-      <h2 style={styles.sectionTitle}>Sprint</h2>
-      <SprintPanel profile={profile} boardVersion={boardVersion} onSprintChange={() => setSprintVersion(v => v + 1)} />
+      {/* Admin: Today section */}
+      {isAdmin && (
+        <div style={styles.section}>
+          <h2 style={styles.sectionTitle}>Today</h2>
+          <div style={styles.itineraryCard}>
+            {renderTodaySchedule()}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h3 style={styles.subSectionTitle}>Itinerary</h3>
+              {!showItineraryInput && (
+                <button
+                  onClick={() => setShowItineraryInput(true)}
+                  style={styles.postAnnouncementBtn}
+                >
+                  + Add
+                </button>
+              )}
+            </div>
+            {showItineraryInput && (
+              <div style={styles.itineraryAddRow}>
+                <input
+                  value={newItemText}
+                  onChange={(e) => setNewItemText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') addItineraryItem();
+                    if (e.key === 'Escape') { setShowItineraryInput(false); setNewItemText(''); }
+                  }}
+                  placeholder="Add an itinerary item..."
+                  style={styles.itineraryInput}
+                  autoFocus
+                />
+                <button
+                  onClick={addItineraryItem}
+                  disabled={!newItemText.trim()}
+                  style={{
+                    ...styles.itineraryAddBtn,
+                    opacity: newItemText.trim() ? 1 : 0.4,
+                  }}
+                >
+                  Add
+                </button>
+                <button
+                  onClick={() => { setShowItineraryInput(false); setNewItemText(''); }}
+                  style={styles.cancelTitleBtn}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+            {itineraryLoading ? (
+              <p style={styles.emptyText}>Loading...</p>
+            ) : itineraryItems.length === 0 ? (
+              <p style={{ ...styles.emptyText, marginTop: '8px' }}>No itinerary items for today</p>
+            ) : (
+              <div style={styles.itineraryList}>
+                {itineraryItems.map(item => renderItineraryItem(item))}
+              </div>
+            )}
+            {renderAnnouncements({ showInput: true })}
+          </div>
+        </div>
+      )}
 
-      {/* Sprint Board */}
-      <MyBoard profile={profile} onNavigate={onNavigate} todayEvents={todayEvents} onBoardChange={() => setBoardVersion(v => v + 1)} sprintVersion={sprintVersion} />
+      {/* Assistant: Today section */}
+      {isAssistant && (
+        <div style={styles.section}>
+          <h2 style={styles.sectionTitle}>Today</h2>
+          <div style={styles.itineraryCard}>
+            {renderTodaySchedule()}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h3 style={styles.subSectionTitle}>Itinerary</h3>
+              {!showItineraryInput && (
+                <button
+                  onClick={() => setShowItineraryInput(true)}
+                  style={styles.postAnnouncementBtn}
+                >
+                  + Add
+                </button>
+              )}
+            </div>
+            {showItineraryInput && (
+              <div style={styles.itineraryAddRow}>
+                <input
+                  value={newItemText}
+                  onChange={(e) => setNewItemText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') addItineraryItem();
+                    if (e.key === 'Escape') { setShowItineraryInput(false); setNewItemText(''); }
+                  }}
+                  placeholder="Add an itinerary item..."
+                  style={styles.itineraryInput}
+                  autoFocus
+                />
+                <button
+                  onClick={addItineraryItem}
+                  disabled={!newItemText.trim()}
+                  style={{
+                    ...styles.itineraryAddBtn,
+                    opacity: newItemText.trim() ? 1 : 0.4,
+                  }}
+                >
+                  Add
+                </button>
+                <button
+                  onClick={() => { setShowItineraryInput(false); setNewItemText(''); }}
+                  style={styles.cancelTitleBtn}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+            {itineraryLoading ? (
+              <p style={styles.emptyText}>Loading...</p>
+            ) : itineraryItems.length === 0 ? (
+              <p style={{ ...styles.emptyText, marginTop: '12px' }}>No items yet</p>
+            ) : (
+              <div style={styles.itineraryList}>
+                {itineraryItems.map(item => renderItineraryItem(item))}
+              </div>
+            )}
+            {renderAnnouncements({ showInput: true })}
+          </div>
+        </div>
+      )}
 
-      {/* Project Tasks (moved to bottom) */}
+      {/* Regular member: Today section */}
+      {isMember && (
+        <div style={styles.section}>
+          <h2 style={styles.sectionTitle}>Today</h2>
+          <div style={styles.itineraryCard}>
+            {renderTodaySchedule()}
+            {renderAnnouncements({ showInput: false })}
+          </div>
+        </div>
+      )}
+
+      {/* Sponsored Deliverables */}
+      {(sponsorDeliverables.length > 0 || sponsorDelLoading) && (
+        <div style={styles.section}>
+          <h2 style={styles.sectionTitle}>Sponsored</h2>
+          {sponsorDelLoading ? (
+            <p style={styles.emptyText}>Loading...</p>
+          ) : (
+            <div style={styles.projectGrid}>
+              {sponsorDeliverables.map(d => {
+                const days = d.due_date ? getDaysUntil(d.due_date) : null;
+                const urgency = days !== null ? getUrgencyColor(days) : null;
+                return (
+                  <div key={d.id} style={styles.projectCard}>
+                    <div style={styles.projectCardHeader}>
+                      <span style={{
+                        ...styles.statusBadge,
+                        background: `${DELIVERABLE_STAGE_COLORS[d.status] || '#6b7280'}20`,
+                        color: DELIVERABLE_STAGE_COLORS[d.status] || '#6b7280',
+                      }}>
+                        {DELIVERABLE_STAGE_LABELS[d.status] || d.status}
+                      </span>
+                      <span style={styles.roleBadge}>{DELIVERABLE_STAGE_LABELS[d.assigned_stage] || d.assigned_stage}</span>
+                    </div>
+                    <h3 style={styles.projectName}>{d.title}</h3>
+                    <p style={styles.projectChannel}>{d.sponsor_name}{d.campaign_name ? ` — ${d.campaign_name}` : ''}</p>
+                    {days !== null && (
+                      <>
+                        <div style={styles.projectDeadline}>
+                          <div style={{ ...styles.deadlineIndicator, background: urgency }} />
+                          <span style={{ color: urgency, fontWeight: 600, fontSize: '13px' }}>
+                            {days < 0
+                              ? `${Math.abs(days)} days overdue`
+                              : days === 0
+                                ? 'Due today'
+                                : `${days} days remaining`}
+                          </span>
+                        </div>
+                        <div style={styles.projectDates}>
+                          <span>Due {new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Stage Tasks */}
       {stageTasks.length > 0 && (
         <div style={styles.section}>
           <h2 style={styles.sectionTitle}>Project Tasks</h2>
@@ -1249,6 +1846,31 @@ export default function Dashboard({ onNavigate }) {
           )}
         </div>
       )}
+
+      {/* Completed Projects */}
+      {completedAssignments.length > 0 && (
+        <div style={styles.section}>
+          <h2 style={styles.sectionTitle}>Recently Completed</h2>
+          <div style={styles.completedList}>
+            {completedAssignments.slice(0, 5).map(({ project, assignment_role }) => (
+              <div key={project.id} style={styles.completedItem}>
+                <div style={styles.checkIcon}>✓</div>
+                <span style={styles.completedName}>{project.name}</span>
+                <span style={styles.completedRole}>{assignment_role}</span>
+                <span style={styles.completedDate}>
+                  {new Date(project.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Sprint Planning */}
+      <SprintPanel profile={profile} boardVersion={boardVersion} onSprintChange={() => setSprintVersion(v => v + 1)} />
+
+      {/* Sprint */}
+      <MyBoard profile={profile} onNavigate={onNavigate} todayEvents={todayEvents} onBoardChange={() => setBoardVersion(v => v + 1)} sprintVersion={sprintVersion} />
 
       {/* Morty Mascot Controls */}
       <div style={{
@@ -1333,25 +1955,6 @@ const styles = {
     color: 'rgba(255,255,255,0.4)',
     margin: 0,
   },
-  profileTeamRow: {
-    display: 'flex',
-    gap: '20px',
-    alignItems: 'stretch',
-    marginBottom: '36px',
-    flexWrap: 'wrap',
-  },
-  profileCardRedesign: {
-    flex: 2,
-    background: 'rgba(255,255,255,0.03)',
-    border: '1px solid rgba(255,255,255,0.06)',
-    borderRadius: '16px',
-    padding: '24px',
-    display: 'flex',
-    flexDirection: 'column',
-    justifyContent: 'space-between',
-    gap: '20px',
-    minWidth: '280px',
-  },
   profileCard: {
     background: 'rgba(255,255,255,0.03)',
     border: '1px solid rgba(255,255,255,0.06)',
@@ -1435,24 +2038,6 @@ const styles = {
     cursor: 'pointer',
     fontFamily: 'inherit',
   },
-  statsBar: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    padding: '14px 0 0',
-    borderTop: '1px solid rgba(255,255,255,0.06)',
-    gap: '0',
-  },
-  statCompact: {
-    textAlign: 'center',
-    flex: 1,
-  },
-  statDivider: {
-    width: '1px',
-    height: '32px',
-    background: 'rgba(255,255,255,0.06)',
-    flexShrink: 0,
-  },
   statsRow: {
     display: 'flex',
     gap: '24px',
@@ -1461,17 +2046,15 @@ const styles = {
     textAlign: 'center',
   },
   statValue: {
-    fontSize: '22px',
+    fontSize: '24px',
     fontWeight: 700,
     color: '#ffffff',
-    lineHeight: 1.2,
   },
   statLabel: {
-    fontSize: '10px',
+    fontSize: '11px',
     color: 'rgba(255,255,255,0.4)',
     textTransform: 'uppercase',
     letterSpacing: '0.5px',
-    marginTop: '2px',
   },
   section: {
     marginBottom: '36px',
@@ -1666,8 +2249,8 @@ const styles = {
   },
   // Announcement styles
   announcementsSection: {
-    marginTop: '12px',
-    paddingTop: '12px',
+    marginTop: '20px',
+    paddingTop: '16px',
     borderTop: '1px solid rgba(255,255,255,0.06)',
   },
   announcementList: {
@@ -1834,30 +2417,6 @@ const styles = {
     cursor: 'pointer',
   },
   // Team styles
-  todayCardWrapper: {
-    flex: 3,
-    display: 'flex',
-    flexDirection: 'column',
-    minWidth: '320px',
-  },
-  teamCardWrapper: {
-    flex: 1,
-    background: 'rgba(255,255,255,0.03)',
-    border: '1px solid rgba(255,255,255,0.06)',
-    borderRadius: '14px',
-    padding: '16px',
-    display: 'flex',
-    flexDirection: 'column',
-    minWidth: '320px',
-  },
-  teamCardHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingBottom: '10px',
-    borderBottom: '1px solid rgba(255,255,255,0.06)',
-    marginBottom: '6px',
-  },
   teamCard: {
     background: 'rgba(255,255,255,0.03)',
     border: '1px solid rgba(255,255,255,0.06)',
@@ -1888,19 +2447,6 @@ const styles = {
     borderRadius: '8px',
     color: '#e2e8f0',
     fontSize: '13px',
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-  },
-  statusPickerBtnCompact: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    padding: '4px 10px',
-    background: 'rgba(255,255,255,0.05)',
-    border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: '6px',
-    color: '#e2e8f0',
-    fontSize: '12px',
     cursor: 'pointer',
     fontFamily: 'inherit',
   },
@@ -1993,21 +2539,6 @@ const styles = {
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
   },
-  noteSetBtnCompact: {
-    padding: '4px 10px',
-    background: 'none',
-    border: '1px dashed rgba(255,255,255,0.08)',
-    borderRadius: '6px',
-    color: 'rgba(255,255,255,0.3)',
-    fontSize: '12px',
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-    fontStyle: 'italic',
-    maxWidth: '180px',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
   teamList: {
     display: 'flex',
     flexDirection: 'column',
@@ -2021,14 +2552,6 @@ const styles = {
     borderRadius: '10px',
     transition: 'background 0.1s',
   },
-  teamMemberCompact: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    padding: '5px 8px',
-    borderRadius: '8px',
-    transition: 'background 0.1s',
-  },
   teamMemberAvatar: {
     width: '36px',
     height: '36px',
@@ -2038,20 +2561,6 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     fontSize: '14px',
-    fontWeight: 700,
-    color: '#fff',
-    flexShrink: 0,
-    position: 'relative',
-  },
-  teamMemberAvatarCompact: {
-    width: '28px',
-    height: '28px',
-    borderRadius: '8px',
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '12px',
     fontWeight: 700,
     color: '#fff',
     flexShrink: 0,

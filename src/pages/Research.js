@@ -4,8 +4,8 @@ import { tritonSupabase } from '../tritonClient';
 import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
-const SECTIONS = ['inbox', 'briefs', 'cards', 'news', 'newsletters', 'trends'];
-const SECTION_LABELS = { inbox: 'Inbox', briefs: 'Briefs', cards: 'Cards', news: 'News', newsletters: 'Newsletters', trends: 'Trends' };
+const SECTIONS = ['inbox', 'briefs', 'cards', 'news', 'trends'];
+const SECTION_LABELS = { inbox: 'Inbox', briefs: 'Briefs', cards: 'Cards', news: 'News', trends: 'Trends' };
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
@@ -23,7 +23,6 @@ export default function Research() {
   const [section, setSection] = useState('inbox');
   const [articles, setArticles] = useState([]);
   const [feeds, setFeeds] = useState([]);
-  const [newsletters, setNewsletters] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState('all');
@@ -56,6 +55,7 @@ export default function Research() {
   const [currentTrend, setCurrentTrend] = useState(null);
   const [currentTrendDate, setCurrentTrendDate] = useState(null);
   const [trendLoading, setTrendLoading] = useState(false);
+  const [regeneratingTrends, setRegeneratingTrends] = useState(false);
 
   // Inbox state
   const [inboxState, setInboxState] = useState([]);
@@ -153,6 +153,28 @@ export default function Research() {
     }
   };
 
+  const handleRegenerateTrends = async () => {
+    setRegeneratingTrends(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+      const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
+      const res = await fetch(`${supabaseUrl}/functions/v1/generate-trends`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}`, apikey: process.env.REACT_APP_SUPABASE_ANON_KEY },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || 'Failed to generate trends');
+      await fetchTrends();
+      if (json.date) setCurrentTrendDate(json.date);
+    } catch (err) {
+      console.error('Error regenerating trends:', err);
+      alert('Failed to regenerate trends: ' + err.message);
+    } finally {
+      setRegeneratingTrends(false);
+    }
+  };
+
   const fetchArticles = useCallback(async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -175,19 +197,6 @@ export default function Research() {
       }
     } catch (err) {
       console.error('Error fetching articles:', err);
-    }
-  }, []);
-
-  const fetchNewsletters = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .from('research_newsletters')
-        .select('*')
-        .order('received_at', { ascending: false })
-        .limit(100);
-      if (!error) setNewsletters(data || []);
-    } catch (err) {
-      console.error('Error fetching newsletters:', err);
     }
   }, []);
 
@@ -224,10 +233,9 @@ export default function Research() {
     }
   };
 
+  const allFeeds = feeds;
   const newsFeeds = useMemo(() => feeds.filter(f => !f.source_type || f.source_type === 'news'), [feeds]);
   const newsletterFeeds = useMemo(() => feeds.filter(f => f.source_type === 'newsletter'), [feeds]);
-  const newsArticles = useMemo(() => articles.filter(a => !a.feed?.source_type || a.feed?.source_type === 'news'), [articles]);
-  const newsletterArticles = useMemo(() => articles.filter(a => a.feed?.source_type === 'newsletter'), [articles]);
 
   const fetchBriefs = useCallback(async () => {
     if (!tritonSupabase) return;
@@ -471,16 +479,16 @@ export default function Research() {
 
   useEffect(() => {
     const timeout = setTimeout(() => setLoading(false), 5000);
-    Promise.all([fetchArticles(), fetchNewsletters(), fetchBriefs(), fetchCardsArchive(), fetchCardsConfig(), fetchTrends(), fetchInboxState()])
+    Promise.all([fetchArticles(), fetchBriefs(), fetchCardsArchive(), fetchCardsConfig(), fetchTrends(), fetchInboxState()])
       .finally(() => { setLoading(false); clearTimeout(timeout); });
     return () => clearTimeout(timeout);
-  }, [fetchArticles, fetchNewsletters, fetchBriefs, fetchCardsArchive, fetchCardsConfig, fetchTrends, fetchInboxState]);
+  }, [fetchArticles, fetchBriefs, fetchCardsArchive, fetchCardsConfig, fetchTrends, fetchInboxState]);
 
-  useVisibilityRefresh(() => { fetchArticles(); fetchNewsletters(); fetchBriefs(); fetchCardsArchive(); fetchCardsConfig(); fetchTrends(); fetchInboxState(); });
+  useVisibilityRefresh(() => { fetchArticles(); fetchBriefs(); fetchCardsArchive(); fetchCardsConfig(); fetchTrends(); fetchInboxState(); });
 
   async function handleRefresh() {
     setRefreshing(true);
-    await Promise.all([fetchArticles(), fetchNewsletters(), fetchBriefs(), fetchCardsArchive(), fetchCardsConfig(), fetchTrends(), fetchInboxState()]);
+    await Promise.all([fetchArticles(), fetchBriefs(), fetchCardsArchive(), fetchCardsConfig(), fetchTrends(), fetchInboxState()]);
     setRefreshing(false);
   }
 
@@ -490,12 +498,8 @@ export default function Research() {
   }
 
   const filteredArticles = activeFilter === 'all'
-    ? newsArticles
-    : newsArticles.filter(a => a.feed?.id === activeFilter);
-
-  const filteredNewsletterArticles = activeFilter === 'all'
-    ? newsletterArticles
-    : newsletterArticles.filter(a => a.feed?.id === activeFilter);
+    ? articles
+    : articles.filter(a => a.feed?.id === activeFilter);
 
   // --- Reader View ---
   if (view === 'reader' && selectedItem) {
@@ -609,9 +613,6 @@ export default function Research() {
             {sec === 'inbox' && unreadInboxCount > 0 && (
               <span style={s.unreadBadge}>{unreadInboxCount}</span>
             )}
-            {sec === 'newsletters' && newsletters.filter(n => !n.read).length > 0 && (
-              <span style={s.unreadBadge}>{newsletters.filter(n => !n.read).length}</span>
-            )}
           </button>
         ))}
       </div>
@@ -671,16 +672,17 @@ export default function Research() {
                 >
                   All Sources
                 </button>
-                {newsFeeds.map(feed => (
+                {allFeeds.map(feed => (
                   <button
                     key={feed.id}
                     onClick={() => setActiveFilter(feed.id)}
                     style={{
                       ...s.filterChip,
-                      ...(activeFilter === feed.id ? { background: feed.color + '22', color: feed.color, borderColor: feed.color + '44' } : {}),
+                      ...(activeFilter === feed.id ? { background: (feed.color || '#6366f1') + '22', color: feed.color || '#a5b4fc', borderColor: (feed.color || '#6366f1') + '44' } : {}),
                     }}
                   >
                     {feed.icon_emoji} {feed.name}
+                    {feed.source_type === 'newsletter' && <span style={{ fontSize: '9px', opacity: 0.5, marginLeft: '4px' }}>NL</span>}
                   </button>
                 ))}
                 <button
@@ -703,7 +705,7 @@ export default function Research() {
                 <div style={s.addFeedForm}>
                   <input
                     type="text"
-                    placeholder="Feed URL (e.g. https://example.com/rss)"
+                    placeholder="Feed URL (e.g. https://example.com/rss or newsletter.substack.com/feed)"
                     value={addFeedUrl}
                     onChange={e => setAddFeedUrl(e.target.value)}
                     style={s.addFeedInput}
@@ -727,9 +729,9 @@ export default function Research() {
                 </div>
               )}
 
-              {managingFeeds === 'news' && newsFeeds.length > 0 && (
+              {managingFeeds === 'news' && allFeeds.length > 0 && (
                 <div style={s.manageFeedsContainer}>
-                  {newsFeeds.map(feed => (
+                  {allFeeds.map(feed => (
                     <div key={feed.id} style={s.manageFeedRow}>
                       <span style={{ fontSize: '13px', color: '#e2e8f0' }}>{feed.icon_emoji} {feed.name}</span>
                       <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{feed.url}</span>
@@ -765,133 +767,6 @@ export default function Research() {
                         </div>
                         <h3 style={s.articleTitle}>{article.title}</h3>
                         <p style={s.articleDesc}>{(article.description || '').replace(/<[^>]*>/g, '').substring(0, 150)}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Newsletters Section */}
-          {section === 'newsletters' && (
-            <>
-              <div style={s.filterRow}>
-                <button
-                  onClick={() => setActiveFilter('all')}
-                  style={{ ...s.filterChip, ...(activeFilter === 'all' ? s.filterChipActive : {}) }}
-                >
-                  All Sources
-                </button>
-                {newsletterFeeds.map(feed => (
-                  <button
-                    key={feed.id}
-                    onClick={() => setActiveFilter(feed.id)}
-                    style={{
-                      ...s.filterChip,
-                      ...(activeFilter === feed.id ? { background: (feed.color || '#6366f1') + '22', color: feed.color || '#a5b4fc', borderColor: (feed.color || '#6366f1') + '44' } : {}),
-                    }}
-                  >
-                    {feed.icon_emoji} {feed.name}
-                  </button>
-                ))}
-                <button
-                  onClick={() => { setShowAddFeed(showAddFeed === 'newsletter' ? null : 'newsletter'); setAddFeedUrl(''); setAddFeedName(''); }}
-                  style={{ ...s.filterChip, ...(showAddFeed === 'newsletter' ? s.filterChipActive : {}), display: 'flex', alignItems: 'center', gap: '4px' }}
-                >
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 3v10M3 8h10" /></svg>
-                  Add
-                </button>
-                <button
-                  onClick={() => setManagingFeeds(managingFeeds === 'newsletter' ? null : 'newsletter')}
-                  style={{ ...s.filterChip, ...(managingFeeds === 'newsletter' ? s.filterChipActive : {}), display: 'flex', alignItems: 'center', gap: '4px' }}
-                >
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="8" cy="8" r="6" /><path d="M6 8h4" /></svg>
-                  Manage
-                </button>
-              </div>
-
-              {showAddFeed === 'newsletter' && (
-                <div style={s.addFeedForm}>
-                  <input
-                    type="text"
-                    placeholder="Newsletter RSS URL (e.g. newsletter.substack.com/feed)"
-                    value={addFeedUrl}
-                    onChange={e => setAddFeedUrl(e.target.value)}
-                    style={s.addFeedInput}
-                    autoFocus
-                  />
-                  <input
-                    type="text"
-                    placeholder="Name (optional)"
-                    value={addFeedName}
-                    onChange={e => setAddFeedName(e.target.value)}
-                    style={{ ...s.addFeedInput, flex: '0 0 180px' }}
-                  />
-                  <button
-                    onClick={() => handleAddFeed('newsletter')}
-                    disabled={addFeedSaving || !addFeedUrl.trim()}
-                    style={{ ...s.addFeedBtn, opacity: addFeedSaving || !addFeedUrl.trim() ? 0.5 : 1 }}
-                  >
-                    {addFeedSaving ? 'Adding...' : 'Add Newsletter'}
-                  </button>
-                  <button onClick={() => setShowAddFeed(null)} style={s.addFeedCancelBtn}>Cancel</button>
-                </div>
-              )}
-
-              {managingFeeds === 'newsletter' && newsletterFeeds.length > 0 && (
-                <div style={s.manageFeedsContainer}>
-                  {newsletterFeeds.map(feed => (
-                    <div key={feed.id} style={s.manageFeedRow}>
-                      <span style={{ fontSize: '13px', color: '#e2e8f0' }}>{feed.icon_emoji} {feed.name}</span>
-                      <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{feed.url}</span>
-                      <button onClick={() => handleDeleteFeed(feed.id)} style={s.manageFeedDeleteBtn}>Remove</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {filteredNewsletterArticles.length === 0 && newsletters.length === 0 ? (
-                <div style={s.emptyState}>No newsletters yet. Add a newsletter RSS feed to get started.</div>
-              ) : (
-                <div style={s.listContainer}>
-                  {filteredNewsletterArticles.map(article => (
-                    <div
-                      key={article.id}
-                      style={s.listItem}
-                      onClick={() => openItem(article, 'article')}
-                    >
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                          {article.feed && (
-                            <span style={{ ...s.sourceBadgeSmall, background: (article.feed.color || '#6366f1') + '22', color: article.feed.color || '#a5b4fc' }}>
-                              {article.feed.icon_emoji} {article.feed.name}
-                            </span>
-                          )}
-                          <span style={s.timeText}>{timeAgo(article.pub_date)}</span>
-                          {article.author && <span style={s.timeText}>by {article.author}</span>}
-                        </div>
-                        <div style={s.nlSubject}>{article.title}</div>
-                        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.35)', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {(article.description || '').replace(/<[^>]*>/g, '').substring(0, 120)}
-                        </div>
-                      </div>
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5"><path d="M6 3l5 5-5 5" /></svg>
-                    </div>
-                  ))}
-                  {newsletters.map(nl => (
-                    <div
-                      key={nl.id}
-                      style={s.listItem}
-                      onClick={() => openItem(nl, 'newsletter')}
-                    >
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                          {!nl.read && <span style={s.unreadDot} />}
-                          <span style={s.nlFrom}>{nl.from_name || nl.from_address}</span>
-                          <span style={s.timeText}>{timeAgo(nl.received_at)}</span>
-                        </div>
-                        <div style={s.nlSubject}>{nl.subject}</div>
                       </div>
                     </div>
                   ))}
@@ -1246,7 +1121,16 @@ export default function Research() {
           {section === 'trends' && (
             <div>
               {trends.length === 0 ? (
-                <div style={s.emptyState}>No trends reports yet.</div>
+                <div style={s.emptyState}>
+                  No trends reports yet.
+                  <button onClick={handleRegenerateTrends} disabled={regeneratingTrends} style={{ ...s.briefActionBtn, marginTop: '12px', opacity: regeneratingTrends ? 0.5 : 1 }}>
+                    {regeneratingTrends ? (
+                      <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite', marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Generating…</>
+                    ) : (
+                      <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Generate Trends</>
+                    )}
+                  </button>
+                </div>
               ) : (
                 <>
                   {currentTrendDate && (
@@ -1273,6 +1157,13 @@ export default function Research() {
                         style={s.briefNavBtn}
                       >
                         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 3l5 5-5 5" /></svg>
+                      </button>
+                      <button onClick={handleRegenerateTrends} disabled={regeneratingTrends} style={{ ...s.briefActionBtn, marginLeft: 'auto', opacity: regeneratingTrends ? 0.5 : 1 }}>
+                        {regeneratingTrends ? (
+                          <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite', marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Regenerating…</>
+                        ) : (
+                          <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Regenerate</>
+                        )}
                       </button>
                     </div>
                   )}
