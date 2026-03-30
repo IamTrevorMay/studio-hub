@@ -99,6 +99,7 @@ export default function Goals() {
   const [initiatives, setInitiatives] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [rollupData, setRollupData] = useState({});
+  const [velocityData, setVelocityData] = useState({});
   const [loading, setLoading] = useState(true);
 
   // Goal form state
@@ -155,10 +156,11 @@ export default function Goals() {
       setAccounts(acctRes.data || []);
       setMonthlyGoals(monthlyData);
 
-      // Fetch rollup data for metric goals
+      // Fetch rollup data + velocity for metric goals
       const metricGoals = goalsData.filter(g => g.goal_type === 'metric');
       if (metricGoals.length > 0) {
-        await fetchRollupData(metricGoals);
+        const rollupResult = await fetchRollupData(metricGoals);
+        if (rollupResult) await fetchVelocityData(metricGoals, rollupResult);
       }
 
       // Fetch progress for monthly goals
@@ -210,6 +212,65 @@ export default function Goals() {
       result[goal.id] = sums;
     }
     setRollupData(result);
+    return result;
+  }
+
+  async function fetchVelocityData(metricGoals, rollupResult) {
+    const allAccountIds = [...new Set(metricGoals.flatMap(g => g.platform_account_ids || []))];
+    if (!allAccountIds.length) return;
+
+    const today = new Date();
+    const d20ago = new Date(today);
+    d20ago.setDate(d20ago.getDate() - 20);
+    const d10ago = new Date(today);
+    d10ago.setDate(d10ago.getDate() - 10);
+    const fmt = d => d.toISOString().split('T')[0];
+
+    const { data: rows } = await supabase
+      .from('daily_platform_rollups')
+      .select('*')
+      .gte('date', fmt(d20ago))
+      .lte('date', fmt(today))
+      .in('platform_account_id', allAccountIds);
+
+    if (!rows) return;
+
+    const result = {};
+    for (const goal of metricGoals) {
+      const goalAccountIds = goal.platform_account_ids || [];
+      const goalMetrics = goal.metrics || [];
+      const goalRows = rows.filter(r => goalAccountIds.includes(r.platform_account_id));
+
+      const last10 = goalRows.filter(r => r.date > fmt(d10ago));
+      const prev10 = goalRows.filter(r => r.date <= fmt(d10ago));
+
+      let sumLast = 0, sumPrev = 0;
+      for (const m of goalMetrics) {
+        sumLast += last10.reduce((a, r) => a + (Number(r[m]) || 0), 0);
+        sumPrev += prev10.reduce((a, r) => a + (Number(r[m]) || 0), 0);
+      }
+
+      // Calculate pace needed per 10 days
+      const currentTotal = goalMetrics.reduce((a, m) => a + ((rollupResult[goal.id] || {})[m] || 0), 0);
+      const target = Number(goal.target_value) || 0;
+      const remaining = target - currentTotal;
+
+      // Days remaining in period
+      const year = today.getFullYear();
+      const month = today.getMonth();
+      let endDate;
+      if (goal.category === 'yearly') {
+        endDate = new Date(year, 11, 31);
+      } else {
+        const qEnd = Math.floor(month / 3) * 3 + 2;
+        endDate = new Date(year, qEnd + 1, 0);
+      }
+      const daysRemaining = Math.max(1, Math.ceil((endDate - today) / 86400000));
+      const paceNeeded10 = (remaining / daysRemaining) * 10;
+
+      result[goal.id] = { last10: sumLast, prev10: sumPrev, paceNeeded10 };
+    }
+    setVelocityData(result);
   }
 
   async function fetchMonthlyProgress(mGoals, accts) {
@@ -758,7 +819,7 @@ export default function Goals() {
           <h2 style={styles.sectionTitle}>Quarterly</h2>
           <div style={styles.list}>
             {quarterlyGoals.map(g => (
-              <GoalCard key={g.id} goal={g} rollupData={rollupData} accounts={accounts} isAdmin={isAdmin} onEdit={openEditGoal} onDelete={handleDeleteGoal} />
+              <GoalCard key={g.id} goal={g} rollupData={rollupData} velocityData={velocityData} accounts={accounts} isAdmin={isAdmin} onEdit={openEditGoal} onDelete={handleDeleteGoal} />
             ))}
           </div>
         </div>
@@ -774,7 +835,7 @@ export default function Goals() {
               const isExpanded = expandedYearlyGoals[g.id];
               return (
                 <div key={g.id}>
-                  <GoalCard goal={g} rollupData={rollupData} accounts={accounts} isAdmin={isAdmin} onEdit={openEditGoal} onDelete={handleDeleteGoal} />
+                  <GoalCard goal={g} rollupData={rollupData} velocityData={velocityData} accounts={accounts} isAdmin={isAdmin} onEdit={openEditGoal} onDelete={handleDeleteGoal} />
                   {(childGoals.length > 0 || isAdmin) && (
                     <div style={styles.monthlyToggleRow}>
                       <button
@@ -945,7 +1006,7 @@ export default function Goals() {
   );
 }
 
-function GoalCard({ goal, rollupData, accounts, isAdmin, onEdit, onDelete }) {
+function GoalCard({ goal, rollupData, velocityData, accounts, isAdmin, onEdit, onDelete }) {
   const isMetric = goal.goal_type === 'metric';
   const goalMetrics = goal.metrics || [];
   const goalAccountIds = goal.platform_account_ids || [];
@@ -1052,6 +1113,25 @@ function GoalCard({ goal, rollupData, accounts, isAdmin, onEdit, onDelete }) {
           ))}
         </div>
       )}
+
+      {/* Velocity line */}
+      {isMetric && velocityData[goal.id] && (() => {
+        const v = velocityData[goal.id];
+        const fmtKey = goalMetrics.length === 1 ? goalMetrics[0] : null;
+        const fmtVal = val => fmtKey ? formatMetricValue(fmtKey, val) : Math.round(val).toLocaleString();
+        const statusColor = v.last10 >= v.paceNeeded10 * 1.02 ? '#22c55e'
+          : v.last10 >= v.paceNeeded10 * 0.98 ? '#86efac'
+          : '#f97316';
+        const statusLabel = v.last10 >= v.paceNeeded10 * 1.02 ? 'Ahead'
+          : v.last10 >= v.paceNeeded10 * 0.98 ? 'On Pace'
+          : 'Behind';
+        return (
+          <div style={{ marginTop: '6px', fontSize: '11px', color: 'rgba(255,255,255,0.4)', display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+            <span>Last 10d: +{fmtVal(v.last10)} (prev: +{fmtVal(v.prev10)})</span>
+            <span>+{fmtVal(v.last10)} <span style={{ color: statusColor }}>{statusLabel}</span> ({fmtVal(v.paceNeeded10)})</span>
+          </div>
+        );
+      })()}
 
       <div style={styles.cardUpdated}>
         {isMetric ? `${goal.category === 'quarterly' ? 'This quarter' : 'This year'} — live` : `Updated ${formatDate(goal.updated_at)}`}
