@@ -38,6 +38,7 @@ export default function Research() {
   const [cardsArchive, setCardsArchive] = useState([]);
   const [currentCards, setCurrentCards] = useState([]);
   const [currentCardDate, setCurrentCardDate] = useState(null);
+  const [cardsBucket, setCardsBucket] = useState('top_ip');
   const [cardsLoading, setCardsLoading] = useState(false);
   const [selectedCard, setSelectedCard] = useState(null);
   const [regeneratingBrief, setRegeneratingBrief] = useState(false);
@@ -280,16 +281,18 @@ export default function Research() {
     if (currentBriefDate) fetchFullBrief(currentBriefDate);
   }, [currentBriefDate, fetchFullBrief]);
 
-  const fetchCardsArchive = useCallback(async () => {
+  const fetchCardsArchive = useCallback(async (bucket) => {
     if (!tritonSupabase) return [];
+    const activeBucket = bucket || cardsBucket;
     try {
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - 5);
       const cutoffDate = cutoff.toISOString().slice(0, 10);
       const { data, error } = await tritonSupabase
         .from('daily_cards')
-        .select('id, date, pitcher_id, pitcher_name, game_pk, game_info, ip, pitch_count, rank')
+        .select('id, date, pitcher_id, pitcher_name, game_pk, game_info, ip, pitch_count, rank, bucket')
         .gte('date', cutoffDate)
+        .eq('bucket', activeBucket)
         .order('date', { ascending: false })
         .order('rank', { ascending: true });
       if (!error && data) {
@@ -313,16 +316,18 @@ export default function Research() {
       console.error('Error fetching cards archive:', err);
       return [];
     }
-  }, [currentCardDate]);
+  }, [currentCardDate, cardsBucket]);
 
-  const fetchCardsForDate = useCallback(async (date) => {
+  const fetchCardsForDate = useCallback(async (date, bucket) => {
     if (!tritonSupabase || !date) return;
+    const activeBucket = bucket || cardsBucket;
     setCardsLoading(true);
     try {
       const { data, error } = await tritonSupabase
         .from('daily_cards')
-        .select('id, date, pitcher_id, pitcher_name, game_pk, game_info, ip, pitch_count, rank')
+        .select('id, date, pitcher_id, pitcher_name, game_pk, game_info, ip, pitch_count, rank, bucket')
         .eq('date', date)
+        .eq('bucket', activeBucket)
         .order('rank', { ascending: true });
       if (!error) setCurrentCards(data || []);
     } catch (err) {
@@ -330,11 +335,17 @@ export default function Research() {
     } finally {
       setCardsLoading(false);
     }
-  }, []);
+  }, [cardsBucket]);
 
   useEffect(() => {
     if (currentCardDate) fetchCardsForDate(currentCardDate);
   }, [currentCardDate, fetchCardsForDate]);
+
+  // Re-fetch when bucket changes
+  useEffect(() => {
+    fetchCardsArchive(cardsBucket);
+    if (currentCardDate) fetchCardsForDate(currentCardDate, cardsBucket);
+  }, [cardsBucket]); // eslint-disable-line
 
   // Trends fetching
   const fetchTrends = useCallback(async () => {
@@ -1030,6 +1041,35 @@ export default function Research() {
                   </div>
                 </div>
               )}
+
+              {/* Bucket sort tabs */}
+              <div style={{ display: 'flex', gap: '4px', marginBottom: '14px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', padding: '3px', border: '1px solid rgba(255,255,255,0.04)', width: 'fit-content' }}>
+                {[
+                  { key: 'top_ip', label: 'Innings Pitched' },
+                  { key: 'top_start', label: 'Overall Grade' },
+                  { key: 'top_cmd', label: 'CnD+' },
+                  { key: 'top_stuff', label: 'Stuff+' },
+                ].map(b => (
+                  <button
+                    key={b.key}
+                    onClick={() => setCardsBucket(b.key)}
+                    style={{
+                      padding: '5px 14px',
+                      borderRadius: '6px',
+                      border: 'none',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      fontFamily: 'inherit',
+                      cursor: 'pointer',
+                      transition: 'background 0.12s, color 0.12s',
+                      background: cardsBucket === b.key ? 'rgba(99,102,241,0.2)' : 'transparent',
+                      color: cardsBucket === b.key ? '#a5b4fc' : 'rgba(255,255,255,0.4)',
+                    }}
+                  >
+                    {b.label}
+                  </button>
+                ))}
+              </div>
 
               {regenerateError && (
                 <div style={{ padding: '8px 14px', borderRadius: '8px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#fca5a5', fontSize: '12px', marginBottom: '12px' }}>
