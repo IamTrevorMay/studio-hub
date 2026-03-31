@@ -1,6 +1,8 @@
 // supabase/functions/metricool-stories/index.ts
 // Deploy with: supabase functions deploy metricool-stories --no-verify-jwt
 // Returns IG story counts per day for the last N days (default 7)
+// Uses the timelines API (same pattern as sync-metricool) instead of the
+// deprecated /analytics/stories/instagram endpoint.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
@@ -41,14 +43,19 @@ Deno.serve(async (req: Request) => {
   const fromStr = from.toISOString().slice(0, 19) + "Z";
   const toStr = now.toISOString().slice(0, 19) + "Z";
 
+  // Use the timelines API with subject=stories, metric=postsCount
+  // This matches the working pattern used by sync-metricool
   const params = new URLSearchParams({
     userId: mcUserId,
     blogId: mcBlogId,
+    network: "instagram",
+    subject: "stories",
+    metric: "postsCount",
     from: fromStr,
     to: toStr,
   });
 
-  const apiUrl = `https://app.metricool.com/api/v2/analytics/stories/instagram?${params}`;
+  const apiUrl = `https://app.metricool.com/api/v2/analytics/timelines?${params}`;
 
   try {
     const resp = await fetch(apiUrl, {
@@ -65,35 +72,24 @@ Deno.serve(async (req: Request) => {
     }
 
     const body = await resp.json();
-    const stories: { postId: string; timestamp: number; date: string }[] = [];
-    const dataArr = body?.data || body || [];
 
-    for (const story of Array.isArray(dataArr) ? dataArr : [dataArr]) {
-      if (!story.postId) continue;
-      // timestamp is epoch ms
-      const ts = story.timestamp;
-      const d = ts ? new Date(ts) : null;
-      const dateStr = d
-        ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-        : null;
-      stories.push({
-        postId: story.postId,
-        timestamp: ts,
-        date: dateStr || "unknown",
-      });
-    }
-
-    // Count stories per day
+    // Parse timelines response: { data: [{ values: [{ dateTime, value }] }] }
     const countsByDate: Record<string, number> = {};
-    for (const s of stories) {
-      countsByDate[s.date] = (countsByDate[s.date] || 0) + 1;
+    let total = 0;
+    const dataArr = body?.data || body || [];
+    for (const bucket of Array.isArray(dataArr) ? dataArr : [dataArr]) {
+      const values = bucket?.values || [];
+      for (const pt of values) {
+        if (pt.dateTime && pt.value != null) {
+          const dateStr = pt.dateTime.slice(0, 10);
+          const count = Number(pt.value) || 0;
+          countsByDate[dateStr] = (countsByDate[dateStr] || 0) + count;
+          total += count;
+        }
+      }
     }
 
-    return jsonResponse({
-      total: stories.length,
-      countsByDate,
-      stories,
-    });
+    return jsonResponse({ total, countsByDate });
   } catch (err) {
     return jsonResponse({ error: err.message }, 500);
   }
