@@ -1,8 +1,7 @@
 // supabase/functions/metricool-stories/index.ts
 // Deploy with: supabase functions deploy metricool-stories --no-verify-jwt
 // Returns IG story counts per day for the last N days (default 7)
-// Uses the timelines API (same pattern as sync-metricool) instead of the
-// deprecated /analytics/stories/instagram endpoint.
+// Uses the scheduler/posts endpoint and filters for instagramType=STORY
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
@@ -35,27 +34,22 @@ Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
   const days = parseInt(url.searchParams.get("days") || "7", 10);
 
-  // Build date range: today back N days
+  // Build date range in Pacific time (matches Metricool's response dates)
   const now = new Date();
   const from = new Date(now);
-  from.setUTCDate(from.getUTCDate() - days);
+  from.setUTCDate(from.getUTCDate() - (days + 1)); // extra day to cover timezone overlap
 
-  const fromStr = from.toISOString().slice(0, 19) + "Z";
-  const toStr = now.toISOString().slice(0, 19) + "Z";
+  // Format as local-style datetime strings (no Z suffix) for Metricool
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const fmtDate = (d: Date) =>
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T00:00:00`;
+  const fmtNow = (d: Date) =>
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T23:59:59`;
 
-  // Use the timelines API with subject=stories, metric=postsCount
-  // This matches the working pattern used by sync-metricool
-  const params = new URLSearchParams({
-    userId: mcUserId,
-    blogId: mcBlogId,
-    network: "instagram",
-    subject: "stories",
-    metric: "postsCount",
-    from: fromStr,
-    to: toStr,
-  });
+  const fromStr = fmtDate(from);
+  const toStr = fmtNow(now);
 
-  const apiUrl = `https://app.metricool.com/api/v2/analytics/timelines?${params}`;
+  const apiUrl = `https://app.metricool.com/api/v2/scheduler/posts?start=${encodeURIComponent(fromStr)}&end=${encodeURIComponent(toStr)}&timezone=America/Los_Angeles&extendedRange=true&userId=${mcUserId}&blogId=${mcBlogId}`;
 
   try {
     const resp = await fetch(apiUrl, {
@@ -72,24 +66,30 @@ Deno.serve(async (req: Request) => {
     }
 
     const body = await resp.json();
+    const arr = Array.isArray(body) ? body : body?.data || [];
 
-    // Parse timelines response: { data: [{ values: [{ dateTime, value }] }] }
+    // Filter for published IG stories
+    // Structure: instagramData.type = "STORY", providers[].network = "instagram", providers[].status = "PUBLISHED"
+    const stories = arr.filter((p: any) => {
+      const igType = p.instagramData?.type;
+      if (igType !== "STORY") return false;
+      const igProvider = (p.providers || []).find((pr: any) => pr.network === "instagram");
+      return igProvider?.status === "PUBLISHED";
+    });
+
+    // Count stories per day
     const countsByDate: Record<string, number> = {};
-    let total = 0;
-    const dataArr = body?.data || body || [];
-    for (const bucket of Array.isArray(dataArr) ? dataArr : [dataArr]) {
-      const values = bucket?.values || [];
-      for (const pt of values) {
-        if (pt.dateTime && pt.value != null) {
-          const dateStr = pt.dateTime.slice(0, 10);
-          const count = Number(pt.value) || 0;
-          countsByDate[dateStr] = (countsByDate[dateStr] || 0) + count;
-          total += count;
-        }
-      }
+    for (const s of stories) {
+      const dt = s.publicationDate?.dateTime;
+      if (!dt) continue;
+      const dateStr = dt.slice(0, 10);
+      countsByDate[dateStr] = (countsByDate[dateStr] || 0) + 1;
     }
 
-    return jsonResponse({ total, countsByDate });
+    return jsonResponse({
+      total: stories.length,
+      countsByDate,
+    });
   } catch (err) {
     return jsonResponse({ error: err.message }, 500);
   }
