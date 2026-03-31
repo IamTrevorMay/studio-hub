@@ -1715,9 +1715,6 @@ export default function Dashboard({ onNavigate }) {
         </div>
       )}
 
-      {/* Sprint Board */}
-      <MyBoard profile={profile} onNavigate={onNavigate} onBoardChange={() => setBoardVersion(v => v + 1)} sprintVersion={sprintVersion} />
-
       {/* Regular member: Today section */}
       {isMember && (
         <div style={styles.section}>
