@@ -41,6 +41,16 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
     });
     fabricRef.current = fc;
 
+    // Fabric wraps the canvas in a div — style it to fill our container
+    const wrapper = fc.wrapperEl || canvasElRef.current?.parentElement;
+    if (wrapper) {
+      wrapper.style.position = 'absolute';
+      wrapper.style.top = '0';
+      wrapper.style.left = '0';
+      wrapper.style.width = '100%';
+      wrapper.style.height = '100%';
+    }
+
     fc.on('object:modified', pushHistory);
     fc.on('object:added', handleObjectAdded);
     fc.on('object:removed', () => { if (!skipHistory.current) pushHistory(); });
@@ -370,10 +380,9 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
   }
 
   return (
-    <canvas
-      ref={canvasElRef}
-      style={styles.canvas}
-    />
+    <div style={styles.wrapper}>
+      <canvas ref={canvasElRef} />
+    </div>
   );
 });
 
@@ -389,12 +398,13 @@ function hexToRgba(hex, alpha) {
 }
 
 const styles = {
-  canvas: {
+  wrapper: {
     position: 'absolute',
     top: 0,
     left: 0,
     width: '100%',
     height: '100%',
     pointerEvents: 'auto',
+    zIndex: 1,
   },
 };
