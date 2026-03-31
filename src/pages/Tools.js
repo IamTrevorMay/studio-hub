@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import Teleprompter from './tools/Teleprompter';
 import Organize from './tools/Organize';
 import PostShow from './tools/PostShow';
+import Telestration from './tools/Telestration';
 
 const TOOLS = [
   {
@@ -36,6 +37,12 @@ const TOOLS = [
     name: 'Post Show',
     description: 'End-to-end post-show workflow: video cutting, Drive uploads, Discord notifications, and Kanban sync.',
     color: '#ec4899',
+  },
+  {
+    key: 'telestration',
+    name: 'Telestration',
+    description: 'Video annotation tool for drawing over footage frame-by-frame. Break down plays, highlight technique, and export.',
+    color: '#38bdf8',
   },
   {
     key: 'screenwriter',
@@ -72,6 +79,9 @@ export default function Tools({ onNavigate }) {
   }
   if (activeTool === 'post-show') {
     return <PostShow onBack={() => setActiveTool(null)} />;
+  }
+  if (activeTool === 'telestration') {
+    return <Telestration onBack={() => setActiveTool(null)} />;
   }
 
   return (
