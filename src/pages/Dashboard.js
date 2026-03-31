@@ -477,6 +477,7 @@ export default function Dashboard({ onNavigate }) {
     }
   }, [isAdmin]);
 
+  const storyFailCount = useRef(0);
   const fetchStoryCounts = useCallback(async () => {
     if (!isAdmin) return;
     setGoalLoading(true);
@@ -491,9 +492,13 @@ export default function Dashboard({ onNavigate }) {
       if (resp.ok) {
         const data = await resp.json();
         setStoryCounts(data.countsByDate || {});
+        storyFailCount.current = 0;
+      } else {
+        storyFailCount.current += 1;
       }
     } catch (err) {
       console.error('Error fetching story counts:', err);
+      storyFailCount.current += 1;
     } finally {
       setGoalLoading(false);
     }
@@ -503,7 +508,11 @@ export default function Dashboard({ onNavigate }) {
     if (!isAdmin || !profile?.id) return;
     fetchGoals();
     fetchStoryCounts();
-    const interval = setInterval(fetchStoryCounts, 30000);
+    const interval = setInterval(() => {
+      // Back off after repeated failures: stop polling after 3 consecutive errors
+      if (storyFailCount.current >= 3) return;
+      fetchStoryCounts();
+    }, 30000);
     return () => clearInterval(interval);
   }, [isAdmin, profile?.id, fetchGoals, fetchStoryCounts]);
 
