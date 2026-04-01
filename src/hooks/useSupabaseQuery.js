@@ -27,7 +27,7 @@ export function useSupabaseQuery() {
           const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
 
           if (refreshError || !refreshData?.session) {
-            console.error('Session refresh failed:', refreshError);
+            console.warn('Session refresh failed, returning original query error:', refreshError);
             return result; // Return original error
           }
 

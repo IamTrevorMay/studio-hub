@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
-import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+
 
 const STATUSES = ['concept', 'script', 'production', 'edit', 'review', 'published'];
 const STATUS_COLORS = {
@@ -194,7 +194,7 @@ function expandRecurringEvents(events, rangeStart, rangeEnd) {
 }
 
 export default function Calendar({ onNavigate }) {
-  const { profile, isAdmin } = useAuth();
+  const { profile, isAdmin, refreshKey } = useAuth();
   const [projects, setProjects] = useState([]);
   const [scheduledPosts, setScheduledPosts] = useState([]);
   const [calendarEvents, setCalendarEvents] = useState([]);
@@ -257,9 +257,7 @@ export default function Calendar({ onNavigate }) {
     Promise.all([fetchProjects(), fetchCalendarEvents(), fetchHubUsers()])
       .finally(() => clearTimeout(timeout));
     return () => clearTimeout(timeout);
-  }, []);
-
-  useVisibilityRefresh(() => { fetchProjects(); fetchCalendarEvents(); fetchHubUsers(); });
+  }, [refreshKey]);
 
   useEffect(() => {
     fetchCalendarEvents();

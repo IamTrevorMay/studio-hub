@@ -3,7 +3,7 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
-import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+
 
 const STATUSES = ['concept', 'script', 'production', 'edit', 'review', 'published'];
 const STATUS_LABELS = {
@@ -52,7 +52,7 @@ const SPONSOR_STATUS_COLORS = { active: '#10b981', completed: '#6366f1', cancell
 const PAYMENT_STATUS_COLORS = { unpaid: '#ef4444', partial: '#f59e0b', paid: '#10b981' };
 
 export default function Projects({ onNavigate }) {
-  const { profile, isAdmin } = useAuth();
+  const { profile, isAdmin, refreshKey } = useAuth();
   const { safeQuery } = useSupabaseQuery();
   const [projects, setProjects] = useState([]);
   const [teamMembers, setTeamMembers] = useState([]);
@@ -178,14 +178,7 @@ export default function Projects({ onNavigate }) {
       clearTimeout(timeout);
       supabase.removeChannel(channel);
     };
-  }, [fetchProjects]);
-
-  useVisibilityRefresh(() => {
-    fetchProjects();
-    fetchTeamMembers();
-    fetchConcepts();
-    fetchSeries();
-  });
+  }, [fetchProjects, refreshKey]);
 
   async function fetchTeamMembers() {
     try {

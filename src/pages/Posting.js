@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
-import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+
 
 const NETWORKS = [
   { key: 'twitter', label: 'Twitter/X', icon: '\uD83D\uDC26' },
@@ -37,7 +37,7 @@ function networkIcon(network) {
 }
 
 export default function Posting() {
-  const { profile, isAdmin, ensureSession } = useAuth();
+  const { profile, isAdmin, ensureSession, refreshKey } = useAuth();
 
   // Compose state
   const [text, setText] = useState('');
@@ -116,9 +116,7 @@ export default function Posting() {
 
   useEffect(() => {
     fetchPosts();
-  }, [fetchPosts]);
-
-  useVisibilityRefresh(() => { fetchPosts(); });
+  }, [fetchPosts, refreshKey]);
 
   // Fetch team members for admin permissions widget
   useEffect(() => {
@@ -133,7 +131,7 @@ export default function Posting() {
       setLoadingMembers(false);
     }
     loadMembers();
-  }, [isAdmin]);
+  }, [isAdmin, refreshKey]);
 
   function toggleNetwork(key) {
     setSelectedNetworks(prev =>

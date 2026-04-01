@@ -11,6 +11,7 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
   const initDone = useRef(false);
 
   // Nuclear option: wipe all auth state from the browser
@@ -359,6 +360,7 @@ export function AuthProvider({ children }) {
       }
 
       // 4. Signal pages to re-fetch (token is now valid)
+      setRefreshKey(k => k + 1);
       window.dispatchEvent(new CustomEvent('app-tab-restored', { detail: { away } }));
     };
 
@@ -539,6 +541,7 @@ export function AuthProvider({ children }) {
     markChannelSeen,
     refreshNotifications,
     unreadNotificationCount,
+    refreshKey,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

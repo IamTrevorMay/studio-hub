@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
-import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+
 import ScriptEditor from './editors/screenplay-editor/components/editor/ScriptEditor';
 
 class ScreenplayErrorBoundary extends React.Component {
@@ -49,7 +49,7 @@ class ScreenplayErrorBoundary extends React.Component {
 }
 
 export default function Screenwriter({ initialScriptId, onScriptOpened }) {
-  const { user } = useAuth();
+  const { user, refreshKey } = useAuth();
   const [scripts, setScripts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(null);
@@ -86,9 +86,7 @@ export default function Screenwriter({ initialScriptId, onScriptOpened }) {
 
   useEffect(() => {
     fetchScripts();
-  }, [fetchScripts]);
-
-  useVisibilityRefresh(() => { fetchScripts(); });
+  }, [fetchScripts, refreshKey]);
 
   // Create new script
   const handleCreate = async () => {

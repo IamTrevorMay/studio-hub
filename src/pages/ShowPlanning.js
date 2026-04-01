@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
-import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+
 import Whiteboard from './editors/Whiteboard';
 import StickyBoard from './editors/StickyBoard';
 import DocEditor from './editors/DocEditor';
@@ -65,7 +65,7 @@ function dk(d) {
 }
 
 export default function ShowPlanning() {
-  const { profile, isAdmin } = useAuth();
+  const { profile, isAdmin, refreshKey } = useAuth();
   const [year, setYear] = useState(new Date().getFullYear());
   const [shows, setShows] = useState([]);
   const [topics, setTopics] = useState([]);
@@ -96,9 +96,7 @@ export default function ShowPlanning() {
   useEffect(() => {
     if (!profile?.id) return;
     fetchData();
-  }, [profile?.id, year]);
-
-  useVisibilityRefresh(() => { fetchData(); });
+  }, [profile?.id, year, refreshKey]);
 
   async function fetchData() {
     setLoading(true);

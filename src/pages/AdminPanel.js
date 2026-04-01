@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
-import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+
 
 const EVENT_TYPE_LABELS = {
   deadline: 'Deadline',
@@ -15,7 +15,7 @@ const EVENT_TYPE_LABELS = {
 const EVENT_TYPES = Object.keys(EVENT_TYPE_LABELS);
 
 export default function AdminPanel({ initialTab }) {
-  const { profile, isAdmin } = useAuth();
+  const { profile, isAdmin, refreshKey } = useAuth();
   const [invitations, setInvitations] = useState([]);
   const [teamMembers, setTeamMembers] = useState([]);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -44,9 +44,7 @@ export default function AdminPanel({ initialTab }) {
       fetchGcalConnection();
       fetchGcalMappings();
     }
-  }, [isAdmin]);
-
-  useVisibilityRefresh(() => { fetchInvitations(); fetchTeamMembers(); fetchGcalConnection(); fetchGcalMappings(); });
+  }, [isAdmin, refreshKey]);
 
   async function fetchInvitations() {
     const { data } = await supabase

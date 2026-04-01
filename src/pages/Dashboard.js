@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
-import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+
 import MyBoard from '../components/MyBoard';
 import SprintPanel from '../components/SprintPanel';
 
@@ -53,7 +53,7 @@ const CHECKIN_COLORS = { 1: '#ef4444', 2: '#f97316', 3: '#eab308', 4: '#84cc16',
 const CHECKIN_LABELS = { 1: 'Red', 2: 'Orange', 3: 'Yellow', 4: 'Light Green', 5: 'Green' };
 
 export default function Dashboard({ onNavigate }) {
-  const { profile, updateProfile, isAdmin, isAssistant } = useAuth();
+  const { profile, updateProfile, isAdmin, isAssistant, refreshKey } = useAuth();
   const { safeQuery } = useSupabaseQuery();
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -414,26 +414,19 @@ export default function Dashboard({ onNavigate }) {
     fetchSponsorDeliverables();
     fetchStatsCounts();
     return () => clearTimeout(timeout);
-  }, [profile?.id, fetchStageTasks, fetchSponsorDeliverables, fetchStatsCounts]);
-
-  useVisibilityRefresh(() => {
-    fetchAssignments();
-    fetchStageTasks();
-    fetchSponsorDeliverables();
-    fetchStatsCounts();
-  });
+  }, [profile?.id, fetchStageTasks, fetchSponsorDeliverables, fetchStatsCounts, refreshKey]);
 
   useEffect(() => {
     if ((isAdmin || isAssistant) && profile?.id) {
       fetchItinerary();
     }
-  }, [isAdmin, isAssistant, profile?.id, fetchItinerary]);
+  }, [isAdmin, isAssistant, profile?.id, fetchItinerary, refreshKey]);
 
   useEffect(() => {
     if (profile?.id) {
       fetchAnnouncements();
     }
-  }, [profile?.id, fetchAnnouncements]);
+  }, [profile?.id, fetchAnnouncements, refreshKey]);
 
   useEffect(() => {
     if (!profile?.id) return;

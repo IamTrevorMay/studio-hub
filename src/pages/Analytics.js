@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
-import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+
 
 // ═══════════════════════════════════════════════
 // Platform Config
@@ -192,7 +192,7 @@ function formatCurrency(cents) {
 // Main Component
 // ═══════════════════════════════════════════════
 export default function Analytics() {
-  const { profile, isAdmin } = useAuth();
+  const { profile, isAdmin, refreshKey } = useAuth();
 
   // Filters
   const [dateRange, setDateRange] = useState('30d');
@@ -259,16 +259,14 @@ export default function Analytics() {
       if (data) setAccounts(data);
     }
     load();
-  }, []);
+  }, [refreshKey]);
 
   // ── Fetch all data when filters change ──
   const { start, end } = getDateRange(dateRange, customStart, customEnd, filterMonth, filterYear);
 
   useEffect(() => {
     fetchAllData();
-  }, [dateRange, customStart, customEnd, filterMonth, filterYear, activeAccountIds.join(',')]);
-
-  useVisibilityRefresh(() => { fetchAllData(); });
+  }, [dateRange, customStart, customEnd, filterMonth, filterYear, activeAccountIds.join(','), refreshKey]);
 
   // Auto-refresh content performance every 5 minutes
   useEffect(() => {

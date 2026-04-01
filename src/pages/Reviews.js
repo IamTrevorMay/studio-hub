@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
-import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+
 import * as mammoth from 'mammoth';
 import { marked } from 'marked';
 
@@ -137,7 +137,7 @@ function FormattedCommentInput({ value, onChange, onSubmit, placeholder, style, 
 // ─── Review List ─────────────────────────────────────────────────────────────
 
 export default function Reviews() {
-  const { profile, isAdmin } = useAuth();
+  const { profile, isAdmin, refreshKey } = useAuth();
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -168,12 +168,7 @@ export default function Reviews() {
       fetchReviews();
       fetchScriptReviews();
     }
-  }, [profile?.id]);
-
-  useVisibilityRefresh(() => {
-    fetchReviews();
-    fetchScriptReviews();
-  });
+  }, [profile?.id, refreshKey]);
 
   // Realtime subscription for new writer versions on script review cards
   useEffect(() => {

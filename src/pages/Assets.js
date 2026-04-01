@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+
 
 const API_BASE = process.env.REACT_APP_API_URL || 'https://assets.maydaystudio.net';
 
@@ -39,7 +39,7 @@ function getFileIcon(extension) {
 }
 
 export default function Assets() {
-  const { profile } = useAuth();
+  const { profile, refreshKey } = useAuth();
   const [nasStatus, setNasStatus] = useState(null); // null=loading, true=connected, false=offline
   const [currentPath, setCurrentPath] = useState(null);
   const [items, setItems] = useState([]);
@@ -64,9 +64,7 @@ export default function Assets() {
     }
   }, []);
 
-  useEffect(() => { checkHealth(); }, [checkHealth]);
-
-  useVisibilityRefresh(() => { fetchListing(); checkHealth(); });
+  useEffect(() => { checkHealth(); }, [checkHealth, refreshKey]);
 
   // Fetch directory listing
   const fetchListing = useCallback(async (dirPath) => {
@@ -90,7 +88,7 @@ export default function Assets() {
     if (currentPath !== null) {
       fetchListing(currentPath);
     }
-  }, [currentPath, fetchListing]);
+  }, [currentPath, fetchListing, refreshKey]);
 
   // Search
   async function handleSearch(e) {

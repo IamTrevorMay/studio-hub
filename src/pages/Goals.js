@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
-import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+
 
 function formatDate(dateStr) {
   if (!dateStr) return '';
@@ -94,7 +94,7 @@ const EMPTY_INITIATIVE = { title: '', deadline: '', category: 'quarterly' };
 const EMPTY_MONTHLY = { title: '', content_type_filter: 'video', target_value: '', platform_account_ids: [] };
 
 export default function Goals() {
-  const { profile, isAdmin } = useAuth();
+  const { profile, isAdmin, refreshKey } = useAuth();
   const [goals, setGoals] = useState([]);
   const [initiatives, setInitiatives] = useState([]);
   const [accounts, setAccounts] = useState([]);
@@ -135,9 +135,7 @@ export default function Goals() {
 
   useEffect(() => {
     if (profile?.id) fetchAll();
-  }, [profile?.id]);
-
-  useVisibilityRefresh(() => { fetchAll(); });
+  }, [profile?.id, refreshKey]);
 
   async function fetchAll() {
     try {
