@@ -69,12 +69,20 @@ Deno.serve(async (req: Request) => {
     const arr = Array.isArray(body) ? body : body?.data || [];
 
     // Filter for published IG stories
-    // Structure: instagramData.type = "STORY", providers[].network = "instagram", providers[].status = "PUBLISHED"
+    // Metricool returns two possible formats:
+    //   Flat: top-level instagramType, network, status
+    //   Nested: instagramData.type, providers[].network/status
     const stories = arr.filter((p: any) => {
-      const igType = p.instagramData?.type;
-      if (igType !== "STORY") return false;
-      const igProvider = (p.providers || []).find((pr: any) => pr.network === "instagram");
-      return igProvider?.status === "PUBLISHED";
+      // Flat format (current API)
+      if (p.instagramType === "STORY" && p.network === "instagram" && p.status === "PUBLISHED") {
+        return true;
+      }
+      // Nested format (older API response)
+      if (p.instagramData?.type === "STORY") {
+        const igProvider = (p.providers || []).find((pr: any) => pr.network === "instagram");
+        return igProvider?.status === "PUBLISHED";
+      }
+      return false;
     });
 
     // Count stories per day
