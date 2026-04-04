@@ -226,6 +226,100 @@ async function callClaude(prompt: string): Promise<{ title: string; summary: str
   }
 }
 
+// ─── Email Delivery via Resend ───────────────────────────────
+
+function buildEmailHtml(reportName: string, date: string, summary: string, content: string): string {
+  const formattedDate = new Date(date + "T12:00:00").toLocaleDateString("en-US", {
+    weekday: "long", month: "long", day: "numeric", year: "numeric",
+  });
+
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#0f0f1a;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:640px;margin:0 auto;padding:32px 24px;">
+    <div style="background:#1a1a2e;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden;">
+      <div style="background:linear-gradient(135deg,#6366f1,#4f46e5);padding:24px 28px;">
+        <h1 style="margin:0;font-size:20px;font-weight:700;color:#ffffff;">${reportName}</h1>
+        <p style="margin:6px 0 0;font-size:13px;color:rgba(255,255,255,0.7);">${formattedDate}</p>
+      </div>
+      ${summary ? `<div style="padding:20px 28px 0;font-size:14px;color:rgba(255,255,255,0.6);line-height:1.5;font-style:italic;">${summary}</div>` : ""}
+      <div style="padding:24px 28px;font-size:14px;color:rgba(255,255,255,0.75);line-height:1.7;">
+        ${content}
+      </div>
+    </div>
+    <div style="text-align:center;padding:20px 0;font-size:11px;color:rgba(255,255,255,0.2);">
+      Powered by Mayday Studio
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+async function sendReportEmail(
+  adminClient: ReturnType<typeof createClient>,
+  config: any,
+  report: { title: string; summary: string; content: string },
+  date: string,
+): Promise<{ sent: number; failed: number }> {
+  const resendKey = Deno.env.get("RESEND_API_KEY");
+  const fromEmail = Deno.env.get("RESEND_FROM_EMAIL");
+  if (!resendKey || !fromEmail) {
+    console.warn("RESEND_API_KEY or RESEND_FROM_EMAIL not configured, skipping email delivery");
+    return { sent: 0, failed: 0 };
+  }
+
+  // Load recipients: profiles with email_reports_enabled = true
+  const { data: recipients } = await adminClient
+    .from("profiles")
+    .select("id, email")
+    .eq("email_reports_enabled", true);
+
+  if (!recipients || recipients.length === 0) {
+    return { sent: 0, failed: 0 };
+  }
+
+  const reportName = config.name || report.title || "Report";
+  const formattedDate = new Date(date + "T12:00:00").toLocaleDateString("en-US", {
+    month: "short", day: "numeric", year: "numeric",
+  });
+  const subject = `${reportName} — ${formattedDate}`;
+  const html = buildEmailHtml(reportName, date, report.summary, report.content);
+
+  let sent = 0;
+  let failed = 0;
+
+  for (const recipient of recipients) {
+    if (!recipient.email) continue;
+    try {
+      const resp = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${resendKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: fromEmail,
+          to: [recipient.email],
+          subject,
+          html,
+        }),
+      });
+      if (resp.ok) {
+        sent++;
+      } else {
+        console.error(`Resend error for ${recipient.email}: ${resp.status}`);
+        failed++;
+      }
+    } catch (err) {
+      console.error(`Email send error for ${recipient.email}:`, err);
+      failed++;
+    }
+  }
+
+  return { sent, failed };
+}
+
 // ─── Run a single report config ─────────────────────────────
 
 async function runConfig(
@@ -291,7 +385,13 @@ async function runConfig(
       })
       .eq("id", runId);
 
-    return { success: true };
+    // Send email if delivery.email is enabled
+    let emailResult = { sent: 0, failed: 0 };
+    if (config.delivery?.email) {
+      emailResult = await sendReportEmail(adminClient, config, report, today);
+    }
+
+    return { success: true, emailsSent: emailResult.sent, emailsFailed: emailResult.failed };
   } catch (err: any) {
     // Mark as failed
     await adminClient
