@@ -1,10 +1,75 @@
 import React from 'react';
+import { DATA_SOURCE_TYPES, DEFAULT_SOURCE_CONFIGS } from './reportBuilderConstants';
 
-export default function DataSourceConfig({ sourceType, config, feeds, onChange }) {
-  if (sourceType === 'rss') return <RssConfig config={config} feeds={feeds} onChange={onChange} />;
-  if (sourceType === 'triton_api') return <TritonApiConfig config={config} onChange={onChange} />;
-  if (sourceType === 'supabase_query') return <CustomQueryConfig config={config} onChange={onChange} />;
-  return null;
+// Multi-source mode: dataSources is an array of { type, config }
+// Toggle sources on/off, render config panel for each enabled source
+
+export default function DataSourceConfig({ dataSources, feeds, onChange }) {
+  const enabledTypes = new Set((dataSources || []).map(s => s.type));
+
+  const toggleSource = (type) => {
+    if (enabledTypes.has(type)) {
+      onChange((dataSources || []).filter(s => s.type !== type));
+    } else {
+      onChange([...(dataSources || []), { type, config: { ...DEFAULT_SOURCE_CONFIGS[type] } }]);
+    }
+  };
+
+  const updateSourceConfig = (type, newConfig) => {
+    onChange((dataSources || []).map(s => s.type === type ? { ...s, config: newConfig } : s));
+  };
+
+  return (
+    <div>
+      {/* Source type toggles */}
+      <div style={styles.sourceToggles}>
+        {DATA_SOURCE_TYPES.map(src => (
+          <button
+            key={src.key}
+            onClick={() => toggleSource(src.key)}
+            style={{
+              ...styles.sourceToggle,
+              ...(enabledTypes.has(src.key) ? styles.sourceToggleActive : {}),
+            }}
+          >
+            <div style={styles.toggleCheck}>
+              {enabledTypes.has(src.key) && (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              )}
+            </div>
+            <div>
+              <div style={styles.sourceToggleLabel}>{src.label}</div>
+              <div style={styles.sourceToggleDesc}>{src.description}</div>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {/* Config panels for enabled sources */}
+      {(dataSources || []).map(source => (
+        <div key={source.type} style={styles.sourcePanel}>
+          <div style={styles.sourcePanelHeader}>
+            {DATA_SOURCE_TYPES.find(t => t.key === source.type)?.label || source.type}
+          </div>
+          {source.type === 'rss' && (
+            <RssConfig config={source.config} feeds={feeds} onChange={c => updateSourceConfig('rss', c)} />
+          )}
+          {source.type === 'triton_api' && (
+            <TritonApiConfig config={source.config} onChange={c => updateSourceConfig('triton_api', c)} />
+          )}
+          {source.type === 'supabase_query' && (
+            <CustomQueryConfig config={source.config} onChange={c => updateSourceConfig('supabase_query', c)} />
+          )}
+        </div>
+      ))}
+
+      {(dataSources || []).length === 0 && (
+        <div style={styles.noSources}>Select at least one data source above</div>
+      )}
+    </div>
+  );
 }
 
 // ─── RSS Feeds ─────────────────────────────────────────────────
@@ -169,6 +234,72 @@ function CustomQueryConfig({ config, onChange }) {
 // ─── Styles ────────────────────────────────────────────────────
 
 const styles = {
+  sourceToggles: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+    marginBottom: '16px',
+  },
+  sourceToggle: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '10px',
+    background: 'rgba(255,255,255,0.02)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '8px',
+    padding: '10px 14px',
+    cursor: 'pointer',
+    textAlign: 'left',
+    fontFamily: 'inherit',
+    transition: 'border-color 0.12s, background 0.12s',
+  },
+  sourceToggleActive: {
+    background: 'rgba(99,102,241,0.06)',
+    borderColor: 'rgba(99,102,241,0.35)',
+  },
+  toggleCheck: {
+    width: '18px',
+    height: '18px',
+    borderRadius: '4px',
+    border: '1px solid rgba(255,255,255,0.15)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    marginTop: '1px',
+    color: '#a5b4fc',
+  },
+  sourceToggleLabel: {
+    fontSize: '13px',
+    fontWeight: 600,
+    color: '#e2e8f0',
+  },
+  sourceToggleDesc: {
+    fontSize: '11px',
+    color: 'rgba(255,255,255,0.35)',
+    marginTop: '1px',
+  },
+  sourcePanel: {
+    background: 'rgba(255,255,255,0.01)',
+    border: '1px solid rgba(255,255,255,0.04)',
+    borderRadius: '8px',
+    padding: '14px',
+    marginBottom: '10px',
+  },
+  sourcePanelHeader: {
+    fontSize: '12px',
+    fontWeight: 700,
+    color: 'rgba(255,255,255,0.5)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+    marginBottom: '10px',
+  },
+  noSources: {
+    fontSize: '12px',
+    color: 'rgba(255,255,255,0.25)',
+    textAlign: 'center',
+    padding: '16px 0',
+  },
   fieldLabel: {
     display: 'block',
     fontSize: '12px',
@@ -228,12 +359,8 @@ const styles = {
     fontSize: '13px',
     color: 'rgba(255,255,255,0.7)',
   },
-  checkbox: {
-    accentColor: '#6366f1',
-  },
-  feedName: {
-    flex: 1,
-  },
+  checkbox: { accentColor: '#6366f1' },
+  feedName: { flex: 1 },
   disabledBadge: {
     fontSize: '10px',
     color: 'rgba(255,255,255,0.25)',

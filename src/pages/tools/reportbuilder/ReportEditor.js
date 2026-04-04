@@ -1,12 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import DataSourceConfig from './DataSourceConfig';
 import {
-  DATA_SOURCE_TYPES,
-  OUTPUT_FORMATS,
   SCHEDULE_PRESETS,
-  PROMPT_VARIABLES,
   DEFAULT_REPORT_CONFIG,
-  DEFAULT_SOURCE_CONFIGS,
   slugify,
 } from './reportBuilderConstants';
 
@@ -40,11 +36,8 @@ export default function ReportEditor({ config, feeds, saving, onSave, onCancel, 
     setErrors(e => ({ ...e, ...cleared }));
   }, []);
 
-  const handleSourceTypeChange = useCallback((type) => {
-    updateDraft({
-      data_source_type: type,
-      data_source_config: DEFAULT_SOURCE_CONFIGS[type] || {},
-    });
+  const handleDataSourcesChange = useCallback((dataSources) => {
+    updateDraft({ data_sources: dataSources });
   }, [updateDraft]);
 
   const handleSchedulePreset = useCallback((preset) => {
@@ -54,10 +47,6 @@ export default function ReportEditor({ config, feeds, saving, onSave, onCancel, 
       updateDraft({ schedule: preset.value });
     }
   }, [updateDraft, customCron]);
-
-  const insertVariable = useCallback((varKey) => {
-    updateDraft({ prompt_template: draft.prompt_template + ' ' + varKey });
-  }, [draft.prompt_template, updateDraft]);
 
   const validate = useCallback(() => {
     const errs = {};
@@ -116,47 +105,20 @@ export default function ReportEditor({ config, feeds, saving, onSave, onCancel, 
           <div style={styles.hint}>Used in URLs for public subscriber page</div>
         </div>
 
-        {/* ── Data Source ───────────────────── */}
+        {/* ── Data Sources ──────────────────── */}
         <div style={styles.section}>
-          <div style={styles.sectionTitle}>Data Source</div>
-          <div style={styles.sourceCards}>
-            {DATA_SOURCE_TYPES.map(src => (
-              <button
-                key={src.key}
-                onClick={() => handleSourceTypeChange(src.key)}
-                style={{
-                  ...styles.sourceCard,
-                  ...(draft.data_source_type === src.key ? styles.sourceCardActive : {}),
-                }}
-              >
-                <div style={styles.sourceCardLabel}>{src.label}</div>
-                <div style={styles.sourceCardDesc}>{src.description}</div>
-              </button>
-            ))}
-          </div>
+          <div style={styles.sectionTitle}>Data Sources</div>
           <DataSourceConfig
-            sourceType={draft.data_source_type}
-            config={draft.data_source_config}
+            dataSources={draft.data_sources}
             feeds={feeds}
-            onChange={dsc => updateDraft({ data_source_config: dsc })}
+            onChange={handleDataSourcesChange}
           />
         </div>
 
         {/* ── Prompt Template ───────────────── */}
         <div style={styles.section}>
-          <div style={styles.sectionTitle}>Prompt Template</div>
-          <div style={styles.variableRow}>
-            {PROMPT_VARIABLES.map(v => (
-              <button
-                key={v.key}
-                onClick={() => insertVariable(v.key)}
-                style={styles.variableChip}
-                title={v.description}
-              >
-                {v.key}
-              </button>
-            ))}
-          </div>
+          <div style={styles.sectionTitle}>Prompt Instructions</div>
+          <div style={styles.hint}>Describe what the report should contain. Use {{articles}}, {{triton_data}}, {{query_results}}, {{date}} as placeholders.</div>
           <textarea
             style={{ ...styles.promptArea, ...(errors.prompt_template ? styles.inputError : {}) }}
             value={draft.prompt_template}
@@ -167,22 +129,9 @@ export default function ReportEditor({ config, feeds, saving, onSave, onCancel, 
           {errors.prompt_template && <div style={styles.errorText}>{errors.prompt_template}</div>}
         </div>
 
-        {/* ── Output & Delivery ─────────────── */}
+        {/* ── Delivery ──────────────────────── */}
         <div style={styles.section}>
-          <div style={styles.sectionTitle}>Output & Delivery</div>
-          <label style={styles.fieldLabel}>Output format</label>
-          <div style={styles.row}>
-            {OUTPUT_FORMATS.map(f => (
-              <button
-                key={f.key}
-                onClick={() => updateDraft({ output_format: f.key })}
-                style={{
-                  ...styles.formatBtn,
-                  ...(draft.output_format === f.key ? styles.formatBtnActive : {}),
-                }}
-              >{f.label}</button>
-            ))}
-          </div>
+          <div style={styles.sectionTitle}>Delivery</div>
           <label style={styles.fieldLabel}>Deliver to</label>
           <div style={styles.row}>
             <label style={styles.toggleRow}>

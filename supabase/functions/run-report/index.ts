@@ -1,10 +1,18 @@
 // supabase/functions/run-report/index.ts
 // Deploy with: supabase functions deploy run-report --no-verify-jwt
 // Generic report runner: reads a report_config, fetches data, calls Claude, stores result.
-// Invoked by cron (body={}) to run all enabled configs, or manually (body={config_id}) for one.
+// Supports multi-source configs (data_sources array) with legacy single-source fallback.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  fetchAllSources,
+  fetchRssSource,
+  fetchTritonSource,
+  fetchSupabaseSource,
+  resolvePrompt,
+  type SourceResult,
+} from "../shared/report-sources.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,158 +25,6 @@ function jsonResp(data: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
-}
-
-function stripHtml(html: string): string {
-  return html.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
-}
-
-function resolvePrompt(template: string, vars: Record<string, string>): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? "");
-}
-
-// ─── Source Handlers ─────────────────────────────────────────
-
-interface SourceResult {
-  variables: Record<string, string>;
-  sourceCount: number;
-}
-
-async function fetchRssSource(
-  adminClient: ReturnType<typeof createClient>,
-  config: { feed_ids?: string[]; time_window_hours?: number },
-): Promise<SourceResult> {
-  const hours = config.time_window_hours || 48;
-  const cutoff = new Date();
-  cutoff.setHours(cutoff.getHours() - hours);
-
-  let query = adminClient
-    .from("research_articles")
-    .select("id, title, description, content, author, pub_date, feed:research_feeds(id, name, source_type)")
-    .gte("pub_date", cutoff.toISOString())
-    .order("pub_date", { ascending: false })
-    .limit(500);
-
-  // Filter by specific feeds if configured
-  if (config.feed_ids && config.feed_ids.length > 0) {
-    query = query.in("feed_id", config.feed_ids);
-  }
-
-  const { data: articles } = await query;
-  if (!articles || articles.length === 0) {
-    return { variables: { articles: "(No recent articles found)", feed_names: "", source_count: "0" }, sourceCount: 0 };
-  }
-
-  // Format articles list (same pattern as generate-trends)
-  const lines: string[] = [];
-  const feedNames = new Set<string>();
-  for (const a of articles) {
-    const feedName = (a as any).feed?.name || "Unknown";
-    feedNames.add(feedName);
-    const desc = stripHtml(a.description || a.content || "").slice(0, 400);
-    lines.push(`- **${a.title || "Untitled"}** [${feedName}] ${desc}`);
-  }
-
-  return {
-    variables: {
-      articles: lines.join("\n"),
-      feed_names: [...feedNames].join(", "),
-      source_count: String(articles.length),
-    },
-    sourceCount: articles.length,
-  };
-}
-
-async function fetchTritonSource(
-  config: { endpoint?: string; method?: string; params?: string; headers?: string },
-): Promise<SourceResult> {
-  if (!config.endpoint) {
-    return { variables: { triton_data: "(No endpoint configured)" }, sourceCount: 0 };
-  }
-
-  const method = config.method || "GET";
-  const fetchOpts: RequestInit = {
-    method,
-    headers: { "Content-Type": "application/json" },
-  };
-
-  // Parse custom headers
-  if (config.headers) {
-    try {
-      const customHeaders = JSON.parse(config.headers);
-      Object.assign(fetchOpts.headers!, customHeaders);
-    } catch {}
-  }
-
-  // Add body for POST
-  if (method === "POST" && config.params) {
-    fetchOpts.body = config.params;
-  }
-
-  // Add query params for GET
-  let url = config.endpoint;
-  if (method === "GET" && config.params) {
-    try {
-      const params = JSON.parse(config.params);
-      const qs = new URLSearchParams(params).toString();
-      url += (url.includes("?") ? "&" : "?") + qs;
-    } catch {}
-  }
-
-  const resp = await fetch(url, fetchOpts);
-  const body = await resp.text();
-
-  return {
-    variables: { triton_data: body },
-    sourceCount: 1,
-  };
-}
-
-async function fetchSupabaseSource(
-  adminClient: ReturnType<typeof createClient>,
-  config: { table?: string; select?: string; filters?: string; limit?: number; order_by?: string },
-): Promise<SourceResult> {
-  if (!config.table) {
-    return { variables: { query_results: "(No table configured)" }, sourceCount: 0 };
-  }
-
-  let query = adminClient.from(config.table).select(config.select || "*");
-
-  // Apply filters
-  if (config.filters) {
-    try {
-      const filters = JSON.parse(config.filters);
-      for (const f of Array.isArray(filters) ? filters : []) {
-        const { column, op, value } = f;
-        if (column && op) {
-          (query as any) = query.filter(column, op, value);
-        }
-      }
-    } catch {}
-  }
-
-  // Apply order
-  if (config.order_by) {
-    const parts = config.order_by.trim().split(/\s+/);
-    const col = parts[0];
-    const asc = (parts[1] || "asc").toLowerCase() !== "desc";
-    query = query.order(col, { ascending: asc });
-  }
-
-  query = query.limit(config.limit || 100);
-
-  const { data, error } = await query;
-  if (error) {
-    return { variables: { query_results: `(Query error: ${error.message})` }, sourceCount: 0 };
-  }
-
-  return {
-    variables: {
-      query_results: JSON.stringify(data, null, 2),
-      source_count: String((data || []).length),
-    },
-    sourceCount: (data || []).length,
-  };
 }
 
 // ─── Claude API Call ─────────────────────────────────────────
@@ -194,7 +50,7 @@ async function callClaude(prompt: string): Promise<{ title: string; summary: str
         max_tokens: 4096,
         messages: [{
           role: "user",
-          content: prompt + "\n\nIMPORTANT: Return your response as valid JSON with these fields: { \"title\": \"...\", \"summary\": \"1-2 sentence summary\", \"content\": \"full report content\" }. You may include additional fields. Only return valid JSON, no markdown code fences or extra text.",
+          content: prompt + "\n\nIMPORTANT: Return your response as valid JSON with these fields: { \"title\": \"...\", \"summary\": \"1-2 sentence summary\", \"content\": \"full report content as HTML\" }. You may include additional fields. Only return valid JSON, no markdown code fences or extra text.",
         }],
       }),
     });
@@ -269,13 +125,13 @@ async function sendReportEmail(
     return { sent: 0, failed: 0 };
   }
 
-  // Load internal recipients: profiles with email_reports_enabled = true
+  // Load internal recipients
   const { data: internalRecipients } = await adminClient
     .from("profiles")
     .select("id, email")
     .eq("email_reports_enabled", true);
 
-  // Load external subscribers: confirmed, not unsubscribed, matching this report or global
+  // Load external subscribers
   const { data: externalSubscribers } = await adminClient
     .from("newsletter_subscribers")
     .select("id, email, name")
@@ -294,9 +150,7 @@ async function sendReportEmail(
     recipients.push({ email: r.email });
   }
 
-  if (recipients.length === 0) {
-    return { sent: 0, failed: 0 };
-  }
+  if (recipients.length === 0) return { sent: 0, failed: 0 };
 
   const reportName = config.name || report.title || "Report";
   const formattedDate = new Date(date + "T12:00:00").toLocaleDateString("en-US", {
@@ -309,7 +163,6 @@ async function sendReportEmail(
   let failed = 0;
 
   for (const recipient of recipients) {
-    if (!recipient.email) continue;
     try {
       const resp = await fetch("https://api.resend.com/emails", {
         method: "POST",
@@ -317,19 +170,10 @@ async function sendReportEmail(
           "Authorization": `Bearer ${resendKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          from: fromEmail,
-          to: [recipient.email],
-          subject,
-          html,
-        }),
+        body: JSON.stringify({ from: fromEmail, to: [recipient.email], subject, html }),
       });
-      if (resp.ok) {
-        sent++;
-      } else {
-        console.error(`Resend error for ${recipient.email}: ${resp.status}`);
-        failed++;
-      }
+      if (resp.ok) sent++;
+      else { console.error(`Resend error for ${recipient.email}: ${resp.status}`); failed++; }
     } catch (err) {
       console.error(`Email send error for ${recipient.email}:`, err);
       failed++;
@@ -339,15 +183,38 @@ async function sendReportEmail(
   return { sent, failed };
 }
 
+// ─── Fetch sources (multi-source with legacy fallback) ───────
+
+async function getSourceData(
+  adminClient: ReturnType<typeof createClient>,
+  config: any,
+): Promise<SourceResult> {
+  // Multi-source (new format)
+  if (config.data_sources && Array.isArray(config.data_sources) && config.data_sources.length > 0) {
+    return fetchAllSources(adminClient, config.data_sources);
+  }
+
+  // Legacy single-source fallback
+  switch (config.data_source_type) {
+    case "rss":
+      return fetchRssSource(adminClient, config.data_source_config || {});
+    case "triton_api":
+      return fetchTritonSource(config.data_source_config || {});
+    case "supabase_query":
+      return fetchSupabaseSource(adminClient, config.data_source_config || {});
+    default:
+      throw new Error(`Unknown source type: ${config.data_source_type}`);
+  }
+}
+
 // ─── Run a single report config ─────────────────────────────
 
 async function runConfig(
   adminClient: ReturnType<typeof createClient>,
   config: any,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; emailsSent?: number; emailsFailed?: number }> {
   const today = new Date().toISOString().slice(0, 10);
 
-  // Upsert a running status
   const { data: runRow, error: runErr } = await adminClient
     .from("report_runs")
     .upsert(
@@ -357,41 +224,20 @@ async function runConfig(
     .select("id")
     .single();
 
-  if (runErr) {
-    return { success: false, error: `Failed to create run: ${runErr.message}` };
-  }
+  if (runErr) return { success: false, error: `Failed to create run: ${runErr.message}` };
   const runId = runRow.id;
 
   try {
-    // Fetch data based on source type
-    let result: SourceResult;
-    switch (config.data_source_type) {
-      case "rss":
-        result = await fetchRssSource(adminClient, config.data_source_config || {});
-        break;
-      case "triton_api":
-        result = await fetchTritonSource(config.data_source_config || {});
-        break;
-      case "supabase_query":
-        result = await fetchSupabaseSource(adminClient, config.data_source_config || {});
-        break;
-      default:
-        throw new Error(`Unknown source type: ${config.data_source_type}`);
-    }
-
-    // Add date variable
+    const result = await getSourceData(adminClient, config);
     result.variables.date = today;
 
-    // Resolve prompt template
     const prompt = resolvePrompt(config.prompt_template, result.variables);
     if (!prompt || prompt.length < 10) {
       throw new Error("Prompt template is empty or too short after variable substitution");
     }
 
-    // Call Claude
     const report = await callClaude(prompt);
 
-    // Update run with results
     await adminClient
       .from("report_runs")
       .update({
@@ -404,7 +250,6 @@ async function runConfig(
       })
       .eq("id", runId);
 
-    // Send email if delivery.email is enabled
     let emailResult = { sent: 0, failed: 0 };
     if (config.delivery?.email) {
       emailResult = await sendReportEmail(adminClient, config, report, today);
@@ -412,12 +257,10 @@ async function runConfig(
 
     return { success: true, emailsSent: emailResult.sent, emailsFailed: emailResult.failed };
   } catch (err: any) {
-    // Mark as failed
     await adminClient
       .from("report_runs")
       .update({ status: "failed", error_message: err.message || String(err) })
       .eq("id", runId);
-
     return { success: false, error: err.message || String(err) };
   }
 }
@@ -429,14 +272,12 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // Auth: cron secret or user bearer token
   const url = new URL(req.url);
   const cronSecret = url.searchParams.get("secret") || req.headers.get("x-cron-secret");
   const expectedSecret = Deno.env.get("CRON_SECRET");
   const authHeader = req.headers.get("Authorization");
 
   let authenticated = false;
-
   if (expectedSecret && cronSecret === expectedSecret) {
     authenticated = true;
   } else if (authHeader) {
@@ -451,53 +292,38 @@ Deno.serve(async (req: Request) => {
     } catch {}
   }
 
-  if (!authenticated) {
-    return jsonResp({ error: "Unauthorized" }, 401);
-  }
+  if (!authenticated) return jsonResp({ error: "Unauthorized" }, 401);
 
   const adminClient = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
-  // Parse body
   let body: any = {};
-  try {
-    body = await req.json();
-  } catch {}
+  try { body = await req.json(); } catch {}
 
-  // Single config run (manual trigger)
+  // Single config run
   if (body.config_id) {
     const { data: config, error } = await adminClient
       .from("report_configs")
       .select("*")
       .eq("id", body.config_id)
       .single();
-
-    if (error || !config) {
-      return jsonResp({ error: "Config not found" }, 404);
-    }
-
+    if (error || !config) return jsonResp({ error: "Config not found" }, 404);
     const result = await runConfig(adminClient, config);
     return jsonResp(result, result.success ? 200 : 500);
   }
 
-  // Cron run: execute all enabled configs
+  // Cron: run all enabled configs
   const { data: configs, error: configsErr } = await adminClient
     .from("report_configs")
     .select("*")
     .eq("enabled", true);
 
-  if (configsErr || !configs) {
-    return jsonResp({ error: "Failed to load configs" }, 500);
-  }
-
-  if (configs.length === 0) {
-    return jsonResp({ message: "No enabled report configs", ran: 0 });
-  }
+  if (configsErr || !configs) return jsonResp({ error: "Failed to load configs" }, 500);
+  if (configs.length === 0) return jsonResp({ message: "No enabled report configs", ran: 0 });
 
   const results: { configId: string; name: string; success: boolean; error?: string }[] = [];
-
   for (const config of configs) {
     const result = await runConfig(adminClient, config);
     results.push({ configId: config.id, name: config.name, ...result });
@@ -505,6 +331,5 @@ Deno.serve(async (req: Request) => {
 
   const succeeded = results.filter(r => r.success).length;
   const failed = results.filter(r => !r.success).length;
-
   return jsonResp({ ran: results.length, succeeded, failed, results });
 });

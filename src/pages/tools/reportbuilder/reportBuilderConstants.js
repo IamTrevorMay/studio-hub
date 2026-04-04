@@ -6,12 +6,6 @@ export const DATA_SOURCE_TYPES = [
   { key: 'supabase_query', label: 'Custom Query', description: 'Query a Supabase table directly' },
 ];
 
-export const OUTPUT_FORMATS = [
-  { key: 'markdown', label: 'Markdown' },
-  { key: 'html', label: 'HTML' },
-  { key: 'json', label: 'JSON' },
-];
-
 export const SCHEDULE_PRESETS = [
   { label: 'Daily at 8 AM PT', value: '0 15 * * *' },
   { label: 'Weekly Monday 8 AM PT', value: '0 15 * * 1' },
@@ -20,26 +14,20 @@ export const SCHEDULE_PRESETS = [
   { label: 'Custom', value: '__custom__' },
 ];
 
-export const PROMPT_VARIABLES = [
-  { key: '{{articles}}', description: 'Formatted list of fetched articles (title, source, description)' },
-  { key: '{{feed_names}}', description: 'Comma-separated list of feed names' },
-  { key: '{{date}}', description: 'Today\'s date (YYYY-MM-DD)' },
-  { key: '{{source_count}}', description: 'Number of sources/articles fetched' },
-  { key: '{{triton_data}}', description: 'JSON response from Triton API call' },
-  { key: '{{query_results}}', description: 'Results from custom Supabase query' },
-];
-
 export const DEFAULT_REPORT_CONFIG = {
   name: '',
   description: '',
   slug: '',
-  data_source_type: 'rss',
-  data_source_config: { feed_ids: [], time_window_hours: 48 },
+  data_sources: [],
   prompt_template: '',
-  output_format: 'markdown',
+  output_format: 'html',
   schedule: '0 15 * * *',
   delivery: { inbox: true, email: false },
   enabled: false,
+  subscribe_headline: '',
+  subscribe_description: '',
+  subscribe_accent_color: '',
+  subscribe_logo_url: '',
 };
 
 export const DEFAULT_SOURCE_CONFIGS = {
