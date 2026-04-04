@@ -1,17 +1,25 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import DataSourceConfig from './DataSourceConfig';
+import PromptChat from './PromptChat';
+import ReportPreview from './ReportPreview';
 import {
   SCHEDULE_PRESETS,
   DEFAULT_REPORT_CONFIG,
   slugify,
 } from './reportBuilderConstants';
 
-export default function ReportEditor({ config, feeds, saving, onSave, onCancel, onRunNow, running }) {
+export default function ReportEditor({ config, feeds, saving, onSave, onCancel, onRunNow, running, onPreview }) {
   const isNew = !config?.id;
   const [draft, setDraft] = useState(() => ({ ...DEFAULT_REPORT_CONFIG, ...config }));
   const [errors, setErrors] = useState({});
   const [slugEdited, setSlugEdited] = useState(false);
   const [customCron, setCustomCron] = useState('');
+
+  // Chat state
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [previewHtml, setPreviewHtml] = useState('');
+  const [compiledPrompt, setCompiledPrompt] = useState(config?.prompt_template || '');
 
   // Auto-generate slug from name
   useEffect(() => {
@@ -30,15 +38,10 @@ export default function ReportEditor({ config, feeds, saving, onSave, onCancel, 
 
   const updateDraft = useCallback((updates) => {
     setDraft(d => ({ ...d, ...updates }));
-    // Clear errors for updated fields
     const cleared = {};
     for (const key of Object.keys(updates)) cleared[key] = undefined;
     setErrors(e => ({ ...e, ...cleared }));
   }, []);
-
-  const handleDataSourcesChange = useCallback((dataSources) => {
-    updateDraft({ data_sources: dataSources });
-  }, [updateDraft]);
 
   const handleSchedulePreset = useCallback((preset) => {
     if (preset.value === '__custom__') {
@@ -48,19 +51,58 @@ export default function ReportEditor({ config, feeds, saving, onSave, onCancel, 
     }
   }, [updateDraft, customCron]);
 
+  // Chat: send instruction to preview-report
+  const handleChatSend = useCallback(async (instruction) => {
+    const userMsg = { role: 'user', content: instruction };
+    setChatMessages(prev => [...prev, userMsg]);
+    setChatLoading(true);
+
+    try {
+      // Build conversation history for Claude (only text, no html)
+      const history = chatMessages
+        .filter(m => m.role === 'user' || (m.role === 'assistant' && !m.error))
+        .map(m => ({ role: m.role, content: m.content }));
+
+      const result = await onPreview({
+        data_sources: draft.data_sources || [],
+        instruction,
+        conversation_history: history,
+      });
+
+      if (result.error) {
+        setChatMessages(prev => [...prev, { role: 'assistant', content: '', error: result.error }]);
+      } else {
+        setPreviewHtml(result.html || '');
+        setCompiledPrompt(result.compiled_prompt || '');
+        setChatMessages(prev => [...prev, { role: 'assistant', content: result.html ? 'Preview updated.' : 'No content generated.' }]);
+      }
+    } catch (err) {
+      setChatMessages(prev => [...prev, { role: 'assistant', content: '', error: err.message || 'Something went wrong' }]);
+    } finally {
+      setChatLoading(false);
+    }
+  }, [chatMessages, draft.data_sources, onPreview]);
+
+  // "Use this version" — save compiled prompt to draft
+  const handleUseThis = useCallback(() => {
+    if (compiledPrompt) {
+      updateDraft({ prompt_template: compiledPrompt });
+    }
+  }, [compiledPrompt, updateDraft]);
+
   const validate = useCallback(() => {
     const errs = {};
     if (!draft.name.trim()) errs.name = 'Name is required';
     if (!draft.slug.trim()) errs.slug = 'Slug is required';
     else if (!/^[a-z0-9-]+$/.test(draft.slug)) errs.slug = 'Slug must be lowercase letters, numbers, and hyphens';
-    if (draft.prompt_template.length < 10) errs.prompt_template = 'Prompt must be at least 10 characters';
+    if (!draft.prompt_template || draft.prompt_template.length < 10) errs.prompt_template = 'Generate a preview first to set the prompt template';
     setErrors(errs);
     return Object.keys(errs).length === 0;
   }, [draft]);
 
   const handleSave = useCallback(() => {
     if (!validate()) return;
-    onSave({ ...draft, updated_at: new Date().toISOString() });
+    onSave({ ...draft, output_format: 'html', updated_at: new Date().toISOString() });
   }, [draft, validate, onSave]);
 
   const activeSchedulePreset = SCHEDULE_PRESETS.find(p => p.value === draft.schedule);
@@ -68,142 +110,159 @@ export default function ReportEditor({ config, feeds, saving, onSave, onCancel, 
 
   return (
     <div style={styles.editor}>
-      <div style={styles.editorHeader}>
-        <h2 style={styles.editorTitle}>{isNew ? 'New Report' : 'Edit Report'}</h2>
-      </div>
-
-      <div style={styles.scrollArea}>
-        {/* ── Identity ──────────────────────── */}
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>Identity</div>
-          <label style={styles.fieldLabel}>Name</label>
-          <input
-            style={{ ...styles.input, ...(errors.name ? styles.inputError : {}) }}
-            value={draft.name}
-            onChange={e => updateDraft({ name: e.target.value })}
-            placeholder="Daily Pitching Report"
-          />
-          {errors.name && <div style={styles.errorText}>{errors.name}</div>}
-
-          <label style={styles.fieldLabel}>Description</label>
-          <textarea
-            style={styles.textarea}
-            value={draft.description || ''}
-            onChange={e => updateDraft({ description: e.target.value })}
-            placeholder="What this report covers and who it's for..."
-            rows={2}
-          />
-
-          <label style={styles.fieldLabel}>Slug</label>
-          <input
-            style={{ ...styles.input, ...(errors.slug ? styles.inputError : {}) }}
-            value={draft.slug}
-            onChange={e => { setSlugEdited(true); updateDraft({ slug: e.target.value }); }}
-            placeholder="daily-pitching-report"
-          />
-          {errors.slug && <div style={styles.errorText}>{errors.slug}</div>}
-          <div style={styles.hint}>Used in URLs for public subscriber page</div>
-        </div>
-
-        {/* ── Data Sources ──────────────────── */}
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>Data Sources</div>
-          <DataSourceConfig
-            dataSources={draft.data_sources}
-            feeds={feeds}
-            onChange={handleDataSourcesChange}
-          />
-        </div>
-
-        {/* ── Prompt Template ───────────────── */}
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>Prompt Instructions</div>
-          <div style={styles.hint}>Describe what the report should contain. Use {{articles}}, {{triton_data}}, {{query_results}}, {{date}} as placeholders.</div>
-          <textarea
-            style={{ ...styles.promptArea, ...(errors.prompt_template ? styles.inputError : {}) }}
-            value={draft.prompt_template}
-            onChange={e => updateDraft({ prompt_template: e.target.value })}
-            placeholder="You are an analyst. Given the following articles:\n\n{{articles}}\n\nGenerate a report that..."
-            rows={10}
-          />
-          {errors.prompt_template && <div style={styles.errorText}>{errors.prompt_template}</div>}
-        </div>
-
-        {/* ── Delivery ──────────────────────── */}
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>Delivery</div>
-          <label style={styles.fieldLabel}>Deliver to</label>
-          <div style={styles.row}>
-            <label style={styles.toggleRow}>
+      {/* Two-column layout */}
+      <div style={styles.columns}>
+        {/* Left: config + chat */}
+        <div style={styles.leftCol}>
+          <div style={styles.scrollArea}>
+            {/* ── Identity ──────────────────────── */}
+            <div style={styles.section}>
+              <div style={styles.sectionTitle}>Identity</div>
+              <label style={styles.fieldLabel}>Name</label>
               <input
-                type="checkbox"
-                checked={draft.delivery?.inbox !== false}
-                onChange={e => updateDraft({ delivery: { ...draft.delivery, inbox: e.target.checked } })}
-                style={styles.checkbox}
+                style={{ ...styles.input, ...(errors.name ? styles.inputError : {}) }}
+                value={draft.name}
+                onChange={e => updateDraft({ name: e.target.value })}
+                placeholder="Daily Pitching Report"
               />
-              <span>Research Inbox</span>
-            </label>
-            <label style={styles.toggleRow}>
-              <input
-                type="checkbox"
-                checked={draft.delivery?.email === true}
-                onChange={e => updateDraft({ delivery: { ...draft.delivery, email: e.target.checked } })}
-                style={styles.checkbox}
-              />
-              <span>Email</span>
-            </label>
-          </div>
-        </div>
+              {errors.name && <div style={styles.errorText}>{errors.name}</div>}
 
-        {/* ── Schedule ──────────────────────── */}
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>Schedule</div>
-          <div style={styles.scheduleGrid}>
-            {SCHEDULE_PRESETS.map(p => (
-              <button
-                key={p.label}
-                onClick={() => handleSchedulePreset(p)}
-                style={{
-                  ...styles.scheduleBtn,
-                  ...((p.value === draft.schedule || (p.value === '__custom__' && isCustomSchedule)) ? styles.scheduleBtnActive : {}),
-                }}
-              >{p.label}</button>
-            ))}
-          </div>
-          {(isCustomSchedule || activeSchedulePreset?.value === '__custom__') && (
-            <div style={{ marginTop: '8px' }}>
-              <label style={styles.fieldLabel}>Cron expression</label>
-              <input
-                style={styles.input}
-                value={isCustomSchedule ? draft.schedule : customCron}
-                onChange={e => {
-                  setCustomCron(e.target.value);
-                  updateDraft({ schedule: e.target.value });
-                }}
-                placeholder="0 15 * * *"
+              <label style={styles.fieldLabel}>Description</label>
+              <textarea
+                style={styles.textarea}
+                value={draft.description || ''}
+                onChange={e => updateDraft({ description: e.target.value })}
+                placeholder="What this report covers..."
+                rows={2}
               />
-              <div style={styles.hint}>Format: minute hour day month weekday (UTC)</div>
+
+              <label style={styles.fieldLabel}>Slug</label>
+              <input
+                style={{ ...styles.input, ...(errors.slug ? styles.inputError : {}) }}
+                value={draft.slug}
+                onChange={e => { setSlugEdited(true); updateDraft({ slug: e.target.value }); }}
+                placeholder="daily-pitching-report"
+              />
+              {errors.slug && <div style={styles.errorText}>{errors.slug}</div>}
             </div>
-          )}
-        </div>
-      </div>
 
-      {/* ── Footer ──────────────────────────── */}
-      <div style={styles.footer}>
-        <button onClick={onCancel} style={styles.cancelBtn}>Cancel</button>
-        <button
-          onClick={onRunNow}
-          disabled={!config?.id || running}
-          style={{ ...styles.runBtn, ...(!config?.id || running ? styles.runBtnDisabled : {}) }}
-          title={!config?.id ? 'Save the report first' : 'Run this report now'}
-        >{running ? 'Running...' : 'Run Now'}</button>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          style={{ ...styles.saveBtn, ...(saving ? { opacity: 0.5 } : {}) }}
-        >
-          {saving ? 'Saving...' : isNew ? 'Create Report' : 'Save Changes'}
-        </button>
+            {/* ── Data Sources ──────────────────── */}
+            <div style={styles.section}>
+              <div style={styles.sectionTitle}>Data Sources</div>
+              <DataSourceConfig
+                dataSources={draft.data_sources}
+                feeds={feeds}
+                onChange={ds => updateDraft({ data_sources: ds })}
+              />
+            </div>
+
+            {/* ── Chat Prompt ───────────────────── */}
+            <div style={styles.section}>
+              <div style={styles.sectionTitle}>Report Content</div>
+              {errors.prompt_template && <div style={styles.errorText}>{errors.prompt_template}</div>}
+              {compiledPrompt && (
+                <div style={styles.promptSaved}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  Prompt template saved from preview
+                </div>
+              )}
+              <PromptChat
+                messages={chatMessages}
+                loading={chatLoading}
+                onSend={handleChatSend}
+              />
+            </div>
+
+            {/* ── Delivery ──────────────────────── */}
+            <div style={styles.section}>
+              <div style={styles.sectionTitle}>Delivery</div>
+              <div style={styles.row}>
+                <label style={styles.toggleRow}>
+                  <input
+                    type="checkbox"
+                    checked={draft.delivery?.inbox !== false}
+                    onChange={e => updateDraft({ delivery: { ...draft.delivery, inbox: e.target.checked } })}
+                    style={styles.checkbox}
+                  />
+                  <span>Research Inbox</span>
+                </label>
+                <label style={styles.toggleRow}>
+                  <input
+                    type="checkbox"
+                    checked={draft.delivery?.email === true}
+                    onChange={e => updateDraft({ delivery: { ...draft.delivery, email: e.target.checked } })}
+                    style={styles.checkbox}
+                  />
+                  <span>Email</span>
+                </label>
+              </div>
+              {draft.delivery?.email && (
+                <div style={styles.hint}>Sends to all team members with email reports enabled + external subscribers.</div>
+              )}
+            </div>
+
+            {/* ── Schedule ──────────────────────── */}
+            <div style={styles.section}>
+              <div style={styles.sectionTitle}>Schedule</div>
+              <div style={styles.scheduleGrid}>
+                {SCHEDULE_PRESETS.map(p => (
+                  <button
+                    key={p.label}
+                    onClick={() => handleSchedulePreset(p)}
+                    style={{
+                      ...styles.scheduleBtn,
+                      ...((p.value === draft.schedule || (p.value === '__custom__' && isCustomSchedule)) ? styles.scheduleBtnActive : {}),
+                    }}
+                  >{p.label}</button>
+                ))}
+              </div>
+              {(isCustomSchedule || activeSchedulePreset?.value === '__custom__') && (
+                <div style={{ marginTop: '8px' }}>
+                  <input
+                    style={styles.input}
+                    value={isCustomSchedule ? draft.schedule : customCron}
+                    onChange={e => {
+                      setCustomCron(e.target.value);
+                      updateDraft({ schedule: e.target.value });
+                    }}
+                    placeholder="0 15 * * *"
+                  />
+                  <div style={styles.hint}>Cron: minute hour day month weekday (UTC)</div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div style={styles.footer}>
+            <button onClick={onCancel} style={styles.cancelBtn}>Cancel</button>
+            <button
+              onClick={onRunNow}
+              disabled={!config?.id || running}
+              style={{ ...styles.runBtn, ...(!config?.id || running ? styles.runBtnDisabled : {}) }}
+              title={!config?.id ? 'Save first' : 'Run now'}
+            >{running ? 'Running...' : 'Run Now'}</button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              style={{ ...styles.saveBtn, ...(saving ? { opacity: 0.5 } : {}) }}
+            >
+              {saving ? 'Saving...' : isNew ? 'Create Report' : 'Save Changes'}
+            </button>
+          </div>
+        </div>
+
+        {/* Right: preview */}
+        <div style={styles.rightCol}>
+          <ReportPreview
+            html={previewHtml}
+            loading={chatLoading}
+            compiledPrompt={compiledPrompt}
+            onUseThis={handleUseThis}
+          />
+        </div>
       </div>
     </div>
   );
@@ -213,19 +272,28 @@ const styles = {
   editor: {
     display: 'flex',
     flexDirection: 'column',
-    height: '100%',
+    flex: 1,
     overflow: 'hidden',
   },
-  editorHeader: {
-    padding: '16px 24px',
-    borderBottom: '1px solid rgba(255,255,255,0.06)',
-    flexShrink: 0,
+  columns: {
+    display: 'flex',
+    flex: 1,
+    overflow: 'hidden',
   },
-  editorTitle: {
-    fontSize: '18px',
-    fontWeight: 700,
-    color: '#ffffff',
-    margin: 0,
+  leftCol: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+    minWidth: 0,
+  },
+  rightCol: {
+    width: '50%',
+    maxWidth: '600px',
+    minWidth: '360px',
+    flexShrink: 0,
+    display: 'flex',
+    flexDirection: 'column',
   },
   scrollArea: {
     flex: 1,
@@ -233,7 +301,7 @@ const styles = {
     padding: '16px 24px 24px',
   },
   section: {
-    marginBottom: '28px',
+    marginBottom: '24px',
   },
   sectionTitle: {
     fontSize: '13px',
@@ -277,99 +345,30 @@ const styles = {
     resize: 'vertical',
     boxSizing: 'border-box',
   },
-  promptArea: {
-    width: '100%',
-    background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: '6px',
-    color: '#ffffff',
-    fontSize: '13px',
-    padding: '10px 14px',
-    fontFamily: "'DM Sans', monospace",
-    resize: 'vertical',
-    lineHeight: 1.6,
-    boxSizing: 'border-box',
-  },
   errorText: {
     fontSize: '11px',
     color: '#ef4444',
     marginTop: '4px',
+    marginBottom: '4px',
   },
   hint: {
     fontSize: '11px',
     color: 'rgba(255,255,255,0.25)',
-    marginTop: '4px',
+    marginTop: '6px',
   },
-  sourceCards: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(3, 1fr)',
-    gap: '8px',
-    marginBottom: '16px',
-  },
-  sourceCard: {
-    background: 'rgba(255,255,255,0.02)',
-    border: '1px solid rgba(255,255,255,0.06)',
-    borderRadius: '8px',
-    padding: '12px',
-    cursor: 'pointer',
-    textAlign: 'left',
-    fontFamily: 'inherit',
-    transition: 'border-color 0.12s, background 0.12s',
-  },
-  sourceCardActive: {
-    background: 'rgba(99,102,241,0.08)',
-    borderColor: 'rgba(99,102,241,0.4)',
-  },
-  sourceCardLabel: {
-    fontSize: '13px',
-    fontWeight: 600,
-    color: '#e2e8f0',
-    marginBottom: '4px',
-  },
-  sourceCardDesc: {
-    fontSize: '11px',
-    color: 'rgba(255,255,255,0.35)',
-    lineHeight: 1.3,
-  },
-  variableRow: {
+  promptSaved: {
     display: 'flex',
-    flexWrap: 'wrap',
+    alignItems: 'center',
     gap: '6px',
+    fontSize: '12px',
+    color: '#22c55e',
     marginBottom: '10px',
-  },
-  variableChip: {
-    background: 'rgba(99,102,241,0.1)',
-    border: '1px solid rgba(99,102,241,0.25)',
-    borderRadius: '4px',
-    color: '#a5b4fc',
-    fontSize: '11px',
-    fontFamily: "'DM Sans', monospace",
-    padding: '3px 8px',
-    cursor: 'pointer',
-    transition: 'background 0.12s',
   },
   row: {
     display: 'flex',
-    gap: '8px',
+    gap: '16px',
     alignItems: 'center',
     flexWrap: 'wrap',
-  },
-  formatBtn: {
-    background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: '6px',
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: '12px',
-    fontWeight: 600,
-    fontFamily: 'inherit',
-    padding: '6px 16px',
-    cursor: 'pointer',
-    transition: 'background 0.12s, border-color 0.12s, color 0.12s',
-  },
-  formatBtnActive: {
-    background: 'rgba(99,102,241,0.15)',
-    borderColor: 'rgba(99,102,241,0.4)',
-    color: '#a5b4fc',
   },
   toggleRow: {
     display: 'flex',

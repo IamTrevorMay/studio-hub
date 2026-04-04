@@ -112,6 +112,26 @@ export default function ReportBuilder({ onBack }) {
     }
   }, []);
 
+  const handlePreview = useCallback(async ({ data_sources, instruction, conversation_history }) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return { error: 'Not authenticated' };
+      const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
+      const resp = await fetch(`${supabaseUrl}/functions/v1/preview-report`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          apikey: process.env.REACT_APP_SUPABASE_ANON_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ data_sources, instruction, conversation_history }),
+      });
+      return await resp.json();
+    } catch (err) {
+      return { error: err.message || 'Preview failed' };
+    }
+  }, []);
+
   const [running, setRunning] = useState(false);
   const handleRunNow = useCallback(async () => {
     if (!editingConfig?.id || running) return;
@@ -196,6 +216,7 @@ export default function ReportBuilder({ onBack }) {
           onCancel={() => { setView('list'); setEditingConfig(null); }}
           onRunNow={handleRunNow}
           running={running}
+          onPreview={handlePreview}
         />
       )}
       {view === 'subscribers' && (
