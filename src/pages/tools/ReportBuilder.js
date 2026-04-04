@@ -3,10 +3,11 @@ import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
 import ReportList from './reportbuilder/ReportList';
 import ReportEditor from './reportbuilder/ReportEditor';
+import SubscriberPanel from './reportbuilder/SubscriberPanel';
 
 export default function ReportBuilder({ onBack }) {
   const { profile } = useAuth();
-  const [view, setView] = useState('list'); // 'list' | 'editor'
+  const [view, setView] = useState('list'); // 'list' | 'editor' | 'subscribers'
   const [configs, setConfigs] = useState([]);
   const [feeds, setFeeds] = useState([]);
   const [lastRuns, setLastRuns] = useState(new Map());
@@ -142,7 +143,7 @@ export default function ReportBuilder({ onBack }) {
   }, [editingConfig, running, fetchLastRuns]);
 
   const handleBack = useCallback(() => {
-    if (view === 'editor') {
+    if (view === 'editor' || view === 'subscribers') {
       setView('list');
       setEditingConfig(null);
     } else {
@@ -164,10 +165,18 @@ export default function ReportBuilder({ onBack }) {
           </button>
           <span style={styles.headerTitle}>Report Builder</span>
         </div>
+        {view === 'list' && (
+          <button onClick={() => setView('subscribers')} style={styles.subscribersBtn}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 00-3-3.87" /><path d="M16 3.13a4 4 0 010 7.75" />
+            </svg>
+            Subscribers
+          </button>
+        )}
       </div>
 
       {/* Content */}
-      {view === 'list' ? (
+      {view === 'list' && (
         <ReportList
           configs={configs}
           lastRuns={lastRuns}
@@ -177,7 +186,8 @@ export default function ReportBuilder({ onBack }) {
           onToggleEnabled={handleToggleEnabled}
           onDelete={handleDelete}
         />
-      ) : (
+      )}
+      {view === 'editor' && (
         <ReportEditor
           config={editingConfig}
           feeds={feeds}
@@ -186,6 +196,12 @@ export default function ReportBuilder({ onBack }) {
           onCancel={() => { setView('list'); setEditingConfig(null); }}
           onRunNow={handleRunNow}
           running={running}
+        />
+      )}
+      {view === 'subscribers' && (
+        <SubscriberPanel
+          configs={configs}
+          onBack={() => setView('list')}
         />
       )}
     </div>
@@ -229,5 +245,19 @@ const styles = {
     fontSize: '16px',
     fontWeight: 700,
     color: '#ffffff',
+  },
+  subscribersBtn: {
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '6px',
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: '13px',
+    fontFamily: 'inherit',
+    padding: '6px 14px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    transition: 'background 0.12s',
   },
 };

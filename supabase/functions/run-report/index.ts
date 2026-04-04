@@ -269,13 +269,32 @@ async function sendReportEmail(
     return { sent: 0, failed: 0 };
   }
 
-  // Load recipients: profiles with email_reports_enabled = true
-  const { data: recipients } = await adminClient
+  // Load internal recipients: profiles with email_reports_enabled = true
+  const { data: internalRecipients } = await adminClient
     .from("profiles")
     .select("id, email")
     .eq("email_reports_enabled", true);
 
-  if (!recipients || recipients.length === 0) {
+  // Load external subscribers: confirmed, not unsubscribed, matching this report or global
+  const { data: externalSubscribers } = await adminClient
+    .from("newsletter_subscribers")
+    .select("id, email, name")
+    .eq("confirmed", true)
+    .is("unsubscribed_at", null)
+    .or(`report_config_id.eq.${config.id},report_config_id.is.null`);
+
+  // Deduplicate by email
+  const emailSet = new Set<string>();
+  const recipients: { email: string }[] = [];
+  for (const r of [...(internalRecipients || []), ...(externalSubscribers || [])]) {
+    if (!r.email) continue;
+    const lower = r.email.toLowerCase();
+    if (emailSet.has(lower)) continue;
+    emailSet.add(lower);
+    recipients.push({ email: r.email });
+  }
+
+  if (recipients.length === 0) {
     return { sent: 0, failed: 0 };
   }
 
