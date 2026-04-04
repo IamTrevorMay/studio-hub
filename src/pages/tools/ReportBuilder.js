@@ -111,6 +111,36 @@ export default function ReportBuilder({ onBack }) {
     }
   }, []);
 
+  const [running, setRunning] = useState(false);
+  const handleRunNow = useCallback(async () => {
+    if (!editingConfig?.id || running) return;
+    setRunning(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
+      const resp = await fetch(`${supabaseUrl}/functions/v1/run-report`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          apikey: process.env.REACT_APP_SUPABASE_ANON_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ config_id: editingConfig.id }),
+      });
+      const result = await resp.json();
+      if (result.success) {
+        await fetchLastRuns();
+      } else {
+        console.error('Run failed:', result.error);
+      }
+    } catch (err) {
+      console.error('Run error:', err);
+    } finally {
+      setRunning(false);
+    }
+  }, [editingConfig, running, fetchLastRuns]);
+
   const handleBack = useCallback(() => {
     if (view === 'editor') {
       setView('list');
@@ -154,6 +184,8 @@ export default function ReportBuilder({ onBack }) {
           saving={saving}
           onSave={handleSave}
           onCancel={() => { setView('list'); setEditingConfig(null); }}
+          onRunNow={handleRunNow}
+          running={running}
         />
       )}
     </div>

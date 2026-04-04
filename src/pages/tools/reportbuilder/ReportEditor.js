@@ -10,7 +10,7 @@ import {
   slugify,
 } from './reportBuilderConstants';
 
-export default function ReportEditor({ config, feeds, saving, onSave, onCancel }) {
+export default function ReportEditor({ config, feeds, saving, onSave, onCancel, onRunNow, running }) {
   const isNew = !config?.id;
   const [draft, setDraft] = useState(() => ({ ...DEFAULT_REPORT_CONFIG, ...config }));
   const [errors, setErrors] = useState({});
@@ -243,10 +243,11 @@ export default function ReportEditor({ config, feeds, saving, onSave, onCancel }
       <div style={styles.footer}>
         <button onClick={onCancel} style={styles.cancelBtn}>Cancel</button>
         <button
-          disabled
-          style={{ ...styles.testBtn }}
-          title="Coming in Phase 2"
-        >Test Run</button>
+          onClick={onRunNow}
+          disabled={!config?.id || running}
+          style={{ ...styles.runBtn, ...(!config?.id || running ? styles.runBtnDisabled : {}) }}
+          title={!config?.id ? 'Save the report first' : 'Run this report now'}
+        >{running ? 'Running...' : 'Run Now'}</button>
         <button
           onClick={handleSave}
           disabled={saving}
@@ -473,16 +474,20 @@ const styles = {
     padding: '8px 18px',
     cursor: 'pointer',
   },
-  testBtn: {
-    background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.06)',
+  runBtn: {
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: '6px',
-    color: 'rgba(255,255,255,0.25)',
+    color: 'rgba(255,255,255,0.7)',
     fontSize: '13px',
     fontFamily: 'inherit',
     padding: '8px 18px',
+    cursor: 'pointer',
+    transition: 'opacity 0.12s',
+  },
+  runBtnDisabled: {
+    opacity: 0.35,
     cursor: 'not-allowed',
-    opacity: 0.5,
   },
   saveBtn: {
     background: '#6366f1',
