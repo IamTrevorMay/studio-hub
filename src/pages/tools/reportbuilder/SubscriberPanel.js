@@ -59,8 +59,50 @@ export default function SubscriberPanel({ configs, onBack }) {
       ? subscribers.filter(s => !s.report_config_id)
       : subscribers.filter(s => s.report_config_id === filterConfigId);
 
+  // Stats
+  const now = new Date();
+  const weekAgo = new Date(now); weekAgo.setDate(weekAgo.getDate() - 7);
+  const monthAgo = new Date(now); monthAgo.setDate(monthAgo.getDate() - 30);
+  const newThisWeek = subscribers.filter(s => new Date(s.created_at) >= weekAgo).length;
+  const newThisMonth = subscribers.filter(s => new Date(s.created_at) >= monthAgo).length;
+  const perReport = {};
+  let globalCount = 0;
+  for (const s of subscribers) {
+    if (s.report_config_id) {
+      const name = s.config?.name || 'Unknown';
+      perReport[name] = (perReport[name] || 0) + 1;
+    } else {
+      globalCount++;
+    }
+  }
+
   return (
     <div style={styles.container}>
+      {/* Stats Dashboard */}
+      {!loading && subscribers.length > 0 && (
+        <div style={styles.statsRow}>
+          <div style={styles.statCard}>
+            <div style={styles.statNumber}>{subscribers.length}</div>
+            <div style={styles.statLabel}>Total</div>
+          </div>
+          <div style={styles.statCard}>
+            <div style={styles.statNumber}>{newThisWeek}</div>
+            <div style={styles.statLabel}>This Week</div>
+          </div>
+          <div style={styles.statCard}>
+            <div style={styles.statNumber}>{newThisMonth}</div>
+            <div style={styles.statLabel}>This Month</div>
+          </div>
+          <div style={styles.statCardWide}>
+            <div style={styles.statLabel}>Breakdown</div>
+            {globalCount > 0 && <div style={styles.breakdownRow}><span>All reports</span><span>{globalCount}</span></div>}
+            {Object.entries(perReport).sort((a, b) => b[1] - a[1]).map(([name, count]) => (
+              <div key={name} style={styles.breakdownRow}><span>{name}</span><span>{count}</span></div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div style={styles.header}>
         <div>
@@ -181,6 +223,50 @@ export default function SubscriberPanel({ configs, onBack }) {
 }
 
 const styles = {
+  statsRow: {
+    display: 'flex',
+    gap: '10px',
+    marginBottom: '20px',
+    flexWrap: 'wrap',
+  },
+  statCard: {
+    background: 'rgba(255,255,255,0.02)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '10px',
+    padding: '16px 20px',
+    minWidth: '100px',
+    textAlign: 'center',
+  },
+  statCardWide: {
+    background: 'rgba(255,255,255,0.02)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '10px',
+    padding: '12px 16px',
+    flex: 1,
+    minWidth: '180px',
+  },
+  statNumber: {
+    fontSize: '28px',
+    fontWeight: 700,
+    color: '#ffffff',
+    lineHeight: 1,
+    marginBottom: '4px',
+  },
+  statLabel: {
+    fontSize: '11px',
+    fontWeight: 600,
+    color: 'rgba(255,255,255,0.35)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+    marginBottom: '6px',
+  },
+  breakdownRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    fontSize: '12px',
+    color: 'rgba(255,255,255,0.5)',
+    padding: '3px 0',
+  },
   container: {
     flex: 1,
     overflowY: 'auto',

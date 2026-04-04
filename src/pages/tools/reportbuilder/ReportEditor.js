@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import DataSourceConfig from './DataSourceConfig';
 import PromptChat from './PromptChat';
 import ReportPreview from './ReportPreview';
+import SubscribeConfig from './SubscribeConfig';
 import {
   SCHEDULE_PRESETS,
   DEFAULT_REPORT_CONFIG,
@@ -199,7 +200,13 @@ export default function ReportEditor({ config, feeds, saving, onSave, onCancel, 
                 </label>
               </div>
               {draft.delivery?.email && (
-                <div style={styles.hint}>Sends to all team members with email reports enabled + external subscribers.</div>
+                <>
+                  <div style={styles.hint}>Sends to all team members with email reports enabled + external subscribers.</div>
+                  <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: 'rgba(255,255,255,0.4)', marginBottom: '4px' }}>Subscribe Page Branding</div>
+                    <SubscribeConfig draft={draft} onUpdate={updateDraft} />
+                  </div>
+                </>
               )}
             </div>
 

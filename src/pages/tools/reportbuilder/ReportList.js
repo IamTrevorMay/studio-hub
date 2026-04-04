@@ -42,7 +42,9 @@ export default function ReportList({ configs, lastRuns, loading, onNew, onEdit, 
       ) : (
         <div style={styles.list}>
           {configs.map(cfg => {
-            const srcType = DATA_SOURCE_TYPES.find(t => t.key === cfg.data_source_type);
+            const sources = cfg.data_sources && Array.isArray(cfg.data_sources) && cfg.data_sources.length > 0
+              ? cfg.data_sources.map(s => DATA_SOURCE_TYPES.find(t => t.key === s.type) || { key: s.type, label: s.type })
+              : [DATA_SOURCE_TYPES.find(t => t.key === cfg.data_source_type) || { key: cfg.data_source_type, label: cfg.data_source_type }];
             const lastRun = lastRuns.get(cfg.id);
             const isDeleting = confirmDeleteId === cfg.id;
 
@@ -67,9 +69,11 @@ export default function ReportList({ configs, lastRuns, loading, onNew, onEdit, 
                 </div>
 
                 <div style={styles.cardMeta}>
-                  <span style={{ ...styles.badge, background: (SOURCE_COLORS[cfg.data_source_type] || '#6366f1') + '22', color: SOURCE_COLORS[cfg.data_source_type] || '#6366f1' }}>
-                    {srcType?.label || cfg.data_source_type}
-                  </span>
+                  {sources.map((src, i) => (
+                    <span key={i} style={{ ...styles.badge, background: (SOURCE_COLORS[src.key] || '#6366f1') + '22', color: SOURCE_COLORS[src.key] || '#6366f1' }}>
+                      {src.label}
+                    </span>
+                  ))}
                   <span style={styles.metaText}>{describeSchedule(cfg.schedule)}</span>
                   {lastRun && (
                     <span style={styles.metaText}>

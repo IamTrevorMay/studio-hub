@@ -24,7 +24,7 @@ export default function SubscribePage() {
     async function load() {
       const { data } = await publicClient
         .from('report_configs')
-        .select('id, name, slug, description')
+        .select('id, name, slug, description, subscribe_headline, subscribe_description, subscribe_accent_color, subscribe_logo_url')
         .eq('enabled', true)
         .order('name');
 
@@ -90,13 +90,22 @@ export default function SubscribePage() {
       <div style={styles.card}>
         {/* Header */}
         <div style={styles.header}>
-          <div style={styles.logoMark} />
+          {selectedReport?.subscribe_logo_url ? (
+            <img src={selectedReport.subscribe_logo_url} alt="" style={styles.logoImg} />
+          ) : (
+            <div style={{
+              ...styles.logoMark,
+              background: selectedReport?.subscribe_accent_color
+                ? `linear-gradient(135deg, ${selectedReport.subscribe_accent_color}, ${selectedReport.subscribe_accent_color}cc)`
+                : 'linear-gradient(135deg, #6366f1, #4f46e5)',
+            }} />
+          )}
           <h1 style={styles.title}>
-            {selectedReport ? selectedReport.name : 'Subscribe to Reports'}
+            {selectedReport?.subscribe_headline || selectedReport?.name || 'Subscribe to Reports'}
           </h1>
           <p style={styles.subtitle}>
-            {selectedReport
-              ? selectedReport.description || 'Get this report delivered to your inbox.'
+            {selectedReport?.subscribe_description || selectedReport
+              ? (selectedReport?.subscribe_description || selectedReport?.description || 'Get this report delivered to your inbox.')
               : 'Get AI-powered reports delivered straight to your inbox.'
             }
           </p>
@@ -172,6 +181,7 @@ export default function SubscribePage() {
               disabled={submitting || !email.trim()}
               style={{
                 ...styles.submitBtn,
+                ...(selectedReport?.subscribe_accent_color ? { background: selectedReport.subscribe_accent_color } : {}),
                 ...(submitting ? { opacity: 0.6 } : {}),
               }}
             >
@@ -228,6 +238,13 @@ const styles = {
     color: 'rgba(255,255,255,0.45)',
     margin: 0,
     lineHeight: 1.5,
+  },
+  logoImg: {
+    maxHeight: '48px',
+    maxWidth: '160px',
+    margin: '0 auto 16px',
+    display: 'block',
+    borderRadius: '8px',
   },
   loadingText: {
     textAlign: 'center',
