@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import { DATA_SOURCE_TYPES, describeSchedule } from './reportBuilderConstants';
+import { describeSchedule } from './reportBuilderConstants';
 
-const SOURCE_COLORS = { rss: '#f59e0b', triton_api: '#3b82f6', supabase_query: '#22c55e' };
 const STATUS_COLORS = { completed: '#22c55e', running: '#f59e0b', failed: '#ef4444', pending: 'rgba(255,255,255,0.25)' };
 
 export default function ReportList({ configs, lastRuns, loading, onNew, onEdit, onToggleEnabled, onDelete }) {
@@ -42,9 +41,7 @@ export default function ReportList({ configs, lastRuns, loading, onNew, onEdit, 
       ) : (
         <div style={styles.list}>
           {configs.map(cfg => {
-            const sources = cfg.data_sources && Array.isArray(cfg.data_sources) && cfg.data_sources.length > 0
-              ? cfg.data_sources.map(s => DATA_SOURCE_TYPES.find(t => t.key === s.type) || { key: s.type, label: s.type })
-              : [DATA_SOURCE_TYPES.find(t => t.key === cfg.data_source_type) || { key: cfg.data_source_type, label: cfg.data_source_type }];
+            const sectionCount = Array.isArray(cfg.section_ids) ? cfg.section_ids.length : 0;
             const lastRun = lastRuns.get(cfg.id);
             const isDeleting = confirmDeleteId === cfg.id;
 
@@ -69,11 +66,9 @@ export default function ReportList({ configs, lastRuns, loading, onNew, onEdit, 
                 </div>
 
                 <div style={styles.cardMeta}>
-                  {sources.map((src, i) => (
-                    <span key={i} style={{ ...styles.badge, background: (SOURCE_COLORS[src.key] || '#6366f1') + '22', color: SOURCE_COLORS[src.key] || '#6366f1' }}>
-                      {src.label}
-                    </span>
-                  ))}
+                  <span style={{ ...styles.badge, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc' }}>
+                    {sectionCount} section{sectionCount !== 1 ? 's' : ''}
+                  </span>
                   <span style={styles.metaText}>{describeSchedule(cfg.schedule)}</span>
                   {lastRun && (
                     <span style={styles.metaText}>

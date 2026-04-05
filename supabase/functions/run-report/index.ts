@@ -1,7 +1,7 @@
 // supabase/functions/run-report/index.ts
 // Deploy with: supabase functions deploy run-report --no-verify-jwt
-// Generic report runner: reads a report_config, fetches data, calls Claude, stores result.
-// Supports multi-source configs (data_sources array) with legacy single-source fallback.
+// Section-based report runner: composes a report by rendering each section's
+// own data source and prompt/template, then concatenates the HTML.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -10,6 +10,7 @@ import {
   fetchRssSource,
   fetchTritonSource,
   fetchSupabaseSource,
+  fetchSectionSource,
   resolvePrompt,
   type SourceResult,
 } from "../shared/report-sources.ts";
@@ -27,9 +28,9 @@ function jsonResp(data: unknown, status = 200) {
   });
 }
 
-// ─── Claude API Call ─────────────────────────────────────────
+// ─── Claude call for a single section ────────────────────────
 
-async function callClaude(prompt: string): Promise<{ title: string; summary: string; content: string; metadata: Record<string, unknown> }> {
+async function runSectionPrompt(prompt: string): Promise<string> {
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY not configured");
 
@@ -50,7 +51,7 @@ async function callClaude(prompt: string): Promise<{ title: string; summary: str
         max_tokens: 4096,
         messages: [{
           role: "user",
-          content: prompt + "\n\nIMPORTANT: Return your response as valid JSON with these fields: { \"title\": \"...\", \"summary\": \"1-2 sentence summary\", \"content\": \"full report content as HTML\" }. You may include additional fields. Only return valid JSON, no markdown code fences or extra text.",
+          content: prompt + "\n\nReturn only the HTML fragment for this report section (no <html>, <head>, or <body> tags, no markdown code fences, no commentary). Use inline styles.",
         }],
       }),
     });
@@ -61,25 +62,41 @@ async function callClaude(prompt: string): Promise<{ title: string; summary: str
     }
 
     const data = await resp.json();
-    const rawText = data.content?.[0]?.text || "";
-    const jsonStr = rawText
-      .replace(/^```json?\s*/i, "")
-      .replace(/\s*```$/i, "")
-      .trim();
-
-    const parsed = JSON.parse(jsonStr);
-    return {
-      title: parsed.title || "Untitled Report",
-      summary: parsed.summary || "",
-      content: parsed.content || jsonStr,
-      metadata: (() => {
-        const { title, summary, content, ...rest } = parsed;
-        return rest;
-      })(),
-    };
+    const raw = (data.content?.[0]?.text || "").trim();
+    return raw.replace(/^```html?\s*/i, "").replace(/\s*```$/i, "").trim();
   } finally {
     clearTimeout(timeout);
   }
+}
+
+// ─── Render a single section ─────────────────────────────────
+
+async function renderSection(
+  adminClient: ReturnType<typeof createClient>,
+  section: any,
+  date: string,
+): Promise<{ html: string; sourceCount: number }> {
+  const source = section.data_source || { type: "none", config: {} };
+  const result: SourceResult = await fetchSectionSource(adminClient, source);
+  result.variables.date = date;
+  result.variables.section_name = section.name || "";
+
+  // Prompt mode: send data through Claude
+  if (section.prompt_template && section.prompt_template.trim().length > 0) {
+    const prompt = resolvePrompt(section.prompt_template, result.variables);
+    const html = await runSectionPrompt(prompt);
+    return { html, sourceCount: result.sourceCount };
+  }
+
+  // Passthrough mode: fill variables into render_template
+  if (section.render_template && section.render_template.trim().length > 0) {
+    const html = resolvePrompt(section.render_template, result.variables);
+    return { html, sourceCount: result.sourceCount };
+  }
+
+  // Neither: drop in a minimal block with the section name
+  const fallback = `<div style="margin-bottom:24px;"><h2 style="font-size:18px;font-weight:700;color:#fff;margin:0 0 8px;">${section.name || "Section"}</h2><div style="font-size:13px;color:rgba(255,255,255,0.4);">(No prompt or render template configured)</div></div>`;
+  return { html: fallback, sourceCount: result.sourceCount };
 }
 
 // ─── Email Delivery via Resend ───────────────────────────────
@@ -125,13 +142,11 @@ async function sendReportEmail(
     return { sent: 0, failed: 0 };
   }
 
-  // Load internal recipients
   const { data: internalRecipients } = await adminClient
     .from("profiles")
     .select("id, email")
     .eq("email_reports_enabled", true);
 
-  // Load external subscribers
   const { data: externalSubscribers } = await adminClient
     .from("newsletter_subscribers")
     .select("id, email, name")
@@ -139,7 +154,6 @@ async function sendReportEmail(
     .is("unsubscribed_at", null)
     .or(`report_config_id.eq.${config.id},report_config_id.is.null`);
 
-  // Deduplicate by email
   const emailSet = new Set<string>();
   const recipients: { email: string }[] = [];
   for (const r of [...(internalRecipients || []), ...(externalSubscribers || [])]) {
@@ -183,31 +197,64 @@ async function sendReportEmail(
   return { sent, failed };
 }
 
-// ─── Fetch sources (multi-source with legacy fallback) ───────
+// ─── Legacy monolithic run (backward compat) ─────────────────
 
-async function getSourceData(
-  adminClient: ReturnType<typeof createClient>,
-  config: any,
-): Promise<SourceResult> {
-  // Multi-source (new format)
-  if (config.data_sources && Array.isArray(config.data_sources) && config.data_sources.length > 0) {
-    return fetchAllSources(adminClient, config.data_sources);
-  }
-
-  // Legacy single-source fallback
-  switch (config.data_source_type) {
-    case "rss":
-      return fetchRssSource(adminClient, config.data_source_config || {});
-    case "triton_api":
-      return fetchTritonSource(config.data_source_config || {});
-    case "supabase_query":
-      return fetchSupabaseSource(adminClient, config.data_source_config || {});
-    default:
-      throw new Error(`Unknown source type: ${config.data_source_type}`);
-  }
+async function legacyCallClaude(prompt: string): Promise<{ title: string; summary: string; content: string; metadata: Record<string, unknown> }> {
+  const apiKey = Deno.env.get("ANTHROPIC_API_KEY")!;
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 4096,
+      messages: [{
+        role: "user",
+        content: prompt + "\n\nIMPORTANT: Return your response as valid JSON with these fields: { \"title\": \"...\", \"summary\": \"1-2 sentence summary\", \"content\": \"full report content as HTML\" }. Only return valid JSON, no markdown code fences.",
+      }],
+    }),
+  });
+  if (!resp.ok) throw new Error(`Claude API ${resp.status}`);
+  const data = await resp.json();
+  const rawText = data.content?.[0]?.text || "";
+  const jsonStr = rawText.replace(/^```json?\s*/i, "").replace(/\s*```$/i, "").trim();
+  const parsed = JSON.parse(jsonStr);
+  const { title, summary, content, ...rest } = parsed;
+  return {
+    title: title || "Untitled Report",
+    summary: summary || "",
+    content: content || jsonStr,
+    metadata: rest,
+  };
 }
 
-// ─── Run a single report config ─────────────────────────────
+async function runLegacyConfig(
+  adminClient: ReturnType<typeof createClient>,
+  config: any,
+  date: string,
+): Promise<{ title: string; summary: string; content: string; sourceCount: number; metadata: Record<string, unknown> }> {
+  let result: SourceResult;
+  if (config.data_sources && Array.isArray(config.data_sources) && config.data_sources.length > 0) {
+    result = await fetchAllSources(adminClient, config.data_sources);
+  } else {
+    switch (config.data_source_type) {
+      case "rss": result = await fetchRssSource(adminClient, config.data_source_config || {}); break;
+      case "triton_api": result = await fetchTritonSource(config.data_source_config || {}); break;
+      case "supabase_query": result = await fetchSupabaseSource(adminClient, config.data_source_config || {}); break;
+      default: throw new Error(`Unknown source type: ${config.data_source_type}`);
+    }
+  }
+  result.variables.date = date;
+  const prompt = resolvePrompt(config.prompt_template || "", result.variables);
+  if (!prompt || prompt.length < 10) throw new Error("Prompt template is empty or too short");
+  const report = await legacyCallClaude(prompt);
+  return { ...report, sourceCount: result.sourceCount };
+}
+
+// ─── Run a config (section-based) ────────────────────────────
 
 async function runConfig(
   adminClient: ReturnType<typeof createClient>,
@@ -228,31 +275,64 @@ async function runConfig(
   const runId = runRow.id;
 
   try {
-    const result = await getSourceData(adminClient, config);
-    result.variables.date = today;
+    const sectionIds: string[] = Array.isArray(config.section_ids) ? config.section_ids : [];
+    let title = config.name || "Report";
+    let summary = config.description || "";
+    let content = "";
+    let totalSourceCount = 0;
+    let metadata: Record<string, unknown> = {};
 
-    const prompt = resolvePrompt(config.prompt_template, result.variables);
-    if (!prompt || prompt.length < 10) {
-      throw new Error("Prompt template is empty or too short after variable substitution");
+    if (sectionIds.length > 0) {
+      // Load sections, preserve ordering from section_ids
+      const { data: sections, error: secErr } = await adminClient
+        .from("report_sections")
+        .select("*")
+        .in("id", sectionIds);
+      if (secErr) throw new Error(`Failed to load sections: ${secErr.message}`);
+      const byId = new Map((sections || []).map(s => [s.id, s]));
+      const ordered = sectionIds.map(id => byId.get(id)).filter(Boolean);
+
+      const htmlBlocks: string[] = [];
+      for (const section of ordered) {
+        try {
+          const { html, sourceCount } = await renderSection(adminClient, section, today);
+          htmlBlocks.push(html);
+          totalSourceCount += sourceCount;
+        } catch (err: any) {
+          htmlBlocks.push(
+            `<div style="margin-bottom:24px;padding:12px 16px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;color:#fca5a5;font-size:12px;">Section "${section.name}" failed: ${err.message || err}</div>`,
+          );
+        }
+      }
+      content = htmlBlocks.join("\n");
+      metadata = { section_count: ordered.length, section_ids: sectionIds };
+    } else if (config.prompt_template) {
+      // Legacy path
+      const legacy = await runLegacyConfig(adminClient, config, today);
+      title = legacy.title;
+      summary = legacy.summary;
+      content = legacy.content;
+      totalSourceCount = legacy.sourceCount;
+      metadata = legacy.metadata;
+    } else {
+      throw new Error("Report has no sections configured");
     }
-
-    const report = await callClaude(prompt);
 
     await adminClient
       .from("report_runs")
       .update({
         status: "completed",
-        title: report.title,
-        summary: report.summary,
-        content: report.content,
-        source_count: result.sourceCount,
-        metadata: report.metadata,
+        title,
+        summary,
+        content,
+        source_count: totalSourceCount,
+        metadata,
       })
       .eq("id", runId);
 
     let emailResult = { sent: 0, failed: 0 };
     if (config.delivery?.email) {
-      emailResult = await sendReportEmail(adminClient, config, report, today);
+      emailResult = await sendReportEmail(adminClient, config, { title, summary, content }, today);
     }
 
     return { success: true, emailsSent: emailResult.sent, emailsFailed: emailResult.failed };
@@ -302,7 +382,6 @@ Deno.serve(async (req: Request) => {
   let body: any = {};
   try { body = await req.json(); } catch {}
 
-  // Single config run
   if (body.config_id) {
     const { data: config, error } = await adminClient
       .from("report_configs")
@@ -314,7 +393,6 @@ Deno.serve(async (req: Request) => {
     return jsonResp(result, result.success ? 200 : 500);
   }
 
-  // Cron: run all enabled configs
   const { data: configs, error: configsErr } = await adminClient
     .from("report_configs")
     .select("*")

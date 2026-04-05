@@ -9,7 +9,7 @@ export default function ReportBuilder({ onBack }) {
   const { profile } = useAuth();
   const [view, setView] = useState('list'); // 'list' | 'editor' | 'subscribers'
   const [configs, setConfigs] = useState([]);
-  const [feeds, setFeeds] = useState([]);
+  const [sections, setSections] = useState([]);
   const [lastRuns, setLastRuns] = useState(new Map());
   const [editingConfig, setEditingConfig] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -25,12 +25,13 @@ export default function ReportBuilder({ onBack }) {
     if (!error && data) setConfigs(data);
   }, []);
 
-  const fetchFeeds = useCallback(async () => {
+  const fetchSections = useCallback(async () => {
     const { data, error } = await supabase
-      .from('research_feeds')
-      .select('id, name, url, source_type, enabled')
-      .order('name');
-    if (!error && data) setFeeds(data);
+      .from('report_sections')
+      .select('*')
+      .order('is_seed', { ascending: false })
+      .order('created_at', { ascending: false });
+    if (!error && data) setSections(data);
   }, []);
 
   const fetchLastRuns = useCallback(async () => {
@@ -41,18 +42,16 @@ export default function ReportBuilder({ onBack }) {
     if (!error && data) {
       const map = new Map();
       for (const run of data) {
-        if (!map.has(run.report_config_id)) {
-          map.set(run.report_config_id, run);
-        }
+        if (!map.has(run.report_config_id)) map.set(run.report_config_id, run);
       }
       setLastRuns(map);
     }
   }, []);
 
   useEffect(() => {
-    Promise.all([fetchConfigs(), fetchFeeds(), fetchLastRuns()])
+    Promise.all([fetchConfigs(), fetchSections(), fetchLastRuns()])
       .finally(() => setLoading(false));
-  }, [fetchConfigs, fetchFeeds, fetchLastRuns]);
+  }, [fetchConfigs, fetchSections, fetchLastRuns]);
 
   // ── Handlers ───────────────────────────────────────────────
 
@@ -72,19 +71,21 @@ export default function ReportBuilder({ onBack }) {
   const handleSave = useCallback(async (draft) => {
     setSaving(true);
     try {
-      if (draft.id) {
-        // Update existing
-        const { id, created_at, created_by, ...updates } = draft;
-        const { error } = await supabase
-          .from('report_configs')
-          .update(updates)
-          .eq('id', id);
+      // Strip legacy single-source fields from payload
+      const payload = { ...draft };
+      delete payload.data_source_type;
+      delete payload.data_source_config;
+      delete payload.data_sources;
+      delete payload.prompt_template;
+
+      if (payload.id) {
+        const { id, created_at, created_by, ...updates } = payload;
+        const { error } = await supabase.from('report_configs').update(updates).eq('id', id);
         if (error) { console.error('Save error:', error); return; }
       } else {
-        // Insert new
         const { error } = await supabase
           .from('report_configs')
-          .insert({ ...draft, created_by: profile?.id });
+          .insert({ ...payload, created_by: profile?.id });
         if (error) { console.error('Save error:', error); return; }
       }
       await fetchConfigs();
@@ -97,9 +98,7 @@ export default function ReportBuilder({ onBack }) {
 
   const handleDelete = useCallback(async (id) => {
     const { error } = await supabase.from('report_configs').delete().eq('id', id);
-    if (!error) {
-      setConfigs(prev => prev.filter(c => c.id !== id));
-    }
+    if (!error) setConfigs(prev => prev.filter(c => c.id !== id));
   }, []);
 
   const handleToggleEnabled = useCallback(async (id, enabled) => {
@@ -107,29 +106,16 @@ export default function ReportBuilder({ onBack }) {
       .from('report_configs')
       .update({ enabled, updated_at: new Date().toISOString() })
       .eq('id', id);
-    if (!error) {
-      setConfigs(prev => prev.map(c => c.id === id ? { ...c, enabled } : c));
-    }
+    if (!error) setConfigs(prev => prev.map(c => c.id === id ? { ...c, enabled } : c));
   }, []);
 
-  const handlePreview = useCallback(async ({ data_sources, instruction, conversation_history }) => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return { error: 'Not authenticated' };
-      const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
-      const resp = await fetch(`${supabaseUrl}/functions/v1/preview-report`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-          apikey: process.env.REACT_APP_SUPABASE_ANON_KEY,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ data_sources, instruction, conversation_history }),
-      });
-      return await resp.json();
-    } catch (err) {
-      return { error: err.message || 'Preview failed' };
-    }
+  const handleSectionCreated = useCallback((newSection) => {
+    setSections(prev => [newSection, ...prev]);
+  }, []);
+
+  const handleSectionDeleted = useCallback(async (id) => {
+    const { error } = await supabase.from('report_sections').delete().eq('id', id);
+    if (!error) setSections(prev => prev.filter(s => s.id !== id));
   }, []);
 
   const [running, setRunning] = useState(false);
@@ -175,7 +161,6 @@ export default function ReportBuilder({ onBack }) {
 
   return (
     <div style={styles.page}>
-      {/* Header */}
       <div style={styles.header}>
         <div style={styles.headerLeft}>
           <button onClick={handleBack} style={styles.backBtn} title={view === 'editor' ? 'Back to list' : 'Back to Toolbox'}>
@@ -195,7 +180,6 @@ export default function ReportBuilder({ onBack }) {
         )}
       </div>
 
-      {/* Content */}
       {view === 'list' && (
         <ReportList
           configs={configs}
@@ -210,13 +194,14 @@ export default function ReportBuilder({ onBack }) {
       {view === 'editor' && (
         <ReportEditor
           config={editingConfig}
-          feeds={feeds}
+          sections={sections}
           saving={saving}
           onSave={handleSave}
           onCancel={() => { setView('list'); setEditingConfig(null); }}
           onRunNow={handleRunNow}
           running={running}
-          onPreview={handlePreview}
+          onSectionCreated={handleSectionCreated}
+          onSectionDeleted={handleSectionDeleted}
         />
       )}
       {view === 'subscribers' && (
@@ -230,55 +215,10 @@ export default function ReportBuilder({ onBack }) {
 }
 
 const styles = {
-  page: {
-    display: 'flex',
-    flexDirection: 'column',
-    height: '100%',
-    background: '#0f0f1a',
-    overflow: 'hidden',
-  },
-  header: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '12px 16px',
-    borderBottom: '1px solid rgba(255,255,255,0.06)',
-    flexShrink: 0,
-  },
-  headerLeft: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-  },
-  backBtn: {
-    background: 'none',
-    border: 'none',
-    color: 'rgba(255,255,255,0.5)',
-    cursor: 'pointer',
-    padding: '6px',
-    borderRadius: '6px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    transition: 'color 0.15s',
-  },
-  headerTitle: {
-    fontSize: '16px',
-    fontWeight: 700,
-    color: '#ffffff',
-  },
-  subscribersBtn: {
-    background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: '6px',
-    color: 'rgba(255,255,255,0.6)',
-    fontSize: '13px',
-    fontFamily: 'inherit',
-    padding: '6px 14px',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    transition: 'background 0.12s',
-  },
+  page: { display: 'flex', flexDirection: 'column', height: '100%', background: '#0f0f1a', overflow: 'hidden' },
+  header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 },
+  headerLeft: { display: 'flex', alignItems: 'center', gap: '12px' },
+  backBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', padding: '6px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'color 0.15s' },
+  headerTitle: { fontSize: '16px', fontWeight: 700, color: '#ffffff' },
+  subscribersBtn: { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', color: 'rgba(255,255,255,0.6)', fontSize: '13px', fontFamily: 'inherit', padding: '6px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', transition: 'background 0.12s' },
 };
