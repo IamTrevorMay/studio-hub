@@ -1,12 +1,29 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import SectionComposer from './SectionComposer';
-import SectionsLibrary from './SectionsLibrary';
+import { DragDropContext } from '@hello-pangea/dnd';
+import NewsletterCanvas from './NewsletterCanvas';
+import BlockToolbox from './BlockToolbox';
 import SubscribeConfig from './SubscribeConfig';
 import {
   SCHEDULE_PRESETS,
   DEFAULT_REPORT_CONFIG,
   slugify,
+  createBlock,
 } from './reportBuilderConstants';
+
+// Derive section_ids from canvas blocks for backward compat
+function sectionIdsFromCanvas(canvas) {
+  return (canvas || [])
+    .filter(b => b.type === 'section' && b.sectionId)
+    .map(b => b.sectionId);
+}
+
+// Auto-migrate old section_ids-only config → canvas blocks
+function migrateToCanvas(config) {
+  if (config?.canvas && config.canvas.length > 0) return config.canvas;
+  const ids = config?.section_ids || [];
+  if (ids.length === 0) return [];
+  return ids.map(id => createBlock('section', { sectionId: id }));
+}
 
 export default function ReportEditor({
   config,
@@ -20,10 +37,16 @@ export default function ReportEditor({
   onSectionDeleted,
 }) {
   const isNew = !config?.id;
-  const [draft, setDraft] = useState(() => ({ ...DEFAULT_REPORT_CONFIG, ...config, section_ids: config?.section_ids || [] }));
+  const [draft, setDraft] = useState(() => ({
+    ...DEFAULT_REPORT_CONFIG,
+    ...config,
+    section_ids: config?.section_ids || [],
+    canvas: migrateToCanvas(config),
+  }));
   const [errors, setErrors] = useState({});
   const [slugEdited, setSlugEdited] = useState(false);
   const [customCron, setCustomCron] = useState('');
+  const [leftTab, setLeftTab] = useState('design'); // 'design' | 'settings'
 
   // Auto-generate slug from name
   useEffect(() => {
@@ -59,186 +82,275 @@ export default function ReportEditor({
     return map;
   }, [sections]);
 
-  const handleSectionIdsChange = useCallback((ids) => {
-    updateDraft({ section_ids: ids });
-  }, [updateDraft]);
+  // ── Canvas change handler (keeps section_ids in sync) ──────
 
-  const handleAddSection = useCallback((id) => {
-    if (draft.section_ids.includes(id)) return;
-    updateDraft({ section_ids: [...draft.section_ids, id] });
-  }, [draft.section_ids, updateDraft]);
+  const handleCanvasChange = useCallback((newCanvas) => {
+    const ids = sectionIdsFromCanvas(newCanvas);
+    setDraft(d => ({ ...d, canvas: newCanvas, section_ids: ids }));
+    setErrors(e => ({ ...e, canvas: undefined }));
+  }, []);
+
+  // Add a section as a canvas block
+  const handleAddSection = useCallback((sectionId) => {
+    // Prevent duplicates
+    const exists = draft.canvas.some(b => b.type === 'section' && b.sectionId === sectionId);
+    if (exists) return;
+    const block = createBlock('section', { sectionId });
+    const newCanvas = [...draft.canvas, block];
+    handleCanvasChange(newCanvas);
+  }, [draft.canvas, handleCanvasChange]);
+
+  // Add a static block (from toolbox click)
+  const handleAddBlock = useCallback((block) => {
+    const newCanvas = [...draft.canvas, block];
+    handleCanvasChange(newCanvas);
+  }, [draft.canvas, handleCanvasChange]);
 
   const handleSectionCreated = useCallback((newSection) => {
     onSectionCreated?.(newSection);
-    // Auto-add newly created section to this report
-    if (!draft.section_ids.includes(newSection.id)) {
-      setDraft(d => ({ ...d, section_ids: [...(d.section_ids || []), newSection.id] }));
+    // Auto-add newly created section to canvas
+    const block = createBlock('section', { sectionId: newSection.id });
+    setDraft(d => {
+      const newCanvas = [...(d.canvas || []), block];
+      return { ...d, canvas: newCanvas, section_ids: sectionIdsFromCanvas(newCanvas) };
+    });
+  }, [onSectionCreated]);
+
+  // ── DragDropContext onDragEnd ───────────────────────────────
+
+  const handleDragEnd = useCallback((result) => {
+    const { source, destination, draggableId } = result;
+    if (!destination) return;
+
+    // 1) Reorder within canvas
+    if (source.droppableId === 'canvas' && destination.droppableId === 'canvas') {
+      const next = [...draft.canvas];
+      const [moved] = next.splice(source.index, 1);
+      next.splice(destination.index, 0, moved);
+      handleCanvasChange(next);
+      return;
     }
-  }, [onSectionCreated, draft.section_ids]);
+
+    // 2) Drop from block-toolbox → canvas
+    if (source.droppableId === 'block-toolbox' && destination.droppableId === 'canvas') {
+      const blockType = draggableId.replace('toolbox-', '');
+      const block = createBlock(blockType);
+      const next = [...draft.canvas];
+      next.splice(destination.index, 0, block);
+      handleCanvasChange(next);
+      return;
+    }
+
+    // 3) Drop from sections-library → canvas
+    if (source.droppableId === 'sections-library' && destination.droppableId === 'canvas') {
+      const sectionId = draggableId.replace('section-', '');
+      // Prevent duplicates
+      const exists = draft.canvas.some(b => b.type === 'section' && b.sectionId === sectionId);
+      if (exists) return;
+      const block = createBlock('section', { sectionId });
+      const next = [...draft.canvas];
+      next.splice(destination.index, 0, block);
+      handleCanvasChange(next);
+      return;
+    }
+  }, [draft.canvas, handleCanvasChange]);
+
+  // ── Validation ─────────────────────────────────────────────
 
   const validate = useCallback(() => {
     const errs = {};
     if (!draft.name.trim()) errs.name = 'Name is required';
     if (!draft.slug.trim()) errs.slug = 'Slug is required';
     else if (!/^[a-z0-9-]+$/.test(draft.slug)) errs.slug = 'Slug must be lowercase letters, numbers, and hyphens';
-    if (!draft.section_ids || draft.section_ids.length === 0) errs.section_ids = 'Add at least one section to the report';
+    if (!draft.canvas || draft.canvas.length === 0) errs.canvas = 'Add at least one block to the canvas';
     setErrors(errs);
     return Object.keys(errs).length === 0;
   }, [draft]);
 
   const handleSave = useCallback(() => {
     if (!validate()) return;
-    onSave({ ...draft, output_format: 'html', updated_at: new Date().toISOString() });
+    onSave({
+      ...draft,
+      section_ids: sectionIdsFromCanvas(draft.canvas),
+      output_format: 'html',
+      updated_at: new Date().toISOString(),
+    });
   }, [draft, validate, onSave]);
 
   const activeSchedulePreset = SCHEDULE_PRESETS.find(p => p.value === draft.schedule);
   const isCustomSchedule = draft.schedule && !activeSchedulePreset;
 
+  // Section IDs currently on canvas (for "in report" badges)
+  const canvasSectionIds = useMemo(() => sectionIdsFromCanvas(draft.canvas), [draft.canvas]);
+
   return (
-    <div style={styles.editor}>
-      <div style={styles.columns}>
-        {/* Left: config + composer */}
-        <div style={styles.leftCol}>
-          <div style={styles.scrollArea}>
-            {/* Identity */}
-            <div style={styles.section}>
-              <div style={styles.sectionTitle}>Identity</div>
-              <label style={styles.fieldLabel}>Name</label>
-              <input
-                style={{ ...styles.input, ...(errors.name ? styles.inputError : {}) }}
-                value={draft.name}
-                onChange={e => updateDraft({ name: e.target.value })}
-                placeholder="Daily Pitching Report"
-              />
-              {errors.name && <div style={styles.errorText}>{errors.name}</div>}
-
-              <label style={styles.fieldLabel}>Description</label>
-              <textarea
-                style={styles.textarea}
-                value={draft.description || ''}
-                onChange={e => updateDraft({ description: e.target.value })}
-                placeholder="What this report covers..."
-                rows={2}
-              />
-
-              <label style={styles.fieldLabel}>Slug</label>
-              <input
-                style={{ ...styles.input, ...(errors.slug ? styles.inputError : {}) }}
-                value={draft.slug}
-                onChange={e => { setSlugEdited(true); updateDraft({ slug: e.target.value }); }}
-                placeholder="daily-pitching-report"
-              />
-              {errors.slug && <div style={styles.errorText}>{errors.slug}</div>}
+    <DragDropContext onDragEnd={handleDragEnd}>
+      <div style={styles.editor}>
+        <div style={styles.columns}>
+          {/* Left: Design / Settings tabs */}
+          <div style={styles.leftCol}>
+            {/* Tab bar */}
+            <div style={styles.leftTabs}>
+              <button
+                style={{ ...styles.leftTab, ...(leftTab === 'design' ? styles.leftTabActive : {}) }}
+                onClick={() => setLeftTab('design')}
+              >
+                Design
+              </button>
+              <button
+                style={{ ...styles.leftTab, ...(leftTab === 'settings' ? styles.leftTabActive : {}) }}
+                onClick={() => setLeftTab('settings')}
+              >
+                Settings
+              </button>
             </div>
 
-            {/* Sections composer */}
-            <div style={styles.section}>
-              <div style={styles.sectionTitle}>Sections</div>
-              {errors.section_ids && <div style={styles.errorText}>{errors.section_ids}</div>}
-              <SectionComposer
-                sectionIds={draft.section_ids}
-                sectionsById={sectionsById}
-                onChange={handleSectionIdsChange}
-              />
-            </div>
+            {/* Design tab → Newsletter Canvas */}
+            {leftTab === 'design' && (
+              <>
+                {errors.canvas && <div style={styles.canvasError}>{errors.canvas}</div>}
+                <NewsletterCanvas
+                  canvas={draft.canvas}
+                  sectionsById={sectionsById}
+                  onChange={handleCanvasChange}
+                />
+              </>
+            )}
 
-            {/* Delivery */}
-            <div style={styles.section}>
-              <div style={styles.sectionTitle}>Delivery</div>
-              <div style={styles.row}>
-                <label style={styles.toggleRow}>
+            {/* Settings tab → Identity, Delivery, Schedule */}
+            {leftTab === 'settings' && (
+              <div style={styles.scrollArea}>
+                {/* Identity */}
+                <div style={styles.section}>
+                  <div style={styles.sectionTitle}>Identity</div>
+                  <label style={styles.fieldLabel}>Name</label>
                   <input
-                    type="checkbox"
-                    checked={draft.delivery?.inbox !== false}
-                    onChange={e => updateDraft({ delivery: { ...draft.delivery, inbox: e.target.checked } })}
-                    style={styles.checkbox}
+                    style={{ ...styles.input, ...(errors.name ? styles.inputError : {}) }}
+                    value={draft.name}
+                    onChange={e => updateDraft({ name: e.target.value })}
+                    placeholder="Daily Pitching Report"
                   />
-                  <span>Research Inbox</span>
-                </label>
-                <label style={styles.toggleRow}>
-                  <input
-                    type="checkbox"
-                    checked={draft.delivery?.email === true}
-                    onChange={e => updateDraft({ delivery: { ...draft.delivery, email: e.target.checked } })}
-                    style={styles.checkbox}
-                  />
-                  <span>Email</span>
-                </label>
-              </div>
-              {draft.delivery?.email && (
-                <>
-                  <div style={styles.hint}>Sends to all team members with email reports enabled + external subscribers.</div>
-                  <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
-                    <div style={{ fontSize: '12px', fontWeight: 600, color: 'rgba(255,255,255,0.4)', marginBottom: '4px' }}>Subscribe Page Branding</div>
-                    <SubscribeConfig draft={draft} onUpdate={updateDraft} />
-                  </div>
-                </>
-              )}
-            </div>
+                  {errors.name && <div style={styles.errorText}>{errors.name}</div>}
 
-            {/* Schedule */}
-            <div style={styles.section}>
-              <div style={styles.sectionTitle}>Schedule</div>
-              <div style={styles.scheduleGrid}>
-                {SCHEDULE_PRESETS.map(p => (
-                  <button
-                    key={p.label}
-                    onClick={() => handleSchedulePreset(p)}
-                    style={{
-                      ...styles.scheduleBtn,
-                      ...((p.value === draft.schedule || (p.value === '__custom__' && isCustomSchedule)) ? styles.scheduleBtnActive : {}),
-                    }}
-                  >{p.label}</button>
-                ))}
-              </div>
-              {(isCustomSchedule || activeSchedulePreset?.value === '__custom__') && (
-                <div style={{ marginTop: '8px' }}>
-                  <input
-                    style={styles.input}
-                    value={isCustomSchedule ? draft.schedule : customCron}
-                    onChange={e => {
-                      setCustomCron(e.target.value);
-                      updateDraft({ schedule: e.target.value });
-                    }}
-                    placeholder="0 15 * * *"
+                  <label style={styles.fieldLabel}>Description</label>
+                  <textarea
+                    style={styles.textarea}
+                    value={draft.description || ''}
+                    onChange={e => updateDraft({ description: e.target.value })}
+                    placeholder="What this report covers..."
+                    rows={2}
                   />
-                  <div style={styles.hint}>Cron: minute hour day month weekday (UTC)</div>
+
+                  <label style={styles.fieldLabel}>Slug</label>
+                  <input
+                    style={{ ...styles.input, ...(errors.slug ? styles.inputError : {}) }}
+                    value={draft.slug}
+                    onChange={e => { setSlugEdited(true); updateDraft({ slug: e.target.value }); }}
+                    placeholder="daily-pitching-report"
+                  />
+                  {errors.slug && <div style={styles.errorText}>{errors.slug}</div>}
                 </div>
-              )}
+
+                {/* Delivery */}
+                <div style={styles.section}>
+                  <div style={styles.sectionTitle}>Delivery</div>
+                  <div style={styles.row}>
+                    <label style={styles.toggleRow}>
+                      <input
+                        type="checkbox"
+                        checked={draft.delivery?.inbox !== false}
+                        onChange={e => updateDraft({ delivery: { ...draft.delivery, inbox: e.target.checked } })}
+                        style={styles.checkbox}
+                      />
+                      <span>Research Inbox</span>
+                    </label>
+                    <label style={styles.toggleRow}>
+                      <input
+                        type="checkbox"
+                        checked={draft.delivery?.email === true}
+                        onChange={e => updateDraft({ delivery: { ...draft.delivery, email: e.target.checked } })}
+                        style={styles.checkbox}
+                      />
+                      <span>Email</span>
+                    </label>
+                  </div>
+                  {draft.delivery?.email && (
+                    <>
+                      <div style={styles.hint}>Sends to all team members with email reports enabled + external subscribers.</div>
+                      <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                        <div style={{ fontSize: '12px', fontWeight: 600, color: 'rgba(255,255,255,0.4)', marginBottom: '4px' }}>Subscribe Page Branding</div>
+                        <SubscribeConfig draft={draft} onUpdate={updateDraft} />
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Schedule */}
+                <div style={styles.section}>
+                  <div style={styles.sectionTitle}>Schedule</div>
+                  <div style={styles.scheduleGrid}>
+                    {SCHEDULE_PRESETS.map(p => (
+                      <button
+                        key={p.label}
+                        onClick={() => handleSchedulePreset(p)}
+                        style={{
+                          ...styles.scheduleBtn,
+                          ...((p.value === draft.schedule || (p.value === '__custom__' && isCustomSchedule)) ? styles.scheduleBtnActive : {}),
+                        }}
+                      >{p.label}</button>
+                    ))}
+                  </div>
+                  {(isCustomSchedule || activeSchedulePreset?.value === '__custom__') && (
+                    <div style={{ marginTop: '8px' }}>
+                      <input
+                        style={styles.input}
+                        value={isCustomSchedule ? draft.schedule : customCron}
+                        onChange={e => {
+                          setCustomCron(e.target.value);
+                          updateDraft({ schedule: e.target.value });
+                        }}
+                        placeholder="0 15 * * *"
+                      />
+                      <div style={styles.hint}>Cron: minute hour day month weekday (UTC)</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Footer */}
+            <div style={styles.footer}>
+              <button onClick={onCancel} style={styles.cancelBtn}>Cancel</button>
+              <button
+                onClick={onRunNow}
+                disabled={!config?.id || running}
+                style={{ ...styles.runBtn, ...(!config?.id || running ? styles.runBtnDisabled : {}) }}
+                title={!config?.id ? 'Save first' : 'Run now'}
+              >{running ? 'Running...' : 'Run Now'}</button>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                style={{ ...styles.saveBtn, ...(saving ? { opacity: 0.5 } : {}) }}
+              >
+                {saving ? 'Saving...' : isNew ? 'Create Report' : 'Save Changes'}
+              </button>
             </div>
           </div>
 
-          {/* Footer */}
-          <div style={styles.footer}>
-            <button onClick={onCancel} style={styles.cancelBtn}>Cancel</button>
-            <button
-              onClick={onRunNow}
-              disabled={!config?.id || running}
-              style={{ ...styles.runBtn, ...(!config?.id || running ? styles.runBtnDisabled : {}) }}
-              title={!config?.id ? 'Save first' : 'Run now'}
-            >{running ? 'Running...' : 'Run Now'}</button>
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              style={{ ...styles.saveBtn, ...(saving ? { opacity: 0.5 } : {}) }}
-            >
-              {saving ? 'Saving...' : isNew ? 'Create Report' : 'Save Changes'}
-            </button>
+          {/* Right: Block toolbox + sections library */}
+          <div style={styles.rightCol}>
+            <BlockToolbox
+              sections={sections}
+              selectedSectionIds={canvasSectionIds}
+              onAddSection={handleAddSection}
+              onSectionCreated={handleSectionCreated}
+              onSectionDeleted={onSectionDeleted}
+              onAddBlock={handleAddBlock}
+            />
           </div>
-        </div>
-
-        {/* Right: sections library + generator */}
-        <div style={styles.rightCol}>
-          <SectionsLibrary
-            sections={sections}
-            selectedIds={draft.section_ids}
-            onAdd={handleAddSection}
-            onGenerated={handleSectionCreated}
-            onDelete={onSectionDeleted}
-          />
         </div>
       </div>
-    </div>
+    </DragDropContext>
   );
 }
 
@@ -246,7 +358,15 @@ const styles = {
   editor: { display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' },
   columns: { display: 'flex', flex: 1, overflow: 'hidden' },
   leftCol: { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 },
-  rightCol: { width: '42%', maxWidth: '520px', minWidth: '340px', flexShrink: 0, display: 'flex', flexDirection: 'column' },
+  rightCol: { width: '300px', minWidth: '260px', flexShrink: 0, display: 'flex', flexDirection: 'column' },
+  leftTabs: { display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 },
+  leftTab: {
+    background: 'none', border: 'none', borderBottom: '2px solid transparent',
+    color: 'rgba(255,255,255,0.4)', fontSize: '13px', fontWeight: 600, fontFamily: 'inherit',
+    padding: '10px 20px', cursor: 'pointer', transition: 'color 0.12s, border-color 0.12s',
+  },
+  leftTabActive: { color: '#a5b4fc', borderBottomColor: '#6366f1' },
+  canvasError: { fontSize: '11px', color: '#ef4444', padding: '6px 24px 0', flexShrink: 0 },
   scrollArea: { flex: 1, overflowY: 'auto', padding: '16px 24px 24px' },
   section: { marginBottom: '24px' },
   sectionTitle: { fontSize: '13px', fontWeight: 700, color: '#e2e8f0', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' },

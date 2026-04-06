@@ -2,6 +2,7 @@
 // Deploy with: supabase functions deploy run-report --no-verify-jwt
 // Section-based report runner: composes a report by rendering each section's
 // own data source and prompt/template, then concatenates the HTML.
+// Supports canvas-based reports (visual newsletter builder).
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -99,13 +100,132 @@ async function renderSection(
   return { html: fallback, sourceCount: result.sourceCount };
 }
 
+// ─── Canvas block → HTML renderer ────────────────────────────
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function renderStaticBlock(block: any): string {
+  const s = block.style || {};
+
+  switch (block.type) {
+    case "heading": {
+      const fontSize = s.fontSize || "24px";
+      const style = `margin:0 0 8px;font-family:${s.fontFamily || "DM Sans"},sans-serif;font-size:${fontSize};font-weight:${s.fontWeight || "700"};color:${s.color || "#1a1a2e"};text-align:${s.textAlign || "left"};line-height:1.3;`;
+      return `<h${block.level || 1} style="${style}">${block.content || ""}</h${block.level || 1}>`;
+    }
+    case "text": {
+      const style = `font-family:${s.fontFamily || "DM Sans"},sans-serif;font-size:${s.fontSize || "14px"};color:${s.color || "#333333"};text-align:${s.textAlign || "left"};line-height:${s.lineHeight || "1.6"};`;
+      return `<div style="${style}">${block.content || ""}</div>`;
+    }
+    case "image": {
+      if (!block.src) return "";
+      const style = `width:${s.width || "100%"};border-radius:${s.borderRadius || "4px"};display:block;`;
+      return `<img src="${escapeHtml(block.src)}" alt="${escapeHtml(block.alt || "")}" style="${style}" />`;
+    }
+    case "divider": {
+      return `<hr style="border:none;border-top:${s.borderWidth || "1px"} solid ${s.borderColor || "#e2e8f0"};margin:${s.margin || "8px 0"};" />`;
+    }
+    case "spacer": {
+      return `<div style="height:${s.height || "24px"};"></div>`;
+    }
+    case "columns": {
+      const cols = block.columns || [];
+      const colHtml = cols.map((col: any) => {
+        const inner = (col.blocks || []).map((b: any) => renderStaticBlock(b)).join("\n");
+        return `<td style="width:${Math.floor(100 / cols.length)}%;vertical-align:top;padding:0 8px;">${inner}</td>`;
+      }).join("");
+      return `<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr>${colHtml}</tr></table>`;
+    }
+    default:
+      return "";
+  }
+}
+
+async function renderCanvas(
+  adminClient: ReturnType<typeof createClient>,
+  canvas: any[],
+  date: string,
+): Promise<{ html: string; sourceCount: number }> {
+  const htmlBlocks: string[] = [];
+  let totalSourceCount = 0;
+
+  // Load all section IDs referenced by canvas
+  const sectionIds = canvas
+    .filter((b: any) => b.type === "section" && b.sectionId)
+    .map((b: any) => b.sectionId);
+  let sectionsByIdMap = new Map<string, any>();
+  if (sectionIds.length > 0) {
+    const { data: sections } = await adminClient
+      .from("report_sections")
+      .select("*")
+      .in("id", sectionIds);
+    if (sections) {
+      sectionsByIdMap = new Map(sections.map((s: any) => [s.id, s]));
+    }
+  }
+
+  for (const block of canvas) {
+    if (block.type === "section") {
+      const section = sectionsByIdMap.get(block.sectionId);
+      if (!section) {
+        htmlBlocks.push(
+          `<div style="margin-bottom:16px;padding:12px;background:#fef3c7;border:1px solid #fbbf24;border-radius:6px;font-size:12px;color:#92400e;">Section not found: ${escapeHtml(block.sectionId || "unknown")}</div>`,
+        );
+        continue;
+      }
+      try {
+        const { html, sourceCount } = await renderSection(adminClient, section, date);
+        htmlBlocks.push(html);
+        totalSourceCount += sourceCount;
+      } catch (err: any) {
+        htmlBlocks.push(
+          `<div style="margin-bottom:16px;padding:12px 16px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;color:#fca5a5;font-size:12px;">Section "${escapeHtml(section.name)}" failed: ${escapeHtml(err.message || String(err))}</div>`,
+        );
+      }
+    } else {
+      const html = renderStaticBlock(block);
+      if (html) htmlBlocks.push(html);
+    }
+  }
+
+  return { html: htmlBlocks.join("\n"), sourceCount: totalSourceCount };
+}
+
 // ─── Email Delivery via Resend ───────────────────────────────
 
-function buildEmailHtml(reportName: string, date: string, summary: string, content: string): string {
+function buildEmailHtml(reportName: string, date: string, summary: string, content: string, useCanvasTheme = false): string {
   const formattedDate = new Date(date + "T12:00:00").toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric", year: "numeric",
   });
 
+  if (useCanvasTheme) {
+    // Light-themed email wrapper for canvas-based reports
+    return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:'DM Sans','Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:640px;margin:0 auto;padding:32px 24px;">
+    <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
+      <div style="background:linear-gradient(135deg,#6366f1,#4f46e5);padding:24px 28px;">
+        <h1 style="margin:0;font-size:20px;font-weight:700;color:#ffffff;">${reportName}</h1>
+        <p style="margin:6px 0 0;font-size:13px;color:rgba(255,255,255,0.7);">${formattedDate}</p>
+      </div>
+      ${summary ? `<div style="padding:20px 28px 0;font-size:14px;color:#64748b;line-height:1.5;font-style:italic;">${summary}</div>` : ""}
+      <div style="padding:24px 28px;font-size:14px;color:#334155;line-height:1.7;">
+        ${content}
+      </div>
+    </div>
+    <div style="text-align:center;padding:20px 0;font-size:11px;color:#94a3b8;">
+      Powered by Mayday Studio
+    </div>
+  </div>
+</body>
+</html>`;
+  }
+
+  // Original dark-themed email wrapper
   return `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
@@ -134,6 +254,7 @@ async function sendReportEmail(
   config: any,
   report: { title: string; summary: string; content: string },
   date: string,
+  useCanvasTheme = false,
 ): Promise<{ sent: number; failed: number }> {
   const resendKey = Deno.env.get("RESEND_API_KEY");
   const fromEmail = Deno.env.get("RESEND_FROM_EMAIL");
@@ -171,7 +292,7 @@ async function sendReportEmail(
     month: "short", day: "numeric", year: "numeric",
   });
   const subject = `${reportName} — ${formattedDate}`;
-  const html = buildEmailHtml(reportName, date, report.summary, report.content);
+  const html = buildEmailHtml(reportName, date, report.summary, report.content, useCanvasTheme);
 
   let sent = 0;
   let failed = 0;
@@ -254,7 +375,7 @@ async function runLegacyConfig(
   return { ...report, sourceCount: result.sourceCount };
 }
 
-// ─── Run a config (section-based) ────────────────────────────
+// ─── Run a config (section-based or canvas-based) ────────────
 
 async function runConfig(
   adminClient: ReturnType<typeof createClient>,
@@ -275,15 +396,25 @@ async function runConfig(
   const runId = runRow.id;
 
   try {
+    const canvas: any[] | null = Array.isArray(config.canvas) && config.canvas.length > 0 ? config.canvas : null;
     const sectionIds: string[] = Array.isArray(config.section_ids) ? config.section_ids : [];
     let title = config.name || "Report";
     let summary = config.description || "";
     let content = "";
     let totalSourceCount = 0;
     let metadata: Record<string, unknown> = {};
+    let useCanvasTheme = false;
 
-    if (sectionIds.length > 0) {
-      // Load sections, preserve ordering from section_ids
+    if (canvas) {
+      // ── Canvas pipeline ──────────────────────────────────────
+      const result = await renderCanvas(adminClient, canvas, today);
+      content = result.html;
+      totalSourceCount = result.sourceCount;
+      useCanvasTheme = true;
+      const canvasSectionIds = canvas.filter(b => b.type === "section").map(b => b.sectionId);
+      metadata = { canvas_blocks: canvas.length, section_count: canvasSectionIds.length, section_ids: canvasSectionIds };
+    } else if (sectionIds.length > 0) {
+      // ── Section IDs pipeline (backward compat) ───────────────
       const { data: sections, error: secErr } = await adminClient
         .from("report_sections")
         .select("*")
@@ -307,7 +438,7 @@ async function runConfig(
       content = htmlBlocks.join("\n");
       metadata = { section_count: ordered.length, section_ids: sectionIds };
     } else if (config.prompt_template) {
-      // Legacy path
+      // ── Legacy path ──────────────────────────────────────────
       const legacy = await runLegacyConfig(adminClient, config, today);
       title = legacy.title;
       summary = legacy.summary;
@@ -315,7 +446,7 @@ async function runConfig(
       totalSourceCount = legacy.sourceCount;
       metadata = legacy.metadata;
     } else {
-      throw new Error("Report has no sections configured");
+      throw new Error("Report has no canvas or sections configured");
     }
 
     await adminClient
@@ -332,7 +463,7 @@ async function runConfig(
 
     let emailResult = { sent: 0, failed: 0 };
     if (config.delivery?.email) {
-      emailResult = await sendReportEmail(adminClient, config, { title, summary, content }, today);
+      emailResult = await sendReportEmail(adminClient, config, { title, summary, content }, today, useCanvasTheme);
     }
 
     return { success: true, emailsSent: emailResult.sent, emailsFailed: emailResult.failed };
