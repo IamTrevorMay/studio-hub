@@ -747,40 +747,42 @@ export default function Research() {
           {/* Daily Graphics Section */}
           {section === 'daily' && (
             <div>
-              {dailyGraphicsDate && (
-                <div style={s.briefDateNav}>
-                  <button
-                    onClick={() => {
-                      const idx = dailyDates.indexOf(dailyGraphicsDate);
-                      if (idx < dailyDates.length - 1) setDailyGraphicsDate(dailyDates[idx + 1]);
-                    }}
-                    disabled={dailyDates.indexOf(dailyGraphicsDate) >= dailyDates.length - 1}
-                    style={s.briefNavBtn}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 3L5 8l5 5" /></svg>
-                  </button>
-                  <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
-                    {new Date(dailyGraphicsDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' })}
-                  </span>
-                  <button
-                    onClick={() => {
-                      const idx = dailyDates.indexOf(dailyGraphicsDate);
-                      if (idx > 0) setDailyGraphicsDate(dailyDates[idx - 1]);
-                    }}
-                    disabled={dailyDates.indexOf(dailyGraphicsDate) <= 0}
-                    style={s.briefNavBtn}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 3l5 5-5 5" /></svg>
-                  </button>
-                  <button onClick={handleRegenerateDaily} disabled={regeneratingDaily} style={{ ...s.briefActionBtn, marginLeft: 'auto', opacity: regeneratingDaily ? 0.5 : 1 }}>
+              <div style={s.briefDateNav}>
+                {dailyGraphicsDate && (
+                  <>
+                    <button
+                      onClick={() => {
+                        const idx = dailyDates.indexOf(dailyGraphicsDate);
+                        if (idx < dailyDates.length - 1) setDailyGraphicsDate(dailyDates[idx + 1]);
+                      }}
+                      disabled={dailyDates.indexOf(dailyGraphicsDate) >= dailyDates.length - 1}
+                      style={s.briefNavBtn}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 3L5 8l5 5" /></svg>
+                    </button>
+                    <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
+                      {new Date(dailyGraphicsDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' })}
+                    </span>
+                    <button
+                      onClick={() => {
+                        const idx = dailyDates.indexOf(dailyGraphicsDate);
+                        if (idx > 0) setDailyGraphicsDate(dailyDates[idx - 1]);
+                      }}
+                      disabled={dailyDates.indexOf(dailyGraphicsDate) <= 0}
+                      style={s.briefNavBtn}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 3l5 5-5 5" /></svg>
+                    </button>
+                  </>
+                )}
+                <button onClick={handleRegenerateDaily} disabled={regeneratingDaily} style={{ ...s.briefActionBtn, marginLeft: 'auto', opacity: regeneratingDaily ? 0.5 : 1 }}>
                     {regeneratingDaily ? (
                       <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite', marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Fetching…</>
                     ) : (
                       <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Regenerate</>
                     )}
                   </button>
-                </div>
-              )}
+              </div>
 
               {dailyLoading ? (
                 <div style={s.dailyGrid}>
