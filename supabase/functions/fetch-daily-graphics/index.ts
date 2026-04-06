@@ -54,7 +54,8 @@ Deno.serve(async (req: Request) => {
 
     // Fetch latest graphics index from Triton
     const res = await fetch(
-      "https://tritonapex.io/api/daily-graphics?latest=true"
+      "https://www.tritonapex.io/api/daily-graphics?latest=true",
+      { redirect: "follow" }
     );
     if (!res.ok) {
       const text = await res.text();
