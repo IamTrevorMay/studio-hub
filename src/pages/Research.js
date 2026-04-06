@@ -4,8 +4,8 @@ import { tritonSupabase } from '../tritonClient';
 import { useAuth } from '../contexts/AuthContext';
 
 
-const SECTIONS = ['inbox', 'briefs', 'cards', 'news', 'trends', 'reports'];
-const SECTION_LABELS = { inbox: 'Inbox', briefs: 'Briefs', cards: 'Cards', news: 'News', trends: 'Trends', reports: 'Reports' };
+const SECTIONS = ['inbox', 'briefs', 'cards', 'news', 'trends'];
+const SECTION_LABELS = { inbox: 'Inbox', briefs: 'Briefs', cards: 'Cards', news: 'News', trends: 'Trends' };
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
@@ -58,9 +58,6 @@ export default function Research() {
   const [trendLoading, setTrendLoading] = useState(false);
   const [regeneratingTrends, setRegeneratingTrends] = useState(false);
 
-  // Report runs state
-  const [reportRuns, setReportRuns] = useState([]);
-  const [currentReportRun, setCurrentReportRun] = useState(null);
 
   // Inbox state
   const [inboxState, setInboxState] = useState([]);
@@ -381,25 +378,6 @@ export default function Research() {
     }
   }, [currentTrendDate, trends]);
 
-  // Report runs fetching
-  const fetchReportRuns = useCallback(async () => {
-    try {
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - 30);
-      const cutoffDate = cutoff.toISOString().slice(0, 10);
-      const { data, error } = await supabase
-        .from('report_runs')
-        .select('*, config:report_configs(id, name, slug)')
-        .eq('status', 'completed')
-        .gte('date', cutoffDate)
-        .order('date', { ascending: false });
-      if (!error && data) {
-        setReportRuns(data);
-      }
-    } catch (err) {
-      console.error('Error fetching report runs:', err);
-    }
-  }, []);
 
   // Inbox state fetching
   const fetchInboxState = useCallback(async () => {
@@ -462,22 +440,9 @@ export default function Research() {
       });
     }
 
-    for (const run of reportRuns) {
-      const key = `report-${run.date}-${run.report_config_id}`;
-      const state = stateMap[key];
-      items.push({
-        type: 'report',
-        date: run.date,
-        title: run.config?.name || run.title || 'Report',
-        summary: run.summary || `${run.source_count || 0} sources`,
-        read: state?.read || false,
-        reportRunId: run.id,
-      });
-    }
-
     items.sort((a, b) => b.date.localeCompare(a.date));
     return items;
-  }, [briefs, cardsArchive, trends, reportRuns, inboxState]);
+  }, [briefs, cardsArchive, trends, inboxState]);
 
   const unreadInboxCount = useMemo(() => inboxItems.filter(i => !i.read).length, [inboxItems]);
 
@@ -522,19 +487,15 @@ export default function Research() {
     } else if (item.type === 'trends') {
       setSection('trends');
       setCurrentTrendDate(item.date);
-    } else if (item.type === 'report') {
-      setSection('reports');
-      const run = reportRuns.find(r => r.id === item.reportRunId);
-      if (run) setCurrentReportRun(run);
     }
-  }, [markInboxRead, reportRuns]);
+  }, [markInboxRead]);
 
   useEffect(() => {
     const timeout = setTimeout(() => setLoading(false), 5000);
-    Promise.all([fetchArticles(), fetchBriefs(), fetchCardsArchive(), fetchCardsConfig(), fetchTrends(), fetchReportRuns(), fetchInboxState()])
+    Promise.all([fetchArticles(), fetchBriefs(), fetchCardsArchive(), fetchCardsConfig(), fetchTrends(), fetchInboxState()])
       .finally(() => { setLoading(false); clearTimeout(timeout); });
     return () => clearTimeout(timeout);
-  }, [fetchArticles, fetchBriefs, fetchCardsArchive, fetchCardsConfig, fetchTrends, fetchReportRuns, fetchInboxState, refreshKey]);
+  }, [fetchArticles, fetchBriefs, fetchCardsArchive, fetchCardsConfig, fetchTrends, fetchInboxState, refreshKey]);
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -1376,79 +1337,6 @@ export default function Research() {
       )}
 
       {/* Reports section */}
-      {section === 'reports' && (
-        <div>
-          {currentReportRun ? (
-            <div>
-              <div style={s.briefDateNav}>
-                <button
-                  onClick={() => setCurrentReportRun(null)}
-                  style={s.briefNavBtn}
-                >
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 3L5 8l5 5" /></svg>
-                </button>
-                <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
-                  {currentReportRun.config?.name || currentReportRun.title || 'Report'}
-                </span>
-                <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.35)', marginLeft: '8px' }}>
-                  {new Date(currentReportRun.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' })}
-                </span>
-              </div>
-
-              <div style={s.briefCard}>
-                {currentReportRun.title && (
-                  <div style={s.briefCardHeader}>
-                    <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#ffffff', margin: '0 0 6px 0' }}>{currentReportRun.title}</h2>
-                  </div>
-                )}
-                {currentReportRun.summary && (
-                  <div style={s.briefSummary}>{currentReportRun.summary}</div>
-                )}
-                {currentReportRun.source_count > 0 && (
-                  <div style={{ marginBottom: '16px' }}>
-                    <span style={s.briefBadge}>{currentReportRun.source_count} sources</span>
-                  </div>
-                )}
-                {currentReportRun.content && (
-                  <div
-                    style={{ fontSize: '14px', color: 'rgba(255,255,255,0.75)', lineHeight: 1.7 }}
-                    dangerouslySetInnerHTML={{ __html: currentReportRun.content }}
-                  />
-                )}
-              </div>
-            </div>
-          ) : (
-            <div>
-              <div style={{ fontSize: '15px', fontWeight: 600, color: '#e2e8f0', marginBottom: '14px' }}>Recent Reports</div>
-              {reportRuns.length === 0 ? (
-                <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.3)', padding: '24px 0' }}>
-                  No reports generated yet. Create and run a report in the Report Builder tool.
-                </div>
-              ) : (
-                <div style={s.briefArchiveGrid}>
-                  {reportRuns.map(run => (
-                    <div
-                      key={run.id}
-                      onClick={() => setCurrentReportRun(run)}
-                      style={s.briefArchiveCard}
-                    >
-                      <div style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>
-                        {new Date(run.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                      </div>
-                      <div style={{ fontSize: '13px', fontWeight: 600, color: '#e2e8f0', marginBottom: '4px' }}>
-                        {run.config?.name || run.title || 'Report'}
-                      </div>
-                      <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-                        {run.summary || 'No summary'}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
 
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>

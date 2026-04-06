@@ -2,15 +2,8 @@ import React from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import AuthPage from './pages/AuthPage';
 import AppLayout from './pages/AppLayout';
-import SubscribePage from './pages/SubscribePage';
-
 function AppContent() {
   const { user, profile, loading, signOut, isPasswordRecovery } = useAuth();
-
-  // Public routes — no auth required
-  if (window.location.pathname.startsWith('/subscribe')) {
-    return <SubscribePage />;
-  }
 
   if (loading) {
     return (

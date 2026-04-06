@@ -4,7 +4,6 @@ import Teleprompter from './tools/Teleprompter';
 import Organize from './tools/Organize';
 import PostShow from './tools/PostShow';
 import Telestration from './tools/Telestration';
-import ReportBuilder from './tools/ReportBuilder';
 
 const TOOLS = [
   {
@@ -45,13 +44,7 @@ const TOOLS = [
     description: 'Video annotation tool for drawing over footage frame-by-frame. Break down plays, highlight technique, and export.',
     color: '#38bdf8',
   },
-  {
-    key: 'report-builder',
-    name: 'Report Builder',
-    description: 'Configure recurring AI reports with custom data sources, prompts, and delivery.',
-    color: '#f97316',
-  },
-  {
+{
     key: 'screenwriter',
     name: 'Screenwriter',
     description: 'Industry-standard screenplay editor with scene navigation, character manager, and FDX/PDF export.',
@@ -89,9 +82,6 @@ export default function Tools({ onNavigate }) {
   }
   if (activeTool === 'telestration') {
     return <Telestration onBack={() => setActiveTool(null)} />;
-  }
-  if (activeTool === 'report-builder') {
-    return <ReportBuilder onBack={() => setActiveTool(null)} />;
   }
 
   return (
