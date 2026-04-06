@@ -4,8 +4,8 @@ import { tritonSupabase } from '../tritonClient';
 import { useAuth } from '../contexts/AuthContext';
 
 
-const SECTIONS = ['inbox', 'briefs', 'cards', 'news', 'trends'];
-const SECTION_LABELS = { inbox: 'Inbox', briefs: 'Briefs', cards: 'Cards', news: 'News', trends: 'Trends' };
+const SECTIONS = ['inbox', 'daily', 'briefs', 'cards', 'news', 'trends'];
+const SECTION_LABELS = { inbox: 'Inbox', daily: 'Daily', briefs: 'Briefs', cards: 'Cards', news: 'News', trends: 'Trends' };
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
@@ -57,6 +57,13 @@ export default function Research() {
   const [currentTrendDate, setCurrentTrendDate] = useState(null);
   const [trendLoading, setTrendLoading] = useState(false);
   const [regeneratingTrends, setRegeneratingTrends] = useState(false);
+
+  // Daily graphics state
+  const [dailyGraphics, setDailyGraphics] = useState([]); // { type, date, url }
+  const [dailyGraphicsDate, setDailyGraphicsDate] = useState(null);
+  const [dailyDates, setDailyDates] = useState([]); // sorted desc
+  const [dailyLoading, setDailyLoading] = useState(false);
+  const [selectedGraphic, setSelectedGraphic] = useState(null);
 
 
   // Inbox state
@@ -379,6 +386,48 @@ export default function Research() {
   }, [currentTrendDate, trends]);
 
 
+  // Daily graphics fetching
+  const fetchDailyDates = useCallback(async () => {
+    try {
+      const res = await fetch('https://tritonapex.io/api/daily-graphics?list=true');
+      if (!res.ok) return;
+      const json = await res.json();
+      if (json.dates) {
+        const sorted = Object.keys(json.dates).sort((a, b) => b.localeCompare(a));
+        setDailyDates(sorted);
+        if (sorted.length > 0 && !dailyGraphicsDate) {
+          setDailyGraphicsDate(sorted[0]);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching daily graphics dates:', err);
+    }
+  }, [dailyGraphicsDate]);
+
+  const DAILY_GRAPHIC_TYPES = ['ig-starter-card', 'trends', 'yesterday-scores', 'top-pitchers', 'top-performances'];
+
+  const fetchDailyGraphics = useCallback(async (date) => {
+    if (!date) return;
+    setDailyLoading(true);
+    try {
+      const graphics = DAILY_GRAPHIC_TYPES.map(type => ({
+        type,
+        date,
+        url: `https://tritonapex.io/api/daily-graphics?date=${date}&type=${type}`,
+      }));
+      setDailyGraphics(graphics);
+    } catch (err) {
+      console.error('Error fetching daily graphics:', err);
+      setDailyGraphics([]);
+    } finally {
+      setDailyLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (dailyGraphicsDate) fetchDailyGraphics(dailyGraphicsDate);
+  }, [dailyGraphicsDate, fetchDailyGraphics]);
+
   // Inbox state fetching
   const fetchInboxState = useCallback(async () => {
     try {
@@ -492,14 +541,14 @@ export default function Research() {
 
   useEffect(() => {
     const timeout = setTimeout(() => setLoading(false), 5000);
-    Promise.all([fetchArticles(), fetchBriefs(), fetchCardsArchive(), fetchCardsConfig(), fetchTrends(), fetchInboxState()])
+    Promise.all([fetchArticles(), fetchBriefs(), fetchCardsArchive(), fetchCardsConfig(), fetchTrends(), fetchDailyDates(), fetchInboxState()])
       .finally(() => { setLoading(false); clearTimeout(timeout); });
     return () => clearTimeout(timeout);
-  }, [fetchArticles, fetchBriefs, fetchCardsArchive, fetchCardsConfig, fetchTrends, fetchInboxState, refreshKey]);
+  }, [fetchArticles, fetchBriefs, fetchCardsArchive, fetchCardsConfig, fetchTrends, fetchDailyDates, fetchInboxState, refreshKey]);
 
   async function handleRefresh() {
     setRefreshing(true);
-    await Promise.all([fetchArticles(), fetchBriefs(), fetchCardsArchive(), fetchCardsConfig(), fetchTrends(), fetchInboxState()]);
+    await Promise.all([fetchArticles(), fetchBriefs(), fetchCardsArchive(), fetchCardsConfig(), fetchTrends(), fetchDailyDates(), fetchInboxState()]);
     setRefreshing(false);
   }
 
@@ -669,6 +718,117 @@ export default function Research() {
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5"><path d="M6 3l5 5-5 5" /></svg>
                   </div>
                 ))
+              )}
+            </div>
+          )}
+
+          {/* Daily Graphics Section */}
+          {section === 'daily' && (
+            <div>
+              {dailyGraphicsDate && (
+                <div style={s.briefDateNav}>
+                  <button
+                    onClick={() => {
+                      const idx = dailyDates.indexOf(dailyGraphicsDate);
+                      if (idx < dailyDates.length - 1) setDailyGraphicsDate(dailyDates[idx + 1]);
+                    }}
+                    disabled={dailyDates.indexOf(dailyGraphicsDate) >= dailyDates.length - 1}
+                    style={s.briefNavBtn}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 3L5 8l5 5" /></svg>
+                  </button>
+                  <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
+                    {new Date(dailyGraphicsDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' })}
+                  </span>
+                  <button
+                    onClick={() => {
+                      const idx = dailyDates.indexOf(dailyGraphicsDate);
+                      if (idx > 0) setDailyGraphicsDate(dailyDates[idx - 1]);
+                    }}
+                    disabled={dailyDates.indexOf(dailyGraphicsDate) <= 0}
+                    style={s.briefNavBtn}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 3l5 5-5 5" /></svg>
+                  </button>
+                </div>
+              )}
+
+              {dailyLoading ? (
+                <div style={s.dailyGrid}>
+                  {[1,2,3,4,5].map(i => (
+                    <div key={i} style={{ aspectRatio: '1080/1350', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }} />
+                  ))}
+                </div>
+              ) : dailyGraphics.length > 0 ? (
+                <div style={s.dailyGrid}>
+                  {dailyGraphics.map(g => (
+                    <div
+                      key={g.type}
+                      onClick={() => setSelectedGraphic(g)}
+                      style={s.dailyCard}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'; e.currentTarget.style.transform = 'scale(1.02)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.transform = 'scale(1)'; }}
+                    >
+                      <img
+                        src={g.url}
+                        alt={g.type}
+                        style={{ width: '100%', display: 'block', borderRadius: '12px 12px 0 0' }}
+                        loading="lazy"
+                      />
+                      <div style={s.dailyCardLabel}>
+                        {g.type.replace(/-/g, ' ')}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : dailyGraphicsDate ? (
+                <div style={s.emptyState}>No graphics available for this date.</div>
+              ) : (
+                <div style={s.emptyState}>No daily graphics available.</div>
+              )}
+
+              {dailyDates.length > 1 && (
+                <div style={{ marginTop: '32px' }}>
+                  <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#fff', marginBottom: '16px' }}>Archive</h3>
+                  <div style={s.briefArchiveGrid}>
+                    {dailyDates.map(date => (
+                      <div
+                        key={date}
+                        onClick={() => setDailyGraphicsDate(date)}
+                        style={{
+                          ...s.briefArchiveCard,
+                          ...(date === dailyGraphicsDate ? s.briefArchiveCardActive : {}),
+                        }}
+                      >
+                        <div style={{ fontSize: '13px', fontWeight: 600, color: '#e2e8f0' }}>
+                          {new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Lightbox */}
+              {selectedGraphic && (
+                <div
+                  style={s.dailyLightbox}
+                  onClick={() => setSelectedGraphic(null)}
+                >
+                  <div style={s.dailyLightboxInner} onClick={e => e.stopPropagation()}>
+                    <button onClick={() => setSelectedGraphic(null)} style={s.dailyLightboxClose}>
+                      <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4l8 8M12 4l-8 8" /></svg>
+                    </button>
+                    <img
+                      src={selectedGraphic.url}
+                      alt={selectedGraphic.type}
+                      style={{ maxWidth: '100%', maxHeight: '85vh', borderRadius: '12px', display: 'block' }}
+                    />
+                    <div style={{ textAlign: 'center', marginTop: '12px', fontSize: '14px', fontWeight: 600, color: 'rgba(255,255,255,0.7)', textTransform: 'capitalize' }}>
+                      {selectedGraphic.type.replace(/-/g, ' ')}
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
           )}
@@ -1917,5 +2077,54 @@ const s = {
     cursor: 'pointer',
     fontFamily: 'inherit',
     flexShrink: 0,
+  },
+  // Daily graphics styles
+  dailyGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+    gap: '16px',
+  },
+  dailyCard: {
+    cursor: 'pointer',
+    borderRadius: '12px',
+    overflow: 'hidden',
+    border: '1px solid rgba(255,255,255,0.08)',
+    transition: 'border-color 0.2s, transform 0.2s',
+    background: 'rgba(255,255,255,0.02)',
+  },
+  dailyCardLabel: {
+    padding: '10px 14px',
+    fontSize: '13px',
+    fontWeight: 600,
+    color: '#e2e8f0',
+    textTransform: 'capitalize',
+    background: 'rgba(255,255,255,0.02)',
+  },
+  dailyLightbox: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    background: 'rgba(0,0,0,0.85)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+    padding: '40px',
+  },
+  dailyLightboxInner: {
+    position: 'relative',
+    maxWidth: '500px',
+  },
+  dailyLightboxClose: {
+    position: 'absolute',
+    top: '-40px',
+    right: '0',
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.7)',
+    cursor: 'pointer',
+    padding: '4px',
   },
 };
