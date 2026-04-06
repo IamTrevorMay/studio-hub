@@ -156,6 +156,107 @@ export async function fetchSupabaseSource(
   };
 }
 
+// ─── Triton Brief Source ─────────────────────────────────────
+// Fetches the latest brief from the Triton Supabase `briefs` table.
+// Requires env vars: TRITON_SUPABASE_URL, TRITON_SUPABASE_SERVICE_ROLE_KEY.
+
+export async function fetchTritonBriefSource(
+  _adminClient: ReturnType<typeof createClient>,
+  config: { date?: string },
+): Promise<SourceResult> {
+  const tritonUrl = Deno.env.get("TRITON_SUPABASE_URL");
+  const tritonKey = Deno.env.get("TRITON_SUPABASE_SERVICE_ROLE_KEY");
+  if (!tritonUrl || !tritonKey) {
+    return {
+      variables: {
+        brief_title: "(Triton not configured)",
+        brief_summary: "",
+        brief_content: "",
+        brief_badges: "",
+        brief_date: "",
+      },
+      sourceCount: 0,
+    };
+  }
+
+  const tritonClient = createClient(tritonUrl, tritonKey);
+  let query = tritonClient
+    .from("briefs")
+    .select("id, date, title, summary, content, metadata")
+    .order("date", { ascending: false })
+    .limit(1);
+
+  if (config.date) {
+    query = tritonClient
+      .from("briefs")
+      .select("id, date, title, summary, content, metadata")
+      .eq("date", config.date)
+      .limit(1);
+  }
+
+  const { data } = await query;
+  const brief = data?.[0];
+  if (!brief) {
+    return {
+      variables: {
+        brief_title: "(No brief available)",
+        brief_summary: "",
+        brief_content: "",
+        brief_badges: "",
+        brief_date: "",
+      },
+      sourceCount: 0,
+    };
+  }
+
+  const badges: string[] = [];
+  const meta = (brief as any).metadata || {};
+  if (meta.finished_count !== undefined) {
+    badges.push(
+      `<span style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.5);background:rgba(255,255,255,0.06);padding:3px 8px;border-radius:4px;">${meta.finished_count || 0} games</span>`,
+    );
+  }
+  if (meta.is_off_day) {
+    badges.push(
+      `<span style="font-size:11px;font-weight:600;color:#f59e0b;background:rgba(245,158,11,0.1);padding:3px 8px;border-radius:4px;">Off Day</span>`,
+    );
+  }
+  const badgesHtml = badges.length
+    ? `<div style="display:flex;gap:8px;margin-top:10px;">${badges.join("")}</div>`
+    : "";
+
+  return {
+    variables: {
+      brief_title: brief.title || "Daily Brief",
+      brief_summary: brief.summary || "",
+      brief_content: brief.content || "",
+      brief_badges: badgesHtml,
+      brief_date: brief.date || "",
+    },
+    sourceCount: 1,
+  };
+}
+
+// ─── Section dispatcher ──────────────────────────────────────
+
+export async function fetchSectionSource(
+  adminClient: ReturnType<typeof createClient>,
+  source: DataSource,
+): Promise<SourceResult> {
+  switch (source.type) {
+    case "rss":
+      return fetchRssSource(adminClient, source.config || {});
+    case "triton_api":
+      return fetchTritonSource(source.config || {});
+    case "triton_brief":
+      return fetchTritonBriefSource(adminClient, source.config || {});
+    case "supabase_query":
+      return fetchSupabaseSource(adminClient, source.config || {});
+    default:
+      return { variables: {}, sourceCount: 0 };
+  }
+}
+
 // ─── Multi-Source Fetcher ────────────────────────────────────
 
 export async function fetchAllSources(
@@ -166,20 +267,7 @@ export async function fetchAllSources(
   let totalSourceCount = 0;
 
   for (const source of dataSources) {
-    let result: SourceResult;
-    switch (source.type) {
-      case "rss":
-        result = await fetchRssSource(adminClient, source.config || {});
-        break;
-      case "triton_api":
-        result = await fetchTritonSource(source.config || {});
-        break;
-      case "supabase_query":
-        result = await fetchSupabaseSource(adminClient, source.config || {});
-        break;
-      default:
-        continue;
-    }
+    const result = await fetchSectionSource(adminClient, source);
     Object.assign(mergedVars, result.variables);
     totalSourceCount += result.sourceCount;
   }
