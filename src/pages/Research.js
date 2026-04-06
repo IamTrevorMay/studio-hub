@@ -4,8 +4,8 @@ import { tritonSupabase } from '../tritonClient';
 import { useAuth } from '../contexts/AuthContext';
 
 
-const SECTIONS = ['inbox', 'daily', 'briefs', 'cards', 'news', 'trends'];
-const SECTION_LABELS = { inbox: 'Inbox', daily: 'Daily', briefs: 'Briefs', cards: 'Cards', news: 'News', trends: 'Trends' };
+const SECTIONS = ['inbox', 'briefs', 'cards', 'news', 'trends', 'daily'];
+const SECTION_LABELS = { inbox: 'Inbox', briefs: 'Briefs', cards: 'Cards', news: 'News', trends: 'Trends', daily: 'Daily' };
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
@@ -64,6 +64,7 @@ export default function Research() {
   const [dailyDates, setDailyDates] = useState([]); // sorted desc
   const [dailyLoading, setDailyLoading] = useState(false);
   const [selectedGraphic, setSelectedGraphic] = useState(null);
+  const [regeneratingDaily, setRegeneratingDaily] = useState(false);
 
 
   // Inbox state
@@ -159,6 +160,28 @@ export default function Research() {
       setRegenerateError(err.message);
     } finally {
       setRegeneratingCards(false);
+    }
+  };
+
+  const handleRegenerateDaily = async () => {
+    setRegeneratingDaily(true);
+    try {
+      const res = await fetch(
+        `https://ytfjkoxowfskuibdsfea.supabase.co/functions/v1/fetch-daily-graphics?secret=${process.env.REACT_APP_CRON_SECRET || '300897BA-1E26-4328-97E8-FFB11BCF2C6D'}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || `Server error ${res.status}`);
+      await fetchDailyDates();
+      if (json.date) {
+        setDailyGraphicsDate(json.date);
+        await fetchDailyGraphics(json.date);
+      }
+    } catch (err) {
+      console.error('Error regenerating daily graphics:', err);
+      alert('Failed to regenerate daily graphics: ' + err.message);
+    } finally {
+      setRegeneratingDaily(false);
     }
   };
 
@@ -748,6 +771,13 @@ export default function Research() {
                     style={s.briefNavBtn}
                   >
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 3l5 5-5 5" /></svg>
+                  </button>
+                  <button onClick={handleRegenerateDaily} disabled={regeneratingDaily} style={{ ...s.briefActionBtn, marginLeft: 'auto', opacity: regeneratingDaily ? 0.5 : 1 }}>
+                    {regeneratingDaily ? (
+                      <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite', marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Fetching…</>
+                    ) : (
+                      <><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '4px' }}><path d="M14 8a6 6 0 11-1.5-4" /><path d="M14 2v4h-4" /></svg>Regenerate</>
+                    )}
                   </button>
                 </div>
               )}
