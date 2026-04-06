@@ -386,17 +386,18 @@ export default function Research() {
   }, [currentTrendDate, trends]);
 
 
-  // Daily graphics fetching
+  // Daily graphics fetching (from local cache table, populated by cron)
   const fetchDailyDates = useCallback(async () => {
     try {
-      const res = await fetch('https://tritonapex.io/api/daily-graphics?list=true');
-      if (!res.ok) return;
-      const json = await res.json();
-      if (json.dates) {
-        const sorted = Object.keys(json.dates).sort((a, b) => b.localeCompare(a));
-        setDailyDates(sorted);
-        if (sorted.length > 0 && !dailyGraphicsDate) {
-          setDailyGraphicsDate(sorted[0]);
+      const { data, error } = await supabase
+        .from('daily_graphics')
+        .select('date')
+        .order('date', { ascending: false });
+      if (!error && data) {
+        const unique = [...new Set(data.map(r => r.date))];
+        setDailyDates(unique);
+        if (unique.length > 0 && !dailyGraphicsDate) {
+          setDailyGraphicsDate(unique[0]);
         }
       }
     } catch (err) {
@@ -404,18 +405,16 @@ export default function Research() {
     }
   }, [dailyGraphicsDate]);
 
-  const DAILY_GRAPHIC_TYPES = ['ig-starter-card', 'trends', 'yesterday-scores', 'top-pitchers', 'top-performances'];
-
   const fetchDailyGraphics = useCallback(async (date) => {
     if (!date) return;
     setDailyLoading(true);
     try {
-      const graphics = DAILY_GRAPHIC_TYPES.map(type => ({
-        type,
-        date,
-        url: `https://tritonapex.io/api/daily-graphics?date=${date}&type=${type}`,
-      }));
-      setDailyGraphics(graphics);
+      const { data, error } = await supabase
+        .from('daily_graphics')
+        .select('*')
+        .eq('date', date)
+        .order('id', { ascending: true });
+      if (!error) setDailyGraphics(data || []);
     } catch (err) {
       console.error('Error fetching daily graphics:', err);
       setDailyGraphics([]);
