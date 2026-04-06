@@ -398,12 +398,12 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
   // ── Start sprint for a week ──
   async function startSprint(week) {
     if (!profile?.id) return;
-    const { error } = await supabase.from('sprints').insert({
+    const { data: newSprint, error } = await supabase.from('sprints').insert({
       user_id: profile.id,
       start_date: week.start,
       end_date: week.end,
       status: 'active',
-    });
+    }).select('id').single();
     if (error) {
       console.error('Error starting sprint:', error);
       // If unique constraint, re-fetch to show existing sprint
@@ -411,6 +411,28 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
       fetchPlanSprint();
       return;
     }
+
+    // Carry over incomplete tasks from the most recent previous sprint
+    if (newSprint) {
+      const { data: prevSprint } = await supabase
+        .from('sprints')
+        .select('id')
+        .eq('user_id', profile.id)
+        .neq('id', newSprint.id)
+        .order('start_date', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (prevSprint) {
+        await supabase
+          .from('personal_tasks')
+          .update({ sprint_id: newSprint.id, updated_at: new Date().toISOString() })
+          .eq('sprint_id', prevSprint.id)
+          .eq('created_by', profile.id)
+          .neq('status', 'done');
+      }
+    }
+
     if (week.start === selectedWeek.start) {
       fetchSprintForWeek();
     }
@@ -418,6 +440,7 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
       fetchPlanSprint();
       setPlanExpanded(false);
     }
+    fetchTasks();
     if (onBoardChange) onBoardChange();
   }
 
