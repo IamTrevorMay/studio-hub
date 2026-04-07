@@ -22,6 +22,7 @@ const PROJECT_TYPES = [
   { value: 'substack_article', label: 'Substack Article' },
   { value: 'other', label: 'Other' },
 ];
+const CHANNELS = ['Trevor May Baseball', 'More Mayday', 'AWA Wiffle'];
 const ASSIGNMENT_ROLES = ['producer', 'writer', 'editor', 'designer', 'reviewer', 'other'];
 
 const SHORTS_STAGES = ['editing', 'ready_to_post', 'posted'];
@@ -1119,12 +1120,14 @@ export default function Projects({ onNavigate }) {
             </div>
             <div style={styles.field}>
               <label style={styles.label}>Channel</label>
-              <input
+              <select
                 value={form.channel}
                 onChange={(e) => setForm({ ...form, channel: e.target.value })}
-                placeholder="e.g. Main YouTube, TikTok"
                 style={styles.input}
-              />
+              >
+                <option value="">Select channel...</option>
+                {CHANNELS.map((ch) => <option key={ch} value={ch}>{ch}</option>)}
+              </select>
             </div>
             <div style={styles.field}>
               <label style={styles.label}>Status</label>
@@ -2286,15 +2289,16 @@ function ProjectRow({
               <div style={{ flex: 1, minWidth: '140px' }}>
                 <label style={styles.detailLabel}>Channel</label>
                 {editingField === 'channel' ? (
-                  <input
+                  <select
                     value={editChannel}
-                    onChange={(e) => setEditChannel(e.target.value)}
+                    onChange={(e) => { setEditChannel(e.target.value); }}
                     onBlur={() => { if (editChannel !== project.channel) saveField('channel', editChannel); else setEditingField(null); }}
-                    onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { setEditChannel(project.channel || ''); setEditingField(null); } }}
                     style={styles.inlineInput}
-                    placeholder="e.g. Main, Clips..."
                     autoFocus
-                  />
+                  >
+                    <option value="">No channel</option>
+                    {CHANNELS.map((ch) => <option key={ch} value={ch}>{ch}</option>)}
+                  </select>
                 ) : (
                   <div onClick={() => { setEditChannel(project.channel || ''); setEditingField('channel'); }} style={styles.inlineDisplay}>
                     {project.channel || <span style={{ color: 'rgba(255,255,255,0.2)' }}>No channel</span>}
