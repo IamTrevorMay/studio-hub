@@ -52,6 +52,16 @@ const DELIVERABLE_PLATFORMS = ['YouTube', 'TikTok', 'Instagram', 'X/Twitter', 'F
 const SPONSOR_STATUS_COLORS = { active: '#10b981', completed: '#6366f1', cancelled: '#ef4444' };
 const PAYMENT_STATUS_COLORS = { unpaid: '#ef4444', partial: '#f59e0b', paid: '#10b981' };
 
+const MAYDAY_STAGES = ['idea', 'script', 'gather_broadcast', 'editor', 'thumbnail_post', 'complete'];
+const MAYDAY_STAGE_LABELS = {
+  idea: 'Idea', script: 'Script', gather_broadcast: 'Gather Assets + Broadcast',
+  editor: 'Editor', thumbnail_post: 'Thumbnail + Post', complete: 'Complete',
+};
+const MAYDAY_STAGE_COLORS = {
+  idea: '#8b5cf6', script: '#3b82f6', gather_broadcast: '#f59e0b',
+  editor: '#f97316', thumbnail_post: '#ec4899', complete: '#22c55e',
+};
+
 export default function Projects({ onNavigate }) {
   const { profile, isAdmin, refreshKey } = useAuth();
   const { safeQuery } = useSupabaseQuery();
@@ -115,6 +125,21 @@ export default function Projects({ onNavigate }) {
   const [expandedSeriesId, setExpandedSeriesId] = useState(null);
   const [seriesAddProjectId, setSeriesAddProjectId] = useState(null); // seriesId to show inline create form
   const [showArchivedSection, setShowArchivedSection] = useState(false);
+
+  // Reads state
+  const [reads, setReads] = useState([]);
+  const [readsLoading, setReadsLoading] = useState(false);
+  const [showReadForm, setShowReadForm] = useState(false);
+  const [editingRead, setEditingRead] = useState(null);
+  const [readForm, setReadForm] = useState({ sponsor_id: '', payout: '', long_form: '' });
+  const [expandedReadId, setExpandedReadId] = useState(null);
+
+  // Mayday Videos state
+  const [maydayVideos, setMaydayVideos] = useState([]);
+  const [maydayLoading, setMaydayLoading] = useState(false);
+  const [showMaydayForm, setShowMaydayForm] = useState(false);
+  const [maydayForm, setMaydayForm] = useState({ title: '', sponsor_read_id: '' });
+  const [editingMayday, setEditingMayday] = useState(null);
 
   // Form state
   const [form, setForm] = useState({
@@ -544,6 +569,156 @@ export default function Projects({ onNavigate }) {
     return () => { supabase.removeChannel(channel); };
   }, [activeSection, fetchSponsors]);
 
+  // ===== Reads fetch =====
+  const fetchReads = useCallback(async () => {
+    setReadsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('sponsor_reads')
+        .select('*, sponsor:sponsors(id, name)')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      setReads(data || []);
+    } catch (err) {
+      console.error('Error fetching reads:', err);
+      setReads([]);
+    } finally {
+      setReadsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeSection !== 'sponsors' && activeSection !== 'mayday') return;
+    fetchReads();
+    const channel = supabase
+      .channel('reads-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sponsor_reads' }, () => fetchReads())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [activeSection, fetchReads]);
+
+  // ===== Mayday Videos fetch =====
+  const fetchMaydayVideos = useCallback(async () => {
+    setMaydayLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('mayday_videos')
+        .select('*, sponsor_read:sponsor_reads(id, sponsor:sponsors(id, name))')
+        .eq('is_archived', false)
+        .order('sort_order', { ascending: true });
+      if (error) throw error;
+      setMaydayVideos(data || []);
+    } catch (err) {
+      console.error('Error fetching mayday videos:', err);
+      setMaydayVideos([]);
+    } finally {
+      setMaydayLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeSection !== 'mayday') return;
+    fetchMaydayVideos();
+    const channel = supabase
+      .channel('mayday-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'mayday_videos' }, () => fetchMaydayVideos())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [activeSection, fetchMaydayVideos]);
+
+  // ===== Read handlers =====
+  async function handleSaveRead(e) {
+    e.preventDefault();
+    const payload = {
+      sponsor_id: readForm.sponsor_id,
+      payout: readForm.payout ? parseFloat(readForm.payout) : null,
+      long_form: readForm.long_form || null,
+      updated_at: new Date().toISOString(),
+    };
+    if (editingRead) {
+      const { error } = await supabase.from('sponsor_reads').update(payload).eq('id', editingRead.id);
+      if (error) { alert('Error updating read: ' + error.message); return; }
+    } else {
+      payload.created_by = profile.id;
+      const { error } = await supabase.from('sponsor_reads').insert(payload);
+      if (error) { alert('Error creating read: ' + error.message); return; }
+    }
+    resetReadForm();
+    fetchReads();
+  }
+
+  async function handleDeleteRead(readId) {
+    if (!window.confirm('Delete this read?')) return;
+    await supabase.from('sponsor_reads').delete().eq('id', readId);
+    fetchReads();
+  }
+
+  function startEditRead(read) {
+    setEditingRead(read);
+    setReadForm({ sponsor_id: read.sponsor_id, payout: read.payout || '', long_form: read.long_form || '' });
+    setShowReadForm(true);
+  }
+
+  function resetReadForm() {
+    setReadForm({ sponsor_id: '', payout: '', long_form: '' });
+    setEditingRead(null);
+    setShowReadForm(false);
+  }
+
+  // ===== Mayday handlers =====
+  async function handleCreateMayday(e) {
+    e.preventDefault();
+    const { error } = await supabase.from('mayday_videos').insert({
+      title: maydayForm.title,
+      sponsor_read_id: maydayForm.sponsor_read_id || null,
+      created_by: profile.id,
+    });
+    if (error) { alert('Error creating video: ' + error.message); return; }
+    setMaydayForm({ title: '', sponsor_read_id: '' });
+    setShowMaydayForm(false);
+    fetchMaydayVideos();
+  }
+
+  async function handleUpdateMayday(videoId, updates) {
+    const { error } = await supabase.from('mayday_videos').update({
+      ...updates, updated_at: new Date().toISOString(),
+    }).eq('id', videoId);
+    if (error) console.error('Error updating mayday video:', error);
+    fetchMaydayVideos();
+  }
+
+  async function handleDeleteMayday(videoId) {
+    if (!window.confirm('Delete this video?')) return;
+    await supabase.from('mayday_videos').delete().eq('id', videoId);
+    fetchMaydayVideos();
+  }
+
+  function onMaydayDragEnd(result) {
+    if (!result.destination) return;
+    const { draggableId, source, destination } = result;
+    const newStage = destination.droppableId;
+    const video = maydayVideos.find(v => v.id === draggableId);
+    if (!video) return;
+
+    if (video.stage !== newStage) {
+      handleUpdateMayday(draggableId, { stage: newStage });
+    } else {
+      // Reorder within column
+      const columnItems = maydayVideos.filter(v => v.stage === newStage).sort((a, b) => a.sort_order - b.sort_order);
+      const oldIndex = columnItems.findIndex(v => v.id === draggableId);
+      if (oldIndex === destination.index) return;
+      const reordered = [...columnItems];
+      const [moved] = reordered.splice(oldIndex, 1);
+      reordered.splice(destination.index, 0, moved);
+      reordered.forEach((item, idx) => {
+        if (item.sort_order !== idx) {
+          supabase.from('mayday_videos').update({ sort_order: idx }).eq('id', item.id).then();
+        }
+      });
+      fetchMaydayVideos();
+    }
+  }
+
   function resetSponsorForm() {
     setSponsorName('');
     setSponsorNotes('');
@@ -950,6 +1125,7 @@ export default function Projects({ onNavigate }) {
   const editingCount = shorts.filter(s => s.stage === 'editing').length;
   const readyCount = shorts.filter(s => s.stage === 'ready_to_post').length;
   const activeSponsorsCount = sponsors.filter(s => s.status === 'active').length;
+  const activeMaydayCount = maydayVideos.filter(v => v.stage !== 'complete').length;
 
   function renderDeliverableRow(d, sponsor) {
     const isDetailExpanded = expandedDeliverableId === d.id;
@@ -1049,6 +1225,18 @@ export default function Projects({ onNavigate }) {
             ...(activeSection === 'projects' ? styles.sectionTabActive : {}),
           }}
         >Projects</button>
+        <button
+          onClick={() => setActiveSection('mayday')}
+          style={{
+            ...styles.sectionTab,
+            ...(activeSection === 'mayday' ? styles.sectionTabActive : {}),
+          }}
+        >
+          Mayday
+          {activeMaydayCount > 0 && (
+            <span style={styles.sectionTabBadge}>{activeMaydayCount}</span>
+          )}
+        </button>
         <button
           onClick={() => setActiveSection('shorts')}
           style={{
@@ -1498,6 +1686,128 @@ export default function Projects({ onNavigate }) {
           </div>
         )}
         </>
+      )}
+      </>
+      )}
+
+      {activeSection === 'mayday' && (
+      /* ====== MAYDAY VIDEOS SECTION ====== */
+      <>
+      <div style={styles.topBar}>
+        <div>
+          <h1 style={styles.pageTitle}>Mayday Videos</h1>
+          <p style={styles.pageSubtitle}>
+            {activeMaydayCount} active · {maydayVideos.filter(v => v.stage === 'complete').length} complete
+          </p>
+        </div>
+        <button onClick={() => setShowMaydayForm(!showMaydayForm)} style={styles.addBtn}>
+          {showMaydayForm ? '✕ Cancel' : '+ Add Video'}
+        </button>
+      </div>
+
+      {showMaydayForm && (
+        <form onSubmit={handleCreateMayday} style={styles.formCard}>
+          <div style={styles.formGrid}>
+            <div style={styles.field}>
+              <label style={styles.label}>Title *</label>
+              <input
+                value={maydayForm.title}
+                onChange={(e) => setMaydayForm({ ...maydayForm, title: e.target.value })}
+                placeholder="e.g. Behind the scenes at spring training"
+                required
+                style={styles.input}
+              />
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Sponsor Read</label>
+              <select
+                value={maydayForm.sponsor_read_id}
+                onChange={(e) => setMaydayForm({ ...maydayForm, sponsor_read_id: e.target.value })}
+                style={styles.select}
+              >
+                <option value="">None</option>
+                {reads.map(r => (
+                  <option key={r.id} value={r.id}>
+                    {r.sponsor?.name || 'Unknown'}{r.payout ? ` — $${parseFloat(r.payout).toLocaleString()}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <button type="submit" style={styles.submitBtn}>Add Video</button>
+        </form>
+      )}
+
+      {maydayLoading ? (
+        <p style={styles.emptyText}>Loading videos...</p>
+      ) : (
+        <DragDropContext onDragEnd={onMaydayDragEnd}>
+          <div style={styles.shortsBoardContainer}>
+            {MAYDAY_STAGES.map(stage => {
+              const stageVideos = maydayVideos.filter(v => v.stage === stage).sort((a, b) => a.sort_order - b.sort_order);
+              return (
+                <Droppable droppableId={stage} key={stage}>
+                  {(provided, snapshot) => (
+                    <div
+                      ref={provided.innerRef}
+                      {...provided.droppableProps}
+                      style={{
+                        ...styles.shortsColumn,
+                        background: snapshot.isDraggingOver
+                          ? `${MAYDAY_STAGE_COLORS[stage]}08`
+                          : 'rgba(255,255,255,0.02)',
+                        minWidth: '180px',
+                      }}
+                    >
+                      <div style={styles.shortsColumnHeader}>
+                        <div style={{ ...styles.boardColumnDot, background: MAYDAY_STAGE_COLORS[stage] }} />
+                        <span style={{ ...styles.boardColumnTitle, color: MAYDAY_STAGE_COLORS[stage], fontSize: '11px' }}>
+                          {MAYDAY_STAGE_LABELS[stage]}
+                        </span>
+                        <span style={styles.boardColumnCount}>{stageVideos.length}</span>
+                      </div>
+                      <div style={styles.boardColumnBody}>
+                        {stageVideos.map((video, index) => (
+                          <Draggable key={video.id} draggableId={video.id} index={index}>
+                            {(provided, snapshot) => (
+                              <div
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                {...provided.dragHandleProps}
+                                style={{
+                                  ...styles.kanbanCard,
+                                  ...(snapshot.isDragging ? { boxShadow: '0 8px 24px rgba(0,0,0,0.4)', border: '1px solid rgba(99,102,241,0.3)' } : {}),
+                                  ...provided.draggableProps.style,
+                                }}
+                              >
+                                <MaydayCard
+                                  video={video}
+                                  reads={reads}
+                                  onUpdate={(updates) => handleUpdateMayday(video.id, updates)}
+                                  onDelete={() => handleDeleteMayday(video.id)}
+                                  isEditing={editingMayday === video.id}
+                                  onToggleEdit={() => setEditingMayday(editingMayday === video.id ? null : video.id)}
+                                />
+                              </div>
+                            )}
+                          </Draggable>
+                        ))}
+                        {provided.placeholder}
+                        {stageVideos.length === 0 && (
+                          <div style={styles.shortsEmptyColumn}>
+                            <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.2)', margin: 0 }}>
+                              No videos
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </Droppable>
+              );
+            })}
+          </div>
+        </DragDropContext>
       )}
       </>
       )}
@@ -2089,6 +2399,145 @@ export default function Projects({ onNavigate }) {
           </div>
         </DragDropContext>
       )}
+
+      {/* ====== READS SECTION ====== */}
+      <div style={{ marginTop: '40px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#fff' }}>Reads</h2>
+            <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'rgba(255,255,255,0.4)' }}>
+              {reads.length} read{reads.length !== 1 ? 's' : ''}
+              {reads.length > 0 && (() => {
+                const total = reads.reduce((sum, r) => sum + (parseFloat(r.payout) || 0), 0);
+                return total > 0 ? ` · $${total.toLocaleString()} total` : '';
+              })()}
+            </p>
+          </div>
+          <button onClick={() => { resetReadForm(); setShowReadForm(!showReadForm); }} style={styles.addBtn}>
+            {showReadForm && !editingRead ? '✕ Cancel' : '+ Add Read'}
+          </button>
+        </div>
+
+        {showReadForm && (
+          <form onSubmit={handleSaveRead} style={styles.formCard}>
+            <div style={styles.formGrid}>
+              <div style={styles.field}>
+                <label style={styles.label}>Sponsor *</label>
+                <select
+                  value={readForm.sponsor_id}
+                  onChange={(e) => setReadForm({ ...readForm, sponsor_id: e.target.value })}
+                  required
+                  style={styles.select}
+                >
+                  <option value="">Select sponsor...</option>
+                  {sponsors.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={styles.field}>
+                <label style={styles.label}>Payout ($)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={readForm.payout}
+                  onChange={(e) => setReadForm({ ...readForm, payout: e.target.value })}
+                  placeholder="0.00"
+                  style={styles.input}
+                />
+              </div>
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Ad Copy / Script</label>
+              <textarea
+                value={readForm.long_form}
+                onChange={(e) => setReadForm({ ...readForm, long_form: e.target.value })}
+                placeholder="Full ad copy or talking points..."
+                rows={4}
+                style={{ ...styles.input, resize: 'vertical' }}
+              />
+            </div>
+            <button type="submit" style={styles.submitBtn}>{editingRead ? 'Update Read' : 'Add Read'}</button>
+          </form>
+        )}
+
+        {readsLoading ? (
+          <p style={styles.emptyText}>Loading reads...</p>
+        ) : reads.length === 0 ? (
+          <div style={styles.emptyCard}>
+            <p style={styles.emptyText}>No reads yet. Add one to track sponsor ad copy.</p>
+          </div>
+        ) : (
+          <div style={styles.projectList}>
+            {reads.map(read => {
+              const isExpanded = expandedReadId === read.id;
+              const linkedVideos = maydayVideos.filter(v => v.sponsor_read_id === read.id);
+              return (
+                <div key={read.id} style={styles.sponsorCard}>
+                  <div style={styles.sponsorCardHeader} onClick={() => setExpandedReadId(isExpanded ? null : read.id)}>
+                    <div style={styles.projectRowLeft}>
+                      <span style={{ fontSize: '18px' }}>📖</span>
+                      <div>
+                        <div style={styles.projectRowName}>{read.sponsor?.name || 'Unknown Sponsor'}</div>
+                        <div style={styles.projectRowMeta}>
+                          {read.payout ? `$${parseFloat(read.payout).toLocaleString()}` : 'No payout set'}
+                          {linkedVideos.length > 0 && ` · ${linkedVideos.length} video${linkedVideos.length !== 1 ? 's' : ''}`}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={styles.projectRowRight}>
+                      {read.payout && (
+                        <span style={{ ...styles.paymentBadge, background: 'rgba(34,197,94,0.1)', color: '#22c55e' }}>
+                          ${parseFloat(read.payout).toLocaleString()}
+                        </span>
+                      )}
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="rgba(255,255,255,0.3)"
+                        style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>
+                        <path d="M4 6l4 4 4-4" />
+                      </svg>
+                    </div>
+                  </div>
+
+                  {isExpanded && (
+                    <div style={styles.projectDetail}>
+                      {read.long_form && (
+                        <div style={styles.detailSection}>
+                          <h4 style={styles.detailLabel}>Ad Copy</h4>
+                          <p style={{ margin: 0, fontSize: '13px', color: 'rgba(255,255,255,0.6)', whiteSpace: 'pre-wrap' }}>{read.long_form}</p>
+                        </div>
+                      )}
+
+                      {linkedVideos.length > 0 && (
+                        <div style={styles.detailSection}>
+                          <h4 style={styles.detailLabel}>Linked Videos</h4>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {linkedVideos.map(v => (
+                              <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', borderRadius: '8px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)' }}>
+                                <span style={{ fontSize: '13px', color: '#fff', flex: 1 }}>{v.title}</span>
+                                <span style={{
+                                  fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '4px',
+                                  textTransform: 'uppercase', letterSpacing: '0.3px',
+                                  background: `${MAYDAY_STAGE_COLORS[v.stage]}15`,
+                                  color: MAYDAY_STAGE_COLORS[v.stage],
+                                }}>{MAYDAY_STAGE_LABELS[v.stage]}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                        <button onClick={() => startEditRead(read)} style={{ ...styles.addBtn, fontSize: '12px', padding: '6px 12px' }}>Edit</button>
+                        <button onClick={() => handleDeleteRead(read.id)} style={{ ...styles.addBtn, fontSize: '12px', padding: '6px 12px', background: 'rgba(239,68,68,0.1)', color: '#fca5a5' }}>Delete</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
       </>
       )}
     </div>
@@ -2950,6 +3399,65 @@ function ShortsCard({ clip, teamMembers, onUpdate, onDelete, isEditing, onToggle
                     notes: editNotes || null,
                     assigned_to: editAssignedTo || null,
                   });
+                  onToggleEdit();
+                }}
+                style={styles.smallBtn}
+              >Save</button>
+              <button
+                onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                style={{ ...styles.smallBtn, background: 'rgba(239,68,68,0.15)', color: '#fca5a5' }}
+              >Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MaydayCard({ video, reads, onUpdate, onDelete, isEditing, onToggleEdit }) {
+  const [editReadId, setEditReadId] = useState(video.sponsor_read_id || '');
+
+  const sponsorName = video.sponsor_read?.sponsor?.name;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
+        <div style={styles.kanbanCardName}>{video.title}</div>
+        <button onClick={onToggleEdit} style={{ ...styles.removeBtn, fontSize: '14px', padding: '0 4px' }}>
+          {isEditing ? '✕' : '⋯'}
+        </button>
+      </div>
+      {sponsorName && (
+        <span style={{
+          fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px',
+          background: 'rgba(99,102,241,0.15)', color: '#a5b4fc',
+          textTransform: 'uppercase', letterSpacing: '0.3px',
+        }}>
+          {sponsorName}
+        </span>
+      )}
+      {isEditing && (
+        <div style={{ marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '8px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <select
+              value={editReadId}
+              onChange={(e) => setEditReadId(e.target.value)}
+              style={styles.smallSelect}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <option value="">No sponsor read</option>
+              {reads.map(r => (
+                <option key={r.id} value={r.id}>
+                  {r.sponsor?.name || 'Unknown'}{r.payout ? ` — $${parseFloat(r.payout).toLocaleString()}` : ''}
+                </option>
+              ))}
+            </select>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUpdate({ sponsor_read_id: editReadId || null });
                   onToggleEdit();
                 }}
                 style={styles.smallBtn}
