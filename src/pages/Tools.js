@@ -45,6 +45,13 @@ const TOOLS = [
     color: '#38bdf8',
   },
 {
+    key: 'assets',
+    name: 'Assets',
+    description: 'Company file server for shared media, templates, and production assets.',
+    color: '#a5b4fc',
+    externalUrl: 'https://www.mayday.systems',
+  },
+  {
     key: 'screenwriter',
     name: 'Screenwriter',
     description: 'Industry-standard screenplay editor with scene navigation, character manager, and FDX/PDF export.',
@@ -98,7 +105,9 @@ export default function Tools({ onNavigate }) {
           <button
             key={tool.key}
             onClick={() => {
-              if (tool.navigateTo && onNavigate) {
+              if (tool.externalUrl) {
+                window.open(tool.externalUrl, '_blank', 'noopener');
+              } else if (tool.navigateTo && onNavigate) {
                 onNavigate(tool.navigateTo);
               } else if (tool.tritonPath) {
                 openTritonTool(tool.tritonPath);
@@ -118,7 +127,7 @@ export default function Tools({ onNavigate }) {
             <div style={styles.cardBody}>
               <div style={styles.cardNameRow}>
                 <div style={styles.cardName}>{tool.name}</div>
-                {tool.tritonPath && (
+                {(tool.tritonPath || tool.externalUrl) && (
                   <svg style={styles.externalIcon} viewBox="0 0 16 16" fill="currentColor">
                     <path d="M3.75 2a.75.75 0 000 1.5h6.69L2.72 11.22a.75.75 0 101.06 1.06L11.5 4.56v6.69a.75.75 0 001.5 0V2.75a.75.75 0 00-.75-.75H3.75z" />
                   </svg>
