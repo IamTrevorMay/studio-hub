@@ -232,16 +232,15 @@ export default function PhaseOne({ session, onSessionChange, recipients, setting
 
       const result = await resp.json();
 
-      // Update clip statuses
+      // Update clip statuses using functional update to avoid stale closure
       const statusMap = {};
       (result.results || []).forEach(r => {
         statusMap[r.id] = r.success ? 'cut' : 'error';
       });
-      console.log('[PostShow] Cut results:', result.results);
-      console.log('[PostShow] Status map:', statusMap);
-      const updatedClips = clips.map(c => statusMap[c.id] ? { ...c, status: statusMap[c.id] } : c);
-      console.log('[PostShow] Updated clips:', updatedClips.map(c => ({ id: c.id, title: c.title, status: c.status })));
-      updateClips(updatedClips);
+      onSessionChange(prev => ({
+        ...prev,
+        clips: prev.clips.map(c => statusMap[c.id] ? { ...c, status: statusMap[c.id] } : c),
+      }));
       setCutProgress({ done: readyClips.length, total: readyClips.length, current: 'Complete' });
     } catch (err) {
       console.error('Batch cut error:', err);

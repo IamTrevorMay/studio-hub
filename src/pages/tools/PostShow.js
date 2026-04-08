@@ -193,11 +193,19 @@ export default function PostShow({ onBack }) {
   useEffect(() => { saveSettings(settings); }, [settings]);
   useEffect(() => { saveDiscordTemplates(discordTemplates); }, [discordTemplates]);
 
-  const handleSessionChange = useCallback((newSession) => {
-    // Strip non-serializable fields before saving
-    const { _sourceObjectUrl, _sourceFile, ...serializable } = newSession;
-    setSession(newSession);
-    saveSession(serializable);
+  const handleSessionChange = useCallback((updater) => {
+    if (typeof updater === 'function') {
+      setSession(prev => {
+        const newSession = updater(prev);
+        const { _sourceObjectUrl, _sourceFile, ...serializable } = newSession;
+        saveSession(serializable);
+        return newSession;
+      });
+    } else {
+      const { _sourceObjectUrl, _sourceFile, ...serializable } = updater;
+      setSession(updater);
+      saveSession(serializable);
+    }
   }, []);
 
   function handleNewSession() {
