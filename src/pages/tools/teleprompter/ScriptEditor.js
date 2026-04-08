@@ -79,10 +79,11 @@ export default function ScriptEditor({ script, onChange, onClose }) {
 
   const refreshLibrary = async () => {
     setLibraryLoading(true);
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('teleprompter_scripts')
       .select('*')
       .order('created_at', { ascending: false });
+    if (error) console.error('Load scripts error:', error);
     setSavedScripts(data || []);
     setLibraryLoading(false);
   };
@@ -90,11 +91,16 @@ export default function ScriptEditor({ script, onChange, onClose }) {
   const handleSave = async () => {
     const name = prompt('Script name:');
     if (!name || !name.trim()) return;
-    await supabase.from('teleprompter_scripts').insert({
+    if (!profile?.id) return alert('You must be logged in to save scripts.');
+    const { error } = await supabase.from('teleprompter_scripts').insert({
       user_id: profile.id,
       name: name.trim(),
       content: script,
     });
+    if (error) {
+      console.error('Save script error:', error);
+      alert('Failed to save script.');
+    }
   };
 
   const handleOpenLibrary = () => {
