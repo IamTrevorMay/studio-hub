@@ -102,6 +102,11 @@ export default function ScriptEditor({ script, onChange, onClose }) {
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
+  const handleNew = () => {
+    onChange('');
+    if (editorRef.current) editorRef.current.innerHTML = '';
+  };
+
   const handlePaste = (e) => {
     const html = e.clipboardData.getData('text/html');
     if (html) {
@@ -194,6 +199,7 @@ export default function ScriptEditor({ script, onChange, onClose }) {
             {getCharCount().toLocaleString()} characters
           </span>
           <div style={styles.footerActions}>
+            <button onClick={handleNew} style={styles.secondaryBtn}>New</button>
             <button onClick={handleOpenLibrary} style={styles.secondaryBtn}>Load</button>
             <button onClick={handleSave} style={styles.secondaryBtn}>Save</button>
             <button onClick={onClose} style={styles.doneBtn}>Done</button>
@@ -254,6 +260,8 @@ const styles = {
     margin: '16px 20px',
     display: 'flex',
     flexDirection: 'column',
+    minHeight: 0,
+    overflow: 'hidden',
   },
   editor: {
     flex: 1,
