@@ -138,7 +138,7 @@ export default function Projects({ onNavigate }) {
   const [maydayVideos, setMaydayVideos] = useState([]);
   const [maydayLoading, setMaydayLoading] = useState(false);
   const [showMaydayForm, setShowMaydayForm] = useState(false);
-  const [maydayForm, setMaydayForm] = useState({ title: '', sponsor_read_id: '' });
+  const [maydayForm, setMaydayForm] = useState({ title: '', sponsor_read_id: '', post_date: '' });
   const [editingMayday, setEditingMayday] = useState(null);
 
   // Form state
@@ -668,18 +668,66 @@ export default function Projects({ onNavigate }) {
   // ===== Mayday handlers =====
   async function handleCreateMayday(e) {
     e.preventDefault();
-    const { error } = await supabase.from('mayday_videos').insert({
+    const { data: vData, error } = await supabase.from('mayday_videos').insert({
       title: maydayForm.title,
       sponsor_read_id: maydayForm.sponsor_read_id || null,
+      post_date: maydayForm.post_date || null,
       created_by: profile.id,
-    });
+    }).select().single();
     if (error) { alert('Error creating video: ' + error.message); return; }
-    setMaydayForm({ title: '', sponsor_read_id: '' });
+
+    // Auto-create calendar event if post_date set
+    if (maydayForm.post_date && vData) {
+      const { data: evData } = await supabase.from('calendar_events').insert({
+        title: `📹 ${maydayForm.title}`,
+        event_type: 'video_post',
+        start_date: `${maydayForm.post_date}T09:00:00`,
+        end_date: `${maydayForm.post_date}T10:00:00`,
+        all_day: true,
+        created_by: profile.id,
+      }).select().single();
+      if (evData) {
+        await supabase.from('mayday_videos').update({ calendar_event_id: evData.id }).eq('id', vData.id);
+      }
+    }
+
+    setMaydayForm({ title: '', sponsor_read_id: '', post_date: '' });
     setShowMaydayForm(false);
     fetchMaydayVideos();
   }
 
   async function handleUpdateMayday(videoId, updates) {
+    // Calendar sync when post_date changes
+    if ('post_date' in updates) {
+      const video = maydayVideos.find(v => v.id === videoId);
+      const postDate = updates.post_date;
+      if (postDate && video?.calendar_event_id) {
+        // Update existing event
+        await supabase.from('calendar_events').update({
+          title: `📹 ${video.title}`,
+          start_date: `${postDate}T09:00:00`,
+          end_date: `${postDate}T10:00:00`,
+        }).eq('id', video.calendar_event_id);
+      } else if (postDate && !video?.calendar_event_id) {
+        // Create new event
+        const { data: evData } = await supabase.from('calendar_events').insert({
+          title: `📹 ${video.title}`,
+          event_type: 'video_post',
+          start_date: `${postDate}T09:00:00`,
+          end_date: `${postDate}T10:00:00`,
+          all_day: true,
+          created_by: profile.id,
+        }).select().single();
+        if (evData) {
+          updates.calendar_event_id = evData.id;
+        }
+      } else if (!postDate && video?.calendar_event_id) {
+        // Remove event
+        await supabase.from('calendar_events').delete().eq('id', video.calendar_event_id);
+        updates.calendar_event_id = null;
+      }
+    }
+
     const { error } = await supabase.from('mayday_videos').update({
       ...updates, updated_at: new Date().toISOString(),
     }).eq('id', videoId);
@@ -689,6 +737,10 @@ export default function Projects({ onNavigate }) {
 
   async function handleDeleteMayday(videoId) {
     if (!window.confirm('Delete this video?')) return;
+    const video = maydayVideos.find(v => v.id === videoId);
+    if (video?.calendar_event_id) {
+      await supabase.from('calendar_events').delete().eq('id', video.calendar_event_id);
+    }
     await supabase.from('mayday_videos').delete().eq('id', videoId);
     fetchMaydayVideos();
   }
@@ -1732,6 +1784,15 @@ export default function Projects({ onNavigate }) {
                   </option>
                 ))}
               </select>
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Post Date</label>
+              <input
+                type="date"
+                value={maydayForm.post_date}
+                onChange={(e) => setMaydayForm({ ...maydayForm, post_date: e.target.value })}
+                style={styles.input}
+              />
             </div>
           </div>
           <button type="submit" style={styles.submitBtn}>Add Video</button>
@@ -3417,8 +3478,13 @@ function ShortsCard({ clip, teamMembers, onUpdate, onDelete, isEditing, onToggle
 
 function MaydayCard({ video, reads, onUpdate, onDelete, isEditing, onToggleEdit }) {
   const [editReadId, setEditReadId] = useState(video.sponsor_read_id || '');
+  const [editPostDate, setEditPostDate] = useState(video.post_date || '');
 
   const sponsorName = video.sponsor_read?.sponsor?.name;
+
+  const postDateDays = video.post_date
+    ? Math.ceil((new Date(video.post_date) - new Date()) / (1000 * 60 * 60 * 24))
+    : null;
 
   return (
     <div>
@@ -3428,15 +3494,26 @@ function MaydayCard({ video, reads, onUpdate, onDelete, isEditing, onToggleEdit 
           {isEditing ? '✕' : '⋯'}
         </button>
       </div>
-      {sponsorName && (
-        <span style={{
-          fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px',
-          background: 'rgba(99,102,241,0.15)', color: '#a5b4fc',
-          textTransform: 'uppercase', letterSpacing: '0.3px',
-        }}>
-          {sponsorName}
-        </span>
-      )}
+      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+        {sponsorName && (
+          <span style={{
+            fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px',
+            background: 'rgba(99,102,241,0.15)', color: '#a5b4fc',
+            textTransform: 'uppercase', letterSpacing: '0.3px',
+          }}>
+            {sponsorName}
+          </span>
+        )}
+        {video.post_date && (
+          <span style={{
+            fontSize: '10px', fontWeight: 600, padding: '2px 6px', borderRadius: '4px',
+            background: postDateDays !== null && postDateDays <= 1 ? 'rgba(239,68,68,0.15)' : postDateDays !== null && postDateDays <= 3 ? 'rgba(249,115,22,0.15)' : 'rgba(255,255,255,0.06)',
+            color: postDateDays !== null && postDateDays <= 1 ? '#fca5a5' : postDateDays !== null && postDateDays <= 3 ? '#fdba74' : 'rgba(255,255,255,0.4)',
+          }}>
+            Post {new Date(video.post_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+          </span>
+        )}
+      </div>
       {isEditing && (
         <div style={{ marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '8px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -3453,11 +3530,19 @@ function MaydayCard({ video, reads, onUpdate, onDelete, isEditing, onToggleEdit 
                 </option>
               ))}
             </select>
+            <input
+              type="date"
+              value={editPostDate}
+              onChange={(e) => setEditPostDate(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              style={styles.smallSelect}
+              placeholder="Post date"
+            />
             <div style={{ display: 'flex', gap: '6px' }}>
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onUpdate({ sponsor_read_id: editReadId || null });
+                  onUpdate({ sponsor_read_id: editReadId || null, post_date: editPostDate || null });
                   onToggleEdit();
                 }}
                 style={styles.smallBtn}
