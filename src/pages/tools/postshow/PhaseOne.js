@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { createClip, isClipReady, isValidTimestamp, formatTimestamp, parseTimestamp, CLIP_TYPES, OUTPUT_FORMATS } from './postShowConstants';
+import { createClip, isClipReady, isValidTimestamp, formatTimestamp, parseTimestamp, CLIP_TYPES, OUTPUT_FORMATS, STATUS_COLORS, STATUS_LABELS } from './postShowConstants';
 
 // ─── Clip Row ───────────────────────────────────────────────────────────
 function ClipRow({ clip, index, onChange, onRemove, onPreview, recipients }) {
@@ -104,6 +104,11 @@ function ClipRow({ clip, index, onChange, onRemove, onPreview, recipients }) {
 
       {/* Actions */}
       <div style={st.clipActions}>
+        {clip.status && clip.status !== 'pending' && (
+          <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, background: (STATUS_COLORS[clip.status] || '#666') + '22', color: STATUS_COLORS[clip.status] || '#666' }}>
+            {STATUS_LABELS[clip.status] || clip.status}
+          </span>
+        )}
         {isClipReady(clip) && (
           <button style={st.previewBtn} title="Preview in player" onClick={() => onPreview(clip)}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
@@ -232,7 +237,11 @@ export default function PhaseOne({ session, onSessionChange, recipients, setting
       (result.results || []).forEach(r => {
         statusMap[r.id] = r.success ? 'cut' : 'error';
       });
-      updateClips(clips.map(c => statusMap[c.id] ? { ...c, status: statusMap[c.id] } : c));
+      console.log('[PostShow] Cut results:', result.results);
+      console.log('[PostShow] Status map:', statusMap);
+      const updatedClips = clips.map(c => statusMap[c.id] ? { ...c, status: statusMap[c.id] } : c);
+      console.log('[PostShow] Updated clips:', updatedClips.map(c => ({ id: c.id, title: c.title, status: c.status })));
+      updateClips(updatedClips);
       setCutProgress({ done: readyClips.length, total: readyClips.length, current: 'Complete' });
     } catch (err) {
       console.error('Batch cut error:', err);
