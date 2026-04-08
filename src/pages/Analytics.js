@@ -264,6 +264,22 @@ export default function Analytics() {
   // ── Fetch all data when filters change ──
   const { start, end } = getDateRange(dateRange, customStart, customEnd, filterMonth, filterYear);
 
+  const fetchAllData = useCallback(async () => {
+    setLoading(true);
+    try {
+      await Promise.all([
+        fetchKPI(),
+        fetchTimeSeries(),
+        fetchContentPerformance(),
+        fetchAnalysisData(),
+      ]);
+    } catch (err) {
+      console.error('Error fetching analytics:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [dateRange, customStart, customEnd, filterMonth, filterYear, activeAccountIds]);
+
   useEffect(() => {
     const timeout = setTimeout(() => setLoading(false), 5000);
     fetchAllData().finally(() => clearTimeout(timeout));
@@ -283,22 +299,6 @@ export default function Analytics() {
     await fetchContentPerformance();
     setContentRefreshing(false);
   }
-
-  const fetchAllData = useCallback(async () => {
-    setLoading(true);
-    try {
-      await Promise.all([
-        fetchKPI(),
-        fetchTimeSeries(),
-        fetchContentPerformance(),
-        fetchAnalysisData(),
-      ]);
-    } catch (err) {
-      console.error('Error fetching analytics:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [dateRange, customStart, customEnd, filterMonth, filterYear, activeAccountIds]);
 
   async function handleSyncAllPlatforms() {
     setSyncing(true);

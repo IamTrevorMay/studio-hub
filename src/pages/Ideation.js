@@ -68,6 +68,22 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
   const [allDocs, setAllDocs] = useState([]);
   const [allDocsLoading, setAllDocsLoading] = useState(false);
 
+  const fetchConcepts = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.from('concepts')
+        .select('*, creator:profiles!concepts_profile_fk(full_name)')
+        .order('sort_order', { ascending: true });
+      if (error) throw error;
+      setConcepts(data || []);
+    } catch (err) {
+      console.error('Error fetching concepts:', err);
+      setConcepts([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!profile?.id) return;
     const timeout = setTimeout(() => setLoading(false), 5000);
@@ -91,22 +107,6 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
   useEffect(() => {
     if (activeConcept) fetchDocuments(activeConcept.id);
   }, [activeConcept]);
-
-  const fetchConcepts = useCallback(async () => {
-    setLoading(true);
-    try {
-      const { data, error } = await supabase.from('concepts')
-        .select('*, creator:profiles!concepts_profile_fk(full_name)')
-        .order('sort_order', { ascending: true });
-      if (error) throw error;
-      setConcepts(data || []);
-    } catch (err) {
-      console.error('Error fetching concepts:', err);
-      setConcepts([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
 
   async function fetchDocuments(conceptId) {
     try {

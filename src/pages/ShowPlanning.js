@@ -93,13 +93,6 @@ export default function ShowPlanning() {
   const [renamingDoc, setRenamingDoc] = useState(null);
   const [renameDocValue, setRenameDocValue] = useState('');
 
-  useEffect(() => {
-    if (!profile?.id) return;
-    const timeout = setTimeout(() => setLoading(false), 5000);
-    fetchData().finally(() => clearTimeout(timeout));
-    return () => clearTimeout(timeout);
-  }, [profile?.id, fetchData, refreshKey]);
-
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -117,6 +110,13 @@ export default function ShowPlanning() {
       setLoading(false);
     }
   }, [year]);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+    const timeout = setTimeout(() => setLoading(false), 5000);
+    fetchData().finally(() => clearTimeout(timeout));
+    return () => clearTimeout(timeout);
+  }, [profile?.id, fetchData, refreshKey]);
 
   async function fetchShowDocs(showId) {
     const { data } = await supabase.from('show_documents')

@@ -163,31 +163,6 @@ export default function Reviews() {
   const scriptFileInputRef = useRef(null);
   const [newVersionReviewIds, setNewVersionReviewIds] = useState(new Set());
 
-  useEffect(() => {
-    if (!profile?.id) return;
-    const timeout = setTimeout(() => setLoading(false), 5000);
-    Promise.all([fetchReviews(), fetchScriptReviews()])
-      .finally(() => clearTimeout(timeout));
-    return () => clearTimeout(timeout);
-  }, [profile?.id, fetchReviews, fetchScriptReviews, refreshKey]);
-
-  // Realtime subscription for new writer versions on script review cards
-  useEffect(() => {
-    const channel = supabase.channel('script-version-alerts')
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'script_review_versions',
-      }, (payload) => {
-        if (payload.new.source === 'writer') {
-          setNewVersionReviewIds(prev => new Set([...prev, payload.new.review_id]));
-          fetchScriptReviews();
-        }
-      })
-      .subscribe();
-    return () => supabase.removeChannel(channel);
-  }, []);
-
   const fetchReviews = useCallback(async () => {
     setLoading(true);
     try {
@@ -266,6 +241,31 @@ export default function Reviews() {
     } finally {
       setScriptReviewsLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+    const timeout = setTimeout(() => setLoading(false), 5000);
+    Promise.all([fetchReviews(), fetchScriptReviews()])
+      .finally(() => clearTimeout(timeout));
+    return () => clearTimeout(timeout);
+  }, [profile?.id, fetchReviews, fetchScriptReviews, refreshKey]);
+
+  // Realtime subscription for new writer versions on script review cards
+  useEffect(() => {
+    const channel = supabase.channel('script-version-alerts')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'script_review_versions',
+      }, (payload) => {
+        if (payload.new.source === 'writer') {
+          setNewVersionReviewIds(prev => new Set([...prev, payload.new.review_id]));
+          fetchScriptReviews();
+        }
+      })
+      .subscribe();
+    return () => supabase.removeChannel(channel);
   }, []);
 
   async function fetchConceptsForScript() {

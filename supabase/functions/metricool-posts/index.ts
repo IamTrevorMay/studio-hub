@@ -41,8 +41,12 @@ serve(async (req) => {
       );
     }
 
+    // Metricool expects ISO datetime strings, not bare dates
+    const startDt = start.includes("T") ? start : `${start}T00:00:00`;
+    const endDt = end.includes("T") ? end : `${end}T23:59:59`;
+
     // Call Metricool API
-    const mcUrl = `https://app.metricool.com/api/v2/scheduler/posts?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&timezone=${encodeURIComponent(timezone)}&extendedRange=true&userId=${mcUserId}&blogId=${mcBlogId}`;
+    const mcUrl = `https://app.metricool.com/api/v2/scheduler/posts?start=${encodeURIComponent(startDt)}&end=${encodeURIComponent(endDt)}&timezone=${encodeURIComponent(timezone)}&extendedRange=true&userId=${mcUserId}&blogId=${mcBlogId}`;
 
     const mcResponse = await fetch(mcUrl, {
       method: "GET",

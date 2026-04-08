@@ -133,13 +133,6 @@ export default function Goals() {
   const [editingMonthlyId, setEditingMonthlyId] = useState(null);
   const [monthlyForm, setMonthlyForm] = useState(EMPTY_MONTHLY);
 
-  useEffect(() => {
-    if (!profile?.id) return;
-    const timeout = setTimeout(() => setLoading(false), 5000);
-    fetchAll().finally(() => clearTimeout(timeout));
-    return () => clearTimeout(timeout);
-  }, [profile?.id, fetchAll, refreshKey]);
-
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
@@ -175,6 +168,13 @@ export default function Goals() {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+    const timeout = setTimeout(() => setLoading(false), 5000);
+    fetchAll().finally(() => clearTimeout(timeout));
+    return () => clearTimeout(timeout);
+  }, [profile?.id, fetchAll, refreshKey]);
 
   async function fetchRollupData(metricGoals) {
     // Determine the widest date range needed (yearly always covers quarterly)
