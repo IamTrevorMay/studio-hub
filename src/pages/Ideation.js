@@ -70,10 +70,11 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
 
   useEffect(() => {
     if (!profile?.id) return;
-    fetchConcepts();
-    fetchTemplates();
-    fetchAllDocs();
-  }, [profile?.id, refreshKey]);
+    const timeout = setTimeout(() => setLoading(false), 5000);
+    Promise.all([fetchConcepts(), fetchTemplates(), fetchAllDocs()])
+      .finally(() => clearTimeout(timeout));
+    return () => clearTimeout(timeout);
+  }, [profile?.id, fetchConcepts, refreshKey]);
 
   // Handle deep-link from Projects page (works even when already mounted)
   useEffect(() => {
@@ -91,7 +92,8 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
     if (activeConcept) fetchDocuments(activeConcept.id);
   }, [activeConcept]);
 
-  async function fetchConcepts() {
+  const fetchConcepts = useCallback(async () => {
+    setLoading(true);
     try {
       const { data, error } = await supabase.from('concepts')
         .select('*, creator:profiles!concepts_profile_fk(full_name)')
@@ -104,7 +106,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   async function fetchDocuments(conceptId) {
     try {

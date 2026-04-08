@@ -45,12 +45,35 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const fetchChannels = useCallback(async () => {
+    try {
+      const { data } = await supabase.from('channels')
+        .select('*').order('sort_order', { ascending: true }).order('is_default', { ascending: false }).order('name');
+      setChannels(data || []);
+      if (data?.length > 0) setActiveChannel(prev => prev || data[0]);
+    } catch (err) {
+      console.error('Error fetching channels:', err);
+    }
+  }, []);
+
+  const fetchTeamMembers = useCallback(async () => {
+    try {
+      const { data } = await supabase.from('profiles').select('id, full_name, title');
+      setTeamMembers(data || []);
+    } catch (err) {
+      console.error('Error fetching team:', err);
+    }
+  }, []);
 
   useEffect(() => {
     if (!profile?.id) return;
-    fetchChannels();
-    fetchTeamMembers();
-  }, [profile?.id, refreshKey]);
+    const timeout = setTimeout(() => setLoading(false), 5000);
+    Promise.all([fetchChannels(), fetchTeamMembers()])
+      .finally(() => { setLoading(false); clearTimeout(timeout); });
+    return () => clearTimeout(timeout);
+  }, [profile?.id, fetchChannels, fetchTeamMembers, refreshKey]);
 
   useEffect(() => {
     if (!initialChannelName || channels.length === 0) return;
@@ -182,26 +205,6 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
     await supabase.from('channels').delete().eq('id', channelId);
     if (activeChannel?.id === channelId) setActiveChannel(null);
     fetchChannels();
-  }
-
-  async function fetchChannels() {
-    try {
-      const { data } = await supabase.from('channels')
-        .select('*').order('sort_order', { ascending: true }).order('is_default', { ascending: false }).order('name');
-      setChannels(data || []);
-      if (data?.length > 0) setActiveChannel(prev => prev || data[0]);
-    } catch (err) {
-      console.error('Error fetching channels:', err);
-    }
-  }
-
-  async function fetchTeamMembers() {
-    try {
-      const { data } = await supabase.from('profiles').select('id, full_name, title');
-      setTeamMembers(data || []);
-    } catch (err) {
-      console.error('Error fetching team:', err);
-    }
   }
 
   async function handleSendMessage(e) {

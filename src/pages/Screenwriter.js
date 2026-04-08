@@ -70,22 +70,30 @@ export default function Screenwriter({ initialScriptId, onScriptOpened }) {
     if (!user?.id) return;
     setLoading(true);
     setFetchError(null);
-    const { data, error } = await supabase
-      .from('screenwriter_scripts')
-      .select('id, title, updated_at, created_at, revision_color, locked, content')
-      .eq('user_id', user.id)
-      .order('updated_at', { ascending: false });
+    try {
+      const { data, error } = await supabase
+        .from('screenwriter_scripts')
+        .select('id, title, updated_at, created_at, revision_color, locked, content')
+        .eq('user_id', user.id)
+        .order('updated_at', { ascending: false });
 
-    if (error) {
-      setFetchError(error.message || 'Failed to load scripts');
-    } else {
-      setScripts(data || []);
+      if (error) {
+        setFetchError(error.message || 'Failed to load scripts');
+      } else {
+        setScripts(data || []);
+      }
+    } catch (err) {
+      console.error('Error fetching scripts:', err);
+      setFetchError('Failed to load scripts');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [user?.id]);
 
   useEffect(() => {
-    fetchScripts();
+    const timeout = setTimeout(() => setLoading(false), 5000);
+    fetchScripts().finally(() => clearTimeout(timeout));
+    return () => clearTimeout(timeout);
   }, [fetchScripts, refreshKey]);
 
   // Create new script

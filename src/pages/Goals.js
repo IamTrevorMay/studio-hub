@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -134,10 +134,14 @@ export default function Goals() {
   const [monthlyForm, setMonthlyForm] = useState(EMPTY_MONTHLY);
 
   useEffect(() => {
-    if (profile?.id) fetchAll();
-  }, [profile?.id, refreshKey]);
+    if (!profile?.id) return;
+    const timeout = setTimeout(() => setLoading(false), 5000);
+    fetchAll().finally(() => clearTimeout(timeout));
+    return () => clearTimeout(timeout);
+  }, [profile?.id, fetchAll, refreshKey]);
 
-  async function fetchAll() {
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
     try {
       const [goalsRes, initRes, acctRes, monthlyRes] = await Promise.all([
         supabase.from('goals').select('*').order('created_at', { ascending: false }),
@@ -170,7 +174,7 @@ export default function Goals() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   async function fetchRollupData(metricGoals) {
     // Determine the widest date range needed (yearly always covers quarterly)

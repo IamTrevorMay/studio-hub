@@ -164,11 +164,12 @@ export default function Reviews() {
   const [newVersionReviewIds, setNewVersionReviewIds] = useState(new Set());
 
   useEffect(() => {
-    if (profile?.id) {
-      fetchReviews();
-      fetchScriptReviews();
-    }
-  }, [profile?.id, refreshKey]);
+    if (!profile?.id) return;
+    const timeout = setTimeout(() => setLoading(false), 5000);
+    Promise.all([fetchReviews(), fetchScriptReviews()])
+      .finally(() => clearTimeout(timeout));
+    return () => clearTimeout(timeout);
+  }, [profile?.id, fetchReviews, fetchScriptReviews, refreshKey]);
 
   // Realtime subscription for new writer versions on script review cards
   useEffect(() => {
@@ -187,7 +188,8 @@ export default function Reviews() {
     return () => supabase.removeChannel(channel);
   }, []);
 
-  async function fetchReviews() {
+  const fetchReviews = useCallback(async () => {
+    setLoading(true);
     try {
       const { data, error } = await supabase.from('reviews')
         .select('*, creator:profiles!reviews_profile_fk(full_name)')
@@ -200,7 +202,7 @@ export default function Reviews() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   async function handleCreate(e) {
     e.preventDefault();
@@ -241,7 +243,8 @@ export default function Reviews() {
 
   // ─── Script Review Functions ──────────────────────────────────────────────
 
-  async function fetchScriptReviews() {
+  const fetchScriptReviews = useCallback(async () => {
+    setScriptReviewsLoading(true);
     try {
       const { data, error } = await supabase.from('script_reviews')
         .select('*, creator:profiles!script_reviews_created_by_fkey(full_name), concept:concepts!script_reviews_concept_id_fkey(name)')
@@ -263,7 +266,7 @@ export default function Reviews() {
     } finally {
       setScriptReviewsLoading(false);
     }
-  }
+  }, []);
 
   async function fetchConceptsForScript() {
     const { data } = await supabase.from('concepts')

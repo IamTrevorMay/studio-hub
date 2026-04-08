@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -31,14 +31,17 @@ export default function Resources() {
 
   useEffect(() => {
     if (!profile?.id) return;
-    fetchFolders();
-  }, [profile?.id, refreshKey]);
+    const timeout = setTimeout(() => setLoading(false), 5000);
+    fetchFolders().finally(() => clearTimeout(timeout));
+    return () => clearTimeout(timeout);
+  }, [profile?.id, fetchFolders, refreshKey]);
 
   useEffect(() => {
     if (activeFolder) fetchDocuments(activeFolder.id);
   }, [activeFolder]);
 
-  async function fetchFolders() {
+  const fetchFolders = useCallback(async () => {
+    setLoading(true);
     try {
       const { data, error } = await supabase.from('resource_folders')
         .select('*, creator:profiles!resource_folders_created_by_fkey(full_name)')
@@ -51,7 +54,7 @@ export default function Resources() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   async function fetchDocuments(folderId) {
     try {

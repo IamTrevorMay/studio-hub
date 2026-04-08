@@ -95,21 +95,28 @@ export default function ShowPlanning() {
 
   useEffect(() => {
     if (!profile?.id) return;
-    fetchData();
-  }, [profile?.id, year, refreshKey]);
+    const timeout = setTimeout(() => setLoading(false), 5000);
+    fetchData().finally(() => clearTimeout(timeout));
+    return () => clearTimeout(timeout);
+  }, [profile?.id, fetchData, refreshKey]);
 
-  async function fetchData() {
+  const fetchData = useCallback(async () => {
     setLoading(true);
-    const yearStart = `${year}-01-01`;
-    const yearEnd = `${year}-12-31`;
-    const [showsRes, topicsRes] = await Promise.all([
-      supabase.from('shows').select('*').gte('show_date', yearStart).lte('show_date', yearEnd).order('show_date'),
-      supabase.from('show_topics').select('*').order('sort_order'),
-    ]);
-    setShows(showsRes.data || []);
-    setTopics(topicsRes.data || []);
-    setLoading(false);
-  }
+    try {
+      const yearStart = `${year}-01-01`;
+      const yearEnd = `${year}-12-31`;
+      const [showsRes, topicsRes] = await Promise.all([
+        supabase.from('shows').select('*').gte('show_date', yearStart).lte('show_date', yearEnd).order('show_date'),
+        supabase.from('show_topics').select('*').order('sort_order'),
+      ]);
+      setShows(showsRes.data || []);
+      setTopics(topicsRes.data || []);
+    } catch (err) {
+      console.error('Error fetching show data:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [year]);
 
   async function fetchShowDocs(showId) {
     const { data } = await supabase.from('show_documents')

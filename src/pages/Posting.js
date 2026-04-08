@@ -115,7 +115,9 @@ export default function Posting() {
   }, [ensureSession]);
 
   useEffect(() => {
-    fetchPosts();
+    const timeout = setTimeout(() => setLoadingPosts(false), 5000);
+    fetchPosts().finally(() => clearTimeout(timeout));
+    return () => clearTimeout(timeout);
   }, [fetchPosts, refreshKey]);
 
   // Fetch team members for admin permissions widget

@@ -265,8 +265,10 @@ export default function Analytics() {
   const { start, end } = getDateRange(dateRange, customStart, customEnd, filterMonth, filterYear);
 
   useEffect(() => {
-    fetchAllData();
-  }, [dateRange, customStart, customEnd, filterMonth, filterYear, activeAccountIds.join(','), refreshKey]);
+    const timeout = setTimeout(() => setLoading(false), 5000);
+    fetchAllData().finally(() => clearTimeout(timeout));
+    return () => clearTimeout(timeout);
+  }, [fetchAllData, refreshKey]);
 
   // Auto-refresh content performance every 5 minutes
   useEffect(() => {
@@ -282,16 +284,21 @@ export default function Analytics() {
     setContentRefreshing(false);
   }
 
-  async function fetchAllData() {
+  const fetchAllData = useCallback(async () => {
     setLoading(true);
-    await Promise.all([
-      fetchKPI(),
-      fetchTimeSeries(),
-      fetchContentPerformance(),
-      fetchAnalysisData(),
-    ]);
-    setLoading(false);
-  }
+    try {
+      await Promise.all([
+        fetchKPI(),
+        fetchTimeSeries(),
+        fetchContentPerformance(),
+        fetchAnalysisData(),
+      ]);
+    } catch (err) {
+      console.error('Error fetching analytics:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [dateRange, customStart, customEnd, filterMonth, filterYear, activeAccountIds]);
 
   async function handleSyncAllPlatforms() {
     setSyncing(true);

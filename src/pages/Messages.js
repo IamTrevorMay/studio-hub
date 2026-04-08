@@ -16,59 +16,9 @@ export default function Messages({ onNavigate }) {
   const [searchUsers, setSearchUsers] = useState('');
   const messagesEndRef = useRef(null);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (!profile?.id) return;
-    fetchConversations();
-    fetchTeamMembers();
-  }, [profile?.id, refreshKey]);
-
-  const fetchMessages = useCallback(async (conversationId) => {
-    setLoadingMessages(true);
-    try {
-      const { data, error } = await supabase
-        .from('direct_messages')
-        .select('*, profile:profiles(id, full_name, title)')
-        .eq('conversation_id', conversationId)
-        .order('created_at', { ascending: true })
-        .limit(100);
-      if (error) throw error;
-      setMessages(data || []);
-    } catch (err) {
-      console.error('Error:', err);
-      setMessages([]);
-    } finally {
-      setLoadingMessages(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!activeConversation) return;
-    fetchMessages(activeConversation.id);
-
-    const channel = supabase
-      .channel(`dm-${activeConversation.id}`)
-      .on('postgres_changes', {
-        event: 'INSERT', schema: 'public', table: 'direct_messages',
-        filter: `conversation_id=eq.${activeConversation.id}`,
-      }, async (payload) => {
-        const { data } = await supabase
-          .from('direct_messages')
-          .select('*, profile:profiles(id, full_name, title)')
-          .eq('id', payload.new.id)
-          .single();
-        if (data) setMessages(prev => [...prev, data]);
-      })
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
-  }, [activeConversation, fetchMessages]);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  async function fetchConversations() {
+  const fetchConversations = useCallback(async () => {
     if (!profile?.id) return;
     try {
       // Get conversations the user is part of
@@ -124,9 +74,9 @@ export default function Messages({ onNavigate }) {
     } catch (err) {
       console.error('Error:', err);
     }
-  }
+  }, [profile?.id]);
 
-  async function fetchTeamMembers() {
+  const fetchTeamMembers = useCallback(async () => {
     if (!profile?.id) return;
     try {
       const { data } = await supabase.from('profiles').select('id, full_name, title')
@@ -135,7 +85,60 @@ export default function Messages({ onNavigate }) {
     } catch (err) {
       console.error('Error fetching team:', err);
     }
-  }
+  }, [profile?.id]);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+    const timeout = setTimeout(() => setLoading(false), 5000);
+    Promise.all([fetchConversations(), fetchTeamMembers()])
+      .finally(() => { setLoading(false); clearTimeout(timeout); });
+    return () => clearTimeout(timeout);
+  }, [profile?.id, fetchConversations, fetchTeamMembers, refreshKey]);
+
+  const fetchMessages = useCallback(async (conversationId) => {
+    setLoadingMessages(true);
+    try {
+      const { data, error } = await supabase
+        .from('direct_messages')
+        .select('*, profile:profiles(id, full_name, title)')
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: true })
+        .limit(100);
+      if (error) throw error;
+      setMessages(data || []);
+    } catch (err) {
+      console.error('Error:', err);
+      setMessages([]);
+    } finally {
+      setLoadingMessages(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!activeConversation) return;
+    fetchMessages(activeConversation.id);
+
+    const channel = supabase
+      .channel(`dm-${activeConversation.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'direct_messages',
+        filter: `conversation_id=eq.${activeConversation.id}`,
+      }, async (payload) => {
+        const { data } = await supabase
+          .from('direct_messages')
+          .select('*, profile:profiles(id, full_name, title)')
+          .eq('id', payload.new.id)
+          .single();
+        if (data) setMessages(prev => [...prev, data]);
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [activeConversation, fetchMessages]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   async function handleSendMessage(e) {
     e.preventDefault();

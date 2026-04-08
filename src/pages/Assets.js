@@ -86,7 +86,9 @@ export default function Assets() {
 
   useEffect(() => {
     if (currentPath !== null) {
-      fetchListing(currentPath);
+      const timeout = setTimeout(() => setLoading(false), 5000);
+      fetchListing(currentPath).finally(() => clearTimeout(timeout));
+      return () => clearTimeout(timeout);
     }
   }, [currentPath, fetchListing, refreshKey]);
 

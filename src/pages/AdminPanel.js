@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -38,29 +38,29 @@ export default function AdminPanel({ initialTab }) {
   }, [initialTab]);
 
   useEffect(() => {
-    if (isAdmin) {
-      fetchInvitations();
-      fetchTeamMembers();
-      fetchGcalConnection();
-      fetchGcalMappings();
-    }
-  }, [isAdmin, refreshKey]);
+    if (!isAdmin) return;
+    setLoading(true);
+    const timeout = setTimeout(() => setLoading(false), 5000);
+    Promise.all([fetchInvitations(), fetchTeamMembers(), fetchGcalConnection(), fetchGcalMappings()])
+      .finally(() => { setLoading(false); clearTimeout(timeout); });
+    return () => clearTimeout(timeout);
+  }, [isAdmin, fetchInvitations, fetchTeamMembers, fetchGcalConnection, fetchGcalMappings, refreshKey]);
 
-  async function fetchInvitations() {
+  const fetchInvitations = useCallback(async () => {
     const { data } = await supabase
       .from('invitations')
       .select('*')
       .order('created_at', { ascending: false });
     setInvitations(data || []);
-  }
+  }, []);
 
-  async function fetchTeamMembers() {
+  const fetchTeamMembers = useCallback(async () => {
     const { data } = await supabase
       .from('profiles')
       .select('*')
       .order('full_name');
     setTeamMembers(data || []);
-  }
+  }, []);
 
   async function handleInvite(e) {
     e.preventDefault();
@@ -147,7 +147,7 @@ export default function AdminPanel({ initialTab }) {
   }
 
   // --- Google Calendar functions ---
-  async function fetchGcalConnection() {
+  const fetchGcalConnection = useCallback(async () => {
     const { data } = await supabase
       .from('google_calendar_connections')
       .select('*')
@@ -155,9 +155,9 @@ export default function AdminPanel({ initialTab }) {
       .single();
     setGcalConnection(data || null);
     if (data) fetchGcalCalendars();
-  }
+  }, [profile?.id]);
 
-  async function fetchGcalMappings() {
+  const fetchGcalMappings = useCallback(async () => {
     const { data } = await supabase
       .from('google_calendar_mappings')
       .select('*')
@@ -165,7 +165,7 @@ export default function AdminPanel({ initialTab }) {
     const map = {};
     (data || []).forEach(m => { map[m.event_type] = m; });
     setGcalMappings(map);
-  }
+  }, [profile?.id]);
 
   async function fetchGcalCalendars() {
     try {
