@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { loadSavedScripts, saveScriptToLibrary, deleteSavedScript } from './teleprompterStorage';
+import { supabase } from '../../../supabaseClient';
+import { useAuth } from '../../../contexts/AuthContext';
 
 function escapeHtml(text) {
   const el = document.createElement('span');
@@ -40,10 +41,12 @@ export function ensureHtml(text) {
 }
 
 export default function ScriptEditor({ script, onChange, onClose }) {
+  const { profile } = useAuth();
   const editorRef = useRef(null);
   const isInternalChange = useRef(false);
   const [showLibrary, setShowLibrary] = useState(false);
   const [savedScripts, setSavedScripts] = useState([]);
+  const [libraryLoading, setLibraryLoading] = useState(false);
 
   // Sync script prop to editor (skip when change came from user input)
   useEffect(() => {
@@ -74,12 +77,24 @@ export default function ScriptEditor({ script, onChange, onClose }) {
     return () => window.removeEventListener('keydown', handleKey);
   }, [onClose, showLibrary]);
 
-  const refreshLibrary = () => setSavedScripts(loadSavedScripts());
+  const refreshLibrary = async () => {
+    setLibraryLoading(true);
+    const { data } = await supabase
+      .from('teleprompter_scripts')
+      .select('*')
+      .order('created_at', { ascending: false });
+    setSavedScripts(data || []);
+    setLibraryLoading(false);
+  };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const name = prompt('Script name:');
     if (!name || !name.trim()) return;
-    saveScriptToLibrary(name.trim(), script);
+    await supabase.from('teleprompter_scripts').insert({
+      user_id: profile.id,
+      name: name.trim(),
+      content: script,
+    });
   };
 
   const handleOpenLibrary = () => {
@@ -87,13 +102,13 @@ export default function ScriptEditor({ script, onChange, onClose }) {
     setShowLibrary(true);
   };
 
-  const handleLoad = (text) => {
-    onChange(text);
+  const handleLoad = (s) => {
+    onChange(s.content);
     setShowLibrary(false);
   };
 
-  const handleDelete = (id) => {
-    deleteSavedScript(id);
+  const handleDelete = async (id) => {
+    await supabase.from('teleprompter_scripts').delete().eq('id', id);
     refreshLibrary();
   };
 
@@ -150,7 +165,9 @@ export default function ScriptEditor({ script, onChange, onClose }) {
                 Back to Editor
               </button>
             </div>
-            {savedScripts.length === 0 ? (
+            {libraryLoading ? (
+              <div style={styles.emptyLibrary}>Loading...</div>
+            ) : savedScripts.length === 0 ? (
               <div style={styles.emptyLibrary}>
                 No saved scripts yet. Write a script and click Save.
               </div>
@@ -161,11 +178,11 @@ export default function ScriptEditor({ script, onChange, onClose }) {
                     <div style={styles.scriptInfo}>
                       <span style={styles.scriptName}>{s.name}</span>
                       <span style={styles.scriptMeta}>
-                        {formatDate(s.savedAt)} &middot; {s.text.replace(/<[^>]*>/g, '').length.toLocaleString()} chars
+                        {formatDate(s.created_at)} &middot; {s.content.replace(/<[^>]*>/g, '').length.toLocaleString()} chars
                       </span>
                     </div>
                     <div style={styles.scriptActions}>
-                      <button onClick={() => handleLoad(s.text)} style={styles.loadBtn}>Load</button>
+                      <button onClick={() => handleLoad(s)} style={styles.loadBtn}>Load</button>
                       <button onClick={() => handleDelete(s.id)} style={styles.deleteBtn} title="Delete">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
@@ -330,6 +347,7 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
+    overflowX: 'hidden',
   },
   libraryHeader: {
     display: 'flex',
@@ -368,6 +386,7 @@ const styles = {
   scriptList: {
     flex: 1,
     overflowY: 'auto',
+    overflowX: 'hidden',
     padding: '8px 12px',
   },
   scriptItem: {
