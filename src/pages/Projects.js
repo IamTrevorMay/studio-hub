@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
@@ -131,8 +131,9 @@ export default function Projects({ onNavigate }) {
   const [readsLoading, setReadsLoading] = useState(false);
   const [showReadForm, setShowReadForm] = useState(false);
   const [editingRead, setEditingRead] = useState(null);
-  const [readForm, setReadForm] = useState({ sponsor_id: '', payout: '', long_form: '' });
+  const [readForm, setReadForm] = useState({ sponsor_id: '', payout: '', long_form: '', file: null, removeFile: false });
   const [expandedReadId, setExpandedReadId] = useState(null);
+  const readFileInputRef = useRef(null);
 
   // Mayday Videos state
   const [maydayVideos, setMaydayVideos] = useState([]);
@@ -635,6 +636,31 @@ export default function Projects({ onNavigate }) {
       long_form: readForm.long_form || null,
       updated_at: new Date().toISOString(),
     };
+
+    // Handle file removal
+    if (editingRead && readForm.removeFile && editingRead.file_path) {
+      await supabase.storage.from('resources').remove([editingRead.file_path]);
+      payload.file_path = null;
+      payload.file_type = null;
+      payload.file_size = null;
+      payload.original_filename = null;
+    }
+
+    // Handle file upload
+    if (readForm.file) {
+      // Remove old file if replacing
+      if (editingRead && editingRead.file_path) {
+        await supabase.storage.from('resources').remove([editingRead.file_path]);
+      }
+      const filePath = `reads/${Date.now()}_${readForm.file.name}`;
+      const { error: uploadError } = await supabase.storage.from('resources').upload(filePath, readForm.file);
+      if (uploadError) { alert('File upload failed: ' + uploadError.message); return; }
+      payload.file_path = filePath;
+      payload.file_type = readForm.file.name.split('.').pop().toLowerCase();
+      payload.file_size = readForm.file.size;
+      payload.original_filename = readForm.file.name;
+    }
+
     if (editingRead) {
       const { error } = await supabase.from('sponsor_reads').update(payload).eq('id', editingRead.id);
       if (error) { alert('Error updating read: ' + error.message); return; }
@@ -647,22 +673,26 @@ export default function Projects({ onNavigate }) {
     fetchReads();
   }
 
-  async function handleDeleteRead(readId) {
+  async function handleDeleteRead(read) {
     if (!window.confirm('Delete this read?')) return;
-    await supabase.from('sponsor_reads').delete().eq('id', readId);
+    if (read.file_path) {
+      await supabase.storage.from('resources').remove([read.file_path]);
+    }
+    await supabase.from('sponsor_reads').delete().eq('id', read.id);
     fetchReads();
   }
 
   function startEditRead(read) {
     setEditingRead(read);
-    setReadForm({ sponsor_id: read.sponsor_id, payout: read.payout || '', long_form: read.long_form || '' });
+    setReadForm({ sponsor_id: read.sponsor_id, payout: read.payout || '', long_form: read.long_form || '', file: null, removeFile: false });
     setShowReadForm(true);
   }
 
   function resetReadForm() {
-    setReadForm({ sponsor_id: '', payout: '', long_form: '' });
+    setReadForm({ sponsor_id: '', payout: '', long_form: '', file: null, removeFile: false });
     setEditingRead(null);
     setShowReadForm(false);
+    if (readFileInputRef.current) readFileInputRef.current.value = '';
   }
 
   // ===== Mayday handlers =====
@@ -2518,6 +2548,29 @@ export default function Projects({ onNavigate }) {
                 style={{ ...styles.input, resize: 'vertical' }}
               />
             </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Attachment</label>
+              {editingRead && editingRead.original_filename && !readForm.removeFile && !readForm.file && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', padding: '8px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <span style={{ fontSize: '14px' }}>{editingRead.file_type === 'pdf' ? '📄' : editingRead.file_type === 'docx' ? '📝' : '📋'}</span>
+                  <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', flex: 1 }}>{editingRead.original_filename}</span>
+                  <button type="button" onClick={() => setReadForm({ ...readForm, removeFile: true })} style={{ background: 'rgba(239,68,68,0.1)', color: '#fca5a5', border: 'none', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', cursor: 'pointer' }}>Remove</button>
+                </div>
+              )}
+              {readForm.removeFile && !readForm.file && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', padding: '8px 12px', borderRadius: '8px', background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.1)' }}>
+                  <span style={{ fontSize: '13px', color: '#fca5a5' }}>File will be removed on save</span>
+                  <button type="button" onClick={() => setReadForm({ ...readForm, removeFile: false })} style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)', border: 'none', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', cursor: 'pointer' }}>Undo</button>
+                </div>
+              )}
+              <input
+                ref={readFileInputRef}
+                type="file"
+                accept=".pdf,.docx,.md"
+                onChange={(e) => setReadForm({ ...readForm, file: e.target.files[0] || null, removeFile: false })}
+                style={{ fontSize: '13px', color: 'rgba(255,255,255,0.6)' }}
+              />
+            </div>
             <button type="submit" style={styles.submitBtn}>{editingRead ? 'Update Read' : 'Add Read'}</button>
           </form>
         )}
@@ -2568,6 +2621,24 @@ export default function Projects({ onNavigate }) {
                         </div>
                       )}
 
+                      {read.original_filename && (
+                        <div style={styles.detailSection}>
+                          <h4 style={styles.detailLabel}>Attachment</h4>
+                          <a
+                            href={supabase.storage.from('resources').getPublicUrl(read.file_path).data.publicUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', textDecoration: 'none', cursor: 'pointer' }}
+                          >
+                            <span style={{ fontSize: '16px' }}>{read.file_type === 'pdf' ? '📄' : read.file_type === 'docx' ? '📝' : '📋'}</span>
+                            <span style={{ fontSize: '13px', color: '#818cf8' }}>{read.original_filename}</span>
+                            <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)' }}>
+                              {read.file_size < 1024 ? `${read.file_size} B` : read.file_size < 1048576 ? `${(read.file_size / 1024).toFixed(1)} KB` : `${(read.file_size / 1048576).toFixed(1)} MB`}
+                            </span>
+                          </a>
+                        </div>
+                      )}
+
                       {linkedVideos.length > 0 && (
                         <div style={styles.detailSection}>
                           <h4 style={styles.detailLabel}>Linked Videos</h4>
@@ -2589,7 +2660,7 @@ export default function Projects({ onNavigate }) {
 
                       <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
                         <button onClick={() => startEditRead(read)} style={{ ...styles.addBtn, fontSize: '12px', padding: '6px 12px' }}>Edit</button>
-                        <button onClick={() => handleDeleteRead(read.id)} style={{ ...styles.addBtn, fontSize: '12px', padding: '6px 12px', background: 'rgba(239,68,68,0.1)', color: '#fca5a5' }}>Delete</button>
+                        <button onClick={() => handleDeleteRead(read)} style={{ ...styles.addBtn, fontSize: '12px', padding: '6px 12px', background: 'rgba(239,68,68,0.1)', color: '#fca5a5' }}>Delete</button>
                       </div>
                     </div>
                   )}
