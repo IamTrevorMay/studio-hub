@@ -876,7 +876,6 @@ export default function Calendar({ onNavigate }) {
   function renderEventChip(ev, opts = {}) {
     const color = EVENT_TYPE_COLORS[ev.event_type] || '#6b7280';
     const icon = EVENT_TYPE_ICONS[ev.event_type] || '\u2022';
-    const maxLen = opts.maxLen || 16;
     const isRecurring = ev.recurrence_rule && ev.recurrence_rule.type !== 'none';
     return (
       <div
@@ -891,7 +890,7 @@ export default function Calendar({ onNavigate }) {
         <span style={{ fontSize: '9px', flexShrink: 0 }}>{icon}</span>
         {!ev.all_day && <span style={{ fontSize: '9px', flexShrink: 0, color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>{new Date(ev.start_date).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>}
         <span style={{ ...styles.eventChipText, color }}>
-          {ev.title.substring(0, maxLen)}
+          {ev.title}
         </span>
         {isRecurring && <span style={{ fontSize: '8px', flexShrink: 0, opacity: 0.6 }}>{'\uD83D\uDD01'}</span>}
         {ev.google_synced_at && <span style={{ fontSize: '8px', flexShrink: 0, opacity: 0.5 }} title="Synced to Google Calendar">{'\u2713'}</span>}
@@ -1345,7 +1344,7 @@ export default function Calendar({ onNavigate }) {
                   ...styles.weekAllDayCell,
                   borderRight: i < 6 ? '1px solid rgba(255,255,255,0.06)' : 'none',
                 }}>
-                  {dayEvents.map(ev => renderEventChip(ev, { maxLen: 12 }))}
+                  {dayEvents.map(ev => renderEventChip(ev))}
                 </div>
               );
             })}
@@ -1458,7 +1457,7 @@ export default function Calendar({ onNavigate }) {
                   <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>all-day</span>
                 </div>
                 <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: '4px', padding: '4px 8px' }}>
-                  {allDayEvents.map(ev => renderEventChip(ev, { maxLen: 40 }))}
+                  {allDayEvents.map(ev => renderEventChip(ev))}
                 </div>
               </div>
             );
@@ -2187,7 +2186,7 @@ const styles = {
   dateNumberToday: { background: '#6366f1', color: '#ffffff', fontWeight: 700 },
   eventsContainer: { display: 'flex', flexDirection: 'column', gap: '2px' },
   eventChip: { display: 'flex', alignItems: 'center', gap: '3px', padding: '1px 5px', borderRadius: '4px', border: '1px solid', cursor: 'pointer', minHeight: '17px', transition: 'opacity 0.1s' },
-  eventChipText: { fontSize: '9px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 },
+  eventChipText: { fontSize: '9px', fontWeight: 600, flex: 1 },
   postsContainer: { display: 'flex', flexDirection: 'column', gap: '2px' },
   socialPostsWrapper: { borderTop: '1px solid rgba(255,255,255,0.06)', marginTop: '2px', paddingTop: '2px', flexShrink: 0 },
   socialPostsHeader: { display: 'flex', alignItems: 'center', gap: '3px', padding: '1px 4px', cursor: 'pointer', borderRadius: '3px', userSelect: 'none' },

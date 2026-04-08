@@ -52,14 +52,14 @@ const DELIVERABLE_PLATFORMS = ['YouTube', 'TikTok', 'Instagram', 'X/Twitter', 'F
 const SPONSOR_STATUS_COLORS = { active: '#10b981', completed: '#6366f1', cancelled: '#ef4444' };
 const PAYMENT_STATUS_COLORS = { unpaid: '#ef4444', partial: '#f59e0b', paid: '#10b981' };
 
-const MAYDAY_STAGES = ['idea', 'script', 'gather_broadcast', 'editor', 'thumbnail_post', 'complete'];
+const MAYDAY_STAGES = ['idea', 'script', 'gather_broadcast', 'film', 'editor', 'thumbnail_post', 'complete'];
 const MAYDAY_STAGE_LABELS = {
   idea: 'Idea', script: 'Script', gather_broadcast: 'Gather Assets + Broadcast',
-  editor: 'Editor', thumbnail_post: 'Thumbnail + Post', complete: 'Complete',
+  film: 'Film', editor: 'Editor', thumbnail_post: 'Thumbnail + Post', complete: 'Complete',
 };
 const MAYDAY_STAGE_COLORS = {
   idea: '#8b5cf6', script: '#3b82f6', gather_broadcast: '#f59e0b',
-  editor: '#f97316', thumbnail_post: '#ec4899', complete: '#22c55e',
+  film: '#ef4444', editor: '#f97316', thumbnail_post: '#ec4899', complete: '#22c55e',
 };
 
 export default function Projects({ onNavigate }) {
@@ -3477,6 +3477,7 @@ function ShortsCard({ clip, teamMembers, onUpdate, onDelete, isEditing, onToggle
 }
 
 function MaydayCard({ video, reads, onUpdate, onDelete, isEditing, onToggleEdit }) {
+  const [editTitle, setEditTitle] = useState(video.title || '');
   const [editReadId, setEditReadId] = useState(video.sponsor_read_id || '');
   const [editPostDate, setEditPostDate] = useState(video.post_date || '');
 
@@ -3517,6 +3518,13 @@ function MaydayCard({ video, reads, onUpdate, onDelete, isEditing, onToggleEdit 
       {isEditing && (
         <div style={{ marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '8px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <input
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              style={styles.smallSelect}
+              placeholder="Title"
+            />
             <select
               value={editReadId}
               onChange={(e) => setEditReadId(e.target.value)}
@@ -3542,7 +3550,7 @@ function MaydayCard({ video, reads, onUpdate, onDelete, isEditing, onToggleEdit 
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onUpdate({ sponsor_read_id: editReadId || null, post_date: editPostDate || null });
+                  onUpdate({ title: editTitle, sponsor_read_id: editReadId || null, post_date: editPostDate || null });
                   onToggleEdit();
                 }}
                 style={styles.smallBtn}

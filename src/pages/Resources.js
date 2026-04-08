@@ -29,17 +29,6 @@ export default function Resources() {
   const [renameDocValue, setRenameDocValue] = useState('');
   const fileInputRef = useRef(null);
 
-  useEffect(() => {
-    if (!profile?.id) return;
-    const timeout = setTimeout(() => setLoading(false), 5000);
-    fetchFolders().finally(() => clearTimeout(timeout));
-    return () => clearTimeout(timeout);
-  }, [profile?.id, fetchFolders, refreshKey]);
-
-  useEffect(() => {
-    if (activeFolder) fetchDocuments(activeFolder.id);
-  }, [activeFolder]);
-
   const fetchFolders = useCallback(async () => {
     setLoading(true);
     try {
@@ -55,6 +44,17 @@ export default function Resources() {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+    const timeout = setTimeout(() => setLoading(false), 5000);
+    fetchFolders().finally(() => clearTimeout(timeout));
+    return () => clearTimeout(timeout);
+  }, [profile?.id, fetchFolders, refreshKey]);
+
+  useEffect(() => {
+    if (activeFolder) fetchDocuments(activeFolder.id);
+  }, [activeFolder]);
 
   async function fetchDocuments(folderId) {
     try {
