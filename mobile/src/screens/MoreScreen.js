@@ -4,7 +4,6 @@ import { useAuth } from '../contexts/AuthContext';
 import { colors, spacing, radius, fontSize } from '../utils/theme';
 
 const MENU_ITEMS = [
-  { key: 'assets', label: 'Assets', icon: 'folder', route: 'Assets' },
   { key: 'ideation', label: 'Create', icon: 'lightbulb', route: 'Create' },
   { key: 'analytics', label: 'Analytics', icon: 'chart', adminOnly: true, route: 'Analytics' },
   { key: 'research', label: 'Research', icon: 'search', route: 'Research' },

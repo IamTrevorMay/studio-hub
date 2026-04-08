@@ -12,13 +12,11 @@ import AdminPanel from './AdminPanel';
 import Ideation from './Ideation';
 import Reviews from './Reviews';
 import Resources from './Resources';
-import Assets from './Assets';
 import Analytics from './Analytics';
 import Research from './Research';
 import Goals from './Goals';
 import Tools from './Tools';
 import ShowPlanning from './ShowPlanning';
-import Posting from './Posting';
 
 import Morty from '../components/Morty';
 
@@ -27,7 +25,6 @@ const NAV_ITEMS = [
   { key: 'projects', label: 'Projects', icon: ProjectsIcon },
   { key: 'ideation', label: 'Create', icon: IdeationIcon },
   { key: 'resources', label: 'Resources', icon: ResourcesIcon },
-  { key: 'assets', label: 'Assets', icon: AssetsIcon },
   { key: 'analytics', label: 'Analytics', icon: AnalyticsIcon, adminOnly: true },
   { key: 'research', label: 'Research', icon: ResearchIcon },
   { key: 'reviews', label: 'Reviews', icon: ReviewsIcon },
@@ -36,7 +33,6 @@ const NAV_ITEMS = [
   { key: 'goals', label: 'Goals', icon: GoalsIcon },
   { key: 'tools', label: 'Toolbox', icon: ToolsIcon },
 
-  { key: 'posting', label: 'Posting', icon: PostingIcon },
   { key: 'channels', label: 'Channels', icon: ChannelsIcon },
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
 ];
@@ -54,7 +50,6 @@ const NAV_ICON_MAP = {
   projects: ProjectsIcon,
   ideation: IdeationIcon,
   resources: ResourcesIcon,
-  assets: AssetsIcon,
   analytics: AnalyticsIcon,
   research: ResearchIcon,
   reviews: ReviewsIcon,
@@ -63,13 +58,12 @@ const NAV_ICON_MAP = {
   goals: GoalsIcon,
   tools: ToolsIcon,
 
-  posting: PostingIcon,
   channels: ChannelsIcon,
   messages: MessagesIcon,
 };
 
 export default function AppLayout() {
-  const { profile, signOut, isAdmin, isAssistant, canPost, unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, refreshNotifications } = useAuth();
+  const { profile, signOut, isAdmin, isAssistant, unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, refreshNotifications } = useAuth();
   const { getResolvedNav, saveConfig, saving } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => getTabFromPath() || localStorage.getItem('studio-hub-tab') || 'dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -89,9 +83,7 @@ export default function AppLayout() {
     localStorage.setItem('nav-folder-state', JSON.stringify(folderCollapseState));
   }, [folderCollapseState]);
 
-  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin).filter(
-    entry => entry.key !== 'posting' || canPost
-  );
+  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin);
 
   function toggleFolder(folderId) {
     setFolderCollapseState(prev => ({ ...prev, [folderId]: !prev[folderId] }));
@@ -499,14 +491,12 @@ export default function AppLayout() {
           {activeTab === 'showplanning' && <ShowPlanning />}
           {activeTab === 'ideation' && <Ideation initialConceptId={navTarget} onConceptOpened={() => setNavTarget(null)} />}
           {activeTab === 'resources' && <Resources />}
-          {activeTab === 'assets' && <Assets />}
           {isAdmin && activeTab === 'analytics' && <Analytics />}
           {activeTab === 'research' && <Research />}
           {activeTab === 'reviews' && <Reviews />}
           {activeTab === 'goals' && <Goals />}
           {activeTab === 'tools' && <Tools onNavigate={navigateTo} />}
 
-          {activeTab === 'posting' && canPost && <Posting />}
           {activeTab === 'channels' && <Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} />}
           {activeTab === 'messages' && <Messages onNavigate={navigateTo} />}
           {isAdmin && activeTab === 'admin' && <AdminPanel initialTab={adminInitialTab} />}
@@ -599,16 +589,6 @@ function ResourcesIcon({ active }) {
   );
 }
 
-function AssetsIcon({ active }) {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
-      <rect x="2" y="3" width="16" height="12" rx="2" />
-      <path d="M2 12l4-4 3 3 4-5 5 6" />
-      <circle cx="6.5" cy="7.5" r="1.5" />
-    </svg>
-  );
-}
-
 function ResearchIcon({ active }) {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
@@ -645,14 +625,6 @@ function ToolsIcon({ active }) {
       <path d="M14.5 3.5a2.5 2.5 0 00-3.54 0L9.5 5l5 5 1.46-1.46a2.5 2.5 0 000-3.54l-1.46-1.5z" />
       <path d="M9.5 5L3 11.5V15h3.5L13 8.5" />
       <path d="M7.5 12.5L5 15" />
-    </svg>
-  );
-}
-
-function PostingIcon({ active }) {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
-      <path d="M17 3l-10 10M17 3l-4 14-3-7-7-3 14-4z" />
     </svg>
   );
 }

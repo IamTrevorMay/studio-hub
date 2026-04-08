@@ -14,7 +14,6 @@ import MessagesScreen from '../screens/MessagesScreen';
 import MessageDetailScreen from '../screens/MessageDetailScreen';
 import CalendarScreen from '../screens/CalendarScreen';
 import MoreScreen from '../screens/MoreScreen';
-import AssetsScreen from '../screens/AssetsScreen';
 import ReviewsScreen from '../screens/ReviewsScreen';
 import ReviewDetailScreen from '../screens/ReviewDetailScreen';
 import CreateScreen from '../screens/CreateScreen';
@@ -155,7 +154,6 @@ function MoreStackScreen() {
       }}
     >
       <MoreStack.Screen name="MoreMenu" component={MoreScreen} options={{ title: 'More' }} />
-      <MoreStack.Screen name="Assets" component={AssetsScreen} options={{ title: 'Assets' }} />
       <MoreStack.Screen name="Reviews" component={ReviewsScreen} options={{ title: 'Reviews' }} />
       <MoreStack.Screen
         name="ReviewDetail"
