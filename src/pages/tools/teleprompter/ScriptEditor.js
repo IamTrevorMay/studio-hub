@@ -63,6 +63,35 @@ export default function ScriptEditor({ script, onChange, onClose }) {
     if (editorRef.current) editorRef.current.focus();
   }, []);
 
+  // One-time migration: move localStorage scripts to Supabase
+  useEffect(() => {
+    if (!profile?.id) return;
+    const MIGRATED_KEY = 'studio-hub-teleprompter-scripts-migrated';
+    if (localStorage.getItem(MIGRATED_KEY)) return;
+    try {
+      const raw = localStorage.getItem('studio-hub-teleprompter-scripts');
+      const old = raw ? JSON.parse(raw) : [];
+      if (old.length > 0) {
+        const rows = old.map(s => ({
+          user_id: profile.id,
+          name: s.name,
+          content: s.text,
+          created_at: new Date(s.savedAt).toISOString(),
+        }));
+        supabase.from('teleprompter_scripts').insert(rows).then(({ error }) => {
+          if (!error) {
+            localStorage.setItem(MIGRATED_KEY, '1');
+            localStorage.removeItem('studio-hub-teleprompter-scripts');
+          } else {
+            console.error('Script migration error:', error);
+          }
+        });
+      } else {
+        localStorage.setItem(MIGRATED_KEY, '1');
+      }
+    } catch { /* ignore parse errors */ }
+  }, [profile?.id]);
+
   useEffect(() => {
     function handleKey(e) {
       if (e.key === 'Escape') {
