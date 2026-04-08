@@ -1,13 +1,63 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { loadSavedScripts, saveScriptToLibrary, deleteSavedScript } from './teleprompterStorage';
 
+function escapeHtml(text) {
+  const el = document.createElement('span');
+  el.textContent = text;
+  return el.innerHTML;
+}
+
+function sanitizePastedHtml(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+
+  function processNode(node) {
+    if (node.nodeType === 3) return escapeHtml(node.textContent);
+    if (node.nodeType !== 1) return '';
+    const tag = node.tagName.toLowerCase();
+    const children = Array.from(node.childNodes).map(processNode).join('');
+    if (tag === 'br') return '<br>';
+    const outputTag = tag === 'div' ? 'p' : tag;
+    if (['p', 'div', 'ul', 'ol', 'li'].includes(tag)) {
+      let attrs = '';
+      if (outputTag === 'p') {
+        const align = node.style && node.style.textAlign;
+        if (align && align !== 'start' && align !== 'left') {
+          attrs = ` style="text-align:${align}"`;
+        }
+      }
+      return `<${outputTag}${attrs}>${children}</${outputTag}>`;
+    }
+    return children;
+  }
+
+  return processNode(doc.body);
+}
+
+export function ensureHtml(text) {
+  if (!text) return '';
+  if (/<(p|ul|ol|li|div|br)\b/i.test(text)) return text;
+  return text.split('\n').map(line => `<p>${escapeHtml(line) || '<br>'}</p>`).join('');
+}
+
 export default function ScriptEditor({ script, onChange, onClose }) {
-  const textareaRef = useRef(null);
+  const editorRef = useRef(null);
+  const isInternalChange = useRef(false);
   const [showLibrary, setShowLibrary] = useState(false);
   const [savedScripts, setSavedScripts] = useState([]);
 
+  // Sync script prop to editor (skip when change came from user input)
   useEffect(() => {
-    if (textareaRef.current) textareaRef.current.focus();
+    if (isInternalChange.current) {
+      isInternalChange.current = false;
+      return;
+    }
+    if (editorRef.current) {
+      editorRef.current.innerHTML = ensureHtml(script);
+    }
+  }, [script]);
+
+  useEffect(() => {
+    if (editorRef.current) editorRef.current.focus();
   }, []);
 
   useEffect(() => {
@@ -52,6 +102,29 @@ export default function ScriptEditor({ script, onChange, onClose }) {
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
+  const handlePaste = (e) => {
+    const html = e.clipboardData.getData('text/html');
+    if (html) {
+      e.preventDefault();
+      const clean = sanitizePastedHtml(html);
+      document.execCommand('insertHTML', false, clean);
+    }
+  };
+
+  const handleInput = () => {
+    if (editorRef.current) {
+      isInternalChange.current = true;
+      let html = editorRef.current.innerHTML;
+      if (html === '<br>' || html === '<div><br></div>') html = '';
+      onChange(html);
+    }
+  };
+
+  const getCharCount = () => {
+    if (editorRef.current) return editorRef.current.textContent.length;
+    return script.replace(/<[^>]*>/g, '').length;
+  };
+
   return (
     <div style={styles.overlay} onClick={onClose}>
       <div style={styles.panel} onClick={e => e.stopPropagation()}>
@@ -83,7 +156,7 @@ export default function ScriptEditor({ script, onChange, onClose }) {
                     <div style={styles.scriptInfo}>
                       <span style={styles.scriptName}>{s.name}</span>
                       <span style={styles.scriptMeta}>
-                        {formatDate(s.savedAt)} &middot; {s.text.length.toLocaleString()} chars
+                        {formatDate(s.savedAt)} &middot; {s.text.replace(/<[^>]*>/g, '').length.toLocaleString()} chars
                       </span>
                     </div>
                     <div style={styles.scriptActions}>
@@ -100,19 +173,25 @@ export default function ScriptEditor({ script, onChange, onClose }) {
             )}
           </div>
         ) : (
-          <textarea
-            ref={textareaRef}
-            value={script}
-            onChange={e => onChange(e.target.value)}
-            placeholder="Paste or type your script here..."
-            style={styles.textarea}
-            spellCheck={false}
-          />
+          <div style={styles.editorWrapper}>
+            <div
+              ref={editorRef}
+              contentEditable
+              onInput={handleInput}
+              onPaste={handlePaste}
+              style={styles.editor}
+              spellCheck={false}
+              suppressContentEditableWarning
+            />
+            {!script && (
+              <div style={styles.placeholder}>Paste or type your script here...</div>
+            )}
+          </div>
         )}
 
         <div style={styles.footer}>
           <span style={styles.hint}>
-            {script.length.toLocaleString()} characters
+            {getCharCount().toLocaleString()} characters
           </span>
           <div style={styles.footerActions}>
             <button onClick={handleOpenLibrary} style={styles.secondaryBtn}>Load</button>
@@ -169,9 +248,15 @@ const styles = {
     color: 'rgba(255,255,255,0.5)',
     cursor: 'pointer',
   },
-  textarea: {
+  editorWrapper: {
     flex: 1,
+    position: 'relative',
     margin: '16px 20px',
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  editor: {
+    flex: 1,
     padding: '16px',
     background: 'rgba(255,255,255,0.04)',
     border: '1px solid rgba(255,255,255,0.08)',
@@ -180,8 +265,18 @@ const styles = {
     fontSize: '15px',
     lineHeight: 1.7,
     fontFamily: "'DM Sans', sans-serif",
-    resize: 'none',
     outline: 'none',
+    overflowY: 'auto',
+  },
+  placeholder: {
+    position: 'absolute',
+    top: '16px',
+    left: '16px',
+    color: 'rgba(255,255,255,0.25)',
+    fontSize: '15px',
+    fontFamily: "'DM Sans', sans-serif",
+    lineHeight: 1.7,
+    pointerEvents: 'none',
   },
   footer: {
     display: 'flex',

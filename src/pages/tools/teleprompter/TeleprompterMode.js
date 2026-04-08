@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import useTeleprompterScroll from './useTeleprompterScroll';
 import TeleprompterControls from './TeleprompterControls';
-import ScriptEditor from './ScriptEditor';
+import ScriptEditor, { ensureHtml } from './ScriptEditor';
 
 export default function TeleprompterMode({
   stream,
@@ -220,7 +220,16 @@ export default function TeleprompterMode({
         >
           {/* Top spacer so text starts from bottom */}
           <div style={{ height: '60vh', flexShrink: 0 }} />
-          <div style={{
+          <style>{`
+            .teleprompter-script ul, .teleprompter-script ol {
+              text-align: left;
+              padding-left: 1.5em;
+              margin: 0.3em 0;
+            }
+            .teleprompter-script li { margin-bottom: 0.2em; }
+            .teleprompter-script p { margin: 0.2em 0; }
+          `}</style>
+          <div className="teleprompter-script" style={{
             padding: `0 ${marginPct}`,
             fontSize: `${fontSize}px`,
             lineHeight: 1.5,
@@ -230,10 +239,11 @@ export default function TeleprompterMode({
             color: settings.textColor,
             opacity: textOpacity,
             transform: mirrored ? 'scaleX(-1)' : 'none',
-            whiteSpace: 'pre-wrap',
             wordBreak: 'break-word',
           }}>
-            {script || (
+            {script ? (
+              <div dangerouslySetInnerHTML={{ __html: ensureHtml(script) }} />
+            ) : (
               <span style={{ opacity: 0.3, fontSize: '24px' }}>
                 Click "Script" to add your text...
               </span>
