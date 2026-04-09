@@ -357,6 +357,7 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
         .from('personal_tasks')
         .select('*')
         .eq('created_by', profile.id)
+        .neq('status', 'archived')
         .order('position', { ascending: true });
       if (error) throw error;
       setTasks(data || []);
@@ -429,7 +430,8 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
           .update({ sprint_id: newSprint.id, updated_at: new Date().toISOString() })
           .eq('sprint_id', prevSprint.id)
           .eq('created_by', profile.id)
-          .neq('status', 'done');
+          .neq('status', 'done')
+          .neq('status', 'archived');
       }
     }
 
@@ -456,7 +458,7 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
     const pts = (t) => parseInt(t.priority) || 0;
     const completedPoints = (sprintTasks || []).filter(t => t.status === 'done').reduce((sum, t) => sum + pts(t), 0);
     const completedCount = (sprintTasks || []).filter(t => t.status === 'done').length;
-    const incompleteTasks = (sprintTasks || []).filter(t => t.status !== 'done');
+    const incompleteTasks = (sprintTasks || []).filter(t => t.status !== 'done' && t.status !== 'archived');
 
     // Update sprint: set velocity, archived_at, complete
     await supabase

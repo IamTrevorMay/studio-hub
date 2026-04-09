@@ -73,6 +73,7 @@ export default function AppLayout() {
   const [notifications, setNotifications] = useState([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const notifPanelRef = React.useRef(null);
+  const mainContentRef = React.useRef(null);
   const [editMode, setEditMode] = useState(false);
   const [folderCollapseState, setFolderCollapseState] = useState(() =>
     JSON.parse(localStorage.getItem('nav-folder-state') || '{}')
@@ -89,13 +90,14 @@ export default function AppLayout() {
     setFolderCollapseState(prev => ({ ...prev, [folderId]: !prev[folderId] }));
   }
 
-  // Persist active tab to localStorage and URL
+  // Persist active tab to localStorage and URL, reset scroll
   useEffect(() => {
     localStorage.setItem('studio-hub-tab', activeTab);
     const expectedPath = '/' + activeTab;
     if (window.location.pathname !== expectedPath) {
       window.history.pushState({}, '', expectedPath);
     }
+    if (mainContentRef.current) mainContentRef.current.scrollTop = 0;
   }, [activeTab]);
 
   // Handle browser back/forward
@@ -484,7 +486,7 @@ export default function AppLayout() {
             )}
           </div>
         </div>
-        <div style={styles.mainContent}>
+        <div ref={mainContentRef} style={styles.mainContent}>
           {activeTab === 'dashboard' && <Dashboard onNavigate={navigateTo} />}
           {activeTab === 'projects' && <Projects onNavigate={navigateTo} />}
           {activeTab === 'calendar' && <Calendar onNavigate={navigateTo} />}
