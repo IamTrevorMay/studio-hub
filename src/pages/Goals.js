@@ -189,7 +189,7 @@ export default function Goals() {
     if (!allAccountIds.length) return;
 
     const { data: rollups } = await supabase
-      .from('daily_platform_rollups')
+      .from('platform_daily_metrics')
       .select('*')
       .gte('date', start)
       .lte('date', end)
@@ -229,7 +229,7 @@ export default function Goals() {
     const fmt = d => d.toISOString().split('T')[0];
 
     const { data: rows } = await supabase
-      .from('daily_platform_rollups')
+      .from('platform_daily_metrics')
       .select('*')
       .gte('date', fmt(d20ago))
       .lte('date', fmt(today))
