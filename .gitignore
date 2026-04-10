@@ -8,3 +8,6 @@ build
 .DS_Store
 supabase/.temp
 api/.env
+google-drive-account.json
+*-service-account.json
+.claude/
