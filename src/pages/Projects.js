@@ -22,6 +22,20 @@ const PROJECT_TYPES = [
   { value: 'substack_article', label: 'Substack Article' },
   { value: 'other', label: 'Other' },
 ];
+const BUSINESS_PROJECT_TYPES = [
+  { value: 'sponsorship', label: 'Sponsorship' },
+  { value: 'collaboration', label: 'Collaboration' },
+  { value: 'documentation', label: 'Documentation' },
+  { value: 'administration', label: 'Administration' },
+  { value: 'other', label: 'Other' },
+];
+const BUSINESS_STATUSES = ['backlog', 'in_progress', 'holding', 'completed'];
+const BUSINESS_STATUS_LABELS = {
+  backlog: 'Backlog', in_progress: 'In Progress', holding: 'Holding', completed: 'Completed',
+};
+const BUSINESS_STATUS_COLORS = {
+  backlog: '#8b5cf6', in_progress: '#3b82f6', holding: '#f59e0b', completed: '#22c55e',
+};
 const CHANNELS = ['Trevor May Baseball', 'More Mayday', 'AWA Wiffle'];
 const ASSIGNMENT_ROLES = ['producer', 'writer', 'editor', 'designer', 'reviewer', 'other'];
 
@@ -73,7 +87,7 @@ export default function Projects({ onNavigate }) {
   const [selectedProject, setSelectedProject] = useState(null);
   const [filterStatus, setFilterStatus] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [viewMode, setViewMode] = useState(() => localStorage.getItem('projects_view') || 'list');
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('projects_view') || 'board');
   const [showArchived, setShowArchived] = useState(false);
   const [activeSection, setActiveSection] = useState('projects');
 
@@ -144,7 +158,7 @@ export default function Projects({ onNavigate }) {
 
   // Form state
   const [form, setForm] = useState({
-    name: '', type: 'youtube_video', channel: '',
+    name: '', category: 'creative', type: 'youtube_video', channel: '',
     start_date: '', deadline: '', notes: '', status: 'concept',
   });
 
@@ -220,8 +234,9 @@ export default function Projects({ onNavigate }) {
     e.preventDefault();
     const insert = {
       name: form.name,
+      category: form.category,
       type: form.type,
-      channel: form.channel || null,
+      channel: form.category === 'business' ? null : (form.channel || null),
       status: form.status,
       start_date: form.start_date || null,
       deadline: form.deadline || null,
@@ -234,7 +249,7 @@ export default function Projects({ onNavigate }) {
       alert('Error creating project: ' + error.message);
       return;
     }
-    setForm({ name: '', type: 'youtube_video', channel: '', start_date: '', deadline: '', notes: '', status: 'concept' });
+    setForm({ name: '', category: 'creative', type: 'youtube_video', channel: '', start_date: '', deadline: '', notes: '', status: 'concept' });
     setShowForm(false);
     setSeriesAddProjectId(null);
     fetchProjects();
@@ -1095,7 +1110,9 @@ export default function Projects({ onNavigate }) {
   function onDragEnd(result) {
     if (!result.destination) return;
     const { draggableId, destination } = result;
-    const newStatus = destination.droppableId;
+    // Droppable IDs are namespaced as `${board}:${status}` so each board owns its columns.
+    const rawDest = destination.droppableId;
+    const newStatus = rawDest.includes(':') ? rawDest.split(':')[1] : rawDest;
     const project = projects.find(p => p.id === draggableId);
     if (project && project.status !== newStatus) {
       handleStatusChange(draggableId, newStatus);
@@ -1181,11 +1198,14 @@ export default function Projects({ onNavigate }) {
   const searchFilter = (p) => !searchQuery || p.name.toLowerCase().includes(searchQuery.toLowerCase());
   const statusFilter = (p) => filterStatus === 'all' || p.status === filterStatus;
 
-  const currentProjects = projects.filter(p =>
-    !p.is_archived && p.status !== 'published' && p.start_date && p.deadline && searchFilter(p) && statusFilter(p)
+  // Creative projects only for the list-view sections. A project is "current"
+  // as long as it has a deadline (start date is optional).
+  const creativeActive = projects.filter(p => (p.category || 'creative') === 'creative' && !p.is_archived && p.status !== 'published');
+  const currentProjects = creativeActive.filter(p =>
+    p.deadline && searchFilter(p) && statusFilter(p)
   );
-  const comingUpProjects = projects.filter(p =>
-    !p.is_archived && p.status !== 'published' && (!p.start_date || !p.deadline) && searchFilter(p) && statusFilter(p)
+  const comingUpProjects = creativeActive.filter(p =>
+    !p.deadline && searchFilter(p) && statusFilter(p)
   );
   const completedProjects = projects.filter(p => {
     if (p.is_archived || p.status !== 'published') return false;
@@ -1200,8 +1220,14 @@ export default function Projects({ onNavigate }) {
     return publishedDate < sevenDaysAgo;
   }).filter(searchFilter);
 
-  // For board view, combine current + coming up
-  const filtered = [...currentProjects, ...comingUpProjects];
+  // Kanban board datasets (separated by category)
+  const creativeBoardProjects = projects.filter(p =>
+    (p.category || 'creative') === 'creative' && !p.is_archived && p.status !== 'published'
+    && searchFilter(p) && statusFilter(p)
+  );
+  const businessBoardProjects = projects.filter(p =>
+    p.category === 'business' && !p.is_archived && searchFilter(p)
+  );
   const archivedCount = archivedProjects.length;
 
   const editingCount = shorts.filter(s => s.stage === 'editing').length;
@@ -1377,28 +1403,52 @@ export default function Projects({ onNavigate }) {
               />
             </div>
             <div style={styles.field}>
+              <label style={styles.label}>Category *</label>
+              <select
+                value={form.category}
+                onChange={(e) => {
+                  const nextCategory = e.target.value;
+                  const nextTypes = nextCategory === 'business' ? BUSINESS_PROJECT_TYPES : PROJECT_TYPES;
+                  const nextStatuses = nextCategory === 'business' ? BUSINESS_STATUSES : STATUSES;
+                  setForm({
+                    ...form,
+                    category: nextCategory,
+                    type: nextTypes[0].value,
+                    status: nextStatuses[0],
+                    channel: nextCategory === 'business' ? '' : form.channel,
+                  });
+                }}
+                style={styles.select}
+              >
+                <option value="creative">Creative</option>
+                <option value="business">Business</option>
+              </select>
+            </div>
+            <div style={styles.field}>
               <label style={styles.label}>Type *</label>
               <select
                 value={form.type}
                 onChange={(e) => setForm({ ...form, type: e.target.value })}
                 style={styles.select}
               >
-                {PROJECT_TYPES.map(t => (
+                {(form.category === 'business' ? BUSINESS_PROJECT_TYPES : PROJECT_TYPES).map(t => (
                   <option key={t.value} value={t.value}>{t.label}</option>
                 ))}
               </select>
             </div>
-            <div style={styles.field}>
-              <label style={styles.label}>Channel</label>
-              <select
-                value={form.channel}
-                onChange={(e) => setForm({ ...form, channel: e.target.value })}
-                style={styles.input}
-              >
-                <option value="">Select channel...</option>
-                {CHANNELS.map((ch) => <option key={ch} value={ch}>{ch}</option>)}
-              </select>
-            </div>
+            {form.category === 'creative' && (
+              <div style={styles.field}>
+                <label style={styles.label}>Channel</label>
+                <select
+                  value={form.channel}
+                  onChange={(e) => setForm({ ...form, channel: e.target.value })}
+                  style={styles.input}
+                >
+                  <option value="">Select channel...</option>
+                  {CHANNELS.map((ch) => <option key={ch} value={ch}>{ch}</option>)}
+                </select>
+              </div>
+            )}
             <div style={styles.field}>
               <label style={styles.label}>Status</label>
               <select
@@ -1406,9 +1456,13 @@ export default function Projects({ onNavigate }) {
                 onChange={(e) => setForm({ ...form, status: e.target.value })}
                 style={styles.select}
               >
-                {STATUSES.map(s => (
-                  <option key={s} value={s}>{STATUS_LABELS[s]}</option>
-                ))}
+                {form.category === 'business'
+                  ? BUSINESS_STATUSES.map(s => (
+                      <option key={s} value={s}>{BUSINESS_STATUS_LABELS[s]}</option>
+                    ))
+                  : STATUSES.map(s => (
+                      <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+                    ))}
               </select>
             </div>
             <div style={styles.field}>
@@ -1515,12 +1569,15 @@ export default function Projects({ onNavigate }) {
       {loading ? (
         <p style={styles.emptyText}>Loading projects...</p>
       ) : viewMode === 'board' ? (
+        <>
         <DragDropContext onDragEnd={onDragEnd}>
+          {/* Creative Board */}
+          <h2 style={{ ...styles.sectionHeading, marginTop: 0 }}>Creative</h2>
           <div style={styles.boardContainer}>
             {STATUSES.map(status => {
-              const columnProjects = filtered.filter(p => p.status === status);
+              const columnProjects = creativeBoardProjects.filter(p => p.status === status);
               return (
-                <Droppable droppableId={status} key={status}>
+                <Droppable droppableId={`creative:${status}`} key={`creative:${status}`}>
                   {(provided, snapshot) => (
                     <div
                       ref={provided.innerRef}
@@ -1543,6 +1600,57 @@ export default function Projects({ onNavigate }) {
                                 ref={provided.innerRef}
                                 {...provided.draggableProps}
                                 {...provided.dragHandleProps}
+                                onClick={() => setSelectedProject(project.id)}
+                                style={{
+                                  ...styles.kanbanCard,
+                                  ...(snapshot.isDragging ? { boxShadow: '0 8px 24px rgba(0,0,0,0.4)', border: '1px solid rgba(99,102,241,0.3)' } : {}),
+                                  ...provided.draggableProps.style,
+                                }}
+                              >
+                                <KanbanCard project={project} />
+                              </div>
+                            )}
+                          </Draggable>
+                        ))}
+                        {provided.placeholder}
+                      </div>
+                    </div>
+                  )}
+                </Droppable>
+              );
+            })}
+          </div>
+
+          {/* Business Board */}
+          <h2 style={{ ...styles.sectionHeading, marginTop: '32px' }}>Business</h2>
+          <div style={styles.boardContainer}>
+            {BUSINESS_STATUSES.map(status => {
+              const columnProjects = businessBoardProjects.filter(p => p.status === status);
+              return (
+                <Droppable droppableId={`business:${status}`} key={`business:${status}`}>
+                  {(provided, snapshot) => (
+                    <div
+                      ref={provided.innerRef}
+                      {...provided.droppableProps}
+                      style={{
+                        ...styles.boardColumn,
+                        background: snapshot.isDraggingOver ? 'rgba(99,102,241,0.06)' : 'rgba(255,255,255,0.02)',
+                      }}
+                    >
+                      <div style={styles.boardColumnHeader}>
+                        <div style={{ ...styles.boardColumnDot, background: BUSINESS_STATUS_COLORS[status] }} />
+                        <span style={{ ...styles.boardColumnTitle, color: BUSINESS_STATUS_COLORS[status] }}>{BUSINESS_STATUS_LABELS[status]}</span>
+                        <span style={styles.boardColumnCount}>{columnProjects.length}</span>
+                      </div>
+                      <div style={styles.boardColumnBody}>
+                        {columnProjects.map((project, index) => (
+                          <Draggable key={project.id} draggableId={project.id} index={index}>
+                            {(provided, snapshot) => (
+                              <div
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                {...provided.dragHandleProps}
+                                onClick={() => setSelectedProject(project.id)}
                                 style={{
                                   ...styles.kanbanCard,
                                   ...(snapshot.isDragging ? { boxShadow: '0 8px 24px rgba(0,0,0,0.4)', border: '1px solid rgba(99,102,241,0.3)' } : {}),
@@ -1563,6 +1671,37 @@ export default function Projects({ onNavigate }) {
             })}
           </div>
         </DragDropContext>
+
+        {/* Project details modal (board view) */}
+        {selectedProject && (() => {
+          const proj = projects.find(p => p.id === selectedProject);
+          if (!proj) return null;
+          return (
+            <div style={styles.modalOverlay} onClick={() => setSelectedProject(null)}>
+              <div style={styles.projectModalContent} onClick={(e) => e.stopPropagation()}>
+                <button
+                  onClick={() => setSelectedProject(null)}
+                  style={styles.projectModalClose}
+                  title="Close"
+                  aria-label="Close"
+                >✕</button>
+                <ProjectRow
+                  project={proj} teamMembers={teamMembers} profile={profile}
+                  isSelected={true} onToggle={() => setSelectedProject(null)}
+                  onStatusChange={handleStatusChange} onAssign={handleAssign} onRemoveAssignment={handleRemoveAssignment}
+                  onAddAttachment={handleAddAttachment} onRemoveAttachment={handleRemoveAttachment} onAddComment={handleAddComment}
+                  onDeleteComment={handleDeleteComment} onDeleteProject={(id) => { handleDeleteProject(id); setSelectedProject(null); }} onArchiveProject={(id) => { handleArchiveProject(id); setSelectedProject(null); }}
+                  onUnarchiveProject={handleUnarchiveProject} onLinkConcept={handleLinkConcept} onNavigate={onNavigate} concepts={concepts}
+                  isAdmin={isAdmin} onAddChecklistItem={handleAddChecklistItem} onToggleChecklistItem={handleToggleChecklistItem}
+                  onDeleteChecklistItem={handleDeleteChecklistItem} onAssignProjectStage={handleAssignProjectStage}
+                  onRemoveProjectStageAssignment={handleRemoveProjectStageAssignment} onUpdateProject={handleUpdateProject}
+                  seriesList={seriesList} onAssignSeries={handleAssignProjectToSeries}
+                />
+              </div>
+            </div>
+          );
+        })()}
+        </>
       ) : (
         <>
         {/* ── Current Projects ── */}
@@ -2688,6 +2827,12 @@ function ProjectRow({
   onUpdateProject,
   seriesList, onAssignSeries,
 }) {
+  const isBusiness = project.category === 'business';
+  const typeList = isBusiness ? BUSINESS_PROJECT_TYPES : PROJECT_TYPES;
+  const statusList = isBusiness ? BUSINESS_STATUSES : STATUSES;
+  const statusLabels = isBusiness ? BUSINESS_STATUS_LABELS : STATUS_LABELS;
+  const statusColors = isBusiness ? BUSINESS_STATUS_COLORS : STATUS_COLORS;
+
   const [assignUserId, setAssignUserId] = useState('');
   const [assignRole, setAssignRole] = useState('editor');
   const [attachName, setAttachName] = useState('');
@@ -2775,7 +2920,7 @@ function ProjectRow({
         <div style={styles.projectRowLeft}>
           <div style={{
             ...styles.statusDot,
-            background: project.is_archived ? '#6b7280' : STATUS_COLORS[project.status],
+            background: project.is_archived ? '#6b7280' : statusColors[project.status],
           }} />
           <div>
             <div style={styles.projectRowName}>
@@ -2783,7 +2928,7 @@ function ProjectRow({
               {project.is_archived && <span style={styles.archivedTag}>Archived</span>}
             </div>
             <div style={styles.projectRowMeta}>
-              {PROJECT_TYPES.find(t => t.value === project.type)?.label || project.type.replace('_', ' ')}
+              {typeList.find(t => t.value === project.type)?.label || project.type.replace('_', ' ')}
               {project.channel && ` · ${project.channel}`}
               {project.series && <span style={{ color: 'rgba(255,255,255,0.35)' }}> · {project.series.title}</span>}
               {daysLeft != null && <>
@@ -2817,10 +2962,10 @@ function ProjectRow({
           })()}
           <span style={{
             ...styles.statusTag,
-            background: `${STATUS_COLORS[project.status]}15`,
-            color: STATUS_COLORS[project.status],
+            background: `${statusColors[project.status]}15`,
+            color: statusColors[project.status],
           }}>
-            {STATUS_LABELS[project.status]}
+            {statusLabels[project.status]}
           </span>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="rgba(255,255,255,0.3)"
             style={{ transform: isSelected ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>
@@ -2859,33 +3004,35 @@ function ProjectRow({
                     style={styles.inlineInput}
                     autoFocus
                   >
-                    {PROJECT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                    {typeList.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select>
                 ) : (
-                  <div onClick={() => { setEditType(project.type || 'youtube_video'); setEditingField('type'); }} style={styles.inlineDisplay}>
-                    {PROJECT_TYPES.find(t => t.value === project.type)?.label || project.type}
+                  <div onClick={() => { setEditType(project.type || typeList[0].value); setEditingField('type'); }} style={styles.inlineDisplay}>
+                    {typeList.find(t => t.value === project.type)?.label || project.type}
                   </div>
                 )}
               </div>
-              <div style={{ flex: 1, minWidth: '140px' }}>
-                <label style={styles.detailLabel}>Channel</label>
-                {editingField === 'channel' ? (
-                  <select
-                    value={editChannel}
-                    onChange={(e) => { setEditChannel(e.target.value); }}
-                    onBlur={() => { if (editChannel !== project.channel) saveField('channel', editChannel); else setEditingField(null); }}
-                    style={styles.inlineInput}
-                    autoFocus
-                  >
-                    <option value="">No channel</option>
-                    {CHANNELS.map((ch) => <option key={ch} value={ch}>{ch}</option>)}
-                  </select>
-                ) : (
-                  <div onClick={() => { setEditChannel(project.channel || ''); setEditingField('channel'); }} style={styles.inlineDisplay}>
-                    {project.channel || <span style={{ color: 'rgba(255,255,255,0.2)' }}>No channel</span>}
-                  </div>
-                )}
-              </div>
+              {!isBusiness && (
+                <div style={{ flex: 1, minWidth: '140px' }}>
+                  <label style={styles.detailLabel}>Channel</label>
+                  {editingField === 'channel' ? (
+                    <select
+                      value={editChannel}
+                      onChange={(e) => { setEditChannel(e.target.value); }}
+                      onBlur={() => { if (editChannel !== project.channel) saveField('channel', editChannel); else setEditingField(null); }}
+                      style={styles.inlineInput}
+                      autoFocus
+                    >
+                      <option value="">No channel</option>
+                      {CHANNELS.map((ch) => <option key={ch} value={ch}>{ch}</option>)}
+                    </select>
+                  ) : (
+                    <div onClick={() => { setEditChannel(project.channel || ''); setEditingField('channel'); }} style={styles.inlineDisplay}>
+                      {project.channel || <span style={{ color: 'rgba(255,255,255,0.2)' }}>No channel</span>}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
@@ -2893,9 +3040,9 @@ function ProjectRow({
           <div style={styles.detailSection}>
             <h4 style={styles.detailLabel}>Status Pipeline</h4>
             <div style={styles.pipeline}>
-              {STATUSES.map((s, i) => {
+              {statusList.map((s, i) => {
                 const isActive = s === project.status;
-                const isPast = STATUSES.indexOf(project.status) > i;
+                const isPast = statusList.indexOf(project.status) > i;
                 return (
                   <button
                     key={s}
@@ -2903,15 +3050,15 @@ function ProjectRow({
                     style={{
                       ...styles.pipelineStep,
                       background: isActive
-                        ? `${STATUS_COLORS[s]}25`
+                        ? `${statusColors[s]}25`
                         : isPast
                           ? 'rgba(255,255,255,0.04)'
                           : 'transparent',
-                      borderColor: isActive ? STATUS_COLORS[s] : 'rgba(255,255,255,0.08)',
-                      color: isActive ? STATUS_COLORS[s] : isPast ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.25)',
+                      borderColor: isActive ? statusColors[s] : 'rgba(255,255,255,0.08)',
+                      color: isActive ? statusColors[s] : isPast ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.25)',
                     }}
                   >
-                    {isPast && '✓ '}{STATUS_LABELS[s]}
+                    {isPast && '✓ '}{statusLabels[s]}
                   </button>
                 );
               })}
@@ -2921,7 +3068,7 @@ function ProjectRow({
           {/* Checklist */}
           <div style={styles.detailSection}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <h4 style={styles.detailLabel}>Checklist — {STATUS_LABELS[project.status]}</h4>
+              <h4 style={styles.detailLabel}>Checklist — {statusLabels[project.status]}</h4>
               {(project.project_checklists || []).some(c => c.stage !== project.status) && (
                 <button
                   onClick={() => setShowAllStages(!showAllStages)}
@@ -2933,7 +3080,7 @@ function ProjectRow({
             </div>
             {(() => {
               const checklists = project.project_checklists || [];
-              const stagesToShow = showAllStages ? STATUSES : [project.status];
+              const stagesToShow = showAllStages ? statusList : [project.status];
               return stagesToShow.map(stage => {
                 const items = checklists.filter(c => c.stage === stage);
                 const completedCount = items.filter(c => c.is_complete).length;
@@ -2972,13 +3119,13 @@ function ProjectRow({
                 return (
                   <div key={stage} style={{ marginBottom: showAllStages ? '12px' : '0' }}>
                     {showAllStages && (
-                      <div style={{ fontSize: '11px', fontWeight: 600, color: STATUS_COLORS[stage], marginBottom: '6px', textTransform: 'uppercase' }}>
-                        {STATUS_LABELS[stage]} ({completedCount}/{items.length})
+                      <div style={{ fontSize: '11px', fontWeight: 600, color: statusColors[stage], marginBottom: '6px', textTransform: 'uppercase' }}>
+                        {statusLabels[stage]} ({completedCount}/{items.length})
                       </div>
                     )}
                     {items.length > 0 && (
                       <div style={{ marginBottom: '6px', background: 'rgba(255,255,255,0.04)', borderRadius: '6px', height: '4px', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${items.length > 0 ? (completedCount / items.length) * 100 : 0}%`, background: STATUS_COLORS[stage], borderRadius: '6px', transition: 'width 0.2s' }} />
+                        <div style={{ height: '100%', width: `${items.length > 0 ? (completedCount / items.length) * 100 : 0}%`, background: statusColors[stage], borderRadius: '6px', transition: 'width 0.2s' }} />
                       </div>
                     )}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
@@ -3100,13 +3247,13 @@ function ProjectRow({
               Set date ranges and assign team members to each stage.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              {STATUSES.map(stage => {
+              {statusList.map(stage => {
                 const stageAs = (project.project_stage_assignments || []).filter(a => a.stage === stage);
                 const isCurrentStage = project.status === stage;
                 const stageDates = editStageTimelines[stage] || {};
                 return (
-                  <div key={stage} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', borderRadius: '6px', background: isCurrentStage ? `${STATUS_COLORS[stage]}08` : 'transparent', borderLeft: isCurrentStage ? `2px solid ${STATUS_COLORS[stage]}` : '2px solid transparent' }}>
-                    <span style={{ fontSize: '11px', fontWeight: 600, color: STATUS_COLORS[stage], width: '80px', flexShrink: 0 }}>{STATUS_LABELS[stage]}</span>
+                  <div key={stage} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', borderRadius: '6px', background: isCurrentStage ? `${statusColors[stage]}08` : 'transparent', borderLeft: isCurrentStage ? `2px solid ${statusColors[stage]}` : '2px solid transparent' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: statusColors[stage], width: '80px', flexShrink: 0 }}>{statusLabels[stage]}</span>
                     <input
                       type="date"
                       value={stageDates.start || ''}
@@ -3317,6 +3464,10 @@ function KanbanCard({ project }) {
   const stageItems = checklists.filter(c => c.stage === project.status);
   const completed = stageItems.filter(c => c.is_complete).length;
   const total = stageItems.length;
+  const isBusiness = project.category === 'business';
+  const typeList = isBusiness ? BUSINESS_PROJECT_TYPES : PROJECT_TYPES;
+  const statusColors = isBusiness ? BUSINESS_STATUS_COLORS : STATUS_COLORS;
+  const typeLabel = typeList.find(t => t.value === project.type)?.label || project.type.replace('_', ' ');
 
   return (
     <>
@@ -3324,10 +3475,10 @@ function KanbanCard({ project }) {
       <div style={styles.kanbanCardMeta}>
         <span style={{
           ...styles.kanbanTypeBadge,
-          background: `${STATUS_COLORS[project.status]}15`,
-          color: STATUS_COLORS[project.status],
+          background: `${statusColors[project.status]}15`,
+          color: statusColors[project.status],
         }}>
-          {project.type.replace('_', ' ')}
+          {typeLabel}
         </span>
         {project.channel && <span style={styles.kanbanChannel}>{project.channel}</span>}
       </div>
@@ -4278,6 +4429,32 @@ const styles = {
     background: 'rgba(255,255,255,0.06)',
     padding: '2px 7px',
     borderRadius: '6px',
+  },
+  projectModalContent: {
+    position: 'relative',
+    background: '#12121f',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '14px',
+    width: '860px',
+    maxWidth: '95vw',
+    maxHeight: '90vh',
+    overflowY: 'auto',
+    padding: '8px 12px',
+  },
+  projectModalClose: {
+    position: 'absolute',
+    top: '12px',
+    right: '12px',
+    width: '28px',
+    height: '28px',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '8px',
+    background: 'rgba(0,0,0,0.4)',
+    color: 'rgba(255,255,255,0.6)',
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontFamily: 'inherit',
+    zIndex: 2,
   },
   // --- Section Tabs ---
   sectionTabs: {
