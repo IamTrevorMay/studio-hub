@@ -37,15 +37,6 @@ export default function AdminPanel({ initialTab }) {
     if (initialTab) setActiveTab(initialTab);
   }, [initialTab]);
 
-  useEffect(() => {
-    if (!isAdmin) return;
-    setLoading(true);
-    const timeout = setTimeout(() => setLoading(false), 5000);
-    Promise.all([fetchInvitations(), fetchTeamMembers(), fetchGcalConnection(), fetchGcalMappings()])
-      .finally(() => { setLoading(false); clearTimeout(timeout); });
-    return () => clearTimeout(timeout);
-  }, [isAdmin, fetchInvitations, fetchTeamMembers, fetchGcalConnection, fetchGcalMappings, refreshKey]);
-
   const fetchInvitations = useCallback(async () => {
     const { data } = await supabase
       .from('invitations')
@@ -166,6 +157,15 @@ export default function AdminPanel({ initialTab }) {
     (data || []).forEach(m => { map[m.event_type] = m; });
     setGcalMappings(map);
   }, [profile?.id]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    setLoading(true);
+    const timeout = setTimeout(() => setLoading(false), 5000);
+    Promise.all([fetchInvitations(), fetchTeamMembers(), fetchGcalConnection(), fetchGcalMappings()])
+      .finally(() => { setLoading(false); clearTimeout(timeout); });
+    return () => clearTimeout(timeout);
+  }, [isAdmin, fetchInvitations, fetchTeamMembers, fetchGcalConnection, fetchGcalMappings, refreshKey]);
 
   async function fetchGcalCalendars() {
     try {
