@@ -1498,33 +1498,35 @@ export default function Projects({ onNavigate }) {
         </form>
       )}
 
-      {/* Filters */}
+      {/* Filters (list view only — kanban columns are self-filtering) */}
       <div style={styles.filterRow}>
-        <div style={styles.statusFilters}>
-          <button
-            onClick={() => setFilterStatus('all')}
-            style={{
-              ...styles.filterBtn,
-              ...(filterStatus === 'all' ? styles.filterBtnActive : {}),
-            }}
-          >All</button>
-          {STATUSES.map(s => (
+        {viewMode === 'list' ? (
+          <div style={styles.statusFilters}>
             <button
-              key={s}
-              onClick={() => setFilterStatus(s)}
+              onClick={() => setFilterStatus('all')}
               style={{
                 ...styles.filterBtn,
-                ...(filterStatus === s ? {
-                  background: `${STATUS_COLORS[s]}20`,
-                  color: STATUS_COLORS[s],
-                  borderColor: `${STATUS_COLORS[s]}40`,
-                } : {}),
+                ...(filterStatus === 'all' ? styles.filterBtnActive : {}),
               }}
-            >
-              {STATUS_LABELS[s]}
-            </button>
-          ))}
-        </div>
+            >All</button>
+            {STATUSES.map(s => (
+              <button
+                key={s}
+                onClick={() => setFilterStatus(s)}
+                style={{
+                  ...styles.filterBtn,
+                  ...(filterStatus === s ? {
+                    background: `${STATUS_COLORS[s]}20`,
+                    color: STATUS_COLORS[s],
+                    borderColor: `${STATUS_COLORS[s]}40`,
+                  } : {}),
+                }}
+              >
+                {STATUS_LABELS[s]}
+              </button>
+            ))}
+          </div>
+        ) : <div />}
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <div style={styles.viewToggle}>
             <button
@@ -1556,12 +1558,14 @@ export default function Projects({ onNavigate }) {
               </svg>
             </button>
           </div>
-          <input
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search projects..."
-            style={styles.searchInput}
-          />
+          {viewMode === 'list' && (
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search projects..."
+              style={styles.searchInput}
+            />
+          )}
         </div>
       </div>
 
