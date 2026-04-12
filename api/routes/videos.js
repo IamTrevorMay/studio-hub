@@ -3,6 +3,7 @@ const router = express.Router();
 const path = require('path');
 const fs = require('fs');
 const ffmpeg = require('fluent-ffmpeg');
+ffmpeg.setFfmpegPath('/opt/homebrew/bin/ffmpeg');
 
 // POST /api/videos/cut
 // Body: { sourceFile: string, clips: [{ id, title, startTime, endTime, type, outputFormat }] }
