@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import SprintGoals from './SprintGoals';
@@ -44,6 +44,15 @@ const PRIORITY_OPTIONS = [
   { value: '10', label: '10 pts', points: 10 },
   { value: '15', label: '15 pts', points: 15 },
 ];
+
+const MAYDAY_STAGE_LABELS = {
+  idea: 'Idea', script: 'Script', gather_broadcast: 'Gather Assets + Broadcast',
+  film: 'Film', editor: 'Editor', thumbnail_post: 'Thumbnail + Post', complete: 'Complete',
+};
+const MAYDAY_STAGE_COLORS = {
+  idea: '#8b5cf6', script: '#3b82f6', gather_broadcast: '#f59e0b',
+  film: '#ef4444', editor: '#f97316', thumbnail_post: '#ec4899', complete: '#22c55e',
+};
 
 // ─── Week helpers ──────────────────────────────────────────
 function getSprintWeek(date = new Date()) {
@@ -134,6 +143,11 @@ function TaskCard({ task, index, onClick, projectsMap, campaignsMap, readOnly })
             {task.campaign_id && campaignsMap[task.campaign_id] && (
               <span style={{ fontSize: '10px', color: '#10b981', background: 'rgba(16,185,129,0.15)', padding: '1px 5px', borderRadius: '4px' }}>
                 {campaignsMap[task.campaign_id]}
+              </span>
+            )}
+            {task.mayday_video && MAYDAY_STAGE_LABELS[task.mayday_video.stage] && (
+              <span style={{ fontSize: '10px', color: MAYDAY_STAGE_COLORS[task.mayday_video.stage], background: `${MAYDAY_STAGE_COLORS[task.mayday_video.stage]}15`, padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
+                {MAYDAY_STAGE_LABELS[task.mayday_video.stage]}
               </span>
             )}
           </div>
@@ -280,7 +294,15 @@ function TaskDetailModal({ task, onClose, onSave, onDelete, projects, concepts, 
 
 // ─── MyBoard (main export) ──────────────────────────────────
 export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVersion }) {
-  const [tasks, setTasks] = useState([]);
+  const [tasks, _setTasks] = useState([]);
+  const tasksRef = useRef(tasks);
+  const setTasks = useCallback((update) => {
+    _setTasks(prev => {
+      const next = typeof update === 'function' ? update(prev) : update;
+      tasksRef.current = next;
+      return next;
+    });
+  }, []);
   const [loading, setLoading] = useState(true);
   const [newTaskText, setNewTaskText] = useState('');
   const [editingTask, setEditingTask] = useState(null);
@@ -358,7 +380,7 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
       const sprintId = sprintForWeek?.id;
       let query = supabase
         .from('personal_tasks')
-        .select('*')
+        .select('*, mayday_video:mayday_videos(id, title, stage)')
         .eq('created_by', profile.id)
         .order('position', { ascending: true });
 
@@ -400,6 +422,18 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
   useEffect(() => { fetchSprintForWeek(); }, [fetchSprintForWeek]);
   useEffect(() => { fetchPlanSprint(); }, [fetchPlanSprint]);
   useEffect(() => { fetchPlanGoals(); }, [fetchPlanGoals]);
+
+  // ── Realtime: refresh tasks when mayday video stages change ──
+  useEffect(() => {
+    if (!profile?.id) return;
+    const channel = supabase
+      .channel('myboard-mayday-videos')
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'mayday_videos',
+      }, () => { fetchTasks(); })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [profile?.id, fetchTasks]);
 
   // ── Week navigation ──
   function navigateWeek(offset) {
@@ -542,7 +576,7 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
 
   // ── Update task ──
   async function updateTask(id, updates) {
-    const prev = tasks;
+    const snapshot = tasksRef.current.find(t => t.id === id);
     setTasks(ts => ts.map(t => t.id === id ? { ...t, ...updates, updated_at: new Date().toISOString() } : t));
     try {
       const { error } = await supabase
@@ -552,20 +586,25 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
       if (error) throw error;
     } catch (err) {
       console.error('Error updating task:', err);
-      setTasks(prev);
+      // Roll back only this task, not the entire array
+      if (snapshot) {
+        setTasks(ts => ts.map(t => t.id === id ? snapshot : t));
+      }
     }
   }
 
   // ── Delete task ──
   async function deleteTask(id) {
-    const prev = tasks;
+    const snapshot = tasksRef.current.find(t => t.id === id);
     setTasks(ts => ts.filter(t => t.id !== id));
     try {
       const { error } = await supabase.from('personal_tasks').delete().eq('id', id);
       if (error) throw error;
     } catch (err) {
       console.error('Error deleting task:', err);
-      setTasks(prev);
+      if (snapshot) {
+        setTasks(ts => [...ts, snapshot]);
+      }
     }
   }
 
@@ -595,13 +634,14 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
     if (source.droppableId === destination.droppableId && source.index === destination.index) return;
 
     const newStatus = destination.droppableId;
-    const task = tasks.find(t => t.id === draggableId);
+    const currentTasks = tasksRef.current;
+    const task = currentTasks.find(t => t.id === draggableId);
     if (!task) return;
 
     const adjustedIndex = destination.index;
 
-    // Build new column task list for position calculation
-    const destTasks = tasks
+    // Build new column task list for position calculation (read latest state via ref)
+    const destTasks = currentTasks
       .filter(t => t.status === newStatus && t.id !== draggableId)
       .sort((a, b) => a.position - b.position);
 

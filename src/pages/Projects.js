@@ -736,6 +736,30 @@ export default function Projects({ onNavigate }) {
       }
     }
 
+    // Auto-create a backlog task for the admin
+    if (vData) {
+      const { data: adminProfile } = await supabase
+        .from('profiles').select('id').eq('role', 'admin').limit(1).single();
+      if (adminProfile) {
+        const { data: lastTask } = await supabase
+          .from('personal_tasks')
+          .select('position')
+          .eq('created_by', adminProfile.id)
+          .eq('status', 'backlog')
+          .order('position', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        await supabase.from('personal_tasks').insert({
+          created_by: adminProfile.id,
+          content: maydayForm.title,
+          category: 'production',
+          status: 'backlog',
+          mayday_video_id: vData.id,
+          position: (lastTask?.position ?? -1) + 1,
+        });
+      }
+    }
+
     setMaydayForm({ title: '', sponsor_read_id: '', post_date: '' });
     setShowMaydayForm(false);
     fetchMaydayVideos();
