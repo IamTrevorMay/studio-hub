@@ -350,15 +350,25 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
   }, [planSprint]);
 
   // ── Fetch tasks ──
+  // Include archived tasks that belong to the current sprint so the progress bar
+  // and sprint completion count tasks archived by the nightly snapshot.
   const fetchTasks = useCallback(async () => {
     if (!profile?.id) return;
     try {
-      const { data, error } = await supabase
+      const sprintId = sprintForWeek?.id;
+      let query = supabase
         .from('personal_tasks')
         .select('*')
         .eq('created_by', profile.id)
-        .neq('status', 'archived')
         .order('position', { ascending: true });
+
+      if (sprintId) {
+        query = query.or(`status.neq.archived,sprint_id.eq.${sprintId}`);
+      } else {
+        query = query.neq('status', 'archived');
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
       setTasks(data || []);
     } catch (err) {
@@ -366,7 +376,7 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
     } finally {
       setLoading(false);
     }
-  }, [profile?.id]);
+  }, [profile?.id, sprintForWeek?.id]);
 
   // ── Fetch projects + concepts + campaigns for linking ──
   useEffect(() => {
@@ -456,9 +466,11 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
       .eq('sprint_id', activeSprint.id);
 
     const pts = (t) => parseInt(t.priority) || 0;
-    const completedPoints = (sprintTasks || []).filter(t => t.status === 'done').reduce((sum, t) => sum + pts(t), 0);
-    const completedCount = (sprintTasks || []).filter(t => t.status === 'done').length;
-    const incompleteTasks = (sprintTasks || []).filter(t => t.status !== 'done' && t.status !== 'archived');
+    // Count both 'done' and 'archived' as completed (nightly snapshot archives done tasks)
+    const isCompleted = (t) => t.status === 'done' || t.status === 'archived';
+    const completedPoints = (sprintTasks || []).filter(isCompleted).reduce((sum, t) => sum + pts(t), 0);
+    const completedCount = (sprintTasks || []).filter(isCompleted).length;
+    const incompleteTasks = (sprintTasks || []).filter(t => !isCompleted(t));
 
     // Update sprint: set velocity, archived_at, complete
     await supabase
@@ -654,7 +666,7 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
     const pts = (t) => parseInt(t.priority) || 0;
     return {
       total: sTasks.reduce((sum, t) => sum + pts(t), 0),
-      completed: sTasks.filter(t => t.status === 'done').reduce((sum, t) => sum + pts(t), 0),
+      completed: sTasks.filter(t => t.status === 'done' || t.status === 'archived').reduce((sum, t) => sum + pts(t), 0),
     };
   })();
 
