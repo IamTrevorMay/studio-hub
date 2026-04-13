@@ -628,7 +628,8 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
   }
 
   // ── Drag-and-drop handler ──
-  function onDragEnd(result) {
+  // Reindexes the entire destination column so positions never collide.
+  async function onDragEnd(result) {
     const { source, destination, draggableId } = result;
     if (!destination) return;
     if (source.droppableId === destination.droppableId && source.index === destination.index) return;
@@ -638,37 +639,55 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
     const task = currentTasks.find(t => t.id === draggableId);
     if (!task) return;
 
-    const adjustedIndex = destination.index;
+    const isSprint = ['ready', 'in_progress', 'holding', 'done'].includes(newStatus);
 
-    // Build new column task list for position calculation (read latest state via ref)
+    // Build the destination column's ordered list with the dragged task inserted
     const destTasks = currentTasks
       .filter(t => t.status === newStatus && t.id !== draggableId)
       .sort((a, b) => a.position - b.position);
+    destTasks.splice(destination.index, 0, task);
 
-    let newPosition;
-    if (destTasks.length === 0) {
-      newPosition = 10;
-    } else if (adjustedIndex === 0) {
-      newPosition = destTasks[0].position - 10;
-    } else if (adjustedIndex >= destTasks.length) {
-      newPosition = destTasks[destTasks.length - 1].position + 10;
-    } else {
-      newPosition = Math.floor((destTasks[adjustedIndex - 1].position + destTasks[adjustedIndex].position) / 2);
-    }
+    // Assign evenly-spaced positions (10, 20, 30, ...)
+    const reindexed = destTasks.map((t, i) => ({ id: t.id, position: (i + 1) * 10 }));
 
-    const isSprint = ['ready', 'in_progress', 'holding', 'done'].includes(newStatus);
-    const updates = {
+    // Build updates for the dragged task
+    const draggedPosition = reindexed.find(r => r.id === draggableId).position;
+    const taskUpdates = {
       status: newStatus,
-      position: newPosition,
+      position: draggedPosition,
       ...(newStatus === 'done' && !task.completed_at ? { completed_at: new Date().toISOString() } : {}),
       ...(newStatus !== 'done' ? { completed_at: null } : {}),
-      // If dragging into a sprint column and there is an active sprint, assign sprint_id
       ...(isSprint && activeSprint && !task.sprint_id ? { sprint_id: activeSprint.id } : {}),
-      // If dragging out of sprint columns to bucket columns, clear sprint_id
       ...(!isSprint && task.sprint_id ? { sprint_id: null } : {}),
     };
 
-    updateTask(draggableId, updates);
+    // Optimistically update ALL reindexed positions + dragged task fields in local state
+    setTasks(ts => ts.map(t => {
+      const ri = reindexed.find(r => r.id === t.id);
+      if (t.id === draggableId) return { ...t, ...taskUpdates, updated_at: new Date().toISOString() };
+      if (ri) return { ...t, position: ri.position };
+      return t;
+    }));
+
+    // Persist: update the dragged task, then batch-reindex the rest
+    try {
+      const { error } = await supabase
+        .from('personal_tasks')
+        .update({ ...taskUpdates, updated_at: new Date().toISOString() })
+        .eq('id', draggableId);
+      if (error) throw error;
+
+      // Reindex sibling positions in parallel
+      const siblings = reindexed.filter(r => r.id !== draggableId);
+      if (siblings.length > 0) {
+        await Promise.all(siblings.map(r =>
+          supabase.from('personal_tasks').update({ position: r.position }).eq('id', r.id)
+        ));
+      }
+    } catch (err) {
+      console.error('Error persisting drag:', err);
+      fetchTasks(); // recover from DB truth
+    }
 
     if (newStatus === 'done' && task.project_id && task.project_stage) {
       advanceProjectStage(task.project_id, task.project_stage);
