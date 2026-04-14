@@ -70,18 +70,30 @@ export default function Toolbar({
   staticMode = false,
 }) {
   const [showFormatMenu, setShowFormatMenu] = useState(false);
+  const [menuPos, setMenuPos] = useState({ top: 0, right: 0 });
   const formatMenuRef = useRef(null);
+  const dropBtnRef = useRef(null);
 
   useEffect(() => {
     if (!showFormatMenu) return;
     function onDown(e) {
-      if (formatMenuRef.current && !formatMenuRef.current.contains(e.target)) {
+      const menuEl = formatMenuRef.current;
+      const btnEl = dropBtnRef.current;
+      if (menuEl && !menuEl.contains(e.target) && btnEl && !btnEl.contains(e.target)) {
         setShowFormatMenu(false);
       }
     }
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
   }, [showFormatMenu]);
+
+  function handleToggleFormatMenu() {
+    if (!showFormatMenu && dropBtnRef.current) {
+      const rect = dropBtnRef.current.getBoundingClientRect();
+      setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+    }
+    setShowFormatMenu(prev => !prev);
+  }
 
   return (
     <div style={styles.bar}>
@@ -169,7 +181,7 @@ export default function Toolbar({
       <div style={{ flex: 1 }} />
 
       {/* Export split button */}
-      <div ref={formatMenuRef} style={{ position: 'relative', display: 'flex', flexShrink: 0 }}>
+      <div style={{ position: 'relative', display: 'flex', flexShrink: 0 }}>
         <button
           onClick={isYouTube ? undefined : onExport}
           disabled={isExporting || isYouTube}
@@ -189,7 +201,8 @@ export default function Toolbar({
         </button>
         {!staticMode && (
           <button
-            onClick={() => setShowFormatMenu(prev => !prev)}
+            ref={dropBtnRef}
+            onClick={handleToggleFormatMenu}
             disabled={isExporting || isYouTube}
             style={{
               ...styles.exportDropBtn,
@@ -203,7 +216,7 @@ export default function Toolbar({
           </button>
         )}
         {showFormatMenu && !staticMode && (
-          <div style={styles.formatMenu}>
+          <div ref={formatMenuRef} style={{ ...styles.formatMenu, top: menuPos.top, right: menuPos.right }}>
             {['webm', 'mp4', 'mov'].map(fmt => (
               <button
                 key={fmt}
@@ -337,9 +350,7 @@ const styles = {
     flexShrink: 0,
   },
   formatMenu: {
-    position: 'absolute',
-    top: 'calc(100% + 4px)',
-    right: 0,
+    position: 'fixed',
     background: '#1e1e2e',
     border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: '8px',
