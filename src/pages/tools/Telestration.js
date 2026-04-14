@@ -100,27 +100,31 @@ export default function Telestration({ onBack }) {
     const currentImages = staticImagesRef.current;
     const currentSelectedImage = currentImages.find(i => i.id === currentSelectedId) ?? null;
 
-    if (newMode === 'static') {
-      videoCanvasBackupRef.current = canvasRef.current?.getCanvasJSON() ?? null;
-      if (currentSelectedImage?.canvasJSON) {
-        canvasRef.current?.loadCanvasJSON(currentSelectedImage.canvasJSON);
+    try {
+      if (newMode === 'static') {
+        videoCanvasBackupRef.current = canvasRef.current?.getCanvasJSON() ?? null;
+        if (currentSelectedImage?.canvasJSON) {
+          canvasRef.current?.loadCanvasJSON(currentSelectedImage.canvasJSON);
+        } else {
+          canvasRef.current?.clearCanvas();
+        }
       } else {
-        canvasRef.current?.clearCanvas();
+        if (currentSelectedImage) {
+          const json = canvasRef.current?.getCanvasJSON();
+          setStaticImages(prev => prev.map(img =>
+            img.id === currentSelectedId ? { ...img, canvasJSON: json } : img
+          ));
+        }
+        if (videoCanvasBackupRef.current) {
+          canvasRef.current?.loadCanvasJSON(videoCanvasBackupRef.current);
+        } else {
+          canvasRef.current?.clearCanvas();
+        }
       }
-    } else {
-      if (currentSelectedImage) {
-        const json = canvasRef.current?.getCanvasJSON();
-        setStaticImages(prev => prev.map(img =>
-          img.id === currentSelectedId ? { ...img, canvasJSON: json } : img
-        ));
-      }
-      if (videoCanvasBackupRef.current) {
-        canvasRef.current?.loadCanvasJSON(videoCanvasBackupRef.current);
-      } else {
-        canvasRef.current?.clearCanvas();
-      }
+    } catch (e) {
+      console.error('Mode switch canvas error:', e);
     }
-    setMode(newMode);
+    setMode(newMode); // always runs
   }, []); // eslint-disable-line
 
   // --- Static image selection ---
@@ -128,18 +132,23 @@ export default function Telestration({ onBack }) {
     const currentSelectedId = selectedStaticImageIdRef.current;
     const currentImages = staticImagesRef.current;
 
-    if (currentSelectedId) {
-      const json = canvasRef.current?.getCanvasJSON();
-      setStaticImages(prev => prev.map(img =>
-        img.id === currentSelectedId ? { ...img, canvasJSON: json } : img
-      ));
-    }
-    setSelectedStaticImageId(id);
-    const target = currentImages.find(i => i.id === id);
-    if (target?.canvasJSON) {
-      canvasRef.current?.loadCanvasJSON(target.canvasJSON);
-    } else {
-      canvasRef.current?.clearCanvas();
+    try {
+      if (currentSelectedId) {
+        const json = canvasRef.current?.getCanvasJSON();
+        setStaticImages(prev => prev.map(img =>
+          img.id === currentSelectedId ? { ...img, canvasJSON: json } : img
+        ));
+      }
+      setSelectedStaticImageId(id);
+      const target = currentImages.find(i => i.id === id);
+      if (target?.canvasJSON) {
+        canvasRef.current?.loadCanvasJSON(target.canvasJSON);
+      } else {
+        canvasRef.current?.clearCanvas();
+      }
+    } catch (e) {
+      console.error('Select image canvas error:', e);
+      setSelectedStaticImageId(id); // still update selection even on error
     }
   }, []); // eslint-disable-line
 

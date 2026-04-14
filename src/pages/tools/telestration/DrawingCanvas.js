@@ -165,12 +165,6 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
     const fc = fabricRef.current;
     if (!fc) return;
 
-    // Clean up shape-drawing listeners
-    fc.off('mouse:down', handleShapeStart);
-    fc.off('mouse:move', handleShapeDrag);
-    fc.off('mouse:up', handleShapeEnd);
-    fc.off('mouse:down', handleTextClick);
-
     if (activeTool === 'pen' || activeTool === 'highlighter') {
       fc.isDrawingMode = true;
       fc.freeDrawingBrush = new fabric.PencilBrush(fc);
@@ -206,6 +200,14 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
       fc.on('mouse:move', handleShapeDrag);
       fc.on('mouse:up', handleShapeEnd);
     }
+
+    // Cleanup: remove all tool-specific listeners before next run or on unmount
+    return () => {
+      fc.off('mouse:down', handleShapeStart);
+      fc.off('mouse:move', handleShapeDrag);
+      fc.off('mouse:up', handleShapeEnd);
+      fc.off('mouse:down', handleTextClick);
+    };
   }, [activeTool, drawColor, strokeWidth]); // eslint-disable-line
 
   // --- Update brush when color/width changes during pen/highlighter ---
@@ -222,17 +224,21 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
   }, [drawColor, strokeWidth, activeTool]);
 
   // --- Shape drawing handlers ---
+  const SHAPE_TOOLS = ['line', 'arrow', 'circle', 'triangle', 'square'];
+
   const handleShapeStart = useCallback((opt) => {
     const fc = fabricRef.current;
     if (!fc) return;
+    if (!SHAPE_TOOLS.includes(fc._telestrationTool)) return; // guard: no-op if not in shape mode
     const pointer = fc.getScenePoint(opt.e);
     originRef.current = { x: pointer.x, y: pointer.y };
     drawingShapeRef.current = null;
-  }, []);
+  }, []); // eslint-disable-line
 
   const handleShapeDrag = useCallback((opt) => {
     const fc = fabricRef.current;
     if (!fc || !originRef.current) return;
+    if (!SHAPE_TOOLS.includes(fc._telestrationTool)) return; // guard
     const pointer = fc.getScenePoint(opt.e);
     const ox = originRef.current.x;
     const oy = originRef.current.y;
@@ -304,6 +310,11 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
   const handleShapeEnd = useCallback(() => {
     const fc = fabricRef.current;
     if (!fc || !drawingShapeRef.current) {
+      originRef.current = null;
+      return;
+    }
+    if (!SHAPE_TOOLS.includes(fc._telestrationTool)) { // guard
+      drawingShapeRef.current = null;
       originRef.current = null;
       return;
     }
@@ -559,7 +570,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
     fc.loadFromJSON(json, () => {
       fc.renderAll();
       skipHistory.current = false;
-      syncStoreFromCanvas();
+      // Only sync annotation store in video mode — static mode manages its own canvas
+      if (!staticModeRef.current) syncStoreFromCanvas();
       const initial = fc.toJSON(CUSTOM_FABRIC_PROPS);
       undoStack.current = [JSON.stringify(initial)];
       redoStack.current = [];
@@ -572,7 +584,10 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
     skipHistory.current = true;
     fc.clear();
     skipHistory.current = false;
-    if (annotationStoreRef.current) annotationStoreRef.current.replaceAnnotations([]);
+    // Only clear annotation store in video mode — avoids wiping video annotations on mode switch
+    if (!staticModeRef.current && annotationStoreRef.current) {
+      annotationStoreRef.current.replaceAnnotations([]);
+    }
     const initial = fc.toJSON(CUSTOM_FABRIC_PROPS);
     undoStack.current = [JSON.stringify(initial)];
     redoStack.current = [];
