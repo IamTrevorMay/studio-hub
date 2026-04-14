@@ -307,9 +307,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
       originRef.current = null;
       return;
     }
-    // Finalize: make selectable and assign annotation metadata (bug fix: was missing before)
     const shape = drawingShapeRef.current;
-    shape.set({ selectable: true, evented: true });
 
     const id = crypto.randomUUID();
     const time = currentTimeRef.current || 0;

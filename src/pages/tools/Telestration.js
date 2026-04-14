@@ -34,6 +34,14 @@ export default function Telestration({ onBack }) {
   const staticImgRef = useRef(null);
   const videoCanvasBackupRef = useRef(null);
 
+  // Stable refs for use inside callbacks (avoids stale closures)
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  const staticImagesRef = useRef(staticImages);
+  staticImagesRef.current = staticImages;
+  const selectedStaticImageIdRef = useRef(selectedStaticImageId);
+  selectedStaticImageIdRef.current = selectedStaticImageId;
+
   // Drawing state (persisted)
   const saved = loadSettings();
   const [activeTool, setActiveTool] = useState(saved.activeTool || DEFAULT_SETTINGS.activeTool);
@@ -85,27 +93,27 @@ export default function Telestration({ onBack }) {
   const selectedStaticImage = staticImages.find(i => i.id === selectedStaticImageId) ?? null;
   const isEditorMode = videoSource !== null || staticImages.length > 0;
 
-  // --- Mode switching ---
+  // --- Mode switching (uses refs to avoid stale closures) ---
   const handleSwitchMode = useCallback((newMode) => {
-    if (newMode === mode) return;
+    if (newMode === modeRef.current) return;
+    const currentSelectedId = selectedStaticImageIdRef.current;
+    const currentImages = staticImagesRef.current;
+    const currentSelectedImage = currentImages.find(i => i.id === currentSelectedId) ?? null;
+
     if (newMode === 'static') {
-      // Backup video canvas
       videoCanvasBackupRef.current = canvasRef.current?.getCanvasJSON() ?? null;
-      // Load static image canvas or clear
-      if (selectedStaticImage?.canvasJSON) {
-        canvasRef.current?.loadCanvasJSON(selectedStaticImage.canvasJSON);
+      if (currentSelectedImage?.canvasJSON) {
+        canvasRef.current?.loadCanvasJSON(currentSelectedImage.canvasJSON);
       } else {
         canvasRef.current?.clearCanvas();
       }
     } else {
-      // Save current static image canvas
-      if (selectedStaticImage) {
+      if (currentSelectedImage) {
         const json = canvasRef.current?.getCanvasJSON();
         setStaticImages(prev => prev.map(img =>
-          img.id === selectedStaticImage.id ? { ...img, canvasJSON: json } : img
+          img.id === currentSelectedId ? { ...img, canvasJSON: json } : img
         ));
       }
-      // Restore video canvas
       if (videoCanvasBackupRef.current) {
         canvasRef.current?.loadCanvasJSON(videoCanvasBackupRef.current);
       } else {
@@ -113,29 +121,31 @@ export default function Telestration({ onBack }) {
       }
     }
     setMode(newMode);
-  }, [mode, selectedStaticImage]);
+  }, []); // eslint-disable-line
 
   // --- Static image selection ---
   const handleSelectStaticImage = useCallback((id) => {
-    // Save current image canvas
-    if (selectedStaticImageId) {
+    const currentSelectedId = selectedStaticImageIdRef.current;
+    const currentImages = staticImagesRef.current;
+
+    if (currentSelectedId) {
       const json = canvasRef.current?.getCanvasJSON();
       setStaticImages(prev => prev.map(img =>
-        img.id === selectedStaticImageId ? { ...img, canvasJSON: json } : img
+        img.id === currentSelectedId ? { ...img, canvasJSON: json } : img
       ));
     }
     setSelectedStaticImageId(id);
-    // Load target canvas
-    const target = staticImages.find(i => i.id === id);
+    const target = currentImages.find(i => i.id === id);
     if (target?.canvasJSON) {
       canvasRef.current?.loadCanvasJSON(target.canvasJSON);
     } else {
       canvasRef.current?.clearCanvas();
     }
-  }, [selectedStaticImageId, staticImages]);
+  }, []); // eslint-disable-line
 
   // --- Add static images ---
   const handleAddStaticImages = useCallback((files) => {
+    const currentSelectedId = selectedStaticImageIdRef.current;
     const newImages = files.map(file => ({
       id: crypto.randomUUID(),
       name: file.name,
@@ -143,12 +153,11 @@ export default function Telestration({ onBack }) {
       canvasJSON: null,
     }));
     setStaticImages(prev => [...prev, ...newImages]);
-    if (!selectedStaticImageId && newImages.length > 0) {
-      // Will select first new image; canvas clear handled in handleSelectStaticImage
+    if (!currentSelectedId && newImages.length > 0) {
       setSelectedStaticImageId(newImages[0].id);
       canvasRef.current?.clearCanvas();
     }
-  }, [selectedStaticImageId]);
+  }, []);
 
   // Handle drag-drop on static image drop zone
   const handleStaticDrop = useCallback((e) => {
