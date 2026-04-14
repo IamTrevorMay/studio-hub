@@ -18,8 +18,14 @@ export default function useAnnotationStore() {
   // Add a new annotation tied to the current video time
   const addAnnotation = useCallback((annotation) => {
     const next = [...annotationsRef.current, annotation];
+    annotationsRef.current = next; // sync update prevents batched calls from stomping each other
     persist(next);
     return annotation;
+  }, [persist]);
+
+  // Replace all annotations (used after undo/redo to sync store from canvas)
+  const replaceAnnotations = useCallback((arr) => {
+    persist(arr);
   }, [persist]);
 
   // Build annotation metadata for a new Fabric object
@@ -67,6 +73,7 @@ export default function useAnnotationStore() {
   return {
     annotations,
     addAnnotation,
+    replaceAnnotations,
     createAnnotationEntry,
     updateAnnotation,
     removeAnnotation,
