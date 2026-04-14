@@ -5,6 +5,7 @@ import DrawingCanvas from './telestration/DrawingCanvas';
 import Toolbar from './telestration/Toolbar';
 import Timeline from './telestration/Timeline';
 import AnnotationList from './telestration/AnnotationList';
+import StaticImagePanel from './telestration/StaticImagePanel';
 import useVideoController from './telestration/useVideoController';
 import useAnnotationStore from './telestration/useAnnotationStore';
 import useExporter from './telestration/useExporter';
@@ -14,12 +15,24 @@ import { loadSettings, saveSettings } from './telestration/telestrationStorage';
 export default function Telestration({ onBack }) {
   const [videoSource, setVideoSource] = useState(null);
   const [showAnnotationList, setShowAnnotationList] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const videoController = useVideoController();
   const annotationStore = useAnnotationStore();
   const exporter = useExporter();
   const canvasRef = useRef(null);
   const viewportRef = useRef(null);
+  const pageRef = useRef(null);
   const [canvasSize, setCanvasSize] = useState({ width: 960, height: 540 });
+
+  // Mode + format state
+  const [mode, setMode] = useState(() => loadSettings().mode || 'video');
+  const [exportFormat, setExportFormat] = useState(() => loadSettings().exportFormat || 'webm');
+
+  // Static image state
+  const [staticImages, setStaticImages] = useState([]);
+  const [selectedStaticImageId, setSelectedStaticImageId] = useState(null);
+  const staticImgRef = useRef(null);
+  const videoCanvasBackupRef = useRef(null);
 
   // Drawing state (persisted)
   const saved = loadSettings();
@@ -27,10 +40,34 @@ export default function Telestration({ onBack }) {
   const [drawColor, setDrawColor] = useState(saved.drawColor || DEFAULT_SETTINGS.drawColor);
   const [strokeWidth, setStrokeWidth] = useState(saved.strokeWidth || DEFAULT_SETTINGS.strokeWidth);
 
-  // Persist drawing settings
+  // Persist drawing + mode settings
   useEffect(() => {
-    saveSettings({ activeTool, drawColor, strokeWidth });
-  }, [activeTool, drawColor, strokeWidth]);
+    saveSettings({ activeTool, drawColor, strokeWidth, mode, exportFormat });
+  }, [activeTool, drawColor, strokeWidth, mode, exportFormat]);
+
+  // Cleanup object URLs on unmount
+  useEffect(() => {
+    return () => {
+      staticImages.forEach(img => URL.revokeObjectURL(img.url));
+    };
+  }, []); // eslint-disable-line
+
+  // Fullscreen sync
+  useEffect(() => {
+    function onFsChange() {
+      setIsFullscreen(!!document.fullscreenElement);
+    }
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      pageRef.current?.requestFullscreen();
+    } else {
+      document.exitFullscreen();
+    }
+  }, []);
 
   // Track viewport size for canvas
   useEffect(() => {
@@ -42,7 +79,85 @@ export default function Telestration({ onBack }) {
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [videoSource]);
+  }, [videoSource, mode]);
+
+  // Computed
+  const selectedStaticImage = staticImages.find(i => i.id === selectedStaticImageId) ?? null;
+  const isEditorMode = videoSource !== null || staticImages.length > 0;
+
+  // --- Mode switching ---
+  const handleSwitchMode = useCallback((newMode) => {
+    if (newMode === mode) return;
+    if (newMode === 'static') {
+      // Backup video canvas
+      videoCanvasBackupRef.current = canvasRef.current?.getCanvasJSON() ?? null;
+      // Load static image canvas or clear
+      if (selectedStaticImage?.canvasJSON) {
+        canvasRef.current?.loadCanvasJSON(selectedStaticImage.canvasJSON);
+      } else {
+        canvasRef.current?.clearCanvas();
+      }
+    } else {
+      // Save current static image canvas
+      if (selectedStaticImage) {
+        const json = canvasRef.current?.getCanvasJSON();
+        setStaticImages(prev => prev.map(img =>
+          img.id === selectedStaticImage.id ? { ...img, canvasJSON: json } : img
+        ));
+      }
+      // Restore video canvas
+      if (videoCanvasBackupRef.current) {
+        canvasRef.current?.loadCanvasJSON(videoCanvasBackupRef.current);
+      } else {
+        canvasRef.current?.clearCanvas();
+      }
+    }
+    setMode(newMode);
+  }, [mode, selectedStaticImage]);
+
+  // --- Static image selection ---
+  const handleSelectStaticImage = useCallback((id) => {
+    // Save current image canvas
+    if (selectedStaticImageId) {
+      const json = canvasRef.current?.getCanvasJSON();
+      setStaticImages(prev => prev.map(img =>
+        img.id === selectedStaticImageId ? { ...img, canvasJSON: json } : img
+      ));
+    }
+    setSelectedStaticImageId(id);
+    // Load target canvas
+    const target = staticImages.find(i => i.id === id);
+    if (target?.canvasJSON) {
+      canvasRef.current?.loadCanvasJSON(target.canvasJSON);
+    } else {
+      canvasRef.current?.clearCanvas();
+    }
+  }, [selectedStaticImageId, staticImages]);
+
+  // --- Add static images ---
+  const handleAddStaticImages = useCallback((files) => {
+    const newImages = files.map(file => ({
+      id: crypto.randomUUID(),
+      name: file.name,
+      url: URL.createObjectURL(file),
+      canvasJSON: null,
+    }));
+    setStaticImages(prev => [...prev, ...newImages]);
+    if (!selectedStaticImageId && newImages.length > 0) {
+      // Will select first new image; canvas clear handled in handleSelectStaticImage
+      setSelectedStaticImageId(newImages[0].id);
+      canvasRef.current?.clearCanvas();
+    }
+  }, [selectedStaticImageId]);
+
+  // Handle drag-drop on static image drop zone
+  const handleStaticDrop = useCallback((e) => {
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files).filter(f =>
+      f.type === 'image/png' || f.type === 'image/jpeg'
+    );
+    if (files.length > 0) handleAddStaticImages(files);
+  }, [handleAddStaticImages]);
 
   const handleSourceSelected = useCallback((source) => {
     setVideoSource(source);
@@ -52,8 +167,9 @@ export default function Telestration({ onBack }) {
     if (videoSource?.type === 'file' && videoSource.url) {
       URL.revokeObjectURL(videoSource.url);
     }
+    staticImages.forEach(img => URL.revokeObjectURL(img.url));
     onBack();
-  }, [videoSource, onBack]);
+  }, [videoSource, onBack, staticImages]);
 
   const handleChangeSource = useCallback(() => {
     videoController.pause();
@@ -72,7 +188,16 @@ export default function Telestration({ onBack }) {
     }
   }, [annotationStore.annotations, videoController]);
 
-  // Export handler
+  // Export static PNG
+  const handleExportStaticPNG = useCallback(() => {
+    exporter.exportStaticPNG(
+      staticImgRef.current,
+      canvasRef.current?.getCanvas()?.lowerCanvasEl,
+      selectedStaticImage?.name
+    );
+  }, [exporter, selectedStaticImage]);
+
+  // Export video handler
   const handleExport = useCallback(() => {
     if (exporter.isExporting) return;
     const videoEl = videoController.videoRef.current;
@@ -81,7 +206,6 @@ export default function Telestration({ onBack }) {
 
     videoController.pause();
 
-    // Visibility callback: update Fabric objects for a given time during export
     const setVisibility = (time) => {
       const visibleIds = annotationStore.getVisibleIds(time);
       fabricCanvas.forEachObject(obj => {
@@ -98,25 +222,50 @@ export default function Telestration({ onBack }) {
       annotationStore.getVisibleIds,
       setVisibility,
       videoSource?.fileName || 'telestration',
+      exportFormat,
     );
-  }, [exporter, videoController, annotationStore, videoSource]);
+  }, [exporter, videoController, annotationStore, videoSource, exportFormat]);
 
   // Keyboard shortcuts
   useEffect(() => {
     function handleKey(e) {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
 
-      if (e.code === 'Space') {
-        e.preventDefault();
-        videoController.togglePlay();
-        return;
+      if (mode === 'video') {
+        if (e.code === 'Space') {
+          e.preventDefault();
+          videoController.togglePlay();
+          return;
+        }
+        if (e.code === 'ArrowLeft') { e.preventDefault(); videoController.stepBackward(); return; }
+        if (e.code === 'ArrowRight') { e.preventDefault(); videoController.stepForward(); return; }
       }
-      if (e.code === 'ArrowLeft') { e.preventDefault(); videoController.stepBackward(); return; }
-      if (e.code === 'ArrowRight') { e.preventDefault(); videoController.stepForward(); return; }
       if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
         e.preventDefault();
         if (e.shiftKey) canvasRef.current?.redo();
         else canvasRef.current?.undo();
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'c') {
+        canvasRef.current?.copy();
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'x') {
+        canvasRef.current?.cut();
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'v') {
+        canvasRef.current?.paste();
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'd') {
+        e.preventDefault();
+        canvasRef.current?.duplicate();
+        return;
+      }
+      if (e.code === 'KeyF' && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        toggleFullscreen();
         return;
       }
       if (e.code === 'Backspace' || e.code === 'Delete') {
@@ -125,14 +274,32 @@ export default function Telestration({ onBack }) {
         return;
       }
     }
-    if (videoSource) window.addEventListener('keydown', handleKey);
+    if (isEditorMode) window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [videoSource, videoController]);
+  }, [isEditorMode, mode, videoController, toggleFullscreen]);
 
-  // No video loaded — show source panel
-  if (!videoSource) {
+  // Mode toggle pill
+  const modeToggle = (
+    <div style={styles.modeToggle}>
+      <button
+        style={{ ...styles.modeBtn, ...(mode === 'video' ? styles.modeBtnActive : {}) }}
+        onClick={() => handleSwitchMode('video')}
+      >
+        Video
+      </button>
+      <button
+        style={{ ...styles.modeBtn, ...(mode === 'static' ? styles.modeBtnActive : {}) }}
+        onClick={() => handleSwitchMode('static')}
+      >
+        Images
+      </button>
+    </div>
+  );
+
+  // --- Pre-editor: no source loaded ---
+  if (!isEditorMode) {
     return (
-      <div style={styles.page}>
+      <div ref={pageRef} style={styles.page}>
         <div style={styles.header}>
           <div style={styles.headerLeft}>
             <button onClick={handleBack} style={styles.backBtn} title="Back to Toolbox">
@@ -142,15 +309,53 @@ export default function Telestration({ onBack }) {
             </button>
             <span style={styles.headerTitle}>Telestration</span>
           </div>
+          <div style={styles.headerCenter}>
+            {modeToggle}
+          </div>
+          <div style={styles.headerRight} />
         </div>
-        <VideoSourcePanel onSourceSelected={handleSourceSelected} />
+        {mode === 'video' ? (
+          <VideoSourcePanel onSourceSelected={handleSourceSelected} />
+        ) : (
+          <div style={styles.staticDropZoneWrap}>
+            <div
+              style={styles.staticDropZone}
+              onDragOver={e => e.preventDefault()}
+              onDrop={handleStaticDrop}
+            >
+              <div style={styles.dropIcon}>
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5">
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <circle cx="8.5" cy="8.5" r="1.5" />
+                  <polyline points="21 15 16 10 5 21" />
+                </svg>
+              </div>
+              <div style={styles.dropTitle}>Drop images here</div>
+              <div style={styles.dropSub}>PNG or JPEG files</div>
+              <label style={styles.dropBtn}>
+                Browse Files
+                <input
+                  type="file"
+                  multiple
+                  accept="image/png,image/jpeg,image/jpg"
+                  style={{ display: 'none' }}
+                  onChange={e => {
+                    const files = Array.from(e.target.files || []);
+                    if (files.length > 0) handleAddStaticImages(files);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
-  // Video loaded — show editor
+  // --- Editor view ---
   return (
-    <div style={styles.page}>
+    <div ref={pageRef} style={styles.page}>
       {/* Header */}
       <div style={styles.header}>
         <div style={styles.headerLeft}>
@@ -160,29 +365,60 @@ export default function Telestration({ onBack }) {
             </svg>
           </button>
           <span style={styles.headerTitle}>Telestration</span>
-          {videoSource.fileName && (
+          {mode === 'video' && videoSource?.fileName && (
             <span style={styles.fileName}>{videoSource.fileName}</span>
           )}
+          {mode === 'static' && selectedStaticImage && (
+            <span style={styles.fileName}>{selectedStaticImage.name}</span>
+          )}
+        </div>
+        <div style={styles.headerCenter}>
+          {modeToggle}
         </div>
         <div style={styles.headerRight}>
           <button
-            onClick={() => setShowAnnotationList(prev => !prev)}
-            style={{
-              ...styles.toggleBtn,
-              ...(showAnnotationList ? styles.toggleBtnActive : {}),
-            }}
-            title="Toggle annotations panel"
+            onClick={toggleFullscreen}
+            style={styles.fsBtn}
+            title="Fullscreen (F)"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
-            </svg>
-            <span style={styles.toggleLabel}>
-              {annotationStore.annotations.length}
-            </span>
+            {isFullscreen ? (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="4 14 10 14 10 20" />
+                <polyline points="20 10 14 10 14 4" />
+                <line x1="10" y1="14" x2="3" y2="21" />
+                <line x1="21" y1="3" x2="14" y2="10" />
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="15 3 21 3 21 9" />
+                <polyline points="9 21 3 21 3 15" />
+                <line x1="21" y1="3" x2="14" y2="10" />
+                <line x1="3" y1="21" x2="10" y2="14" />
+              </svg>
+            )}
           </button>
-          <button onClick={handleChangeSource} style={styles.changeBtn}>
-            Change Video
-          </button>
+          {mode === 'video' && (
+            <>
+              <button
+                onClick={() => setShowAnnotationList(prev => !prev)}
+                style={{
+                  ...styles.toggleBtn,
+                  ...(showAnnotationList ? styles.toggleBtnActive : {}),
+                }}
+                title="Toggle annotations panel"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+                </svg>
+                <span style={styles.toggleLabel}>
+                  {annotationStore.annotations.length}
+                </span>
+              </button>
+              <button onClick={handleChangeSource} style={styles.changeBtn}>
+                Change Video
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -197,32 +433,60 @@ export default function Telestration({ onBack }) {
         onUndo={() => canvasRef.current?.undo()}
         onRedo={() => canvasRef.current?.redo()}
         onDelete={() => canvasRef.current?.deleteSelected()}
-        onExport={handleExport}
+        onExport={mode === 'static' ? handleExportStaticPNG : handleExport}
         isExporting={exporter.isExporting}
-        isYouTube={videoController.isYouTube}
+        isYouTube={mode === 'video' ? videoController.isYouTube : false}
+        exportFormat={exportFormat}
+        onExportFormatChange={setExportFormat}
+        staticMode={mode === 'static'}
       />
 
-      {/* Main content: viewport + optional annotation list */}
+      {/* Main content */}
       <div style={styles.mainContent}>
-        {/* Video viewport + canvas overlay */}
+        {/* Viewport */}
         <div ref={viewportRef} style={styles.viewport}>
-          <VideoPlayer
-            videoSource={videoSource}
-            videoController={videoController}
-          />
+          {mode === 'video' && videoSource && (
+            <VideoPlayer
+              videoSource={videoSource}
+              videoController={videoController}
+            />
+          )}
+          {mode === 'video' && !videoSource && (
+            <div style={styles.noSourcePrompt}>
+              <span style={styles.noSourceText}>No video loaded</span>
+              <button onClick={() => handleSwitchMode('video')} style={styles.noSourceBtn}>
+                Load a Video
+              </button>
+            </div>
+          )}
+          {mode === 'static' && selectedStaticImage && (
+            <img
+              ref={staticImgRef}
+              src={selectedStaticImage.url}
+              alt={selectedStaticImage.name}
+              style={styles.staticImg}
+              draggable={false}
+            />
+          )}
+          {mode === 'static' && !selectedStaticImage && (
+            <div style={styles.noSourcePrompt}>
+              <span style={styles.noSourceText}>Select an image from the panel →</span>
+            </div>
+          )}
           <DrawingCanvas
             ref={canvasRef}
             activeTool={activeTool}
             drawColor={drawColor}
             strokeWidth={strokeWidth}
             containerSize={canvasSize}
-            currentTime={videoController.currentTime}
+            currentTime={mode === 'video' ? videoController.currentTime : 0}
             annotationStore={annotationStore}
+            staticMode={mode === 'static'}
           />
         </div>
 
-        {/* Annotation list panel */}
-        {showAnnotationList && (
+        {/* Side panel */}
+        {mode === 'video' && showAnnotationList && (
           <AnnotationList
             annotations={annotationStore.annotations}
             currentTime={videoController.currentTime}
@@ -232,16 +496,26 @@ export default function Telestration({ onBack }) {
             onClose={() => setShowAnnotationList(false)}
           />
         )}
+        {mode === 'static' && (
+          <StaticImagePanel
+            images={staticImages}
+            selectedId={selectedStaticImageId}
+            onSelect={handleSelectStaticImage}
+            onAddImages={handleAddStaticImages}
+          />
+        )}
       </div>
 
-      {/* Timeline */}
-      <Timeline
-        videoController={videoController}
-        annotations={annotationStore.annotations}
-        onSelectAnnotation={handleSelectAnnotation}
-        onUpdateAnnotation={annotationStore.updateAnnotation}
-        isYouTube={videoController.isYouTube}
-      />
+      {/* Timeline (video only) */}
+      {mode === 'video' && (
+        <Timeline
+          videoController={videoController}
+          annotations={annotationStore.annotations}
+          onSelectAnnotation={handleSelectAnnotation}
+          onUpdateAnnotation={annotationStore.updateAnnotation}
+          isYouTube={videoController.isYouTube}
+        />
+      )}
 
       {/* Export progress overlay */}
       {exporter.isExporting && (
@@ -282,11 +556,42 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '12px',
+    flex: 1,
+  },
+  headerCenter: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
   },
   headerRight: {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modeToggle: {
+    display: 'flex',
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '6px',
+    overflow: 'hidden',
+  },
+  modeBtn: {
+    background: 'rgba(255,255,255,0.04)',
+    border: 'none',
+    color: 'rgba(255,255,255,0.45)',
+    cursor: 'pointer',
+    padding: '6px 16px',
+    fontSize: '13px',
+    fontFamily: 'inherit',
+    fontWeight: 500,
+    transition: 'background 0.12s, color 0.12s',
+  },
+  modeBtnActive: {
+    background: 'rgba(99,102,241,0.15)',
+    color: '#a5b4fc',
   },
   backBtn: {
     background: 'none',
@@ -343,6 +648,18 @@ const styles = {
     fontFamily: 'inherit',
     transition: 'background 0.15s',
   },
+  fsBtn: {
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    color: 'rgba(255,255,255,0.5)',
+    cursor: 'pointer',
+    padding: '6px',
+    borderRadius: '6px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'background 0.15s',
+  },
   mainContent: {
     flex: 1,
     display: 'flex',
@@ -358,6 +675,82 @@ const styles = {
     background: '#000000',
     overflow: 'hidden',
     minHeight: 0,
+  },
+  staticImg: {
+    position: 'absolute',
+    inset: 0,
+    width: '100%',
+    height: '100%',
+    objectFit: 'contain',
+    pointerEvents: 'none',
+    userSelect: 'none',
+  },
+  noSourcePrompt: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '12px',
+    zIndex: 0,
+  },
+  noSourceText: {
+    fontSize: '14px',
+    color: 'rgba(255,255,255,0.3)',
+  },
+  noSourceBtn: {
+    background: 'rgba(99,102,241,0.15)',
+    border: '1px solid rgba(99,102,241,0.3)',
+    color: '#a5b4fc',
+    cursor: 'pointer',
+    padding: '8px 20px',
+    borderRadius: '6px',
+    fontSize: '13px',
+    fontFamily: 'inherit',
+    transition: 'background 0.12s',
+  },
+  // Static image drop zone (pre-editor)
+  staticDropZoneWrap: {
+    flex: 1,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '40px',
+  },
+  staticDropZone: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '60px 80px',
+    border: '2px dashed rgba(255,255,255,0.1)',
+    borderRadius: '16px',
+    background: 'rgba(255,255,255,0.02)',
+    cursor: 'default',
+  },
+  dropIcon: {
+    marginBottom: '4px',
+  },
+  dropTitle: {
+    fontSize: '18px',
+    fontWeight: 600,
+    color: 'rgba(255,255,255,0.6)',
+  },
+  dropSub: {
+    fontSize: '13px',
+    color: 'rgba(255,255,255,0.3)',
+  },
+  dropBtn: {
+    marginTop: '8px',
+    background: '#6366f1',
+    border: 'none',
+    color: '#ffffff',
+    cursor: 'pointer',
+    padding: '10px 24px',
+    borderRadius: '8px',
+    fontSize: '14px',
+    fontFamily: 'inherit',
+    fontWeight: 600,
+    display: 'inline-block',
+    transition: 'background 0.12s',
   },
   exportOverlay: {
     position: 'absolute',

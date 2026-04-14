@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { TOOLS, COLORS, STROKE_WIDTHS } from './telestrationConstants';
 
 // SVG icons for each tool
@@ -50,6 +50,8 @@ const TOOL_ICONS = {
   ),
 };
 
+const FORMAT_LABELS = { webm: 'WebM', mp4: 'MP4', mov: 'MOV' };
+
 export default function Toolbar({
   activeTool,
   onToolChange,
@@ -63,7 +65,24 @@ export default function Toolbar({
   onExport,
   isExporting,
   isYouTube,
+  exportFormat = 'webm',
+  onExportFormatChange,
+  staticMode = false,
 }) {
+  const [showFormatMenu, setShowFormatMenu] = useState(false);
+  const formatMenuRef = useRef(null);
+
+  useEffect(() => {
+    if (!showFormatMenu) return;
+    function onDown(e) {
+      if (formatMenuRef.current && !formatMenuRef.current.contains(e.target)) {
+        setShowFormatMenu(false);
+      }
+    }
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [showFormatMenu]);
+
   return (
     <div style={styles.bar}>
       {/* Drawing tools */}
@@ -149,23 +168,57 @@ export default function Toolbar({
       {/* Spacer */}
       <div style={{ flex: 1 }} />
 
-      {/* Export */}
-      <button
-        onClick={isYouTube ? undefined : onExport}
-        disabled={isExporting || isYouTube}
-        style={{
-          ...styles.exportBtn,
-          ...(isExporting || isYouTube ? styles.exportBtnDisabled : {}),
-        }}
-        title={isYouTube ? 'Export unavailable for YouTube videos (cross-origin)' : 'Export annotated video'}
-      >
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-          <polyline points="7 10 12 15 17 10" />
-          <line x1="12" y1="15" x2="12" y2="3" />
-        </svg>
-        {isExporting ? 'Exporting…' : 'Export'}
-      </button>
+      {/* Export split button */}
+      <div ref={formatMenuRef} style={{ position: 'relative', display: 'flex', flexShrink: 0 }}>
+        <button
+          onClick={isYouTube ? undefined : onExport}
+          disabled={isExporting || isYouTube}
+          style={{
+            ...styles.exportBtn,
+            borderRadius: staticMode ? '6px' : '6px 0 0 6px',
+            ...(isExporting || isYouTube ? styles.exportBtnDisabled : {}),
+          }}
+          title={isYouTube ? 'Export unavailable for YouTube videos (cross-origin)' : (staticMode ? 'Export annotated PNG' : 'Export annotated video')}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          {isExporting ? 'Exporting…' : (staticMode ? 'Export PNG' : 'Export')}
+        </button>
+        {!staticMode && (
+          <button
+            onClick={() => setShowFormatMenu(prev => !prev)}
+            disabled={isExporting || isYouTube}
+            style={{
+              ...styles.exportDropBtn,
+              ...(isExporting || isYouTube ? styles.exportBtnDisabled : {}),
+            }}
+            title="Select export format"
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+              <path d="M1 3l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+            </svg>
+          </button>
+        )}
+        {showFormatMenu && !staticMode && (
+          <div style={styles.formatMenu}>
+            {['webm', 'mp4', 'mov'].map(fmt => (
+              <button
+                key={fmt}
+                onClick={() => { onExportFormatChange?.(fmt); setShowFormatMenu(false); }}
+                style={{
+                  ...styles.formatMenuItem,
+                  ...(exportFormat === fmt ? styles.formatMenuItemActive : {}),
+                }}
+              >
+                {FORMAT_LABELS[fmt]}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -268,5 +321,49 @@ const styles = {
   exportBtnDisabled: {
     opacity: 0.5,
     cursor: 'not-allowed',
+  },
+  exportDropBtn: {
+    background: '#5254cc',
+    border: 'none',
+    borderLeft: '1px solid rgba(255,255,255,0.15)',
+    color: '#ffffff',
+    cursor: 'pointer',
+    padding: '7px 8px',
+    borderRadius: '0 6px 6px 0',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'background 0.12s',
+    flexShrink: 0,
+  },
+  formatMenu: {
+    position: 'absolute',
+    top: 'calc(100% + 4px)',
+    right: 0,
+    background: '#1e1e2e',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '8px',
+    padding: '4px',
+    minWidth: '90px',
+    zIndex: 50,
+    boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+  },
+  formatMenuItem: {
+    display: 'block',
+    width: '100%',
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: '13px',
+    fontFamily: 'inherit',
+    padding: '7px 12px',
+    textAlign: 'left',
+    cursor: 'pointer',
+    borderRadius: '5px',
+    transition: 'background 0.1s',
+  },
+  formatMenuItemActive: {
+    background: 'rgba(99,102,241,0.2)',
+    color: '#a5b4fc',
   },
 };

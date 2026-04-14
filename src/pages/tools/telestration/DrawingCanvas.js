@@ -1,11 +1,11 @@
-import React, { useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import * as fabric from 'fabric';
 import { CUSTOM_FABRIC_PROPS, DEFAULT_ANNOTATION_DURATION } from './telestrationConstants';
 
 const MAX_UNDO = 50;
 
 const DrawingCanvas = forwardRef(function DrawingCanvas(
-  { activeTool, drawColor, strokeWidth, containerSize, currentTime, annotationStore },
+  { activeTool, drawColor, strokeWidth, containerSize, currentTime, annotationStore, staticMode = false },
   ref
 ) {
   const canvasElRef = useRef(null);
@@ -17,14 +17,30 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
   const originRef = useRef(null);
   const currentTimeRef = useRef(currentTime);
   currentTimeRef.current = currentTime;
+  const annotationStoreRef = useRef(annotationStore);
+  annotationStoreRef.current = annotationStore;
+  const staticModeRef = useRef(staticMode);
+  staticModeRef.current = staticMode;
+  const clipboardRef = useRef(null);
+  const wrapperRef = useRef(null);
+
+  const [hasSelection, setHasSelection] = useState(false);
+  const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0 });
 
   // Expose methods to parent
   useImperativeHandle(ref, () => ({
     undo,
     redo,
     deleteSelected,
+    copy,
+    cut,
+    paste,
+    duplicate,
     getCanvas: () => fabricRef.current,
     selectByAnnotationId,
+    getCanvasJSON,
+    loadCanvasJSON,
+    clearCanvas,
     get undoLen() { return undoStack.current.length; },
     get redoLen() { return redoStack.current.length; },
   }));
@@ -54,6 +70,9 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
     fc.on('object:modified', pushHistory);
     fc.on('object:added', handleObjectAdded);
     fc.on('object:removed', () => { if (!skipHistory.current) pushHistory(); });
+    fc.on('selection:created', () => setHasSelection(true));
+    fc.on('selection:updated', () => setHasSelection(true));
+    fc.on('selection:cleared', () => setHasSelection(false));
 
     pushHistory();
 
@@ -67,7 +86,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
   const handleObjectAdded = useCallback(() => {
     if (skipHistory.current) return;
     const fc = fabricRef.current;
-    if (!fc || !annotationStore) return;
+    if (!fc || !annotationStoreRef.current) return;
 
     // Find the most recently added object without an annotationId
     const objects = fc.getObjects();
@@ -87,7 +106,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
     // Register in annotation store
     const tool = fc._telestrationTool || 'pen';
     const color = fc._telestrationColor || '#ef4444';
-    annotationStore.addAnnotation({
+    annotationStoreRef.current.addAnnotation({
       id,
       fabricJSON: lastObj.toJSON(CUSTOM_FABRIC_PROPS),
       startTime: time,
@@ -97,7 +116,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
     });
 
     pushHistory();
-  }, [annotationStore]); // eslint-disable-line
+  }, []); // eslint-disable-line
 
   // Re-attach the object:added listener when annotationStore changes
   useEffect(() => {
@@ -107,10 +126,19 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
     fc.on('object:added', handleObjectAdded);
   }, [handleObjectAdded]);
 
-  // --- Visibility sync: show/hide objects based on currentTime ---
+  // --- Visibility sync: show/hide objects based on currentTime (or show all in static mode) ---
   useEffect(() => {
     const fc = fabricRef.current;
-    if (!fc || !annotationStore) return;
+    if (!fc) return;
+    if (staticModeRef.current) {
+      let changed = false;
+      fc.forEachObject(obj => {
+        if (obj.annotationId && !obj.visible) { obj.set('visible', true); changed = true; }
+      });
+      if (changed) fc.renderAll();
+      return;
+    }
+    if (!annotationStore) return;
     const visibleIds = annotationStore.getVisibleIds(currentTime);
     let changed = false;
     fc.forEachObject(obj => {
@@ -122,7 +150,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
       }
     });
     if (changed) fc.renderAll();
-  }, [currentTime, annotationStore]);
+  }, [currentTime, annotationStore, staticMode]);
 
   // --- Resize canvas when container changes ---
   useEffect(() => {
@@ -279,13 +307,34 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
       originRef.current = null;
       return;
     }
-    // Finalize: make selectable and push history
+    // Finalize: make selectable and assign annotation metadata (bug fix: was missing before)
     const shape = drawingShapeRef.current;
     shape.set({ selectable: true, evented: true });
+
+    const id = crypto.randomUUID();
+    const time = currentTimeRef.current || 0;
+    const tool = fc._telestrationTool || 'line';
+    const color = fc._telestrationColor || '#ef4444';
+    shape.set('annotationId', id);
+    shape.set('startTime', time);
+    shape.set('endTime', time + DEFAULT_ANNOTATION_DURATION);
+    shape.set('annotationType', tool);
+
+    if (annotationStoreRef.current) {
+      annotationStoreRef.current.addAnnotation({
+        id,
+        fabricJSON: shape.toJSON(CUSTOM_FABRIC_PROPS),
+        startTime: time,
+        endTime: time + DEFAULT_ANNOTATION_DURATION,
+        color,
+        type: tool,
+      });
+    }
+
     drawingShapeRef.current = null;
     originRef.current = null;
     pushHistory();
-  }, []);
+  }, []); // eslint-disable-line
 
   // Store current tool/color/stroke on fabric instance for use in callbacks
   useEffect(() => {
@@ -334,14 +383,31 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
     const active = fc.getActiveObjects();
     if (active.length === 0) return;
     active.forEach(obj => {
-      if (obj.annotationId && annotationStore) {
-        annotationStore.removeAnnotation(obj.annotationId);
+      if (obj.annotationId && annotationStoreRef.current) {
+        annotationStoreRef.current.removeAnnotation(obj.annotationId);
       }
       fc.remove(obj);
     });
     fc.discardActiveObject();
     fc.renderAll();
     pushHistory();
+  }
+
+  // --- Sync annotation store from canvas objects (canvas is source of truth after undo/redo) ---
+  function syncStoreFromCanvas() {
+    const fc = fabricRef.current;
+    const store = annotationStoreRef.current;
+    if (!fc || !store) return;
+    const objs = fc.getObjects().filter(o => o.annotationId);
+    const rebuilt = objs.map(o => ({
+      id: o.annotationId,
+      fabricJSON: o.toJSON(CUSTOM_FABRIC_PROPS),
+      startTime: o.startTime ?? 0,
+      endTime: o.endTime ?? (o.startTime ?? 0) + DEFAULT_ANNOTATION_DURATION,
+      color: o.stroke || '#ef4444',
+      type: o.annotationType || 'pen',
+    }));
+    store.replaceAnnotations(rebuilt);
   }
 
   // --- Undo / Redo ---
@@ -364,6 +430,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
     fc.loadFromJSON(JSON.parse(prev), () => {
       fc.renderAll();
       skipHistory.current = false;
+      syncStoreFromCanvas();
     });
   }
 
@@ -376,12 +443,204 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
     fc.loadFromJSON(JSON.parse(next), () => {
       fc.renderAll();
       skipHistory.current = false;
+      syncStoreFromCanvas();
     });
   }
 
+  // --- Copy / Cut / Paste / Duplicate ---
+  async function copy() {
+    const fc = fabricRef.current;
+    if (!fc) return;
+    const active = fc.getActiveObject();
+    if (!active) return;
+    clipboardRef.current = await active.clone(CUSTOM_FABRIC_PROPS);
+  }
+
+  async function cut() {
+    await copy();
+    deleteSelected();
+  }
+
+  async function paste() {
+    const fc = fabricRef.current;
+    if (!fc || !clipboardRef.current) return;
+    const cloned = await clipboardRef.current.clone(CUSTOM_FABRIC_PROPS);
+    cloned.set({
+      annotationId: undefined,
+      startTime: undefined,
+      endTime: undefined,
+      annotationType: undefined,
+      left: (cloned.left || 0) + 20,
+      top: (cloned.top || 0) + 20,
+      selectable: true,
+      evented: true,
+    });
+    skipHistory.current = true;
+    fc.add(cloned);
+    skipHistory.current = false;
+    fc.setActiveObject(cloned);
+
+    const id = crypto.randomUUID();
+    const time = currentTimeRef.current || 0;
+    const color = cloned.stroke || fc._telestrationColor || '#ef4444';
+    const type = cloned.annotationType || fc._telestrationTool || 'pen';
+    cloned.set('annotationId', id);
+    cloned.set('startTime', time);
+    cloned.set('endTime', time + DEFAULT_ANNOTATION_DURATION);
+    cloned.set('annotationType', type);
+
+    if (annotationStoreRef.current) {
+      annotationStoreRef.current.addAnnotation({
+        id,
+        fabricJSON: cloned.toJSON(CUSTOM_FABRIC_PROPS),
+        startTime: time,
+        endTime: time + DEFAULT_ANNOTATION_DURATION,
+        color,
+        type,
+      });
+    }
+    pushHistory();
+    fc.renderAll();
+  }
+
+  async function duplicate() {
+    const fc = fabricRef.current;
+    if (!fc) return;
+    const active = fc.getActiveObject();
+    if (!active) return;
+    const cloned = await active.clone(CUSTOM_FABRIC_PROPS);
+    cloned.set({
+      annotationId: undefined,
+      startTime: undefined,
+      endTime: undefined,
+      annotationType: undefined,
+      left: (cloned.left || 0) + 20,
+      top: (cloned.top || 0) + 20,
+      selectable: true,
+      evented: true,
+    });
+    skipHistory.current = true;
+    fc.add(cloned);
+    skipHistory.current = false;
+    fc.setActiveObject(cloned);
+
+    const id = crypto.randomUUID();
+    const time = currentTimeRef.current || 0;
+    const color = cloned.stroke || fc._telestrationColor || '#ef4444';
+    const type = cloned.annotationType || fc._telestrationTool || 'pen';
+    cloned.set('annotationId', id);
+    cloned.set('startTime', time);
+    cloned.set('endTime', time + DEFAULT_ANNOTATION_DURATION);
+    cloned.set('annotationType', type);
+
+    if (annotationStoreRef.current) {
+      annotationStoreRef.current.addAnnotation({
+        id,
+        fabricJSON: cloned.toJSON(CUSTOM_FABRIC_PROPS),
+        startTime: time,
+        endTime: time + DEFAULT_ANNOTATION_DURATION,
+        color,
+        type,
+      });
+    }
+    pushHistory();
+    fc.renderAll();
+  }
+
+  // --- Static mode: get/load/clear canvas JSON ---
+  function getCanvasJSON() {
+    const fc = fabricRef.current;
+    if (!fc) return null;
+    return fc.toJSON(CUSTOM_FABRIC_PROPS);
+  }
+
+  function loadCanvasJSON(json) {
+    const fc = fabricRef.current;
+    if (!fc) return;
+    skipHistory.current = true;
+    fc.loadFromJSON(json, () => {
+      fc.renderAll();
+      skipHistory.current = false;
+      syncStoreFromCanvas();
+      const initial = fc.toJSON(CUSTOM_FABRIC_PROPS);
+      undoStack.current = [JSON.stringify(initial)];
+      redoStack.current = [];
+    });
+  }
+
+  function clearCanvas() {
+    const fc = fabricRef.current;
+    if (!fc) return;
+    skipHistory.current = true;
+    fc.clear();
+    skipHistory.current = false;
+    if (annotationStoreRef.current) annotationStoreRef.current.replaceAnnotations([]);
+    const initial = fc.toJSON(CUSTOM_FABRIC_PROPS);
+    undoStack.current = [JSON.stringify(initial)];
+    redoStack.current = [];
+  }
+
+  // --- Right-click context menu ---
+  function handleContextMenu(e) {
+    e.preventDefault();
+    const rect = wrapperRef.current?.getBoundingClientRect();
+    const x = rect ? e.clientX - rect.left : e.clientX;
+    const y = rect ? e.clientY - rect.top : e.clientY;
+    setContextMenu({ visible: true, x, y });
+  }
+
+  function dismissContextMenu() {
+    setContextMenu({ visible: false, x: 0, y: 0 });
+  }
+
+  useEffect(() => {
+    if (!contextMenu.visible) return;
+    function onDown() { dismissContextMenu(); }
+    function onKey(e) { if (e.key === 'Escape') dismissContextMenu(); }
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [contextMenu.visible]); // eslint-disable-line
+
   return (
-    <div style={styles.wrapper}>
+    <div ref={wrapperRef} style={styles.wrapper} onContextMenu={handleContextMenu}>
       <canvas ref={canvasElRef} />
+      {contextMenu.visible && (
+        <div
+          style={{ ...styles.contextMenu, left: contextMenu.x, top: contextMenu.y }}
+          onMouseDown={e => e.stopPropagation()}
+        >
+          <button
+            style={{ ...styles.ctxItem, ...(hasSelection ? {} : styles.ctxItemDisabled) }}
+            disabled={!hasSelection}
+            onClick={() => { copy(); dismissContextMenu(); }}
+          >Copy</button>
+          <button
+            style={{ ...styles.ctxItem, ...(hasSelection ? {} : styles.ctxItemDisabled) }}
+            disabled={!hasSelection}
+            onClick={() => { cut(); dismissContextMenu(); }}
+          >Cut</button>
+          <button
+            style={{ ...styles.ctxItem, ...(!clipboardRef.current ? styles.ctxItemDisabled : {}) }}
+            disabled={!clipboardRef.current}
+            onClick={() => { paste(); dismissContextMenu(); }}
+          >Paste</button>
+          <button
+            style={{ ...styles.ctxItem, ...(hasSelection ? {} : styles.ctxItemDisabled) }}
+            disabled={!hasSelection}
+            onClick={() => { duplicate(); dismissContextMenu(); }}
+          >Duplicate</button>
+          <div style={styles.ctxDivider} />
+          <button
+            style={{ ...styles.ctxItem, ...styles.ctxItemDelete, ...(hasSelection ? {} : styles.ctxItemDisabled) }}
+            disabled={!hasSelection}
+            onClick={() => { deleteSelected(); dismissContextMenu(); }}
+          >Delete</button>
+        </div>
+      )}
     </div>
   );
 });
@@ -406,5 +665,41 @@ const styles = {
     height: '100%',
     pointerEvents: 'auto',
     zIndex: 1,
+  },
+  contextMenu: {
+    position: 'absolute',
+    background: '#1e1e2e',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '8px',
+    padding: '4px',
+    minWidth: '140px',
+    zIndex: 50,
+    boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+  },
+  ctxItem: {
+    display: 'block',
+    width: '100%',
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: '13px',
+    fontFamily: 'inherit',
+    padding: '7px 12px',
+    textAlign: 'left',
+    cursor: 'pointer',
+    borderRadius: '5px',
+    transition: 'background 0.1s',
+  },
+  ctxItemDisabled: {
+    color: 'rgba(255,255,255,0.25)',
+    cursor: 'default',
+  },
+  ctxItemDelete: {
+    color: '#f87171',
+  },
+  ctxDivider: {
+    height: '1px',
+    background: 'rgba(255,255,255,0.08)',
+    margin: '4px 0',
   },
 };
