@@ -271,23 +271,28 @@ export default function Organize({ onBack }) {
     if (!dirHandle || organizing) return;
     setOrganizing(true);
     try {
-      // Build backup of current locations
-      const backup = {};
+      // Only process unorganized files — already-organized files stay put
       const toMove = [];
-      for (const file of files) {
+      for (const file of unorganizedFiles) {
         const meta = metadata[file.path];
         if (isMetaComplete(meta)) {
-          const newName = sanitizeFilename(meta.title) + '.' + file.ext;
-          backup[file.path] = {
-            type: meta.type,
-            subtype: meta.subtype,
-            originalName: file.name,
-            newName,
-          };
           toMove.push(file);
         }
       }
       if (toMove.length === 0) { setOrganizing(false); return; }
+
+      // Build backup
+      const backup = {};
+      for (const file of toMove) {
+        const meta = metadata[file.path];
+        const newName = sanitizeFilename(meta.title) + '.' + file.ext;
+        backup[file.path] = {
+          type: meta.type,
+          subtype: meta.subtype,
+          originalName: file.name,
+          newName,
+        };
+      }
 
       const organizedPaths = new Set();
       await writeBackup(dirHandle, backup);
@@ -295,52 +300,48 @@ export default function Organize({ onBack }) {
 
       // Move and rename files, write XMP sidecars
       for (const file of toMove) {
-        const meta = metadata[file.path];
-        const info = backup[file.path];
-        const destParts = [meta.type, meta.subtype];
-        const destDir = await getOrCreateSubdir(dirHandle, destParts);
-        const destPath = `${meta.type}/${meta.subtype}/${info.newName}`;
+        try {
+          const meta = metadata[file.path];
+          const info = backup[file.path];
+          const destParts = [meta.type, meta.subtype];
+          const destDir = await getOrCreateSubdir(dirHandle, destParts);
+          const destPath = `${meta.type}/${meta.subtype}/${info.newName}`;
 
-        organizedPaths.add(destPath);
+          organizedPaths.add(destPath);
 
-        // Skip if already in correct location with correct name
-        if (file.path === destPath) {
+          // Read file data, write to new location with new name
+          const fileData = await file.handle.getFile();
+          const newHandle = await destDir.getFileHandle(info.newName, { create: true });
+          const writable = await newHandle.createWritable();
+          await writable.write(await fileData.arrayBuffer());
+          await writable.close();
+
+          // Write XMP sidecar next to the organized file
           await writeXmpSidecar(destDir, info.newName, meta);
-          continue;
-        }
 
-        // Read file data, write to new location with new name, remove old
-        const fileData = await file.handle.getFile();
-        const newHandle = await destDir.getFileHandle(info.newName, { create: true });
-        const writable = await newHandle.createWritable();
-        await writable.write(await fileData.arrayBuffer());
-        await writable.close();
-
-        // Write XMP sidecar next to the organized file
-        await writeXmpSidecar(destDir, info.newName, meta);
-
-        // Remove from original location
-        const origParts = file.path.split('/');
-        const origName = origParts.pop();
-        const origParent = origParts.length > 0
-          ? await getSubdir(dirHandle, origParts)
-          : dirHandle;
-        if (origParent) {
-          await origParent.removeEntry(origName);
-          if (origParts.length > 0) {
-            await removeEmptyDirs(dirHandle, origParts.join('/'));
+          // Remove from original location
+          const origParts = file.path.split('/');
+          const origName = origParts.pop();
+          const origParent = origParts.length > 0
+            ? await getSubdir(dirHandle, origParts)
+            : dirHandle;
+          if (origParent) {
+            try { await origParent.removeEntry(origName); } catch { /* already gone */ }
+            if (origParts.length > 0) {
+              await removeEmptyDirs(dirHandle, origParts.join('/'));
+            }
           }
-        }
 
-        // Update metadata key
-        setMetadata(prev => {
-          const next = { ...prev };
-          if (file.path !== destPath) {
+          // Update metadata key
+          setMetadata(prev => {
+            const next = { ...prev };
             next[destPath] = next[file.path];
             delete next[file.path];
-          }
-          return next;
-        });
+            return next;
+          });
+        } catch (fileErr) {
+          console.warn('Skipping file due to error:', file.path, fileErr);
+        }
       }
 
       // Rescan
