@@ -1,7 +1,7 @@
 import React from 'react';
 import FileCard from './FileCard';
 
-export default function FileGrid({ files, metadata, onMetaChange, onPreview, selectedPaths, onToggleSelect, modifiedPaths }) {
+export default function FileGrid({ files, metadata, onMetaChange, onPreview, selectedPaths, onToggleSelect, modifiedPaths, onMoveBack }) {
   return (
     <div style={styles.grid}>
       {files.map(file => (
@@ -14,6 +14,7 @@ export default function FileGrid({ files, metadata, onMetaChange, onPreview, sel
           selected={selectedPaths?.has(file.path) ?? false}
           onToggleSelect={() => onToggleSelect?.(file.path)}
           modified={modifiedPaths?.has(file.path) ?? false}
+          onMoveBack={onMoveBack ? () => onMoveBack(file) : undefined}
         />
       ))}
     </div>

@@ -2,7 +2,7 @@ import React from 'react';
 import MetadataFields from './MetadataFields';
 import { getMediaCategory } from './organizeConstants';
 
-export default function FileRow({ file, meta, onMetaChange, onPreview, selected, onToggleSelect, modified }) {
+export default function FileRow({ file, meta, onMetaChange, onPreview, selected, onToggleSelect, modified, onMoveBack }) {
   const category = getMediaCategory(file.ext);
 
   return (
@@ -30,6 +30,11 @@ export default function FileRow({ file, meta, onMetaChange, onPreview, selected,
       </div>
       <div style={styles.nameCol} title={file.name}>{file.name}</div>
       <MetadataFields meta={meta} onChange={onMetaChange} layout="horizontal" />
+      {onMoveBack && (
+        <button style={styles.moveBackBtn} onClick={onMoveBack} title="Move back to unorganized">
+          ↩
+        </button>
+      )}
     </div>
   );
 }
@@ -97,6 +102,17 @@ const styles = {
     justifyContent: 'center',
     color: 'rgba(255,255,255,0.2)',
     fontSize: '16px',
+  },
+  moveBackBtn: {
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.3)',
+    fontSize: '16px',
+    cursor: 'pointer',
+    padding: '0 4px',
+    fontFamily: 'inherit',
+    flexShrink: 0,
+    transition: 'color 0.12s',
   },
   nameCol: {
     width: '160px',

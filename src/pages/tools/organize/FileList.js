@@ -1,7 +1,7 @@
 import React from 'react';
 import FileRow from './FileRow';
 
-export default function FileList({ files, metadata, onMetaChange, onPreview, selectedPaths, onToggleSelect, modifiedPaths }) {
+export default function FileList({ files, metadata, onMetaChange, onPreview, selectedPaths, onToggleSelect, modifiedPaths, onMoveBack }) {
   return (
     <div style={styles.list}>
       {files.map(file => (
@@ -14,6 +14,7 @@ export default function FileList({ files, metadata, onMetaChange, onPreview, sel
           selected={selectedPaths?.has(file.path) ?? false}
           onToggleSelect={() => onToggleSelect?.(file.path)}
           modified={modifiedPaths?.has(file.path) ?? false}
+          onMoveBack={onMoveBack ? () => onMoveBack(file) : undefined}
         />
       ))}
     </div>

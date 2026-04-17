@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { SUPPORTED_EXTENSIONS, getFileExtension, getMediaCategory, sanitizeFilename } from './organize/organizeConstants';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { SUPPORTED_EXTENSIONS, TYPE_OPTIONS, SUBTYPE_MAP, getFileExtension, getMediaCategory, sanitizeFilename } from './organize/organizeConstants';
 import { readMetadata, writeMetadata, readBackup, writeBackup, deleteBackup, writeXmpSidecar, removeXmpSidecar } from './organize/organizeStorage';
 import OrganizeToolbar from './organize/OrganizeToolbar';
+import OrganizedGroups from './organize/OrganizedGroups';
 import FileGrid from './organize/FileGrid';
 import FileList from './organize/FileList';
 import MediaPreview from './organize/MediaPreview';
@@ -99,7 +100,90 @@ export default function Organize({ onBack }) {
   const [hasBackup, setHasBackup] = useState(false);
   const [selectedPaths, setSelectedPaths] = useState(new Set());
   const [modifiedPaths, setModifiedPaths] = useState(new Set());
+  const [expandedGroups, setExpandedGroups] = useState(new Set());
   const saveTimer = useRef(null);
+
+  // Split files into organized (Type/Subtype/name) and unorganized
+  const organizedGroups = useMemo(() => {
+    const groupMap = {};
+    for (const file of files) {
+      const parts = file.path.split('/');
+      if (parts.length !== 3) continue;
+      const [type, subtype] = parts;
+      if (!TYPE_OPTIONS.includes(type)) continue;
+      if (!(SUBTYPE_MAP[type] || []).includes(subtype)) continue;
+      const key = `${type}/${subtype}`;
+      if (!groupMap[key]) groupMap[key] = { key, type, subtype, files: [] };
+      groupMap[key].files.push(file);
+    }
+    return Object.values(groupMap).sort((a, b) => a.key.localeCompare(b.key));
+  }, [files]);
+
+  const unorganizedFiles = useMemo(() => {
+    return files.filter(file => {
+      const parts = file.path.split('/');
+      if (parts.length !== 3) return true;
+      const [type, subtype] = parts;
+      return !TYPE_OPTIONS.includes(type) || !(SUBTYPE_MAP[type] || []).includes(subtype);
+    });
+  }, [files]);
+
+  function handleToggleGroup(key) {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) { next.delete(key); } else { next.add(key); }
+      return next;
+    });
+  }
+
+  async function handleMoveBack(file) {
+    try {
+      const fileData = await file.handle.getFile();
+
+      // Find a non-conflicting name at root
+      let destName = file.name;
+      try {
+        await dirHandle.getFileHandle(destName);
+        let i = 1;
+        while (true) {
+          destName = `${file.nameNoExt}_${i}.${file.ext}`;
+          try { await dirHandle.getFileHandle(destName); i++; } catch { break; }
+        }
+      } catch { /* no conflict */ }
+
+      // Write to root
+      const newHandle = await dirHandle.getFileHandle(destName, { create: true });
+      const writable = await newHandle.createWritable();
+      await writable.write(await fileData.arrayBuffer());
+      await writable.close();
+
+      // Remove from organized location
+      const pathParts = file.path.split('/');
+      pathParts.pop();
+      const parentDir = await getSubdir(dirHandle, pathParts);
+      if (parentDir) {
+        try { await removeXmpSidecar(parentDir, file.name); } catch { /* no sidecar */ }
+        await parentDir.removeEntry(file.name);
+        await removeEmptyDirs(dirHandle, pathParts.join('/'));
+      }
+
+      // Update metadata key and clean up modified/selected state
+      setMetadata(prev => {
+        const next = { ...prev };
+        if (next[file.path]) { next[destName] = next[file.path]; delete next[file.path]; }
+        writeMetadata(dirHandle, next).catch(console.error);
+        return next;
+      });
+      setModifiedPaths(prev => { const next = new Set(prev); next.delete(file.path); return next; });
+      setSelectedPaths(prev => { const next = new Set(prev); next.delete(file.path); return next; });
+
+      // Rescan
+      const scannedFiles = await scanDirectory(dirHandle);
+      setFiles(scannedFiles);
+    } catch (err) {
+      console.error('Move back error:', err);
+    }
+  }
 
   const saveMetadata = useCallback((meta) => {
     if (!dirHandle) return;
@@ -130,6 +214,7 @@ export default function Organize({ onBack }) {
       setHasBackup(!!backup);
       setSelectedPaths(new Set());
       setModifiedPaths(new Set());
+      setExpandedGroups(new Set());
       setLoading(false);
     } catch (err) {
       if (err.name !== 'AbortError') console.error(err);
@@ -262,6 +347,15 @@ export default function Organize({ onBack }) {
       const scannedFiles = await scanDirectory(dirHandle);
       setFiles(scannedFiles);
       setModifiedPaths(organizedPaths);
+      // Auto-expand the groups that were just organized
+      setExpandedGroups(prev => {
+        const next = new Set(prev);
+        for (const p of organizedPaths) {
+          const parts = p.split('/');
+          if (parts.length === 3) next.add(`${parts[0]}/${parts[1]}`);
+        }
+        return next;
+      });
       // Save updated metadata
       setMetadata(prev => {
         writeMetadata(dirHandle, prev).catch(console.error);
@@ -434,32 +528,52 @@ export default function Organize({ onBack }) {
           {selectedPaths.size > 0 && (
             <BatchBar
               selectedCount={selectedPaths.size}
-              totalCount={files.length}
+              totalCount={unorganizedFiles.length}
               onApply={handleBatchUpdate}
               onClear={handleDeselectAll}
               onSelectAll={handleSelectAll}
             />
           )}
-          {viewMode === 'grid' ? (
-            <FileGrid
-              files={files}
-              metadata={metadata}
-              onMetaChange={handleMetaChange}
-              onPreview={setPreviewFile}
-              selectedPaths={selectedPaths}
-              onToggleSelect={handleToggleSelect}
-              modifiedPaths={modifiedPaths}
-            />
-          ) : (
-            <FileList
-              files={files}
-              metadata={metadata}
-              onMetaChange={handleMetaChange}
-              onPreview={setPreviewFile}
-              selectedPaths={selectedPaths}
-              onToggleSelect={handleToggleSelect}
-              modifiedPaths={modifiedPaths}
-            />
+          <OrganizedGroups
+            groups={organizedGroups}
+            metadata={metadata}
+            onMetaChange={handleMetaChange}
+            onPreview={setPreviewFile}
+            expandedGroups={expandedGroups}
+            onToggleGroup={handleToggleGroup}
+            onMoveBack={handleMoveBack}
+            selectedPaths={selectedPaths}
+            onToggleSelect={handleToggleSelect}
+            modifiedPaths={modifiedPaths}
+            viewMode={viewMode}
+          />
+          {unorganizedFiles.length > 0 && organizedGroups.length > 0 && (
+            <div style={styles.sectionDivider}>
+              <span style={styles.sectionLabel}>Unorganized · {unorganizedFiles.length}</span>
+            </div>
+          )}
+          {unorganizedFiles.length > 0 && (
+            viewMode === 'grid' ? (
+              <FileGrid
+                files={unorganizedFiles}
+                metadata={metadata}
+                onMetaChange={handleMetaChange}
+                onPreview={setPreviewFile}
+                selectedPaths={selectedPaths}
+                onToggleSelect={handleToggleSelect}
+                modifiedPaths={modifiedPaths}
+              />
+            ) : (
+              <FileList
+                files={unorganizedFiles}
+                metadata={metadata}
+                onMetaChange={handleMetaChange}
+                onPreview={setPreviewFile}
+                selectedPaths={selectedPaths}
+                onToggleSelect={handleToggleSelect}
+                modifiedPaths={modifiedPaths}
+              />
+            )
           )}
         </>
       )}
@@ -540,5 +654,18 @@ const styles = {
     color: 'rgba(255,255,255,0.4)',
     margin: 0,
     maxWidth: '360px',
+  },
+  sectionDivider: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    margin: '16px 0 10px',
+  },
+  sectionLabel: {
+    fontSize: '11px',
+    fontWeight: 600,
+    color: 'rgba(255,255,255,0.3)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.6px',
   },
 };

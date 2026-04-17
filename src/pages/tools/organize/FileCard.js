@@ -2,7 +2,7 @@ import React from 'react';
 import MetadataFields from './MetadataFields';
 import { getMediaCategory } from './organizeConstants';
 
-export default function FileCard({ file, meta, onMetaChange, onPreview, selected, onToggleSelect, modified }) {
+export default function FileCard({ file, meta, onMetaChange, onPreview, selected, onToggleSelect, modified, onMoveBack }) {
   const category = getMediaCategory(file.ext);
 
   return (
@@ -48,7 +48,14 @@ export default function FileCard({ file, meta, onMetaChange, onPreview, selected
         </div>
       </div>
       <div style={styles.info}>
-        <div style={styles.fileName} title={file.name}>{file.name}</div>
+        <div style={styles.fileNameRow}>
+          <div style={styles.fileName} title={file.name}>{file.name}</div>
+          {onMoveBack && (
+            <button style={styles.moveBackBtn} onClick={onMoveBack} title="Move back to unorganized">
+              ↩
+            </button>
+          )}
+        </div>
         <MetadataFields meta={meta} onChange={onMetaChange} />
       </div>
     </div>
@@ -139,11 +146,29 @@ const styles = {
     flexDirection: 'column',
     gap: '8px',
   },
+  fileNameRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+  },
   fileName: {
+    flex: 1,
     fontSize: '12px',
     color: 'rgba(255,255,255,0.5)',
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
+  },
+  moveBackBtn: {
+    flexShrink: 0,
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.3)',
+    fontSize: '14px',
+    cursor: 'pointer',
+    padding: '0 2px',
+    fontFamily: 'inherit',
+    lineHeight: 1,
+    transition: 'color 0.12s',
   },
 };
