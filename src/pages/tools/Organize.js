@@ -120,13 +120,11 @@ export default function Organize({ onBack }) {
   }, [files]);
 
   const unorganizedFiles = useMemo(() => {
-    return files.filter(file => {
-      const parts = file.path.split('/');
-      if (parts.length !== 3) return true;
-      const [type, subtype] = parts;
-      return !TYPE_OPTIONS.includes(type) || !(SUBTYPE_MAP[type] || []).includes(subtype);
-    });
-  }, [files]);
+    const organizedPaths = new Set(
+      organizedGroups.flatMap(g => g.files.map(f => f.path))
+    );
+    return files.filter(f => !organizedPaths.has(f.path));
+  }, [files, organizedGroups]);
 
   function handleToggleGroup(key) {
     setExpandedGroups(prev => {
