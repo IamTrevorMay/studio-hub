@@ -285,8 +285,13 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
         break;
       }
       case 'circle': {
-        const radius = Math.sqrt(dx * dx + dy * dy);
-        shape = new fabric.Circle({ ...baseOpts, left: ox - radius, top: oy - radius, radius });
+        const sw = baseOpts.strokeWidth || 0;
+        const half = sw / 2;
+        const left = Math.min(ox, pointer.x) + half;
+        const top = Math.min(oy, pointer.y) + half;
+        const rx = Math.max(1, Math.abs(dx) / 2 - half);
+        const ry = Math.max(1, Math.abs(dy) / 2 - half);
+        shape = new fabric.Ellipse({ ...baseOpts, left, top, rx, ry });
         break;
       }
       case 'triangle': {
