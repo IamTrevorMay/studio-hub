@@ -348,15 +348,6 @@ export default function Organize({ onBack }) {
       const scannedFiles = await scanDirectory(dirHandle);
       setFiles(scannedFiles);
       setModifiedPaths(organizedPaths);
-      // Auto-expand the groups that were just organized
-      setExpandedGroups(prev => {
-        const next = new Set(prev);
-        for (const p of organizedPaths) {
-          const parts = p.split('/');
-          if (parts.length === 3) next.add(`${parts[0]}/${parts[1]}`);
-        }
-        return next;
-      });
       // Save updated metadata
       setMetadata(prev => {
         writeMetadata(dirHandle, prev).catch(console.error);
