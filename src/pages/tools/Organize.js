@@ -143,7 +143,6 @@ export default function Organize({ onBack }) {
       saveMetadata(next);
       return next;
     });
-    setModifiedPaths(prev => new Set(prev).add(filePath));
   }
 
   function handleToggleSelect(filePath) {
@@ -180,11 +179,6 @@ export default function Organize({ onBack }) {
       saveMetadata(next);
       return next;
     });
-    setModifiedPaths(prev => {
-      const next = new Set(prev);
-      for (const path of selectedPaths) next.add(path);
-      return next;
-    });
     setSelectedPaths(new Set());
   }
 
@@ -210,6 +204,7 @@ export default function Organize({ onBack }) {
       }
       if (toMove.length === 0) { setOrganizing(false); return; }
 
+      const organizedPaths = new Set();
       await writeBackup(dirHandle, backup);
       setHasBackup(true);
 
@@ -220,6 +215,8 @@ export default function Organize({ onBack }) {
         const destParts = [meta.type, meta.subtype];
         const destDir = await getOrCreateSubdir(dirHandle, destParts);
         const destPath = `${meta.type}/${meta.subtype}/${info.newName}`;
+
+        organizedPaths.add(destPath);
 
         // Skip if already in correct location with correct name
         if (file.path === destPath) {
@@ -264,6 +261,7 @@ export default function Organize({ onBack }) {
       // Rescan
       const scannedFiles = await scanDirectory(dirHandle);
       setFiles(scannedFiles);
+      setModifiedPaths(organizedPaths);
       // Save updated metadata
       setMetadata(prev => {
         writeMetadata(dirHandle, prev).catch(console.error);
