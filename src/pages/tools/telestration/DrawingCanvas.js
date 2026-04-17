@@ -67,6 +67,13 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
       wrapper.style.height = '100%';
     }
 
+    // The lower canvas is display:inline by default in Fabric v7, which can cause
+    // sub-pixel offset ambiguity in getBoundingClientRect used by getScenePoint.
+    // Setting display:block ensures it's always flush at left:0 of the container.
+    if (fc.lowerCanvasEl) {
+      fc.lowerCanvasEl.style.display = 'block';
+    }
+
     fc.on('object:modified', pushHistory);
     fc.on('object:added', handleObjectAdded);
     fc.on('object:removed', () => { if (!skipHistory.current) pushHistory(); });
@@ -283,15 +290,22 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
         break;
       }
       case 'triangle': {
-        const left = Math.min(ox, pointer.x);
-        const top = Math.min(oy, pointer.y);
-        shape = new fabric.Triangle({ ...baseOpts, left, top, width: Math.abs(dx), height: Math.abs(dy) });
+        // Offset by half stroke width so the visible edge starts exactly at the cursor,
+        // not half-a-stroke-width to the left (stroke is centered on bounding box edges).
+        const sw = baseOpts.strokeWidth || 0;
+        const half = sw / 2;
+        const left = Math.min(ox, pointer.x) + half;
+        const top = Math.min(oy, pointer.y) + half;
+        shape = new fabric.Triangle({ ...baseOpts, left, top, width: Math.max(1, Math.abs(dx) - sw), height: Math.max(1, Math.abs(dy) - sw) });
         break;
       }
       case 'square': {
-        const left = Math.min(ox, pointer.x);
-        const top = Math.min(oy, pointer.y);
-        shape = new fabric.Rect({ ...baseOpts, left, top, width: Math.abs(dx), height: Math.abs(dy) });
+        // Same stroke compensation as triangle.
+        const sw = baseOpts.strokeWidth || 0;
+        const half = sw / 2;
+        const left = Math.min(ox, pointer.x) + half;
+        const top = Math.min(oy, pointer.y) + half;
+        shape = new fabric.Rect({ ...baseOpts, left, top, width: Math.max(1, Math.abs(dx) - sw), height: Math.max(1, Math.abs(dy) - sw) });
         break;
       }
       default:
