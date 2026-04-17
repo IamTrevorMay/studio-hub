@@ -98,6 +98,7 @@ export default function Organize({ onBack }) {
   const [organizing, setOrganizing] = useState(false);
   const [hasBackup, setHasBackup] = useState(false);
   const [selectedPaths, setSelectedPaths] = useState(new Set());
+  const [modifiedPaths, setModifiedPaths] = useState(new Set());
   const saveTimer = useRef(null);
 
   const saveMetadata = useCallback((meta) => {
@@ -128,6 +129,7 @@ export default function Organize({ onBack }) {
       setMetadata(savedMeta);
       setHasBackup(!!backup);
       setSelectedPaths(new Set());
+      setModifiedPaths(new Set());
       setLoading(false);
     } catch (err) {
       if (err.name !== 'AbortError') console.error(err);
@@ -141,6 +143,7 @@ export default function Organize({ onBack }) {
       saveMetadata(next);
       return next;
     });
+    setModifiedPaths(prev => new Set(prev).add(filePath));
   }
 
   function handleToggleSelect(filePath) {
@@ -175,6 +178,11 @@ export default function Organize({ onBack }) {
         };
       }
       saveMetadata(next);
+      return next;
+    });
+    setModifiedPaths(prev => {
+      const next = new Set(prev);
+      for (const path of selectedPaths) next.add(path);
       return next;
     });
     setSelectedPaths(new Set());
@@ -442,6 +450,7 @@ export default function Organize({ onBack }) {
               onPreview={setPreviewFile}
               selectedPaths={selectedPaths}
               onToggleSelect={handleToggleSelect}
+              modifiedPaths={modifiedPaths}
             />
           ) : (
             <FileList
@@ -451,6 +460,7 @@ export default function Organize({ onBack }) {
               onPreview={setPreviewFile}
               selectedPaths={selectedPaths}
               onToggleSelect={handleToggleSelect}
+              modifiedPaths={modifiedPaths}
             />
           )}
         </>

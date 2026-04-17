@@ -2,11 +2,11 @@ import React from 'react';
 import MetadataFields from './MetadataFields';
 import { getMediaCategory } from './organizeConstants';
 
-export default function FileCard({ file, meta, onMetaChange, onPreview, selected, onToggleSelect }) {
+export default function FileCard({ file, meta, onMetaChange, onPreview, selected, onToggleSelect, modified }) {
   const category = getMediaCategory(file.ext);
 
   return (
-    <div style={{ ...styles.card, ...(selected ? styles.cardSelected : {}) }}>
+    <div style={{ ...styles.card, ...(modified && !selected ? styles.cardModified : {}), ...(selected ? styles.cardSelected : {}) }}>
       <div
         style={styles.thumbWrap}
         onClick={() => onPreview(file)}
@@ -67,6 +67,10 @@ const styles = {
   cardSelected: {
     border: '1px solid rgba(99,102,241,0.5)',
     background: 'rgba(99,102,241,0.06)',
+  },
+  cardModified: {
+    border: '1px solid rgba(34,197,94,0.4)',
+    background: 'rgba(34,197,94,0.06)',
   },
   checkboxWrap: {
     position: 'absolute',

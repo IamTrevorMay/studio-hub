@@ -2,11 +2,11 @@ import React from 'react';
 import MetadataFields from './MetadataFields';
 import { getMediaCategory } from './organizeConstants';
 
-export default function FileRow({ file, meta, onMetaChange, onPreview, selected, onToggleSelect }) {
+export default function FileRow({ file, meta, onMetaChange, onPreview, selected, onToggleSelect, modified }) {
   const category = getMediaCategory(file.ext);
 
   return (
-    <div style={{ ...styles.row, ...(selected ? styles.rowSelected : {}) }}>
+    <div style={{ ...styles.row, ...(modified && !selected ? styles.rowModified : {}), ...(selected ? styles.rowSelected : {}) }}>
       <div
         style={styles.checkCol}
         onClick={() => onToggleSelect?.()}
@@ -47,6 +47,10 @@ const styles = {
   rowSelected: {
     border: '1px solid rgba(99,102,241,0.4)',
     background: 'rgba(99,102,241,0.05)',
+  },
+  rowModified: {
+    border: '1px solid rgba(34,197,94,0.35)',
+    background: 'rgba(34,197,94,0.05)',
   },
   checkCol: {
     display: 'flex',
