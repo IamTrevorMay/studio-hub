@@ -15,7 +15,7 @@ function isSupported() {
 async function scanDirectory(dirHandle, basePath = '') {
   const files = [];
   for await (const [name, handle] of dirHandle) {
-    if (name.startsWith('_organize')) continue;
+    if (name.startsWith('_organize') || name.startsWith('.')) continue;
     const path = basePath ? `${basePath}/${name}` : name;
     if (handle.kind === 'file') {
       const ext = getFileExtension(name);
