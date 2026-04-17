@@ -253,8 +253,10 @@ export default function Organize({ onBack }) {
       const next = { ...prev };
       for (const path of selectedPaths) {
         const existing = next[path] || {};
+        const file = files.find(f => f.path === path);
         next[path] = {
           ...existing,
+          title: existing.title || file?.nameNoExt || '',
           type,
           ...(subtype ? { subtype } : {}),
         };
