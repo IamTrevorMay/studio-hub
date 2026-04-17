@@ -5,6 +5,7 @@ import OrganizeToolbar from './organize/OrganizeToolbar';
 import FileGrid from './organize/FileGrid';
 import FileList from './organize/FileList';
 import MediaPreview from './organize/MediaPreview';
+import BatchBar from './organize/BatchBar';
 
 function isSupported() {
   return typeof window.showDirectoryPicker === 'function';
@@ -96,6 +97,7 @@ export default function Organize({ onBack }) {
   const [loading, setLoading] = useState(false);
   const [organizing, setOrganizing] = useState(false);
   const [hasBackup, setHasBackup] = useState(false);
+  const [selectedPaths, setSelectedPaths] = useState(new Set());
   const saveTimer = useRef(null);
 
   const saveMetadata = useCallback((meta) => {
@@ -125,6 +127,7 @@ export default function Organize({ onBack }) {
       setFiles(scannedFiles);
       setMetadata(savedMeta);
       setHasBackup(!!backup);
+      setSelectedPaths(new Set());
       setLoading(false);
     } catch (err) {
       if (err.name !== 'AbortError') console.error(err);
@@ -138,6 +141,43 @@ export default function Organize({ onBack }) {
       saveMetadata(next);
       return next;
     });
+  }
+
+  function handleToggleSelect(filePath) {
+    setSelectedPaths(prev => {
+      const next = new Set(prev);
+      if (next.has(filePath)) {
+        next.delete(filePath);
+      } else {
+        next.add(filePath);
+      }
+      return next;
+    });
+  }
+
+  function handleSelectAll() {
+    setSelectedPaths(new Set(files.map(f => f.path)));
+  }
+
+  function handleDeselectAll() {
+    setSelectedPaths(new Set());
+  }
+
+  function handleBatchUpdate({ type, subtype }) {
+    setMetadata(prev => {
+      const next = { ...prev };
+      for (const path of selectedPaths) {
+        const existing = next[path] || {};
+        next[path] = {
+          ...existing,
+          type,
+          ...(subtype ? { subtype } : {}),
+        };
+      }
+      saveMetadata(next);
+      return next;
+    });
+    setSelectedPaths(new Set());
   }
 
   async function handleOrganize() {
@@ -385,12 +425,23 @@ export default function Organize({ onBack }) {
             hasBackup={hasBackup}
             organizing={organizing}
           />
+          {selectedPaths.size > 0 && (
+            <BatchBar
+              selectedCount={selectedPaths.size}
+              totalCount={files.length}
+              onApply={handleBatchUpdate}
+              onClear={handleDeselectAll}
+              onSelectAll={handleSelectAll}
+            />
+          )}
           {viewMode === 'grid' ? (
             <FileGrid
               files={files}
               metadata={metadata}
               onMetaChange={handleMetaChange}
               onPreview={setPreviewFile}
+              selectedPaths={selectedPaths}
+              onToggleSelect={handleToggleSelect}
             />
           ) : (
             <FileList
@@ -398,6 +449,8 @@ export default function Organize({ onBack }) {
               metadata={metadata}
               onMetaChange={handleMetaChange}
               onPreview={setPreviewFile}
+              selectedPaths={selectedPaths}
+              onToggleSelect={handleToggleSelect}
             />
           )}
         </>

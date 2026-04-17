@@ -2,15 +2,27 @@ import React from 'react';
 import MetadataFields from './MetadataFields';
 import { getMediaCategory } from './organizeConstants';
 
-export default function FileCard({ file, meta, onMetaChange, onPreview }) {
+export default function FileCard({ file, meta, onMetaChange, onPreview, selected, onToggleSelect }) {
   const category = getMediaCategory(file.ext);
 
   return (
-    <div style={styles.card}>
+    <div style={{ ...styles.card, ...(selected ? styles.cardSelected : {}) }}>
       <div
         style={styles.thumbWrap}
         onClick={() => onPreview(file)}
       >
+        <div
+          style={styles.checkboxWrap}
+          onClick={e => { e.stopPropagation(); onToggleSelect?.(); }}
+        >
+          <div style={{ ...styles.checkbox, ...(selected ? styles.checkboxChecked : {}) }}>
+            {selected && (
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M1.5 5l2.5 2.5 4.5-5" />
+              </svg>
+            )}
+          </div>
+        </div>
         {category === 'video' && file.thumbUrl ? (
           <video src={file.thumbUrl} style={styles.thumb} muted preload="metadata" />
         ) : category === 'image' && file.thumbUrl ? (
@@ -51,6 +63,33 @@ const styles = {
     overflow: 'hidden',
     display: 'flex',
     flexDirection: 'column',
+  },
+  cardSelected: {
+    border: '1px solid rgba(99,102,241,0.5)',
+    background: 'rgba(99,102,241,0.06)',
+  },
+  checkboxWrap: {
+    position: 'absolute',
+    top: '8px',
+    left: '8px',
+    zIndex: 2,
+    padding: '2px',
+  },
+  checkbox: {
+    width: '18px',
+    height: '18px',
+    borderRadius: '4px',
+    border: '2px solid rgba(255,255,255,0.4)',
+    background: 'rgba(0,0,0,0.5)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    transition: 'all 0.12s',
+  },
+  checkboxChecked: {
+    border: '2px solid #6366f1',
+    background: '#6366f1',
   },
   thumbWrap: {
     position: 'relative',
