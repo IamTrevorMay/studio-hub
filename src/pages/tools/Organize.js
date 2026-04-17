@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { SUPPORTED_EXTENSIONS, TYPE_OPTIONS, SUBTYPE_MAP, getFileExtension, getMediaCategory, sanitizeFilename } from './organize/organizeConstants';
-import { readMetadata, writeMetadata, readBackup, writeBackup, deleteBackup, writeXmpSidecar, removeXmpSidecar } from './organize/organizeStorage';
+import { readMetadata, writeMetadata, readBackup, writeBackup, deleteBackup } from './organize/organizeStorage';
 import OrganizeToolbar from './organize/OrganizeToolbar';
 import OrganizedGroups from './organize/OrganizedGroups';
 import FileGrid from './organize/FileGrid';
@@ -160,7 +160,7 @@ export default function Organize({ onBack }) {
       pathParts.pop();
       const parentDir = await getSubdir(dirHandle, pathParts);
       if (parentDir) {
-        try { await removeXmpSidecar(parentDir, file.name); } catch { /* no sidecar */ }
+
         await parentDir.removeEntry(file.name);
         await removeEmptyDirs(dirHandle, pathParts.join('/'));
       }
@@ -316,9 +316,6 @@ export default function Organize({ onBack }) {
           await writable.write(await fileData.arrayBuffer());
           await writable.close();
 
-          // Write XMP sidecar next to the organized file
-          await writeXmpSidecar(destDir, info.newName, meta);
-
           // Remove from original location
           const origParts = file.path.split('/');
           const origName = origParts.pop();
@@ -381,9 +378,6 @@ export default function Organize({ onBack }) {
         } catch {
           continue; // file not found at expected location
         }
-
-        // Remove XMP sidecar from organized location
-        await removeXmpSidecar(currentParent, currentName);
 
         // Read and write to original location with original name
         const origParts = origPath.split('/');
