@@ -25,7 +25,7 @@ export default function TeleprompterMode({
   const { speed, fontSize, mirrored, textOpacity, margins, layout, fontFamily, textAlign, showCamera } = settings;
 
   const { scrollRef, resetScroll } = useTeleprompterScroll(speed, isPlaying);
-  const { pedalConnected, connectPedal } = usePedalScroll(scrollRef);
+  usePedalScroll(scrollRef);
 
   useEffect(() => {
     if (videoRef.current && stream) {
@@ -286,8 +286,6 @@ export default function TeleprompterMode({
             onFullscreen={toggleFullscreen}
             onEditScript={() => setShowEditor(true)}
             countdown={countdown}
-            pedalConnected={pedalConnected}
-            onConnectPedal={connectPedal}
           />
         </div>
       )}

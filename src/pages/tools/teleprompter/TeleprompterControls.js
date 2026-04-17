@@ -39,8 +39,6 @@ export default function TeleprompterControls({
   onFullscreen,
   onEditScript,
   countdown,
-  pedalConnected,
-  onConnectPedal,
 }) {
   return (
     <div style={styles.bar}>
@@ -228,16 +226,6 @@ export default function TeleprompterControls({
 
       {/* Right-side actions */}
       <div style={styles.group}>
-        <button
-          onClick={onConnectPedal}
-          style={{ ...styles.actionBtn, ...(pedalConnected ? styles.actionBtnConnected : {}) }}
-          title={pedalConnected ? 'Pedal connected — click to disconnect' : 'Connect USB foot pedal'}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: 6 }}>
-            <path d="M12 2v6m0 8v6M4.93 4.93l4.24 4.24m5.66 5.66 4.24 4.24M2 12h6m8 0h6M4.93 19.07l4.24-4.24m5.66-5.66 4.24-4.24" />
-          </svg>
-          {pedalConnected ? 'Connected' : 'Connect Pedal'}
-        </button>
         <button onClick={onEditScript} style={styles.actionBtn}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: 6 }}>
             <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
@@ -337,11 +325,6 @@ const styles = {
     fontWeight: 600,
     cursor: 'pointer',
     fontFamily: 'inherit',
-  },
-  actionBtnConnected: {
-    border: '1px solid rgba(34,197,94,0.4)',
-    background: 'rgba(34,197,94,0.1)',
-    color: '#4ade80',
   },
   colorInput: {
     width: '30px',
