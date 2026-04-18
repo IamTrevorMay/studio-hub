@@ -1,0 +1,1022 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
+import { supabase } from '../supabaseClient';
+import { useAuth } from '../contexts/AuthContext';
+
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:4400';
+
+// ─── helpers ───────────────────────────────────────────────────────────────────
+
+function newBeat() {
+  return { id: crypto.randomUUID(), title: '', context: '', graphics: [], videos: [] };
+}
+
+function timeAgo(dateStr) {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
+
+// ─── component ─────────────────────────────────────────────────────────────────
+
+export default function Production() {
+  const { profile } = useAuth();
+
+  // ── landing state ──
+  const [sheets, setSheets] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // ── editor state ──
+  const [activeSheet, setActiveSheet] = useState(null);
+  const [title, setTitle] = useState('');
+  const [beats, setBeats] = useState([]);
+  const [driveFolderId, setDriveFolderId] = useState(null);
+  const [driveFolderName, setDriveFolderName] = useState(null);
+  const [saveStatus, setSaveStatus] = useState('saved');
+  const saveTimer = useRef(null);
+
+  // ── folder browser state ──
+  const [showFolderBrowser, setShowFolderBrowser] = useState(false);
+  const [folderStack, setFolderStack] = useState([]);
+  const [folders, setFolders] = useState([]);
+  const [foldersLoading, setFoldersLoading] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+
+  // ── push state ──
+  const [pushingSheet, setPushingSheet] = useState(false);
+  const [pushingScript, setPushingScript] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  // ── tag input state ──
+  const [tagInputs, setTagInputs] = useState({});
+
+  // ── confirm delete ──
+  const [confirmDelete, setConfirmDelete] = useState(null);
+
+  // ─── fetch sheets ───────────────────────────────────────────────────────────
+  const fetchSheets = useCallback(async () => {
+    if (!profile?.id) return;
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('beat_sheets')
+      .select('*')
+      .eq('user_id', profile.id)
+      .eq('is_archived', false)
+      .order('updated_at', { ascending: false });
+    if (error) console.error('Fetch beat sheets error:', error);
+    setSheets(data || []);
+    setLoading(false);
+  }, [profile?.id]);
+
+  useEffect(() => { fetchSheets(); }, [fetchSheets]);
+
+  // ─── auto-save ──────────────────────────────────────────────────────────────
+  const scheduleSave = useCallback(() => {
+    if (!activeSheet) return;
+    setSaveStatus('unsaved');
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      setSaveStatus('saving');
+      const { error } = await supabase
+        .from('beat_sheets')
+        .update({
+          title,
+          beats,
+          drive_folder_id: driveFolderId,
+          drive_folder_name: driveFolderName,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', activeSheet.id);
+      if (error) {
+        console.error('Auto-save error:', error);
+        setSaveStatus('unsaved');
+      } else {
+        setSaveStatus('saved');
+      }
+    }, 1500);
+  }, [activeSheet, title, beats, driveFolderId, driveFolderName]);
+
+  useEffect(() => {
+    if (activeSheet) scheduleSave();
+    return () => clearTimeout(saveTimer.current);
+  }, [title, beats, driveFolderId, driveFolderName]);
+
+  // ─── toast auto-dismiss ─────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  // ─── CRUD ───────────────────────────────────────────────────────────────────
+  const createSheet = async () => {
+    const name = prompt('Beat sheet name:');
+    if (!name || !name.trim()) return;
+    const { data, error } = await supabase
+      .from('beat_sheets')
+      .insert({ user_id: profile.id, title: name.trim(), beats: [newBeat()] })
+      .select()
+      .single();
+    if (error) { console.error(error); return; }
+    openSheet(data);
+  };
+
+  const openSheet = (sheet) => {
+    setActiveSheet(sheet);
+    setTitle(sheet.title);
+    setBeats(sheet.beats || [newBeat()]);
+    setDriveFolderId(sheet.drive_folder_id);
+    setDriveFolderName(sheet.drive_folder_name);
+    setSaveStatus('saved');
+    setTagInputs({});
+  };
+
+  const closeEditor = () => {
+    clearTimeout(saveTimer.current);
+    // force-save before leaving if unsaved
+    if (saveStatus !== 'saved' && activeSheet) {
+      supabase.from('beat_sheets').update({
+        title, beats,
+        drive_folder_id: driveFolderId,
+        drive_folder_name: driveFolderName,
+        updated_at: new Date().toISOString(),
+      }).eq('id', activeSheet.id);
+    }
+    setActiveSheet(null);
+    fetchSheets();
+  };
+
+  const archiveSheet = async (id) => {
+    await supabase.from('beat_sheets').update({ is_archived: true }).eq('id', id);
+    fetchSheets();
+  };
+
+  const deleteSheet = async (id) => {
+    await supabase.from('beat_sheets').delete().eq('id', id);
+    setConfirmDelete(null);
+    fetchSheets();
+  };
+
+  // ─── beat operations ────────────────────────────────────────────────────────
+  const addBeat = () => setBeats(prev => [...prev, newBeat()]);
+
+  const updateBeat = (beatId, field, value) => {
+    setBeats(prev => prev.map(b => b.id === beatId ? { ...b, [field]: value } : b));
+  };
+
+  const deleteBeat = (beatId) => {
+    setBeats(prev => prev.filter(b => b.id !== beatId));
+  };
+
+  const addTag = (beatId, field, value) => {
+    if (!value.trim()) return;
+    setBeats(prev => prev.map(b =>
+      b.id === beatId ? { ...b, [field]: [...b[field], value.trim()] } : b
+    ));
+  };
+
+  const removeTag = (beatId, field, index) => {
+    setBeats(prev => prev.map(b =>
+      b.id === beatId ? { ...b, [field]: b[field].filter((_, i) => i !== index) } : b
+    ));
+  };
+
+  const handleDragEnd = (result) => {
+    if (!result.destination) return;
+    const reordered = Array.from(beats);
+    const [moved] = reordered.splice(result.source.index, 1);
+    reordered.splice(result.destination.index, 0, moved);
+    setBeats(reordered);
+  };
+
+  // ─── folder browser ─────────────────────────────────────────────────────────
+  const loadFolders = async (parentId) => {
+    setFoldersLoading(true);
+    try {
+      const url = parentId
+        ? `${API_BASE}/api/drive/folders?parentId=${encodeURIComponent(parentId)}`
+        : `${API_BASE}/api/drive/folders`;
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(await resp.text());
+      const data = await resp.json();
+      setFolders(data.folders || []);
+    } catch (err) {
+      console.error('Load folders error:', err);
+      setFolders([]);
+    }
+    setFoldersLoading(false);
+  };
+
+  const openFolderBrowser = () => {
+    setShowFolderBrowser(true);
+    setFolderStack([]);
+    setNewFolderName('');
+    loadFolders(null);
+  };
+
+  const navigateToFolder = (folderId, folderName) => {
+    setFolderStack(prev => [...prev, { id: folderId, name: folderName }]);
+    loadFolders(folderId);
+  };
+
+  const navigateBack = () => {
+    const newStack = folderStack.slice(0, -1);
+    setFolderStack(newStack);
+    const parentId = newStack.length > 0 ? newStack[newStack.length - 1].id : null;
+    loadFolders(parentId);
+  };
+
+  const selectFolder = () => {
+    if (folderStack.length === 0) return;
+    const current = folderStack[folderStack.length - 1];
+    setDriveFolderId(current.id);
+    setDriveFolderName(folderStack.map(f => f.name).join(' / '));
+    setShowFolderBrowser(false);
+  };
+
+  const createFolder = async () => {
+    if (!newFolderName.trim()) return;
+    const parentId = folderStack.length > 0 ? folderStack[folderStack.length - 1].id : null;
+    try {
+      const resp = await fetch(`${API_BASE}/api/drive/create-folder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parentId, name: newFolderName.trim() }),
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      setNewFolderName('');
+      loadFolders(parentId);
+    } catch (err) {
+      console.error('Create folder error:', err);
+    }
+  };
+
+  // ─── push actions ───────────────────────────────────────────────────────────
+  const pushBeatSheet = async () => {
+    if (!driveFolderId) {
+      setToast({ type: 'error', message: 'Select a Google Drive folder first.' });
+      return;
+    }
+    setPushingSheet(true);
+    try {
+      const resp = await fetch(`${API_BASE}/api/drive/create-sheet`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderId: driveFolderId, title, beats }),
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      const data = await resp.json();
+      setToast({ type: 'success', message: 'Beat sheet pushed to Drive!', url: data.sheetUrl });
+    } catch (err) {
+      console.error('Push beat sheet error:', err);
+      setToast({ type: 'error', message: 'Failed to push beat sheet.' });
+    }
+    setPushingSheet(false);
+  };
+
+  const pushScript = async () => {
+    if (!profile?.id) return;
+    setPushingScript(true);
+    try {
+      // Build HTML: graphics first, then bold beat title, for each beat
+      const htmlParts = beats
+        .filter(b => b.title.trim())
+        .map(b => {
+          const lines = [];
+          b.graphics.forEach(g => lines.push(`<p>${g}</p>`));
+          lines.push(`<p><strong>${b.title}</strong></p>`);
+          return lines.join('');
+        });
+      const htmlContent = htmlParts.join('<br>');
+
+      // Upsert by name — delete existing with same name first, then insert
+      await supabase
+        .from('teleprompter_scripts')
+        .delete()
+        .eq('user_id', profile.id)
+        .eq('name', title);
+
+      const { error } = await supabase.from('teleprompter_scripts').insert({
+        user_id: profile.id,
+        name: title,
+        content: htmlContent,
+      });
+      if (error) throw error;
+      setToast({ type: 'success', message: 'Script pushed to Teleprompter!' });
+    } catch (err) {
+      console.error('Push script error:', err);
+      setToast({ type: 'error', message: 'Failed to push script.' });
+    }
+    setPushingScript(false);
+  };
+
+  // ─── render ─────────────────────────────────────────────────────────────────
+
+  // ── toast ──
+  const renderToast = () => {
+    if (!toast) return null;
+    return (
+      <div style={{
+        position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
+        padding: '12px 20px', borderRadius: 8,
+        background: toast.type === 'success' ? '#22c55e' : '#ef4444',
+        color: '#fff', fontSize: 14, fontWeight: 500,
+        display: 'flex', alignItems: 'center', gap: 10,
+        boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+      }}>
+        <span>{toast.message}</span>
+        {toast.url && (
+          <a href={toast.url} target="_blank" rel="noreferrer" style={{
+            color: '#fff', textDecoration: 'underline', fontWeight: 600,
+          }}>Open</a>
+        )}
+      </div>
+    );
+  };
+
+  // ── folder browser modal ──
+  const renderFolderBrowser = () => {
+    if (!showFolderBrowser) return null;
+    const currentPath = folderStack.map(f => f.name).join(' / ') || 'My Drive';
+    return (
+      <div style={styles.modalOverlay} onClick={() => setShowFolderBrowser(false)}>
+        <div style={styles.modal} onClick={e => e.stopPropagation()}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <h3 style={{ margin: 0, color: 'rgba(255,255,255,0.9)', fontSize: 16 }}>Select Drive Folder</h3>
+            <button onClick={() => setShowFolderBrowser(false)} style={styles.iconBtn}>&times;</button>
+          </div>
+
+          {/* Breadcrumb */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+            <button
+              onClick={() => { setFolderStack([]); loadFolders(null); }}
+              style={{ ...styles.breadcrumb, fontWeight: folderStack.length === 0 ? 600 : 400 }}
+            >My Drive</button>
+            {folderStack.map((f, i) => (
+              <React.Fragment key={f.id}>
+                <span style={{ color: 'rgba(255,255,255,0.3)' }}>/</span>
+                <button
+                  onClick={() => {
+                    const newStack = folderStack.slice(0, i + 1);
+                    setFolderStack(newStack);
+                    loadFolders(f.id);
+                  }}
+                  style={{ ...styles.breadcrumb, fontWeight: i === folderStack.length - 1 ? 600 : 400 }}
+                >{f.name}</button>
+              </React.Fragment>
+            ))}
+          </div>
+
+          {/* Folder list */}
+          <div style={{ minHeight: 200, maxHeight: 300, overflowY: 'auto', marginBottom: 12 }}>
+            {folderStack.length > 0 && (
+              <div onClick={navigateBack} style={styles.folderRow}>
+                <span style={{ fontSize: 16 }}>&#8592;</span>
+                <span>Back</span>
+              </div>
+            )}
+            {foldersLoading ? (
+              <div style={{ padding: 20, textAlign: 'center', color: 'rgba(255,255,255,0.4)' }}>Loading...</div>
+            ) : folders.length === 0 ? (
+              <div style={{ padding: 20, textAlign: 'center', color: 'rgba(255,255,255,0.4)' }}>No folders here</div>
+            ) : folders.map(f => (
+              <div key={f.id} onClick={() => navigateToFolder(f.id, f.name)} style={styles.folderRow}>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="#f59e0b" stroke="none">
+                  <path d="M1 3.5A1.5 1.5 0 012.5 2h3.379a1.5 1.5 0 011.06.44l.622.62a1.5 1.5 0 001.06.44H13.5A1.5 1.5 0 0115 5v7.5a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-9z"/>
+                </svg>
+                <span>{f.name}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* New folder */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            <input
+              value={newFolderName}
+              onChange={e => setNewFolderName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && createFolder()}
+              placeholder="New folder name..."
+              style={styles.input}
+            />
+            <button onClick={createFolder} style={styles.btnSmall}>Create</button>
+          </div>
+
+          {/* Actions */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <button onClick={() => setShowFolderBrowser(false)} style={styles.btnSecondary}>Cancel</button>
+            <button
+              onClick={selectFolder}
+              disabled={folderStack.length === 0}
+              style={{
+                ...styles.btnPrimary,
+                opacity: folderStack.length === 0 ? 0.4 : 1,
+              }}
+            >Select This Folder</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ── landing page ──
+  if (!activeSheet) {
+    return (
+      <div style={styles.page}>
+        <div style={styles.header}>
+          <h1 style={styles.pageTitle}>Production</h1>
+          <button onClick={createSheet} style={styles.btnPrimary}>+ New Beat Sheet</button>
+        </div>
+
+        {loading ? (
+          <div style={styles.emptyState}>Loading...</div>
+        ) : sheets.length === 0 ? (
+          <div style={styles.emptyState}>
+            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 15 }}>No beat sheets yet. Create one to get started.</p>
+          </div>
+        ) : (
+          <div style={styles.sheetList}>
+            {sheets.map(sheet => (
+              <div key={sheet.id} style={styles.sheetCard}>
+                <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => openSheet(sheet)}>
+                  <div style={styles.sheetTitle}>{sheet.title}</div>
+                  <div style={styles.sheetMeta}>
+                    {(sheet.beats || []).length} beat{(sheet.beats || []).length !== 1 ? 's' : ''}
+                    {' \u00b7 '}
+                    {timeAgo(sheet.updated_at)}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={() => archiveSheet(sheet.id)} style={styles.actionBtn} title="Archive">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <rect x="1" y="1" width="12" height="4" rx="1" />
+                      <path d="M2 5v6a1 1 0 001 1h8a1 1 0 001-1V5M5.5 8h3" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={() => setConfirmDelete(sheet.id)}
+                    style={{ ...styles.actionBtn, color: '#ef4444' }}
+                    title="Delete"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <path d="M2 4h10M5 4V2.5a.5.5 0 01.5-.5h3a.5.5 0 01.5.5V4M11 4v7.5a1 1 0 01-1 1H4a1 1 0 01-1-1V4" />
+                    </svg>
+                  </button>
+                </div>
+                {confirmDelete === sheet.id && (
+                  <div style={styles.confirmRow}>
+                    <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>Delete permanently?</span>
+                    <button onClick={() => deleteSheet(sheet.id)} style={{ ...styles.btnSmall, background: '#ef4444' }}>Delete</button>
+                    <button onClick={() => setConfirmDelete(null)} style={styles.btnSmall}>Cancel</button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {renderToast()}
+      </div>
+    );
+  }
+
+  // ── editor page ──
+  return (
+    <div style={styles.page}>
+      {/* Top config bar */}
+      <div style={styles.configBar}>
+        <button onClick={closeEditor} style={styles.backBtn} title="Back to list">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M11 4L6 9l5 5" />
+          </svg>
+        </button>
+
+        <input
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          placeholder="Beat sheet title..."
+          style={styles.titleInput}
+        />
+
+        <button onClick={openFolderBrowser} style={styles.folderBtn} title="Select Google Drive folder">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3">
+            <path d="M1 3a1.5 1.5 0 011.5-1.5h2.879a1.5 1.5 0 011.06.44l.622.62a1.5 1.5 0 001.06.44H11.5A1.5 1.5 0 0113 4.5v6a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 011 10.5V3z"/>
+          </svg>
+          <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {driveFolderName || 'Select Folder'}
+          </span>
+        </button>
+
+        <button
+          onClick={pushBeatSheet}
+          disabled={pushingSheet}
+          style={{ ...styles.btnPrimary, opacity: pushingSheet ? 0.5 : 1 }}
+        >
+          {pushingSheet ? 'Pushing...' : 'Push Beat Sheet'}
+        </button>
+
+        <button
+          onClick={pushScript}
+          disabled={pushingScript}
+          style={{ ...styles.btnSecondary, opacity: pushingScript ? 0.5 : 1 }}
+        >
+          {pushingScript ? 'Pushing...' : 'Push Script'}
+        </button>
+
+        <span style={styles.saveIndicator}>
+          {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'unsaved' ? 'Unsaved' : 'Saved'}
+        </span>
+      </div>
+
+      {/* Column headers */}
+      <div style={styles.columnHeaders}>
+        <div style={styles.colHeaderLeft}>Beat / Context</div>
+        <div style={styles.colHeader}>Graphics</div>
+        <div style={styles.colHeader}>Videos</div>
+        <div style={{ width: 36 }} />
+      </div>
+
+      {/* Beat rows */}
+      <DragDropContext onDragEnd={handleDragEnd}>
+        <Droppable droppableId="beats">
+          {(provided) => (
+            <div ref={provided.innerRef} {...provided.droppableProps}>
+              {beats.map((beat, index) => (
+                <Draggable key={beat.id} draggableId={beat.id} index={index}>
+                  {(provided, snapshot) => (
+                    <div
+                      ref={provided.innerRef}
+                      {...provided.draggableProps}
+                      style={{
+                        ...styles.beatRow,
+                        ...(snapshot.isDragging ? { boxShadow: '0 8px 32px rgba(99,102,241,0.25)', border: '1px solid rgba(99,102,241,0.3)' } : {}),
+                        ...provided.draggableProps.style,
+                      }}
+                    >
+                      {/* Drag handle */}
+                      <div {...provided.dragHandleProps} style={styles.dragHandle} title="Drag to reorder">
+                        <svg width="12" height="16" viewBox="0 0 12 16" fill="rgba(255,255,255,0.25)">
+                          <circle cx="3" cy="2" r="1.5" /><circle cx="9" cy="2" r="1.5" />
+                          <circle cx="3" cy="6" r="1.5" /><circle cx="9" cy="6" r="1.5" />
+                          <circle cx="3" cy="10" r="1.5" /><circle cx="9" cy="10" r="1.5" />
+                          <circle cx="3" cy="14" r="1.5" /><circle cx="9" cy="14" r="1.5" />
+                        </svg>
+                      </div>
+
+                      {/* Col 1: Beat + Context */}
+                      <div style={styles.beatCol}>
+                        <input
+                          value={beat.title}
+                          onChange={e => updateBeat(beat.id, 'title', e.target.value)}
+                          placeholder="Beat title..."
+                          style={styles.beatInput}
+                        />
+                        <textarea
+                          value={beat.context}
+                          onChange={e => updateBeat(beat.id, 'context', e.target.value)}
+                          placeholder="Context..."
+                          rows={3}
+                          style={styles.contextInput}
+                        />
+                      </div>
+
+                      {/* Col 2: Graphics */}
+                      <div style={styles.tagCol}>
+                        {beat.graphics.map((g, i) => (
+                          <span key={i} style={styles.tag}>
+                            <span style={styles.tagText}>{g}</span>
+                            <button onClick={() => removeTag(beat.id, 'graphics', i)} style={styles.tagRemove}>&times;</button>
+                          </span>
+                        ))}
+                        <input
+                          value={tagInputs[`${beat.id}-graphics`] || ''}
+                          onChange={e => setTagInputs(prev => ({ ...prev, [`${beat.id}-graphics`]: e.target.value }))}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              addTag(beat.id, 'graphics', e.target.value);
+                              setTagInputs(prev => ({ ...prev, [`${beat.id}-graphics`]: '' }));
+                            }
+                          }}
+                          placeholder="+ add graphic"
+                          style={styles.tagInput}
+                        />
+                      </div>
+
+                      {/* Col 3: Videos */}
+                      <div style={styles.tagCol}>
+                        {beat.videos.map((v, i) => (
+                          <span key={i} style={styles.tag}>
+                            <span style={styles.tagText}>{v}</span>
+                            <button onClick={() => removeTag(beat.id, 'videos', i)} style={styles.tagRemove}>&times;</button>
+                          </span>
+                        ))}
+                        <input
+                          value={tagInputs[`${beat.id}-videos`] || ''}
+                          onChange={e => setTagInputs(prev => ({ ...prev, [`${beat.id}-videos`]: e.target.value }))}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              addTag(beat.id, 'videos', e.target.value);
+                              setTagInputs(prev => ({ ...prev, [`${beat.id}-videos`]: '' }));
+                            }
+                          }}
+                          placeholder="+ add video"
+                          style={styles.tagInput}
+                        />
+                      </div>
+
+                      {/* Delete beat */}
+                      <button onClick={() => deleteBeat(beat.id)} style={styles.deleteBeatBtn} title="Delete beat">
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                          <path d="M2 4h10M5 4V2.5a.5.5 0 01.5-.5h3a.5.5 0 01.5.5V4M11 4v7.5a1 1 0 01-1 1H4a1 1 0 01-1-1V4" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                </Draggable>
+              ))}
+              {provided.placeholder}
+            </div>
+          )}
+        </Droppable>
+      </DragDropContext>
+
+      {/* Add beat */}
+      <button onClick={addBeat} style={styles.addBeatBtn}>+ Beat</button>
+
+      {renderFolderBrowser()}
+      {renderToast()}
+    </div>
+  );
+}
+
+// ─── styles ────────────────────────────────────────────────────────────────────
+
+const styles = {
+  page: {
+    padding: '24px 32px',
+    fontFamily: "'DM Sans', sans-serif",
+    minHeight: '100%',
+  },
+
+  // ── landing ──
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  pageTitle: {
+    fontSize: 22,
+    fontWeight: 600,
+    color: 'rgba(255,255,255,0.9)',
+    margin: 0,
+  },
+  sheetList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+  },
+  sheetCard: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    padding: '14px 18px',
+    background: 'rgba(255,255,255,0.04)',
+    borderRadius: 10,
+    border: '1px solid rgba(255,255,255,0.06)',
+    position: 'relative',
+  },
+  sheetTitle: {
+    fontSize: 15,
+    fontWeight: 500,
+    color: 'rgba(255,255,255,0.9)',
+  },
+  sheetMeta: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.35)',
+    marginTop: 2,
+  },
+  actionBtn: {
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.35)',
+    cursor: 'pointer',
+    padding: 6,
+    borderRadius: 6,
+    display: 'flex',
+    alignItems: 'center',
+  },
+  confirmRow: {
+    position: 'absolute',
+    right: 18,
+    top: '50%',
+    transform: 'translateY(-50%)',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    background: 'rgba(15,15,26,0.95)',
+    padding: '6px 10px',
+    borderRadius: 8,
+    border: '1px solid rgba(255,255,255,0.1)',
+  },
+  emptyState: {
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 60,
+  },
+
+  // ── editor ──
+  configBar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 20,
+    flexWrap: 'wrap',
+  },
+  backBtn: {
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.5)',
+    cursor: 'pointer',
+    padding: 4,
+    display: 'flex',
+  },
+  titleInput: {
+    flex: 1,
+    minWidth: 180,
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: 8,
+    padding: '8px 14px',
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 15,
+    fontWeight: 600,
+    fontFamily: "'DM Sans', sans-serif",
+    outline: 'none',
+  },
+  folderBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: 8,
+    padding: '8px 14px',
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 13,
+    cursor: 'pointer',
+    fontFamily: "'DM Sans', sans-serif",
+  },
+  saveIndicator: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.3)',
+    marginLeft: 'auto',
+    whiteSpace: 'nowrap',
+  },
+
+  // ── column headers ──
+  columnHeaders: {
+    display: 'flex',
+    gap: 0,
+    marginBottom: 8,
+    paddingLeft: 36,
+  },
+  colHeaderLeft: {
+    flex: 2,
+    fontSize: 11,
+    fontWeight: 600,
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    color: 'rgba(255,255,255,0.3)',
+    padding: '0 8px',
+  },
+  colHeader: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: 600,
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    color: 'rgba(255,255,255,0.3)',
+    padding: '0 8px',
+  },
+
+  // ── beat row ──
+  beatRow: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 0,
+    padding: '12px 0',
+    background: 'rgba(255,255,255,0.02)',
+    borderRadius: 10,
+    border: '1px solid rgba(255,255,255,0.05)',
+    marginBottom: 6,
+  },
+  dragHandle: {
+    width: 28,
+    minWidth: 28,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 10,
+    cursor: 'grab',
+    flexShrink: 0,
+  },
+  beatCol: {
+    flex: 2,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
+    padding: '0 8px',
+  },
+  beatInput: {
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: 6,
+    padding: '8px 12px',
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 14,
+    fontWeight: 600,
+    fontFamily: "'DM Sans', sans-serif",
+    outline: 'none',
+  },
+  contextInput: {
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: 6,
+    padding: '8px 12px',
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 13,
+    fontFamily: "'DM Sans', sans-serif",
+    outline: 'none',
+    resize: 'vertical',
+    lineHeight: 1.5,
+  },
+
+  // ── tag columns ──
+  tagCol: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 4,
+    padding: '0 8px',
+  },
+  tag: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    background: 'rgba(99,102,241,0.12)',
+    border: '1px solid rgba(99,102,241,0.2)',
+    borderRadius: 6,
+    padding: '4px 8px',
+    width: 'fit-content',
+    maxWidth: '100%',
+  },
+  tagText: {
+    fontSize: 12,
+    color: '#a5b4fc',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  tagRemove: {
+    background: 'none',
+    border: 'none',
+    color: 'rgba(165,180,252,0.6)',
+    cursor: 'pointer',
+    fontSize: 14,
+    padding: '0 2px',
+    lineHeight: 1,
+    flexShrink: 0,
+  },
+  tagInput: {
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: 6,
+    padding: '6px 10px',
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 12,
+    fontFamily: "'DM Sans', sans-serif",
+    outline: 'none',
+  },
+  deleteBeatBtn: {
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.2)',
+    cursor: 'pointer',
+    padding: '10px 8px',
+    display: 'flex',
+    flexShrink: 0,
+  },
+
+  // ── add beat ──
+  addBeatBtn: {
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px dashed rgba(255,255,255,0.1)',
+    borderRadius: 10,
+    padding: '12px 0',
+    width: '100%',
+    color: 'rgba(255,255,255,0.3)',
+    fontSize: 14,
+    cursor: 'pointer',
+    fontFamily: "'DM Sans', sans-serif",
+    marginTop: 4,
+  },
+
+  // ── buttons ──
+  btnPrimary: {
+    background: '#6366f1',
+    color: '#fff',
+    border: 'none',
+    borderRadius: 8,
+    padding: '8px 18px',
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: "'DM Sans', sans-serif",
+    whiteSpace: 'nowrap',
+  },
+  btnSecondary: {
+    background: 'rgba(255,255,255,0.08)',
+    color: 'rgba(255,255,255,0.7)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 8,
+    padding: '8px 18px',
+    fontSize: 13,
+    fontWeight: 500,
+    cursor: 'pointer',
+    fontFamily: "'DM Sans', sans-serif",
+    whiteSpace: 'nowrap',
+  },
+  btnSmall: {
+    background: 'rgba(255,255,255,0.08)',
+    color: 'rgba(255,255,255,0.7)',
+    border: 'none',
+    borderRadius: 6,
+    padding: '4px 12px',
+    fontSize: 12,
+    cursor: 'pointer',
+    fontFamily: "'DM Sans', sans-serif",
+  },
+  iconBtn: {
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 20,
+    cursor: 'pointer',
+    padding: '0 4px',
+  },
+
+  // ── modal ──
+  modalOverlay: {
+    position: 'fixed',
+    top: 0, left: 0, right: 0, bottom: 0,
+    background: 'rgba(0,0,0,0.6)',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  modal: {
+    background: '#1a1a2e',
+    borderRadius: 14,
+    padding: 24,
+    width: 480,
+    maxWidth: '90vw',
+    border: '1px solid rgba(255,255,255,0.1)',
+    boxShadow: '0 16px 48px rgba(0,0,0,0.4)',
+  },
+  breadcrumb: {
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 13,
+    cursor: 'pointer',
+    padding: '2px 4px',
+    fontFamily: "'DM Sans', sans-serif",
+  },
+  folderRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    padding: '8px 12px',
+    borderRadius: 6,
+    cursor: 'pointer',
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 14,
+  },
+  input: {
+    flex: 1,
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: 6,
+    padding: '6px 12px',
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 13,
+    fontFamily: "'DM Sans', sans-serif",
+    outline: 'none',
+  },
+};

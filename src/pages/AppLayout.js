@@ -17,6 +17,7 @@ import Research from './Research';
 import Goals from './Goals';
 import Tools from './Tools';
 import ShowPlanning from './ShowPlanning';
+import Production from './Production';
 
 import Morty from '../components/Morty';
 
@@ -30,6 +31,7 @@ const NAV_ITEMS = [
   { key: 'reviews', label: 'Reviews', icon: ReviewsIcon },
   { key: 'calendar', label: 'Calendar', icon: CalendarIcon },
   { key: 'showplanning', label: 'Show Planning', icon: ShowPlanningIcon },
+  { key: 'production', label: 'Production', icon: ProductionIcon },
   { key: 'goals', label: 'Goals', icon: GoalsIcon },
   { key: 'tools', label: 'Toolbox', icon: ToolsIcon },
 
@@ -55,6 +57,7 @@ const NAV_ICON_MAP = {
   reviews: ReviewsIcon,
   calendar: CalendarIcon,
   showplanning: ShowPlanningIcon,
+  production: ProductionIcon,
   goals: GoalsIcon,
   tools: ToolsIcon,
 
@@ -491,6 +494,7 @@ export default function AppLayout() {
           {activeTab === 'projects' && <Projects onNavigate={navigateTo} />}
           {activeTab === 'calendar' && <Calendar onNavigate={navigateTo} />}
           {activeTab === 'showplanning' && <ShowPlanning />}
+          {activeTab === 'production' && <Production />}
           {activeTab === 'ideation' && <Ideation initialConceptId={navTarget} onConceptOpened={() => setNavTarget(null)} />}
           {activeTab === 'resources' && <Resources />}
           {isAdmin && activeTab === 'analytics' && <Analytics />}
@@ -607,6 +611,16 @@ function ShowPlanningIcon({ active }) {
       <rect x="3" y="4" width="14" height="13" rx="2" />
       <path d="M3 8h14M7 2v4M13 2v4" />
       <circle cx="10" cy="13" r="1.5" fill={active ? '#a5b4fc' : '#6b7280'} stroke="none" />
+    </svg>
+  );
+}
+
+function ProductionIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <rect x="2" y="7" width="16" height="10" rx="1.5" />
+      <path d="M2 7l3-4h10l3 4" />
+      <path d="M7 3l2 4M13 3l-2 4" />
     </svg>
   );
 }

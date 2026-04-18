@@ -4,6 +4,33 @@ const path = require('path');
 const fs = require('fs');
 const { google } = require('googleapis');
 
+// Shared auth helper — returns { drive, sheets } Google API clients
+function getGoogleClients() {
+  const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+  const refreshToken = process.env.GOOGLE_OAUTH_REFRESH_TOKEN;
+  const credentialsPath = process.env.GOOGLE_SERVICE_ACCOUNT_PATH;
+
+  let auth;
+  if (clientId && clientSecret && refreshToken) {
+    const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+    oauth2Client.setCredentials({ refresh_token: refreshToken });
+    auth = oauth2Client;
+  } else if (credentialsPath) {
+    auth = new google.auth.GoogleAuth({
+      keyFile: credentialsPath,
+      scopes: ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/spreadsheets'],
+    });
+  } else {
+    throw new Error('No Google credentials configured');
+  }
+
+  return {
+    drive: google.drive({ version: 'v3', auth }),
+    sheets: google.sheets({ version: 'v4', auth }),
+  };
+}
+
 // POST /api/drive/upload
 // Body: { clips: [{ id, title, type, outputFormat, assignee, driveFolder }] }
 router.post('/upload', async (req, res) => {
@@ -14,32 +41,15 @@ router.post('/upload', async (req, res) => {
   }
 
   const outputDir = process.env.VIDEO_OUTPUT_DIR;
-  const credentialsPath = process.env.GOOGLE_SERVICE_ACCOUNT_PATH;
   const rootFolderId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID;
 
   if (!outputDir) return res.status(500).json({ error: 'VIDEO_OUTPUT_DIR not set in .env' });
-  if (!credentialsPath) return res.status(500).json({ error: 'GOOGLE_SERVICE_ACCOUNT_PATH not set in .env' });
   if (!rootFolderId) return res.status(500).json({ error: 'GOOGLE_DRIVE_ROOT_FOLDER_ID not set in .env' });
 
   let driveClient;
   try {
-    const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
-    const refreshToken = process.env.GOOGLE_OAUTH_REFRESH_TOKEN;
-
-    if (clientId && clientSecret && refreshToken) {
-      // Use OAuth2 (uploads as you, uses your Drive quota)
-      const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
-      oauth2Client.setCredentials({ refresh_token: refreshToken });
-      driveClient = google.drive({ version: 'v3', auth: oauth2Client });
-    } else {
-      // Fallback to service account
-      const auth = new google.auth.GoogleAuth({
-        keyFile: credentialsPath,
-        scopes: ['https://www.googleapis.com/auth/drive'],
-      });
-      driveClient = google.drive({ version: 'v3', auth });
-    }
+    const clients = getGoogleClients();
+    driveClient = clients.drive;
   } catch (err) {
     return res.status(500).json({ error: `Google auth failed: ${err.message}` });
   }
@@ -131,5 +141,161 @@ async function resolveFolder(drive, rootId, folderPath, cache) {
 
   return currentId;
 }
+
+// GET /api/drive/folders?parentId=
+// Lists child folders of a parent (or root if no parentId)
+router.get('/folders', async (req, res) => {
+  try {
+    const { drive } = getGoogleClients();
+    const parentId = req.query.parentId || process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || 'root';
+
+    const result = await drive.files.list({
+      q: `'${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+      fields: 'files(id, name)',
+      orderBy: 'name',
+      pageSize: 200,
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+    });
+
+    res.json({ folders: result.data.files || [] });
+  } catch (err) {
+    console.error('[Drive] List folders error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/drive/create-folder
+// Body: { parentId, name }
+router.post('/create-folder', async (req, res) => {
+  try {
+    const { drive } = getGoogleClients();
+    const { parentId, name } = req.body;
+
+    if (!name) return res.status(400).json({ error: 'name is required' });
+
+    const parent = parentId || process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || 'root';
+    const result = await drive.files.create({
+      requestBody: {
+        name,
+        mimeType: 'application/vnd.google-apps.folder',
+        parents: [parent],
+      },
+      fields: 'id, name',
+      supportsAllDrives: true,
+    });
+
+    res.json({ id: result.data.id, name: result.data.name });
+  } catch (err) {
+    console.error('[Drive] Create folder error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/drive/create-sheet
+// Body: { folderId, title, beats }
+// Creates a formatted Google Sheet and moves it into the target Drive folder
+router.post('/create-sheet', async (req, res) => {
+  try {
+    const { drive, sheets } = getGoogleClients();
+    const { folderId, title, beats } = req.body;
+
+    if (!folderId) return res.status(400).json({ error: 'folderId is required' });
+    if (!title) return res.status(400).json({ error: 'title is required' });
+
+    // Build rows: header + one row per beat
+    const headerRow = ['Beat + Context', 'Graphics', 'Videos'];
+    const dataRows = (beats || []).map(b => [
+      [b.title || '', b.context || ''].filter(Boolean).join('\n'),
+      (b.graphics || []).join('\n'),
+      (b.videos || []).join('\n'),
+    ]);
+
+    // Create the spreadsheet
+    const createRes = await sheets.spreadsheets.create({
+      requestBody: {
+        properties: { title },
+        sheets: [{
+          properties: { title: 'Beat Sheet' },
+          data: [{
+            startRow: 0,
+            startColumn: 0,
+            rowData: [
+              { values: headerRow.map(h => ({ userEnteredValue: { stringValue: h } })) },
+              ...dataRows.map(row => ({
+                values: row.map(cell => ({ userEnteredValue: { stringValue: cell } })),
+              })),
+            ],
+          }],
+        }],
+      },
+    });
+
+    const spreadsheetId = createRes.data.spreadsheetId;
+    const sheetId = createRes.data.sheets[0].properties.sheetId;
+
+    // Format: column widths, text wrapping, bold header
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [
+          // Column widths
+          { updateDimensionProperties: {
+            range: { sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 },
+            properties: { pixelSize: 400 },
+            fields: 'pixelSize',
+          }},
+          { updateDimensionProperties: {
+            range: { sheetId, dimension: 'COLUMNS', startIndex: 1, endIndex: 2 },
+            properties: { pixelSize: 250 },
+            fields: 'pixelSize',
+          }},
+          { updateDimensionProperties: {
+            range: { sheetId, dimension: 'COLUMNS', startIndex: 2, endIndex: 3 },
+            properties: { pixelSize: 250 },
+            fields: 'pixelSize',
+          }},
+          // Text wrapping for all cells
+          { repeatCell: {
+            range: { sheetId },
+            cell: { userEnteredFormat: { wrapStrategy: 'WRAP' } },
+            fields: 'userEnteredFormat.wrapStrategy',
+          }},
+          // Bold header row
+          { repeatCell: {
+            range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
+            cell: {
+              userEnteredFormat: {
+                textFormat: { bold: true },
+                backgroundColor: { red: 0.15, green: 0.15, blue: 0.2 },
+              },
+            },
+            fields: 'userEnteredFormat.textFormat.bold,userEnteredFormat.backgroundColor',
+          }},
+        ],
+      },
+    });
+
+    // Move into target Drive folder
+    const fileRes = await drive.files.get({
+      fileId: spreadsheetId,
+      fields: 'parents',
+      supportsAllDrives: true,
+    });
+    const previousParents = (fileRes.data.parents || []).join(',');
+    await drive.files.update({
+      fileId: spreadsheetId,
+      addParents: folderId,
+      removeParents: previousParents,
+      supportsAllDrives: true,
+    });
+
+    const sheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+    res.json({ sheetUrl });
+  } catch (err) {
+    console.error('[Drive] Create sheet error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 module.exports = router;
