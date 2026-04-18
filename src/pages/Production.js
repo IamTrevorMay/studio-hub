@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
@@ -249,7 +249,7 @@ export default function Production() {
       // Selecting the root folder itself
       if (!driveRootId.current) return;
       setDriveFolderId(driveRootId.current);
-      setDriveFolderName('Mayday Media & Live Show');
+      setDriveFolderName('Long Form');
     } else {
       const current = folderStack[folderStack.length - 1];
       setDriveFolderId(current.id);
@@ -369,7 +369,7 @@ export default function Production() {
   // ── folder browser modal ──
   const renderFolderBrowser = () => {
     if (!showFolderBrowser) return null;
-    const currentPath = folderStack.map(f => f.name).join(' / ') || 'Mayday Media & Live Show';
+    const currentPath = folderStack.map(f => f.name).join(' / ') || 'Long Form';
     return (
       <div style={styles.modalOverlay} onClick={() => setShowFolderBrowser(false)}>
         <div style={styles.modal} onClick={e => e.stopPropagation()}>
@@ -383,7 +383,7 @@ export default function Production() {
             <button
               onClick={() => { setFolderStack([]); loadFolders(null); }}
               style={{ ...styles.breadcrumb, fontWeight: folderStack.length === 0 ? 600 : 400 }}
-            >Mayday Media & Live Show</button>
+            >Long Form</button>
             {folderStack.map((f, i) => (
               <React.Fragment key={f.id}>
                 <span style={{ color: 'rgba(255,255,255,0.3)' }}>/</span>

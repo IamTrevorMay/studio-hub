@@ -444,7 +444,7 @@ export default function Dashboard({ onNavigate }) {
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [profile?.id, fetchTeamProfiles]);
+  }, [profile?.id, fetchTeamProfiles, refreshKey]);
 
   useEffect(() => {
     if (profile?.id) fetchCheckins();

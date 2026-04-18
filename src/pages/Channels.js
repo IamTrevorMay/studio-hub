@@ -135,7 +135,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [activeChannel, fetchMessages]);
+  }, [activeChannel, fetchMessages, refreshKey]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

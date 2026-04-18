@@ -266,7 +266,7 @@ export default function Reviews() {
       })
       .subscribe();
     return () => supabase.removeChannel(channel);
-  }, []);
+  }, [fetchScriptReviews, refreshKey]);
 
   async function fetchConceptsForScript() {
     const { data } = await supabase.from('concepts')
@@ -393,6 +393,7 @@ export default function Reviews() {
         onBack={() => { setActiveScriptReview(null); fetchScriptReviews(); }}
         profile={profile}
         isAdmin={isAdmin}
+        refreshKey={refreshKey}
       />
     );
   }
@@ -2324,7 +2325,7 @@ function AnnotationsSidebar({ annotations, activeAnnotationId, onAnnotationClick
 
 // ─── Script Review Instance (3-Panel Layout) ─────────────────────────────────
 
-function ScriptReviewDetail({ review, onBack, profile, isAdmin }) {
+function ScriptReviewDetail({ review, onBack, profile, isAdmin, refreshKey }) {
   const [versions, setVersions] = useState([]);
   const [activeVersion, setActiveVersion] = useState(null);
   const [status, setStatus] = useState(review.status);
@@ -2399,7 +2400,7 @@ function ScriptReviewDetail({ review, onBack, profile, isAdmin }) {
       })
       .subscribe();
     return () => supabase.removeChannel(channel);
-  }, [review.id]);
+  }, [review.id, refreshKey]);
 
   async function fetchVersions() {
     const { data } = await supabase.from('script_review_versions')

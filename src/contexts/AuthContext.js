@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { supabase } from '../supabaseClient';
+import { supabase, reconnectRealtime } from '../supabaseClient';
 
 const AuthContext = createContext({});
 
@@ -345,13 +345,15 @@ export function AuthProvider({ children }) {
       hiddenAt = null;
 
       try {
-        // 1. Always refresh auth token after being away
+        // 1. Refresh auth token first so the new socket authenticates correctly
         const { data: refreshData } = await supabase.auth.refreshSession();
         const session = refreshData?.session;
         if (session) {
-          // 2. Reconnect realtime WebSocket with the fresh token
           supabase.realtime.setAuth(session.access_token);
         }
+
+        // 2. Force-reconnect the WebSocket (kills dead socket, opens fresh one)
+        await reconnectRealtime();
 
         // 3. Re-ping presence so status goes back to active immediately
         supabase.from('profiles').update({ status: 'active', last_seen_at: new Date().toISOString() }).eq('id', user.id).then(() => {});
@@ -359,7 +361,7 @@ export function AuthProvider({ children }) {
         console.warn('Visibility reconnect failed:', e);
       }
 
-      // 4. Signal pages to re-fetch (token is now valid)
+      // 4. Bump refreshKey so every subscription useEffect tears down and rebuilds
       setRefreshKey(k => k + 1);
       window.dispatchEvent(new CustomEvent('app-tab-restored', { detail: { away } }));
     };
@@ -517,7 +519,7 @@ export function AuthProvider({ children }) {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibilityRefresh);
     };
-  }, [user, refreshNotifications, fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions, fetchUnreadNotificationCount]);
+  }, [user, refreshNotifications, fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions, fetchUnreadNotificationCount, refreshKey]);
 
   const value = {
     user,

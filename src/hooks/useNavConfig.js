@@ -11,7 +11,15 @@ export default function useNavConfig() {
   const [saving, setSaving] = useState(false);
   const channelRef = useRef(null);
 
-  // Fetch on mount
+  // Track tab-restored events to force subscription rebuild
+  const [refreshKey, setRefreshKey] = useState(0);
+  useEffect(() => {
+    const handler = () => setRefreshKey(k => k + 1);
+    window.addEventListener('app-tab-restored', handler);
+    return () => window.removeEventListener('app-tab-restored', handler);
+  }, []);
+
+  // Fetch on mount + rebuild subscription on tab restore
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -45,7 +53,7 @@ export default function useNavConfig() {
         supabase.removeChannel(channelRef.current);
       }
     };
-  }, []);
+  }, [refreshKey]);
 
   // Save config to DB
   const saveConfig = useCallback(async (newConfig, profileId) => {

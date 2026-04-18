@@ -8,7 +8,7 @@ const corsHeaders = {
 };
 
 // Root folder path — users cannot navigate above this
-const ROOT_PATH = ["Business", "YouTube", "Trevor May Baseball", "Mayday Media & Live Show"];
+const ROOT_PATH = ["Business", "YouTube", "Trevor May Baseball", "Long Form"];
 
 // Cache resolved root folder ID across requests (edge function instance lifetime)
 let cachedRootId: string | null = null;

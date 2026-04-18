@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
+import { useAuth } from '../contexts/AuthContext';
 import SprintGoals from './SprintGoals';
 import SprintRetroModal from './SprintRetroModal';
 
@@ -294,6 +295,7 @@ function TaskDetailModal({ task, onClose, onSave, onDelete, projects, concepts, 
 
 // ─── MyBoard (main export) ──────────────────────────────────
 export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVersion }) {
+  const { refreshKey } = useAuth();
   const [tasks, _setTasks] = useState([]);
   const tasksRef = useRef(tasks);
   const setTasks = useCallback((update) => {
@@ -433,7 +435,7 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
       }, () => { fetchTasks(); })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [profile?.id, fetchTasks]);
+  }, [profile?.id, fetchTasks, refreshKey]);
 
   // ── Week navigation ──
   function navigateWeek(offset) {

@@ -134,7 +134,7 @@ export default function Messages({ onNavigate }) {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [activeConversation, fetchMessages]);
+  }, [activeConversation, fetchMessages, refreshKey]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

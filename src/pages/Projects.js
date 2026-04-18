@@ -389,7 +389,7 @@ export default function Projects({ onNavigate }) {
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [activeSection, fetchShorts]);
+  }, [activeSection, fetchShorts, refreshKey]);
 
   function sortShorts(items) {
     return [...items].sort((a, b) => {
@@ -583,7 +583,7 @@ export default function Projects({ onNavigate }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'deliverable_stage_assignments' }, () => fetchSponsors())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [activeSection, fetchSponsors]);
+  }, [activeSection, fetchSponsors, refreshKey]);
 
   // ===== Reads fetch =====
   const fetchReads = useCallback(async () => {
@@ -611,7 +611,7 @@ export default function Projects({ onNavigate }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sponsor_reads' }, () => fetchReads())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [activeSection, fetchReads]);
+  }, [activeSection, fetchReads, refreshKey]);
 
   // ===== Mayday Videos fetch =====
   const fetchMaydayVideos = useCallback(async () => {
@@ -640,7 +640,7 @@ export default function Projects({ onNavigate }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'mayday_videos' }, () => fetchMaydayVideos())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [activeSection, fetchMaydayVideos]);
+  }, [activeSection, fetchMaydayVideos, refreshKey]);
 
   // ===== Read handlers =====
   async function handleSaveRead(e) {
@@ -1169,7 +1169,7 @@ export default function Projects({ onNavigate }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'series' }, () => fetchSeries())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [activeSection, fetchSeries]);
+  }, [activeSection, fetchSeries, refreshKey]);
 
   function resetSeriesForm() {
     setSeriesForm({ title: '', description: '' });
