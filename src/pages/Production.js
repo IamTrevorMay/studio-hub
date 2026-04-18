@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
@@ -184,6 +184,12 @@ export default function Production() {
     setBeats(prev => prev.map(b =>
       b.id === beatId ? { ...b, [field]: b[field].filter((_, i) => i !== index) } : b
     ));
+  };
+
+  const autoResize = (el) => {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
   };
 
   const handleDragEnd = (result) => {
@@ -587,16 +593,18 @@ export default function Production() {
                       <div style={styles.beatCol}>
                         <textarea
                           value={beat.title}
-                          onChange={e => updateBeat(beat.id, 'title', e.target.value)}
+                          onChange={e => { updateBeat(beat.id, 'title', e.target.value); autoResize(e.target); }}
+                          ref={el => { if (el) autoResize(el); }}
                           placeholder="Beat..."
-                          rows={2}
+                          rows={1}
                           style={styles.beatInput}
                         />
                         <textarea
                           value={beat.context}
-                          onChange={e => updateBeat(beat.id, 'context', e.target.value)}
+                          onChange={e => { updateBeat(beat.id, 'context', e.target.value); autoResize(e.target); }}
+                          ref={el => { if (el) autoResize(el); }}
                           placeholder="Context..."
-                          rows={3}
+                          rows={1}
                           style={styles.contextInput}
                         />
                       </div>
@@ -860,7 +868,8 @@ const styles = {
     fontWeight: 600,
     fontFamily: "'DM Sans', sans-serif",
     outline: 'none',
-    resize: 'vertical',
+    resize: 'none',
+    overflow: 'hidden',
     lineHeight: 1.5,
   },
   contextInput: {
@@ -872,7 +881,8 @@ const styles = {
     fontSize: 13,
     fontFamily: "'DM Sans', sans-serif",
     outline: 'none',
-    resize: 'vertical',
+    resize: 'none',
+    overflow: 'hidden',
     lineHeight: 1.5,
   },
 

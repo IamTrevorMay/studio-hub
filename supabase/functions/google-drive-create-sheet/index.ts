@@ -141,11 +141,11 @@ Deno.serve(async (req: Request) => {
             range: { sheetId: 0, startRowIndex: 0, endRowIndex: 1 },
             cell: {
               userEnteredFormat: {
-                textFormat: { bold: true },
-                backgroundColor: { red: 0.15, green: 0.15, blue: 0.2 },
+                textFormat: { bold: true, foregroundColorStyle: { rgbColor: { red: 0, green: 0, blue: 0 } } },
+                backgroundColor: { red: 1, green: 1, blue: 1 },
               },
             },
-            fields: "userEnteredFormat.textFormat.bold,userEnteredFormat.backgroundColor",
+            fields: "userEnteredFormat.textFormat.bold,userEnteredFormat.textFormat.foregroundColorStyle,userEnteredFormat.backgroundColor",
           }},
         ],
       }),
