@@ -3,7 +3,7 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 
-const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:4400';
+const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
 
 // ─── helpers ───────────────────────────────────────────────────────────────────
 
@@ -198,10 +198,14 @@ export default function Production() {
   const loadFolders = async (parentId) => {
     setFoldersLoading(true);
     try {
-      const url = parentId
-        ? `${API_BASE}/api/drive/folders?parentId=${encodeURIComponent(parentId)}`
-        : `${API_BASE}/api/drive/folders`;
-      const resp = await fetch(url);
+      const { data: { session } } = await supabase.auth.getSession();
+      const params = parentId ? `?parentId=${encodeURIComponent(parentId)}` : '';
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/google-drive-folders${params}`, {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+      });
       if (!resp.ok) throw new Error(await resp.text());
       const data = await resp.json();
       setFolders(data.folders || []);
@@ -243,9 +247,13 @@ export default function Production() {
     if (!newFolderName.trim()) return;
     const parentId = folderStack.length > 0 ? folderStack[folderStack.length - 1].id : null;
     try {
-      const resp = await fetch(`${API_BASE}/api/drive/create-folder`, {
+      const { data: { session } } = await supabase.auth.getSession();
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/google-drive-folders`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ parentId, name: newFolderName.trim() }),
       });
       if (!resp.ok) throw new Error(await resp.text());
@@ -264,9 +272,13 @@ export default function Production() {
     }
     setPushingSheet(true);
     try {
-      const resp = await fetch(`${API_BASE}/api/drive/create-sheet`, {
+      const { data: { session } } = await supabase.auth.getSession();
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/google-drive-create-sheet`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ folderId: driveFolderId, title, beats }),
       });
       if (!resp.ok) throw new Error(await resp.text());
@@ -568,10 +580,11 @@ export default function Production() {
 
                       {/* Col 1: Beat + Context */}
                       <div style={styles.beatCol}>
-                        <input
+                        <textarea
                           value={beat.title}
                           onChange={e => updateBeat(beat.id, 'title', e.target.value)}
-                          placeholder="Beat title..."
+                          placeholder="Beat..."
+                          rows={2}
                           style={styles.beatInput}
                         />
                         <textarea
@@ -842,6 +855,8 @@ const styles = {
     fontWeight: 600,
     fontFamily: "'DM Sans', sans-serif",
     outline: 'none',
+    resize: 'vertical',
+    lineHeight: 1.5,
   },
   contextInput: {
     background: 'rgba(255,255,255,0.04)',
