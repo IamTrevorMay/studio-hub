@@ -195,6 +195,8 @@ export default function Production() {
   };
 
   // ─── folder browser ─────────────────────────────────────────────────────────
+  const driveRootId = useRef(null);
+
   const loadFolders = async (parentId) => {
     setFoldersLoading(true);
     try {
@@ -209,6 +211,7 @@ export default function Production() {
       if (!resp.ok) throw new Error(await resp.text());
       const data = await resp.json();
       setFolders(data.folders || []);
+      if (data.rootId) driveRootId.current = data.rootId;
     } catch (err) {
       console.error('Load folders error:', err);
       setFolders([]);
@@ -236,10 +239,16 @@ export default function Production() {
   };
 
   const selectFolder = () => {
-    if (folderStack.length === 0) return;
-    const current = folderStack[folderStack.length - 1];
-    setDriveFolderId(current.id);
-    setDriveFolderName(folderStack.map(f => f.name).join(' / '));
+    if (folderStack.length === 0) {
+      // Selecting the root folder itself
+      if (!driveRootId.current) return;
+      setDriveFolderId(driveRootId.current);
+      setDriveFolderName('Mayday Media & Live Show');
+    } else {
+      const current = folderStack[folderStack.length - 1];
+      setDriveFolderId(current.id);
+      setDriveFolderName(folderStack.map(f => f.name).join(' / '));
+    }
     setShowFolderBrowser(false);
   };
 
@@ -354,7 +363,7 @@ export default function Production() {
   // ── folder browser modal ──
   const renderFolderBrowser = () => {
     if (!showFolderBrowser) return null;
-    const currentPath = folderStack.map(f => f.name).join(' / ') || 'My Drive';
+    const currentPath = folderStack.map(f => f.name).join(' / ') || 'Mayday Media & Live Show';
     return (
       <div style={styles.modalOverlay} onClick={() => setShowFolderBrowser(false)}>
         <div style={styles.modal} onClick={e => e.stopPropagation()}>
@@ -368,7 +377,7 @@ export default function Production() {
             <button
               onClick={() => { setFolderStack([]); loadFolders(null); }}
               style={{ ...styles.breadcrumb, fontWeight: folderStack.length === 0 ? 600 : 400 }}
-            >My Drive</button>
+            >Mayday Media & Live Show</button>
             {folderStack.map((f, i) => (
               <React.Fragment key={f.id}>
                 <span style={{ color: 'rgba(255,255,255,0.3)' }}>/</span>
@@ -423,11 +432,7 @@ export default function Production() {
             <button onClick={() => setShowFolderBrowser(false)} style={styles.btnSecondary}>Cancel</button>
             <button
               onClick={selectFolder}
-              disabled={folderStack.length === 0}
-              style={{
-                ...styles.btnPrimary,
-                opacity: folderStack.length === 0 ? 0.4 : 1,
-              }}
+              style={styles.btnPrimary}
             >Select This Folder</button>
           </div>
         </div>

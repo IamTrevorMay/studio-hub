@@ -7,6 +7,12 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
+// Root folder path — users cannot navigate above this
+const ROOT_PATH = ["Business", "YouTube", "Trevor May Baseball", "Mayday Media & Live Show"];
+
+// Cache resolved root folder ID across requests (edge function instance lifetime)
+let cachedRootId: string | null = null;
+
 // Get a fresh access token using the shared Drive refresh token
 async function getDriveAccessToken(): Promise<string> {
   const clientId = Deno.env.get("GOOGLE_DRIVE_CLIENT_ID")!;
@@ -27,6 +33,35 @@ async function getDriveAccessToken(): Promise<string> {
   const tokens = await res.json();
   if (!res.ok) throw new Error(tokens.error_description || "Token refresh failed");
   return tokens.access_token;
+}
+
+// Resolve a folder path from Drive root, returning the final folder's ID
+async function resolveRootFolder(accessToken: string): Promise<string> {
+  if (cachedRootId) return cachedRootId;
+
+  let currentId = "root";
+  for (const name of ROOT_PATH) {
+    const query = `'${currentId}' in parents and name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files?` +
+      new URLSearchParams({
+        q: query,
+        fields: "files(id)",
+        pageSize: "1",
+        supportsAllDrives: "true",
+        includeItemsFromAllDrives: "true",
+      }),
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    const data = await res.json();
+    if (!res.ok || !data.files?.length) {
+      throw new Error(`Could not find Drive folder: ${name}`);
+    }
+    currentId = data.files[0].id;
+  }
+
+  cachedRootId = currentId;
+  return currentId;
 }
 
 Deno.serve(async (req: Request) => {
@@ -58,11 +93,12 @@ Deno.serve(async (req: Request) => {
     }
 
     const accessToken = await getDriveAccessToken();
+    const rootId = await resolveRootFolder(accessToken);
     const url = new URL(req.url);
 
     if (req.method === "GET") {
-      // List folders in a parent
-      const parentId = url.searchParams.get("parentId") || "root";
+      // List folders in a parent (default to root folder)
+      const parentId = url.searchParams.get("parentId") || rootId;
       const query = `'${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
 
       const driveRes = await fetch(
@@ -81,7 +117,7 @@ Deno.serve(async (req: Request) => {
       const data = await driveRes.json();
       if (!driveRes.ok) throw new Error(data.error?.message || "Drive API error");
 
-      return new Response(JSON.stringify({ folders: data.files || [] }), {
+      return new Response(JSON.stringify({ folders: data.files || [], rootId }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -109,7 +145,7 @@ Deno.serve(async (req: Request) => {
           body: JSON.stringify({
             name,
             mimeType: "application/vnd.google-apps.folder",
-            parents: [parentId || "root"],
+            parents: [parentId || rootId],
           }),
         }
       );
