@@ -1294,7 +1294,7 @@ function PlatformView({ accountId, accounts, start, end }) {
     let cancelled = false;
     async function load() {
       setPlatLoading(true);
-      const [rollupRes, prevRollupRes, contentRes, audRes, prevAudRes] = await Promise.all([
+      const queries = [
         supabase.from('daily_platform_rollups').select('*').eq('platform_account_id', accountId).gte('date', start).lte('date', end).order('date'),
         supabase.from('daily_platform_rollups').select('*').eq('platform_account_id', accountId).gte('date', prevStart).lt('date', prevEnd),
         supabase.from('content_items')
@@ -1303,17 +1303,29 @@ function PlatformView({ accountId, accounts, start, end }) {
           .order('published_at', { ascending: false }).limit(100),
         supabase.from('audience_snapshots').select('date, followers_total, followers_gained').eq('platform_account_id', accountId).gte('date', start).lte('date', end).order('date'),
         supabase.from('audience_snapshots').select('date, followers_total, followers_gained').eq('platform_account_id', accountId).gte('date', prevStart).lt('date', prevEnd).order('date'),
-      ]);
+      ];
+      // YouTube: also fetch impressions from analytics_youtube_daily
+      const isYouTube = account?.platform === 'youtube';
+      if (isYouTube) {
+        queries.push(
+          supabase.from('analytics_youtube_daily').select('date, impressions, impressions_ctr').eq('platform_account_id', accountId).gte('date', start).lte('date', end).order('date'),
+          supabase.from('analytics_youtube_daily').select('date, impressions').eq('platform_account_id', accountId).gte('date', prevStart).lt('date', prevEnd),
+        );
+      }
+      const results = await Promise.all(queries);
+      const [rollupRes, prevRollupRes, contentRes, audRes, prevAudRes] = results;
       if (cancelled) return;
       setPlatData({
         rollups: rollupRes.data || [],
         prevRollups: prevRollupRes.data || [],
-        content: (contentRes.data || []).map(c => ({
-          ...c,
-          metrics: c.latest_metrics?.[0] || {},
-        })),
+        content: (contentRes.data || []).map(c => {
+          const { latest_metrics, ...rest } = c;
+          return { ...rest, metrics: latest_metrics?.[0] || {} };
+        }),
         audience: audRes.data || [],
         prevAudience: prevAudRes.data || [],
+        ytDaily: isYouTube ? (results[5]?.data || []) : [],
+        prevYtDaily: isYouTube ? (results[6]?.data || []) : [],
       });
       setPlatLoading(false);
     }
@@ -1336,12 +1348,13 @@ function PlatformView({ accountId, accounts, start, end }) {
   const latestFollowers = platData.audience.length > 0 ? platData.audience[platData.audience.length - 1].followers_total : 0;
   const prevFollowers = (platData.prevAudience || []).length > 0 ? platData.prevAudience[platData.prevAudience.length - 1].followers_total : 0;
   const followersGained = platData.audience.reduce((s, a) => s + (a.followers_gained || 0), 0);
-  const avgEngagement = platData.rollups.length > 0
-    ? platData.rollups.reduce((s, r) => s + Number(r.avg_engagement_rate || 0), 0) / platData.rollups.length
-    : 0;
-  const prevAvgEngagement = (platData.prevRollups || []).length > 0
-    ? platData.prevRollups.reduce((s, r) => s + Number(r.avg_engagement_rate || 0), 0) / platData.prevRollups.length
-    : 0;
+  const totalEngagement = platData.rollups.reduce((s, r) => s + Number(r.total_likes || 0) + Number(r.total_comments || 0) + Number(r.total_shares || 0), 0);
+  const prevEngagement = (platData.prevRollups || []).reduce((s, r) => s + Number(r.total_likes || 0) + Number(r.total_comments || 0) + Number(r.total_shares || 0), 0);
+
+  // YouTube impressions
+  const isYouTube = account?.platform === 'youtube';
+  const totalImpressions = (platData.ytDaily || []).reduce((s, r) => s + Number(r.impressions || 0), 0);
+  const prevImpressions = (platData.prevYtDaily || []).reduce((s, r) => s + Number(r.impressions || 0), 0);
 
   // Trend data
   const trendMetrics = [
@@ -1377,11 +1390,27 @@ function PlatformView({ accountId, accounts, start, end }) {
       {/* KPI Cards */}
       <div style={styles.kpiGrid}>
         <KPICard label="Views" value={formatCompact(totalViews)} change={pctChange(totalViews, prevViews)} color={color} />
-        <KPICard label="Likes" value={formatCompact(totalLikes)} change={pctChange(totalLikes, prevLikes)} color="#ec4899" />
+        {isYouTube && <KPICard label="Impressions" value={formatCompact(totalImpressions)} change={pctChange(totalImpressions, prevImpressions)} color="#f59e0b" />}
+        <KPICard label="Engagement" value={formatCompact(totalEngagement)} change={pctChange(totalEngagement, prevEngagement)} color="#22c55e" />
         <KPICard label="Followers" value={formatCompact(latestFollowers)} change={pctChange(latestFollowers, prevFollowers)}
           changeLabel={`${followersGained >= 0 ? '+' : ''}${followersGained.toLocaleString()} this period`} color="#3b82f6" />
-        <KPICard label="Avg Engagement" value={(avgEngagement * 100).toFixed(2) + '%'} change={pctChange(avgEngagement, prevAvgEngagement)} color="#f59e0b" />
       </div>
+
+      {/* Impressions Trend (YouTube only) */}
+      {isYouTube && platData.ytDaily && platData.ytDaily.length > 0 && (
+        <div style={{ ...styles.chartSection, width: '100%' }}>
+          <div style={styles.chartHeader}>
+            <span style={styles.chartTitle}>Impressions</span>
+            <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f59e0b', flexShrink: 0 }} />
+                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>Impressions</span>
+              </div>
+            </div>
+          </div>
+          <TrendChart data={platData.ytDaily} metrics={[{ key: 'impressions', label: 'Impressions', color: '#f59e0b', getValue: r => Number(r.impressions) || 0 }]} />
+        </div>
+      )}
 
       {/* Views & Likes Trend */}
       {platData.rollups.length > 0 && (
