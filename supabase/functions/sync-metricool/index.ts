@@ -52,7 +52,7 @@ const PLATFORM_METRICS = [
     network: "tiktok",
     pdm: [
       { subject: "account", metric: "likes", field: "likes", cumulative: true },
-      { subject: "account", metric: "video_views", field: "views", cumulative: true },
+      { subject: "account", metric: "profile_views", field: "views", cumulative: false },
     ],
     followers: { subject: "account", metric: "followers_count", cumulative: true },
   },
