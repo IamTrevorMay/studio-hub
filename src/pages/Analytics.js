@@ -25,6 +25,18 @@ const REVENUE_CATEGORIES = {
   other:        { label: 'Other',          color: '#6b7280' },
 };
 
+// Tiller revenue category mapping for Analytics display
+const TILLER_CATEGORY_META = {
+  'YouTube Income':     { label: 'YouTube',      color: '#FF0000' },
+  'TikTok Income':      { label: 'TikTok',       color: '#00F2EA' },
+  'Twitch Income':      { label: 'Twitch',       color: '#9146FF' },
+  'Substack Income':    { label: 'Substack',     color: '#FF6719' },
+  'Sponsorship Income': { label: 'Sponsorships', color: '#10b981' },
+  'Merch Income':       { label: 'Merch',        color: '#f97316' },
+  'Facebook Income':    { label: 'Facebook',     color: '#1877F2' },
+  'Services':           { label: 'Appearances',  color: '#f59e0b' },
+};
+
 const DATE_RANGES = [
   { key: '7d',  label: '7 days',  days: 7 },
   { key: '30d', label: '30 days', days: 30 },
@@ -210,6 +222,7 @@ export default function Analytics() {
   const [kpi, setKpi] = useState(null);
   const [timeSeries, setTimeSeries] = useState([]);
   const [contentItems, setContentItems] = useState([]);
+  const [revenueData, setRevenueData] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Content table sort
@@ -272,6 +285,7 @@ export default function Analytics() {
         fetchTimeSeries(),
         fetchContentPerformance(),
         fetchAnalysisData(),
+        fetchRevenue(),
       ]);
     } catch (err) {
       console.error('Error fetching analytics:', err);
@@ -356,6 +370,18 @@ export default function Analytics() {
       contentWithMetrics: contentResult.data || [],
       audienceSnapshots: audResult.data || [],
     });
+  }
+
+  async function fetchRevenue() {
+    const { start, end } = getDateRange(dateRange, customStart, customEnd, filterMonth, filterYear);
+    const { data, error } = await supabase
+      .from('revenue_transactions')
+      .select('date, category, amount_cents')
+      .gte('date', start)
+      .lte('date', end)
+      .order('date', { ascending: false });
+    if (error) console.error('Revenue fetch error:', error);
+    setRevenueData(data || []);
   }
 
   async function fetchKPI() {
@@ -710,6 +736,47 @@ export default function Analytics() {
               <KPICard label="Avg Engagement" value={(kpi.avgEngagement * 100).toFixed(2) + '%'} change={kpi.engagementChange} color="#f59e0b" />
             </div>
           )}
+
+          {/* ── Revenue Breakdown ── */}
+          {revenueData.length > 0 && (() => {
+            const byCategory = {};
+            for (const tx of revenueData) {
+              const meta = TILLER_CATEGORY_META[tx.category];
+              if (!meta) continue;
+              const key = tx.category;
+              if (!byCategory[key]) byCategory[key] = { label: meta.label, color: meta.color, total: 0 };
+              byCategory[key].total += tx.amount_cents;
+            }
+            const sorted = Object.values(byCategory).sort((a, b) => b.total - a.total);
+            const grandTotal = sorted.reduce((s, c) => s + c.total, 0);
+            if (grandTotal === 0) return null;
+            return (
+              <div style={{ ...styles.chartSection, borderLeft: '3px solid #22c55e' }}>
+                <span style={{ ...styles.chartTitle, color: '#22c55e' }}>Revenue</span>
+                <div style={{ fontSize: '28px', fontWeight: 700, color: '#fff', margin: '12px 0 16px' }}>
+                  ${(grandTotal / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                  <DonutChart data={sorted.map(c => ({ label: c.label, revenue: c.total, color: c.color }))} valueKey="revenue" centerLabel="total"
+                    formatValue={v => '$' + formatCompact(v / 100)} />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, minWidth: '200px' }}>
+                    {sorted.map(c => (
+                      <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: c.color, flexShrink: 0 }} />
+                        <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.6)', minWidth: '90px' }}>{c.label}</span>
+                        <span style={{ fontSize: '13px', fontWeight: 600, color: '#fff' }}>
+                          ${(c.total / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                        <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)' }}>
+                          ({(grandTotal > 0 ? (c.total / grandTotal) * 100 : 0).toFixed(1)}%)
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* ── C. Trend Chart ── */}
           <div style={styles.chartSection}>
