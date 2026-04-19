@@ -242,7 +242,6 @@ export default function Analytics() {
   const [showIngestion, setShowIngestion] = useState(false);
   const [ingestionLogs, setIngestionLogs] = useState([]);
   const [viewMode, setViewMode] = useState('dashboard');
-  const [sponsorshipRevenue, setSponsorshipRevenue] = useState(0);
 
   // Analysis tools
   const [showAnalysis, setShowAnalysis] = useState(false);
@@ -409,24 +408,18 @@ export default function Analytics() {
     if (activeAccountIds.length > 0) pq = pq.in('platform_account_id', activeAccountIds);
     const { data: prevRollups } = await pq;
 
-    // Revenue
-    let rq = supabase
-      .from('revenue_events')
-      .select('net_amount_cents, event_type')
-      .gte('occurred_at', start)
-      .lte('occurred_at', end)
-      .in('event_type', ['charge', 'subscription_renewal', 'sponsorship']);
-    if (activeAccountIds.length > 0) rq = rq.or(`platform_account_id.in.(${activeAccountIds.join(',')}),platform_account_id.is.null`);
-    const { data: revenue } = await rq;
+    // Revenue (from Tiller)
+    const { data: revenue } = await supabase
+      .from('revenue_transactions')
+      .select('amount_cents')
+      .gte('date', start)
+      .lte('date', end);
 
-    let prq = supabase
-      .from('revenue_events')
-      .select('net_amount_cents')
-      .gte('occurred_at', prevStart)
-      .lt('occurred_at', start)
-      .in('event_type', ['charge', 'subscription_renewal', 'sponsorship']);
-    if (activeAccountIds.length > 0) prq = prq.or(`platform_account_id.in.(${activeAccountIds.join(',')}),platform_account_id.is.null`);
-    const { data: prevRevenue } = await prq;
+    const { data: prevRevenue } = await supabase
+      .from('revenue_transactions')
+      .select('amount_cents')
+      .gte('date', prevStart)
+      .lt('date', start);
 
     // Audience
     const { data: latestAudience } = await supabase
@@ -436,10 +429,8 @@ export default function Analytics() {
 
     const totalViews = (rollups || []).reduce((s, r) => s + Number(r.total_views), 0);
     const prevViews = (prevRollups || []).reduce((s, r) => s + Number(r.total_views), 0);
-    const totalRev = (revenue || []).reduce((s, r) => s + r.net_amount_cents, 0);
-    const prevRev = (prevRevenue || []).reduce((s, r) => s + r.net_amount_cents, 0);
-    const sponsorRev = (revenue || []).filter(r => r.event_type === 'sponsorship').reduce((s, r) => s + r.net_amount_cents, 0);
-    setSponsorshipRevenue(sponsorRev);
+    const totalRev = (revenue || []).reduce((s, r) => s + r.amount_cents, 0);
+    const prevRev = (prevRevenue || []).reduce((s, r) => s + r.amount_cents, 0);
     const totalFollowers = (latestAudience || []).reduce((s, a) => s + Number(a.followers_total), 0);
     const followersGained = (latestAudience || []).reduce((s, a) => s + Number(a.followers_gained), 0);
 
@@ -548,18 +539,6 @@ export default function Analytics() {
       .sort((a, b) => b.views - a.views);
   }, [timeSeries]);
 
-  // ── Revenue donut (includes sponsorships) ──
-  const revenueDonutData = useMemo(() => {
-    const entries = platformBreakdown.filter(p => p.revenue > 0).map(p => ({ ...p }));
-    if (sponsorshipRevenue > 0) {
-      entries.push({
-        label: 'Sponsorships',
-        revenue: sponsorshipRevenue,
-        color: REVENUE_CATEGORIES.sponsorship.color,
-      });
-    }
-    return entries;
-  }, [platformBreakdown, sponsorshipRevenue]);
 
   // ── Sort content items ──
   const sortedContent = useMemo(() => {
