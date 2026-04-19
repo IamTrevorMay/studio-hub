@@ -1404,12 +1404,25 @@ function PlatformView({ accountId, accounts, start, end }) {
     });
   }, [platData.content, sortCol, sortDir]);
 
+  // Debug: log all values to find the object
+  console.log('PlatformView debug:', {
+    totalViews, prevViews, totalLikes, prevLikes, latestFollowers, prevFollowers,
+    followersGained, totalEngagement, prevEngagement: prevEngagement,
+    totalImpressions, prevImpressions, isYouTube,
+    rollupCount: platData.rollups.length,
+    audienceCount: platData.audience.length,
+    ytDailyCount: (platData.ytDaily || []).length,
+    accountName: account?.account_name,
+    color,
+    sampleRollup: platData.rollups[0],
+  });
+
   return (
     <>
       {/* Platform header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
         <span style={{ width: 12, height: 12, borderRadius: '50%', background: color }} />
-        <span style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>{account?.account_name}</span>
+        <span style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>{String(account?.account_name || '')}</span>
       </div>
 
       {/* KPI Cards */}
