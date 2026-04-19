@@ -500,20 +500,16 @@ export default function Analytics() {
     const byDate = {};
     for (const row of timeSeries) {
       if (!byDate[row.date]) {
-        byDate[row.date] = { date: row.date, total_views: 0, revenue_cents: 0, avg_engagement_rate: 0, followers_eod: 0, _count: 0 };
+        byDate[row.date] = { date: row.date, total_views: 0, revenue_cents: 0, total_likes: 0, total_comments: 0, total_shares: 0, followers_eod: 0 };
       }
       byDate[row.date].total_views += Number(row.total_views) || 0;
       byDate[row.date].revenue_cents += Number(row.revenue_cents) || 0;
-      byDate[row.date].avg_engagement_rate += Number(row.avg_engagement_rate) || 0;
+      byDate[row.date].total_likes += Number(row.total_likes) || 0;
+      byDate[row.date].total_comments += Number(row.total_comments) || 0;
+      byDate[row.date].total_shares += Number(row.total_shares) || 0;
       byDate[row.date].followers_eod += Number(row.followers_eod) || 0;
-      byDate[row.date]._count += 1;
     }
-    return Object.values(byDate)
-      .map(d => ({
-        ...d,
-        avg_engagement_rate: d._count > 0 ? d.avg_engagement_rate / d._count : 0,
-      }))
-      .sort((a, b) => a.date.localeCompare(b.date));
+    return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
   }, [timeSeries]);
 
   // ── Account breakdowns for donuts ──
@@ -748,10 +744,10 @@ export default function Analytics() {
           {kpi && (
             <div style={styles.kpiGrid}>
               <KPICard label="Total Views" value={Number(kpi.totalViews).toLocaleString()} change={kpi.viewsChange} color="#6366f1" />
-              <KPICard label="Total Revenue" value={formatCurrency(kpi.totalRevenue)} change={kpi.revenueChange} color="#22c55e" />
+              <KPICard label="Total Revenue" value={formatCurrency(kpi.totalRevenue)} change={kpi.revenueChange} color="#f59e0b" />
+              <KPICard label="Total Engagement" value={formatCompact(kpi.totalEngagement)} change={kpi.engagementChange} color="#22c55e" />
               <KPICard label="Net Followers" value={Number(kpi.totalFollowers).toLocaleString()}
-                change={kpi.followersChange} changeLabel={`${kpi.followersChange >= 0 ? '+' : ''}${Number(kpi.followersChange).toLocaleString()} this period`} color="#3b82f6" />
-              <KPICard label="Total Engagement" value={formatCompact(kpi.totalEngagement)} change={kpi.engagementChange} color="#f59e0b" />
+                change={kpi.followersChange} changeLabel={`${kpi.followersChange >= 0 ? '+' : ''}${Number(kpi.followersChange).toLocaleString()} this period`} color="#ec4899" />
             </div>
           )}
 
