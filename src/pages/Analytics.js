@@ -1346,15 +1346,7 @@ function PlatformView({ accountId, accounts, start, end }) {
       setPlatData({
         rollups: rollupRes.data || [],
         prevRollups: prevRollupRes.data || [],
-        content: (contentRes.data || []).map(c => ({
-          id: c.id,
-          title: c.title || '(No title)',
-          published_at: c.published_at,
-          url: c.url,
-          content_type: c.content_type,
-          duration_seconds: c.duration_seconds,
-          metrics: c.latest_metrics?.[0] || {},
-        })),
+        content: [],
         audience: audRes.data || [],
         prevAudience: prevAudRes.data || [],
         ytDaily: isYouTube ? (results[5]?.data || []) : [],
