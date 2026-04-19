@@ -749,7 +749,7 @@ export default function Analytics() {
       )}
 
       {viewMode === 'platform' && selectedPlatformAccountId && (
-        <PlatformView accountId={selectedPlatformAccountId} accounts={accounts} start={start} end={end} />
+        <PlatformViewSafe accountId={selectedPlatformAccountId} accounts={accounts} start={start} end={end} />
       )}
 
       {viewMode === 'dashboard' && (loading ? <p style={styles.loadingText}>Loading analytics...</p> : (
@@ -1285,6 +1285,23 @@ function RevenuesView({ accounts, start, end }) {
 // ═══════════════════════════════════════════════
 // Platform View
 // ═══════════════════════════════════════════════
+class PlatformViewErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return <div style={{ padding: 24, color: '#f87171', fontSize: 13 }}>
+        <p style={{ fontWeight: 600 }}>Platform view error:</p>
+        <pre style={{ whiteSpace: 'pre-wrap', color: 'rgba(255,255,255,0.5)' }}>{this.state.error.message}</pre>
+      </div>;
+    }
+    return this.props.children;
+  }
+}
+function PlatformViewSafe(props) {
+  return <PlatformViewErrorBoundary key={props.accountId}><PlatformView {...props} /></PlatformViewErrorBoundary>;
+}
+
 function PlatformView({ accountId, accounts, start, end }) {
   const [platData, setPlatData] = useState({ rollups: [], content: [], audience: [] });
   const [platLoading, setPlatLoading] = useState(true);
@@ -1357,12 +1374,12 @@ function PlatformView({ accountId, accounts, start, end }) {
   if (platLoading) return <p style={styles.loadingText}>Loading {meta.label || 'platform'} data...</p>;
 
   // KPI aggregation
-  const totalViews = platData.rollups.reduce((s, r) => s + Number(r.total_views || 0), 0);
-  const prevViews = (platData.prevRollups || []).reduce((s, r) => s + Number(r.total_views || 0), 0);
-  const totalLikes = platData.rollups.reduce((s, r) => s + Number(r.total_likes || 0), 0);
-  const prevLikes = (platData.prevRollups || []).reduce((s, r) => s + Number(r.total_likes || 0), 0);
-  const latestFollowers = platData.audience.length > 0 ? platData.audience[platData.audience.length - 1].followers_total : 0;
-  const prevFollowers = (platData.prevAudience || []).length > 0 ? platData.prevAudience[platData.prevAudience.length - 1].followers_total : 0;
+  const totalViews = platData.rollups.reduce((s, r) => s + (Number(r.total_views) || 0), 0);
+  const prevViews = (platData.prevRollups || []).reduce((s, r) => s + (Number(r.total_views) || 0), 0);
+  const totalLikes = platData.rollups.reduce((s, r) => s + (Number(r.total_likes) || 0), 0);
+  const prevLikes = (platData.prevRollups || []).reduce((s, r) => s + (Number(r.total_likes) || 0), 0);
+  const latestFollowers = platData.audience.length > 0 ? Number(platData.audience[platData.audience.length - 1].followers_total) || 0 : 0;
+  const prevFollowers = (platData.prevAudience || []).length > 0 ? Number(platData.prevAudience[platData.prevAudience.length - 1].followers_total) || 0 : 0;
   const followersGained = platData.audience.reduce((s, a) => s + (a.followers_gained || 0), 0);
   const totalEngagement = platData.rollups.reduce((s, r) => s + Number(r.total_likes || 0) + Number(r.total_comments || 0) + Number(r.total_shares || 0), 0);
   const prevEngagement = (platData.prevRollups || []).reduce((s, r) => s + Number(r.total_likes || 0) + Number(r.total_comments || 0) + Number(r.total_shares || 0), 0);
@@ -1479,14 +1496,14 @@ function PlatformView({ accountId, accounts, start, end }) {
               </thead>
               <tbody>
                 {sortedContent.map((c, i) => (
-                  <tr key={c.id} style={i % 2 === 0 ? styles.trEven : {}}>
+                  <tr key={c.id || i} style={i % 2 === 0 ? styles.trEven : {}}>
                     <td style={{ ...styles.td, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {c.url ? <a href={c.url} target="_blank" rel="noreferrer" style={{ color: color, textDecoration: 'none' }}>{c.title || '(No title)'}</a> : (c.title || '(No title)')}
+                      {c.url ? <a href={c.url} target="_blank" rel="noreferrer" style={{ color: color, textDecoration: 'none' }}>{String(c.title || '(No title)')}</a> : String(c.title || '(No title)')}
                     </td>
                     <td style={styles.td}>{c.published_at ? new Date(c.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</td>
-                    <td style={{ ...styles.td, textAlign: 'right' }}>{formatCompact(c.metrics?.views || 0)}</td>
-                    <td style={{ ...styles.td, textAlign: 'right' }}>{formatCompact(c.metrics?.likes || 0)}</td>
-                    <td style={{ ...styles.td, textAlign: 'right' }}>{c.metrics?.engagement_rate ? (c.metrics.engagement_rate * 100).toFixed(2) + '%' : '—'}</td>
+                    <td style={{ ...styles.td, textAlign: 'right' }}>{formatCompact(Number(c.metrics?.views) || 0)}</td>
+                    <td style={{ ...styles.td, textAlign: 'right' }}>{formatCompact(Number(c.metrics?.likes) || 0)}</td>
+                    <td style={{ ...styles.td, textAlign: 'right' }}>{c.metrics?.engagement_rate ? (Number(c.metrics.engagement_rate) * 100).toFixed(2) + '%' : '—'}</td>
                   </tr>
                 ))}
               </tbody>
