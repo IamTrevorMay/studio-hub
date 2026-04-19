@@ -392,30 +392,43 @@ export default function Analytics() {
     setRevenueData(data || []);
   }
 
+  // Fetch all rows from a query, paginating past Supabase's 1000-row default limit
+  async function fetchAllRows(query) {
+    const PAGE = 1000;
+    let allData = [];
+    let from = 0;
+    while (true) {
+      const { data } = await query.range(from, from + PAGE - 1);
+      if (!data || data.length === 0) break;
+      allData = allData.concat(data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+    return allData;
+  }
+
   async function fetchKPI() {
     const { start, end } = getDateRange(dateRange, customStart, customEnd, filterMonth, filterYear);
 
     // Current period
     let q = supabase
       .from('daily_platform_rollups')
-      .select('*')
+      .select('total_views, total_likes, total_comments, total_shares, followers_eod, platform_account_id')
       .gte('date', start)
-      .lte('date', end)
-      .limit(10000);
+      .lte('date', end);
     if (activeAccountIds.length > 0) q = q.in('platform_account_id', activeAccountIds);
-    const { data: rollups } = await q;
+    const rollups = await fetchAllRows(q);
 
     // Previous period
     const daysDiff = Math.ceil((new Date(end) - new Date(start)) / 86400000);
     const prevStart = new Date(new Date(start).getTime() - daysDiff * 86400000).toISOString().split('T')[0];
     let pq = supabase
       .from('daily_platform_rollups')
-      .select('*')
+      .select('total_views, total_likes, total_comments, total_shares')
       .gte('date', prevStart)
-      .lt('date', start)
-      .limit(10000);
+      .lt('date', start);
     if (activeAccountIds.length > 0) pq = pq.in('platform_account_id', activeAccountIds);
-    const { data: prevRollups } = await pq;
+    const prevRollups = await fetchAllRows(pq);
 
     // Revenue (from Tiller)
     const { data: revenue } = await supabase
@@ -430,21 +443,21 @@ export default function Analytics() {
       .gte('date', prevStart)
       .lt('date', start);
 
-    // Audience
+    // Audience — get the latest snapshot for each active account
     const { data: latestAudience } = await supabase
       .from('audience_snapshots')
       .select('followers_total, followers_gained, platform_account_id')
       .eq('date', end);
 
-    const totalViews = (rollups || []).reduce((s, r) => s + Number(r.total_views), 0);
-    const prevViews = (prevRollups || []).reduce((s, r) => s + Number(r.total_views), 0);
+    const totalViews = rollups.reduce((s, r) => s + Number(r.total_views), 0);
+    const prevViews = prevRollups.reduce((s, r) => s + Number(r.total_views), 0);
     const totalRev = (revenue || []).reduce((s, r) => s + r.amount_cents, 0);
     const prevRev = (prevRevenue || []).reduce((s, r) => s + r.amount_cents, 0);
     const totalFollowers = (latestAudience || []).reduce((s, a) => s + Number(a.followers_total), 0);
     const followersGained = (latestAudience || []).reduce((s, a) => s + Number(a.followers_gained), 0);
 
-    const totalEngagement = (rollups || []).reduce((s, r) => s + Number(r.total_likes || 0) + Number(r.total_comments || 0) + Number(r.total_shares || 0), 0);
-    const prevEngagement = (prevRollups || []).reduce((s, r) => s + Number(r.total_likes || 0) + Number(r.total_comments || 0) + Number(r.total_shares || 0), 0);
+    const totalEngagement = rollups.reduce((s, r) => s + Number(r.total_likes || 0) + Number(r.total_comments || 0) + Number(r.total_shares || 0), 0);
+    const prevEngagement = prevRollups.reduce((s, r) => s + Number(r.total_likes || 0) + Number(r.total_comments || 0) + Number(r.total_shares || 0), 0);
 
     setKpi({
       totalViews,
@@ -465,11 +478,10 @@ export default function Analytics() {
       .select('*')
       .gte('date', start)
       .lte('date', end)
-      .order('date', { ascending: true })
-      .limit(10000);
+      .order('date', { ascending: true });
     if (activeAccountIds.length > 0) q = q.in('platform_account_id', activeAccountIds);
-    const { data } = await q;
-    setTimeSeries(data || []);
+    const data = await fetchAllRows(q);
+    setTimeSeries(data);
   }
 
   async function fetchContentPerformance() {
