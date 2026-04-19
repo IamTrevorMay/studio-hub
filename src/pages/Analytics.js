@@ -63,7 +63,7 @@ function getYearRange(year) {
 const TREND_METRICS = [
   { key: 'views',      label: 'Views',      color: '#6366f1', getValue: r => r.total_views || 0 },
   { key: 'revenue',    label: 'Revenue',    color: '#f59e0b', getValue: r => (r.revenue_cents || 0) / 100 },
-  { key: 'engagement', label: 'Engagement', color: '#22c55e', getValue: r => (r.avg_engagement_rate || 0) * 100 },
+  { key: 'engagement', label: 'Engagement', color: '#22c55e', getValue: r => (Number(r.total_likes) || 0) + (Number(r.total_comments) || 0) + (Number(r.total_shares) || 0) },
   { key: 'followers',  label: 'Followers',  color: '#ec4899', getValue: r => r.followers_eod || 0 },
 ];
 
@@ -441,22 +441,18 @@ export default function Analytics() {
     const totalFollowers = (latestAudience || []).reduce((s, a) => s + Number(a.followers_total), 0);
     const followersGained = (latestAudience || []).reduce((s, a) => s + Number(a.followers_gained), 0);
 
-    const avgEng = rollups && rollups.length > 0
-      ? rollups.reduce((s, r) => s + Number(r.avg_engagement_rate), 0) / rollups.length
-      : 0;
-    const prevAvgEng = prevRollups && prevRollups.length > 0
-      ? prevRollups.reduce((s, r) => s + Number(r.avg_engagement_rate), 0) / prevRollups.length
-      : 0;
+    const totalEngagement = (rollups || []).reduce((s, r) => s + Number(r.total_likes || 0) + Number(r.total_comments || 0) + Number(r.total_shares || 0), 0);
+    const prevEngagement = (prevRollups || []).reduce((s, r) => s + Number(r.total_likes || 0) + Number(r.total_comments || 0) + Number(r.total_shares || 0), 0);
 
     setKpi({
       totalViews,
       totalRevenue: totalRev,
       totalFollowers,
-      avgEngagement: avgEng,
+      totalEngagement,
       viewsChange: pctChange(totalViews, prevViews),
       revenueChange: pctChange(totalRev, prevRev),
       followersChange: followersGained,
-      engagementChange: pctChange(avgEng, prevAvgEng),
+      engagementChange: pctChange(totalEngagement, prevEngagement),
     });
   }
 
@@ -755,7 +751,7 @@ export default function Analytics() {
               <KPICard label="Total Revenue" value={formatCurrency(kpi.totalRevenue)} change={kpi.revenueChange} color="#22c55e" />
               <KPICard label="Net Followers" value={Number(kpi.totalFollowers).toLocaleString()}
                 change={kpi.followersChange} changeLabel={`${kpi.followersChange >= 0 ? '+' : ''}${Number(kpi.followersChange).toLocaleString()} this period`} color="#3b82f6" />
-              <KPICard label="Avg Engagement" value={(kpi.avgEngagement * 100).toFixed(2) + '%'} change={kpi.engagementChange} color="#f59e0b" />
+              <KPICard label="Total Engagement" value={formatCompact(kpi.totalEngagement)} change={kpi.engagementChange} color="#f59e0b" />
             </div>
           )}
 
