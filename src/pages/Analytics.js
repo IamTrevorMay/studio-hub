@@ -737,49 +737,8 @@ export default function Analytics() {
             </div>
           )}
 
-          {/* ── Revenue Breakdown ── */}
-          {revenueData.length > 0 && (() => {
-            const byCategory = {};
-            for (const tx of revenueData) {
-              const meta = TILLER_CATEGORY_META[tx.category];
-              if (!meta) continue;
-              const key = tx.category;
-              if (!byCategory[key]) byCategory[key] = { label: meta.label, color: meta.color, total: 0 };
-              byCategory[key].total += tx.amount_cents;
-            }
-            const sorted = Object.values(byCategory).sort((a, b) => b.total - a.total);
-            const grandTotal = sorted.reduce((s, c) => s + c.total, 0);
-            if (grandTotal === 0) return null;
-            return (
-              <div style={{ ...styles.chartSection, borderLeft: '3px solid #22c55e' }}>
-                <span style={{ ...styles.chartTitle, color: '#22c55e' }}>Revenue</span>
-                <div style={{ fontSize: '28px', fontWeight: 700, color: '#fff', margin: '12px 0 16px' }}>
-                  ${(grandTotal / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
-                <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
-                  <DonutChart data={sorted.map(c => ({ label: c.label, revenue: c.total, color: c.color }))} valueKey="revenue" centerLabel="total"
-                    formatValue={v => '$' + formatCompact(v / 100)} />
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, minWidth: '200px' }}>
-                    {sorted.map(c => (
-                      <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: c.color, flexShrink: 0 }} />
-                        <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.6)', minWidth: '90px' }}>{c.label}</span>
-                        <span style={{ fontSize: '13px', fontWeight: 600, color: '#fff' }}>
-                          ${(c.total / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                        <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)' }}>
-                          ({(grandTotal > 0 ? (c.total / grandTotal) * 100 : 0).toFixed(1)}%)
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
-
           {/* ── C. Trend Chart ── */}
-          <div style={styles.chartSection}>
+          <div style={{ ...styles.chartSection, width: '100%' }}>
             <div style={styles.chartHeader}>
               <span style={styles.chartTitle}>Trends</span>
               <div style={{ display: 'flex', gap: '14px', alignItems: 'center' }}>
@@ -823,29 +782,45 @@ export default function Analytics() {
                   </div>
                 </div>
               )}
-              {/* Revenue */}
-              {revenueDonutData.length > 0 && (
-                <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px', borderLeft: '3px solid #f59e0b' }}>
-                  <span style={{ ...styles.chartTitle, color: '#f59e0b' }}>Revenue by Source</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '24px', marginTop: '16px', flexWrap: 'wrap' }}>
-                    <DonutChart data={revenueDonutData} valueKey="revenue" centerLabel="total revenue"
-                      formatValue={v => '$' + formatCompact(v / 100)} />
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      {revenueDonutData.map(p => {
-                        const total = revenueDonutData.reduce((s, x) => s + x.revenue, 0);
-                        return (
-                          <div key={p.label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: p.color, flexShrink: 0 }} />
-                            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', minWidth: '70px' }}>{p.label}</span>
-                            <span style={{ fontSize: '12px', fontWeight: 600, color: '#fff' }}>${(p.revenue / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                            <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>({(total > 0 ? (p.revenue / total) * 100 : 0).toFixed(1)}%)</span>
+              {/* Revenue by Source (Tiller) */}
+              {revenueData.length > 0 && (() => {
+                const byCat = {};
+                for (const tx of revenueData) {
+                  const meta = TILLER_CATEGORY_META[tx.category];
+                  if (!meta) continue;
+                  if (!byCat[tx.category]) byCat[tx.category] = { label: meta.label, color: meta.color, total: 0 };
+                  byCat[tx.category].total += tx.amount_cents;
+                }
+                const sorted = Object.values(byCat).sort((a, b) => b.total - a.total);
+                const grandTotal = sorted.reduce((s, c) => s + c.total, 0);
+                if (grandTotal === 0) return null;
+                return (
+                  <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px', borderLeft: '3px solid #22c55e' }}>
+                    <span style={{ ...styles.chartTitle, color: '#22c55e' }}>Revenue by Source</span>
+                    <div style={{ fontSize: '24px', fontWeight: 700, color: '#fff', margin: '10px 0 14px' }}>
+                      ${(grandTotal / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '24px', flexWrap: 'wrap' }}>
+                      <DonutChart data={sorted.map(c => ({ label: c.label, revenue: c.total, color: c.color }))} valueKey="revenue" centerLabel="total"
+                        formatValue={v => '$' + formatCompact(v / 100)} />
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {sorted.map(c => (
+                          <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: c.color, flexShrink: 0 }} />
+                            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', minWidth: '90px' }}>{c.label}</span>
+                            <span style={{ fontSize: '12px', fontWeight: 600, color: '#fff' }}>
+                              ${(c.total / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                            <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>
+                              ({(grandTotal > 0 ? (c.total / grandTotal) * 100 : 0).toFixed(1)}%)
+                            </span>
                           </div>
-                        );
-                      })}
+                        ))}
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
               {/* Engagement */}
               {platformBreakdown.some(p => p.engagement > 0) && (
                 <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px', borderLeft: '3px solid #22c55e' }}>
