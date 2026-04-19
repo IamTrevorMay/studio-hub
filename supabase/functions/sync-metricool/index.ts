@@ -56,6 +56,18 @@ const PLATFORM_METRICS = [
     ],
     followers: { subject: "account", metric: "followers_count", cumulative: true },
   },
+  {
+    platform: "twitter",
+    network: "twitter",
+    pdm: [],
+    followers: { subject: "account", metric: "followers_count", cumulative: true },
+  },
+  {
+    platform: "threads",
+    network: "threads",
+    pdm: [],
+    followers: { subject: "account", metric: "followers_count", cumulative: true },
+  },
 ];
 
 interface TimelinePoint {

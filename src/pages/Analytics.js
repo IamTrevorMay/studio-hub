@@ -15,6 +15,8 @@ const PLATFORM_META = {
   twitch:    { label: 'Twitch',    color: '#9146FF', icon: 'TW' },
   stripe:    { label: 'Stripe',    color: '#635BFF', icon: '$' },
   fourthwall:{ label: 'Fourthwall',color: '#E8451C', icon: 'FW' },
+  twitter:   { label: 'Twitter',   color: '#1DA1F2', icon: 'X' },
+  threads:   { label: 'Threads',   color: '#FFFFFF', icon: 'TH' },
 };
 
 const REVENUE_CATEGORIES = {
