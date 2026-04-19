@@ -716,7 +716,7 @@ export default function Analytics() {
       </div>
 
       {viewMode === 'revenues' && (
-        <RevenuesView accounts={accounts} start={start} end={end} activeAccountIds={activeAccountIds} />
+        <RevenuesView accounts={accounts} start={start} end={end} />
       )}
 
       {viewMode === 'advanced' && (
@@ -1045,19 +1045,15 @@ export default function Analytics() {
 // ═══════════════════════════════════════════════
 // Revenues View
 // ═══════════════════════════════════════════════
-function RevenuesView({ accounts, start, end, activeAccountIds }) {
-  const [subView, setSubView] = useState('overview');
-  const [revData, setRevData] = useState({ byCategory: {}, events: [], trendData: [] });
-  const [prevByCategory, setPrevByCategory] = useState({});
-  const [merchStats, setMerchStats] = useState(null);
-  const [prevMerchStats, setPrevMerchStats] = useState(null);
+function RevenuesView({ accounts, start, end }) {
+  const [transactions, setTransactions] = useState([]);
+  const [prevTransactions, setPrevTransactions] = useState([]);
   const [revLoading, setRevLoading] = useState(true);
   const [catFilter, setCatFilter] = useState('all');
-  const [typeFilter, setTypeFilter] = useState('all');
-  const [sortCol, setSortCol] = useState('occurred_at');
+  const [sortCol, setSortCol] = useState('date');
   const [sortDir, setSortDir] = useState('desc');
 
-  // Compute previous period
+  // Compute previous period for comparison
   const daySpan = Math.max(1, Math.ceil((new Date(end) - new Date(start)) / 86400000));
   const prevStart = daysAgoStr(daySpan * 2 + Math.ceil((new Date() - new Date(end)) / 86400000));
   const prevEnd = start;
@@ -1066,407 +1062,218 @@ function RevenuesView({ accounts, start, end, activeAccountIds }) {
     let cancelled = false;
     async function load() {
       setRevLoading(true);
-
-      const accountFilter = activeAccountIds.length > 0
-        ? `platform_account_id.in.(${activeAccountIds.join(',')}),platform_account_id.is.null`
-        : undefined;
-
-      // Current period by category
-      let q = supabase
-        .from('revenue_events')
-        .select('net_amount_cents, product_category, event_type, occurred_at')
-        .gte('occurred_at', start)
-        .lte('occurred_at', end)
-        .in('event_type', ['charge', 'subscription_renewal', 'sponsorship']);
-      if (accountFilter) q = q.or(accountFilter);
-      const { data: current } = await q;
-
-      // Previous period
-      let pq = supabase
-        .from('revenue_events')
-        .select('net_amount_cents, product_category')
-        .gte('occurred_at', prevStart)
-        .lt('occurred_at', prevEnd)
-        .in('event_type', ['charge', 'subscription_renewal', 'sponsorship']);
-      if (accountFilter) pq = pq.or(accountFilter);
-      const { data: prev } = await pq;
-
-      // All events for table
-      let eq = supabase
-        .from('revenue_events')
-        .select('id, net_amount_cents, product_category, event_type, occurred_at, description, platform_account_id, platform_accounts(platform, account_name)')
-        .gte('occurred_at', start)
-        .lte('occurred_at', end)
-        .in('event_type', ['charge', 'subscription_renewal', 'sponsorship'])
-        .order('occurred_at', { ascending: false });
-      if (accountFilter) eq = eq.or(accountFilter);
-      const { data: events } = await eq;
-
-      // Merch events (current period)
-      let mq = supabase
-        .from('revenue_events')
-        .select('net_amount_cents, amount_cents, metadata, customer_id')
-        .eq('product_category', 'merch')
-        .eq('event_type', 'charge')
-        .gte('occurred_at', start)
-        .lte('occurred_at', end);
-      if (accountFilter) mq = mq.or(accountFilter);
-      const { data: merchCurrent } = await mq;
-
-      // Merch events (previous period)
-      let mpq = supabase
-        .from('revenue_events')
-        .select('net_amount_cents, amount_cents, metadata, customer_id')
-        .eq('product_category', 'merch')
-        .eq('event_type', 'charge')
-        .gte('occurred_at', prevStart)
-        .lt('occurred_at', prevEnd);
-      if (accountFilter) mpq = mpq.or(accountFilter);
-      const { data: merchPrev } = await mpq;
-
+      const [currentRes, prevRes] = await Promise.all([
+        supabase.from('revenue_transactions').select('*').gte('date', start).lte('date', end).order('date', { ascending: false }),
+        supabase.from('revenue_transactions').select('date, category, amount_cents').gte('date', prevStart).lt('date', prevEnd),
+      ]);
       if (cancelled) return;
-
-      // Aggregate by category
-      const byCategory = {};
-      for (const r of (current || [])) {
-        const cat = r.product_category || 'other';
-        byCategory[cat] = (byCategory[cat] || 0) + r.net_amount_cents;
-      }
-      const prevByCat = {};
-      for (const r of (prev || [])) {
-        const cat = r.product_category || 'other';
-        prevByCat[cat] = (prevByCat[cat] || 0) + r.net_amount_cents;
-      }
-
-      // Trend data: daily totals per category
-      const dailyMap = {};
-      for (const r of (current || [])) {
-        const day = String(r.occurred_at).slice(0, 10);
-        const cat = r.product_category || 'other';
-        if (!dailyMap[day]) dailyMap[day] = { date: day };
-        dailyMap[day][cat] = (dailyMap[day][cat] || 0) + r.net_amount_cents;
-      }
-      const trendData = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
-
-      // Compute merch stats
-      function computeMerchStats(rows) {
-        const stats = { totalOrders: 0, totalRevenue: 0, totalCost: 0, totalUnits: 0, customers: new Set(), productMap: {} };
-        for (const r of (rows || [])) {
-          stats.totalOrders++;
-          stats.totalRevenue += r.net_amount_cents || 0;
-          if (r.customer_id) stats.customers.add(r.customer_id);
-          const items = r.metadata?.items || [];
-          for (const item of items) {
-            const qty = item.quantity || 1;
-            const cost = Math.round((item.unit_cost || 0) * qty * 100);
-            const rev = Math.round((item.unit_price || 0) * qty * 100);
-            stats.totalCost += cost;
-            stats.totalUnits += qty;
-            const name = item.name || 'Unknown';
-            if (!stats.productMap[name]) stats.productMap[name] = { name, units: 0, revenue: 0, cost: 0 };
-            stats.productMap[name].units += qty;
-            stats.productMap[name].revenue += rev;
-            stats.productMap[name].cost += cost;
-          }
-        }
-        stats.totalProfit = stats.totalRevenue - stats.totalCost;
-        stats.uniqueCustomers = stats.customers.size;
-        stats.avgOrderValue = stats.totalOrders > 0 ? stats.totalRevenue / stats.totalOrders : 0;
-        stats.topProducts = Object.values(stats.productMap)
-          .map(p => ({ ...p, profit: p.revenue - p.cost }))
-          .sort((a, b) => b.revenue - a.revenue)
-          .slice(0, 10);
-        return stats;
-      }
-      const mStats = computeMerchStats(merchCurrent);
-      const mPrev = computeMerchStats(merchPrev);
-
-      setMerchStats(mStats);
-      setPrevMerchStats(mPrev);
-      setRevData({ byCategory, events: events || [], trendData });
-      setPrevByCategory(prevByCat);
+      setTransactions(currentRes.data || []);
+      setPrevTransactions(prevRes.data || []);
       setRevLoading(false);
     }
     load();
     return () => { cancelled = true; };
-  }, [start, end, activeAccountIds.join(',')]);
+  }, [start, end]);
 
   function handleSort(col) {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setSortCol(col); setSortDir('desc'); }
   }
 
+  // Aggregate by category
+  const byCategory = {};
+  for (const tx of transactions) {
+    const cat = tx.category;
+    byCategory[cat] = (byCategory[cat] || 0) + tx.amount_cents;
+  }
+  const prevByCategory = {};
+  for (const tx of prevTransactions) {
+    prevByCategory[tx.category] = (prevByCategory[tx.category] || 0) + tx.amount_cents;
+  }
+
+  // KPI cards — one per category that has data
+  const categoryEntries = Object.entries(TILLER_CATEGORY_META)
+    .filter(([key]) => byCategory[key] > 0 || prevByCategory[key] > 0)
+    .sort((a, b) => (byCategory[b[0]] || 0) - (byCategory[a[0]] || 0));
+
+  const grandTotal = Object.values(byCategory).reduce((s, v) => s + v, 0);
+  const prevGrandTotal = Object.values(prevByCategory).reduce((s, v) => s + v, 0);
+
   // Donut data
-  const donutData = Object.entries(revData.byCategory)
+  const donutData = Object.entries(byCategory)
     .filter(([, v]) => v > 0)
     .map(([cat, amount]) => ({
-      label: REVENUE_CATEGORIES[cat]?.label || cat,
-      color: REVENUE_CATEGORIES[cat]?.color || '#6b7280',
+      label: TILLER_CATEGORY_META[cat]?.label || cat,
+      color: TILLER_CATEGORY_META[cat]?.color || '#6b7280',
       amount: amount / 100,
-    }));
+    }))
+    .sort((a, b) => b.amount - a.amount);
 
-  // Trend metrics for chart
-  const activeCategories = Object.keys(revData.byCategory).filter(k => revData.byCategory[k] > 0);
+  // Trend data: daily totals per category
+  const dailyMap = {};
+  for (const tx of transactions) {
+    const day = tx.date;
+    const cat = tx.category;
+    if (!dailyMap[day]) dailyMap[day] = { date: day };
+    dailyMap[day][cat] = (dailyMap[day][cat] || 0) + tx.amount_cents;
+  }
+  const trendData = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
+  const activeCategories = Object.keys(byCategory).filter(k => byCategory[k] > 0);
   const trendMetrics = activeCategories.map(cat => ({
     key: cat,
-    label: REVENUE_CATEGORIES[cat]?.label || cat,
-    color: REVENUE_CATEGORIES[cat]?.color || '#6b7280',
+    label: TILLER_CATEGORY_META[cat]?.label || cat,
+    color: TILLER_CATEGORY_META[cat]?.color || '#6b7280',
     getValue: r => ((r[cat] || 0) / 100),
     formatValue: v => '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
   }));
 
-  // Filter and sort events
-  const filteredEvents = useMemo(() => {
-    let rows = revData.events;
-    if (catFilter !== 'all') rows = rows.filter(r => (r.product_category || 'other') === catFilter);
-    if (typeFilter !== 'all') rows = rows.filter(r => r.event_type === typeFilter);
+  // Filter and sort transactions for table
+  const filteredTransactions = useMemo(() => {
+    let rows = transactions;
+    if (catFilter !== 'all') rows = rows.filter(r => r.category === catFilter);
     return [...rows].sort((a, b) => {
       let va, vb;
-      if (sortCol === 'occurred_at') { va = a.occurred_at || ''; vb = b.occurred_at || ''; }
-      else if (sortCol === 'net_amount_cents') { va = a.net_amount_cents || 0; vb = b.net_amount_cents || 0; }
-      else if (sortCol === 'product_category') { va = a.product_category || ''; vb = b.product_category || ''; }
-      else if (sortCol === 'event_type') { va = a.event_type || ''; vb = b.event_type || ''; }
+      if (sortCol === 'date') { va = a.date || ''; vb = b.date || ''; }
+      else if (sortCol === 'amount_cents') { va = a.amount_cents || 0; vb = b.amount_cents || 0; }
+      else if (sortCol === 'category') { va = a.category || ''; vb = b.category || ''; }
       else { va = a[sortCol] || ''; vb = b[sortCol] || ''; }
       if (typeof va === 'string') return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
       return sortDir === 'asc' ? va - vb : vb - va;
     });
-  }, [revData.events, catFilter, typeFilter, sortCol, sortDir]);
+  }, [transactions, catFilter, sortCol, sortDir]);
 
-  const eventTypes = useMemo(() => [...new Set(revData.events.map(r => r.event_type))], [revData.events]);
+  const allCategories = useMemo(() => [...new Set(transactions.map(r => r.category))].sort(), [transactions]);
 
   if (revLoading) return <p style={styles.loadingText}>Loading revenue data...</p>;
 
   return (
     <>
-      {/* Sub-toggle */}
-      <div style={styles.viewToggleBar}>
-        <button onClick={() => setSubView('overview')} style={subView === 'overview' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Overview</button>
-        <button onClick={() => setSubView('advanced')} style={subView === 'advanced' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Advanced</button>
+      {/* Total KPI */}
+      <div style={styles.kpiGrid}>
+        <KPICard label="Total Income" value={'$' + (grandTotal / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} change={pctChange(grandTotal, prevGrandTotal)} color="#22c55e" />
+        {categoryEntries.map(([cat, meta]) => (
+          <KPICard
+            key={cat}
+            label={meta.label}
+            value={'$' + ((byCategory[cat] || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            change={pctChange(byCategory[cat] || 0, prevByCategory[cat] || 0)}
+            color={meta.color}
+          />
+        ))}
       </div>
 
-      {subView === 'overview' && (
-        <>
-          {/* KPI Cards */}
-          <div style={styles.kpiGrid}>
-            {Object.entries(REVENUE_CATEGORIES).map(([cat, meta]) => {
-              const amount = revData.byCategory[cat] || 0;
-              const prev = prevByCategory[cat] || 0;
-              const change = pctChange(amount, prev);
-              return (
-                <KPICard
-                  key={cat}
-                  label={meta.label}
-                  value={formatCurrency(amount)}
-                  change={change}
-                  color={meta.color}
-                />
-              );
-            })}
-          </div>
-
-          {/* Revenue by Source Donut */}
-          <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
-            {donutData.length > 0 && (
-              <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px', borderLeft: '3px solid #f59e0b' }}>
-                <span style={{ ...styles.chartTitle, color: '#f59e0b' }}>Revenue by Source</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '24px', marginTop: '16px', flexWrap: 'wrap' }}>
-                  <DonutChart data={donutData} valueKey="amount" centerLabel="total revenue"
-                    formatValue={v => '$' + formatCompact(v)} />
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    {donutData.map(p => {
-                      const total = donutData.reduce((s, x) => s + x.amount, 0);
-                      return (
-                        <div key={p.label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: p.color, flexShrink: 0 }} />
-                          <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', minWidth: '100px' }}>{p.label}</span>
-                          <span style={{ fontSize: '12px', fontWeight: 600, color: '#fff' }}>${p.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                          <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>({(total > 0 ? (p.amount / total) * 100 : 0).toFixed(1)}%)</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Revenue Over Time */}
-          {revData.trendData.length > 0 && trendMetrics.length > 0 && (
-            <div style={styles.chartSection}>
-              <div style={styles.chartHeader}>
-                <span style={styles.chartTitle}>Revenue Over Time</span>
-                <div style={{ display: 'flex', gap: '14px', alignItems: 'center', flexWrap: 'wrap' }}>
-                  {trendMetrics.map(m => (
-                    <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: m.color, flexShrink: 0 }} />
-                      <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>{m.label}</span>
+      {/* Revenue by Source Donut */}
+      <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+        {donutData.length > 0 && (
+          <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px', borderLeft: '3px solid #22c55e' }}>
+            <span style={{ ...styles.chartTitle, color: '#22c55e' }}>Revenue by Source</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '24px', marginTop: '16px', flexWrap: 'wrap' }}>
+              <DonutChart data={donutData} valueKey="amount" centerLabel="total revenue"
+                formatValue={v => '$' + formatCompact(v)} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {donutData.map(p => {
+                  const total = donutData.reduce((s, x) => s + x.amount, 0);
+                  return (
+                    <div key={p.label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: p.color, flexShrink: 0 }} />
+                      <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', minWidth: '100px' }}>{p.label}</span>
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: '#fff' }}>${p.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>({(total > 0 ? (p.amount / total) * 100 : 0).toFixed(1)}%)</span>
                     </div>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
-              <TrendChart data={revData.trendData} metrics={trendMetrics} />
             </div>
-          )}
+          </div>
+        )}
+      </div>
 
-          {/* Retail Section */}
-          {merchStats && merchStats.totalOrders > 0 && (
-            <>
-              <div style={{ ...styles.chartSection, borderLeft: '3px solid #E8451C' }}>
-                <span style={{ ...styles.chartTitle, color: '#E8451C' }}>Retail</span>
-                <div style={{ ...styles.kpiGrid, marginTop: '16px' }}>
-                  <KPICard
-                    label="Total Orders"
-                    value={merchStats.totalOrders.toLocaleString()}
-                    change={pctChange(merchStats.totalOrders, prevMerchStats?.totalOrders || 0)}
-                    color="#E8451C"
-                  />
-                  <KPICard
-                    label="Avg Order Value"
-                    value={formatCurrency(merchStats.avgOrderValue)}
-                    change={pctChange(merchStats.avgOrderValue, prevMerchStats?.avgOrderValue || 0)}
-                    color="#E8451C"
-                  />
-                  <KPICard
-                    label="Units Sold"
-                    value={merchStats.totalUnits.toLocaleString()}
-                    change={pctChange(merchStats.totalUnits, prevMerchStats?.totalUnits || 0)}
-                    color="#E8451C"
-                  />
-                  <KPICard
-                    label="Profit"
-                    value={formatCurrency(merchStats.totalProfit)}
-                    change={pctChange(merchStats.totalProfit, prevMerchStats?.totalProfit || 0)}
-                    color="#E8451C"
-                  />
+      {/* Revenue Over Time */}
+      {trendData.length > 0 && trendMetrics.length > 0 && (
+        <div style={styles.chartSection}>
+          <div style={styles.chartHeader}>
+            <span style={styles.chartTitle}>Revenue Over Time</span>
+            <div style={{ display: 'flex', gap: '14px', alignItems: 'center', flexWrap: 'wrap' }}>
+              {trendMetrics.map(m => (
+                <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: m.color, flexShrink: 0 }} />
+                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>{m.label}</span>
                 </div>
-
-                {/* Top Products Table */}
-                {merchStats.topProducts.length > 0 && (
-                  <div style={{ ...styles.tableWrap, marginTop: '20px' }}>
-                    <table style={styles.table}>
-                      <thead>
-                        <tr>
-                          <th style={styles.th}>Product</th>
-                          <th style={{ ...styles.th, textAlign: 'right' }}>Units</th>
-                          <th style={{ ...styles.th, textAlign: 'right' }}>Revenue</th>
-                          <th style={{ ...styles.th, textAlign: 'right' }}>Cost</th>
-                          <th style={{ ...styles.th, textAlign: 'right' }}>Profit</th>
-                          <th style={{ ...styles.th, textAlign: 'right' }}>Margin</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {merchStats.topProducts.map((p, i) => (
-                          <tr key={p.name} style={i % 2 === 0 ? styles.trEven : {}}>
-                            <td style={styles.td}>{p.name}</td>
-                            <td style={{ ...styles.td, textAlign: 'right' }}>{p.units}</td>
-                            <td style={{ ...styles.td, textAlign: 'right' }}>{formatCurrency(p.revenue)}</td>
-                            <td style={{ ...styles.td, textAlign: 'right' }}>{formatCurrency(p.cost)}</td>
-                            <td style={{ ...styles.td, textAlign: 'right', color: p.profit >= 0 ? '#4ade80' : '#f87171' }}>{formatCurrency(p.profit)}</td>
-                            <td style={{ ...styles.td, textAlign: 'right' }}>{p.revenue > 0 ? ((p.profit / p.revenue) * 100).toFixed(1) + '%' : '—'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-        </>
+              ))}
+            </div>
+          </div>
+          <TrendChart data={trendData} metrics={trendMetrics} />
+        </div>
       )}
 
-      {subView === 'advanced' && (
-        <>
-          {/* Filters */}
-          <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
+      {/* Transactions Table */}
+      <div style={styles.chartSection}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+          <span style={styles.chartTitle}>Transactions</span>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
             <select value={catFilter} onChange={e => setCatFilter(e.target.value)} style={styles.select}>
               <option value="all">All Categories</option>
-              {Object.entries(REVENUE_CATEGORIES).map(([k, v]) => (
-                <option key={k} value={k}>{v.label}</option>
+              {allCategories.map(cat => (
+                <option key={cat} value={cat}>{TILLER_CATEGORY_META[cat]?.label || cat}</option>
               ))}
             </select>
-            <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={styles.select}>
-              <option value="all">All Types</option>
-              {eventTypes.map(t => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
-            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginLeft: 'auto' }}>
-              {filteredEvents.length} event{filteredEvents.length !== 1 ? 's' : ''}
+            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>
+              {filteredTransactions.length} transaction{filteredTransactions.length !== 1 ? 's' : ''}
             </span>
           </div>
+        </div>
 
-          {/* Events Table */}
-          {filteredEvents.length > 0 ? (
-            <div style={styles.tableWrap}>
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    <th style={{ ...styles.th, cursor: 'pointer' }} onClick={() => handleSort('occurred_at')}>
-                      Date {sortCol === 'occurred_at' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
-                    </th>
-                    <th style={{ ...styles.th, cursor: 'pointer' }} onClick={() => handleSort('event_type')}>
-                      Type {sortCol === 'event_type' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
-                    </th>
-                    <th style={{ ...styles.th, cursor: 'pointer' }} onClick={() => handleSort('product_category')}>
-                      Category {sortCol === 'product_category' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
-                    </th>
-                    <th style={{ ...styles.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => handleSort('net_amount_cents')}>
-                      Amount {sortCol === 'net_amount_cents' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
-                    </th>
-                    <th style={styles.th}>Platform</th>
-                    <th style={styles.th}>Description</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredEvents.map((ev, i) => {
-                    const cat = ev.product_category || 'other';
-                    const catMeta = REVENUE_CATEGORIES[cat] || REVENUE_CATEGORIES.other;
-                    const platform = ev.platform_accounts?.platform;
-                    const platMeta = platform ? PLATFORM_META[platform] : null;
-                    return (
-                      <tr key={ev.id} style={i % 2 === 0 ? styles.trEven : {}}>
-                        <td style={styles.td}>
-                          {ev.occurred_at ? new Date(ev.occurred_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
-                        </td>
-                        <td style={styles.td}>{ev.event_type}</td>
-                        <td style={styles.td}>
-                          <span style={{
-                            display: 'inline-block', padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600,
-                            background: catMeta.color + '22', color: catMeta.color,
-                          }}>
-                            {catMeta.label}
-                          </span>
-                        </td>
-                        <td style={{ ...styles.td, ...styles.tdValue, textAlign: 'right' }}>
-                          ${(ev.net_amount_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </td>
-                        <td style={styles.td}>
-                          {platMeta ? (
-                            <span style={{
-                              display: 'inline-block', padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600,
-                              background: platMeta.color + '22', color: platMeta.color,
-                            }}>
-                              {platMeta.label}{ev.platform_accounts?.account_name ? ` · ${ev.platform_accounts.account_name}` : ''}
-                            </span>
-                          ) : <span style={{ color: 'rgba(255,255,255,0.3)' }}>—</span>}
-                        </td>
-                        <td style={{ ...styles.td, maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {ev.description || '—'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div style={styles.emptyCard}>
-              <p style={styles.emptyText}>No revenue events found for this period.</p>
-            </div>
-          )}
-        </>
-      )}
+        {filteredTransactions.length > 0 ? (
+          <div style={styles.tableWrap}>
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={{ ...styles.th, cursor: 'pointer' }} onClick={() => handleSort('date')}>
+                    Date {sortCol === 'date' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                  </th>
+                  <th style={{ ...styles.th, cursor: 'pointer' }} onClick={() => handleSort('category')}>
+                    Category {sortCol === 'category' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                  </th>
+                  <th style={{ ...styles.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => handleSort('amount_cents')}>
+                    Amount {sortCol === 'amount_cents' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                  </th>
+                  <th style={styles.th}>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredTransactions.map((tx, i) => {
+                  const meta = TILLER_CATEGORY_META[tx.category] || { label: tx.category, color: '#6b7280' };
+                  return (
+                    <tr key={tx.id} style={i % 2 === 0 ? styles.trEven : {}}>
+                      <td style={styles.td}>
+                        {new Date(tx.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </td>
+                      <td style={styles.td}>
+                        <span style={{
+                          display: 'inline-block', padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600,
+                          background: meta.color + '22', color: meta.color,
+                        }}>
+                          {meta.label}
+                        </span>
+                      </td>
+                      <td style={{ ...styles.td, ...styles.tdValue, textAlign: 'right' }}>
+                        ${(tx.amount_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td style={{ ...styles.td, maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {tx.description || '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div style={styles.emptyCard}>
+            <p style={styles.emptyText}>No income transactions found for this period.</p>
+          </div>
+        )}
+      </div>
     </>
   );
 }
