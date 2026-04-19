@@ -2345,6 +2345,20 @@ function TikTokCSVUpload({ profile, accounts }) {
 
   const tiktokAccount = accounts.find(a => a.platform === 'tiktok');
   const color = PLATFORM_META.tiktok?.color || '#00F2EA';
+  const [lastDataDate, setLastDataDate] = useState(null);
+
+  useEffect(() => {
+    if (!tiktokAccount) return;
+    supabase.from('platform_daily_metrics')
+      .select('date')
+      .eq('platform_account_id', tiktokAccount.id)
+      .gt('views', 0)
+      .order('date', { ascending: false })
+      .limit(1)
+      .then(({ data }) => {
+        if (data?.[0]) setLastDataDate(data[0].date);
+      });
+  }, [tiktokAccount?.id, uploadResult]);
 
   async function handleUpload(e) {
     const file = e.target.files?.[0];
@@ -2413,6 +2427,11 @@ function TikTokCSVUpload({ profile, accounts }) {
     <div>
       <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', margin: '0 0 10px' }}>
         Upload a CSV exported from TikTok Studio. Select the year for the data (TikTok CSVs don't include the year).
+        {lastDataDate && (
+          <span style={{ marginLeft: '8px', color: '#4ade80', fontWeight: 600 }}>
+            Last date with data: {new Date(lastDataDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+          </span>
+        )}
       </p>
       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
