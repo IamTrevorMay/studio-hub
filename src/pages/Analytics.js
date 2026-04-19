@@ -219,6 +219,7 @@ export default function Analytics() {
   const [platformDropdownOpen, setPlatformDropdownOpen] = useState(false);
   const [contentRefreshing, setContentRefreshing] = useState(false);
   const platformDropdownRef = useRef(null);
+  const platformMenuRef = useRef(null);
 
   // Data
   const [kpi, setKpi] = useState(null);
@@ -260,7 +261,9 @@ export default function Analytics() {
       if (platformDropdownRef.current && !platformDropdownRef.current.contains(e.target)) {
         setPlatformDropdownOpen(false);
       }
-      setPlatformMenuOpen(false);
+      if (platformMenuRef.current && !platformMenuRef.current.contains(e.target)) {
+        setPlatformMenuOpen(false);
+      }
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
@@ -698,7 +701,7 @@ export default function Analytics() {
         <button onClick={() => setViewMode('dashboard')} style={viewMode === 'dashboard' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Dashboard</button>
         <button onClick={() => setViewMode('revenues')} style={viewMode === 'revenues' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Revenues</button>
         <button onClick={() => setViewMode('advanced')} style={viewMode === 'advanced' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Advanced</button>
-        <div style={{ position: 'relative' }}>
+        <div ref={platformMenuRef} style={{ position: 'relative' }}>
           <button
             onClick={() => setPlatformMenuOpen(prev => !prev)}
             style={viewMode === 'platform' ? styles.viewToggleBtnActive : styles.viewToggleBtn}
