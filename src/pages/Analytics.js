@@ -400,7 +400,8 @@ export default function Analytics() {
       .from('daily_platform_rollups')
       .select('*')
       .gte('date', start)
-      .lte('date', end);
+      .lte('date', end)
+      .limit(10000);
     if (activeAccountIds.length > 0) q = q.in('platform_account_id', activeAccountIds);
     const { data: rollups } = await q;
 
@@ -411,7 +412,8 @@ export default function Analytics() {
       .from('daily_platform_rollups')
       .select('*')
       .gte('date', prevStart)
-      .lt('date', start);
+      .lt('date', start)
+      .limit(10000);
     if (activeAccountIds.length > 0) pq = pq.in('platform_account_id', activeAccountIds);
     const { data: prevRollups } = await pq;
 
@@ -463,7 +465,8 @@ export default function Analytics() {
       .select('*')
       .gte('date', start)
       .lte('date', end)
-      .order('date', { ascending: true });
+      .order('date', { ascending: true })
+      .limit(10000);
     if (activeAccountIds.length > 0) q = q.in('platform_account_id', activeAccountIds);
     const { data } = await q;
     setTimeSeries(data || []);
