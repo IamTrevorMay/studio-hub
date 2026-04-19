@@ -438,6 +438,22 @@ serve(async (req) => {
                     .from("analytics_youtube_daily")
                     .upsert(dailyBatch, { onConflict: "channel,date" });
                   if (dailyErr) console.error(`Daily analytics upsert error: ${dailyErr.message}`);
+
+                  // Also upsert into platform_daily_metrics so Goals page can track views
+                  const pdmBatch = dailyData.map(day => ({
+                    platform_account_id: account.id,
+                    date: day.date,
+                    views: day.views,
+                    watch_time_seconds: day.estimatedMinutesWatched * 60,
+                    likes: 0,
+                    comments: 0,
+                    shares: 0,
+                    metadata: { source: "youtube-analytics" },
+                  }));
+                  const { error: pdmErr } = await supabase
+                    .from("platform_daily_metrics")
+                    .upsert(pdmBatch, { onConflict: "platform_account_id,date" });
+                  if (pdmErr) console.error(`PDM upsert error: ${pdmErr.message}`);
                 }
 
                 chunkStart = new Date(chunkEnd);

@@ -81,7 +81,6 @@ export default function Projects({ onNavigate }) {
   const { safeQuery } = useSupabaseQuery();
   const [projects, setProjects] = useState([]);
   const [teamMembers, setTeamMembers] = useState([]);
-  const [concepts, setConcepts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
@@ -130,14 +129,6 @@ export default function Projects({ onNavigate }) {
   const [allDeliverables, setAllDeliverables] = useState([]);
   const [expandedDeliverableId, setExpandedDeliverableId] = useState(null);
 
-  // Series state
-  const [seriesList, setSeriesList] = useState([]);
-  const [seriesLoading, setSeriesLoading] = useState(false);
-  const [showSeriesForm, setShowSeriesForm] = useState(false);
-  const [editingSeries, setEditingSeries] = useState(null);
-  const [seriesForm, setSeriesForm] = useState({ title: '', description: '' });
-  const [expandedSeriesId, setExpandedSeriesId] = useState(null);
-  const [seriesAddProjectId, setSeriesAddProjectId] = useState(null); // seriesId to show inline create form
   const [showArchivedSection, setShowArchivedSection] = useState(false);
 
   // Reads state
@@ -178,10 +169,8 @@ export default function Projects({ onNavigate }) {
           *,
           project_assignments(*, profile:profiles(id, full_name, title)),
           project_attachments(*),
-          concept:concepts(id, name, color),
           project_checklists(*),
-          project_stage_assignments(*, profile:profiles(id, full_name)),
-          series:series(id, title)
+          project_stage_assignments(*, profile:profiles(id, full_name))
         `)
         .order('created_at', { ascending: false });
 
@@ -199,8 +188,6 @@ export default function Projects({ onNavigate }) {
     const timeout = setTimeout(() => setLoading(false), 5000);
     fetchProjects().finally(() => clearTimeout(timeout));
     fetchTeamMembers();
-    fetchConcepts();
-    fetchSeries();
 
     const channel = supabase
       .channel('projects-changes')
@@ -251,7 +238,6 @@ export default function Projects({ onNavigate }) {
     }
     setForm({ name: '', category: 'creative', type: 'youtube_video', channel: '', start_date: '', deadline: '', notes: '', status: 'concept' });
     setShowForm(false);
-    setSeriesAddProjectId(null);
     fetchProjects();
   }
 
@@ -350,15 +336,6 @@ export default function Projects({ onNavigate }) {
   async function handleDeleteComment(commentId) {
     const { error } = await supabase.from('project_comments').delete().eq('id', commentId);
     if (error) console.error('Error deleting comment:', error);
-  }
-
-  async function fetchConcepts() {
-    try {
-      const { data } = await supabase.from('concepts').select('id, name, color').order('name');
-      setConcepts(data || []);
-    } catch (err) {
-      console.error('Error fetching concepts:', err);
-    }
   }
 
   // --- Shorts Queue ---
@@ -517,11 +494,6 @@ export default function Projects({ onNavigate }) {
   async function handleDeleteProject(projectId) {
     if (!window.confirm('Delete this project and all its data?')) return;
     await supabase.from('projects').delete().eq('id', projectId);
-    fetchProjects();
-  }
-
-  async function handleLinkConcept(projectId, conceptId) {
-    await supabase.from('projects').update({ concept_id: conceptId || null }).eq('id', projectId);
     fetchProjects();
   }
 
@@ -1143,78 +1115,6 @@ export default function Projects({ onNavigate }) {
     }
   }
 
-  // ─── Series Functions ──────────────────────────────────────────────────
-
-  const fetchSeries = useCallback(async () => {
-    setSeriesLoading(true);
-    try {
-      const { data, error } = await supabase.from('series')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      setSeriesList(data || []);
-    } catch (err) {
-      console.error('Error fetching series:', err);
-      setSeriesList([]);
-    } finally {
-      setSeriesLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (activeSection !== 'series') return;
-    fetchSeries();
-    const channel = supabase
-      .channel('series-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'series' }, () => fetchSeries())
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [activeSection, fetchSeries, refreshKey]);
-
-  function resetSeriesForm() {
-    setSeriesForm({ title: '', description: '' });
-    setEditingSeries(null);
-    setShowSeriesForm(false);
-  }
-
-  function startEditSeries(s) {
-    setSeriesForm({ title: s.title, description: s.description || '' });
-    setEditingSeries(s.id);
-    setShowSeriesForm(true);
-  }
-
-  async function handleSaveSeries(e) {
-    e.preventDefault();
-    if (!seriesForm.title.trim()) return;
-    if (editingSeries) {
-      await supabase.from('series').update({
-        title: seriesForm.title.trim(),
-        description: seriesForm.description.trim() || null,
-        updated_at: new Date().toISOString(),
-      }).eq('id', editingSeries);
-    } else {
-      await supabase.from('series').insert({
-        title: seriesForm.title.trim(),
-        description: seriesForm.description.trim() || null,
-        created_by: profile.id,
-      });
-    }
-    resetSeriesForm();
-    fetchSeries();
-  }
-
-  async function handleDeleteSeries(seriesId) {
-    if (!window.confirm('Delete this series? Projects inside will be unlinked, not deleted.')) return;
-    await supabase.from('series').delete().eq('id', seriesId);
-    fetchSeries();
-    fetchProjects();
-  }
-
-  async function handleAssignProjectToSeries(projectId, seriesId) {
-    await supabase.from('projects').update({ series_id: seriesId || null }).eq('id', projectId);
-    fetchProjects();
-  }
-
   const now = new Date();
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
@@ -1403,10 +1303,7 @@ export default function Projects({ onNavigate }) {
           <p style={styles.pageSubtitle}>{currentProjects.length + comingUpProjects.length} active{completedProjects.length > 0 ? ` · ${completedProjects.length} completed` : ''}{archivedCount > 0 ? ` · ${archivedCount} archived` : ''}</p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button onClick={() => { resetSeriesForm(); setShowSeriesForm(!showSeriesForm); setShowForm(false); }} style={{ ...styles.addBtn, background: 'rgba(255,255,255,0.04)' }}>
-            {showSeriesForm && !editingSeries ? '✕ Cancel' : '+ New Series'}
-          </button>
-          <button onClick={() => { setShowForm(!showForm); setShowSeriesForm(false); }} style={styles.addBtn}>
+          <button onClick={() => setShowForm(!showForm)} style={styles.addBtn}>
             {showForm ? '✕ Cancel' : '+ New Project'}
           </button>
         </div>
@@ -1719,11 +1616,11 @@ export default function Projects({ onNavigate }) {
                   onStatusChange={handleStatusChange} onAssign={handleAssign} onRemoveAssignment={handleRemoveAssignment}
                   onAddAttachment={handleAddAttachment} onRemoveAttachment={handleRemoveAttachment} onAddComment={handleAddComment}
                   onDeleteComment={handleDeleteComment} onDeleteProject={(id) => { handleDeleteProject(id); setSelectedProject(null); }} onArchiveProject={(id) => { handleArchiveProject(id); setSelectedProject(null); }}
-                  onUnarchiveProject={handleUnarchiveProject} onLinkConcept={handleLinkConcept} onNavigate={onNavigate} concepts={concepts}
+                  onUnarchiveProject={handleUnarchiveProject} onNavigate={onNavigate}
                   isAdmin={isAdmin} onAddChecklistItem={handleAddChecklistItem} onToggleChecklistItem={handleToggleChecklistItem}
                   onDeleteChecklistItem={handleDeleteChecklistItem} onAssignProjectStage={handleAssignProjectStage}
                   onRemoveProjectStageAssignment={handleRemoveProjectStageAssignment} onUpdateProject={handleUpdateProject}
-                  seriesList={seriesList} onAssignSeries={handleAssignProjectToSeries}
+
                 />
               </div>
             </div>
@@ -1743,11 +1640,11 @@ export default function Projects({ onNavigate }) {
                   onStatusChange={handleStatusChange} onAssign={handleAssign} onRemoveAssignment={handleRemoveAssignment}
                   onAddAttachment={handleAddAttachment} onRemoveAttachment={handleRemoveAttachment} onAddComment={handleAddComment}
                   onDeleteComment={handleDeleteComment} onDeleteProject={handleDeleteProject} onArchiveProject={handleArchiveProject}
-                  onUnarchiveProject={handleUnarchiveProject} onLinkConcept={handleLinkConcept} onNavigate={onNavigate} concepts={concepts}
+                  onUnarchiveProject={handleUnarchiveProject} onNavigate={onNavigate}
                   isAdmin={isAdmin} onAddChecklistItem={handleAddChecklistItem} onToggleChecklistItem={handleToggleChecklistItem}
                   onDeleteChecklistItem={handleDeleteChecklistItem} onAssignProjectStage={handleAssignProjectStage}
                   onRemoveProjectStageAssignment={handleRemoveProjectStageAssignment} onUpdateProject={handleUpdateProject}
-                  seriesList={seriesList} onAssignSeries={handleAssignProjectToSeries}
+
                 />
               ))}
             </div>
@@ -1765,103 +1662,18 @@ export default function Projects({ onNavigate }) {
                   onStatusChange={handleStatusChange} onAssign={handleAssign} onRemoveAssignment={handleRemoveAssignment}
                   onAddAttachment={handleAddAttachment} onRemoveAttachment={handleRemoveAttachment} onAddComment={handleAddComment}
                   onDeleteComment={handleDeleteComment} onDeleteProject={handleDeleteProject} onArchiveProject={handleArchiveProject}
-                  onUnarchiveProject={handleUnarchiveProject} onLinkConcept={handleLinkConcept} onNavigate={onNavigate} concepts={concepts}
+                  onUnarchiveProject={handleUnarchiveProject} onNavigate={onNavigate}
                   isAdmin={isAdmin} onAddChecklistItem={handleAddChecklistItem} onToggleChecklistItem={handleToggleChecklistItem}
                   onDeleteChecklistItem={handleDeleteChecklistItem} onAssignProjectStage={handleAssignProjectStage}
                   onRemoveProjectStageAssignment={handleRemoveProjectStageAssignment} onUpdateProject={handleUpdateProject}
-                  seriesList={seriesList} onAssignSeries={handleAssignProjectToSeries}
+
                 />
               ))}
             </div>
           </div>
         )}
 
-        {/* ── Series ── */}
-        {showSeriesForm && (
-          <form onSubmit={handleSaveSeries} style={{ ...styles.formCard, marginTop: '24px' }}>
-            <div style={styles.formGrid}>
-              <div style={styles.field}>
-                <label style={styles.label}>Series Title *</label>
-                <input value={seriesForm.title} onChange={(e) => setSeriesForm({ ...seriesForm, title: e.target.value })} placeholder="e.g. iPhone Review Series" required style={styles.input} />
-              </div>
-              <div style={styles.field}>
-                <label style={styles.label}>Description</label>
-                <textarea value={seriesForm.description} onChange={(e) => setSeriesForm({ ...seriesForm, description: e.target.value })} placeholder="What is this series about?" rows={2} style={{ ...styles.input, resize: 'vertical' }} />
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button type="submit" style={styles.submitBtn}>{editingSeries ? 'Update Series' : 'Create Series'}</button>
-              {editingSeries && <button type="button" onClick={resetSeriesForm} style={{ ...styles.submitBtn, background: 'rgba(255,255,255,0.06)' }}>Cancel</button>}
-            </div>
-          </form>
-        )}
 
-        {seriesList.length > 0 && (
-          <div style={{ marginTop: '32px' }}>
-            <h2 style={styles.sectionHeading}>Series</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {seriesList.map(s => {
-                const seriesProjects = projects.filter(p => p.series_id === s.id && !p.is_archived && p.status !== 'published');
-                const isExpanded = expandedSeriesId === s.id;
-                return (
-                  <div key={s.id} style={seriesStyles.folder}>
-                    <div style={seriesStyles.folderHeader} onClick={() => setExpandedSeriesId(isExpanded ? null : s.id)}>
-                      <div style={seriesStyles.folderLeft}>
-                        <span style={seriesStyles.folderIcon}>{isExpanded ? '▾' : '▸'}</span>
-                        <div>
-                          <div style={seriesStyles.folderTitle}>{s.title}</div>
-                          {s.description && <div style={seriesStyles.folderDesc}>{s.description}</div>}
-                        </div>
-                      </div>
-                      <div style={seriesStyles.folderRight}>
-                        <span style={seriesStyles.projectCount}>{seriesProjects.length} project{seriesProjects.length !== 1 ? 's' : ''}</span>
-                        <button onClick={(e) => { e.stopPropagation(); startEditSeries(s); }} style={seriesStyles.iconBtn} title="Edit">✎</button>
-                        <button onClick={(e) => { e.stopPropagation(); handleDeleteSeries(s.id); }} style={seriesStyles.iconBtn} title="Delete">✕</button>
-                      </div>
-                    </div>
-                    {isExpanded && (
-                      <div style={seriesStyles.folderBody}>
-                        {seriesProjects.length === 0 && seriesAddProjectId !== s.id && (
-                          <p style={seriesStyles.emptyFolder}>No projects in this series yet.</p>
-                        )}
-                        {seriesProjects.map(p => (
-                          <div key={p.id} style={seriesStyles.projectItem}>
-                            <div style={{ ...seriesStyles.statusDot, background: STATUS_COLORS[p.status] || '#666' }} />
-                            <div style={seriesStyles.projectInfo}>
-                              <span style={seriesStyles.projectName}>{p.name}</span>
-                              <span style={seriesStyles.projectMeta}>
-                                {STATUS_LABELS[p.status]} · {PROJECT_TYPES.find(t => t.value === p.type)?.label || p.type}
-                              </span>
-                            </div>
-                            <button onClick={() => handleAssignProjectToSeries(p.id, null)} style={seriesStyles.removeBtn} title="Remove from series">✕</button>
-                          </div>
-                        ))}
-                        <SeriesProjectAdder seriesId={s.id} projects={projects.filter(p => !p.series_id && !p.is_archived)} onAssign={handleAssignProjectToSeries} />
-                        {/* Inline new project form for this series */}
-                        {seriesAddProjectId === s.id ? (
-                          <form onSubmit={(e) => handleCreateProject(e, s.id)} style={{ padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Project name" required style={{ ...styles.input, flex: 1, minWidth: '160px' }} />
-                              <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} style={{ ...styles.select, flex: '0 0 140px' }}>
-                                {PROJECT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                              </select>
-                              <button type="submit" style={{ ...styles.submitBtn, padding: '8px 16px', fontSize: '12px' }}>Create</button>
-                              <button type="button" onClick={() => { setSeriesAddProjectId(null); setForm({ name: '', type: 'youtube_video', channel: '', start_date: '', deadline: '', notes: '', status: 'concept' }); }} style={seriesStyles.iconBtn}>✕</button>
-                            </div>
-                          </form>
-                        ) : (
-                          <div style={{ padding: '8px 16px' }}>
-                            <button onClick={() => { setSeriesAddProjectId(s.id); setForm({ name: '', type: 'youtube_video', channel: '', start_date: '', deadline: '', notes: '', status: 'concept' }); }} style={seriesStyles.addProjectBtn}>+ New Project</button>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
         {/* ── Completed (published < 7 days) ── */}
         {completedProjects.length > 0 && (
@@ -1874,11 +1686,11 @@ export default function Projects({ onNavigate }) {
                   onStatusChange={handleStatusChange} onAssign={handleAssign} onRemoveAssignment={handleRemoveAssignment}
                   onAddAttachment={handleAddAttachment} onRemoveAttachment={handleRemoveAttachment} onAddComment={handleAddComment}
                   onDeleteComment={handleDeleteComment} onDeleteProject={handleDeleteProject} onArchiveProject={handleArchiveProject}
-                  onUnarchiveProject={handleUnarchiveProject} onLinkConcept={handleLinkConcept} onNavigate={onNavigate} concepts={concepts}
+                  onUnarchiveProject={handleUnarchiveProject} onNavigate={onNavigate}
                   isAdmin={isAdmin} onAddChecklistItem={handleAddChecklistItem} onToggleChecklistItem={handleToggleChecklistItem}
                   onDeleteChecklistItem={handleDeleteChecklistItem} onAssignProjectStage={handleAssignProjectStage}
                   onRemoveProjectStageAssignment={handleRemoveProjectStageAssignment} onUpdateProject={handleUpdateProject}
-                  seriesList={seriesList} onAssignSeries={handleAssignProjectToSeries}
+
                 />
               ))}
             </div>
@@ -1915,11 +1727,11 @@ export default function Projects({ onNavigate }) {
                       onStatusChange={handleStatusChange} onAssign={handleAssign} onRemoveAssignment={handleRemoveAssignment}
                       onAddAttachment={handleAddAttachment} onRemoveAttachment={handleRemoveAttachment} onAddComment={handleAddComment}
                       onDeleteComment={handleDeleteComment} onDeleteProject={handleDeleteProject} onArchiveProject={handleArchiveProject}
-                      onUnarchiveProject={handleUnarchiveProject} onLinkConcept={handleLinkConcept} onNavigate={onNavigate} concepts={concepts}
+                      onUnarchiveProject={handleUnarchiveProject} onNavigate={onNavigate}
                       isAdmin={isAdmin} onAddChecklistItem={handleAddChecklistItem} onToggleChecklistItem={handleToggleChecklistItem}
                       onDeleteChecklistItem={handleDeleteChecklistItem} onAssignProjectStage={handleAssignProjectStage}
                       onRemoveProjectStageAssignment={handleRemoveProjectStageAssignment} onUpdateProject={handleUpdateProject}
-                      seriesList={seriesList} onAssignSeries={handleAssignProjectToSeries}
+    
                     />
                   ))}
                 </div>
@@ -1929,7 +1741,7 @@ export default function Projects({ onNavigate }) {
         )}
 
         {/* Empty state */}
-        {currentProjects.length === 0 && comingUpProjects.length === 0 && completedProjects.length === 0 && seriesList.length === 0 && (
+        {currentProjects.length === 0 && comingUpProjects.length === 0 && completedProjects.length === 0 && (
           <div style={styles.emptyCard}>
             <p style={styles.emptyText}>No projects found.</p>
           </div>
@@ -2848,12 +2660,11 @@ function ProjectRow({
   onStatusChange, onAssign, onRemoveAssignment,
   onAddAttachment, onRemoveAttachment, onAddComment, onDeleteComment,
   onDeleteProject, onArchiveProject, onUnarchiveProject,
-  onLinkConcept, onNavigate, concepts,
+  onNavigate,
   isAdmin,
   onAddChecklistItem, onToggleChecklistItem, onDeleteChecklistItem,
   onAssignProjectStage, onRemoveProjectStageAssignment,
   onUpdateProject,
-  seriesList, onAssignSeries,
 }) {
   const isBusiness = project.category === 'business';
   const typeList = isBusiness ? BUSINESS_PROJECT_TYPES : PROJECT_TYPES;
@@ -3402,60 +3213,6 @@ function ProjectRow({
             </form>
           </div>
 
-          {/* Linked Concept */}
-          <div style={styles.detailSection}>
-            <h4 style={styles.detailLabel}>Linked Concept</h4>
-            {project.concept ? (
-              <div style={styles.conceptLinkRow}>
-                <button
-                  onClick={() => onNavigate && onNavigate('ideation', project.concept.id)}
-                  style={styles.conceptLinkBtn}
-                >
-                  <span style={{ ...styles.conceptLinkDot, background: project.concept.color }} />
-                  {project.concept.name} →
-                </button>
-                <button onClick={() => onLinkConcept(project.id, null)} style={styles.removeBtn}>✕</button>
-              </div>
-            ) : (
-              <div style={styles.assignForm}>
-                <select
-                  onChange={(e) => { if (e.target.value) onLinkConcept(project.id, e.target.value); }}
-                  defaultValue=""
-                  style={styles.smallSelect}
-                >
-                  <option value="" disabled>Select a concept...</option>
-                  {concepts.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </div>
-
-          {/* Series */}
-          <div style={styles.detailSection}>
-            <h4 style={styles.detailLabel}>Series</h4>
-            {project.series ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '13px', color: '#fff' }}>{project.series.title}</span>
-                <button onClick={() => onAssignSeries(project.id, null)} style={styles.removeBtn}>✕</button>
-              </div>
-            ) : (
-              <div style={styles.assignForm}>
-                <select
-                  onChange={(e) => { if (e.target.value) onAssignSeries(project.id, e.target.value); }}
-                  defaultValue=""
-                  style={styles.smallSelect}
-                >
-                  <option value="" disabled>Add to series...</option>
-                  {(seriesList || []).map(s => (
-                    <option key={s.id} value={s.id}>{s.title}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </div>
-
           {/* Archive / Delete Project */}
           {(project.created_by === profile?.id || isAdmin) && (
             <div style={styles.detailSection}>
@@ -3894,160 +3651,6 @@ function StagePromptModal({ prompt, onSubmit, onCancel }) {
   );
 }
 
-function SeriesProjectAdder({ seriesId, projects, onAssign }) {
-  const [showAdd, setShowAdd] = useState(false);
-  if (projects.length === 0) return null;
-  return (
-    <div style={{ padding: '8px 16px' }}>
-      {showAdd ? (
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <select
-            defaultValue=""
-            onChange={(e) => { if (e.target.value) { onAssign(e.target.value, seriesId); setShowAdd(false); } }}
-            style={seriesStyles.assignSelect}
-          >
-            <option value="">Select a project...</option>
-            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          <button onClick={() => setShowAdd(false)} style={seriesStyles.iconBtn}>✕</button>
-        </div>
-      ) : (
-        <button onClick={() => setShowAdd(true)} style={seriesStyles.addProjectBtn}>+ Add Project</button>
-      )}
-    </div>
-  );
-}
-
-const seriesStyles = {
-  folder: {
-    background: 'rgba(255,255,255,0.03)',
-    border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: '12px',
-    overflow: 'hidden',
-  },
-  folderHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '16px 20px',
-    cursor: 'pointer',
-    transition: 'background 0.15s',
-  },
-  folderLeft: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-  },
-  folderIcon: {
-    fontSize: '12px',
-    color: 'rgba(255,255,255,0.4)',
-    width: '16px',
-  },
-  folderTitle: {
-    fontSize: '15px',
-    fontWeight: 600,
-    color: '#fff',
-  },
-  folderDesc: {
-    fontSize: '12px',
-    color: 'rgba(255,255,255,0.4)',
-    marginTop: '2px',
-  },
-  folderRight: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-  },
-  projectCount: {
-    fontSize: '12px',
-    color: 'rgba(255,255,255,0.4)',
-    background: 'rgba(255,255,255,0.06)',
-    padding: '2px 10px',
-    borderRadius: '8px',
-  },
-  iconBtn: {
-    background: 'none',
-    border: 'none',
-    color: 'rgba(255,255,255,0.3)',
-    cursor: 'pointer',
-    fontSize: '14px',
-    padding: '4px',
-  },
-  folderBody: {
-    borderTop: '1px solid rgba(255,255,255,0.06)',
-    padding: '8px 0',
-  },
-  emptyFolder: {
-    fontSize: '13px',
-    color: 'rgba(255,255,255,0.3)',
-    padding: '12px 20px',
-    margin: 0,
-  },
-  projectItem: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    padding: '10px 20px',
-    transition: 'background 0.1s',
-  },
-  statusDot: {
-    width: '8px',
-    height: '8px',
-    borderRadius: '50%',
-    flexShrink: 0,
-  },
-  projectInfo: {
-    flex: 1,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '2px',
-  },
-  projectName: {
-    fontSize: '14px',
-    fontWeight: 500,
-    color: '#fff',
-  },
-  projectMeta: {
-    fontSize: '11px',
-    color: 'rgba(255,255,255,0.35)',
-  },
-  removeBtn: {
-    background: 'none',
-    border: 'none',
-    color: 'rgba(255,255,255,0.2)',
-    cursor: 'pointer',
-    fontSize: '12px',
-    padding: '4px',
-  },
-  assignSelect: {
-    padding: '6px 10px',
-    background: 'rgba(255,255,255,0.06)',
-    border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: '8px',
-    color: '#fff',
-    fontSize: '12px',
-    cursor: 'pointer',
-  },
-  addProjectBtn: {
-    background: 'none',
-    border: '1px dashed rgba(255,255,255,0.15)',
-    borderRadius: '8px',
-    color: 'rgba(255,255,255,0.4)',
-    padding: '8px 16px',
-    fontSize: '13px',
-    cursor: 'pointer',
-    width: '100%',
-  },
-  unassignedTitle: {
-    fontSize: '13px',
-    fontWeight: 600,
-    color: 'rgba(255,255,255,0.4)',
-    textTransform: 'uppercase',
-    letterSpacing: '0.5px',
-    marginBottom: '12px',
-  },
-};
-
 const styles = {
   page: { padding: '32px 40px' },
   sectionHeading: {
@@ -4275,9 +3878,6 @@ const styles = {
   commentDeleteBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '11px', padding: '2px 4px' },
   commentContent: { fontSize: '13px', color: 'rgba(255,255,255,0.65)', margin: 0, lineHeight: 1.4 },
   commentForm: { display: 'flex', gap: '8px' },
-  conceptLinkRow: { display: 'flex', alignItems: 'center', gap: '8px' },
-  conceptLinkBtn: { display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '8px', color: '#a5b4fc', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
-  conceptLinkDot: { width: '8px', height: '8px', borderRadius: '3px', flexShrink: 0 },
   deleteProjectBtn: { padding: '8px 16px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '8px', color: '#fca5a5', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   archiveProjectBtn: { flex: 1, padding: '8px 16px', background: 'rgba(107,114,128,0.08)', border: '1px solid rgba(107,114,128,0.2)', borderRadius: '8px', color: '#9ca3af', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   unarchiveProjectBtn: { flex: 1, padding: '8px 16px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '8px', color: '#a5b4fc', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },

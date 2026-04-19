@@ -50,14 +50,11 @@ const PLATFORM_META = {
 };
 
 const METRIC_OPTIONS = [
-  { key: 'total_views',              label: 'Views' },
-  { key: 'revenue_cents',            label: 'Revenue ($)' },
-  { key: 'followers_eod',            label: 'Followers' },
-  { key: 'total_likes',              label: 'Likes' },
-  { key: 'total_comments',           label: 'Comments' },
-  { key: 'total_shares',             label: 'Shares' },
-  { key: 'total_watch_time_seconds', label: 'Watch Time (hrs)' },
-  { key: 'posts_published',          label: 'Posts Published' },
+  { key: 'views',              label: 'Views' },
+  { key: 'likes',              label: 'Likes' },
+  { key: 'comments',           label: 'Comments' },
+  { key: 'shares',             label: 'Shares' },
+  { key: 'watch_time_seconds', label: 'Watch Time (hrs)' },
 ];
 
 function getDateRangeForCategory(category) {
@@ -72,20 +69,17 @@ function getDateRangeForCategory(category) {
 }
 
 function formatMetricValue(key, value) {
-  if (key === 'revenue_cents') return '$' + (value / 100).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-  if (key === 'total_watch_time_seconds') return Math.round(value / 3600).toLocaleString() + 'h';
+  if (key === 'watch_time_seconds') return Math.round(value / 3600).toLocaleString() + 'h';
   return Math.round(value).toLocaleString();
 }
 
 function formatTargetForMetric(key, value) {
-  if (key === 'revenue_cents') return Math.round(value * 100);
-  if (key === 'total_watch_time_seconds') return value * 3600;
+  if (key === 'watch_time_seconds') return value * 3600;
   return value;
 }
 
 function displayTargetForMetric(key, value) {
-  if (key === 'revenue_cents') return '$' + Math.round(value).toLocaleString();
-  if (key === 'total_watch_time_seconds') return Math.round(value).toLocaleString() + 'h';
+  if (key === 'watch_time_seconds') return Math.round(value).toLocaleString() + 'h';
   return Math.round(value).toLocaleString();
 }
 
