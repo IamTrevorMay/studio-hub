@@ -242,6 +242,9 @@ export default function Analytics() {
   const [showIngestion, setShowIngestion] = useState(false);
   const [ingestionLogs, setIngestionLogs] = useState([]);
   const [viewMode, setViewMode] = useState('dashboard');
+  const [platformMenuOpen, setPlatformMenuOpen] = useState(false);
+  const [selectedPlatform, setSelectedPlatform] = useState(null);
+  const [selectedPlatformAccountId, setSelectedPlatformAccountId] = useState(null);
 
   // Analysis tools
   const [showAnalysis, setShowAnalysis] = useState(false);
@@ -251,12 +254,13 @@ export default function Analytics() {
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState(null);
 
-  // Close platform dropdown on outside click
+  // Close dropdowns on outside click
   useEffect(() => {
     function handleClick(e) {
       if (platformDropdownRef.current && !platformDropdownRef.current.contains(e.target)) {
         setPlatformDropdownOpen(false);
       }
+      setPlatformMenuOpen(false);
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
@@ -694,6 +698,36 @@ export default function Analytics() {
         <button onClick={() => setViewMode('dashboard')} style={viewMode === 'dashboard' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Dashboard</button>
         <button onClick={() => setViewMode('revenues')} style={viewMode === 'revenues' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Revenues</button>
         <button onClick={() => setViewMode('advanced')} style={viewMode === 'advanced' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Advanced</button>
+        <div style={{ position: 'relative' }}>
+          <button
+            onClick={() => setPlatformMenuOpen(prev => !prev)}
+            style={viewMode === 'platform' ? styles.viewToggleBtnActive : styles.viewToggleBtn}
+          >
+            Platforms {selectedPlatform && viewMode === 'platform' ? `· ${PLATFORM_META[selectedPlatform]?.label || selectedPlatform}` : ''} ▾
+          </button>
+          {platformMenuOpen && (
+            <div style={{
+              position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 100,
+              background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10,
+              boxShadow: '0 8px 32px rgba(0,0,0,0.4)', overflow: 'hidden', minWidth: 160,
+            }}>
+              {accounts.filter(a => a.is_active).map(a => {
+                const meta = PLATFORM_META[a.platform] || {};
+                return (
+                  <button key={a.id} onClick={() => { setSelectedPlatform(a.platform); setSelectedPlatformAccountId(a.id); setViewMode('platform'); setPlatformMenuOpen(false); }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 16px',
+                      background: selectedPlatformAccountId === a.id && viewMode === 'platform' ? 'rgba(99,102,241,0.15)' : 'transparent',
+                      border: 'none', color: 'rgba(255,255,255,0.8)', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left',
+                    }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: meta.color || '#666', flexShrink: 0 }} />
+                    {a.account_name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       {viewMode === 'revenues' && (
@@ -702,6 +736,10 @@ export default function Analytics() {
 
       {viewMode === 'advanced' && (
         <AdvancedView accounts={accounts} />
+      )}
+
+      {viewMode === 'platform' && selectedPlatformAccountId && (
+        <PlatformView accountId={selectedPlatformAccountId} accounts={accounts} start={start} end={end} />
       )}
 
       {viewMode === 'dashboard' && (loading ? <p style={styles.loadingText}>Loading analytics...</p> : (
@@ -1230,6 +1268,194 @@ function RevenuesView({ accounts, start, end }) {
           </div>
         )}
       </div>
+    </>
+  );
+}
+
+// ═══════════════════════════════════════════════
+// Platform View
+// ═══════════════════════════════════════════════
+function PlatformView({ accountId, accounts, start, end }) {
+  const [platData, setPlatData] = useState({ rollups: [], content: [], audience: [] });
+  const [platLoading, setPlatLoading] = useState(true);
+  const [sortCol, setSortCol] = useState('published_at');
+  const [sortDir, setSortDir] = useState('desc');
+
+  const account = accounts.find(a => a.id === accountId);
+  const meta = PLATFORM_META[account?.platform] || {};
+  const color = meta.color || '#6366f1';
+
+  // Previous period
+  const daySpan = Math.max(1, Math.ceil((new Date(end) - new Date(start)) / 86400000));
+  const prevStart = daysAgoStr(daySpan * 2 + Math.ceil((new Date() - new Date(end)) / 86400000));
+  const prevEnd = start;
+
+  useEffect(() => {
+    if (!accountId) return;
+    let cancelled = false;
+    async function load() {
+      setPlatLoading(true);
+      const [rollupRes, prevRollupRes, contentRes, audRes, prevAudRes] = await Promise.all([
+        supabase.from('daily_platform_rollups').select('*').eq('platform_account_id', accountId).gte('date', start).lte('date', end).order('date'),
+        supabase.from('daily_platform_rollups').select('*').eq('platform_account_id', accountId).gte('date', prevStart).lt('date', prevEnd),
+        supabase.from('content_items')
+          .select('id, title, published_at, url, content_type, duration_seconds, latest_metrics:content_metrics(views, likes, comments, shares, engagement_rate)')
+          .eq('platform_account_id', accountId).gte('published_at', start).lte('published_at', end + 'T23:59:59')
+          .order('published_at', { ascending: false }).limit(100),
+        supabase.from('audience_snapshots').select('date, followers_total, followers_gained').eq('platform_account_id', accountId).gte('date', start).lte('date', end).order('date'),
+        supabase.from('audience_snapshots').select('date, followers_total, followers_gained').eq('platform_account_id', accountId).gte('date', prevStart).lt('date', prevEnd).order('date'),
+      ]);
+      if (cancelled) return;
+      setPlatData({
+        rollups: rollupRes.data || [],
+        prevRollups: prevRollupRes.data || [],
+        content: (contentRes.data || []).map(c => ({
+          ...c,
+          metrics: c.latest_metrics?.[0] || {},
+        })),
+        audience: audRes.data || [],
+        prevAudience: prevAudRes.data || [],
+      });
+      setPlatLoading(false);
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [accountId, start, end]);
+
+  function handleSort(col) {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortCol(col); setSortDir('desc'); }
+  }
+
+  if (platLoading) return <p style={styles.loadingText}>Loading {meta.label || 'platform'} data...</p>;
+
+  // KPI aggregation
+  const totalViews = platData.rollups.reduce((s, r) => s + Number(r.total_views || 0), 0);
+  const prevViews = (platData.prevRollups || []).reduce((s, r) => s + Number(r.total_views || 0), 0);
+  const totalLikes = platData.rollups.reduce((s, r) => s + Number(r.total_likes || 0), 0);
+  const prevLikes = (platData.prevRollups || []).reduce((s, r) => s + Number(r.total_likes || 0), 0);
+  const latestFollowers = platData.audience.length > 0 ? platData.audience[platData.audience.length - 1].followers_total : 0;
+  const prevFollowers = (platData.prevAudience || []).length > 0 ? platData.prevAudience[platData.prevAudience.length - 1].followers_total : 0;
+  const followersGained = platData.audience.reduce((s, a) => s + (a.followers_gained || 0), 0);
+  const avgEngagement = platData.rollups.length > 0
+    ? platData.rollups.reduce((s, r) => s + Number(r.avg_engagement_rate || 0), 0) / platData.rollups.length
+    : 0;
+  const prevAvgEngagement = (platData.prevRollups || []).length > 0
+    ? platData.prevRollups.reduce((s, r) => s + Number(r.avg_engagement_rate || 0), 0) / platData.prevRollups.length
+    : 0;
+
+  // Trend data
+  const trendMetrics = [
+    { key: 'views', label: 'Views', color: '#6366f1', getValue: r => Number(r.total_views) || 0 },
+    { key: 'likes', label: 'Likes', color: '#ec4899', getValue: r => Number(r.total_likes) || 0 },
+  ];
+
+  // Follower trend
+  const followerTrend = platData.audience.map(a => ({ date: a.date, followers: a.followers_total }));
+
+  // Sort content
+  const sortedContent = useMemo(() => {
+    return [...platData.content].sort((a, b) => {
+      let va, vb;
+      if (sortCol === 'published_at') { va = a.published_at || ''; vb = b.published_at || ''; }
+      else if (sortCol === 'views') { va = a.metrics?.views || 0; vb = b.metrics?.views || 0; }
+      else if (sortCol === 'likes') { va = a.metrics?.likes || 0; vb = b.metrics?.likes || 0; }
+      else if (sortCol === 'engagement_rate') { va = a.metrics?.engagement_rate || 0; vb = b.metrics?.engagement_rate || 0; }
+      else { va = a[sortCol] || ''; vb = b[sortCol] || ''; }
+      if (typeof va === 'string') return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+      return sortDir === 'asc' ? va - vb : vb - va;
+    });
+  }, [platData.content, sortCol, sortDir]);
+
+  return (
+    <>
+      {/* Platform header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+        <span style={{ width: 12, height: 12, borderRadius: '50%', background: color }} />
+        <span style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>{account?.account_name}</span>
+      </div>
+
+      {/* KPI Cards */}
+      <div style={styles.kpiGrid}>
+        <KPICard label="Views" value={formatCompact(totalViews)} change={pctChange(totalViews, prevViews)} color={color} />
+        <KPICard label="Likes" value={formatCompact(totalLikes)} change={pctChange(totalLikes, prevLikes)} color="#ec4899" />
+        <KPICard label="Followers" value={formatCompact(latestFollowers)} change={pctChange(latestFollowers, prevFollowers)}
+          changeLabel={`${followersGained >= 0 ? '+' : ''}${followersGained.toLocaleString()} this period`} color="#3b82f6" />
+        <KPICard label="Avg Engagement" value={(avgEngagement * 100).toFixed(2) + '%'} change={pctChange(avgEngagement, prevAvgEngagement)} color="#f59e0b" />
+      </div>
+
+      {/* Views & Likes Trend */}
+      {platData.rollups.length > 0 && (
+        <div style={{ ...styles.chartSection, width: '100%' }}>
+          <div style={styles.chartHeader}>
+            <span style={styles.chartTitle}>Views & Likes</span>
+            <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+              {trendMetrics.map(m => (
+                <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: m.color, flexShrink: 0 }} />
+                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>{m.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <TrendChart data={platData.rollups} metrics={trendMetrics} />
+        </div>
+      )}
+
+      {/* Follower Trend */}
+      {followerTrend.length > 1 && (
+        <div style={{ ...styles.chartSection, width: '100%' }}>
+          <span style={styles.chartTitle}>Followers</span>
+          <TrendChart data={followerTrend} metrics={[{ key: 'followers', label: 'Followers', color: '#3b82f6', getValue: r => r.followers || 0 }]} />
+        </div>
+      )}
+
+      {/* Content Table */}
+      {sortedContent.length > 0 && (
+        <div style={styles.chartSection}>
+          <span style={styles.chartTitle}>Content ({sortedContent.length})</span>
+          <div style={{ ...styles.tableWrap, marginTop: 12 }}>
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>Title</th>
+                  <th style={{ ...styles.th, cursor: 'pointer' }} onClick={() => handleSort('published_at')}>
+                    Date {sortCol === 'published_at' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                  </th>
+                  <th style={{ ...styles.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => handleSort('views')}>
+                    Views {sortCol === 'views' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                  </th>
+                  <th style={{ ...styles.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => handleSort('likes')}>
+                    Likes {sortCol === 'likes' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                  </th>
+                  <th style={{ ...styles.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => handleSort('engagement_rate')}>
+                    Eng. {sortCol === 'engagement_rate' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedContent.map((c, i) => (
+                  <tr key={c.id} style={i % 2 === 0 ? styles.trEven : {}}>
+                    <td style={{ ...styles.td, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {c.url ? <a href={c.url} target="_blank" rel="noreferrer" style={{ color: color, textDecoration: 'none' }}>{c.title || '(No title)'}</a> : (c.title || '(No title)')}
+                    </td>
+                    <td style={styles.td}>{c.published_at ? new Date(c.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</td>
+                    <td style={{ ...styles.td, textAlign: 'right' }}>{formatCompact(c.metrics?.views || 0)}</td>
+                    <td style={{ ...styles.td, textAlign: 'right' }}>{formatCompact(c.metrics?.likes || 0)}</td>
+                    <td style={{ ...styles.td, textAlign: 'right' }}>{c.metrics?.engagement_rate ? (c.metrics.engagement_rate * 100).toFixed(2) + '%' : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {platData.rollups.length === 0 && sortedContent.length === 0 && (
+        <div style={styles.emptyCard}>
+          <p style={styles.emptyText}>No data found for this platform in the selected period.</p>
+        </div>
+      )}
     </>
   );
 }
