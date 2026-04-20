@@ -408,6 +408,7 @@ export default function Dashboard({ onNavigate }) {
   }, [checkinRating, checkinNote, todayCheckin, profile?.id, todayStr]);
 
   const fetchAssignments = useCallback(async () => {
+    console.log('[Dashboard] fetchAssignments executing');
     if (!profile?.id) return;
     try {
       const { data, error } = await safeQuery(() =>
@@ -474,7 +475,9 @@ export default function Dashboard({ onNavigate }) {
   }, [profile?.id, fetchTeamProfiles, refreshKey]);
 
   useVisibilityRefresh(useCallback(() => {
+    console.log('[Dashboard] visibility refresh fired — profile?.id:', profile?.id);
     if (!profile?.id) return;
+    console.log('[Dashboard] calling fetch functions...');
     fetchAssignments();
     fetchStageTasks();
     fetchSponsorDeliverables();
