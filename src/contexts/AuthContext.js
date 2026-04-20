@@ -339,6 +339,7 @@ export function AuthProvider({ children }) {
     let hiddenAt = null;
 
     const handleVisibility = async () => {
+      console.log('[AuthContext] visibilitychange →', document.visibilityState);
       if (document.visibilityState === 'hidden') {
         hiddenAt = Date.now();
         return;
@@ -347,9 +348,13 @@ export function AuthProvider({ children }) {
 
       const away = hiddenAt ? Date.now() - hiddenAt : 0;
       hiddenAt = null;
+      console.log('[AuthContext] tab restored, away:', away, 'ms, user:', !!user);
 
       // Brief tab switches don't need WebSocket reconnection
-      if (away < RECONNECT_THRESHOLD_MS) return;
+      if (away < RECONNECT_THRESHOLD_MS) {
+        console.log('[AuthContext] short absence — skipping WS reconnect');
+        return;
+      }
 
       try {
         // Refresh auth token and update the realtime socket auth

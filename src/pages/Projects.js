@@ -165,6 +165,7 @@ export default function Projects({ onNavigate }) {
   }, [sponsorViewMode]);
 
   const fetchProjects = useCallback(async () => {
+    console.log('[Projects] fetchProjects called at', new Date().toISOString());
     try {
       const { data, error } = await supabase
         .from('projects')
