@@ -60,18 +60,16 @@ export default function Production() {
 
   // ─── fetch sheets ───────────────────────────────────────────────────────────
   const fetchSheets = useCallback(async () => {
-    if (!profile?.id) return;
     setLoading(true);
     const { data, error } = await supabase
       .from('beat_sheets')
       .select('*')
-      .eq('user_id', profile.id)
       .eq('is_archived', false)
       .order('updated_at', { ascending: false });
     if (error) console.error('Fetch beat sheets error:', error);
     setSheets(data || []);
     setLoading(false);
-  }, [profile?.id]);
+  }, []);
 
   useEffect(() => { fetchSheets(); }, [fetchSheets]);
 
@@ -192,6 +190,40 @@ export default function Production() {
     el.style.height = el.scrollHeight + 'px';
   };
 
+  const moveTag = (beatId, field, index, dir) => {
+    setBeats(prev => prev.map(b => {
+      if (b.id !== beatId) return b;
+      const arr = [...b[field]];
+      const newIdx = index + dir;
+      if (newIdx < 0 || newIdx >= arr.length) return b;
+      [arr[index], arr[newIdx]] = [arr[newIdx], arr[index]];
+      return { ...b, [field]: arr };
+    }));
+  };
+
+  const handleBulletKeyDown = (e, beatId, field) => {
+    if (e.key !== 'Enter') return;
+    const ta = e.target;
+    const { value, selectionStart } = ta;
+    const lineStart = value.lastIndexOf('\n', selectionStart - 1) + 1;
+    const currentLine = value.slice(lineStart, selectionStart);
+    const bulletMatch = currentLine.match(/^(\s*[•\-]\s)/);
+    if (!bulletMatch) return;
+    e.preventDefault();
+    const prefix = bulletMatch[1];
+    if (currentLine === prefix) {
+      // Empty bullet — remove it
+      const newValue = value.slice(0, lineStart) + value.slice(lineStart + prefix.length);
+      updateBeat(beatId, field, newValue);
+      setTimeout(() => { ta.selectionStart = ta.selectionEnd = lineStart; }, 0);
+    } else {
+      // Continue bullet on next line
+      const newValue = value.slice(0, selectionStart) + '\n' + prefix + value.slice(selectionStart);
+      updateBeat(beatId, field, newValue);
+      setTimeout(() => { ta.selectionStart = ta.selectionEnd = selectionStart + 1 + prefix.length; }, 0);
+    }
+  };
+
   const handleDragEnd = (result) => {
     if (!result.destination) return;
     const reordered = Array.from(beats);
@@ -310,14 +342,34 @@ export default function Production() {
     if (!profile?.id) return;
     setPushingScript(true);
     try {
-      // Build HTML: graphics first, then bold beat title, for each beat
+      const textToHtml = (text) => {
+        if (!text?.trim()) return '';
+        const lines = text.split('\n');
+        let html = '';
+        let inList = false;
+        for (const line of lines) {
+          const m = line.match(/^(\s*)[•\-]\s(.*)$/);
+          if (m) {
+            if (!inList) { html += '<ul>'; inList = true; }
+            html += `<li>${m[2]}</li>`;
+          } else {
+            if (inList) { html += '</ul>'; inList = false; }
+            if (line.trim()) html += `<p>${line}</p>`;
+          }
+        }
+        if (inList) html += '</ul>';
+        return html;
+      };
+
+      // Build HTML: graphics first, then bold beat title, then context
       const htmlParts = beats
         .filter(b => b.title.trim())
         .map(b => {
-          const lines = [];
-          b.graphics.forEach(g => lines.push(`<p>${g}</p>`));
-          lines.push(`<p><strong>${b.title}</strong></p>`);
-          return lines.join('');
+          const parts = [];
+          b.graphics.forEach(g => parts.push(`<p>${g}</p>`));
+          parts.push(`<p><strong>${b.title}</strong></p>`);
+          if (b.context?.trim()) parts.push(textToHtml(b.context));
+          return parts.join('');
         });
       const htmlContent = htmlParts.join('<br>');
 
@@ -594,6 +646,7 @@ export default function Production() {
                         <textarea
                           value={beat.title}
                           onChange={e => { updateBeat(beat.id, 'title', e.target.value); autoResize(e.target); }}
+                          onKeyDown={e => handleBulletKeyDown(e, beat.id, 'title')}
                           ref={el => { if (el) autoResize(el); }}
                           placeholder="Beat..."
                           rows={1}
@@ -602,8 +655,9 @@ export default function Production() {
                         <textarea
                           value={beat.context}
                           onChange={e => { updateBeat(beat.id, 'context', e.target.value); autoResize(e.target); }}
+                          onKeyDown={e => handleBulletKeyDown(e, beat.id, 'context')}
                           ref={el => { if (el) autoResize(el); }}
-                          placeholder="Context..."
+                          placeholder="Context... (type • or - for bullets)"
                           rows={1}
                           style={styles.contextInput}
                         />
@@ -613,7 +667,9 @@ export default function Production() {
                       <div style={styles.tagCol}>
                         {beat.graphics.map((g, i) => (
                           <span key={i} style={styles.tag}>
+                            <button onClick={() => moveTag(beat.id, 'graphics', i, -1)} disabled={i === 0} style={styles.tagMove}>↑</button>
                             <span style={styles.tagText}>{g}</span>
+                            <button onClick={() => moveTag(beat.id, 'graphics', i, 1)} disabled={i === beat.graphics.length - 1} style={styles.tagMove}>↓</button>
                             <button onClick={() => removeTag(beat.id, 'graphics', i)} style={styles.tagRemove}>&times;</button>
                           </span>
                         ))}
@@ -635,7 +691,9 @@ export default function Production() {
                       <div style={styles.tagCol}>
                         {beat.videos.map((v, i) => (
                           <span key={i} style={styles.tag}>
+                            <button onClick={() => moveTag(beat.id, 'videos', i, -1)} disabled={i === 0} style={styles.tagMove}>↑</button>
                             <span style={styles.tagText}>{v}</span>
+                            <button onClick={() => moveTag(beat.id, 'videos', i, 1)} disabled={i === beat.videos.length - 1} style={styles.tagMove}>↓</button>
                             <button onClick={() => removeTag(beat.id, 'videos', i)} style={styles.tagRemove}>&times;</button>
                           </span>
                         ))}
@@ -911,6 +969,16 @@ const styles = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+  },
+  tagMove: {
+    background: 'none',
+    border: 'none',
+    color: 'rgba(165,180,252,0.45)',
+    cursor: 'pointer',
+    fontSize: 10,
+    padding: '0 1px',
+    lineHeight: 1,
+    flexShrink: 0,
   },
   tagRemove: {
     background: 'none',

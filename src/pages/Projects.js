@@ -148,6 +148,8 @@ export default function Projects({ onNavigate }) {
   const [maydayForm, setMaydayForm] = useState({ title: '', sponsor_read_id: '', post_date: '' });
   const [editingMayday, setEditingMayday] = useState(null);
 
+  const formRef = useRef(null);
+
   // Form state
   const [form, setForm] = useState({
     name: '', category: 'creative', type: 'youtube_video', channel: '',
@@ -215,6 +217,13 @@ export default function Projects({ onNavigate }) {
     } catch (err) {
       console.error('Error fetching team:', err);
     }
+  }
+
+  function openFormWithPreset(category, status) {
+    const types = category === 'business' ? BUSINESS_PROJECT_TYPES : PROJECT_TYPES;
+    setForm({ name: '', category, type: types[0].value, channel: '', start_date: '', deadline: '', notes: '', status });
+    setShowForm(true);
+    setTimeout(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
   }
 
   async function handleCreateProject(e, seriesId) {
@@ -1327,7 +1336,7 @@ export default function Projects({ onNavigate }) {
 
       {/* Create Form */}
       {showForm && (
-        <form onSubmit={handleCreateProject} style={styles.formCard}>
+        <form ref={formRef} onSubmit={handleCreateProject} style={styles.formCard}>
           <div style={styles.formGrid}>
             <div style={styles.field}>
               <label style={styles.label}>Project Name *</label>
@@ -1554,6 +1563,7 @@ export default function Projects({ onNavigate }) {
                           </Draggable>
                         ))}
                         {provided.placeholder}
+                        <button onClick={() => openFormWithPreset('creative', status)} style={styles.columnAddBtn}>+ Add</button>
                       </div>
                     </div>
                   )}
@@ -1604,6 +1614,7 @@ export default function Projects({ onNavigate }) {
                           </Draggable>
                         ))}
                         {provided.placeholder}
+                        <button onClick={() => openFormWithPreset('business', status)} style={styles.columnAddBtn}>+ Add</button>
                       </div>
                     </div>
                   )}
@@ -3973,6 +3984,19 @@ const styles = {
     gap: '6px',
     flex: 1,
     minHeight: '60px',
+  },
+  columnAddBtn: {
+    background: 'none',
+    border: '1px dashed rgba(255,255,255,0.08)',
+    borderRadius: '8px',
+    padding: '7px',
+    width: '100%',
+    color: 'rgba(255,255,255,0.25)',
+    fontSize: '12px',
+    cursor: 'pointer',
+    fontFamily: "'DM Sans', sans-serif",
+    textAlign: 'center',
+    marginTop: '2px',
   },
   kanbanCard: {
     background: 'rgba(255,255,255,0.03)',
