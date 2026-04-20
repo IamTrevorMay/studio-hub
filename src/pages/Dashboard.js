@@ -407,6 +407,30 @@ export default function Dashboard({ onNavigate }) {
     }
   }, [checkinRating, checkinNote, todayCheckin, profile?.id, todayStr]);
 
+  const fetchAssignments = useCallback(async () => {
+    if (!profile?.id) return;
+    try {
+      const { data, error } = await safeQuery(() =>
+        supabase
+          .from('project_assignments')
+          .select(`
+            assignment_role,
+            project:projects(*)
+          `)
+          .eq('user_id', profile.id)
+          .order('created_at', { ascending: false })
+      );
+
+      if (error) throw error;
+      setAssignments(data || []);
+    } catch (err) {
+      console.error('Error fetching assignments:', err);
+      setAssignments([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [profile?.id, safeQuery]);
+
   useEffect(() => {
     if (!profile?.id) return;
     fetchAssignments();
@@ -586,30 +610,6 @@ export default function Dashboard({ onNavigate }) {
   useEffect(() => {
     if (profile?.id) fetchTodayEvents();
   }, [profile?.id, fetchTodayEvents]);
-
-  async function fetchAssignments() {
-    if (!profile?.id) return;
-    try {
-      const { data, error } = await safeQuery(() =>
-        supabase
-          .from('project_assignments')
-          .select(`
-            assignment_role,
-            project:projects(*)
-          `)
-          .eq('user_id', profile.id)
-          .order('created_at', { ascending: false })
-      );
-
-      if (error) throw error;
-      setAssignments(data || []);
-    } catch (err) {
-      console.error('Error fetching assignments:', err);
-      setAssignments([]);
-    } finally {
-      setLoading(false);
-    }
-  }
 
   async function addItineraryItem() {
     if (!newItemText.trim()) return;
