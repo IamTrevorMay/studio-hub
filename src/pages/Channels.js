@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 
 function applyFormatMarker(textareaRef, text, marker, setter) {
@@ -69,11 +70,12 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
 
   useEffect(() => {
     if (!profile?.id) return;
-    const timeout = setTimeout(() => setLoading(false), 5000);
     Promise.all([fetchChannels(), fetchTeamMembers()])
-      .finally(() => { setLoading(false); clearTimeout(timeout); });
-    return () => clearTimeout(timeout);
-  }, [profile?.id, fetchChannels, fetchTeamMembers, refreshKey]);
+      .finally(() => setLoading(false));
+  }, [profile?.id, fetchChannels, fetchTeamMembers]);
+  useVisibilityRefresh(useCallback(() => {
+    if (profile?.id) fetchChannels();
+  }, [profile?.id, fetchChannels]));
 
   useEffect(() => {
     if (!initialChannelName || channels.length === 0) return;
@@ -108,7 +110,10 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
     if (!activeChannel) return;
     fetchMessages(activeChannel.id);
     fetchPinnedMessages(activeChannel.id);
+  }, [activeChannel, fetchMessages, fetchPinnedMessages]);
 
+  useEffect(() => {
+    if (!activeChannel) return;
     const channel = supabase
       .channel(`channel-${activeChannel.id}`)
       .on('postgres_changes', {
@@ -133,9 +138,8 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
         fetchPinnedMessages(activeChannel.id);
       })
       .subscribe();
-
     return () => { supabase.removeChannel(channel); };
-  }, [activeChannel, fetchMessages, refreshKey]);
+  }, [activeChannel, fetchMessages, fetchPinnedMessages, refreshKey]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

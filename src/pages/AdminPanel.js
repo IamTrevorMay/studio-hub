@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 
 const EVENT_TYPE_LABELS = {
@@ -161,11 +162,13 @@ export default function AdminPanel({ initialTab }) {
   useEffect(() => {
     if (!isAdmin) return;
     setLoading(true);
-    const timeout = setTimeout(() => setLoading(false), 5000);
     Promise.all([fetchInvitations(), fetchTeamMembers(), fetchGcalConnection(), fetchGcalMappings()])
-      .finally(() => { setLoading(false); clearTimeout(timeout); });
-    return () => clearTimeout(timeout);
-  }, [isAdmin, fetchInvitations, fetchTeamMembers, fetchGcalConnection, fetchGcalMappings, refreshKey]);
+      .finally(() => setLoading(false));
+  }, [isAdmin, fetchInvitations, fetchTeamMembers, fetchGcalConnection, fetchGcalMappings]);
+  useVisibilityRefresh(useCallback(() => {
+    if (!isAdmin) return;
+    Promise.all([fetchInvitations(), fetchTeamMembers(), fetchGcalConnection(), fetchGcalMappings()]);
+  }, [isAdmin, fetchInvitations, fetchTeamMembers, fetchGcalConnection, fetchGcalMappings]));
 
   async function fetchGcalCalendars() {
     try {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 import DocEditor from './editors/DocEditor';
 
@@ -47,10 +48,9 @@ export default function Resources() {
 
   useEffect(() => {
     if (!profile?.id) return;
-    const timeout = setTimeout(() => setLoading(false), 5000);
-    fetchFolders().finally(() => clearTimeout(timeout));
-    return () => clearTimeout(timeout);
-  }, [profile?.id, fetchFolders, refreshKey]);
+    fetchFolders();
+  }, [profile?.id, fetchFolders]);
+  useVisibilityRefresh(fetchFolders);
 
   useEffect(() => {
     if (activeFolder) fetchDocuments(activeFolder.id);

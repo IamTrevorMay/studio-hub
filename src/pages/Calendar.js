@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 
 const STATUSES = ['concept', 'script', 'production', 'edit', 'review', 'published'];
@@ -253,11 +254,13 @@ export default function Calendar({ onNavigate }) {
   }, []);
 
   useEffect(() => {
-    const timeout = setTimeout(() => setLoading(false), 5000);
-    Promise.all([fetchProjects(), fetchCalendarEvents(), fetchHubUsers()])
-      .finally(() => clearTimeout(timeout));
-    return () => clearTimeout(timeout);
-  }, [refreshKey]);
+    Promise.all([fetchProjects(), fetchCalendarEvents(), fetchHubUsers()]);
+  }, [fetchProjects, fetchCalendarEvents, fetchHubUsers]);
+  useVisibilityRefresh(useCallback(() => {
+    fetchProjects();
+    fetchCalendarEvents();
+    fetchHubUsers();
+  }, [fetchProjects, fetchCalendarEvents, fetchHubUsers]));
 
   useEffect(() => {
     fetchCalendarEvents();

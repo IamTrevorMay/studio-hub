@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 import MyBoard from '../components/MyBoard';
 import SprintPanel from '../components/SprintPanel';
@@ -408,29 +409,31 @@ export default function Dashboard({ onNavigate }) {
 
   useEffect(() => {
     if (!profile?.id) return;
-    const timeout = setTimeout(() => setLoading(false), 5000);
-    fetchAssignments().finally(() => clearTimeout(timeout));
+    fetchAssignments();
     fetchStageTasks();
     fetchSponsorDeliverables();
     fetchStatsCounts();
-    return () => clearTimeout(timeout);
-  }, [profile?.id, fetchStageTasks, fetchSponsorDeliverables, fetchStatsCounts, refreshKey]);
+  }, [profile?.id, fetchAssignments, fetchStageTasks, fetchSponsorDeliverables, fetchStatsCounts]);
 
   useEffect(() => {
     if ((isAdmin || isAssistant) && profile?.id) {
       fetchItinerary();
     }
-  }, [isAdmin, isAssistant, profile?.id, fetchItinerary, refreshKey]);
+  }, [isAdmin, isAssistant, profile?.id, fetchItinerary]);
 
   useEffect(() => {
     if (profile?.id) {
       fetchAnnouncements();
     }
-  }, [profile?.id, fetchAnnouncements, refreshKey]);
+  }, [profile?.id, fetchAnnouncements]);
 
   useEffect(() => {
     if (!profile?.id) return;
     fetchTeamProfiles();
+  }, [profile?.id, fetchTeamProfiles]);
+
+  useEffect(() => {
+    if (!profile?.id) return;
     const channel = supabase
       .channel('team-presence')
       .on('postgres_changes', {
@@ -445,6 +448,17 @@ export default function Dashboard({ onNavigate }) {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [profile?.id, fetchTeamProfiles, refreshKey]);
+
+  useVisibilityRefresh(useCallback(() => {
+    if (!profile?.id) return;
+    fetchAssignments();
+    fetchStageTasks();
+    fetchSponsorDeliverables();
+    fetchStatsCounts();
+    if (isAdmin || isAssistant) fetchItinerary();
+    fetchAnnouncements();
+    fetchTeamProfiles();
+  }, [profile?.id, isAdmin, isAssistant, fetchAssignments, fetchStageTasks, fetchSponsorDeliverables, fetchStatsCounts, fetchItinerary, fetchAnnouncements, fetchTeamProfiles]));
 
   useEffect(() => {
     if (profile?.id) fetchCheckins();

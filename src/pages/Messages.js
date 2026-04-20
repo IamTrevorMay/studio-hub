@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 
 export default function Messages({ onNavigate }) {
@@ -89,11 +90,12 @@ export default function Messages({ onNavigate }) {
 
   useEffect(() => {
     if (!profile?.id) return;
-    const timeout = setTimeout(() => setLoading(false), 5000);
     Promise.all([fetchConversations(), fetchTeamMembers()])
-      .finally(() => { setLoading(false); clearTimeout(timeout); });
-    return () => clearTimeout(timeout);
-  }, [profile?.id, fetchConversations, fetchTeamMembers, refreshKey]);
+      .finally(() => setLoading(false));
+  }, [profile?.id, fetchConversations, fetchTeamMembers]);
+  useVisibilityRefresh(useCallback(() => {
+    if (profile?.id) fetchConversations();
+  }, [profile?.id, fetchConversations]));
 
   const fetchMessages = useCallback(async (conversationId) => {
     setLoadingMessages(true);
@@ -117,7 +119,10 @@ export default function Messages({ onNavigate }) {
   useEffect(() => {
     if (!activeConversation) return;
     fetchMessages(activeConversation.id);
+  }, [activeConversation, fetchMessages]);
 
+  useEffect(() => {
+    if (!activeConversation) return;
     const channel = supabase
       .channel(`dm-${activeConversation.id}`)
       .on('postgres_changes', {
@@ -132,7 +137,6 @@ export default function Messages({ onNavigate }) {
         if (data) setMessages(prev => [...prev, data]);
       })
       .subscribe();
-
     return () => { supabase.removeChannel(channel); };
   }, [activeConversation, fetchMessages, refreshKey]);
 

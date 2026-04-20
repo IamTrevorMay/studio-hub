@@ -3,6 +3,7 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 
 const STATUSES = ['concept', 'script', 'production', 'edit', 'review', 'published'];
@@ -185,10 +186,11 @@ export default function Projects({ onNavigate }) {
   }, []);
 
   useEffect(() => {
-    const timeout = setTimeout(() => setLoading(false), 5000);
-    fetchProjects().finally(() => clearTimeout(timeout));
+    fetchProjects();
     fetchTeamMembers();
+  }, [fetchProjects]);
 
+  useEffect(() => {
     const channel = supabase
       .channel('projects-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, () => {
@@ -201,12 +203,10 @@ export default function Projects({ onNavigate }) {
         fetchProjects();
       })
       .subscribe();
-
-    return () => {
-      clearTimeout(timeout);
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [fetchProjects, refreshKey]);
+
+  useVisibilityRefresh(fetchProjects);
 
   async function fetchTeamMembers() {
     try {
@@ -359,6 +359,10 @@ export default function Projects({ onNavigate }) {
   useEffect(() => {
     if (activeSection !== 'shorts') return;
     fetchShorts();
+  }, [activeSection, fetchShorts]);
+
+  useEffect(() => {
+    if (activeSection !== 'shorts') return;
     const channel = supabase
       .channel('shorts-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'shorts_queue' }, () => {
@@ -547,6 +551,10 @@ export default function Projects({ onNavigate }) {
   useEffect(() => {
     if (activeSection !== 'sponsors') return;
     fetchSponsors();
+  }, [activeSection, fetchSponsors]);
+
+  useEffect(() => {
+    if (activeSection !== 'sponsors') return;
     const channel = supabase
       .channel('sponsors-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sponsors' }, () => fetchSponsors())
@@ -578,6 +586,10 @@ export default function Projects({ onNavigate }) {
   useEffect(() => {
     if (activeSection !== 'sponsors' && activeSection !== 'mayday') return;
     fetchReads();
+  }, [activeSection, fetchReads]);
+
+  useEffect(() => {
+    if (activeSection !== 'sponsors' && activeSection !== 'mayday') return;
     const channel = supabase
       .channel('reads-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sponsor_reads' }, () => fetchReads())
@@ -607,6 +619,10 @@ export default function Projects({ onNavigate }) {
   useEffect(() => {
     if (activeSection !== 'mayday') return;
     fetchMaydayVideos();
+  }, [activeSection, fetchMaydayVideos]);
+
+  useEffect(() => {
+    if (activeSection !== 'mayday') return;
     const channel = supabase
       .channel('mayday-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'mayday_videos' }, () => fetchMaydayVideos())

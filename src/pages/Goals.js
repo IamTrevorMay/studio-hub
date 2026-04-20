@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 
 function formatDate(dateStr) {
@@ -165,10 +166,9 @@ export default function Goals() {
 
   useEffect(() => {
     if (!profile?.id) return;
-    const timeout = setTimeout(() => setLoading(false), 5000);
-    fetchAll().finally(() => clearTimeout(timeout));
-    return () => clearTimeout(timeout);
-  }, [profile?.id, fetchAll, refreshKey]);
+    fetchAll();
+  }, [profile?.id, fetchAll]);
+  useVisibilityRefresh(fetchAll);
 
   async function fetchRollupData(metricGoals) {
     // Determine the widest date range needed (yearly always covers quarterly)

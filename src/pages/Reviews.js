@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 import * as mammoth from 'mammoth';
 import { marked } from 'marked';
@@ -245,11 +246,12 @@ export default function Reviews() {
 
   useEffect(() => {
     if (!profile?.id) return;
-    const timeout = setTimeout(() => setLoading(false), 5000);
-    Promise.all([fetchReviews(), fetchScriptReviews()])
-      .finally(() => clearTimeout(timeout));
-    return () => clearTimeout(timeout);
-  }, [profile?.id, fetchReviews, fetchScriptReviews, refreshKey]);
+    Promise.all([fetchReviews(), fetchScriptReviews()]);
+  }, [profile?.id, fetchReviews, fetchScriptReviews]);
+  useVisibilityRefresh(useCallback(() => {
+    fetchReviews();
+    fetchScriptReviews();
+  }, [fetchReviews, fetchScriptReviews]));
 
   // Realtime subscription for new writer versions on script review cards
   useEffect(() => {

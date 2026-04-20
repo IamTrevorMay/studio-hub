@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 import Whiteboard from './editors/Whiteboard';
 import StickyBoard from './editors/StickyBoard';
@@ -86,11 +87,9 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
 
   useEffect(() => {
     if (!profile?.id) return;
-    const timeout = setTimeout(() => setLoading(false), 5000);
-    Promise.all([fetchConcepts(), fetchTemplates(), fetchAllDocs()])
-      .finally(() => clearTimeout(timeout));
-    return () => clearTimeout(timeout);
-  }, [profile?.id, fetchConcepts, refreshKey]);
+    Promise.all([fetchConcepts(), fetchTemplates(), fetchAllDocs()]);
+  }, [profile?.id, fetchConcepts, fetchTemplates, fetchAllDocs]);
+  useVisibilityRefresh(fetchConcepts);
 
   // Handle deep-link from Projects page (works even when already mounted)
   useEffect(() => {

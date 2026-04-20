@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 import ScriptEditor from './editors/screenplay-editor/components/editor/ScriptEditor';
 
@@ -91,10 +92,9 @@ export default function Screenwriter({ initialScriptId, onScriptOpened }) {
   }, [user?.id]);
 
   useEffect(() => {
-    const timeout = setTimeout(() => setLoading(false), 5000);
-    fetchScripts().finally(() => clearTimeout(timeout));
-    return () => clearTimeout(timeout);
-  }, [fetchScripts, refreshKey]);
+    fetchScripts();
+  }, [fetchScripts]);
+  useVisibilityRefresh(fetchScripts);
 
   // Create new script
   const handleCreate = async () => {

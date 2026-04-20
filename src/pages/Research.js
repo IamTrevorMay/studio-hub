@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { tritonSupabase } from '../tritonClient';
 import { useAuth } from '../contexts/AuthContext';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 
 const SECTIONS = ['inbox', 'briefs', 'cards', 'news', 'trends', 'daily'];
@@ -562,11 +563,18 @@ export default function Research() {
   }, [markInboxRead]);
 
   useEffect(() => {
-    const timeout = setTimeout(() => setLoading(false), 5000);
     Promise.all([fetchArticles(), fetchBriefs(), fetchCardsArchive(), fetchCardsConfig(), fetchTrends(), fetchDailyDates(), fetchInboxState()])
-      .finally(() => { setLoading(false); clearTimeout(timeout); });
-    return () => clearTimeout(timeout);
-  }, [fetchArticles, fetchBriefs, fetchCardsArchive, fetchCardsConfig, fetchTrends, fetchDailyDates, fetchInboxState, refreshKey]);
+      .finally(() => setLoading(false));
+  }, [fetchArticles, fetchBriefs, fetchCardsArchive, fetchCardsConfig, fetchTrends, fetchDailyDates, fetchInboxState]);
+  useVisibilityRefresh(useCallback(() => {
+    fetchArticles();
+    fetchBriefs();
+    fetchCardsArchive();
+    fetchCardsConfig();
+    fetchTrends();
+    fetchDailyDates();
+    fetchInboxState();
+  }, [fetchArticles, fetchBriefs, fetchCardsArchive, fetchCardsConfig, fetchTrends, fetchDailyDates, fetchInboxState]));
 
   async function handleRefresh() {
     setRefreshing(true);

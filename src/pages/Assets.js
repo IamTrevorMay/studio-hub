@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 
 const API_BASE = process.env.REACT_APP_API_URL || 'https://assets.maydaystudio.net';
@@ -86,11 +87,12 @@ export default function Assets() {
 
   useEffect(() => {
     if (currentPath !== null) {
-      const timeout = setTimeout(() => setLoading(false), 5000);
-      fetchListing(currentPath).finally(() => clearTimeout(timeout));
-      return () => clearTimeout(timeout);
+      fetchListing(currentPath);
     }
-  }, [currentPath, fetchListing, refreshKey]);
+  }, [currentPath, fetchListing]);
+  useVisibilityRefresh(useCallback(() => {
+    if (currentPath !== null) fetchListing(currentPath);
+  }, [currentPath, fetchListing]));
 
   // Search
   async function handleSearch(e) {

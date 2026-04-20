@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 
 // ═══════════════════════════════════════════════
@@ -280,7 +281,7 @@ export default function Analytics() {
       if (data) setAccounts(data);
     }
     load();
-  }, [refreshKey]);
+  }, []);
 
   // ── Fetch all data when filters change ──
   const { start, end } = getDateRange(dateRange, customStart, customEnd, filterMonth, filterYear);
@@ -303,10 +304,9 @@ export default function Analytics() {
   }, [dateRange, customStart, customEnd, filterMonth, filterYear, activeAccountIds]);
 
   useEffect(() => {
-    const timeout = setTimeout(() => setLoading(false), 5000);
-    fetchAllData().finally(() => clearTimeout(timeout));
-    return () => clearTimeout(timeout);
-  }, [fetchAllData, refreshKey]);
+    fetchAllData();
+  }, [fetchAllData]);
+  useVisibilityRefresh(fetchAllData);
 
   // Auto-refresh content performance every 5 minutes
   useEffect(() => {
