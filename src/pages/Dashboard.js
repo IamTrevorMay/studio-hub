@@ -411,6 +411,7 @@ export default function Dashboard({ onNavigate }) {
     console.log('[Dashboard] fetchAssignments executing');
     if (!profile?.id) return;
     try {
+      console.log('[Dashboard] calling safeQuery...');
       const { data, error } = await safeQuery(() =>
         supabase
           .from('project_assignments')
@@ -421,6 +422,7 @@ export default function Dashboard({ onNavigate }) {
           .eq('user_id', profile.id)
           .order('created_at', { ascending: false })
       );
+      console.log('[Dashboard] safeQuery resolved — rows:', data?.length, 'error:', error?.message);
 
       if (error) throw error;
       setAssignments(data || []);
