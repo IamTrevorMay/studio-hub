@@ -13,12 +13,17 @@ if (!supabaseUrl || !supabaseAnonKey) {
 // Prevents concurrent token refresh race conditions without browser locks
 const _locks = {};
 async function simpleLock(name, acquireTimeout, fn) {
-  // If lock is held, wait for it
+  // If lock is held, wait for it — but respect the timeout so callers don't
+  // hang forever if the previous holder's network request never completes.
   if (_locks[name]) {
+    const waitMs = typeof acquireTimeout === 'number' && acquireTimeout > 0 ? acquireTimeout : 5000;
     try {
-      await _locks[name];
+      await Promise.race([
+        _locks[name],
+        new Promise((_, reject) => setTimeout(() => reject(new Error('lock timeout')), waitMs)),
+      ]);
     } catch (e) {
-      // ignore errors from previous holder
+      // ignore errors from previous holder or timeout
     }
   }
   // Acquire lock

@@ -328,8 +328,10 @@ export function AuthProvider({ children }) {
   }, [user]);
 
   // ── Reconnect everything when tab becomes visible ──
-  // Refreshes auth token first, THEN dispatches 'app-tab-restored' so pages
-  // can re-fetch with a valid token (avoids race condition with stale tokens).
+  // 1. Dispatch 'app-tab-restored' immediately → pages re-fetch data right away
+  //    (REST API calls; no WebSocket needed — stale tokens get auto-retried).
+  // 2. Token refresh + WebSocket reconnect happen async in the background.
+  // 3. refreshKey bumps AFTER reconnect → channels re-subscribe on the fresh socket.
   useEffect(() => {
     if (!user) return;
     let hiddenAt = null;
@@ -344,26 +346,29 @@ export function AuthProvider({ children }) {
       const away = hiddenAt ? Date.now() - hiddenAt : Infinity;
       hiddenAt = null;
 
+      // 1. Fire immediately so pages re-fetch without waiting for the network round-trip
+      window.dispatchEvent(new CustomEvent('app-tab-restored', { detail: { away } }));
+
       try {
-        // 1. Refresh auth token first so the new socket authenticates correctly
+        // 2. Refresh auth token and update the realtime socket auth
         const { data: refreshData } = await supabase.auth.refreshSession();
         const session = refreshData?.session;
         if (session) {
           supabase.realtime.setAuth(session.access_token);
         }
 
-        // 2. Force-reconnect the WebSocket (kills dead socket, opens fresh one)
+        // 3. Force-reconnect the WebSocket (kills dead socket, opens fresh one)
         await reconnectRealtime();
 
-        // 3. Re-ping presence so status goes back to active immediately
+        // 4. Re-ping presence so status goes back to active immediately
         supabase.from('profiles').update({ status: 'active', last_seen_at: new Date().toISOString() }).eq('id', user.id).then(() => {});
       } catch (e) {
         console.warn('Visibility reconnect failed:', e);
       }
 
-      // 4. Bump refreshKey so every subscription useEffect tears down and rebuilds
+      // 5. Bump refreshKey AFTER the socket is live so channels are created on the
+      //    fresh connection (not on the socket that was just torn down).
       setRefreshKey(k => k + 1);
-      window.dispatchEvent(new CustomEvent('app-tab-restored', { detail: { away } }));
     };
 
     document.addEventListener('visibilitychange', handleVisibility);
