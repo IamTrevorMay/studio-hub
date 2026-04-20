@@ -188,10 +188,19 @@ export default function Projects({ onNavigate }) {
     }
   }, []);
 
+  const fetchTeamMembers = useCallback(async () => {
+    try {
+      const { data } = await supabase.from('profiles').select('id, full_name, title');
+      setTeamMembers(data || []);
+    } catch (err) {
+      console.error('Error fetching team:', err);
+    }
+  }, []);
+
   useEffect(() => {
     fetchProjects();
     fetchTeamMembers();
-  }, [fetchProjects]);
+  }, [fetchProjects, fetchTeamMembers]);
 
   useEffect(() => {
     const channel = supabase
@@ -210,15 +219,6 @@ export default function Projects({ onNavigate }) {
   }, [fetchProjects, refreshKey]);
 
   useVisibilityRefresh(fetchProjects);
-
-  async function fetchTeamMembers() {
-    try {
-      const { data } = await supabase.from('profiles').select('id, full_name, title');
-      setTeamMembers(data || []);
-    } catch (err) {
-      console.error('Error fetching team:', err);
-    }
-  }
 
   function openFormWithPreset(category, status) {
     const types = category === 'business' ? BUSINESS_PROJECT_TYPES : PROJECT_TYPES;

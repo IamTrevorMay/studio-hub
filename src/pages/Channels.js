@@ -106,6 +106,20 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
     }
   }, []);
 
+  const fetchPinnedMessages = useCallback(async (channelId) => {
+    try {
+      const { data } = await supabase
+        .from('channel_messages')
+        .select('*, profile:profiles(id, full_name, title)')
+        .eq('channel_id', channelId)
+        .eq('is_pinned', true)
+        .order('created_at', { ascending: false });
+      setPinnedMessages(data || []);
+    } catch (err) {
+      console.error('Error fetching pinned:', err);
+    }
+  }, []);
+
   useEffect(() => {
     if (!activeChannel) return;
     fetchMessages(activeChannel.id);
@@ -151,20 +165,6 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
       inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 150) + 'px';
     }
   }, [newMessage]);
-
-  async function fetchPinnedMessages(channelId) {
-    try {
-      const { data } = await supabase
-        .from('channel_messages')
-        .select('*, profile:profiles(id, full_name, title)')
-        .eq('channel_id', channelId)
-        .eq('is_pinned', true)
-        .order('created_at', { ascending: false });
-      setPinnedMessages(data || []);
-    } catch (err) {
-      console.error('Error fetching pinned:', err);
-    }
-  }
 
   async function handlePinMessage(messageId, isPinned) {
     await supabase.from('channel_messages').update({ is_pinned: !isPinned }).eq('id', messageId);

@@ -85,6 +85,31 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
     }
   }, []);
 
+  const fetchTemplates = useCallback(async () => {
+    try {
+      const { data } = await supabase.from('concept_templates')
+        .select('*').order('created_at', { ascending: false });
+      setTemplates(data || []);
+    } catch (err) {
+      console.error('Error fetching templates:', err);
+    }
+  }, []);
+
+  const fetchAllDocs = useCallback(async () => {
+    setAllDocsLoading(true);
+    try {
+      const { data } = await supabase.from('concept_documents')
+        .select('id, concept_id, type, title, created_at, updated_at')
+        .order('updated_at', { ascending: false })
+        .limit(100);
+      setAllDocs(data || []);
+    } catch (err) {
+      console.error('Error fetching all docs:', err);
+    } finally {
+      setAllDocsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!profile?.id) return;
     Promise.all([fetchConcepts(), fetchTemplates(), fetchAllDocs()]);
@@ -118,31 +143,6 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
     } catch (err) {
       console.error('Error fetching documents:', err);
       setDocuments([]);
-    }
-  }
-
-  async function fetchTemplates() {
-    try {
-      const { data } = await supabase.from('concept_templates')
-        .select('*').order('created_at', { ascending: false });
-      setTemplates(data || []);
-    } catch (err) {
-      console.error('Error fetching templates:', err);
-    }
-  }
-
-  async function fetchAllDocs() {
-    setAllDocsLoading(true);
-    try {
-      const { data } = await supabase.from('concept_documents')
-        .select('id, concept_id, type, title, created_at, updated_at')
-        .order('updated_at', { ascending: false })
-        .limit(100);
-      setAllDocs(data || []);
-    } catch (err) {
-      console.error('Error fetching all docs:', err);
-    } finally {
-      setAllDocsLoading(false);
     }
   }
 
