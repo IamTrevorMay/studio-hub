@@ -39,6 +39,7 @@ export default function Production() {
   const [driveFolderName, setDriveFolderName] = useState(null);
   const [saveStatus, setSaveStatus] = useState('saved');
   const saveTimer = useRef(null);
+  const tagDragRef = useRef(null);
 
   // ── folder browser state ──
   const [showFolderBrowser, setShowFolderBrowser] = useState(false);
@@ -190,13 +191,12 @@ export default function Production() {
     el.style.height = el.scrollHeight + 'px';
   };
 
-  const moveTag = (beatId, field, index, dir) => {
+  const reorderTag = (beatId, field, fromIndex, toIndex) => {
     setBeats(prev => prev.map(b => {
       if (b.id !== beatId) return b;
       const arr = [...b[field]];
-      const newIdx = index + dir;
-      if (newIdx < 0 || newIdx >= arr.length) return b;
-      [arr[index], arr[newIdx]] = [arr[newIdx], arr[index]];
+      const [moved] = arr.splice(fromIndex, 1);
+      arr.splice(toIndex, 0, moved);
       return { ...b, [field]: arr };
     }));
   };
@@ -666,10 +666,21 @@ export default function Production() {
                       {/* Col 2: Graphics */}
                       <div style={styles.tagCol}>
                         {beat.graphics.map((g, i) => (
-                          <span key={i} style={styles.tag}>
-                            <button onClick={() => moveTag(beat.id, 'graphics', i, -1)} disabled={i === 0} style={styles.tagMove}>↑</button>
+                          <span
+                            key={i}
+                            style={{ ...styles.tag, cursor: 'grab' }}
+                            draggable
+                            onDragStart={() => { tagDragRef.current = { beatId: beat.id, field: 'graphics', fromIndex: i }; }}
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              const d = tagDragRef.current;
+                              if (!d || d.beatId !== beat.id || d.field !== 'graphics' || d.fromIndex === i) return;
+                              reorderTag(d.beatId, d.field, d.fromIndex, i);
+                              tagDragRef.current = null;
+                            }}
+                          >
                             <span style={styles.tagText}>{g}</span>
-                            <button onClick={() => moveTag(beat.id, 'graphics', i, 1)} disabled={i === beat.graphics.length - 1} style={styles.tagMove}>↓</button>
                             <button onClick={() => removeTag(beat.id, 'graphics', i)} style={styles.tagRemove}>&times;</button>
                           </span>
                         ))}
@@ -690,10 +701,21 @@ export default function Production() {
                       {/* Col 3: Videos */}
                       <div style={styles.tagCol}>
                         {beat.videos.map((v, i) => (
-                          <span key={i} style={styles.tag}>
-                            <button onClick={() => moveTag(beat.id, 'videos', i, -1)} disabled={i === 0} style={styles.tagMove}>↑</button>
+                          <span
+                            key={i}
+                            style={{ ...styles.tag, cursor: 'grab' }}
+                            draggable
+                            onDragStart={() => { tagDragRef.current = { beatId: beat.id, field: 'videos', fromIndex: i }; }}
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              const d = tagDragRef.current;
+                              if (!d || d.beatId !== beat.id || d.field !== 'videos' || d.fromIndex === i) return;
+                              reorderTag(d.beatId, d.field, d.fromIndex, i);
+                              tagDragRef.current = null;
+                            }}
+                          >
                             <span style={styles.tagText}>{v}</span>
-                            <button onClick={() => moveTag(beat.id, 'videos', i, 1)} disabled={i === beat.videos.length - 1} style={styles.tagMove}>↓</button>
                             <button onClick={() => removeTag(beat.id, 'videos', i)} style={styles.tagRemove}>&times;</button>
                           </span>
                         ))}
@@ -969,16 +991,6 @@ const styles = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
-  },
-  tagMove: {
-    background: 'none',
-    border: 'none',
-    color: 'rgba(165,180,252,0.45)',
-    cursor: 'pointer',
-    fontSize: 10,
-    padding: '0 1px',
-    lineHeight: 1,
-    flexShrink: 0,
   },
   tagRemove: {
     background: 'none',

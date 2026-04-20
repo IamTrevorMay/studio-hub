@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
@@ -85,6 +86,12 @@ export default function Dashboard({ onNavigate }) {
   const [newAnnouncementText, setNewAnnouncementText] = useState('');
   const [showAnnouncementInput, setShowAnnouncementInput] = useState(false);
 
+  // Todo list state
+  const [todoItems, setTodoItems] = useState([]);
+  const [todoCollapsed, setTodoCollapsed] = useState(true);
+  const [newTodoText, setNewTodoText] = useState('');
+  const [showTodoInput, setShowTodoInput] = useState(false);
+
   // Today's schedule state
   const [todayEvents, setTodayEvents] = useState([]);
   const [eventsLoading, setEventsLoading] = useState(false);
@@ -136,6 +143,21 @@ export default function Dashboard({ onNavigate }) {
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, [statusMenuOpen]);
+
+  // Load todo items from localStorage on mount
+  useEffect(() => {
+    if (!profile?.id) return;
+    try {
+      const saved = localStorage.getItem(`dashboard_todos_${profile.id}`);
+      if (saved) setTodoItems(JSON.parse(saved));
+    } catch {}
+  }, [profile?.id]);
+
+  // Persist todo items to localStorage
+  useEffect(() => {
+    if (!profile?.id) return;
+    localStorage.setItem(`dashboard_todos_${profile.id}`, JSON.stringify(todoItems));
+  }, [todoItems, profile?.id]);
 
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -957,6 +979,132 @@ export default function Dashboard({ onNavigate }) {
     );
   }
 
+  // ── Todo list functions ──
+  const addTodoItem = () => {
+    if (!newTodoText.trim()) return;
+    const item = { id: crypto.randomUUID(), text: newTodoText.trim(), checked: false };
+    setTodoItems(prev => [...prev, item]);
+    setNewTodoText('');
+    setShowTodoInput(false);
+  };
+
+  const toggleTodoItem = (id) => {
+    setTodoItems(prev => prev.map(item => item.id === id ? { ...item, checked: !item.checked } : item));
+  };
+
+  const deleteTodoItem = (id) => {
+    setTodoItems(prev => prev.filter(item => item.id !== id));
+  };
+
+  const handleTodoDragEnd = (result) => {
+    if (!result.destination) return;
+    const items = Array.from(todoItems);
+    const [moved] = items.splice(result.source.index, 1);
+    items.splice(result.destination.index, 0, moved);
+    setTodoItems(items);
+  };
+
+  // ── Todo list renderer ──
+  function renderTodoList() {
+    return (
+      <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: todoCollapsed ? 0 : '10px' }}>
+          <button
+            onClick={() => setTodoCollapsed(prev => !prev)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <span style={{ ...styles.subSectionTitle, margin: 0 }}>To Do</span>
+            <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)' }}>{todoCollapsed ? '▶' : '▼'}</span>
+          </button>
+          {!todoCollapsed && !showTodoInput && (
+            <button onClick={() => setShowTodoInput(true)} style={styles.postAnnouncementBtn}>+ Add</button>
+          )}
+        </div>
+        {!todoCollapsed && (
+          <>
+            {showTodoInput && (
+              <div style={styles.itineraryAddRow}>
+                <input
+                  value={newTodoText}
+                  onChange={(e) => setNewTodoText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') addTodoItem();
+                    if (e.key === 'Escape') { setShowTodoInput(false); setNewTodoText(''); }
+                  }}
+                  placeholder="Add a to-do item..."
+                  style={styles.itineraryInput}
+                  autoFocus
+                />
+                <button
+                  onClick={addTodoItem}
+                  disabled={!newTodoText.trim()}
+                  style={{ ...styles.itineraryAddBtn, opacity: newTodoText.trim() ? 1 : 0.4 }}
+                >
+                  Add
+                </button>
+                <button
+                  onClick={() => { setShowTodoInput(false); setNewTodoText(''); }}
+                  style={styles.cancelTitleBtn}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+            <DragDropContext onDragEnd={handleTodoDragEnd}>
+              <Droppable droppableId="todo-list">
+                {(provided) => (
+                  <div ref={provided.innerRef} {...provided.droppableProps} style={{ ...styles.itineraryList, marginTop: showTodoInput ? '8px' : '0' }}>
+                    {todoItems.map((item, index) => (
+                      <Draggable key={item.id} draggableId={item.id} index={index}>
+                        {(provided, snapshot) => (
+                          <div
+                            ref={provided.innerRef}
+                            {...provided.draggableProps}
+                            style={{
+                              ...styles.itineraryItemWrapper,
+                              ...(snapshot.isDragging ? { boxShadow: '0 4px 16px rgba(0,0,0,0.3)', opacity: 0.95 } : {}),
+                              ...provided.draggableProps.style,
+                            }}
+                          >
+                            <div style={styles.itineraryItem}>
+                              <div {...provided.dragHandleProps} style={{ color: 'rgba(255,255,255,0.2)', fontSize: '14px', cursor: 'grab', userSelect: 'none', lineHeight: 1, paddingRight: '2px' }}>
+                                ⠿
+                              </div>
+                              <input
+                                type="checkbox"
+                                checked={item.checked}
+                                onChange={() => toggleTodoItem(item.id)}
+                                style={styles.itineraryCheckbox}
+                              />
+                              <span style={{ ...styles.itineraryContent, flex: 1, textDecoration: item.checked ? 'line-through' : 'none', opacity: item.checked ? 0.45 : 1 }}>
+                                {item.text}
+                              </span>
+                              <button
+                                onClick={() => deleteTodoItem(item.id)}
+                                style={{ ...styles.itineraryActionBtn, color: '#ef4444' }}
+                                title="Delete"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </Draggable>
+                    ))}
+                    {provided.placeholder}
+                    {todoItems.length === 0 && (
+                      <p style={{ ...styles.emptyText, marginTop: '8px' }}>No items yet</p>
+                    )}
+                  </div>
+                )}
+              </Droppable>
+            </DragDropContext>
+          </>
+        )}
+      </div>
+    );
+  }
+
   // ── Announcements renderer ──
   function renderAnnouncements({ showInput }) {
     return (
@@ -1183,6 +1331,11 @@ export default function Dashboard({ onNavigate }) {
             <div style={styles.statLabel}>Stage Tasks</div>
           </div>
         </div>
+      </div>
+
+      {/* Announcements */}
+      <div style={{ ...styles.itineraryCard, marginBottom: '36px' }}>
+        {renderAnnouncements({ showInput: isAdmin || isAssistant })}
       </div>
 
       {/* Do this more — admin only */}
@@ -1655,7 +1808,7 @@ export default function Dashboard({ onNavigate }) {
                 {itineraryItems.map(item => renderItineraryItem(item))}
               </div>
             )}
-            {renderAnnouncements({ showInput: true })}
+            {renderTodoList()}
           </div>
         </div>
       )}
@@ -1717,7 +1870,7 @@ export default function Dashboard({ onNavigate }) {
                 {itineraryItems.map(item => renderItineraryItem(item))}
               </div>
             )}
-            {renderAnnouncements({ showInput: true })}
+            {renderTodoList()}
           </div>
         </div>
       )}
@@ -1728,7 +1881,7 @@ export default function Dashboard({ onNavigate }) {
           <h2 style={styles.sectionTitle}>Today</h2>
           <div style={styles.itineraryCard}>
             {renderTodaySchedule()}
-            {renderAnnouncements({ showInput: false })}
+            {renderTodoList()}
           </div>
         </div>
       )}
@@ -2265,9 +2418,6 @@ const styles = {
   },
   // Announcement styles
   announcementsSection: {
-    marginTop: '20px',
-    paddingTop: '16px',
-    borderTop: '1px solid rgba(255,255,255,0.06)',
   },
   announcementList: {
     display: 'flex',
