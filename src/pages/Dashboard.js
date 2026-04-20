@@ -91,6 +91,8 @@ export default function Dashboard({ onNavigate }) {
   const [todoCollapsed, setTodoCollapsed] = useState(true);
   const [newTodoText, setNewTodoText] = useState('');
   const [showTodoInput, setShowTodoInput] = useState(false);
+  const [editingTodoId, setEditingTodoId] = useState(null);
+  const [editingTodoText, setEditingTodoText] = useState('');
 
   // Today's schedule state
   const [todayEvents, setTodayEvents] = useState([]);
@@ -144,12 +146,12 @@ export default function Dashboard({ onNavigate }) {
     return () => document.removeEventListener('mousedown', handleClick);
   }, [statusMenuOpen]);
 
-  // Load todo items from localStorage on mount
+  // Load todo items from localStorage on mount (drop checked items on refresh)
   useEffect(() => {
     if (!profile?.id) return;
     try {
       const saved = localStorage.getItem(`dashboard_todos_${profile.id}`);
-      if (saved) setTodoItems(JSON.parse(saved));
+      if (saved) setTodoItems(JSON.parse(saved).filter(item => !item.checked));
     } catch {}
   }, [profile?.id]);
 
@@ -996,6 +998,13 @@ export default function Dashboard({ onNavigate }) {
     setTodoItems(prev => prev.filter(item => item.id !== id));
   };
 
+  const saveTodoEdit = (id) => {
+    const trimmed = editingTodoText.trim();
+    if (trimmed) setTodoItems(prev => prev.map(item => item.id === id ? { ...item, text: trimmed } : item));
+    setEditingTodoId(null);
+    setEditingTodoText('');
+  };
+
   const handleTodoDragEnd = (result) => {
     if (!result.destination) return;
     const items = Array.from(todoItems);
@@ -1076,9 +1085,27 @@ export default function Dashboard({ onNavigate }) {
                                 onChange={() => toggleTodoItem(item.id)}
                                 style={styles.itineraryCheckbox}
                               />
-                              <span style={{ ...styles.itineraryContent, flex: 1, textDecoration: item.checked ? 'line-through' : 'none', opacity: item.checked ? 0.45 : 1 }}>
-                                {item.text}
-                              </span>
+                              {editingTodoId === item.id ? (
+                                <input
+                                  value={editingTodoText}
+                                  onChange={(e) => setEditingTodoText(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') saveTodoEdit(item.id);
+                                    if (e.key === 'Escape') { setEditingTodoId(null); setEditingTodoText(''); }
+                                  }}
+                                  onBlur={() => saveTodoEdit(item.id)}
+                                  style={{ ...styles.itineraryEditInput, flex: 1 }}
+                                  autoFocus
+                                />
+                              ) : (
+                                <span
+                                  style={{ ...styles.itineraryContent, flex: 1, textDecoration: item.checked ? 'line-through' : 'none', opacity: item.checked ? 0.45 : 1, cursor: 'text' }}
+                                  onDoubleClick={() => { setEditingTodoId(item.id); setEditingTodoText(item.text); }}
+                                  title="Double-click to edit"
+                                >
+                                  {item.text}
+                                </span>
+                              )}
                               <button
                                 onClick={() => deleteTodoItem(item.id)}
                                 style={{ ...styles.itineraryActionBtn, color: '#ef4444' }}
