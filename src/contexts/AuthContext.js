@@ -328,10 +328,14 @@ export function AuthProvider({ children }) {
   }, [user]);
 
   // ── Reconnect everything when tab becomes visible ──
-  // 1. Dispatch 'app-tab-restored' immediately → pages re-fetch data right away
-  //    (REST API calls; no WebSocket needed — stale tokens get auto-retried).
-  // 2. Token refresh + WebSocket reconnect happen async in the background.
-  // 3. refreshKey bumps AFTER reconnect → channels re-subscribe on the fresh socket.
+  // Short tab switches (< 30s) only dispatch 'app-tab-restored' for data re-fetches.
+  // Longer absences additionally refresh the auth token, reconnect the WebSocket,
+  // and bump refreshKey so subscription effects re-run on the fresh socket.
+  // Doing the full dance on every 1-second tab switch was causing pages to re-run
+  // their data-fetch effects (via refreshKey), cancel their 5-second loading fallback
+  // timers, restart them, and then show empty state if the re-fetch was slow.
+  const RECONNECT_THRESHOLD_MS = 30_000;
+
   useEffect(() => {
     if (!user) return;
     let hiddenAt = null;
@@ -343,31 +347,34 @@ export function AuthProvider({ children }) {
       }
       if (document.visibilityState !== 'visible') return;
 
-      const away = hiddenAt ? Date.now() - hiddenAt : Infinity;
+      const away = hiddenAt ? Date.now() - hiddenAt : 0;
       hiddenAt = null;
 
-      // 1. Fire immediately so pages re-fetch without waiting for the network round-trip
+      // Always dispatch so pages using useVisibilityRefresh re-fetch their data
       window.dispatchEvent(new CustomEvent('app-tab-restored', { detail: { away } }));
 
+      // Brief tab switches don't need WebSocket reconnection or subscription rebuilds
+      if (away < RECONNECT_THRESHOLD_MS) return;
+
       try {
-        // 2. Refresh auth token and update the realtime socket auth
+        // Refresh auth token and update the realtime socket auth
         const { data: refreshData } = await supabase.auth.refreshSession();
         const session = refreshData?.session;
         if (session) {
           supabase.realtime.setAuth(session.access_token);
         }
 
-        // 3. Force-reconnect the WebSocket (kills dead socket, opens fresh one)
+        // Force-reconnect the WebSocket (kills dead socket, opens fresh one)
         await reconnectRealtime();
 
-        // 4. Re-ping presence so status goes back to active immediately
+        // Re-ping presence so status goes back to active immediately
         supabase.from('profiles').update({ status: 'active', last_seen_at: new Date().toISOString() }).eq('id', user.id).then(() => {});
       } catch (e) {
         console.warn('Visibility reconnect failed:', e);
       }
 
-      // 5. Bump refreshKey AFTER the socket is live so channels are created on the
-      //    fresh connection (not on the socket that was just torn down).
+      // Bump refreshKey AFTER the socket is live so channels re-subscribe on the
+      // fresh connection (only needed after long absences where socket may be dead)
       setRefreshKey(k => k + 1);
     };
 
