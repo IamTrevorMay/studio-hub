@@ -327,13 +327,11 @@ export function AuthProvider({ children }) {
     };
   }, [user]);
 
-  // ── Reconnect everything when tab becomes visible ──
-  // Short tab switches (< 30s) only dispatch 'app-tab-restored' for data re-fetches.
-  // Longer absences additionally refresh the auth token, reconnect the WebSocket,
-  // and bump refreshKey so subscription effects re-run on the fresh socket.
-  // Doing the full dance on every 1-second tab switch was causing pages to re-run
-  // their data-fetch effects (via refreshKey), cancel their 5-second loading fallback
-  // timers, restart them, and then show empty state if the re-fetch was slow.
+  // ── Reconnect WebSocket when tab returns after a long absence ──
+  // Data re-fetching is handled directly by useVisibilityRefresh in each page
+  // (visibilitychange + focus listeners) — no custom event needed here.
+  // This effect only handles the WebSocket reconnect + refreshKey bump, which
+  // only matters after long absences where the socket may have gone dead.
   const RECONNECT_THRESHOLD_MS = 30_000;
 
   useEffect(() => {
@@ -350,10 +348,7 @@ export function AuthProvider({ children }) {
       const away = hiddenAt ? Date.now() - hiddenAt : 0;
       hiddenAt = null;
 
-      // Always dispatch so pages using useVisibilityRefresh re-fetch their data
-      window.dispatchEvent(new CustomEvent('app-tab-restored', { detail: { away } }));
-
-      // Brief tab switches don't need WebSocket reconnection or subscription rebuilds
+      // Brief tab switches don't need WebSocket reconnection
       if (away < RECONNECT_THRESHOLD_MS) return;
 
       try {
