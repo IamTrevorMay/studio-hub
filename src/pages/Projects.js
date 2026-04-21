@@ -3326,6 +3326,9 @@ function KanbanCard({ project }) {
           <span style={styles.kanbanProgressText}>{completed}/{total}</span>
         </div>
       )}
+      {project.creator?.full_name && (
+        <div style={styles.kanbanAddedBy}>Added by {project.creator.full_name}</div>
+      )}
     </>
   );
 }
@@ -4090,6 +4093,12 @@ const styles = {
     fontSize: '10px',
     color: 'rgba(255,255,255,0.35)',
     fontWeight: 600,
+  },
+  kanbanAddedBy: {
+    fontSize: '10px',
+    color: 'rgba(255,255,255,0.3)',
+    fontStyle: 'italic',
+    marginTop: '6px',
   },
   checklistBadge: {
     fontSize: '11px',
