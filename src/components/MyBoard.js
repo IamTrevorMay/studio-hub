@@ -159,16 +159,15 @@ function TaskCard({ task, index, onClick, projectsMap, campaignsMap, readOnly })
 }
 
 // ─── TaskDetailModal ────────────────────────────────────────
-function TaskDetailModal({ task, onClose, onSave, onDelete, projects, concepts, campaigns, activeSprint }) {
+function TaskDetailModal({ task, onClose, onSave, onDelete, projects, categoryOptions, subcategoryOptions, bucketOptions, onAddOption, activeSprint }) {
   const [form, setForm] = useState({
     content: task.content,
     category: task.category || 'administration',
     subcategory: task.subcategory || 'task',
+    bucket: task.bucket || '',
     priority: task.priority || null,
     due_date: task.due_date || '',
     project_id: task.project_id || '',
-    concept_id: task.concept_id || '',
-    campaign_id: task.campaign_id || '',
   });
 
   function handleSave() {
@@ -176,13 +175,25 @@ function TaskDetailModal({ task, onClose, onSave, onDelete, projects, concepts, 
       content: form.content.trim(),
       category: form.category,
       subcategory: form.subcategory,
+      bucket: form.bucket || null,
       priority: form.priority || null,
       due_date: form.due_date || null,
       project_id: form.project_id || null,
-      concept_id: form.concept_id || null,
-      campaign_id: form.campaign_id || null,
     });
     onClose();
+  }
+
+  // Handles the "+ Add new…" option inside each taxonomy dropdown.
+  // Prompts for a label, persists via onAddOption, then selects the new value.
+  async function handleTaxonomyChange(kind, rawValue) {
+    if (rawValue !== '__new__') {
+      setForm(f => ({ ...f, [kind]: rawValue }));
+      return;
+    }
+    const label = window.prompt(`Add a new ${kind}`);
+    if (!label || !label.trim()) return;
+    const newValue = await onAddOption(kind, label.trim());
+    if (newValue) setForm(f => ({ ...f, [kind]: newValue }));
   }
 
   return (
@@ -206,14 +217,16 @@ function TaskDetailModal({ task, onClose, onSave, onDelete, projects, concepts, 
         <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
           <div style={{ flex: 1 }}>
             <label style={labelStyle}>Category</label>
-            <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} style={inputStyle}>
-              {CATEGORY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            <select value={form.category} onChange={e => handleTaxonomyChange('category', e.target.value)} style={inputStyle}>
+              {categoryOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              <option value="__new__">+ Add new…</option>
             </select>
           </div>
           <div style={{ flex: 1 }}>
             <label style={labelStyle}>Subcategory</label>
-            <select value={form.subcategory} onChange={e => setForm({ ...form, subcategory: e.target.value })} style={inputStyle}>
-              {SUBCATEGORY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            <select value={form.subcategory} onChange={e => handleTaxonomyChange('subcategory', e.target.value)} style={inputStyle}>
+              {subcategoryOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              <option value="__new__">+ Add new…</option>
             </select>
           </div>
           <div style={{ flex: 1 }}>
@@ -222,6 +235,16 @@ function TaskDetailModal({ task, onClose, onSave, onDelete, projects, concepts, 
               {PRIORITY_OPTIONS.map(o => <option key={o.value || 'none'} value={o.value || ''}>{o.label}</option>)}
             </select>
           </div>
+        </div>
+
+        {/* Bucket */}
+        <div style={{ marginTop: '12px' }}>
+          <label style={labelStyle}>Bucket</label>
+          <select value={form.bucket} onChange={e => handleTaxonomyChange('bucket', e.target.value)} style={inputStyle}>
+            <option value="">None</option>
+            {bucketOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            <option value="__new__">+ Add new…</option>
+          </select>
         </div>
 
         {/* Due date */}
@@ -236,24 +259,6 @@ function TaskDetailModal({ task, onClose, onSave, onDelete, projects, concepts, 
           <select value={form.project_id} onChange={e => setForm({ ...form, project_id: e.target.value })} style={inputStyle}>
             <option value="">None</option>
             {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        </div>
-
-        {/* Concept link */}
-        <div style={{ marginTop: '12px' }}>
-          <label style={labelStyle}>Concept</label>
-          <select value={form.concept_id} onChange={e => setForm({ ...form, concept_id: e.target.value })} style={inputStyle}>
-            <option value="">None</option>
-            {concepts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
-
-        {/* Sponsor Campaign link */}
-        <div style={{ marginTop: '12px' }}>
-          <label style={labelStyle}>Sponsor Campaign</label>
-          <select value={form.campaign_id} onChange={e => setForm({ ...form, campaign_id: e.target.value })} style={inputStyle}>
-            <option value="">None</option>
-            {campaigns.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
           </select>
         </div>
 
@@ -309,8 +314,8 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
   const [newTaskText, setNewTaskText] = useState('');
   const [editingTask, setEditingTask] = useState(null);
   const [projects, setProjects] = useState([]);
-  const [concepts, setConcepts] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
+  const [userOptions, setUserOptions] = useState({ category: [], subcategory: [], bucket: [] });
   const [showAllDone, setShowAllDone] = useState(false);
 
   // Sprint state
@@ -402,16 +407,17 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
     }
   }, [profile?.id, sprintForWeek?.id]);
 
-  // ── Fetch projects + concepts + campaigns for linking ──
+  // ── Fetch projects + campaigns for linking ──
+  // Campaigns are no longer surfaced in the task modal, but existing tasks
+  // still reference campaign_id for the card badge — keep fetching so the
+  // badge keeps working without a regression.
   useEffect(() => {
     async function fetchMeta() {
-      const [projRes, concRes, campRes] = await Promise.all([
+      const [projRes, campRes] = await Promise.all([
         supabase.from('projects').select('id, name').eq('is_archived', false).order('name'),
-        supabase.from('concepts').select('id, name').order('name'),
         supabase.from('sponsor_campaigns').select('id, name, sponsor_id, sponsors(name)').order('name'),
       ]);
       if (projRes.data) setProjects(projRes.data);
-      if (concRes.data) setConcepts(concRes.data);
       if (campRes.data) setCampaigns(campRes.data.map(c => ({
         id: c.id, name: c.name, sponsor_id: c.sponsor_id,
         label: `${c.sponsors?.name || 'Sponsor'} \u2014 ${c.name}`,
@@ -419,6 +425,51 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
     }
     fetchMeta();
   }, []);
+
+  // ── Fetch user-defined taxonomy options ──
+  const fetchUserOptions = useCallback(async () => {
+    if (!profile?.id) return;
+    const { data, error } = await supabase
+      .from('user_task_options')
+      .select('*')
+      .eq('user_id', profile.id)
+      .order('created_at', { ascending: true });
+    if (error) { console.error('Error fetching user task options:', error); return; }
+    const byKind = { category: [], subcategory: [], bucket: [] };
+    for (const row of (data || [])) {
+      if (byKind[row.kind]) byKind[row.kind].push({ value: row.value, label: row.label, color: row.color });
+    }
+    setUserOptions(byKind);
+  }, [profile?.id]);
+
+  useEffect(() => { fetchUserOptions(); }, [fetchUserOptions]);
+
+  // Insert a user-specific option and return the stored value, or null on failure.
+  const addUserOption = useCallback(async (kind, label) => {
+    if (!profile?.id || !label?.trim()) return null;
+    const trimmed = label.trim();
+    const value = trimmed.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    if (!value) { alert('Please use letters or numbers in the name.'); return null; }
+    const { data, error } = await supabase
+      .from('user_task_options')
+      .insert({ user_id: profile.id, kind, value, label: trimmed })
+      .select()
+      .single();
+    if (error) {
+      if (error.code === '23505') alert(`You already have a ${kind} named "${trimmed}".`);
+      else alert(`Could not add ${kind}: ${error.message}`);
+      return null;
+    }
+    setUserOptions(prev => ({
+      ...prev,
+      [kind]: [...prev[kind], { value: data.value, label: data.label, color: data.color }],
+    }));
+    return data.value;
+  }, [profile?.id]);
+
+  const categoryOptions = [...CATEGORY_OPTIONS, ...userOptions.category];
+  const subcategoryOptions = [...SUBCATEGORY_OPTIONS, ...userOptions.subcategory];
+  const bucketOptions = userOptions.bucket;
 
   useEffect(() => { if (profile?.id) fetchTasks(); }, [profile?.id, fetchTasks, sprintVersion]);
   useEffect(() => { fetchSprintForWeek(); }, [fetchSprintForWeek]);
@@ -983,8 +1034,10 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
           onSave={updateTask}
           onDelete={deleteTask}
           projects={projects}
-          concepts={concepts}
-          campaigns={campaigns}
+          categoryOptions={categoryOptions}
+          subcategoryOptions={subcategoryOptions}
+          bucketOptions={bucketOptions}
+          onAddOption={addUserOption}
           activeSprint={activeSprint}
         />
       )}
