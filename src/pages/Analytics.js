@@ -1408,6 +1408,22 @@ function PlatformView({ accountId, accounts, start, end }) {
     else { setSortCol(col); setSortDir('desc'); }
   }
 
+  // Sort content. Must run unconditionally — previously declared after the
+  // early return below, which violated the Rules of Hooks (error #310) every
+  // time platLoading flipped from true to false.
+  const sortedContent = useMemo(() => {
+    return [...(platData.content || [])].sort((a, b) => {
+      let va, vb;
+      if (sortCol === 'published_at') { va = a.published_at || ''; vb = b.published_at || ''; }
+      else if (sortCol === 'views') { va = a.metrics?.views || 0; vb = b.metrics?.views || 0; }
+      else if (sortCol === 'likes') { va = a.metrics?.likes || 0; vb = b.metrics?.likes || 0; }
+      else if (sortCol === 'engagement_rate') { va = a.metrics?.engagement_rate || 0; vb = b.metrics?.engagement_rate || 0; }
+      else { va = a[sortCol] || ''; vb = b[sortCol] || ''; }
+      if (typeof va === 'string') return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+      return sortDir === 'asc' ? va - vb : vb - va;
+    });
+  }, [platData.content, sortCol, sortDir]);
+
   if (platLoading) return <p style={styles.loadingText}>Loading {meta.label || 'platform'} data...</p>;
 
   // KPI aggregation
@@ -1434,33 +1450,6 @@ function PlatformView({ accountId, accounts, start, end }) {
 
   // Follower trend
   const followerTrend = platData.audience.map(a => ({ date: a.date, followers: a.followers_total }));
-
-  // Sort content
-  const sortedContent = useMemo(() => {
-    return [...platData.content].sort((a, b) => {
-      let va, vb;
-      if (sortCol === 'published_at') { va = a.published_at || ''; vb = b.published_at || ''; }
-      else if (sortCol === 'views') { va = a.metrics?.views || 0; vb = b.metrics?.views || 0; }
-      else if (sortCol === 'likes') { va = a.metrics?.likes || 0; vb = b.metrics?.likes || 0; }
-      else if (sortCol === 'engagement_rate') { va = a.metrics?.engagement_rate || 0; vb = b.metrics?.engagement_rate || 0; }
-      else { va = a[sortCol] || ''; vb = b[sortCol] || ''; }
-      if (typeof va === 'string') return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
-      return sortDir === 'asc' ? va - vb : vb - va;
-    });
-  }, [platData.content, sortCol, sortDir]);
-
-  // Debug: log all values to find the object
-  console.log('PlatformView debug:', {
-    totalViews, prevViews, totalLikes, prevLikes, latestFollowers, prevFollowers,
-    followersGained, totalEngagement, prevEngagement: prevEngagement,
-    totalImpressions, prevImpressions, isYouTube,
-    rollupCount: platData.rollups.length,
-    audienceCount: platData.audience.length,
-    ytDailyCount: (platData.ytDaily || []).length,
-    accountName: account?.account_name,
-    color,
-    sampleRollup: platData.rollups[0],
-  });
 
   return (
     <>
