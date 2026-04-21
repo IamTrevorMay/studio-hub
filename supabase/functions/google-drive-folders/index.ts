@@ -7,11 +7,9 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
-// Root folder path — users cannot navigate above this
-const ROOT_PATH = ["Business", "YouTube", "Trevor May Baseball", "Long Form"];
-
-// Cache resolved root folder ID across requests (edge function instance lifetime)
-let cachedRootId: string | null = null;
+// Root folder ID — users cannot navigate above this.
+// "Long Form" folder in Trevor's My Drive.
+const ROOT_ID = "1qRWOObZHLeomjy_XBcPT8tkKNBjxhjN3";
 
 // Get a fresh access token using the shared Drive refresh token
 async function getDriveAccessToken(): Promise<string> {
@@ -33,35 +31,6 @@ async function getDriveAccessToken(): Promise<string> {
   const tokens = await res.json();
   if (!res.ok) throw new Error(tokens.error_description || "Token refresh failed");
   return tokens.access_token;
-}
-
-// Resolve a folder path from Drive root, returning the final folder's ID
-async function resolveRootFolder(accessToken: string): Promise<string> {
-  if (cachedRootId) return cachedRootId;
-
-  let currentId = "root";
-  for (const name of ROOT_PATH) {
-    const query = `'${currentId}' in parents and name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
-    const res = await fetch(
-      `https://www.googleapis.com/drive/v3/files?` +
-      new URLSearchParams({
-        q: query,
-        fields: "files(id)",
-        pageSize: "1",
-        supportsAllDrives: "true",
-        includeItemsFromAllDrives: "true",
-      }),
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
-    const data = await res.json();
-    if (!res.ok || !data.files?.length) {
-      throw new Error(`Could not find Drive folder: ${name}`);
-    }
-    currentId = data.files[0].id;
-  }
-
-  cachedRootId = currentId;
-  return currentId;
 }
 
 Deno.serve(async (req: Request) => {
@@ -93,7 +62,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const accessToken = await getDriveAccessToken();
-    const rootId = await resolveRootFolder(accessToken);
+    const rootId = ROOT_ID;
     const url = new URL(req.url);
 
     if (req.method === "GET") {

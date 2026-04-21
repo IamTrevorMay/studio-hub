@@ -7,19 +7,12 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
-// Root folder path for Resources — users cannot navigate above this
-const ROOT_PATH = [
-  "YouTube",
-  "Trevor May Baseball",
-  "Mayday Media & Live Show",
-  "Resources",
-  "HOW WE WORK",
-];
+// Root folder ID for Resources — users cannot navigate above this.
+// "HOW WE WORK" folder in Trevor's My Drive.
+const ROOT_ID = "1KvMC2uXc3grw1rh23jQ16uLUEOd8hCqT";
 
 const DOC_MIME = "application/vnd.google-apps.document";
 const FOLDER_MIME = "application/vnd.google-apps.folder";
-
-let cachedRootId: string | null = null;
 
 async function getDriveAccessToken(): Promise<string> {
   const clientId = Deno.env.get("GOOGLE_DRIVE_CLIENT_ID")!;
@@ -40,35 +33,6 @@ async function getDriveAccessToken(): Promise<string> {
   const tokens = await res.json();
   if (!res.ok) throw new Error(tokens.error_description || "Token refresh failed");
   return tokens.access_token;
-}
-
-async function resolveRootFolder(accessToken: string): Promise<string> {
-  if (cachedRootId) return cachedRootId;
-
-  let currentId = "root";
-  for (const name of ROOT_PATH) {
-    const escaped = name.replace(/'/g, "\\'");
-    const query = `'${currentId}' in parents and name = '${escaped}' and mimeType = '${FOLDER_MIME}' and trashed = false`;
-    const res = await fetch(
-      `https://www.googleapis.com/drive/v3/files?` +
-      new URLSearchParams({
-        q: query,
-        fields: "files(id)",
-        pageSize: "1",
-        supportsAllDrives: "true",
-        includeItemsFromAllDrives: "true",
-      }),
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
-    const data = await res.json();
-    if (!res.ok || !data.files?.length) {
-      throw new Error(`Could not find Drive folder: ${name}`);
-    }
-    currentId = data.files[0].id;
-  }
-
-  cachedRootId = currentId;
-  return currentId;
 }
 
 async function isDescendantOfRoot(accessToken: string, fileId: string, rootId: string): Promise<boolean> {
@@ -118,7 +82,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const accessToken = await getDriveAccessToken();
-    const rootId = await resolveRootFolder(accessToken);
+    const rootId = ROOT_ID;
     const url = new URL(req.url);
 
     if (req.method === "GET") {
