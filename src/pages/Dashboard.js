@@ -991,9 +991,8 @@ export default function Dashboard({ onNavigate }) {
   // ── Todo list functions ──
   const addTodoItem = async () => {
     const text = newTodoText.trim();
-    if (!text || !profile?.id) return;
-    setNewTodoText('');
-    setShowTodoInput(false);
+    if (!text) return;
+    if (!profile?.id) { alert('Cannot add todo: not signed in yet.'); return; }
     const nextPosition = todoItems.length > 0
       ? Math.max(...todoItems.map(i => i.position || 0)) + 1
       : 0;
@@ -1002,8 +1001,18 @@ export default function Dashboard({ onNavigate }) {
       .insert({ user_id: profile.id, text, checked: false, position: nextPosition })
       .select()
       .single();
-    if (error) { console.error('Error adding todo:', error); return; }
+    if (error) {
+      console.error('Error adding todo:', error);
+      alert(`Could not save todo: ${error.message || 'unknown error'}`);
+      return;
+    }
+    if (!data) {
+      alert('Todo saved but no row came back — check RLS / network tab.');
+      return;
+    }
     setTodoItems(prev => [...prev, data]);
+    setNewTodoText('');
+    setShowTodoInput(false);
   };
 
   const toggleTodoItem = async (id) => {
