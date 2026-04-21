@@ -117,8 +117,16 @@ const COMPARISON_METRICS = AVAILABLE_METRICS.filter(m => !m.contentOnly);
 // ═══════════════════════════════════════════════
 // Date helpers
 // ═══════════════════════════════════════════════
-function todayStr() { return new Date().toISOString().split('T')[0]; }
-function daysAgoStr(n) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().split('T')[0]; }
+// Analytics dates are Pacific-anchored (same as snapshot-daily-work, Metricool,
+// Google Calendar flows). Using toISOString().split('T')[0] would silently slip
+// into UTC after ~16:00 PT and shift every range one day into the future.
+const PT_DATE_FMT = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Los_Angeles',
+  year: 'numeric', month: '2-digit', day: '2-digit',
+});
+function toPTDateString(d) { return PT_DATE_FMT.format(d); }
+function todayStr() { return toPTDateString(new Date()); }
+function daysAgoStr(n) { const d = new Date(); d.setDate(d.getDate() - n); return toPTDateString(d); }
 
 function getDateRange(rangeKey, customStart, customEnd, filterMonth, filterYear) {
   if (rangeKey === 'month') return getMonthRange(filterYear, filterMonth);
@@ -255,6 +263,25 @@ export default function Analytics() {
   // Platform sync refresh
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState(null);
+  const syncStatusTimeoutRef = useRef(null);
+
+  // Generation refs: each in-flight fetch captures its gen at call-start.
+  // If gen drifts (filters changed, another fetch started), the late response
+  // no-ops instead of clobbering current state. One ref per fetch so that
+  // refreshing content doesn't invalidate in-flight KPI/time-series fetches.
+  const allDataGenRef = useRef(0);
+  const kpiGenRef = useRef(0);
+  const timeSeriesGenRef = useRef(0);
+  const contentGenRef = useRef(0);
+  const analysisGenRef = useRef(0);
+  const revenueGenRef = useRef(0);
+  const tableGenRef = useRef(0);
+  const compareGenRef = useRef(0);
+
+  // Clear any pending syncStatus timer on unmount
+  useEffect(() => () => {
+    if (syncStatusTimeoutRef.current) clearTimeout(syncStatusTimeoutRef.current);
+  }, []);
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -287,6 +314,7 @@ export default function Analytics() {
   const { start, end } = getDateRange(dateRange, customStart, customEnd, filterMonth, filterYear);
 
   const fetchAllData = useCallback(async () => {
+    const gen = ++allDataGenRef.current;
     setLoading(true);
     try {
       await Promise.all([
@@ -299,7 +327,7 @@ export default function Analytics() {
     } catch (err) {
       console.error('Error fetching analytics:', err);
     } finally {
-      setLoading(false);
+      if (gen === allDataGenRef.current) setLoading(false);
     }
   }, [dateRange, customStart, customEnd, filterMonth, filterYear, activeAccountIds]);
 
@@ -318,8 +346,11 @@ export default function Analytics() {
 
   async function handleContentRefresh() {
     setContentRefreshing(true);
-    await fetchContentPerformance();
-    setContentRefreshing(false);
+    try {
+      await fetchContentPerformance();
+    } finally {
+      setContentRefreshing(false);
+    }
   }
 
   async function handleSyncAllPlatforms() {
@@ -344,11 +375,16 @@ export default function Analytics() {
       setSyncStatus('Sync failed — check console');
     } finally {
       setSyncing(false);
-      setTimeout(() => setSyncStatus(null), 5000);
+      if (syncStatusTimeoutRef.current) clearTimeout(syncStatusTimeoutRef.current);
+      syncStatusTimeoutRef.current = setTimeout(() => {
+        setSyncStatus(null);
+        syncStatusTimeoutRef.current = null;
+      }, 5000);
     }
   }
 
   async function fetchAnalysisData() {
+    const gen = ++analysisGenRef.current;
     const { start, end } = getDateRange(dateRange, customStart, customEnd, filterMonth, filterYear);
     const [revResult, contentResult, audResult] = await Promise.all([
       // Revenue by account
@@ -356,14 +392,14 @@ export default function Analytics() {
         .from('revenue_events')
         .select('platform_account_id, amount_cents, net_amount_cents, event_type')
         .gte('occurred_at', start)
-        .lte('occurred_at', end + 'T23:59:59')
+        .lte('occurred_at', end + 'T23:59:59.999')
         .in('event_type', ['charge', 'subscription_renewal']),
       // Content items with metrics
       supabase
         .from('content_items')
         .select('id, title, published_at, platform_account_id, url, platform_account:platform_accounts(platform, account_name), latest_metrics:content_metrics(views, likes, comments, shares, engagement_rate)')
         .gte('published_at', start)
-        .lte('published_at', end + 'T23:59:59')
+        .lte('published_at', end + 'T23:59:59.999')
         .order('published_at', { ascending: false })
         .limit(500),
       // Audience snapshots for follower growth
@@ -373,6 +409,7 @@ export default function Analytics() {
         .gte('date', start)
         .lte('date', end),
     ]);
+    if (gen !== analysisGenRef.current) return;
     setAnalysisData({
       revenue: revResult.data || [],
       contentWithMetrics: contentResult.data || [],
@@ -381,6 +418,7 @@ export default function Analytics() {
   }
 
   async function fetchRevenue() {
+    const gen = ++revenueGenRef.current;
     const { start, end } = getDateRange(dateRange, customStart, customEnd, filterMonth, filterYear);
     const { data, error } = await supabase
       .from('revenue_transactions')
@@ -389,6 +427,7 @@ export default function Analytics() {
       .lte('date', end)
       .order('date', { ascending: false });
     if (error) console.error('Revenue fetch error:', error);
+    if (gen !== revenueGenRef.current) return;
     setRevenueData(data || []);
   }
 
@@ -408,6 +447,7 @@ export default function Analytics() {
   }
 
   async function fetchKPI() {
+    const gen = ++kpiGenRef.current;
     const { start, end } = getDateRange(dateRange, customStart, customEnd, filterMonth, filterYear);
 
     // Current period
@@ -459,6 +499,7 @@ export default function Analytics() {
     const totalEngagement = rollups.reduce((s, r) => s + Number(r.total_likes || 0) + Number(r.total_comments || 0) + Number(r.total_shares || 0), 0);
     const prevEngagement = prevRollups.reduce((s, r) => s + Number(r.total_likes || 0) + Number(r.total_comments || 0) + Number(r.total_shares || 0), 0);
 
+    if (gen !== kpiGenRef.current) return;
     setKpi({
       totalViews,
       totalRevenue: totalRev,
@@ -472,6 +513,7 @@ export default function Analytics() {
   }
 
   async function fetchTimeSeries() {
+    const gen = ++timeSeriesGenRef.current;
     const { start, end } = getDateRange(dateRange, customStart, customEnd, filterMonth, filterYear);
     let q = supabase
       .from('daily_platform_rollups')
@@ -481,10 +523,12 @@ export default function Analytics() {
       .order('date', { ascending: true });
     if (activeAccountIds.length > 0) q = q.in('platform_account_id', activeAccountIds);
     const data = await fetchAllRows(q);
+    if (gen !== timeSeriesGenRef.current) return;
     setTimeSeries(data);
   }
 
   async function fetchContentPerformance() {
+    const gen = ++contentGenRef.current;
     const { start, end } = getDateRange(dateRange, customStart, customEnd, filterMonth, filterYear);
     let q = supabase
       .from('content_items')
@@ -499,6 +543,7 @@ export default function Analytics() {
       .limit(100);
     if (activeAccountIds.length > 0) q = q.in('platform_account_id', activeAccountIds);
     const { data } = await q;
+    if (gen !== contentGenRef.current) return;
     setContentItems(data || []);
   }
 
@@ -1327,7 +1372,7 @@ function PlatformView({ accountId, accounts, start, end }) {
         supabase.from('daily_platform_rollups').select('*').eq('platform_account_id', accountId).gte('date', prevStart).lt('date', prevEnd),
         supabase.from('content_items')
           .select('id, title, published_at, url, content_type, duration_seconds, latest_metrics:content_metrics(views, likes, comments, shares, engagement_rate)')
-          .eq('platform_account_id', accountId).gte('published_at', start).lte('published_at', end + 'T23:59:59')
+          .eq('platform_account_id', accountId).gte('published_at', start).lte('published_at', end + 'T23:59:59.999')
           .order('published_at', { ascending: false }).limit(100),
         supabase.from('audience_snapshots').select('date, followers_total, followers_gained').eq('platform_account_id', accountId).gte('date', start).lte('date', end).order('date'),
         supabase.from('audience_snapshots').select('date, followers_total, followers_gained').eq('platform_account_id', accountId).gte('date', prevStart).lt('date', prevEnd).order('date'),
@@ -1623,20 +1668,22 @@ function AdvancedView({ accounts }) {
   }, [tableSplit, contentTypeFilter, tableStart, tableEnd, effectiveTableAccountIds.join(','), tableMetrics.join(',')]);
 
   async function fetchTableData() {
+    const gen = ++tableGenRef.current;
+    const isCurrent = () => gen === tableGenRef.current;
     setTableLoading(true);
     try {
-      if (tableSplit === 'content') await fetchContentSplit();
-      else if (tableSplit.startsWith('bucket_')) await fetchBucketSplit();
-      else await fetchDateSplit();
+      if (tableSplit === 'content') await fetchContentSplit(isCurrent);
+      else if (tableSplit.startsWith('bucket_')) await fetchBucketSplit(isCurrent);
+      else await fetchDateSplit(isCurrent);
     } catch (err) {
       console.error('Table fetch error:', err);
-      setTableData([]);
+      if (isCurrent()) setTableData([]);
     }
-    setTableLoading(false);
+    if (isCurrent()) setTableLoading(false);
   }
 
-  async function fetchContentSplit() {
-    if (!effectiveTableAccountIds.length) { setTableData([]); return; }
+  async function fetchContentSplit(isCurrent = () => true) {
+    if (!effectiveTableAccountIds.length) { if (isCurrent()) setTableData([]); return; }
     let q = supabase
       .from('content_items')
       .select(`*, platform_account:platform_accounts(platform, account_name), latest_metrics:content_metrics(views, likes, comments, shares, engagement_rate)`)
@@ -1676,11 +1723,11 @@ function AdvancedView({ accounts }) {
         return false;
       });
     }
-    setTableData(rows);
+    if (isCurrent()) setTableData(rows);
   }
 
-  async function fetchDateSplit() {
-    if (!effectiveTableAccountIds.length) { setTableData([]); return; }
+  async function fetchDateSplit(isCurrent = () => true) {
+    if (!effectiveTableAccountIds.length) { if (isCurrent()) setTableData([]); return; }
     const { data: rollups } = await supabase.from('daily_platform_rollups').select('*')
       .gte('date', tableStart).lte('date', tableEnd).in('platform_account_id', effectiveTableAccountIds).order('date', { ascending: true });
     const needsYT = tableMetrics.some(k => AVAILABLE_METRICS.find(m => m.key === k)?.table === 'analytics_youtube_daily');
@@ -1711,13 +1758,13 @@ function AdvancedView({ accounts }) {
       }
       return row;
     }).sort((a, b) => a._sortKey.localeCompare(b._sortKey));
-    setTableData(rows);
+    if (isCurrent()) setTableData(rows);
   }
 
-  async function fetchBucketSplit() {
+  async function fetchBucketSplit(isCurrent = () => true) {
     const bucketKey = tableSplit.replace('bucket_', '');
     const years = getYearsInRange(tableStart, tableEnd);
-    if (!effectiveTableAccountIds.length) { setTableData([]); return; }
+    if (!effectiveTableAccountIds.length) { if (isCurrent()) setTableData([]); return; }
     const { data: rollups } = await supabase.from('daily_platform_rollups').select('*')
       .gte('date', tableStart).lte('date', tableEnd).in('platform_account_id', effectiveTableAccountIds);
     const needsYT = tableMetrics.some(k => AVAILABLE_METRICS.find(m => m.key === k)?.table === 'analytics_youtube_daily');
@@ -1744,7 +1791,7 @@ function AdvancedView({ accounts }) {
       }
       rows.push(row);
     }
-    setTableData(rows);
+    if (isCurrent()) setTableData(rows);
   }
 
   function formatGroupLabel(key, split) {
@@ -1798,15 +1845,25 @@ function AdvancedView({ accounts }) {
   }, [accounts, compAccountIds, compContentType]);
 
   useEffect(() => {
-    if (compPeriods.length === 0) { setCompData([]); return; }
+    if (compPeriods.length === 0) {
+      // Bump the gen so any in-flight fetchComparisonData can't clobber the cleared state
+      compareGenRef.current++;
+      setCompData([]);
+      return;
+    }
     fetchComparisonData();
   }, [compPeriods, compMetric, effectiveCompAccountIds.join(',')]);
 
   async function fetchComparisonData() {
+    const gen = ++compareGenRef.current;
+    const isCurrent = () => gen === compareGenRef.current;
     setCompLoading(true);
     try {
       const metricDef = AVAILABLE_METRICS.find(m => m.key === compMetric);
-      if (!metricDef) { setCompData([]); setCompLoading(false); return; }
+      if (!metricDef) {
+        if (isCurrent()) { setCompData([]); setCompLoading(false); }
+        return;
+      }
       const results = await Promise.all(compPeriods.map(async (period) => {
         let values = [];
         if (metricDef.table === 'daily_platform_rollups') {
@@ -1832,9 +1889,9 @@ function AdvancedView({ accounts }) {
         }
         return { ...period, values };
       }));
-      setCompData(results);
+      if (isCurrent()) setCompData(results);
     } catch (err) { console.error('Comparison fetch error:', err); }
-    setCompLoading(false);
+    if (isCurrent()) setCompLoading(false);
   }
 
   // Split comparison metrics into groups
