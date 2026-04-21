@@ -158,6 +158,46 @@ function TaskCard({ task, index, onClick, projectsMap, campaignsMap, readOnly })
   );
 }
 
+// ─── AddOptionInline ────────────────────────────────────────
+// Inline text field used for "+ Add new…" in the taxonomy dropdowns.
+// Replaces window.prompt, which gets blocked or silently no-ops in several
+// browsers and was letting the add flow fail without any user feedback.
+function AddOptionInline({ kind, value, onChange, onCommit, onCancel, busy, error }) {
+  return (
+    <div style={{ marginTop: '6px' }}>
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <input
+          autoFocus
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') { e.preventDefault(); onCommit(); }
+            if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
+          }}
+          placeholder={`New ${kind} name…`}
+          disabled={busy}
+          style={{ ...inputStyle, flex: 1 }}
+        />
+        <button
+          onClick={onCommit}
+          disabled={busy || !value.trim()}
+          style={{ background: '#6366f1', border: 'none', color: '#fff', borderRadius: '6px', padding: '6px 12px', fontSize: '12px', fontWeight: 600, cursor: busy ? 'default' : 'pointer', opacity: busy || !value.trim() ? 0.5 : 1 }}
+        >
+          {busy ? 'Saving…' : 'Add'}
+        </button>
+        <button
+          onClick={onCancel}
+          disabled={busy}
+          style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)', borderRadius: '6px', padding: '6px 12px', fontSize: '12px', cursor: 'pointer' }}
+        >
+          Cancel
+        </button>
+      </div>
+      {error && <div style={{ fontSize: '11px', color: '#ef4444', marginTop: '4px' }}>{error}</div>}
+    </div>
+  );
+}
+
 // ─── TaskDetailModal ────────────────────────────────────────
 function TaskDetailModal({ task, onClose, onSave, onDelete, projects, categoryOptions, subcategoryOptions, bucketOptions, onAddOption, activeSprint }) {
   const [form, setForm] = useState({
@@ -169,6 +209,14 @@ function TaskDetailModal({ task, onClose, onSave, onDelete, projects, categoryOp
     due_date: task.due_date || '',
     project_id: task.project_id || '',
   });
+
+  // Inline "+ Add new…" input state. When a user picks the sentinel option we
+  // open an inline text field instead of window.prompt (prompts are blocked
+  // or silently no-op in several browser configs).
+  const [addingKind, setAddingKind] = useState(null); // 'category' | 'subcategory' | 'bucket'
+  const [addingLabel, setAddingLabel] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState(null);
 
   function handleSave() {
     onSave(task.id, {
@@ -183,17 +231,42 @@ function TaskDetailModal({ task, onClose, onSave, onDelete, projects, categoryOp
     onClose();
   }
 
-  // Handles the "+ Add new…" option inside each taxonomy dropdown.
-  // Prompts for a label, persists via onAddOption, then selects the new value.
-  async function handleTaxonomyChange(kind, rawValue) {
-    if (rawValue !== '__new__') {
-      setForm(f => ({ ...f, [kind]: rawValue }));
+  function handleTaxonomyChange(kind, rawValue) {
+    if (rawValue === '__new__') {
+      setAddingKind(kind);
+      setAddingLabel('');
+      setAddError(null);
       return;
     }
-    const label = window.prompt(`Add a new ${kind}`);
-    if (!label || !label.trim()) return;
-    const newValue = await onAddOption(kind, label.trim());
-    if (newValue) setForm(f => ({ ...f, [kind]: newValue }));
+    setForm(f => ({ ...f, [kind]: rawValue }));
+  }
+
+  async function commitNewOption() {
+    if (!addingKind) return;
+    const label = addingLabel.trim();
+    if (!label) { setAddingKind(null); setAddingLabel(''); return; }
+    setAdding(true);
+    setAddError(null);
+    try {
+      const newValue = await onAddOption(addingKind, label);
+      if (newValue) {
+        setForm(f => ({ ...f, [addingKind]: newValue }));
+        setAddingKind(null);
+        setAddingLabel('');
+      } else {
+        setAddError('Could not save. Try a different name.');
+      }
+    } catch (err) {
+      setAddError(err?.message || 'Could not save.');
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  function cancelNewOption() {
+    setAddingKind(null);
+    setAddingLabel('');
+    setAddError(null);
   }
 
   return (
@@ -237,6 +310,18 @@ function TaskDetailModal({ task, onClose, onSave, onDelete, projects, categoryOp
           </div>
         </div>
 
+        {(addingKind === 'category' || addingKind === 'subcategory') && (
+          <AddOptionInline
+            kind={addingKind}
+            value={addingLabel}
+            onChange={setAddingLabel}
+            onCommit={commitNewOption}
+            onCancel={cancelNewOption}
+            busy={adding}
+            error={addError}
+          />
+        )}
+
         {/* Bucket */}
         <div style={{ marginTop: '12px' }}>
           <label style={labelStyle}>Bucket</label>
@@ -245,6 +330,17 @@ function TaskDetailModal({ task, onClose, onSave, onDelete, projects, categoryOp
             {bucketOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             <option value="__new__">+ Add new…</option>
           </select>
+          {addingKind === 'bucket' && (
+            <AddOptionInline
+              kind="bucket"
+              value={addingLabel}
+              onChange={setAddingLabel}
+              onCommit={commitNewOption}
+              onCancel={cancelNewOption}
+              busy={adding}
+              error={addError}
+            />
+          )}
         </div>
 
         {/* Due date */}
@@ -444,21 +540,22 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
 
   useEffect(() => { fetchUserOptions(); }, [fetchUserOptions]);
 
-  // Insert a user-specific option and return the stored value, or null on failure.
+  // Insert a user-specific option and return the stored value.
+  // Errors bubble up so the inline input can surface them to the user.
   const addUserOption = useCallback(async (kind, label) => {
-    if (!profile?.id || !label?.trim()) return null;
-    const trimmed = label.trim();
+    if (!profile?.id) throw new Error('Not signed in.');
+    const trimmed = (label || '').trim();
+    if (!trimmed) throw new Error('Name is required.');
     const value = trimmed.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-    if (!value) { alert('Please use letters or numbers in the name.'); return null; }
+    if (!value) throw new Error('Use letters or numbers in the name.');
     const { data, error } = await supabase
       .from('user_task_options')
       .insert({ user_id: profile.id, kind, value, label: trimmed })
       .select()
       .single();
     if (error) {
-      if (error.code === '23505') alert(`You already have a ${kind} named "${trimmed}".`);
-      else alert(`Could not add ${kind}: ${error.message}`);
-      return null;
+      if (error.code === '23505') throw new Error(`You already have a ${kind} named "${trimmed}".`);
+      throw new Error(error.message || `Could not add ${kind}.`);
     }
     setUserOptions(prev => ({
       ...prev,
