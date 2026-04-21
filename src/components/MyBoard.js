@@ -36,6 +36,10 @@ const SUBCATEGORY_OPTIONS = [
 
 const PROJECT_STATUSES = ['concept', 'script', 'production', 'edit', 'review', 'published'];
 
+// Rotation of colors auto-assigned to new buckets so each appears distinct
+// on task cards without requiring a per-bucket color picker in the UI.
+const BUCKET_COLORS = ['#8b5cf6', '#3b82f6', '#f59e0b', '#ec4899', '#22c55e', '#ef4444', '#14b8a6', '#f97316'];
+
 const POINT_COLORS = { '15': '#ef4444', '10': '#f97316', '6': '#f59e0b', '3': '#3b82f6', '1': '#6b7280' };
 const PRIORITY_OPTIONS = [
   { value: null, label: 'None', points: 0 },
@@ -89,9 +93,10 @@ function isCurrentWeek(start) {
 }
 
 // ─── TaskCard ───────────────────────────────────────────────
-function TaskCard({ task, index, onClick, projectsMap, campaignsMap, readOnly }) {
+function TaskCard({ task, index, onClick, projectsMap, campaignsMap, bucketMap, readOnly }) {
   const cat = CATEGORY_OPTIONS.find(c => c.value === task.category);
   const subcat = SUBCATEGORY_OPTIONS.find(c => c.value === task.subcategory);
+  const bucket = task.bucket && bucketMap ? bucketMap[task.bucket] : null;
   const priorityColor = task.priority ? POINT_COLORS[task.priority] : null;
 
   return (
@@ -129,6 +134,11 @@ function TaskCard({ task, index, onClick, projectsMap, campaignsMap, readOnly })
             {subcat && (
               <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.45)', fontWeight: 600 }}>
                 {subcat.label}
+              </span>
+            )}
+            {bucket && (
+              <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', background: `${bucket.color || '#6366f1'}22`, color: bucket.color || '#a5b4fc', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                {bucket.label}
               </span>
             )}
             {task.due_date && (
@@ -542,15 +552,20 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
 
   // Insert a user-specific option and return the stored value.
   // Errors bubble up so the inline input can surface them to the user.
+  // Buckets auto-pick a color from BUCKET_COLORS so each badge is visually distinct.
   const addUserOption = useCallback(async (kind, label) => {
     if (!profile?.id) throw new Error('Not signed in.');
     const trimmed = (label || '').trim();
     if (!trimmed) throw new Error('Name is required.');
     const value = trimmed.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
     if (!value) throw new Error('Use letters or numbers in the name.');
+    const row = { user_id: profile.id, kind, value, label: trimmed };
+    if (kind === 'bucket') {
+      row.color = BUCKET_COLORS[userOptions.bucket.length % BUCKET_COLORS.length];
+    }
     const { data, error } = await supabase
       .from('user_task_options')
-      .insert({ user_id: profile.id, kind, value, label: trimmed })
+      .insert(row)
       .select()
       .single();
     if (error) {
@@ -562,11 +577,13 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
       [kind]: [...prev[kind], { value: data.value, label: data.label, color: data.color }],
     }));
     return data.value;
-  }, [profile?.id]);
+  }, [profile?.id, userOptions.bucket.length]);
 
   const categoryOptions = [...CATEGORY_OPTIONS, ...userOptions.category];
   const subcategoryOptions = [...SUBCATEGORY_OPTIONS, ...userOptions.subcategory];
   const bucketOptions = userOptions.bucket;
+  const bucketMap = {};
+  bucketOptions.forEach(b => { bucketMap[b.value] = { label: b.label, color: b.color }; });
 
   useEffect(() => { if (profile?.id) fetchTasks(); }, [profile?.id, fetchTasks, sprintVersion]);
   useEffect(() => { fetchSprintForWeek(); }, [fetchSprintForWeek]);
@@ -991,6 +1008,7 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
                           onClick={setEditingTask}
                           projectsMap={projectsMap}
                           campaignsMap={campaignsMap}
+                          bucketMap={bucketMap}
                           readOnly={isArchived}
                         />
                       ))}
