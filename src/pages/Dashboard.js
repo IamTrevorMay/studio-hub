@@ -146,20 +146,27 @@ export default function Dashboard({ onNavigate }) {
     return () => document.removeEventListener('mousedown', handleClick);
   }, [statusMenuOpen]);
 
-  // Load todo items from localStorage on mount (drop checked items on refresh)
+  // Load todo items from Supabase on mount (drop any previously-checked items
+  // on refresh, mirroring the old localStorage behavior).
   useEffect(() => {
     if (!profile?.id) return;
-    try {
-      const saved = localStorage.getItem(`dashboard_todos_${profile.id}`);
-      if (saved) setTodoItems(JSON.parse(saved).filter(item => !item.checked));
-    } catch {}
+    let cancelled = false;
+    (async () => {
+      try {
+        await supabase.from('dashboard_todos').delete().eq('user_id', profile.id).eq('checked', true);
+        const { data, error } = await supabase
+          .from('dashboard_todos')
+          .select('*')
+          .eq('user_id', profile.id)
+          .order('position', { ascending: true });
+        if (error) throw error;
+        if (!cancelled) setTodoItems(data || []);
+      } catch (err) {
+        console.error('Error loading dashboard todos:', err);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [profile?.id]);
-
-  // Persist todo items to localStorage
-  useEffect(() => {
-    if (!profile?.id) return;
-    localStorage.setItem(`dashboard_todos_${profile.id}`, JSON.stringify(todoItems));
-  }, [todoItems, profile?.id]);
 
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -982,35 +989,79 @@ export default function Dashboard({ onNavigate }) {
   }
 
   // ── Todo list functions ──
-  const addTodoItem = () => {
-    if (!newTodoText.trim()) return;
-    const item = { id: crypto.randomUUID(), text: newTodoText.trim(), checked: false };
-    setTodoItems(prev => [...prev, item]);
+  const addTodoItem = async () => {
+    const text = newTodoText.trim();
+    if (!text || !profile?.id) return;
     setNewTodoText('');
     setShowTodoInput(false);
+    const nextPosition = todoItems.length > 0
+      ? Math.max(...todoItems.map(i => i.position || 0)) + 1
+      : 0;
+    const { data, error } = await supabase
+      .from('dashboard_todos')
+      .insert({ user_id: profile.id, text, checked: false, position: nextPosition })
+      .select()
+      .single();
+    if (error) { console.error('Error adding todo:', error); return; }
+    setTodoItems(prev => [...prev, data]);
   };
 
-  const toggleTodoItem = (id) => {
-    setTodoItems(prev => prev.map(item => item.id === id ? { ...item, checked: !item.checked } : item));
+  const toggleTodoItem = async (id) => {
+    const current = todoItems.find(i => i.id === id);
+    if (!current) return;
+    const nextChecked = !current.checked;
+    setTodoItems(prev => prev.map(item => item.id === id ? { ...item, checked: nextChecked } : item));
+    const { error } = await supabase
+      .from('dashboard_todos')
+      .update({ checked: nextChecked, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) {
+      console.error('Error toggling todo:', error);
+      setTodoItems(prev => prev.map(item => item.id === id ? { ...item, checked: current.checked } : item));
+    }
   };
 
-  const deleteTodoItem = (id) => {
+  const deleteTodoItem = async (id) => {
+    const previous = todoItems;
     setTodoItems(prev => prev.filter(item => item.id !== id));
+    const { error } = await supabase.from('dashboard_todos').delete().eq('id', id);
+    if (error) {
+      console.error('Error deleting todo:', error);
+      setTodoItems(previous);
+    }
   };
 
-  const saveTodoEdit = (id) => {
+  const saveTodoEdit = async (id) => {
     const trimmed = editingTodoText.trim();
-    if (trimmed) setTodoItems(prev => prev.map(item => item.id === id ? { ...item, text: trimmed } : item));
     setEditingTodoId(null);
     setEditingTodoText('');
+    if (!trimmed) return;
+    const current = todoItems.find(i => i.id === id);
+    if (!current || current.text === trimmed) return;
+    setTodoItems(prev => prev.map(item => item.id === id ? { ...item, text: trimmed } : item));
+    const { error } = await supabase
+      .from('dashboard_todos')
+      .update({ text: trimmed, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) {
+      console.error('Error saving todo edit:', error);
+      setTodoItems(prev => prev.map(item => item.id === id ? { ...item, text: current.text } : item));
+    }
   };
 
-  const handleTodoDragEnd = (result) => {
+  const handleTodoDragEnd = async (result) => {
     if (!result.destination) return;
     const items = Array.from(todoItems);
     const [moved] = items.splice(result.source.index, 1);
     items.splice(result.destination.index, 0, moved);
-    setTodoItems(items);
+    const reindexed = items.map((item, idx) => ({ ...item, position: idx }));
+    setTodoItems(reindexed);
+    const updates = reindexed.map(item =>
+      supabase.from('dashboard_todos').update({ position: item.position }).eq('id', item.id)
+    );
+    const results = await Promise.all(updates);
+    const firstError = results.find(r => r.error)?.error;
+    if (firstError) console.error('Error reordering todos:', firstError);
   };
 
   // ── Todo list renderer ──
