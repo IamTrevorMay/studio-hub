@@ -171,6 +171,7 @@ export default function Projects({ onNavigate }) {
         .from('projects')
         .select(`
           *,
+          creator:profiles!created_by(id, full_name),
           project_assignments(*, profile:profiles(id, full_name, title)),
           project_attachments(*),
           project_checklists(*),
