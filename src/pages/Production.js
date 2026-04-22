@@ -155,9 +155,9 @@ export default function Production() {
     fetchSheets();
   };
 
-  const deleteSheet = async (id) => {
+  const deleteSheet = async (id, title) => {
+    if (!window.confirm(`Delete "${title}"? This cannot be undone.`)) return;
     await supabase.from('beat_sheets').delete().eq('id', id);
-    setConfirmDelete(null);
     fetchSheets();
   };
 
@@ -533,7 +533,7 @@ export default function Production() {
                     </svg>
                   </button>
                   <button
-                    onClick={() => setConfirmDelete(sheet.id)}
+                    onClick={() => deleteSheet(sheet.id, sheet.title)}
                     style={{ ...styles.actionBtn, color: '#ef4444' }}
                     title="Delete"
                   >
@@ -542,13 +542,6 @@ export default function Production() {
                     </svg>
                   </button>
                 </div>
-                {confirmDelete === sheet.id && (
-                  <div style={styles.confirmRow}>
-                    <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>Delete permanently?</span>
-                    <button onClick={() => deleteSheet(sheet.id)} style={{ ...styles.btnSmall, background: '#ef4444' }}>Delete</button>
-                    <button onClick={() => setConfirmDelete(null)} style={styles.btnSmall}>Cancel</button>
-                  </div>
-                )}
               </div>
             ))}
           </div>
