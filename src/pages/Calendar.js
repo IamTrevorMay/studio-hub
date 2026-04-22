@@ -255,7 +255,6 @@ export default function Calendar({ onNavigate }) {
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const fetchProjects = useCallback(async () => {
     try {
       const { data, error } = await supabase.from('projects').select('*').order('start_date', { ascending: true });
@@ -269,7 +268,6 @@ export default function Calendar({ onNavigate }) {
     }
   }, []);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const fetchCalendarEvents = useCallback(async () => {
     try {
       const { start, end } = getVisibleRange();
