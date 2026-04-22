@@ -368,23 +368,29 @@ export default function Production() {
           } else {
             if (inList) { html += '</ul>'; inList = false; }
             if (line.trim()) html += `<p>${line}</p>`;
+            else html += '<br>';
           }
         }
         if (inList) html += '</ul>';
         return html;
       };
 
-      // Build HTML: graphics first, then bold beat title, then context
+      const cueStyle = 'opacity:0.4; font-size:0.7em; letter-spacing:0.08em; text-transform:uppercase; margin:0.3em 0;';
+      const divider = '<div style="border-top:1px solid rgba(255,255,255,0.12); margin:1.8em 0;"></div>';
+
+      // Build HTML: graphics cues, beat content (no context), video cues
       const htmlParts = beats
         .filter(b => b.title.trim())
         .map(b => {
           const parts = [];
-          b.graphics.forEach(g => parts.push(`<p>${g}</p>`));
-          parts.push(`<p><strong>${b.title}</strong></p>`);
-          if (b.context?.trim()) parts.push(textToHtml(b.context));
+          if (b.graphics?.length > 0)
+            parts.push(`<p style="${cueStyle}">${b.graphics.map(g => `[ ${g} ]`).join('  ')}</p>`);
+          parts.push(textToHtml(b.title));
+          if (b.videos?.length > 0)
+            parts.push(`<p style="${cueStyle}">${b.videos.map(v => `[ ${v} ]`).join('  ')}</p>`);
           return parts.join('');
         });
-      const htmlContent = htmlParts.join('<br>');
+      const htmlContent = htmlParts.join(divider);
 
       // Upsert by name — delete existing with same name first, then insert
       await supabase
