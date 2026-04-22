@@ -227,10 +227,12 @@ export default function Calendar({ onNavigate }) {
     } catch {}
     return { projects: true, stages: false, substack_article: true, deadline: true, meeting: true, live_recording: true, filming: true, video_post: true, unavailable: true, social_posts: true };
   });
+  const [dragOverDate, setDragOverDate] = useState(null);
   const dropdownRef = useRef(null);
   const modalRef = useRef(null);
   const guestDropdownRef = useRef(null);
   const timeGridRef = useRef(null);
+  const dragEventRef = useRef(null);
 
   useEffect(() => {
     try { localStorage.setItem('calendar_filters', JSON.stringify(visibleFilters)); } catch {}
@@ -253,6 +255,55 @@ export default function Calendar({ onNavigate }) {
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const fetchProjects = useCallback(async () => {
+    try {
+      const { data, error } = await supabase.from('projects').select('*').order('start_date', { ascending: true });
+      if (error) throw error;
+      setProjects(data || []);
+    } catch (err) {
+      console.error('Error:', err);
+      setProjects([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const fetchCalendarEvents = useCallback(async () => {
+    try {
+      const { start, end } = getVisibleRange();
+      const bufferStart = new Date(start);
+      bufferStart.setDate(bufferStart.getDate() - 7);
+      const bufferEnd = new Date(end);
+      bufferEnd.setDate(bufferEnd.getDate() + 7);
+      const { data, error } = await supabase
+        .from('calendar_events')
+        .select('*, creator:profiles!created_by(id, full_name)')
+        .gte('end_date', bufferStart.toISOString())
+        .lte('start_date', bufferEnd.toISOString())
+        .order('start_date', { ascending: true });
+      if (error) throw error;
+      setCalendarEvents(data || []);
+    } catch (err) {
+      console.error('Error fetching events:', err);
+      setCalendarEvents([]);
+    }
+  }, [viewDate, viewMode]);
+
+  const fetchHubUsers = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, avatar_url, title')
+        .order('full_name', { ascending: true });
+      if (error) throw error;
+      setHubUsers(data || []);
+    } catch (err) {
+      console.error('Error fetching users:', err);
+    }
+  }, []);
+
   useEffect(() => {
     Promise.all([fetchProjects(), fetchCalendarEvents(), fetchHubUsers()]);
   }, [fetchProjects, fetchCalendarEvents, fetchHubUsers]);
@@ -261,10 +312,6 @@ export default function Calendar({ onNavigate }) {
     fetchCalendarEvents();
     fetchHubUsers();
   }, [fetchProjects, fetchCalendarEvents, fetchHubUsers]));
-
-  useEffect(() => {
-    fetchCalendarEvents();
-  }, [viewDate]);
 
   // Scroll time grid to 7 AM on mount / view change
   useEffect(() => {
@@ -310,51 +357,21 @@ export default function Calendar({ onNavigate }) {
     }
   }, [viewDate, viewMode, showMetricool, fetchMetricoolPosts]);
 
-  async function fetchProjects() {
-    try {
-      const { data, error } = await supabase.from('projects').select('*').order('start_date', { ascending: true });
-      if (error) throw error;
-      setProjects(data || []);
-    } catch (err) {
-      console.error('Error:', err);
-      setProjects([]);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function fetchCalendarEvents() {
-    try {
-      const { start, end } = getVisibleRange();
-      const bufferStart = new Date(start);
-      bufferStart.setDate(bufferStart.getDate() - 7);
-      const bufferEnd = new Date(end);
-      bufferEnd.setDate(bufferEnd.getDate() + 7);
-      const { data, error } = await supabase
-        .from('calendar_events')
-        .select('*, creator:profiles!created_by(id, full_name)')
-        .gte('end_date', bufferStart.toISOString())
-        .lte('start_date', bufferEnd.toISOString())
-        .order('start_date', { ascending: true });
-      if (error) throw error;
-      setCalendarEvents(data || []);
-    } catch (err) {
-      console.error('Error fetching events:', err);
-      setCalendarEvents([]);
-    }
-  }
-
-  async function fetchHubUsers() {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, full_name, email, avatar_url, title')
-        .order('full_name', { ascending: true });
-      if (error) throw error;
-      setHubUsers(data || []);
-    } catch (err) {
-      console.error('Error fetching users:', err);
-    }
+  async function handleEventDrop(targetDate) {
+    const ev = dragEventRef.current;
+    dragEventRef.current = null;
+    setDragOverDate(null);
+    if (!ev || ev._isRecurrenceInstance) return;
+    const origStart = new Date(ev.start_date);
+    const origEnd = new Date(ev.end_date);
+    const duration = origEnd.getTime() - origStart.getTime();
+    const newStart = new Date(targetDate);
+    newStart.setHours(origStart.getHours(), origStart.getMinutes(), origStart.getSeconds());
+    const newEnd = new Date(newStart.getTime() + duration);
+    await supabase.from('calendar_events')
+      .update({ start_date: newStart.toISOString(), end_date: newEnd.toISOString() })
+      .eq('id', ev.id);
+    fetchCalendarEvents();
   }
 
   async function handleStatusChange(projectId, newStatus) {
@@ -880,13 +897,17 @@ export default function Calendar({ onNavigate }) {
     const color = EVENT_TYPE_COLORS[ev.event_type] || '#6b7280';
     const icon = EVENT_TYPE_ICONS[ev.event_type] || '\u2022';
     const isRecurring = ev.recurrence_rule && ev.recurrence_rule.type !== 'none';
+    const isDraggable = !ev._isRecurrenceInstance;
     return (
       <div
         key={`ev-${ev.id}`}
+        draggable={isDraggable}
+        onDragStart={(e) => { e.stopPropagation(); dragEventRef.current = ev; }}
         style={{
           ...styles.eventChip,
           background: `${color}20`,
           borderColor: `${color}50`,
+          cursor: isDraggable ? 'grab' : 'pointer',
         }}
         onClick={(e) => handleEventClick(e, ev)}
       >
@@ -1095,10 +1116,14 @@ export default function Calendar({ onNavigate }) {
                         <div key={di} style={{
                           ...styles.dayCell,
                           opacity: day.isCurrentMonth ? 1 : 0.3,
-                          background: isToday ? 'rgba(99,102,241,0.06)' : 'transparent',
+                          background: dragOverDate === dayKey ? 'rgba(99,102,241,0.14)' : (isToday ? 'rgba(99,102,241,0.06)' : 'transparent'),
                           borderRight: di < 6 ? '1px solid rgba(255,255,255,0.04)' : 'none',
+                          outline: dragOverDate === dayKey ? '1px solid rgba(99,102,241,0.4)' : 'none',
                         }}
                         onDoubleClick={(e) => { e.stopPropagation(); openNewEventModal(day.date); }}
+                        onDragOver={(e) => { e.preventDefault(); setDragOverDate(dayKey); }}
+                        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOverDate(null); }}
+                        onDrop={(e) => { e.preventDefault(); handleEventDrop(day.date); }}
                         >
                           <div style={styles.dateRow}>
                             <span style={{ ...styles.dateNumber, ...(isToday ? styles.dateNumberToday : {}) }}>
