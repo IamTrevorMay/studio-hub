@@ -122,7 +122,7 @@ export default function Projects({ onNavigate }) {
   // Campaign state
   const [showCampaignForm, setShowCampaignForm] = useState(null); // sponsorId or null
   const [editingCampaign, setEditingCampaign] = useState(null);
-  const [campaignForm, setCampaignForm] = useState({ name: '', description: '', start_date: '', end_date: '', contact_name: '', contact_email: '', payment_amount: '', payment_status: 'unpaid' });
+  const [campaignForm, setCampaignForm] = useState({ name: '', description: '', start_date: '', end_date: '', contact_name: '', contact_email: '', payment_amount: '', payment_status: 'unpaid', channel: '' });
   const [briefFile, setBriefFile] = useState(null);
 
   // Sponsor view mode
@@ -1003,7 +1003,7 @@ export default function Projects({ onNavigate }) {
 
   // Campaign CRUD
   function resetCampaignForm() {
-    setCampaignForm({ name: '', description: '', start_date: '', end_date: '', contact_name: '', contact_email: '', payment_amount: '', payment_status: 'unpaid' });
+    setCampaignForm({ name: '', description: '', start_date: '', end_date: '', contact_name: '', contact_email: '', payment_amount: '', payment_status: 'unpaid', channel: '' });
     setBriefFile(null);
     setEditingCampaign(null); setShowCampaignForm(null);
   }
@@ -1020,6 +1020,7 @@ export default function Projects({ onNavigate }) {
       contact_email: campaignForm.contact_email || null,
       payment_amount: campaignForm.payment_amount ? parseFloat(campaignForm.payment_amount) : 0,
       payment_status: campaignForm.payment_status || 'unpaid',
+      channel: campaignForm.channel || null,
       updated_at: new Date().toISOString(),
     };
     let campaignId = editingCampaign;
@@ -2267,6 +2268,15 @@ export default function Projects({ onNavigate }) {
                                 <input value={campaignForm.name} onChange={e => setCampaignForm({ ...campaignForm, name: e.target.value })} placeholder="e.g. Q1 Launch" required style={styles.input} />
                               </div>
                               <div style={styles.field}>
+                                <label style={styles.label}>Channel</label>
+                                <select value={campaignForm.channel} onChange={e => setCampaignForm({ ...campaignForm, channel: e.target.value })} style={styles.select}>
+                                  <option value="">— Select channel —</option>
+                                  <option value="mayday">Mayday</option>
+                                  <option value="tmb">Trevor May Baseball</option>
+                                  <option value="socials">Socials</option>
+                                </select>
+                              </div>
+                              <div style={styles.field}>
                                 <label style={styles.label}>Start Date</label>
                                 <input type="date" value={campaignForm.start_date} onChange={e => setCampaignForm({ ...campaignForm, start_date: e.target.value })} style={styles.input} />
                               </div>
@@ -2340,7 +2350,7 @@ export default function Projects({ onNavigate }) {
                                 {campaignDels.length > 0 && (
                                   <span style={styles.checklistBadge}>{postedCount}/{campaignDels.length}</span>
                                 )}
-                                <button onClick={() => { setCampaignForm({ name: campaign.name, description: campaign.description || '', start_date: campaign.start_date || '', end_date: campaign.end_date || '', contact_name: campaign.contact_name || '', contact_email: campaign.contact_email || '', payment_amount: campaign.payment_amount || '', payment_status: campaign.payment_status || 'unpaid' }); setEditingCampaign(campaign.id); setShowCampaignForm(sponsor.id); }} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Edit">✎</button>
+                                <button onClick={() => { setCampaignForm({ name: campaign.name, description: campaign.description || '', start_date: campaign.start_date || '', end_date: campaign.end_date || '', contact_name: campaign.contact_name || '', contact_email: campaign.contact_email || '', payment_amount: campaign.payment_amount || '', payment_status: campaign.payment_status || 'unpaid', channel: campaign.channel || '' }); setEditingCampaign(campaign.id); setShowCampaignForm(sponsor.id); }} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Edit">✎</button>
                                 <button onClick={() => handleDeleteCampaign(campaign.id)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Delete">✕</button>
                               </div>
                               {/* Campaign contact + brief info */}
