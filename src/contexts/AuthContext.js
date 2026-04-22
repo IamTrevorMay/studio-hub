@@ -13,6 +13,7 @@ export function AuthProvider({ children }) {
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const initDone = useRef(false);
+  const visibilityInFlight = useRef(false);
 
   // Nuclear option: wipe all auth state from the browser
   const nukeSession = useCallback(async () => {
@@ -164,13 +165,19 @@ export function AuthProvider({ children }) {
 
     initAuth();
 
-    // Listen for auth changes (sign in, sign out, token refresh)
+    // Listen for auth changes (sign in, sign out, token refresh).
+    // IMPORTANT: this callback must NOT be async and must NOT call any
+    // supabase.* functions directly. The Supabase auth lock is still held
+    // for the duration of this callback — any awaited Supabase call inside it
+    // will queue behind the lock and deadlock the entire client, making the
+    // UI appear frozen after a tab switch or token refresh.
+    // Any async work must be deferred via setTimeout so it runs after the lock
+    // is released. See: https://github.com/supabase/auth-js/issues/762
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      (event, session) => {
         console.log('Auth event:', event);
 
         if (event === 'PASSWORD_RECOVERY') {
-          // User clicked a password reset link — do NOT log them in
           setIsPasswordRecovery(true);
           setLoading(false);
           return;
@@ -183,21 +190,22 @@ export function AuthProvider({ children }) {
           return;
         }
 
-        // During password recovery, block SIGNED_IN from auto-loading the app
-        if (isPasswordRecovery) {
-          return;
-        }
+        if (isPasswordRecovery) return;
 
         if (session?.user) {
           if (event === 'SIGNED_IN') {
             setUser(session.user);
-            const p = await fetchProfile(session.user.id);
-            if (!p) {
-              // fetchProfile already nuked session, just clean up
-              setUser(null);
-              setProfile(null);
-            }
+            // Defer fetchProfile outside the auth lock window
+            setTimeout(() => {
+              fetchProfile(session.user.id).then(p => {
+                if (!p) {
+                  setUser(null);
+                  setProfile(null);
+                }
+              });
+            }, 0);
           } else if (event === 'TOKEN_REFRESHED') {
+            // Token refreshed — update user object only, profile hasn't changed
             setUser(session.user);
           }
         } else if (event !== 'TOKEN_REFRESHED') {
@@ -339,7 +347,6 @@ export function AuthProvider({ children }) {
     let hiddenAt = null;
 
     const handleVisibility = async () => {
-      console.log('[AuthContext] visibilitychange →', document.visibilityState);
       if (document.visibilityState === 'hidden') {
         hiddenAt = Date.now();
         return;
@@ -348,13 +355,13 @@ export function AuthProvider({ children }) {
 
       const away = hiddenAt ? Date.now() - hiddenAt : 0;
       hiddenAt = null;
-      console.log('[AuthContext] tab restored, away:', away, 'ms, user:', !!user);
 
       // Brief tab switches don't need WebSocket reconnection
-      if (away < RECONNECT_THRESHOLD_MS) {
-        console.log('[AuthContext] short absence — skipping WS reconnect');
-        return;
-      }
+      if (away < RECONNECT_THRESHOLD_MS) return;
+
+      // Prevent double-execution if visibilitychange fires twice rapidly (Chrome bug)
+      if (visibilityInFlight.current) return;
+      visibilityInFlight.current = true;
 
       try {
         // Refresh auth token and update the realtime socket auth
@@ -371,6 +378,8 @@ export function AuthProvider({ children }) {
         supabase.from('profiles').update({ status: 'active', last_seen_at: new Date().toISOString() }).eq('id', user.id).then(() => {});
       } catch (e) {
         console.warn('Visibility reconnect failed:', e);
+      } finally {
+        visibilityInFlight.current = false;
       }
 
       // Bump refreshKey AFTER the socket is live so channels re-subscribe on the

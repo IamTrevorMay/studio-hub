@@ -9,38 +9,17 @@ if (!supabaseUrl || !supabaseAnonKey) {
   );
 }
 
-// Simple in-memory lock to replace Navigator LockManager
-// Prevents concurrent token refresh race conditions without browser locks
-const _locks = {};
-async function simpleLock(name, acquireTimeout, fn) {
-  // If lock is held, wait for it — but respect the timeout so callers don't
-  // hang forever if the previous holder's network request never completes.
-  if (_locks[name]) {
-    const waitMs = typeof acquireTimeout === 'number' && acquireTimeout > 0 ? acquireTimeout : 5000;
-    try {
-      await Promise.race([
-        _locks[name],
-        new Promise((_, reject) => setTimeout(() => reject(new Error('lock timeout')), waitMs)),
-      ]);
-    } catch (e) {
-      // ignore errors from previous holder or timeout
-    }
-  }
-  // Acquire lock
-  let resolve;
-  _locks[name] = new Promise((r) => { resolve = r; });
-  try {
-    return await fn();
-  } finally {
-    delete _locks[name];
-    resolve();
-  }
-}
+// No-op lock: bypasses the native navigator.locks and the previous in-memory
+// simpleLock. This is safe for a single-tab app — Supabase's own internal
+// debouncing prevents redundant token refreshes, and the no-op eliminates the
+// deadlock that occurred when onAuthStateChange's async callback tried to call
+// supabase.from() while the auth lock was still held.
+const noOpLock = async (_name, _acquireTimeout, fn) => fn();
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     flowType: 'implicit',
-    lock: simpleLock,
+    lock: noOpLock,
     storageKey: `sb-${new URL(supabaseUrl).hostname.split('.')[0]}-auth-token`,
     storage: window.localStorage,
   },
