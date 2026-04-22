@@ -192,59 +192,57 @@ export default function ScriptEditor({ script, onChange, onClose }) {
           </button>
         </div>
 
-        {showLibrary ? (
-          <div style={styles.libraryContainer}>
-            <div style={styles.libraryHeader}>
-              <span style={styles.libraryTitle}>Saved Scripts</span>
-              <button onClick={() => setShowLibrary(false)} style={styles.libraryBackBtn}>
-                Back to Editor
-              </button>
+        <div style={{ ...styles.editorWrapper, display: showLibrary ? 'none' : 'flex' }}>
+          <div
+            ref={editorRef}
+            contentEditable
+            onInput={handleInput}
+            onPaste={handlePaste}
+            style={styles.editor}
+            spellCheck={false}
+            suppressContentEditableWarning
+          />
+          {!script && (
+            <div style={styles.placeholder}>Paste or type your script here...</div>
+          )}
+        </div>
+
+        <div style={{ ...styles.libraryContainer, display: showLibrary ? 'flex' : 'none' }}>
+          <div style={styles.libraryHeader}>
+            <span style={styles.libraryTitle}>Saved Scripts</span>
+            <button onClick={() => setShowLibrary(false)} style={styles.libraryBackBtn}>
+              Back to Editor
+            </button>
+          </div>
+          {libraryLoading ? (
+            <div style={styles.emptyLibrary}>Loading...</div>
+          ) : savedScripts.length === 0 ? (
+            <div style={styles.emptyLibrary}>
+              No saved scripts yet. Write a script and click Save.
             </div>
-            {libraryLoading ? (
-              <div style={styles.emptyLibrary}>Loading...</div>
-            ) : savedScripts.length === 0 ? (
-              <div style={styles.emptyLibrary}>
-                No saved scripts yet. Write a script and click Save.
-              </div>
-            ) : (
-              <div style={styles.scriptList}>
-                {savedScripts.map(s => (
-                  <div key={s.id} style={styles.scriptItem}>
-                    <div style={styles.scriptInfo}>
-                      <span style={styles.scriptName}>{s.name}</span>
-                      <span style={styles.scriptMeta}>
-                        {formatDate(s.created_at)} &middot; {s.content.replace(/<[^>]*>/g, '').length.toLocaleString()} chars
-                      </span>
-                    </div>
-                    <div style={styles.scriptActions}>
-                      <button onClick={() => handleLoad(s)} style={styles.loadBtn}>Load</button>
-                      <button onClick={() => handleDelete(s.id)} style={styles.deleteBtn} title="Delete">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-                        </svg>
-                      </button>
-                    </div>
+          ) : (
+            <div style={styles.scriptList}>
+              {savedScripts.map(s => (
+                <div key={s.id} style={styles.scriptItem}>
+                  <div style={styles.scriptInfo}>
+                    <span style={styles.scriptName}>{s.name}</span>
+                    <span style={styles.scriptMeta}>
+                      {formatDate(s.created_at)} &middot; {s.content.replace(/<[^>]*>/g, '').length.toLocaleString()} chars
+                    </span>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ) : (
-          <div style={styles.editorWrapper}>
-            <div
-              ref={editorRef}
-              contentEditable
-              onInput={handleInput}
-              onPaste={handlePaste}
-              style={styles.editor}
-              spellCheck={false}
-              suppressContentEditableWarning
-            />
-            {!script && (
-              <div style={styles.placeholder}>Paste or type your script here...</div>
-            )}
-          </div>
-        )}
+                  <div style={styles.scriptActions}>
+                    <button onClick={() => handleLoad(s)} style={styles.loadBtn}>Load</button>
+                    <button onClick={() => handleDelete(s.id)} style={styles.deleteBtn} title="Delete">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div style={styles.footer}>
           <span style={styles.hint}>
