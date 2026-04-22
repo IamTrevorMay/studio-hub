@@ -135,11 +135,11 @@ export default function Production() {
     setTagInputs({});
   };
 
-  const closeEditor = () => {
+  const closeEditor = async () => {
     clearTimeout(saveTimer.current);
-    // force-save before leaving if unsaved
+    // force-save before leaving if unsaved; await so fetchSheets gets fresh data
     if (saveStatus !== 'saved' && activeSheet) {
-      supabase.from('beat_sheets').update({
+      await supabase.from('beat_sheets').update({
         title, beats,
         drive_folder_id: driveFolderId,
         drive_folder_name: driveFolderName,
