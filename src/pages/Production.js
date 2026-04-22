@@ -74,6 +74,19 @@ export default function Production() {
 
   useEffect(() => { fetchSheets(); }, [fetchSheets]);
 
+  // ─── initial textarea sizing ─────────────────────────────────────────────────
+  // Run once when a sheet opens so textareas match their stored content height.
+  // We do NOT use inline ref callbacks (ref={el => autoResize(el)}) because
+  // those fire on every re-render (React treats each new fn reference as
+  // unmount+remount), calling autoResize on every saveStatus change which
+  // triggers height:'auto', a layout shift, and a scroll-to-top.
+  useEffect(() => {
+    if (!activeSheet) return;
+    requestAnimationFrame(() => {
+      document.querySelectorAll('[data-autoresize]').forEach(autoResize);
+    });
+  }, [activeSheet?.id]);
+
   // ─── auto-save ──────────────────────────────────────────────────────────────
   const scheduleSave = useCallback(() => {
     if (!activeSheet) return;
@@ -640,7 +653,7 @@ export default function Production() {
                           value={beat.title}
                           onChange={e => { updateBeat(beat.id, 'title', e.target.value); autoResize(e.target); }}
                           onKeyDown={e => handleBulletKeyDown(e, beat.id, 'title')}
-                          ref={el => { if (el) autoResize(el); }}
+                          data-autoresize="true"
                           placeholder="Beat..."
                           rows={1}
                           style={styles.beatInput}
@@ -649,7 +662,7 @@ export default function Production() {
                           value={beat.context}
                           onChange={e => { updateBeat(beat.id, 'context', e.target.value); autoResize(e.target); }}
                           onKeyDown={e => handleBulletKeyDown(e, beat.id, 'context')}
-                          ref={el => { if (el) autoResize(el); }}
+                          data-autoresize="true"
                           placeholder="Context... (type • or - for bullets)"
                           rows={1}
                           style={styles.contextInput}
