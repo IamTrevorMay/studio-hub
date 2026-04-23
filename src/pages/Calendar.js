@@ -74,7 +74,7 @@ const EMPTY_EVENT_FORM = {
   start_date: '',
   start_time: '09:00',
   end_date: '',
-  end_time: '10:00',
+  end_time: '09:30',
   all_day: false,
   location: '',
   guests: [],
@@ -233,6 +233,7 @@ export default function Calendar({ onNavigate }) {
   const guestDropdownRef = useRef(null);
   const timeGridRef = useRef(null);
   const dragEventRef = useRef(null);
+  const initialEventFormRef = useRef(null);
 
   useEffect(() => {
     try { localStorage.setItem('calendar_filters', JSON.stringify(visibleFilters)); } catch {}
@@ -587,7 +588,9 @@ export default function Calendar({ onNavigate }) {
 
   function openNewEventModal(date) {
     const dateStr = dk(date);
-    setEventForm({ ...EMPTY_EVENT_FORM, start_date: dateStr, end_date: dateStr });
+    const form = { ...EMPTY_EVENT_FORM, start_date: dateStr, end_date: dateStr };
+    initialEventFormRef.current = form;
+    setEventForm(form);
     setEditingEventId(null);
     setShowEventModal(true);
     setSelectedEvent(null);
@@ -598,8 +601,12 @@ export default function Calendar({ onNavigate }) {
   function openNewEventModalAtTime(date, hour) {
     const dateStr = dk(date);
     const startTime = `${String(hour).padStart(2, '0')}:00`;
-    const endTime = `${String(Math.min(hour + 1, 23)).padStart(2, '0')}:00`;
-    setEventForm({ ...EMPTY_EVENT_FORM, start_date: dateStr, end_date: dateStr, start_time: startTime, end_time: endTime });
+    const endHour = hour + 0.5 >= 24 ? 23 : hour;
+    const endMin = hour + 0.5 >= 24 ? 59 : 30;
+    const endTime = `${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}`;
+    const form = { ...EMPTY_EVENT_FORM, start_date: dateStr, end_date: dateStr, start_time: startTime, end_time: endTime };
+    initialEventFormRef.current = form;
+    setEventForm(form);
     setEditingEventId(null);
     setShowEventModal(true);
     setSelectedEvent(null);
@@ -615,7 +622,7 @@ export default function Calendar({ onNavigate }) {
     const startD = new Date(parentEv.start_date);
     const endD = new Date(parentEv.end_date);
     const rule = parentEv.recurrence_rule;
-    setEventForm({
+    const editForm = {
       title: parentEv.title || '',
       description: parentEv.description || '',
       event_type: parentEv.event_type || 'meeting',
@@ -632,7 +639,9 @@ export default function Calendar({ onNavigate }) {
       recurrence_end_type: rule?.endType || 'never',
       recurrence_end_date: rule?.endDate || '',
       recurrence_end_count: rule?.endCount || 10,
-    });
+    };
+    initialEventFormRef.current = editForm;
+    setEventForm(editForm);
     setEditingEventId(editId);
     setShowEventModal(true);
     setSelectedEvent(null);
@@ -1794,7 +1803,12 @@ export default function Calendar({ onNavigate }) {
 
       {/* Add / Edit Event Modal */}
       {showEventModal && (
-        <div style={styles.modalOverlay} onClick={() => { setShowEventModal(false); setEditingEventId(null); }}>
+        <div style={styles.modalOverlay} onClick={() => {
+          const isDirty = JSON.stringify(eventForm) !== JSON.stringify(initialEventFormRef.current);
+          if (isDirty) return;
+          setShowEventModal(false);
+          setEditingEventId(null);
+        }}>
           <div ref={modalRef} style={styles.eventModal} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#fff' }}>
@@ -1875,7 +1889,17 @@ export default function Calendar({ onNavigate }) {
                   <input
                     type="time"
                     value={eventForm.start_time}
-                    onChange={(e) => setEventForm(prev => ({ ...prev, start_time: e.target.value }))}
+                    onChange={(e) => {
+                      const newStart = e.target.value;
+                      setEventForm(prev => {
+                        const [h, m] = newStart.split(':').map(Number);
+                        const totalMins = h * 60 + m + 30;
+                        const endH = Math.min(Math.floor(totalMins / 60), 23);
+                        const endM = totalMins >= 24 * 60 ? 59 : totalMins % 60;
+                        const newEnd = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
+                        return { ...prev, start_time: newStart, end_time: newEnd };
+                      });
+                    }}
                     style={styles.formInput}
                   />
                 </div>
