@@ -522,7 +522,7 @@ export default function Production() {
     return (
       <div style={styles.page}>
         <div style={styles.header}>
-          <h1 style={styles.pageTitle}>Production</h1>
+          <h1 style={styles.pageTitle}>Beat Sheet</h1>
           <button onClick={createSheet} style={styles.btnPrimary}>+ New Beat Sheet</button>
         </div>
 

@@ -241,7 +241,7 @@ export default function PostShow({ onBack }) {
             </svg>
           </button>
           <div>
-            <span style={st.headerTitle}>Post Show</span>
+            <span style={st.headerTitle}>Clipping Tool</span>
             {session.sourceFileName && (
               <span style={st.headerFile}>{session.sourceFileName}</span>
             )}

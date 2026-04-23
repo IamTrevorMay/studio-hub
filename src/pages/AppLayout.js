@@ -15,23 +15,40 @@ import Resources from './Resources';
 import Analytics from './Analytics';
 import Research from './Research';
 import Goals from './Goals';
-import Tools from './Tools';
 import Production from './Production';
+import Write from './Write';
+import Screenwriter from './Screenwriter';
+import Assets from './Assets';
+import Teleprompter from './tools/Teleprompter';
+import Organize from './tools/Organize';
+import PostShow from './tools/PostShow';
+import Telestration from './tools/Telestration';
 
 import Morty from '../components/Morty';
 
+// Sidebar catalog. Labels listed here are aliased internally — the user
+// refers to Production as "Beat Sheet", Scene Builder as "Custom Visuals",
+// Telestration as "Telestrator", and Post Show as "Clipping Tool". Route
+// keys stay stable to keep existing deep links working.
 const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard', icon: DashboardIcon },
+  { key: 'write', label: 'Write', icon: ResourcesIcon },
+  { key: 'production', label: 'Beat Sheet', icon: ProductionIcon },
+  { key: 'scene_builder', label: 'Custom Visuals', icon: ToolsIcon, external: { triton: '/visualize/scene-composer' } },
+  { key: 'screenwriter', label: 'Screenwriter', icon: IdeationIcon },
+  { key: 'teleprompter', label: 'Teleprompter', icon: ToolsIcon },
+  { key: 'broadcast', label: 'Broadcast', icon: ToolsIcon, external: { triton: '/broadcast' } },
+  { key: 'telestration', label: 'Telestrator', icon: ToolsIcon },
+  { key: 'post_show', label: 'Clipping Tool', icon: ToolsIcon },
+  { key: 'assets', label: 'Assets', icon: ResourcesIcon },
+  { key: 'reviews', label: 'Reviews', icon: ReviewsIcon },
+  { key: 'organize', label: 'Organize', icon: ToolsIcon },
   { key: 'projects', label: 'Projects', icon: ProjectsIcon },
   { key: 'resources', label: 'Resources', icon: ResourcesIcon },
   { key: 'analytics', label: 'Analytics', icon: AnalyticsIcon, adminOnly: true },
   { key: 'research', label: 'Research', icon: ResearchIcon },
-  { key: 'reviews', label: 'Reviews', icon: ReviewsIcon },
   { key: 'calendar', label: 'Calendar', icon: CalendarIcon },
-  { key: 'production', label: 'Production', icon: ProductionIcon },
   { key: 'goals', label: 'Goals', icon: GoalsIcon },
-  { key: 'tools', label: 'Toolbox', icon: ToolsIcon },
-
   { key: 'channels', label: 'Channels', icon: ChannelsIcon },
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
 ];
@@ -44,18 +61,40 @@ function getTabFromPath() {
   return null;
 }
 
+// Items marked { external: { triton: '/path' } } don't set an active tab —
+// they open Triton Apex in a new tab via a short-lived SSO link.
+const TRITON_BASE = 'https://tritonapex.io';
+async function openTritonTool(targetPath) {
+  try {
+    const { data, error } = await supabase.functions.invoke('triton-link', {
+      body: { target: targetPath },
+    });
+    if (error || !data?.url) throw new Error(error?.message || 'No URL returned');
+    window.open(data.url, '_blank', 'noopener');
+  } catch {
+    window.open(`${TRITON_BASE}${targetPath}`, '_blank', 'noopener');
+  }
+}
+
 const NAV_ICON_MAP = {
   dashboard: DashboardIcon,
+  write: ResourcesIcon,
+  production: ProductionIcon,
+  scene_builder: ToolsIcon,
+  screenwriter: IdeationIcon,
+  teleprompter: ToolsIcon,
+  broadcast: ToolsIcon,
+  telestration: ToolsIcon,
+  post_show: ToolsIcon,
+  assets: ResourcesIcon,
+  reviews: ReviewsIcon,
+  organize: ToolsIcon,
   projects: ProjectsIcon,
   resources: ResourcesIcon,
   analytics: AnalyticsIcon,
   research: ResearchIcon,
-  reviews: ReviewsIcon,
   calendar: CalendarIcon,
-  production: ProductionIcon,
   goals: GoalsIcon,
-  tools: ToolsIcon,
-
   channels: ChannelsIcon,
   messages: MessagesIcon,
 };
@@ -122,6 +161,11 @@ export default function AppLayout() {
   const dashboardNotifCount = unreadAnnouncementCount + (isAdmin ? newItineraryCount : 0);
 
   function handleNavClick(key) {
+    const item = NAV_ITEMS.find(i => i.key === key);
+    if (item?.external?.triton) {
+      openTritonTool(item.external.triton);
+      return;
+    }
     if (key === 'dashboard' && isAdmin) markDashboardSeen();
     setActiveTab(key);
   }
@@ -491,11 +535,17 @@ export default function AppLayout() {
           {activeTab === 'production' && <Production />}
           {activeTab === 'ideation' && <Ideation initialConceptId={navTarget} onConceptOpened={() => setNavTarget(null)} />}
           {activeTab === 'resources' && <Resources />}
+          {activeTab === 'write' && <Write />}
+          {activeTab === 'screenwriter' && <Screenwriter initialScriptId={navTarget} onScriptOpened={() => setNavTarget(null)} />}
+          {activeTab === 'teleprompter' && <Teleprompter onBack={() => setActiveTab('dashboard')} />}
+          {activeTab === 'telestration' && <Telestration onBack={() => setActiveTab('dashboard')} />}
+          {activeTab === 'post_show' && <PostShow onBack={() => setActiveTab('dashboard')} />}
+          {activeTab === 'organize' && <Organize onBack={() => setActiveTab('dashboard')} />}
+          {activeTab === 'assets' && <Assets />}
           {isAdmin && activeTab === 'analytics' && <Analytics />}
           {activeTab === 'research' && <Research />}
           {activeTab === 'reviews' && <Reviews />}
           {activeTab === 'goals' && <Goals />}
-          {activeTab === 'tools' && <Tools onNavigate={navigateTo} />}
 
           {activeTab === 'channels' && <Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} />}
           {activeTab === 'messages' && <Messages onNavigate={navigateTo} />}

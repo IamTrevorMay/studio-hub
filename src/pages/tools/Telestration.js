@@ -325,7 +325,7 @@ export default function Telestration({ onBack }) {
                 <path d="M19 12H5M12 19l-7-7 7-7" />
               </svg>
             </button>
-            <span style={styles.headerTitle}>Telestration</span>
+            <span style={styles.headerTitle}>Telestrator</span>
           </div>
           <div style={styles.headerCenter}>
             {modeToggle}
@@ -382,7 +382,7 @@ export default function Telestration({ onBack }) {
               <path d="M19 12H5M12 19l-7-7 7-7" />
             </svg>
           </button>
-          <span style={styles.headerTitle}>Telestration</span>
+          <span style={styles.headerTitle}>Telestrator</span>
           {mode === 'video' && videoSource?.fileName && (
             <span style={styles.fileName}>{videoSource.fileName}</span>
           )}
