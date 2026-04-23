@@ -318,23 +318,16 @@ export default function AppLayout() {
                           style={{
                             ...styles.navItem,
                             justifyContent: 'flex-start',
-                            color: 'rgba(255,255,255,0.4)',
-                            fontSize: '12px',
-                            fontWeight: 600,
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.5px',
-                            padding: '6px 12px',
-                            marginTop: '8px',
                           }}
                         >
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" style={{
+                          <svg width="16" height="16" viewBox="0 0 12 12" fill="currentColor" style={{
                             transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
                             transition: 'transform 0.15s',
+                            flexShrink: 0,
                           }}>
                             <path d="M3 4l3 3 3-3" />
                           </svg>
                           <span>{entry.label}</span>
-                          <span style={{ marginLeft: 'auto', fontSize: '11px', opacity: 0.5 }}>{entry.children.length}</span>
                         </button>
                         {!isCollapsed && entry.children.map(child => {
                           const Icon = NAV_ICON_MAP[child.key];
