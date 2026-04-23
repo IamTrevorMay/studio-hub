@@ -311,6 +311,7 @@ export default function AppLayout() {
                       });
                     }
                     const isCollapsed = folderCollapseState[entry.id] ?? entry.collapsed;
+                    const FolderIcon = FOLDER_ICON_MAP[entry.id];
                     return (
                       <React.Fragment key={entry.id}>
                         <button
@@ -319,14 +320,9 @@ export default function AppLayout() {
                             ...styles.navItem,
                             justifyContent: 'flex-start',
                           }}
+                          title={entry.label}
                         >
-                          <svg width="16" height="16" viewBox="0 0 12 12" fill="currentColor" style={{
-                            transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
-                            transition: 'transform 0.15s',
-                            flexShrink: 0,
-                          }}>
-                            <path d="M3 4l3 3 3-3" />
-                          </svg>
+                          {FolderIcon && <FolderIcon active={false} />}
                           <span>{entry.label}</span>
                         </button>
                         {!isCollapsed && entry.children.map(child => {
@@ -681,6 +677,41 @@ function AdminIcon({ active }) {
     </svg>
   );
 }
+
+function PreProductionIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <path d="M4 3h9l3 3v11a1 1 0 01-1 1H4a1 1 0 01-1-1V4a1 1 0 011-1z" />
+      <path d="M13 3v3h3" />
+      <path d="M6.5 10h7M6.5 13h5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function FilmingIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <rect x="2" y="6" width="12" height="8" rx="1.5" />
+      <path d="M14 9l4-2.5v7L14 11" />
+    </svg>
+  );
+}
+
+function PostProductionIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <rect x="2" y="4" width="16" height="12" rx="1.5" />
+      <path d="M2 8h16M2 12h16" />
+      <path d="M6 4v12M14 4v12" />
+    </svg>
+  );
+}
+
+const FOLDER_ICON_MAP = {
+  pre_production: PreProductionIcon,
+  filming: FilmingIcon,
+  post_production: PostProductionIcon,
+};
 
 function formatNotifTime(dateStr) {
   const d = new Date(dateStr);
