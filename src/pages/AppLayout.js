@@ -18,7 +18,6 @@ import Goals from './Goals';
 import Production from './Production';
 import Write from './Write';
 import Screenwriter from './Screenwriter';
-import Assets from './Assets';
 import Teleprompter from './tools/Teleprompter';
 import Organize from './tools/Organize';
 import PostShow from './tools/PostShow';
@@ -34,13 +33,13 @@ const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard', icon: DashboardIcon },
   { key: 'write', label: 'Write', icon: ResourcesIcon },
   { key: 'production', label: 'Beat Sheet', icon: ProductionIcon },
-  { key: 'scene_builder', label: 'Custom Visuals', icon: ToolsIcon, external: { triton: '/visualize/scene-composer' } },
+  { key: 'scene_builder', label: 'Custom Visuals', icon: ToolsIcon, external: { triton: '/design/scene-composer' } },
   { key: 'screenwriter', label: 'Screenwriter', icon: IdeationIcon },
   { key: 'teleprompter', label: 'Teleprompter', icon: ToolsIcon },
   { key: 'broadcast', label: 'Broadcast', icon: ToolsIcon, external: { triton: '/broadcast' } },
   { key: 'telestration', label: 'Telestrator', icon: ToolsIcon },
   { key: 'post_show', label: 'Clipping Tool', icon: ToolsIcon },
-  { key: 'assets', label: 'Assets', icon: ResourcesIcon },
+  { key: 'assets', label: 'Assets', icon: ResourcesIcon, external: { url: 'https://www.mayday.systems/' } },
   { key: 'reviews', label: 'Reviews', icon: ReviewsIcon },
   { key: 'organize', label: 'Organize', icon: ToolsIcon },
   { key: 'projects', label: 'Projects', icon: ProjectsIcon },
@@ -162,6 +161,10 @@ export default function AppLayout() {
 
   function handleNavClick(key) {
     const item = NAV_ITEMS.find(i => i.key === key);
+    if (item?.external?.url) {
+      window.open(item.external.url, '_blank', 'noopener');
+      return;
+    }
     if (item?.external?.triton) {
       openTritonTool(item.external.triton);
       return;
@@ -530,7 +533,6 @@ export default function AppLayout() {
           {activeTab === 'telestration' && <Telestration onBack={() => setActiveTab('dashboard')} />}
           {activeTab === 'post_show' && <PostShow onBack={() => setActiveTab('dashboard')} />}
           {activeTab === 'organize' && <Organize onBack={() => setActiveTab('dashboard')} />}
-          {activeTab === 'assets' && <Assets />}
           {isAdmin && activeTab === 'analytics' && <Analytics />}
           {activeTab === 'research' && <Research />}
           {activeTab === 'reviews' && <Reviews />}
