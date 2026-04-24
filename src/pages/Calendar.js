@@ -1649,7 +1649,7 @@ export default function Calendar({ onNavigate }) {
 
       {/* Event detail popup */}
       {selectedEvent && (
-        <div style={styles.modalOverlay} onClick={() => setSelectedEvent(null)}>
+        <div style={styles.modalOverlay} onMouseDown={(e) => { if (e.target === e.currentTarget) setSelectedEvent(null); }}>
           <div style={styles.eventDetailCard} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
               <div style={{
@@ -1754,7 +1754,7 @@ export default function Calendar({ onNavigate }) {
 
       {/* Recurrence Action Prompt */}
       {recurrencePrompt && (
-        <div style={styles.modalOverlay} onClick={() => setRecurrencePrompt(null)}>
+        <div style={styles.modalOverlay} onMouseDown={(e) => { if (e.target === e.currentTarget) setRecurrencePrompt(null); }}>
           <div style={styles.recurrencePrompt} onClick={e => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 4px 0', fontSize: '16px', fontWeight: 700, color: '#fff' }}>
               {recurrencePrompt.action === 'delete' ? 'Delete Recurring Event' : 'Edit Recurring Event'}
@@ -1803,7 +1803,8 @@ export default function Calendar({ onNavigate }) {
 
       {/* Add / Edit Event Modal */}
       {showEventModal && (
-        <div style={styles.modalOverlay} onClick={() => {
+        <div style={styles.modalOverlay} onMouseDown={(e) => {
+          if (e.target !== e.currentTarget) return;
           const isDirty = JSON.stringify(eventForm) !== JSON.stringify(initialEventFormRef.current);
           if (isDirty) return;
           setShowEventModal(false);

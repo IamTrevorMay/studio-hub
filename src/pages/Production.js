@@ -469,7 +469,7 @@ export default function Production() {
     if (!showFolderBrowser) return null;
     const currentPath = folderStack.map(f => f.name).join(' / ') || 'Long Form';
     return (
-      <div style={styles.modalOverlay} onClick={() => setShowFolderBrowser(false)}>
+      <div style={styles.modalOverlay} onMouseDown={(e) => { if (e.target === e.currentTarget) setShowFolderBrowser(false); }}>
         <div style={styles.modal} onClick={e => e.stopPropagation()}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <h3 style={{ margin: 0, color: 'rgba(255,255,255,0.9)', fontSize: 16 }}>Select Drive Folder</h3>
