@@ -1462,14 +1462,14 @@ function PlatformView({ accountId, accounts, start, end }) {
     const prevOrders = platData.prevFwOrders || [];
     const fwColor = '#E8451C';
 
-    const totalRevenue = orders.reduce((s, o) => s + (o.amount_cents || 0), 0) / 100;
-    const netRevenue = orders.reduce((s, o) => s + (o.net_amount_cents || 0), 0) / 100;
-    const prevRevenue = prevOrders.reduce((s, o) => s + (o.amount_cents || 0), 0) / 100;
-    const prevNet = prevOrders.reduce((s, o) => s + (o.net_amount_cents || 0), 0) / 100;
+    const totalRevenue = orders.reduce((s, o) => s + (o.amount_cents || 0), 0);
+    const netRevenue = orders.reduce((s, o) => s + (o.net_amount_cents || 0), 0);
+    const prevRevenue = prevOrders.reduce((s, o) => s + (o.amount_cents || 0), 0);
+    const prevNet = prevOrders.reduce((s, o) => s + (o.net_amount_cents || 0), 0);
     const avgOrder = orders.length > 0 ? totalRevenue / orders.length : 0;
     const prevAvg = prevOrders.length > 0 ? prevRevenue / prevOrders.length : 0;
 
-    // Daily revenue for trend chart
+    // Daily revenue for trend chart (keep in cents for TrendChart, convert in tooltips)
     const dailyMap = {};
     for (const o of orders) {
       const d = o.occurred_at?.slice(0, 10);
@@ -1489,15 +1489,15 @@ function PlatformView({ accountId, accounts, start, end }) {
         const name = o.product_name || 'Fourthwall Order';
         if (!productMap[name]) productMap[name] = { name, orders: 0, gross: 0, net: 0 };
         productMap[name].orders++;
-        productMap[name].gross += (o.amount_cents || 0) / 100;
-        productMap[name].net += (o.net_amount_cents || 0) / 100;
+        productMap[name].gross += (o.amount_cents || 0);
+        productMap[name].net += (o.net_amount_cents || 0);
       } else {
         for (const item of items) {
           const name = item.name || 'Unknown';
           if (!productMap[name]) productMap[name] = { name, orders: 0, gross: 0, net: 0 };
           productMap[name].orders += item.quantity || 1;
-          productMap[name].gross += (item.unit_price || 0) * (item.quantity || 1);
-          productMap[name].net += ((item.unit_price || 0) - (item.unit_cost || 0)) * (item.quantity || 1);
+          productMap[name].gross += (item.unit_price || 0) * (item.quantity || 1) * 100;
+          productMap[name].net += ((item.unit_price || 0) - (item.unit_cost || 0)) * (item.quantity || 1) * 100;
         }
       }
     }
@@ -1592,8 +1592,8 @@ function PlatformView({ accountId, accounts, start, end }) {
                       <td style={{ ...styles.td, color: 'rgba(255,255,255,0.45)', fontSize: 11 }}>{o.metadata?.friendly_id || '—'}</td>
                       <td style={{ ...styles.td, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.product_name || '—'}</td>
                       <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>{o.occurred_at ? new Date(o.occurred_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</td>
-                      <td style={{ ...styles.td, textAlign: 'right' }}>{formatCurrency((o.amount_cents || 0) / 100)}</td>
-                      <td style={{ ...styles.td, textAlign: 'right' }}>{formatCurrency((o.net_amount_cents || 0) / 100)}</td>
+                      <td style={{ ...styles.td, textAlign: 'right' }}>{formatCurrency(o.amount_cents || 0)}</td>
+                      <td style={{ ...styles.td, textAlign: 'right' }}>{formatCurrency(o.net_amount_cents || 0)}</td>
                     </tr>
                   ))}
                 </tbody>
