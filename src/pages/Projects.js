@@ -209,6 +209,13 @@ export default function Projects({ onNavigate }) {
     fetchTeamMembers();
   }, [fetchProjects, fetchTeamMembers]);
 
+  // Load dropdown data for project form and edit view
+  useEffect(() => {
+    fetchWriteDocs();
+    fetchBeatSheets();
+    fetchAdReadDeliverables();
+  }, []); // eslint-disable-line
+
   useEffect(() => {
     const channel = supabase
       .channel('projects-changes')
@@ -1760,7 +1767,7 @@ export default function Projects({ onNavigate }) {
                   isAdmin={isAdmin} onAddChecklistItem={handleAddChecklistItem} onToggleChecklistItem={handleToggleChecklistItem}
                   onDeleteChecklistItem={handleDeleteChecklistItem} onAssignProjectStage={handleAssignProjectStage}
                   onRemoveProjectStageAssignment={handleRemoveProjectStageAssignment} onUpdateProject={handleUpdateProject}
-
+                  linkedFieldData={{ writeDocs, beatSheets, adReadDeliverables }}
                 />
               </div>
             </div>
@@ -1784,7 +1791,7 @@ export default function Projects({ onNavigate }) {
                   isAdmin={isAdmin} onAddChecklistItem={handleAddChecklistItem} onToggleChecklistItem={handleToggleChecklistItem}
                   onDeleteChecklistItem={handleDeleteChecklistItem} onAssignProjectStage={handleAssignProjectStage}
                   onRemoveProjectStageAssignment={handleRemoveProjectStageAssignment} onUpdateProject={handleUpdateProject}
-
+                  linkedFieldData={{ writeDocs, beatSheets, adReadDeliverables }}
                 />
               ))}
             </div>
@@ -1806,7 +1813,7 @@ export default function Projects({ onNavigate }) {
                   isAdmin={isAdmin} onAddChecklistItem={handleAddChecklistItem} onToggleChecklistItem={handleToggleChecklistItem}
                   onDeleteChecklistItem={handleDeleteChecklistItem} onAssignProjectStage={handleAssignProjectStage}
                   onRemoveProjectStageAssignment={handleRemoveProjectStageAssignment} onUpdateProject={handleUpdateProject}
-
+                  linkedFieldData={{ writeDocs, beatSheets, adReadDeliverables }}
                 />
               ))}
             </div>
@@ -1830,7 +1837,7 @@ export default function Projects({ onNavigate }) {
                   isAdmin={isAdmin} onAddChecklistItem={handleAddChecklistItem} onToggleChecklistItem={handleToggleChecklistItem}
                   onDeleteChecklistItem={handleDeleteChecklistItem} onAssignProjectStage={handleAssignProjectStage}
                   onRemoveProjectStageAssignment={handleRemoveProjectStageAssignment} onUpdateProject={handleUpdateProject}
-
+                  linkedFieldData={{ writeDocs, beatSheets, adReadDeliverables }}
                 />
               ))}
             </div>
@@ -2814,7 +2821,9 @@ function ProjectRow({
   onAddChecklistItem, onToggleChecklistItem, onDeleteChecklistItem,
   onAssignProjectStage, onRemoveProjectStageAssignment,
   onUpdateProject,
+  linkedFieldData = {},
 }) {
+  const { writeDocs = [], beatSheets = [], adReadDeliverables = [] } = linkedFieldData;
   const isBusiness = project.category === 'business';
   const typeList = isBusiness ? BUSINESS_PROJECT_TYPES : PROJECT_TYPES;
   const statusList = isBusiness ? BUSINESS_STATUSES : STATUSES;
@@ -3052,6 +3061,61 @@ function ProjectRow({
               })}
             </div>
           </div>
+
+          {/* Linked Fields */}
+          {!isBusiness && (
+            <div style={styles.detailSection}>
+              <h4 style={styles.detailLabel}>Linked Fields</h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', display: 'block', marginBottom: '4px' }}>Write Doc</label>
+                  <select
+                    value={project.write_doc_id || ''}
+                    onChange={(e) => {
+                      const doc = writeDocs.find(d => d.id === e.target.value);
+                      onUpdateProject(project.id, { write_doc_id: e.target.value || null, write_doc_name: doc?.name || null });
+                    }}
+                    style={styles.inlineInput}
+                  >
+                    <option value="">None</option>
+                    {writeDocs.map(doc => (
+                      <option key={doc.id} value={doc.id}>
+                        {doc.folderName ? `${doc.folderName} / ${doc.name}` : doc.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', display: 'block', marginBottom: '4px' }}>Script / Beat Sheet</label>
+                  <select
+                    value={project.beat_sheet_id || ''}
+                    onChange={(e) => onUpdateProject(project.id, { beat_sheet_id: e.target.value || null })}
+                    style={styles.inlineInput}
+                  >
+                    <option value="">None</option>
+                    {beatSheets.map(bs => (
+                      <option key={bs.id} value={bs.id}>{bs.title}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', display: 'block', marginBottom: '4px' }}>Ad Read</label>
+                  <select
+                    value={project.ad_read_id || ''}
+                    onChange={(e) => onUpdateProject(project.id, { ad_read_id: e.target.value || null })}
+                    style={styles.inlineInput}
+                  >
+                    <option value="">None</option>
+                    {adReadDeliverables.map(d => (
+                      <option key={d.id} value={d.id}>
+                        {d.sponsor_name}{d.campaign_name ? ` — ${d.campaign_name}` : ''}{d.title ? `: ${d.title}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Timeline */}
           <div style={styles.detailSection}>
