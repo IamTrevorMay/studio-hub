@@ -67,6 +67,7 @@ const DELIVERABLE_PLATFORMS = ['YouTube', 'TikTok', 'Instagram', 'X/Twitter', 'F
 const SPONSOR_STATUS_COLORS = { active: '#10b981', completed: '#6366f1', cancelled: '#ef4444' };
 const PAYMENT_STATUS_COLORS = { unpaid: '#ef4444', partial: '#f59e0b', paid: '#10b981' };
 
+const MAYDAY_SEGMENTS = ['Maysplaining', "Punchin' Tickets", 'Mayday Update', 'Internet Says'];
 const MAYDAY_STAGES = ['idea', 'script', 'gather_broadcast', 'film', 'editor', 'thumbnail_post', 'complete'];
 const MAYDAY_STAGE_LABELS = {
   idea: 'Idea', script: 'Script', gather_broadcast: 'Gather Assets + Broadcast',
@@ -145,7 +146,7 @@ export default function Projects({ onNavigate }) {
   const [maydayVideos, setMaydayVideos] = useState([]);
   const [maydayLoading, setMaydayLoading] = useState(false);
   const [showMaydayForm, setShowMaydayForm] = useState(false);
-  const [maydayForm, setMaydayForm] = useState({ title: '', sponsor_read_id: '', post_date: '' });
+  const [maydayForm, setMaydayForm] = useState({ title: '', sponsor_read_id: '', post_date: '', segment: '', write_doc_id: '', write_doc_name: '', beat_sheet_id: '', ad_read_id: '' });
   const [editingMayday, setEditingMayday] = useState(null);
 
   const formRef = useRef(null);
@@ -794,6 +795,11 @@ export default function Projects({ onNavigate }) {
       sponsor_read_id: maydayForm.sponsor_read_id || null,
       post_date: maydayForm.post_date || null,
       created_by: profile.id,
+      segment: maydayForm.segment || null,
+      write_doc_id: maydayForm.write_doc_id || null,
+      write_doc_name: maydayForm.write_doc_name || null,
+      beat_sheet_id: maydayForm.beat_sheet_id || null,
+      ad_read_id: maydayForm.ad_read_id || null,
     }).select().single();
     if (error) { alert('Error creating video: ' + error.message); return; }
 
@@ -836,7 +842,7 @@ export default function Projects({ onNavigate }) {
       }
     }
 
-    setMaydayForm({ title: '', sponsor_read_id: '', post_date: '' });
+    setMaydayForm({ title: '', sponsor_read_id: '', post_date: '', segment: '', write_doc_id: '', write_doc_name: '', beat_sheet_id: '', ad_read_id: '' });
     setShowMaydayForm(false);
     fetchMaydayVideos();
   }
@@ -1942,6 +1948,17 @@ export default function Projects({ onNavigate }) {
               </select>
             </div>
             <div style={styles.field}>
+              <label style={styles.label}>Segment</label>
+              <select
+                value={maydayForm.segment}
+                onChange={(e) => setMaydayForm({ ...maydayForm, segment: e.target.value })}
+                style={styles.select}
+              >
+                <option value="">None</option>
+                {MAYDAY_SEGMENTS.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div style={styles.field}>
               <label style={styles.label}>Post Date</label>
               <input
                 type="date"
@@ -1949,6 +1966,52 @@ export default function Projects({ onNavigate }) {
                 onChange={(e) => setMaydayForm({ ...maydayForm, post_date: e.target.value })}
                 style={styles.input}
               />
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Write Doc</label>
+              <select
+                value={maydayForm.write_doc_id}
+                onChange={(e) => {
+                  const doc = writeDocs.find(d => d.id === e.target.value);
+                  setMaydayForm({ ...maydayForm, write_doc_id: e.target.value, write_doc_name: doc?.name || '' });
+                }}
+                style={styles.select}
+              >
+                <option value="">None</option>
+                {writeDocs.map(doc => (
+                  <option key={doc.id} value={doc.id}>
+                    {doc.folderName ? `${doc.folderName} / ${doc.name}` : doc.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Script / Beat Sheet</label>
+              <select
+                value={maydayForm.beat_sheet_id}
+                onChange={(e) => setMaydayForm({ ...maydayForm, beat_sheet_id: e.target.value })}
+                style={styles.select}
+              >
+                <option value="">None</option>
+                {beatSheets.map(bs => (
+                  <option key={bs.id} value={bs.id}>{bs.title}</option>
+                ))}
+              </select>
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Ad Read</label>
+              <select
+                value={maydayForm.ad_read_id}
+                onChange={(e) => setMaydayForm({ ...maydayForm, ad_read_id: e.target.value })}
+                style={styles.select}
+              >
+                <option value="">None</option>
+                {adReadDeliverables.map(d => (
+                  <option key={d.id} value={d.id}>
+                    {d.sponsor_name}{d.campaign_name ? ` — ${d.campaign_name}` : ''}{d.title ? `: ${d.title}` : ''}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
           <button type="submit" style={styles.submitBtn}>Add Video</button>
@@ -2004,6 +2067,7 @@ export default function Projects({ onNavigate }) {
                                   onDelete={() => handleDeleteMayday(video.id)}
                                   isEditing={editingMayday === video.id}
                                   onToggleEdit={() => setEditingMayday(editingMayday === video.id ? null : video.id)}
+                                  linkedFieldData={{ writeDocs, beatSheets, adReadDeliverables }}
                                 />
                               </div>
                             )}
@@ -3566,10 +3630,16 @@ function ShortsCard({ clip, teamMembers, onUpdate, onDelete, isEditing, onToggle
   );
 }
 
-function MaydayCard({ video, reads, onUpdate, onDelete, isEditing, onToggleEdit }) {
+function MaydayCard({ video, reads, onUpdate, onDelete, isEditing, onToggleEdit, linkedFieldData = {} }) {
+  const { writeDocs = [], beatSheets = [], adReadDeliverables = [] } = linkedFieldData;
   const [editTitle, setEditTitle] = useState(video.title || '');
   const [editReadId, setEditReadId] = useState(video.sponsor_read_id || '');
   const [editPostDate, setEditPostDate] = useState(video.post_date || '');
+  const [editSegment, setEditSegment] = useState(video.segment || '');
+  const [editWriteDocId, setEditWriteDocId] = useState(video.write_doc_id || '');
+  const [editWriteDocName, setEditWriteDocName] = useState(video.write_doc_name || '');
+  const [editBeatSheetId, setEditBeatSheetId] = useState(video.beat_sheet_id || '');
+  const [editAdReadId, setEditAdReadId] = useState(video.ad_read_id || '');
 
   const sponsorName = video.sponsor_read?.sponsor?.name;
 
@@ -3586,6 +3656,15 @@ function MaydayCard({ video, reads, onUpdate, onDelete, isEditing, onToggleEdit 
         </button>
       </div>
       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+        {video.segment && (
+          <span style={{
+            fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px',
+            background: 'rgba(245,158,11,0.15)', color: '#fcd34d',
+            textTransform: 'uppercase', letterSpacing: '0.3px',
+          }}>
+            {video.segment}
+          </span>
+        )}
         {sponsorName && (
           <span style={{
             fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px',
@@ -3616,6 +3695,15 @@ function MaydayCard({ video, reads, onUpdate, onDelete, isEditing, onToggleEdit 
               placeholder="Title"
             />
             <select
+              value={editSegment}
+              onChange={(e) => setEditSegment(e.target.value)}
+              style={styles.smallSelect}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <option value="">No segment</option>
+              {MAYDAY_SEGMENTS.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <select
               value={editReadId}
               onChange={(e) => setEditReadId(e.target.value)}
               style={styles.smallSelect}
@@ -3636,11 +3724,61 @@ function MaydayCard({ video, reads, onUpdate, onDelete, isEditing, onToggleEdit 
               style={styles.smallSelect}
               placeholder="Post date"
             />
+            <select
+              value={editWriteDocId}
+              onChange={(e) => {
+                const doc = writeDocs.find(d => d.id === e.target.value);
+                setEditWriteDocId(e.target.value);
+                setEditWriteDocName(doc?.name || '');
+              }}
+              style={styles.smallSelect}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <option value="">No write doc</option>
+              {writeDocs.map(doc => (
+                <option key={doc.id} value={doc.id}>
+                  {doc.folderName ? `${doc.folderName} / ${doc.name}` : doc.name}
+                </option>
+              ))}
+            </select>
+            <select
+              value={editBeatSheetId}
+              onChange={(e) => setEditBeatSheetId(e.target.value)}
+              style={styles.smallSelect}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <option value="">No beat sheet</option>
+              {beatSheets.map(bs => (
+                <option key={bs.id} value={bs.id}>{bs.title}</option>
+              ))}
+            </select>
+            <select
+              value={editAdReadId}
+              onChange={(e) => setEditAdReadId(e.target.value)}
+              style={styles.smallSelect}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <option value="">No ad read</option>
+              {adReadDeliverables.map(d => (
+                <option key={d.id} value={d.id}>
+                  {d.sponsor_name}{d.campaign_name ? ` — ${d.campaign_name}` : ''}{d.title ? `: ${d.title}` : ''}
+                </option>
+              ))}
+            </select>
             <div style={{ display: 'flex', gap: '6px' }}>
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onUpdate({ title: editTitle, sponsor_read_id: editReadId || null, post_date: editPostDate || null });
+                  onUpdate({
+                    title: editTitle,
+                    sponsor_read_id: editReadId || null,
+                    post_date: editPostDate || null,
+                    segment: editSegment || null,
+                    write_doc_id: editWriteDocId || null,
+                    write_doc_name: editWriteDocName || null,
+                    beat_sheet_id: editBeatSheetId || null,
+                    ad_read_id: editAdReadId || null,
+                  });
                   onToggleEdit();
                 }}
                 style={styles.smallBtn}
