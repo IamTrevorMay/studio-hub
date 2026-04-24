@@ -8,7 +8,7 @@ import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 const STATUSES = ['concept', 'script', 'production', 'edit', 'review', 'published'];
 const STATUS_LABELS = {
-  concept: 'Concept', script: 'Script', production: 'Production',
+  concept: 'Idea', script: 'Script/Beat Sheet', production: 'Production',
   edit: 'Edit', review: 'Review', published: 'Published',
 };
 const STATUS_COLORS = {
@@ -150,10 +150,16 @@ export default function Projects({ onNavigate }) {
 
   const formRef = useRef(null);
 
+  // Form dropdown data
+  const [writeDocs, setWriteDocs] = useState([]);
+  const [beatSheets, setBeatSheets] = useState([]);
+  const [adReadDeliverables, setAdReadDeliverables] = useState([]);
+
   // Form state
   const [form, setForm] = useState({
     name: '', category: 'creative', type: 'youtube_video', channel: '',
-    start_date: '', deadline: '', notes: '', status: 'concept',
+    start_date: '', deadline: '', status: 'concept',
+    write_doc_id: '', write_doc_name: '', beat_sheet_id: '', ad_read_id: '',
   });
 
   useEffect(() => {
@@ -221,10 +227,71 @@ export default function Projects({ onNavigate }) {
 
   useVisibilityRefresh(fetchProjects);
 
+  const DRIVE_FN_URL = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/google-drive-write`;
+
+  async function fetchWriteDocs() {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) return;
+      const rootRes = await fetch(DRIVE_FN_URL, { headers: { Authorization: `Bearer ${token}` } });
+      const rootData = await rootRes.json();
+      const rootItems = rootData.items || [];
+      const docs = rootItems.filter(i => i.type === 'doc');
+      const folders = rootItems.filter(i => i.type === 'folder');
+      for (const folder of folders) {
+        const folderRes = await fetch(`${DRIVE_FN_URL}?folderId=${encodeURIComponent(folder.id)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const folderData = await folderRes.json();
+        (folderData.items || []).filter(i => i.type === 'doc').forEach(doc => {
+          docs.push({ ...doc, folderName: folder.name });
+        });
+      }
+      setWriteDocs(docs);
+    } catch (err) {
+      console.error('Error fetching write docs:', err);
+    }
+  }
+
+  async function fetchBeatSheets() {
+    try {
+      const { data, error } = await supabase
+        .from('beat_sheets')
+        .select('id, title, folder')
+        .order('created_at', { ascending: false });
+      if (!error) setBeatSheets(data || []);
+    } catch (err) {
+      console.error('Error fetching beat sheets:', err);
+    }
+  }
+
+  async function fetchAdReadDeliverables() {
+    try {
+      const { data, error } = await supabase
+        .from('sponsor_deliverables')
+        .select('id, title, status, sponsor_id, campaign_id, sponsors(name), sponsor_campaigns(name)')
+        .neq('status', 'posted')
+        .order('created_at', { ascending: false });
+      if (!error) {
+        setAdReadDeliverables((data || []).map(d => ({
+          ...d,
+          sponsor_name: d.sponsors?.name || 'Unknown Sponsor',
+          campaign_name: d.sponsor_campaigns?.name || null,
+        })));
+      }
+    } catch (err) {
+      console.error('Error fetching ad read deliverables:', err);
+    }
+  }
+
   function openFormWithPreset(category, status) {
     const types = category === 'business' ? BUSINESS_PROJECT_TYPES : PROJECT_TYPES;
-    setForm({ name: '', category, type: types[0].value, channel: '', start_date: '', deadline: '', notes: '', status });
+    setForm({ name: '', category, type: types[0].value, channel: '', start_date: '', deadline: '', status, write_doc_id: '', write_doc_name: '', beat_sheet_id: '', ad_read_id: '' });
     setShowForm(true);
+    fetchWriteDocs();
+    fetchBeatSheets();
+    fetchAdReadDeliverables();
     setTimeout(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
   }
 
@@ -238,16 +305,19 @@ export default function Projects({ onNavigate }) {
       status: form.status,
       start_date: form.start_date || null,
       deadline: form.deadline || null,
-      notes: form.notes || null,
       series_id: seriesId || null,
       created_by: profile.id,
+      write_doc_id: form.write_doc_id || null,
+      write_doc_name: form.write_doc_name || null,
+      beat_sheet_id: form.beat_sheet_id || null,
+      ad_read_id: form.ad_read_id || null,
     };
     const { error } = await supabase.from('projects').insert(insert);
     if (error) {
       alert('Error creating project: ' + error.message);
       return;
     }
-    setForm({ name: '', category: 'creative', type: 'youtube_video', channel: '', start_date: '', deadline: '', notes: '', status: 'concept' });
+    setForm({ name: '', category: 'creative', type: 'youtube_video', channel: '', start_date: '', deadline: '', status: 'concept', write_doc_id: '', write_doc_name: '', beat_sheet_id: '', ad_read_id: '' });
     setShowForm(false);
     fetchProjects();
   }
@@ -1433,16 +1503,56 @@ export default function Projects({ onNavigate }) {
               />
             </div>
           </div>
-          <div style={styles.field}>
-            <label style={styles.label}>Notes</label>
-            <textarea
-              value={form.notes}
-              onChange={(e) => setForm({ ...form, notes: e.target.value })}
-              placeholder="Brief, script notes, special requirements..."
-              rows={3}
-              style={{ ...styles.input, resize: 'vertical' }}
-            />
-          </div>
+          {form.category === 'creative' && (
+            <>
+              <div style={styles.field}>
+                <label style={styles.label}>Write Doc</label>
+                <select
+                  value={form.write_doc_id}
+                  onChange={(e) => {
+                    const doc = writeDocs.find(d => d.id === e.target.value);
+                    setForm({ ...form, write_doc_id: e.target.value, write_doc_name: doc?.name || '' });
+                  }}
+                  style={styles.select}
+                >
+                  <option value="">Select a doc...</option>
+                  {writeDocs.map(doc => (
+                    <option key={doc.id} value={doc.id}>
+                      {doc.folderName ? `${doc.folderName} / ${doc.name}` : doc.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div style={styles.field}>
+                <label style={styles.label}>Script / Beat Sheet</label>
+                <select
+                  value={form.beat_sheet_id}
+                  onChange={(e) => setForm({ ...form, beat_sheet_id: e.target.value })}
+                  style={styles.select}
+                >
+                  <option value="">Select a beat sheet...</option>
+                  {beatSheets.map(bs => (
+                    <option key={bs.id} value={bs.id}>{bs.title}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={styles.field}>
+                <label style={styles.label}>Ad Read</label>
+                <select
+                  value={form.ad_read_id}
+                  onChange={(e) => setForm({ ...form, ad_read_id: e.target.value })}
+                  style={styles.select}
+                >
+                  <option value="">Select a deliverable...</option>
+                  {adReadDeliverables.map(d => (
+                    <option key={d.id} value={d.id}>
+                      {d.sponsor_name}{d.campaign_name ? ` — ${d.campaign_name}` : ''}{d.title ? `: ${d.title}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
           <button type="submit" style={styles.submitBtn}>Create Project</button>
         </form>
       )}
@@ -2941,139 +3051,6 @@ function ProjectRow({
                 );
               })}
             </div>
-          </div>
-
-          {/* Checklist */}
-          <div style={styles.detailSection}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <h4 style={styles.detailLabel}>Checklist — {statusLabels[project.status]}</h4>
-              {(project.project_checklists || []).some(c => c.stage !== project.status) && (
-                <button
-                  onClick={() => setShowAllStages(!showAllStages)}
-                  style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)', fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit' }}
-                >
-                  {showAllStages ? 'Show current only' : 'Show all stages'}
-                </button>
-              )}
-            </div>
-            {(() => {
-              const checklists = project.project_checklists || [];
-              const stagesToShow = showAllStages ? statusList : [project.status];
-              return stagesToShow.map(stage => {
-                const items = checklists.filter(c => c.stage === stage);
-                const completedCount = items.filter(c => c.is_complete).length;
-                if (!showAllStages && items.length === 0 && stage === project.status) {
-                  return (
-                    <div key={stage}>
-                      <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.25)', margin: '4px 0 8px' }}>No checklist items yet.</p>
-                      <div style={styles.assignForm}>
-                        <input
-                          value={newChecklistContent}
-                          onChange={(e) => setNewChecklistContent(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && newChecklistContent.trim()) {
-                              onAddChecklistItem(project.id, stage, newChecklistContent);
-                              setNewChecklistContent('');
-                            }
-                          }}
-                          placeholder="Add checklist item..."
-                          style={styles.smallInput}
-                        />
-                        <button
-                          onClick={() => {
-                            if (newChecklistContent.trim()) {
-                              onAddChecklistItem(project.id, stage, newChecklistContent);
-                              setNewChecklistContent('');
-                            }
-                          }}
-                          style={styles.smallBtn}
-                          disabled={!newChecklistContent.trim()}
-                        >Add</button>
-                      </div>
-                    </div>
-                  );
-                }
-                if (showAllStages && items.length === 0) return null;
-                return (
-                  <div key={stage} style={{ marginBottom: showAllStages ? '12px' : '0' }}>
-                    {showAllStages && (
-                      <div style={{ fontSize: '11px', fontWeight: 600, color: statusColors[stage], marginBottom: '6px', textTransform: 'uppercase' }}>
-                        {statusLabels[stage]} ({completedCount}/{items.length})
-                      </div>
-                    )}
-                    {items.length > 0 && (
-                      <div style={{ marginBottom: '6px', background: 'rgba(255,255,255,0.04)', borderRadius: '6px', height: '4px', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${items.length > 0 ? (completedCount / items.length) * 100 : 0}%`, background: statusColors[stage], borderRadius: '6px', transition: 'width 0.2s' }} />
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                      {items.map(item => (
-                        <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px', borderRadius: '6px', background: 'rgba(255,255,255,0.02)' }}>
-                          <input
-                            type="checkbox"
-                            checked={item.is_complete}
-                            onChange={() => onToggleChecklistItem(item.id, item.is_complete)}
-                            style={{ width: '16px', height: '16px', accentColor: '#6366f1', cursor: 'pointer', flexShrink: 0 }}
-                          />
-                          <span style={{ flex: 1, fontSize: '13px', color: item.is_complete ? 'rgba(255,255,255,0.3)' : '#e2e8f0', textDecoration: item.is_complete ? 'line-through' : 'none' }}>
-                            {item.content}
-                          </span>
-                          <button
-                            onClick={() => onDeleteChecklistItem(item.id)}
-                            style={styles.removeBtn}
-                          >✕</button>
-                        </div>
-                      ))}
-                    </div>
-                    {stage === project.status && (
-                      <div style={{ ...styles.assignForm, marginTop: '6px' }}>
-                        <input
-                          value={newChecklistContent}
-                          onChange={(e) => setNewChecklistContent(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && newChecklistContent.trim()) {
-                              onAddChecklistItem(project.id, stage, newChecklistContent);
-                              setNewChecklistContent('');
-                            }
-                          }}
-                          placeholder="Add checklist item..."
-                          style={styles.smallInput}
-                        />
-                        <button
-                          onClick={() => {
-                            if (newChecklistContent.trim()) {
-                              onAddChecklistItem(project.id, stage, newChecklistContent);
-                              setNewChecklistContent('');
-                            }
-                          }}
-                          style={styles.smallBtn}
-                          disabled={!newChecklistContent.trim()}
-                        >Add</button>
-                      </div>
-                    )}
-                  </div>
-                );
-              });
-            })()}
-          </div>
-
-          {/* Notes */}
-          <div style={styles.detailSection}>
-            <h4 style={styles.detailLabel}>Notes</h4>
-            {editingField === 'notes' ? (
-              <textarea
-                value={editNotes}
-                onChange={(e) => setEditNotes(e.target.value)}
-                onBlur={() => { if (editNotes !== (project.notes || '')) saveField('notes', editNotes); else setEditingField(null); }}
-                onKeyDown={(e) => { if (e.key === 'Escape') { setEditNotes(project.notes || ''); setEditingField(null); } }}
-                style={{ ...styles.inlineInput, minHeight: '80px', resize: 'vertical' }}
-                autoFocus
-              />
-            ) : (
-              <div onClick={() => { setEditNotes(project.notes || ''); setEditingField('notes'); }} style={{ ...styles.inlineDisplay, whiteSpace: 'pre-wrap', minHeight: '32px' }}>
-                {project.notes || <span style={{ color: 'rgba(255,255,255,0.2)' }}>Click to add notes...</span>}
-              </div>
-            )}
           </div>
 
           {/* Timeline */}
