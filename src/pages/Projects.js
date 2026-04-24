@@ -67,7 +67,14 @@ const DELIVERABLE_PLATFORMS = ['YouTube', 'TikTok', 'Instagram', 'X/Twitter', 'F
 const SPONSOR_STATUS_COLORS = { active: '#10b981', completed: '#6366f1', cancelled: '#ef4444' };
 const PAYMENT_STATUS_COLORS = { unpaid: '#ef4444', partial: '#f59e0b', paid: '#10b981' };
 
-const MAYDAY_SEGMENTS = ['Maysplaining', "Punchin' Tickets", 'Mayday Update', 'Internet Says'];
+const MAYDAY_SEGMENTS = ['Maysplaining', "Punchin' Tickets", 'Mayday Update', 'Internet Says', 'Going Deep'];
+const MAYDAY_SEGMENT_COLORS = {
+  'Maysplaining':    { bg: 'rgba(99,102,241,0.15)',  color: '#a5b4fc' },
+  "Punchin' Tickets":{ bg: 'rgba(239,68,68,0.15)',   color: '#fca5a5' },
+  'Mayday Update':   { bg: 'rgba(34,197,94,0.15)',   color: '#86efac' },
+  'Internet Says':   { bg: 'rgba(245,158,11,0.15)',  color: '#fcd34d' },
+  'Going Deep':      { bg: 'rgba(236,72,153,0.15)',  color: '#f9a8d4' },
+};
 const MAYDAY_STAGES = ['idea', 'script', 'gather_broadcast', 'film', 'editor', 'thumbnail_post', 'complete'];
 const MAYDAY_STAGE_LABELS = {
   idea: 'Idea', script: 'Script', gather_broadcast: 'Gather Assets + Broadcast',
@@ -146,7 +153,7 @@ export default function Projects({ onNavigate }) {
   const [maydayVideos, setMaydayVideos] = useState([]);
   const [maydayLoading, setMaydayLoading] = useState(false);
   const [showMaydayForm, setShowMaydayForm] = useState(false);
-  const [maydayForm, setMaydayForm] = useState({ title: '', sponsor_read_id: '', post_date: '', segment: '', write_doc_id: '', write_doc_name: '', beat_sheet_id: '', ad_read_id: '' });
+  const [maydayForm, setMaydayForm] = useState({ title: '', post_date: '', segment: '', write_doc_id: '', write_doc_name: '', beat_sheet_id: '', ad_read_id: '' });
   const [editingMayday, setEditingMayday] = useState(null);
 
   const formRef = useRef(null);
@@ -792,7 +799,6 @@ export default function Projects({ onNavigate }) {
     e.preventDefault();
     const { data: vData, error } = await supabase.from('mayday_videos').insert({
       title: maydayForm.title,
-      sponsor_read_id: maydayForm.sponsor_read_id || null,
       post_date: maydayForm.post_date || null,
       created_by: profile.id,
       segment: maydayForm.segment || null,
@@ -842,7 +848,7 @@ export default function Projects({ onNavigate }) {
       }
     }
 
-    setMaydayForm({ title: '', sponsor_read_id: '', post_date: '', segment: '', write_doc_id: '', write_doc_name: '', beat_sheet_id: '', ad_read_id: '' });
+    setMaydayForm({ title: '', post_date: '', segment: '', write_doc_id: '', write_doc_name: '', beat_sheet_id: '', ad_read_id: '' });
     setShowMaydayForm(false);
     fetchMaydayVideos();
   }
@@ -1931,21 +1937,6 @@ export default function Projects({ onNavigate }) {
                 required
                 style={styles.input}
               />
-            </div>
-            <div style={styles.field}>
-              <label style={styles.label}>Sponsor Read</label>
-              <select
-                value={maydayForm.sponsor_read_id}
-                onChange={(e) => setMaydayForm({ ...maydayForm, sponsor_read_id: e.target.value })}
-                style={styles.select}
-              >
-                <option value="">None</option>
-                {reads.map(r => (
-                  <option key={r.id} value={r.id}>
-                    {r.sponsor?.name || 'Unknown'}{r.payout ? ` — $${parseFloat(r.payout).toLocaleString()}` : ''}
-                  </option>
-                ))}
-              </select>
             </div>
             <div style={styles.field}>
               <label style={styles.label}>Segment</label>
@@ -3633,7 +3624,6 @@ function ShortsCard({ clip, teamMembers, onUpdate, onDelete, isEditing, onToggle
 function MaydayCard({ video, reads, onUpdate, onDelete, isEditing, onToggleEdit, linkedFieldData = {} }) {
   const { writeDocs = [], beatSheets = [], adReadDeliverables = [] } = linkedFieldData;
   const [editTitle, setEditTitle] = useState(video.title || '');
-  const [editReadId, setEditReadId] = useState(video.sponsor_read_id || '');
   const [editPostDate, setEditPostDate] = useState(video.post_date || '');
   const [editSegment, setEditSegment] = useState(video.segment || '');
   const [editWriteDocId, setEditWriteDocId] = useState(video.write_doc_id || '');
@@ -3659,7 +3649,8 @@ function MaydayCard({ video, reads, onUpdate, onDelete, isEditing, onToggleEdit,
         {video.segment && (
           <span style={{
             fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px',
-            background: 'rgba(245,158,11,0.15)', color: '#fcd34d',
+            background: MAYDAY_SEGMENT_COLORS[video.segment]?.bg || 'rgba(255,255,255,0.08)',
+            color: MAYDAY_SEGMENT_COLORS[video.segment]?.color || 'rgba(255,255,255,0.5)',
             textTransform: 'uppercase', letterSpacing: '0.3px',
           }}>
             {video.segment}
@@ -3702,19 +3693,6 @@ function MaydayCard({ video, reads, onUpdate, onDelete, isEditing, onToggleEdit,
             >
               <option value="">No segment</option>
               {MAYDAY_SEGMENTS.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <select
-              value={editReadId}
-              onChange={(e) => setEditReadId(e.target.value)}
-              style={styles.smallSelect}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <option value="">No sponsor read</option>
-              {reads.map(r => (
-                <option key={r.id} value={r.id}>
-                  {r.sponsor?.name || 'Unknown'}{r.payout ? ` — $${parseFloat(r.payout).toLocaleString()}` : ''}
-                </option>
-              ))}
             </select>
             <input
               type="date"
@@ -3771,7 +3749,6 @@ function MaydayCard({ video, reads, onUpdate, onDelete, isEditing, onToggleEdit,
                   e.stopPropagation();
                   onUpdate({
                     title: editTitle,
-                    sponsor_read_id: editReadId || null,
                     post_date: editPostDate || null,
                     segment: editSegment || null,
                     write_doc_id: editWriteDocId || null,
