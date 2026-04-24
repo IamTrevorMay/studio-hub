@@ -1385,6 +1385,19 @@ function PlatformView({ accountId, accounts, start, end }) {
           supabase.from('analytics_youtube_daily').select('date, impressions').eq('platform_account_id', accountId).gte('date', prevStart).lt('date', prevEnd),
         );
       }
+      // Fourthwall: fetch revenue_events instead of rollups/content/audience
+      const isFourthwall = account?.platform === 'fourthwall';
+      if (isFourthwall) {
+        const [revRes, prevRevRes] = await Promise.all([
+          supabase.from('revenue_events').select('*').eq('platform_account_id', accountId).gte('occurred_at', start).lte('occurred_at', end + 'T23:59:59.999').order('occurred_at', { ascending: false }),
+          supabase.from('revenue_events').select('amount_cents, net_amount_cents, occurred_at').eq('platform_account_id', accountId).gte('occurred_at', prevStart).lt('occurred_at', prevEnd),
+        ]);
+        if (cancelled) return;
+        setPlatData({ rollups: [], prevRollups: [], content: [], audience: [], prevAudience: [], ytDaily: [], prevYtDaily: [], fwOrders: revRes.data || [], prevFwOrders: prevRevRes.data || [] });
+        setPlatLoading(false);
+        return;
+      }
+
       const results = await Promise.all(queries);
       const [rollupRes, prevRollupRes, contentRes, audRes, prevAudRes] = results;
       if (cancelled) return;
@@ -1441,6 +1454,162 @@ function PlatformView({ accountId, accounts, start, end }) {
   const isYouTube = account?.platform === 'youtube';
   const totalImpressions = (platData.ytDaily || []).reduce((s, r) => s + Number(r.impressions || 0), 0);
   const prevImpressions = (platData.prevYtDaily || []).reduce((s, r) => s + Number(r.impressions || 0), 0);
+
+  // ── Fourthwall view ──
+  const isFourthwall = account?.platform === 'fourthwall';
+  if (isFourthwall) {
+    const orders = platData.fwOrders || [];
+    const prevOrders = platData.prevFwOrders || [];
+    const fwColor = '#E8451C';
+
+    const totalRevenue = orders.reduce((s, o) => s + (o.amount_cents || 0), 0) / 100;
+    const netRevenue = orders.reduce((s, o) => s + (o.net_amount_cents || 0), 0) / 100;
+    const prevRevenue = prevOrders.reduce((s, o) => s + (o.amount_cents || 0), 0) / 100;
+    const prevNet = prevOrders.reduce((s, o) => s + (o.net_amount_cents || 0), 0) / 100;
+    const avgOrder = orders.length > 0 ? totalRevenue / orders.length : 0;
+    const prevAvg = prevOrders.length > 0 ? prevRevenue / prevOrders.length : 0;
+
+    // Daily revenue for trend chart
+    const dailyMap = {};
+    for (const o of orders) {
+      const d = o.occurred_at?.slice(0, 10);
+      if (!d) continue;
+      if (!dailyMap[d]) dailyMap[d] = { date: d, gross: 0, net: 0, orders: 0 };
+      dailyMap[d].gross += (o.amount_cents || 0) / 100;
+      dailyMap[d].net += (o.net_amount_cents || 0) / 100;
+      dailyMap[d].orders += 1;
+    }
+    const dailyRevenue = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
+
+    // Top products
+    const productMap = {};
+    for (const o of orders) {
+      const items = o.metadata?.items || [];
+      if (items.length === 0) {
+        const name = o.product_name || 'Fourthwall Order';
+        if (!productMap[name]) productMap[name] = { name, orders: 0, gross: 0, net: 0 };
+        productMap[name].orders++;
+        productMap[name].gross += (o.amount_cents || 0) / 100;
+        productMap[name].net += (o.net_amount_cents || 0) / 100;
+      } else {
+        for (const item of items) {
+          const name = item.name || 'Unknown';
+          if (!productMap[name]) productMap[name] = { name, orders: 0, gross: 0, net: 0 };
+          productMap[name].orders += item.quantity || 1;
+          productMap[name].gross += (item.unit_price || 0) * (item.quantity || 1);
+          productMap[name].net += ((item.unit_price || 0) - (item.unit_cost || 0)) * (item.quantity || 1);
+        }
+      }
+    }
+    const topProducts = Object.values(productMap).sort((a, b) => b.gross - a.gross);
+
+    return (
+      <>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+          <span style={{ width: 12, height: 12, borderRadius: '50%', background: fwColor }} />
+          <span style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>Merchandise</span>
+        </div>
+
+        {/* KPI Cards */}
+        <div style={styles.kpiGrid}>
+          <KPICard label="Orders" value={orders.length.toLocaleString()} change={pctChange(orders.length, prevOrders.length)} color={fwColor} />
+          <KPICard label="Gross Revenue" value={formatCurrency(totalRevenue)} change={pctChange(totalRevenue, prevRevenue)} color="#f59e0b" />
+          <KPICard label="Net Revenue" value={formatCurrency(netRevenue)} change={pctChange(netRevenue, prevNet)} color="#22c55e" />
+          <KPICard label="Avg Order" value={formatCurrency(avgOrder)} change={pctChange(avgOrder, prevAvg)} color="#3b82f6" />
+        </div>
+
+        {/* Daily Revenue Trend */}
+        {dailyRevenue.length > 0 && (
+          <div style={{ ...styles.chartSection, width: '100%' }}>
+            <div style={styles.chartHeader}>
+              <span style={styles.chartTitle}>Revenue Over Time</span>
+              <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+                {[{ label: 'Gross', color: fwColor }, { label: 'Net', color: '#22c55e' }].map(m => (
+                  <div key={m.label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: m.color }} />
+                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>{m.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <TrendChart
+              data={dailyRevenue}
+              metrics={[
+                { key: 'gross', label: 'Gross', color: fwColor, getValue: r => r.gross },
+                { key: 'net', label: 'Net', color: '#22c55e', getValue: r => r.net },
+              ]}
+            />
+          </div>
+        )}
+
+        {/* Top Products */}
+        {topProducts.length > 0 && (
+          <div style={styles.chartSection}>
+            <span style={styles.chartTitle}>Top Products</span>
+            <div style={{ ...styles.tableWrap, marginTop: 12 }}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>Product</th>
+                    <th style={{ ...styles.th, textAlign: 'right' }}>Units Sold</th>
+                    <th style={{ ...styles.th, textAlign: 'right' }}>Gross</th>
+                    <th style={{ ...styles.th, textAlign: 'right' }}>Net</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {topProducts.map((p, i) => (
+                    <tr key={i} style={i % 2 === 0 ? styles.trEven : {}}>
+                      <td style={styles.td}>{p.name}</td>
+                      <td style={{ ...styles.td, textAlign: 'right' }}>{p.orders}</td>
+                      <td style={{ ...styles.td, textAlign: 'right' }}>{formatCurrency(p.gross)}</td>
+                      <td style={{ ...styles.td, textAlign: 'right' }}>{formatCurrency(p.net)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Recent Orders */}
+        {orders.length > 0 && (
+          <div style={styles.chartSection}>
+            <span style={styles.chartTitle}>Recent Orders</span>
+            <div style={{ ...styles.tableWrap, marginTop: 12 }}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>Order</th>
+                    <th style={styles.th}>Products</th>
+                    <th style={styles.th}>Date</th>
+                    <th style={{ ...styles.th, textAlign: 'right' }}>Gross</th>
+                    <th style={{ ...styles.th, textAlign: 'right' }}>Net</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orders.slice(0, 50).map((o, i) => (
+                    <tr key={o.id || i} style={i % 2 === 0 ? styles.trEven : {}}>
+                      <td style={{ ...styles.td, color: 'rgba(255,255,255,0.45)', fontSize: 11 }}>{o.metadata?.friendly_id || '—'}</td>
+                      <td style={{ ...styles.td, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.product_name || '—'}</td>
+                      <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>{o.occurred_at ? new Date(o.occurred_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</td>
+                      <td style={{ ...styles.td, textAlign: 'right' }}>{formatCurrency((o.amount_cents || 0) / 100)}</td>
+                      <td style={{ ...styles.td, textAlign: 'right' }}>{formatCurrency((o.net_amount_cents || 0) / 100)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {orders.length === 0 && (
+          <div style={styles.emptyCard}>
+            <p style={styles.emptyText}>No orders found in the selected period.</p>
+          </div>
+        )}
+      </>
+    );
+  }
 
   // Trend data
   const trendMetrics = [
