@@ -1469,6 +1469,20 @@ function PlatformView({ accountId, accounts, start, end }) {
     const avgOrder = orders.length > 0 ? totalRevenue / orders.length : 0;
     const prevAvg = prevOrders.length > 0 ? prevRevenue / prevOrders.length : 0;
 
+    // Profit = (unit_price − unit_cost) × quantity summed across line items,
+    // converted to cents. Falls back to 0 when cost data is missing on an
+    // order so a legacy row doesn't blow up the total.
+    const itemProfitCents = (list) => list.reduce((s, o) => {
+      const items = o.metadata?.items || [];
+      for (const item of items) {
+        const margin = (item.unit_price || 0) - (item.unit_cost || 0);
+        s += margin * (item.quantity || 1) * 100;
+      }
+      return s;
+    }, 0);
+    const totalProfit = itemProfitCents(orders);
+    const prevProfit = itemProfitCents(prevOrders);
+
     // Daily revenue for trend chart (keep in cents for TrendChart, convert in tooltips)
     const dailyMap = {};
     for (const o of orders) {
@@ -1515,6 +1529,7 @@ function PlatformView({ accountId, accounts, start, end }) {
           <KPICard label="Orders" value={orders.length.toLocaleString()} change={pctChange(orders.length, prevOrders.length)} color={fwColor} />
           <KPICard label="Gross Revenue" value={formatCurrency(totalRevenue)} change={pctChange(totalRevenue, prevRevenue)} color="#f59e0b" />
           <KPICard label="Net Revenue" value={formatCurrency(netRevenue)} change={pctChange(netRevenue, prevNet)} color="#22c55e" />
+          <KPICard label="Profit" value={formatCurrency(totalProfit)} change={pctChange(totalProfit, prevProfit)} color="#10b981" />
           <KPICard label="Avg Order" value={formatCurrency(avgOrder)} change={pctChange(avgOrder, prevAvg)} color="#3b82f6" />
         </div>
 
