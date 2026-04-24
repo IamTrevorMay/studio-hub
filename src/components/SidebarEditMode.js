@@ -4,16 +4,20 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 /**
  * SidebarEditMode — Admin DnD editor for sidebar navigation.
  * Single flat Droppable with folder membership determined by position.
+ * Collapsed folders break the auto-assign chain — items after a collapsed
+ * folder land at root level, not inside the folder.
  */
 export default function SidebarEditMode({ resolvedNav, navIconMap, onSave, onReset, onCancel, saving }) {
   const [items, setItems] = useState([]);
-  const [editingLabel, setEditingLabel] = useState(null); // id or key being edited
+  // children of collapsed folders are removed from the DnD list and stored here
+  const [collapsedChildren, setCollapsedChildren] = useState({});
+  const [editingLabel, setEditingLabel] = useState(null);
   const [editValue, setEditValue] = useState('');
   const inputRef = useRef(null);
 
-  // Initialize local items from resolvedNav
   useEffect(() => {
     setItems(resolvedNav.map(entry => ({ ...entry })));
+    setCollapsedChildren({});
   }, [resolvedNav]);
 
   useEffect(() => {
@@ -28,22 +32,50 @@ export default function SidebarEditMode({ resolvedNav, navIconMap, onSave, onRes
     const newItems = Array.from(items);
     const [moved] = newItems.splice(result.source.index, 1);
     newItems.splice(result.destination.index, 0, moved);
-    // Recalculate folder membership
     setItems(recalcFolders(newItems));
   }
 
+  // Collapsed folders set currentFolderId to null so subsequent items land at root level.
   function recalcFolders(list) {
     let currentFolderId = null;
     return list.map(entry => {
       if (entry.type === 'folder') {
-        currentFolderId = entry.id;
+        currentFolderId = entry.collapsed ? null : entry.id;
         return { ...entry };
       }
-      // If this item is directly after a folder or another item in the same folder
-      const isAfterFolder = currentFolderId != null;
-      // Check if next entry is a folder — if this item is before a folder header, it stays in current group
-      return { ...entry, folderId: isAfterFolder ? currentFolderId : null };
+      return { ...entry, folderId: currentFolderId };
     });
+  }
+
+  function toggleFolderCollapse(folderId) {
+    const folder = items.find(f => f.type === 'folder' && f.id === folderId);
+    if (!folder) return;
+
+    if (!folder.collapsed) {
+      // Collapse: pull children out of the DnD list
+      const children = items.filter(e => e.folderId === folderId);
+      setCollapsedChildren(prev => ({ ...prev, [folderId]: children }));
+      setItems(prev =>
+        prev
+          .map(e => e.type === 'folder' && e.id === folderId ? { ...e, collapsed: true } : e)
+          .filter(e => e.folderId !== folderId)
+      );
+    } else {
+      // Expand: re-insert children right after the folder
+      const children = collapsedChildren[folderId] || [];
+      setCollapsedChildren(prev => {
+        const next = { ...prev };
+        delete next[folderId];
+        return next;
+      });
+      setItems(prev => {
+        const idx = prev.findIndex(e => e.type === 'folder' && e.id === folderId);
+        const result = [...prev];
+        result[idx] = { ...result[idx], collapsed: false };
+        result.splice(idx + 1, 0, ...children);
+        return recalcFolders(result);
+      });
+    }
   }
 
   function startEdit(id, currentLabel) {
@@ -56,9 +88,7 @@ export default function SidebarEditMode({ resolvedNav, navIconMap, onSave, onRes
     if (trimmed) {
       setItems(prev => prev.map(entry => {
         const entryId = entry.type === 'folder' ? entry.id : entry.key;
-        if (entryId === id) {
-          return { ...entry, label: trimmed };
-        }
+        if (entryId === id) return { ...entry, label: trimmed };
         return entry;
       }));
     }
@@ -71,30 +101,31 @@ export default function SidebarEditMode({ resolvedNav, navIconMap, onSave, onRes
   }
 
   function deleteFolder(folderId) {
+    // Also release any collapsed children back to root level
+    const orphans = (collapsedChildren[folderId] || []).map(e => ({ ...e, folderId: null }));
+    setCollapsedChildren(prev => { const next = { ...prev }; delete next[folderId]; return next; });
     setItems(prev => {
-      // Remove the folder, set its children to top-level
-      return prev
+      const without = prev
         .filter(e => !(e.type === 'folder' && e.id === folderId))
         .map(e => e.folderId === folderId ? { ...e, folderId: null } : e);
+      // Insert orphans after the folder's former position (append at end for simplicity)
+      return [...without, ...orphans];
     });
   }
 
-  function resetToDefault() {
-    onReset();
-  }
-
   function handleSave() {
-    // Convert to config format
-    const configItems = items.map(entry => {
+    // Merge collapsed children back in before saving
+    let allItems = [...items];
+    Object.entries(collapsedChildren).forEach(([folderId, children]) => {
+      const folderIdx = allItems.findIndex(e => e.type === 'folder' && e.id === folderId);
+      if (folderIdx !== -1) allItems.splice(folderIdx + 1, 0, ...children);
+    });
+
+    const configItems = allItems.map(entry => {
       if (entry.type === 'folder') {
         return { type: 'folder', id: entry.id, label: entry.label, collapsed: false };
       }
-      return {
-        type: 'item',
-        key: entry.key,
-        label: entry.label, // We'll let useNavConfig handle null vs override
-        folderId: entry.folderId || null,
-      };
+      return { type: 'item', key: entry.key, label: entry.label, folderId: entry.folderId || null };
     });
     onSave(configItems);
   }
@@ -118,6 +149,11 @@ export default function SidebarEditMode({ resolvedNav, navIconMap, onSave, onRes
                 const isFolder = entry.type === 'folder';
                 const Icon = !isFolder ? navIconMap[entry.key] : null;
                 const isChild = !isFolder && entry.folderId;
+                const childCount = isFolder
+                  ? (entry.collapsed
+                      ? (collapsedChildren[entry.id] || []).length
+                      : items.filter(e => e.folderId === entry.id).length)
+                  : 0;
 
                 return (
                   <Draggable key={id} draggableId={id} index={index}>
@@ -142,17 +178,36 @@ export default function SidebarEditMode({ resolvedNav, navIconMap, onSave, onRes
                           </svg>
                         </span>
 
+                        {/* Collapse toggle for folders */}
+                        {isFolder && (
+                          <button
+                            onClick={() => toggleFolderCollapse(entry.id)}
+                            style={editStyles.collapseBtn}
+                            title={entry.collapsed ? 'Expand folder' : 'Collapse folder'}
+                          >
+                            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"
+                              style={{ transform: entry.collapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s' }}>
+                              <path d="M2 3l3 4 3-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </button>
+                        )}
+
                         {/* Icon for items */}
                         {Icon && <Icon active={false} />}
 
                         {/* Folder icon */}
-                        {isFolder && (
+                        {isFolder && !entry.collapsed && (
                           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="1.2">
                             <path d="M2 4h4l1.5 1.5H14v8H2V4z" />
                           </svg>
                         )}
+                        {isFolder && entry.collapsed && (
+                          <svg width="16" height="16" viewBox="0 0 16 16" fill="rgba(255,255,255,0.2)" stroke="rgba(255,255,255,0.4)" strokeWidth="1.2">
+                            <path d="M2 4h4l1.5 1.5H14v8H2V4z" />
+                          </svg>
+                        )}
 
-                        {/* Label - click to edit */}
+                        {/* Label */}
                         {editingLabel === id ? (
                           <input
                             ref={inputRef}
@@ -172,6 +227,11 @@ export default function SidebarEditMode({ resolvedNav, navIconMap, onSave, onRes
                             title="Click to rename"
                           >
                             {entry.label}
+                            {isFolder && entry.collapsed && childCount > 0 && (
+                              <span style={{ marginLeft: '4px', fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>
+                                ({childCount})
+                              </span>
+                            )}
                           </span>
                         )}
 
@@ -203,7 +263,7 @@ export default function SidebarEditMode({ resolvedNav, navIconMap, onSave, onRes
         <button onClick={addFolder} style={editStyles.addFolderBtn}>
           + Folder
         </button>
-        <button onClick={resetToDefault} style={editStyles.resetBtn}>
+        <button onClick={onReset} style={editStyles.resetBtn}>
           Reset
         </button>
       </div>
@@ -268,6 +328,20 @@ const editStyles = {
     color: 'rgba(255,255,255,0.25)',
     flexShrink: 0,
     padding: '2px',
+  },
+  collapseBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '18px',
+    height: '18px',
+    border: 'none',
+    borderRadius: '4px',
+    background: 'transparent',
+    color: 'rgba(255,255,255,0.4)',
+    cursor: 'pointer',
+    flexShrink: 0,
+    padding: 0,
   },
   label: {
     flex: 1,

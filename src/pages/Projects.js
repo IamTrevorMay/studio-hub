@@ -1220,15 +1220,68 @@ export default function Projects({ onNavigate }) {
     }
   }
 
-  function onDragEnd(result) {
+  async function onDragEnd(result) {
     if (!result.destination) return;
-    const { draggableId, destination } = result;
-    // Droppable IDs are namespaced as `${board}:${status}` so each board owns its columns.
-    const rawDest = destination.droppableId;
-    const newStatus = rawDest.includes(':') ? rawDest.split(':')[1] : rawDest;
+    const { draggableId, source, destination } = result;
+    const srcStatus = source.droppableId.includes(':') ? source.droppableId.split(':')[1] : source.droppableId;
+    const destStatus = destination.droppableId.includes(':') ? destination.droppableId.split(':')[1] : destination.droppableId;
+    const board = source.droppableId.includes(':') ? source.droppableId.split(':')[0] : 'creative';
+    const isSameColumn = srcStatus === destStatus;
+    if (isSameColumn && source.index === destination.index) return;
+
     const project = projects.find(p => p.id === draggableId);
-    if (project && project.status !== newStatus) {
-      handleStatusChange(draggableId, newStatus);
+    if (!project) return;
+
+    const boardProjects = board === 'business' ? businessBoardProjects : creativeBoardProjects;
+    const colSort = (a, b) => {
+      const d = (a.sort_order ?? 0) - (b.sort_order ?? 0);
+      return d !== 0 ? d : new Date(a.created_at) - new Date(b.created_at);
+    };
+
+    if (isSameColumn) {
+      const col = boardProjects.filter(p => p.status === srcStatus).sort(colSort);
+      const reordered = Array.from(col);
+      const [moved] = reordered.splice(source.index, 1);
+      reordered.splice(destination.index, 0, moved);
+      const updates = reordered.map((p, i) => ({ id: p.id, sort_order: (i + 1) * 10 }));
+      // Optimistic update
+      setProjects(prev => prev.map(p => {
+        const u = updates.find(u => u.id === p.id);
+        return u ? { ...p, sort_order: u.sort_order } : p;
+      }));
+      await Promise.all(updates.map(u =>
+        supabase.from('projects').update({ sort_order: u.sort_order }).eq('id', u.id)
+      ));
+    } else {
+      const destCol = boardProjects
+        .filter(p => p.status === destStatus && p.id !== draggableId)
+        .sort(colSort);
+      const inserted = Array.from(destCol);
+      inserted.splice(destination.index, 0, { id: draggableId, sort_order: 0 });
+      const updates = inserted.map((p, i) => ({ id: p.id, sort_order: (i + 1) * 10 }));
+      const newSortOrder = updates.find(u => u.id === draggableId)?.sort_order ?? (destination.index + 1) * 10;
+      // Optimistic update
+      setProjects(prev => prev.map(p => {
+        if (p.id === draggableId) return { ...p, status: destStatus, sort_order: newSortOrder };
+        const u = updates.find(u => u.id === p.id);
+        return u ? { ...p, sort_order: u.sort_order } : p;
+      }));
+      await supabase.from('projects').update({ status: destStatus, sort_order: newSortOrder }).eq('id', draggableId);
+      await Promise.all(updates.filter(u => u.id !== draggableId).map(u =>
+        supabase.from('projects').update({ sort_order: u.sort_order }).eq('id', u.id)
+      ));
+      // Notifications
+      if (project.project_assignments?.length) {
+        const notifs = project.project_assignments
+          .filter(a => a.user_id !== profile.id)
+          .map(a => ({
+            user_id: a.user_id, type: 'status_change',
+            title: `${project.name} moved to ${STATUS_LABELS[destStatus]}`,
+            body: `${profile.full_name} changed the status`,
+            link_tab: 'projects', link_target: project.id,
+          }));
+        if (notifs.length) await supabase.from('notifications').insert(notifs);
+      }
     }
   }
 
@@ -1263,7 +1316,7 @@ export default function Projects({ onNavigate }) {
 
   // Kanban board datasets (separated by category)
   const creativeBoardProjects = projects.filter(p =>
-    (p.category || 'creative') === 'creative' && !p.is_archived && p.status !== 'published'
+    (p.category || 'creative') === 'creative' && !p.is_archived
     && searchFilter(p) && statusFilter(p)
   );
   const businessBoardProjects = projects.filter(p =>
@@ -1657,7 +1710,12 @@ export default function Projects({ onNavigate }) {
           <h2 style={{ ...styles.sectionHeading, marginTop: 0 }}>Creative</h2>
           <div style={styles.boardContainer}>
             {STATUSES.map(status => {
-              const columnProjects = creativeBoardProjects.filter(p => p.status === status);
+              const columnProjects = creativeBoardProjects
+                .filter(p => p.status === status)
+                .sort((a, b) => {
+                  const d = (a.sort_order ?? 0) - (b.sort_order ?? 0);
+                  return d !== 0 ? d : new Date(a.created_at) - new Date(b.created_at);
+                });
               return (
                 <Droppable droppableId={`creative:${status}`} key={`creative:${status}`}>
                   {(provided, snapshot) => (
@@ -1708,7 +1766,12 @@ export default function Projects({ onNavigate }) {
           <h2 style={{ ...styles.sectionHeading, marginTop: '32px' }}>Business</h2>
           <div style={styles.boardContainer}>
             {BUSINESS_STATUSES.map(status => {
-              const columnProjects = businessBoardProjects.filter(p => p.status === status);
+              const columnProjects = businessBoardProjects
+                .filter(p => p.status === status)
+                .sort((a, b) => {
+                  const d = (a.sort_order ?? 0) - (b.sort_order ?? 0);
+                  return d !== 0 ? d : new Date(a.created_at) - new Date(b.created_at);
+                });
               return (
                 <Droppable droppableId={`business:${status}`} key={`business:${status}`}>
                   {(provided, snapshot) => (
