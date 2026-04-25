@@ -176,114 +176,120 @@ export default function Write() {
         </div>
       </div>
 
-      <IdeasSection />
+      <div style={styles.twoColumnLayout}>
+        <div style={styles.mainColumn}>
+          {showCreateFolder && (
+            <form onSubmit={handleCreateFolder} style={styles.createForm}>
+              <input
+                autoFocus
+                value={folderName}
+                onChange={(e) => setFolderName(e.target.value)}
+                placeholder="Folder name..."
+                required
+                style={styles.input}
+              />
+              <button type="submit" disabled={busy} style={styles.submitBtn}>
+                {busy ? 'Creating...' : 'Create Folder'}
+              </button>
+            </form>
+          )}
 
-      {showCreateFolder && (
-        <form onSubmit={handleCreateFolder} style={styles.createForm}>
-          <input
-            autoFocus
-            value={folderName}
-            onChange={(e) => setFolderName(e.target.value)}
-            placeholder="Folder name..."
-            required
-            style={styles.input}
-          />
-          <button type="submit" disabled={busy} style={styles.submitBtn}>
-            {busy ? 'Creating...' : 'Create Folder'}
-          </button>
-        </form>
-      )}
+          {showCreateDoc && (
+            <form onSubmit={handleCreateDoc} style={styles.createForm}>
+              <input
+                autoFocus
+                value={docTitle}
+                onChange={(e) => setDocTitle(e.target.value)}
+                placeholder="Document title..."
+                required
+                style={styles.input}
+              />
+              <button type="submit" disabled={busy} style={styles.submitBtn}>
+                {busy ? 'Creating...' : 'Create Google Doc'}
+              </button>
+            </form>
+          )}
 
-      {showCreateDoc && (
-        <form onSubmit={handleCreateDoc} style={styles.createForm}>
-          <input
-            autoFocus
-            value={docTitle}
-            onChange={(e) => setDocTitle(e.target.value)}
-            placeholder="Document title..."
-            required
-            style={styles.input}
-          />
-          <button type="submit" disabled={busy} style={styles.submitBtn}>
-            {busy ? 'Creating...' : 'Create Google Doc'}
-          </button>
-        </form>
-      )}
-
-      {error && (
-        <div style={styles.errorCard}>
-          <p style={styles.errorText}>Error: {error}</p>
-        </div>
-      )}
-
-      {loading ? (
-        <p style={styles.emptyText}>Loading…</p>
-      ) : items.length === 0 ? (
-        <div style={styles.emptyCard}>
-          <p style={styles.emptyText}>
-            {path.length === 0
-              ? 'No folders or documents yet. Create a folder or a Google Doc to get started.'
-              : 'This folder is empty.'}
-          </p>
-        </div>
-      ) : (
-        <>
-          {folders.length > 0 && (
-            <div style={{ marginBottom: '28px' }}>
-              <h2 style={styles.sectionTitle}>Folders</h2>
-              <div style={styles.folderGrid}>
-                {folders.map(item => (
-                  <ItemCard
-                    key={item.id}
-                    item={item}
-                    icon="📁"
-                    onOpen={() => openItem(item)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setContextMenu({ x: e.clientX, y: e.clientY, item });
-                    }}
-                    renamingId={renamingId}
-                    renameValue={renameValue}
-                    onRenameChange={setRenameValue}
-                    onRenameCommit={() => handleRename(item.id, renameValue)}
-                    onRenameCancel={() => { setRenamingId(null); setRenameValue(''); }}
-                    onDelete={() => handleDelete(item)}
-                  />
-                ))}
-              </div>
+          {error && (
+            <div style={styles.errorCard}>
+              <p style={styles.errorText}>Error: {error}</p>
             </div>
           )}
 
-          {docs.length > 0 && (
-            <div>
-              <h2 style={styles.sectionTitle}>Documents</h2>
-              <div style={styles.docGrid}>
-                {docs.map(item => (
-                  <ItemCard
-                    key={item.id}
-                    item={item}
-                    icon="📝"
-                    onOpen={() => openItem(item)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setContextMenu({ x: e.clientX, y: e.clientY, item });
-                    }}
-                    renamingId={renamingId}
-                    renameValue={renameValue}
-                    onRenameChange={setRenameValue}
-                    onRenameCommit={() => handleRename(item.id, renameValue)}
-                    onRenameCancel={() => { setRenamingId(null); setRenameValue(''); }}
-                    onDelete={() => handleDelete(item)}
-                    compact
-                  />
-                ))}
-              </div>
+          {loading ? (
+            <p style={styles.emptyText}>Loading…</p>
+          ) : items.length === 0 ? (
+            <div style={styles.emptyCard}>
+              <p style={styles.emptyText}>
+                {path.length === 0
+                  ? 'No folders or documents yet. Create a folder or a Google Doc to get started.'
+                  : 'This folder is empty.'}
+              </p>
             </div>
+          ) : (
+            <>
+              {folders.length > 0 && (
+                <div style={{ marginBottom: '28px' }}>
+                  <h2 style={styles.sectionTitle}>Folders</h2>
+                  <div style={styles.folderGrid}>
+                    {folders.map(item => (
+                      <ItemCard
+                        key={item.id}
+                        item={item}
+                        icon="📁"
+                        onOpen={() => openItem(item)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setContextMenu({ x: e.clientX, y: e.clientY, item });
+                        }}
+                        renamingId={renamingId}
+                        renameValue={renameValue}
+                        onRenameChange={setRenameValue}
+                        onRenameCommit={() => handleRename(item.id, renameValue)}
+                        onRenameCancel={() => { setRenamingId(null); setRenameValue(''); }}
+                        onDelete={() => handleDelete(item)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {docs.length > 0 && (
+                <div>
+                  <h2 style={styles.sectionTitle}>Documents</h2>
+                  <div style={styles.docGrid}>
+                    {docs.map(item => (
+                      <ItemCard
+                        key={item.id}
+                        item={item}
+                        icon="📝"
+                        onOpen={() => openItem(item)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setContextMenu({ x: e.clientX, y: e.clientY, item });
+                        }}
+                        renamingId={renamingId}
+                        renameValue={renameValue}
+                        onRenameChange={setRenameValue}
+                        onRenameCommit={() => handleRename(item.id, renameValue)}
+                        onRenameCancel={() => { setRenamingId(null); setRenameValue(''); }}
+                        onDelete={() => handleDelete(item)}
+                        compact
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
-        </>
-      )}
+        </div>
+
+        <aside style={styles.sideColumn}>
+          <IdeasSection />
+        </aside>
+      </div>
 
       {contextMenu && (
         <>
@@ -334,7 +340,7 @@ export default function Write() {
 function IdeasSection() {
   const { profile } = useAuth();
   const [ideas, setIdeas] = useState([]);
-  const [collapsed, setCollapsed] = useState(true);
+  const [collapsed, setCollapsed] = useState(false);
   const [showInput, setShowInput] = useState(false);
   const [newIdeaText, setNewIdeaText] = useState('');
   const [editingId, setEditingId] = useState(null);
@@ -621,6 +627,9 @@ function ItemCard({ item, icon, onOpen, onContextMenu, renamingId, renameValue, 
 
 const styles = {
   page: { padding: '32px 40px', minHeight: '100vh' },
+  twoColumnLayout: { display: 'flex', gap: '24px', alignItems: 'flex-start' },
+  mainColumn: { flex: 3, minWidth: 0 },
+  sideColumn: { flex: 1, minWidth: '240px', position: 'sticky', top: '32px' },
   topBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', gap: '16px' },
   pageTitle: { fontSize: '28px', fontWeight: 700, color: '#ffffff', margin: '0 0 4px 0', letterSpacing: '-0.5px' },
   breadcrumb: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', fontSize: '13px' },
