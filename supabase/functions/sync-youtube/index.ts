@@ -90,6 +90,10 @@ async function fetchDailyAnalytics(
   comments: number;
   shares: number;
 }>> {
+  // Note: `impressions` and `impressionsClickThroughRate` are NOT exposed by
+  // the YouTube Analytics v2 API (returns 400 "Unknown identifier"). Those
+  // columns in analytics_youtube_daily are populated by CSV uploads out of
+  // YouTube Studio, not by this sync.
   const url = `${YT_ANALYTICS_API}?ids=channel==${channelId}&startDate=${startDate}&endDate=${endDate}&metrics=views,estimatedMinutesWatched,subscribersGained,subscribersLost,likes,comments,shares&dimensions=day&sort=day`;
   const res = await fetchWithRetry(url, {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -425,6 +429,9 @@ serve(async (req) => {
                 totalDailyDays += dailyData.length;
 
                 if (dailyData.length > 0) {
+                  // Do NOT include impressions / impressions_ctr here — those
+                  // columns are CSV-sourced and the Analytics API can't
+                  // populate them. Including them would overwrite history.
                   const dailyBatch = dailyData.map(day => ({
                     channel: channelSlug,
                     platform_account_id: account.id,
