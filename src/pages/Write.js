@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
@@ -175,6 +176,8 @@ export default function Write() {
         </div>
       </div>
 
+      <IdeasSection />
+
       {showCreateFolder && (
         <form onSubmit={handleCreateFolder} style={styles.createForm}>
           <input
@@ -322,6 +325,259 @@ export default function Write() {
     </div>
   );
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// IdeasSection — shared, fully-interactive idea list. Modeled after the
+// Dashboard To Do widget, but every authenticated user sees and edits the
+// same rows. No "delete checked on refresh" because it's shared.
+// ────────────────────────────────────────────────────────────────────────────
+function IdeasSection() {
+  const { profile } = useAuth();
+  const [ideas, setIdeas] = useState([]);
+  const [collapsed, setCollapsed] = useState(true);
+  const [showInput, setShowInput] = useState(false);
+  const [newIdeaText, setNewIdeaText] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [editingText, setEditingText] = useState('');
+
+  const fetchIdeas = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('write_ideas')
+      .select('*')
+      .order('position', { ascending: true });
+    if (error) { console.error('Error loading ideas:', error); return; }
+    setIdeas(data || []);
+  }, []);
+
+  useEffect(() => { fetchIdeas(); }, [fetchIdeas]);
+  useVisibilityRefresh(fetchIdeas);
+
+  async function addIdea() {
+    const text = newIdeaText.trim();
+    if (!text) return;
+    if (!profile?.id) { alert('Cannot add idea: not signed in.'); return; }
+    const nextPosition = ideas.length > 0
+      ? Math.max(...ideas.map(i => i.position || 0)) + 1
+      : 0;
+    const { data, error } = await supabase
+      .from('write_ideas')
+      .insert({ text, checked: false, position: nextPosition, created_by: profile.id })
+      .select()
+      .single();
+    if (error) {
+      console.error('Error adding idea:', error);
+      alert(`Could not save idea: ${error.message || 'unknown error'}`);
+      return;
+    }
+    setIdeas(prev => [...prev, data]);
+    setNewIdeaText('');
+    setShowInput(false);
+  }
+
+  async function toggleIdea(id) {
+    const current = ideas.find(i => i.id === id);
+    if (!current) return;
+    const nextChecked = !current.checked;
+    setIdeas(prev => prev.map(i => i.id === id ? { ...i, checked: nextChecked } : i));
+    const { error } = await supabase
+      .from('write_ideas')
+      .update({ checked: nextChecked, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) {
+      console.error('Error toggling idea:', error);
+      setIdeas(prev => prev.map(i => i.id === id ? { ...i, checked: current.checked } : i));
+    }
+  }
+
+  async function deleteIdea(id) {
+    const previous = ideas;
+    setIdeas(prev => prev.filter(i => i.id !== id));
+    const { error } = await supabase.from('write_ideas').delete().eq('id', id);
+    if (error) {
+      console.error('Error deleting idea:', error);
+      setIdeas(previous);
+    }
+  }
+
+  async function saveEdit(id) {
+    const trimmed = editingText.trim();
+    setEditingId(null);
+    setEditingText('');
+    if (!trimmed) return;
+    const current = ideas.find(i => i.id === id);
+    if (!current || current.text === trimmed) return;
+    setIdeas(prev => prev.map(i => i.id === id ? { ...i, text: trimmed } : i));
+    const { error } = await supabase
+      .from('write_ideas')
+      .update({ text: trimmed, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) {
+      console.error('Error saving idea edit:', error);
+      setIdeas(prev => prev.map(i => i.id === id ? { ...i, text: current.text } : i));
+    }
+  }
+
+  async function handleDragEnd(result) {
+    if (!result.destination) return;
+    const items = Array.from(ideas);
+    const [moved] = items.splice(result.source.index, 1);
+    items.splice(result.destination.index, 0, moved);
+    const reindexed = items.map((item, idx) => ({ ...item, position: idx }));
+    setIdeas(reindexed);
+    const updates = reindexed.map(item =>
+      supabase.from('write_ideas').update({ position: item.position }).eq('id', item.id)
+    );
+    const results = await Promise.all(updates);
+    const firstError = results.find(r => r.error)?.error;
+    if (firstError) console.error('Error reordering ideas:', firstError);
+  }
+
+  return (
+    <div style={ideaStyles.section}>
+      <div style={ideaStyles.headerRow}>
+        <button
+          onClick={() => setCollapsed(prev => !prev)}
+          style={ideaStyles.headerBtn}
+        >
+          <span style={ideaStyles.headerLabel}>Ideas</span>
+          <span style={ideaStyles.headerCount}>{ideas.length}</span>
+          <span style={ideaStyles.headerChevron}>{collapsed ? '▶' : '▼'}</span>
+        </button>
+        {!collapsed && !showInput && (
+          <button onClick={() => setShowInput(true)} style={ideaStyles.addBtn}>+ Add</button>
+        )}
+      </div>
+
+      {!collapsed && (
+        <>
+          {showInput && (
+            <div style={ideaStyles.addRow}>
+              <input
+                value={newIdeaText}
+                onChange={(e) => setNewIdeaText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') addIdea();
+                  if (e.key === 'Escape') { setShowInput(false); setNewIdeaText(''); }
+                }}
+                placeholder="Add an idea..."
+                style={ideaStyles.input}
+                autoFocus
+              />
+              <button
+                onClick={addIdea}
+                disabled={!newIdeaText.trim()}
+                style={{ ...ideaStyles.submitBtn, opacity: newIdeaText.trim() ? 1 : 0.4 }}
+              >
+                Add
+              </button>
+              <button
+                onClick={() => { setShowInput(false); setNewIdeaText(''); }}
+                style={ideaStyles.cancelBtn}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+
+          <DragDropContext onDragEnd={handleDragEnd}>
+            <Droppable droppableId="ideas-list">
+              {(provided) => (
+                <div
+                  ref={provided.innerRef}
+                  {...provided.droppableProps}
+                  style={{ ...ideaStyles.list, marginTop: showInput ? '8px' : '0' }}
+                >
+                  {ideas.map((item, index) => (
+                    <Draggable key={item.id} draggableId={item.id} index={index}>
+                      {(provided, snapshot) => (
+                        <div
+                          ref={provided.innerRef}
+                          {...provided.draggableProps}
+                          style={{
+                            ...ideaStyles.itemWrap,
+                            ...(snapshot.isDragging ? { boxShadow: '0 4px 16px rgba(0,0,0,0.3)', opacity: 0.95 } : {}),
+                            ...provided.draggableProps.style,
+                          }}
+                        >
+                          <div style={ideaStyles.item}>
+                            <div {...provided.dragHandleProps} style={ideaStyles.dragHandle}>⠿</div>
+                            <input
+                              type="checkbox"
+                              checked={item.checked}
+                              onChange={() => toggleIdea(item.id)}
+                              style={ideaStyles.checkbox}
+                            />
+                            {editingId === item.id ? (
+                              <input
+                                value={editingText}
+                                onChange={(e) => setEditingText(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') saveEdit(item.id);
+                                  if (e.key === 'Escape') { setEditingId(null); setEditingText(''); }
+                                }}
+                                onBlur={() => saveEdit(item.id)}
+                                style={ideaStyles.editInput}
+                                autoFocus
+                              />
+                            ) : (
+                              <span
+                                style={{
+                                  ...ideaStyles.itemText,
+                                  textDecoration: item.checked ? 'line-through' : 'none',
+                                  opacity: item.checked ? 0.45 : 1,
+                                }}
+                                onDoubleClick={() => { setEditingId(item.id); setEditingText(item.text); }}
+                                title="Double-click to edit"
+                              >
+                                {item.text}
+                              </span>
+                            )}
+                            <button
+                              onClick={() => deleteIdea(item.id)}
+                              style={ideaStyles.deleteBtn}
+                              title="Delete"
+                            >✕</button>
+                          </div>
+                        </div>
+                      )}
+                    </Draggable>
+                  ))}
+                  {provided.placeholder}
+                  {ideas.length === 0 && !showInput && (
+                    <p style={ideaStyles.emptyText}>No ideas yet</p>
+                  )}
+                </div>
+              )}
+            </Droppable>
+          </DragDropContext>
+        </>
+      )}
+    </div>
+  );
+}
+
+const ideaStyles = {
+  section: { background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '14px', padding: '16px 20px', marginBottom: '24px' },
+  headerRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' },
+  headerBtn: { display: 'flex', alignItems: 'center', gap: '8px', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit' },
+  headerLabel: { fontSize: '13px', fontWeight: 700, color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase', letterSpacing: '0.5px' },
+  headerCount: { fontSize: '11px', color: 'rgba(255,255,255,0.3)', fontWeight: 600 },
+  headerChevron: { fontSize: '10px', color: 'rgba(255,255,255,0.35)' },
+  addBtn: { padding: '4px 10px', background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '6px', color: '#a5b4fc', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  addRow: { display: 'flex', gap: '8px', marginTop: '12px' },
+  input: { flex: 1, padding: '8px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '13px', fontFamily: 'inherit', outline: 'none' },
+  submitBtn: { padding: '8px 14px', background: '#6366f1', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  cancelBtn: { padding: '8px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: 'rgba(255,255,255,0.6)', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' },
+  list: { display: 'flex', flexDirection: 'column', gap: '4px' },
+  itemWrap: { borderRadius: '6px' },
+  item: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 4px' },
+  dragHandle: { color: 'rgba(255,255,255,0.2)', fontSize: '14px', cursor: 'grab', userSelect: 'none', lineHeight: 1, paddingRight: '2px' },
+  checkbox: { width: '14px', height: '14px', cursor: 'pointer' },
+  itemText: { flex: 1, fontSize: '13px', color: '#e2e8f0', cursor: 'text', wordBreak: 'break-word' },
+  editInput: { flex: 1, padding: '4px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(99,102,241,0.5)', borderRadius: '6px', color: '#fff', fontSize: '13px', fontFamily: 'inherit', outline: 'none' },
+  deleteBtn: { background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '12px', padding: '4px', opacity: 0.6 },
+  emptyText: { color: 'rgba(255,255,255,0.35)', fontSize: '13px', margin: '8px 0 0 0' },
+};
 
 function ItemCard({ item, icon, onOpen, onContextMenu, renamingId, renameValue, onRenameChange, onRenameCommit, onRenameCancel, onDelete, compact }) {
   const isRenaming = renamingId === item.id;
