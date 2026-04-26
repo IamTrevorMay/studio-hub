@@ -1469,19 +1469,33 @@ function PlatformView({ accountId, accounts, start, end }) {
     const avgOrder = orders.length > 0 ? totalRevenue / orders.length : 0;
     const prevAvg = prevOrders.length > 0 ? prevRevenue / prevOrders.length : 0;
 
-    // Profit = (unit_price − unit_cost) × quantity summed across line items,
-    // converted to cents. Falls back to 0 when cost data is missing on an
-    // order so a legacy row doesn't blow up the total.
-    const itemProfitCents = (list) => list.reduce((s, o) => {
+    // Per-order profit in cents from line-item cost data. Returns null when
+    // an order has no items[] metadata (typically legacy or aggregate rows),
+    // so we can distinguish "0% margin" from "no cost data".
+    const orderProfitCents = (o) => {
       const items = o.metadata?.items || [];
-      for (const item of items) {
-        const margin = (item.unit_price || 0) - (item.unit_cost || 0);
-        s += margin * (item.quantity || 1) * 100;
-      }
-      return s;
-    }, 0);
-    const totalProfit = itemProfitCents(orders);
-    const prevProfit = itemProfitCents(prevOrders);
+      if (items.length === 0) return null;
+      return items.reduce((s, item) =>
+        s + ((item.unit_price || 0) - (item.unit_cost || 0)) * (item.quantity || 1) * 100,
+      0);
+    };
+    const orderMarginPct = (o) => {
+      const profit = orderProfitCents(o);
+      const gross = o.amount_cents || 0;
+      if (profit === null || gross <= 0) return null;
+      return (profit / gross) * 100;
+    };
+
+    const sumProfit = (list) => list.reduce((s, o) => s + (orderProfitCents(o) || 0), 0);
+    const totalProfit = sumProfit(orders);
+    const prevProfit = sumProfit(prevOrders);
+
+    // Overall margin = total profit / total gross. Track the previous-period
+    // delta in percentage points so the KPI shows e.g. "+2.3pp" rather than a
+    // pct-change-of-a-percentage.
+    const overallMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+    const prevMargin = prevRevenue > 0 ? (prevProfit / prevRevenue) * 100 : 0;
+    const marginDelta = overallMargin - prevMargin;
 
     // Daily revenue for trend chart (keep in cents for TrendChart, convert in tooltips)
     const dailyMap = {};
@@ -1495,23 +1509,28 @@ function PlatformView({ accountId, accounts, start, end }) {
     }
     const dailyRevenue = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
 
-    // Top products
+    // Top products. `hasCostData` flags whether the rows came from items[]
+    // (so margin can be computed) vs. legacy aggregate orders (where we only
+    // have gross + Fourthwall-net).
     const productMap = {};
     for (const o of orders) {
       const items = o.metadata?.items || [];
       if (items.length === 0) {
         const name = o.product_name || 'Fourthwall Order';
-        if (!productMap[name]) productMap[name] = { name, orders: 0, gross: 0, net: 0 };
+        if (!productMap[name]) productMap[name] = { name, orders: 0, gross: 0, net: 0, profit: 0, hasCostData: false };
         productMap[name].orders++;
         productMap[name].gross += (o.amount_cents || 0);
         productMap[name].net += (o.net_amount_cents || 0);
       } else {
         for (const item of items) {
           const name = item.name || 'Unknown';
-          if (!productMap[name]) productMap[name] = { name, orders: 0, gross: 0, net: 0 };
+          if (!productMap[name]) productMap[name] = { name, orders: 0, gross: 0, net: 0, profit: 0, hasCostData: true };
+          else productMap[name].hasCostData = true;
           productMap[name].orders += item.quantity || 1;
           productMap[name].gross += (item.unit_price || 0) * (item.quantity || 1) * 100;
-          productMap[name].net += ((item.unit_price || 0) - (item.unit_cost || 0)) * (item.quantity || 1) * 100;
+          const profit = ((item.unit_price || 0) - (item.unit_cost || 0)) * (item.quantity || 1) * 100;
+          productMap[name].profit += profit;
+          productMap[name].net += profit;
         }
       }
     }
@@ -1530,6 +1549,13 @@ function PlatformView({ accountId, accounts, start, end }) {
           <KPICard label="Gross Revenue" value={formatCurrency(totalRevenue)} change={pctChange(totalRevenue, prevRevenue)} color="#f59e0b" />
           <KPICard label="Net Revenue" value={formatCurrency(netRevenue)} change={pctChange(netRevenue, prevNet)} color="#22c55e" />
           <KPICard label="Profit" value={formatCurrency(totalProfit)} change={pctChange(totalProfit, prevProfit)} color="#10b981" />
+          <KPICard
+            label="Margin"
+            value={`${overallMargin.toFixed(1)}%`}
+            change={pctChange(overallMargin, prevMargin)}
+            changeLabel={`${marginDelta >= 0 ? '+' : ''}${marginDelta.toFixed(1)}pp vs prior`}
+            color="#84cc16"
+          />
           <KPICard label="Avg Order" value={formatCurrency(avgOrder)} change={pctChange(avgOrder, prevAvg)} color="#3b82f6" />
         </div>
 
@@ -1569,17 +1595,22 @@ function PlatformView({ accountId, accounts, start, end }) {
                     <th style={{ ...styles.th, textAlign: 'right' }}>Units Sold</th>
                     <th style={{ ...styles.th, textAlign: 'right' }}>Gross</th>
                     <th style={{ ...styles.th, textAlign: 'right' }}>Net</th>
+                    <th style={{ ...styles.th, textAlign: 'right' }}>Margin</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {topProducts.map((p, i) => (
-                    <tr key={i} style={i % 2 === 0 ? styles.trEven : {}}>
-                      <td style={styles.td}>{p.name}</td>
-                      <td style={{ ...styles.td, textAlign: 'right' }}>{p.orders}</td>
-                      <td style={{ ...styles.td, textAlign: 'right' }}>{formatCurrency(p.gross)}</td>
-                      <td style={{ ...styles.td, textAlign: 'right' }}>{formatCurrency(p.net)}</td>
-                    </tr>
-                  ))}
+                  {topProducts.map((p, i) => {
+                    const margin = p.hasCostData && p.gross > 0 ? (p.profit / p.gross) * 100 : null;
+                    return (
+                      <tr key={i} style={i % 2 === 0 ? styles.trEven : {}}>
+                        <td style={styles.td}>{p.name}</td>
+                        <td style={{ ...styles.td, textAlign: 'right' }}>{p.orders}</td>
+                        <td style={{ ...styles.td, textAlign: 'right' }}>{formatCurrency(p.gross)}</td>
+                        <td style={{ ...styles.td, textAlign: 'right' }}>{formatCurrency(p.net)}</td>
+                        <td style={{ ...styles.td, textAlign: 'right' }}>{margin !== null ? `${margin.toFixed(1)}%` : '—'}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1599,18 +1630,23 @@ function PlatformView({ accountId, accounts, start, end }) {
                     <th style={styles.th}>Date</th>
                     <th style={{ ...styles.th, textAlign: 'right' }}>Gross</th>
                     <th style={{ ...styles.th, textAlign: 'right' }}>Net</th>
+                    <th style={{ ...styles.th, textAlign: 'right' }}>Margin</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {orders.slice(0, 50).map((o, i) => (
-                    <tr key={o.id || i} style={i % 2 === 0 ? styles.trEven : {}}>
-                      <td style={{ ...styles.td, color: 'rgba(255,255,255,0.45)', fontSize: 11 }}>{o.metadata?.friendly_id || '—'}</td>
-                      <td style={{ ...styles.td, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.product_name || '—'}</td>
-                      <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>{o.occurred_at ? new Date(o.occurred_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</td>
-                      <td style={{ ...styles.td, textAlign: 'right' }}>{formatCurrency(o.amount_cents || 0)}</td>
-                      <td style={{ ...styles.td, textAlign: 'right' }}>{formatCurrency(o.net_amount_cents || 0)}</td>
-                    </tr>
-                  ))}
+                  {orders.slice(0, 50).map((o, i) => {
+                    const margin = orderMarginPct(o);
+                    return (
+                      <tr key={o.id || i} style={i % 2 === 0 ? styles.trEven : {}}>
+                        <td style={{ ...styles.td, color: 'rgba(255,255,255,0.45)', fontSize: 11 }}>{o.metadata?.friendly_id || '—'}</td>
+                        <td style={{ ...styles.td, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.product_name || '—'}</td>
+                        <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>{o.occurred_at ? new Date(o.occurred_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</td>
+                        <td style={{ ...styles.td, textAlign: 'right' }}>{formatCurrency(o.amount_cents || 0)}</td>
+                        <td style={{ ...styles.td, textAlign: 'right' }}>{formatCurrency(o.net_amount_cents || 0)}</td>
+                        <td style={{ ...styles.td, textAlign: 'right' }}>{margin !== null ? `${margin.toFixed(1)}%` : '—'}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
