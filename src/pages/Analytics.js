@@ -1469,15 +1469,26 @@ function PlatformView({ accountId, accounts, start, end }) {
     const avgOrder = orders.length > 0 ? totalRevenue / orders.length : 0;
     const prevAvg = prevOrders.length > 0 ? prevRevenue / prevOrders.length : 0;
 
-    // Per-order profit in cents from line-item cost data. Returns null when
-    // an order has no items[] metadata (typically legacy or aggregate rows),
-    // so we can distinguish "0% margin" from "no cost data".
+    // Per-order take-home profit in cents.
+    //   profit = net − items_cost − processing_fee
+    // Fourthwall's Open API does not expose their processing fee, so we
+    // estimate it with the standard card rate (2.9% + $0.30 of gross).
+    // This reproduces the "your profit" figure shown on the Fourthwall
+    // dashboard within rounding. Returns null when an order has no items[]
+    // cost data so a "no cost data" row stays distinguishable from a
+    // genuine $0 profit.
+    const FW_FEE_RATE = 0.029;
+    const FW_FEE_FIXED_CENTS = 30;
     const orderProfitCents = (o) => {
       const items = o.metadata?.items || [];
       if (items.length === 0) return null;
-      return items.reduce((s, item) =>
-        s + ((item.unit_price || 0) - (item.unit_cost || 0)) * (item.quantity || 1) * 100,
-      0);
+      const gross = o.amount_cents || 0;
+      const net = o.net_amount_cents || 0;
+      if (gross <= 0) return null;
+      const cost = items.reduce((s, item) =>
+        s + Math.round((item.unit_cost || 0) * (item.quantity || 1) * 100), 0);
+      const fee = Math.round(gross * FW_FEE_RATE) + FW_FEE_FIXED_CENTS;
+      return net - cost - fee;
     };
     const orderMarginPct = (o) => {
       const profit = orderProfitCents(o);
@@ -1595,22 +1606,17 @@ function PlatformView({ accountId, accounts, start, end }) {
                     <th style={{ ...styles.th, textAlign: 'right' }}>Units Sold</th>
                     <th style={{ ...styles.th, textAlign: 'right' }}>Gross</th>
                     <th style={{ ...styles.th, textAlign: 'right' }}>Net</th>
-                    <th style={{ ...styles.th, textAlign: 'right' }}>Margin</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {topProducts.map((p, i) => {
-                    const margin = p.hasCostData && p.gross > 0 ? (p.profit / p.gross) * 100 : null;
-                    return (
-                      <tr key={i} style={i % 2 === 0 ? styles.trEven : {}}>
-                        <td style={styles.td}>{p.name}</td>
-                        <td style={{ ...styles.td, textAlign: 'right' }}>{p.orders}</td>
-                        <td style={{ ...styles.td, textAlign: 'right' }}>{formatCurrency(p.gross)}</td>
-                        <td style={{ ...styles.td, textAlign: 'right' }}>{formatCurrency(p.net)}</td>
-                        <td style={{ ...styles.td, textAlign: 'right' }}>{margin !== null ? `${margin.toFixed(1)}%` : '—'}</td>
-                      </tr>
-                    );
-                  })}
+                  {topProducts.map((p, i) => (
+                    <tr key={i} style={i % 2 === 0 ? styles.trEven : {}}>
+                      <td style={styles.td}>{p.name}</td>
+                      <td style={{ ...styles.td, textAlign: 'right' }}>{p.orders}</td>
+                      <td style={{ ...styles.td, textAlign: 'right' }}>{formatCurrency(p.gross)}</td>
+                      <td style={{ ...styles.td, textAlign: 'right' }}>{formatCurrency(p.net)}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
