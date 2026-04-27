@@ -26,6 +26,7 @@ const FOLDERS = [
   { id: 'mayday', label: 'Mayday' },
   { id: 'tm_baseball', label: 'TM Baseball' },
   { id: 'ideas', label: 'Ideas' },
+  { id: 'archive', label: 'Archive' },
 ];
 
 // ─── component ─────────────────────────────────────────────────────────────────
