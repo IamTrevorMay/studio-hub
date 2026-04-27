@@ -228,6 +228,19 @@ export default function Production() {
     }));
   };
 
+  const moveTagAcrossBeats = (fromBeatId, field, fromIndex, toBeatId) => {
+    setBeats(prev => {
+      const fromBeat = prev.find(b => b.id === fromBeatId);
+      if (!fromBeat) return prev;
+      const item = fromBeat[field][fromIndex];
+      return prev.map(b => {
+        if (b.id === fromBeatId) return { ...b, [field]: b[field].filter((_, i) => i !== fromIndex) };
+        if (b.id === toBeatId) return { ...b, [field]: [...b[field], item] };
+        return b;
+      });
+    });
+  };
+
   const uploadBeatMedia = useCallback(async (beatId, field, file) => {
     const cellKey = `${beatId}-${field}`;
     setUploadingCells(prev => ({ ...prev, [cellKey]: true }));
@@ -876,20 +889,30 @@ export default function Production() {
                           if (e.dataTransfer.types.includes('Files')) {
                             e.preventDefault();
                             setDropHighlight(`${beat.id}-graphics`);
+                          } else if (tagDragRef.current?.field === 'graphics' && tagDragRef.current?.beatId !== beat.id) {
+                            e.preventDefault();
+                            setDropHighlight(`${beat.id}-graphics`);
                           }
                         }}
                         onDragLeave={e => {
                           if (!e.currentTarget.contains(e.relatedTarget)) setDropHighlight(null);
                         }}
                         onDrop={e => {
+                          setDropHighlight(null);
                           if (e.dataTransfer.files.length > 0) {
                             e.preventDefault();
-                            setDropHighlight(null);
                             Array.from(e.dataTransfer.files).forEach(f => {
                               if (f.type.startsWith('image/') || f.type.startsWith('video/')) {
                                 uploadBeatMedia(beat.id, 'graphics', f);
                               }
                             });
+                          } else {
+                            const d = tagDragRef.current;
+                            if (d && d.field === 'graphics' && d.beatId !== beat.id) {
+                              e.preventDefault();
+                              moveTagAcrossBeats(d.beatId, d.field, d.fromIndex, beat.id);
+                              tagDragRef.current = null;
+                            }
                           }
                         }}
                       >
@@ -960,20 +983,30 @@ export default function Production() {
                           if (e.dataTransfer.types.includes('Files')) {
                             e.preventDefault();
                             setDropHighlight(`${beat.id}-videos`);
+                          } else if (tagDragRef.current?.field === 'videos' && tagDragRef.current?.beatId !== beat.id) {
+                            e.preventDefault();
+                            setDropHighlight(`${beat.id}-videos`);
                           }
                         }}
                         onDragLeave={e => {
                           if (!e.currentTarget.contains(e.relatedTarget)) setDropHighlight(null);
                         }}
                         onDrop={e => {
+                          setDropHighlight(null);
                           if (e.dataTransfer.files.length > 0) {
                             e.preventDefault();
-                            setDropHighlight(null);
                             Array.from(e.dataTransfer.files).forEach(f => {
                               if (f.type.startsWith('image/') || f.type.startsWith('video/')) {
                                 uploadBeatMedia(beat.id, 'videos', f);
                               }
                             });
+                          } else {
+                            const d = tagDragRef.current;
+                            if (d && d.field === 'videos' && d.beatId !== beat.id) {
+                              e.preventDefault();
+                              moveTagAcrossBeats(d.beatId, d.field, d.fromIndex, beat.id);
+                              tagDragRef.current = null;
+                            }
                           }
                         }}
                       >
