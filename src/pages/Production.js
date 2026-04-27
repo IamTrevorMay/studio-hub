@@ -63,6 +63,10 @@ export default function Production() {
   // ── tag input state ──
   const [tagInputs, setTagInputs] = useState({});
 
+  // ── beat media upload state ──
+  const [uploadingCells, setUploadingCells] = useState({});
+  const [dropHighlight, setDropHighlight] = useState(null);
+
   // ── confirm delete ──
   const [confirmDelete, setConfirmDelete] = useState(null);
 
@@ -223,6 +227,30 @@ export default function Production() {
       return { ...b, [field]: arr };
     }));
   };
+
+  const uploadBeatMedia = useCallback(async (beatId, field, file) => {
+    const cellKey = `${beatId}-${field}`;
+    setUploadingCells(prev => ({ ...prev, [cellKey]: true }));
+    try {
+      const ext = file.name.split('.').pop();
+      const path = `${beatId}/${field}/${crypto.randomUUID()}.${ext}`;
+      const { error } = await supabase.storage.from('beat-media').upload(path, file);
+      if (error) throw error;
+      const { data: { publicUrl } } = supabase.storage.from('beat-media').getPublicUrl(path);
+      const mediaObj = {
+        name: file.name,
+        url: publicUrl,
+        type: file.type.startsWith('image/') ? 'image' : 'video',
+      };
+      setBeats(prev => prev.map(b =>
+        b.id === beatId ? { ...b, [field]: [...b[field], mediaObj] } : b
+      ));
+    } catch (err) {
+      console.error('Beat media upload failed:', err);
+    } finally {
+      setUploadingCells(prev => { const n = { ...prev }; delete n[cellKey]; return n; });
+    }
+  }, []);
 
   const handleBulletKeyDown = (e, beatId, field) => {
     if (e.key !== 'Enter') return;
@@ -839,26 +867,75 @@ export default function Production() {
                       </div>
 
                       {/* Col 2: Graphics */}
-                      <div style={styles.tagCol}>
-                        {beat.graphics.map((g, i) => (
-                          <span
-                            key={i}
-                            style={{ ...styles.tag, cursor: 'grab' }}
-                            draggable
-                            onDragStart={() => { tagDragRef.current = { beatId: beat.id, field: 'graphics', fromIndex: i }; }}
-                            onDragOver={(e) => e.preventDefault()}
-                            onDrop={(e) => {
-                              e.preventDefault();
-                              const d = tagDragRef.current;
-                              if (!d || d.beatId !== beat.id || d.field !== 'graphics' || d.fromIndex === i) return;
-                              reorderTag(d.beatId, d.field, d.fromIndex, i);
-                              tagDragRef.current = null;
-                            }}
-                          >
-                            <span style={styles.tagText}>{g}</span>
-                            <button onClick={() => removeTag(beat.id, 'graphics', i)} style={styles.tagRemove}>&times;</button>
-                          </span>
-                        ))}
+                      <div
+                        style={{
+                          ...styles.tagCol,
+                          ...(dropHighlight === `${beat.id}-graphics` ? styles.tagColDrop : {}),
+                        }}
+                        onDragOver={e => {
+                          if (e.dataTransfer.types.includes('Files')) {
+                            e.preventDefault();
+                            setDropHighlight(`${beat.id}-graphics`);
+                          }
+                        }}
+                        onDragLeave={e => {
+                          if (!e.currentTarget.contains(e.relatedTarget)) setDropHighlight(null);
+                        }}
+                        onDrop={e => {
+                          if (e.dataTransfer.files.length > 0) {
+                            e.preventDefault();
+                            setDropHighlight(null);
+                            Array.from(e.dataTransfer.files).forEach(f => {
+                              if (f.type.startsWith('image/') || f.type.startsWith('video/')) {
+                                uploadBeatMedia(beat.id, 'graphics', f);
+                              }
+                            });
+                          }
+                        }}
+                      >
+                        {beat.graphics.map((g, i) => {
+                          const isMedia = typeof g === 'object' && g.url;
+                          if (isMedia) {
+                            return (
+                              <div key={i} style={styles.mediaThumb}>
+                                {g.type === 'image'
+                                  ? <img src={g.url} alt={g.name} style={styles.mediaImg} />
+                                  : (
+                                    <div style={styles.mediaVideoIcon}>
+                                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="rgba(165,180,252,0.7)" strokeWidth="1.5">
+                                        <rect x="1" y="3" width="10" height="10" rx="1.5" />
+                                        <path d="M11 6l4-2v8l-4-2V6z" />
+                                      </svg>
+                                    </div>
+                                  )}
+                                <span style={styles.mediaName}>{g.name}</span>
+                                <button onClick={() => removeTag(beat.id, 'graphics', i)} style={styles.tagRemove}>&times;</button>
+                              </div>
+                            );
+                          }
+                          return (
+                            <span
+                              key={i}
+                              style={{ ...styles.tag, cursor: 'grab' }}
+                              draggable
+                              onDragStart={() => { tagDragRef.current = { beatId: beat.id, field: 'graphics', fromIndex: i }; }}
+                              onDragOver={(e) => e.preventDefault()}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                const d = tagDragRef.current;
+                                if (!d || d.beatId !== beat.id || d.field !== 'graphics' || d.fromIndex === i) return;
+                                reorderTag(d.beatId, d.field, d.fromIndex, i);
+                                tagDragRef.current = null;
+                              }}
+                            >
+                              <span style={styles.tagText}>{g}</span>
+                              <button onClick={() => removeTag(beat.id, 'graphics', i)} style={styles.tagRemove}>&times;</button>
+                            </span>
+                          );
+                        })}
+                        {uploadingCells[`${beat.id}-graphics`] && (
+                          <div style={styles.uploadingIndicator}>Uploading...</div>
+                        )}
                         <input
                           value={tagInputs[`${beat.id}-graphics`] || ''}
                           onChange={e => setTagInputs(prev => ({ ...prev, [`${beat.id}-graphics`]: e.target.value }))}
@@ -874,26 +951,75 @@ export default function Production() {
                       </div>
 
                       {/* Col 3: Videos */}
-                      <div style={styles.tagCol}>
-                        {beat.videos.map((v, i) => (
-                          <span
-                            key={i}
-                            style={{ ...styles.tag, cursor: 'grab' }}
-                            draggable
-                            onDragStart={() => { tagDragRef.current = { beatId: beat.id, field: 'videos', fromIndex: i }; }}
-                            onDragOver={(e) => e.preventDefault()}
-                            onDrop={(e) => {
-                              e.preventDefault();
-                              const d = tagDragRef.current;
-                              if (!d || d.beatId !== beat.id || d.field !== 'videos' || d.fromIndex === i) return;
-                              reorderTag(d.beatId, d.field, d.fromIndex, i);
-                              tagDragRef.current = null;
-                            }}
-                          >
-                            <span style={styles.tagText}>{v}</span>
-                            <button onClick={() => removeTag(beat.id, 'videos', i)} style={styles.tagRemove}>&times;</button>
-                          </span>
-                        ))}
+                      <div
+                        style={{
+                          ...styles.tagCol,
+                          ...(dropHighlight === `${beat.id}-videos` ? styles.tagColDrop : {}),
+                        }}
+                        onDragOver={e => {
+                          if (e.dataTransfer.types.includes('Files')) {
+                            e.preventDefault();
+                            setDropHighlight(`${beat.id}-videos`);
+                          }
+                        }}
+                        onDragLeave={e => {
+                          if (!e.currentTarget.contains(e.relatedTarget)) setDropHighlight(null);
+                        }}
+                        onDrop={e => {
+                          if (e.dataTransfer.files.length > 0) {
+                            e.preventDefault();
+                            setDropHighlight(null);
+                            Array.from(e.dataTransfer.files).forEach(f => {
+                              if (f.type.startsWith('image/') || f.type.startsWith('video/')) {
+                                uploadBeatMedia(beat.id, 'videos', f);
+                              }
+                            });
+                          }
+                        }}
+                      >
+                        {beat.videos.map((v, i) => {
+                          const isMedia = typeof v === 'object' && v.url;
+                          if (isMedia) {
+                            return (
+                              <div key={i} style={styles.mediaThumb}>
+                                {v.type === 'image'
+                                  ? <img src={v.url} alt={v.name} style={styles.mediaImg} />
+                                  : (
+                                    <div style={styles.mediaVideoIcon}>
+                                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="rgba(165,180,252,0.7)" strokeWidth="1.5">
+                                        <rect x="1" y="3" width="10" height="10" rx="1.5" />
+                                        <path d="M11 6l4-2v8l-4-2V6z" />
+                                      </svg>
+                                    </div>
+                                  )}
+                                <span style={styles.mediaName}>{v.name}</span>
+                                <button onClick={() => removeTag(beat.id, 'videos', i)} style={styles.tagRemove}>&times;</button>
+                              </div>
+                            );
+                          }
+                          return (
+                            <span
+                              key={i}
+                              style={{ ...styles.tag, cursor: 'grab' }}
+                              draggable
+                              onDragStart={() => { tagDragRef.current = { beatId: beat.id, field: 'videos', fromIndex: i }; }}
+                              onDragOver={(e) => e.preventDefault()}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                const d = tagDragRef.current;
+                                if (!d || d.beatId !== beat.id || d.field !== 'videos' || d.fromIndex === i) return;
+                                reorderTag(d.beatId, d.field, d.fromIndex, i);
+                                tagDragRef.current = null;
+                              }}
+                            >
+                              <span style={styles.tagText}>{v}</span>
+                              <button onClick={() => removeTag(beat.id, 'videos', i)} style={styles.tagRemove}>&times;</button>
+                            </span>
+                          );
+                        })}
+                        {uploadingCells[`${beat.id}-videos`] && (
+                          <div style={styles.uploadingIndicator}>Uploading...</div>
+                        )}
                         <input
                           value={tagInputs[`${beat.id}-videos`] || ''}
                           onChange={e => setTagInputs(prev => ({ ...prev, [`${beat.id}-videos`]: e.target.value }))}
@@ -1242,6 +1368,56 @@ const styles = {
     fontSize: 12,
     fontFamily: "'DM Sans', sans-serif",
     outline: 'none',
+  },
+  tagColDrop: {
+    background: 'rgba(99,102,241,0.08)',
+    borderRadius: 8,
+    outline: '2px dashed rgba(99,102,241,0.4)',
+    outlineOffset: 2,
+  },
+  mediaThumb: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    background: 'rgba(99,102,241,0.08)',
+    border: '1px solid rgba(99,102,241,0.15)',
+    borderRadius: 6,
+    padding: '4px 6px',
+    width: '100%',
+    maxWidth: '100%',
+    boxSizing: 'border-box',
+  },
+  mediaImg: {
+    width: 36,
+    height: 36,
+    objectFit: 'cover',
+    borderRadius: 4,
+    flexShrink: 0,
+  },
+  mediaVideoIcon: {
+    width: 36,
+    height: 36,
+    background: 'rgba(255,255,255,0.06)',
+    borderRadius: 4,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  mediaName: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.45)',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    flex: 1,
+    minWidth: 0,
+  },
+  uploadingIndicator: {
+    fontSize: 11,
+    color: 'rgba(165,180,252,0.6)',
+    padding: '4px 2px',
+    fontFamily: "'DM Sans', sans-serif",
   },
   deleteBeatBtn: {
     background: 'none',
