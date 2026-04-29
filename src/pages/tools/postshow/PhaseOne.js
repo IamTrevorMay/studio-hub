@@ -188,7 +188,7 @@ export default function PhaseOne({ session, onSessionChange, recipients, setting
       if (session._sourceObjectUrl) URL.revokeObjectURL(session._sourceObjectUrl);
       (session.clips || []).forEach(c => { if (c._outputUrl) URL.revokeObjectURL(c._outputUrl); });
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line
   }, []);
 
   const updateClips = useCallback((newClips) => {
