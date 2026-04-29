@@ -396,6 +396,7 @@ export function AuthProvider({ children }) {
   const [newItineraryCount, setNewItineraryCount] = useState(0);
   const [unreadMentionChannelIds, setUnreadMentionChannelIds] = useState([]);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  const [pendingProposalCount, setPendingProposalCount] = useState(0);
 
   const fetchUnreadAnnouncementCount = useCallback(async () => {
     if (!user) return;
@@ -483,6 +484,20 @@ export function AuthProvider({ children }) {
     }
   }, [user]);
 
+  const fetchPendingProposalCount = useCallback(async () => {
+    if (!user) return;
+    try {
+      const { count, error } = await supabase
+        .from('ad_read_proposals')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'pending');
+      if (error) throw error;
+      setPendingProposalCount(count || 0);
+    } catch (err) {
+      console.error('Error fetching pending proposal count:', err);
+    }
+  }, [user]);
+
   const markChannelSeen = useCallback((channelId) => {
     localStorage.setItem(`channel_seen_${channelId}`, new Date().toISOString());
     setUnreadMentionChannelIds(prev => prev.filter(id => id !== channelId));
@@ -498,7 +513,8 @@ export function AuthProvider({ children }) {
     fetchNewItineraryCount();
     fetchUnreadMentions();
     fetchUnreadNotificationCount();
-  }, [fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions, fetchUnreadNotificationCount]);
+    fetchPendingProposalCount();
+  }, [fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions, fetchUnreadNotificationCount, fetchPendingProposalCount]);
 
   // Initial fetch + real-time subscriptions + 5-min fallback poll
   useEffect(() => {
@@ -521,6 +537,9 @@ export function AuthProvider({ children }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => {
         fetchUnreadNotificationCount();
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ad_read_proposals' }, () => {
+        fetchPendingProposalCount();
+      })
       .subscribe();
 
     // 5-minute fallback poll as safety net for dropped connections
@@ -540,7 +559,7 @@ export function AuthProvider({ children }) {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibilityRefresh);
     };
-  }, [user, refreshNotifications, fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions, fetchUnreadNotificationCount, refreshKey]);
+  }, [user, refreshNotifications, fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions, fetchUnreadNotificationCount, fetchPendingProposalCount, refreshKey]);
 
   const value = {
     user,
@@ -564,6 +583,7 @@ export function AuthProvider({ children }) {
     markChannelSeen,
     refreshNotifications,
     unreadNotificationCount,
+    pendingProposalCount,
     refreshKey,
   };
 

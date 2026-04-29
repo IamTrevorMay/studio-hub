@@ -126,6 +126,8 @@ export default function Projects({ onNavigate }) {
   const [deliverablePlatforms, setDeliverablePlatforms] = useState([]);
   const [deliverableNeedsReview, setDeliverableNeedsReview] = useState(false);
   const [deliverableCampaignId, setDeliverableCampaignId] = useState('');
+  const [deliverablePay, setDeliverablePay] = useState('');
+  const [deliverableBeatSheetId, setDeliverableBeatSheetId] = useState('');
 
   // Campaign state
   const [showCampaignForm, setShowCampaignForm] = useState(null); // sponsorId or null
@@ -148,6 +150,12 @@ export default function Projects({ onNavigate }) {
   const [readForm, setReadForm] = useState({ sponsor_id: '', payout: '', long_form: '', file: null, removeFile: false });
   const [expandedReadId, setExpandedReadId] = useState(null);
   const readFileInputRef = useRef(null);
+
+  // Proposals state
+  const [proposals, setProposals] = useState([]);
+  const [proposalsLoading, setProposalsLoading] = useState(false);
+  const [showProposalForm, setShowProposalForm] = useState(false);
+  const [proposalForm, setProposalForm] = useState({ sponsor_name: '', timeframe: '', num_videos: '', pay: '', description: '' });
 
   // Mayday Videos state
   const [maydayVideos, setMaydayVideos] = useState([]);
@@ -693,6 +701,38 @@ export default function Projects({ onNavigate }) {
     return () => { supabase.removeChannel(channel); };
   }, [activeSection, fetchReads, refreshKey]);
 
+  // ===== Proposals fetch =====
+  const fetchProposals = useCallback(async () => {
+    setProposalsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('ad_read_proposals')
+        .select('*, creator:profiles(id, full_name)')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      setProposals(data || []);
+    } catch (err) {
+      console.error('Error fetching proposals:', err);
+      setProposals([]);
+    } finally {
+      setProposalsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeSection !== 'sponsors') return;
+    fetchProposals();
+  }, [activeSection, fetchProposals]);
+
+  useEffect(() => {
+    if (activeSection !== 'sponsors') return;
+    const channel = supabase
+      .channel('proposals-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ad_read_proposals' }, () => fetchProposals())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [activeSection, fetchProposals, refreshKey]);
+
   // ===== Mayday Videos fetch =====
   const fetchMaydayVideos = useCallback(async () => {
     setMaydayLoading(true);
@@ -928,6 +968,84 @@ export default function Projects({ onNavigate }) {
     }
   }
 
+  // ===== Proposal handlers =====
+  function resetProposalForm() {
+    setProposalForm({ sponsor_name: '', timeframe: '', num_videos: '', pay: '', description: '' });
+    setShowProposalForm(false);
+  }
+
+  async function handleCreateProposal(e) {
+    e.preventDefault();
+    const { error } = await supabase.from('ad_read_proposals').insert({
+      sponsor_name: proposalForm.sponsor_name,
+      timeframe: proposalForm.timeframe || null,
+      num_videos: proposalForm.num_videos ? parseInt(proposalForm.num_videos) : null,
+      pay: proposalForm.pay ? parseFloat(proposalForm.pay) : null,
+      description: proposalForm.description || null,
+      created_by: profile.id,
+    });
+    if (error) { alert('Error creating proposal: ' + error.message); return; }
+    resetProposalForm();
+    fetchProposals();
+  }
+
+  async function handleConfirmProposal(proposal) {
+    try {
+      // Find or create sponsor
+      let sponsorId;
+      const { data: existing } = await supabase
+        .from('sponsors')
+        .select('id')
+        .ilike('name', proposal.sponsor_name)
+        .limit(1)
+        .single();
+      if (existing) {
+        sponsorId = existing.id;
+      } else {
+        const { data: newSponsor, error: sErr } = await supabase
+          .from('sponsors')
+          .insert({ name: proposal.sponsor_name, created_by: profile.id })
+          .select()
+          .single();
+        if (sErr) throw sErr;
+        sponsorId = newSponsor.id;
+      }
+
+      // Create campaign
+      const campaignPayload = {
+        sponsor_id: sponsorId,
+        name: proposal.sponsor_name + ' Campaign',
+        description: proposal.description || null,
+        payment_amount: proposal.pay ? parseFloat(proposal.pay) : 0,
+        payment_status: 'unpaid',
+      };
+      // Parse timeframe if it matches YYYY-MM-DD - YYYY-MM-DD
+      if (proposal.timeframe) {
+        const match = proposal.timeframe.match(/^(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})$/);
+        if (match) {
+          campaignPayload.start_date = match[1];
+          campaignPayload.end_date = match[2];
+        }
+      }
+      const { error: cErr } = await supabase
+        .from('sponsor_campaigns')
+        .insert(campaignPayload);
+      if (cErr) throw cErr;
+
+      // Mark proposal accepted
+      await supabase.from('ad_read_proposals').update({ status: 'accepted' }).eq('id', proposal.id);
+      fetchProposals();
+      fetchSponsors();
+    } catch (err) {
+      alert('Error confirming proposal: ' + err.message);
+    }
+  }
+
+  async function handleDeclineProposal(id) {
+    await supabase.from('ad_read_proposals').update({ status: 'declined' }).eq('id', id);
+    fetchProposals();
+  }
+
   function resetSponsorForm() {
     setSponsorName('');
     setSponsorNotes('');
@@ -938,6 +1056,7 @@ export default function Projects({ onNavigate }) {
     setDeliverableTitle(''); setDeliverableType('long_form_read');
     setDueDate(''); setDeliverableNotes('');
     setDeliverablePlatforms([]); setDeliverableNeedsReview(false); setDeliverableCampaignId('');
+    setDeliverablePay(''); setDeliverableBeatSheetId('');
     setEditingDeliverable(null); setShowDeliverableForm(null);
   }
 
@@ -956,6 +1075,8 @@ export default function Projects({ onNavigate }) {
     setDeliverablePlatforms(d.platforms || []);
     setDeliverableNeedsReview(d.needs_review || false);
     setDeliverableCampaignId(d.campaign_id || '');
+    setDeliverablePay(d.pay != null ? String(d.pay) : '');
+    setDeliverableBeatSheetId(d.beat_sheet_id || '');
     setEditingDeliverable(d.id);
     setShowDeliverableForm(d.campaign_id);
   }
@@ -1009,6 +1130,8 @@ export default function Projects({ onNavigate }) {
         platforms: deliverablePlatforms,
         needs_review: deliverableNeedsReview,
         campaign_id: campaignId || deliverableCampaignId || null,
+        pay: deliverablePay ? parseFloat(deliverablePay) : null,
+        beat_sheet_id: deliverableBeatSheetId || null,
         updated_at: new Date().toISOString(),
       }).eq('id', editingDeliverable);
       if (error) { alert('Error updating deliverable: ' + error.message); return; }
@@ -1050,6 +1173,8 @@ export default function Projects({ onNavigate }) {
         platforms: deliverablePlatforms,
         needs_review: deliverableNeedsReview,
         campaign_id: campaignId || null,
+        pay: deliverablePay ? parseFloat(deliverablePay) : null,
+        beat_sheet_id: deliverableBeatSheetId || null,
       }).select().single();
       if (error) { alert('Error creating deliverable: ' + error.message); return; }
 
@@ -1068,6 +1193,34 @@ export default function Projects({ onNavigate }) {
         }
       }
     }
+
+    // Auto-create beat in linked beat sheet
+    if (deliverableBeatSheetId && deliverableNotes) {
+      try {
+        const { data: sheet } = await supabase
+          .from('beat_sheets')
+          .select('beats')
+          .eq('id', deliverableBeatSheetId)
+          .single();
+        if (sheet) {
+          const existingBeats = sheet.beats || [];
+          const newBeat = {
+            id: crypto.randomUUID(),
+            title: 'Ad Read\n\n' + deliverableNotes,
+            context: '',
+            graphics: [],
+            videos: [],
+          };
+          await supabase.from('beat_sheets').update({
+            beats: [...existingBeats, newBeat],
+            updated_at: new Date().toISOString(),
+          }).eq('id', deliverableBeatSheetId);
+        }
+      } catch (err) {
+        console.error('Error auto-creating beat:', err);
+      }
+    }
+
     resetDeliverableForm();
     fetchSponsors();
   }
@@ -1327,6 +1480,8 @@ export default function Projects({ onNavigate }) {
   const editingCount = shorts.filter(s => s.stage === 'editing').length;
   const readyCount = shorts.filter(s => s.stage === 'ready_to_post').length;
   const activeSponsorsCount = sponsors.filter(s => s.status === 'active').length;
+  const pendingProposals = proposals.filter(p => p.status === 'pending');
+  const resolvedProposals = proposals.filter(p => p.status !== 'pending');
   const activeMaydayCount = maydayVideos.filter(v => v.stage !== 'complete').length;
 
   function renderDeliverableRow(d, sponsor) {
@@ -1458,7 +1613,7 @@ export default function Projects({ onNavigate }) {
             ...(activeSection === 'sponsors' ? styles.sectionTabActive : {}),
           }}
         >
-          Sponsors
+          Ad Reads
           {activeSponsorsCount > 0 && (
             <span style={styles.sectionTabBadge}>{activeSponsorsCount}</span>
           )}
@@ -2334,6 +2489,134 @@ export default function Projects({ onNavigate }) {
       {activeSection === 'sponsors' && (
       /* ====== SPONSORS SECTION ====== */
       <>
+      {/* ── Proposals ── */}
+      <div style={{ padding: '0 24px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', marginBottom: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>Proposals</h2>
+            {pendingProposals.length > 0 && (
+              <span style={{ background: '#ef4444', color: '#fff', borderRadius: '10px', padding: '1px 7px', fontSize: '12px', fontWeight: 600 }}>
+                {pendingProposals.length}
+              </span>
+            )}
+          </div>
+          <button
+            onClick={() => setShowProposalForm(v => !v)}
+            style={{ background: '#6366f1', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 12px', fontSize: '13px', fontWeight: 500, cursor: 'pointer' }}
+          >
+            {showProposalForm ? 'Cancel' : '+ New Proposal'}
+          </button>
+        </div>
+
+        {/* Proposal form */}
+        {showProposalForm && (
+          <form onSubmit={handleCreateProposal} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '8px', padding: '16px', marginBottom: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <input
+              value={proposalForm.sponsor_name}
+              onChange={e => setProposalForm(f => ({ ...f, sponsor_name: e.target.value }))}
+              placeholder="Sponsor Name *"
+              required
+              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px' }}
+            />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+              <input
+                value={proposalForm.timeframe}
+                onChange={e => setProposalForm(f => ({ ...f, timeframe: e.target.value }))}
+                placeholder="Time Frame"
+                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px' }}
+              />
+              <input
+                type="number"
+                value={proposalForm.num_videos}
+                onChange={e => setProposalForm(f => ({ ...f, num_videos: e.target.value }))}
+                placeholder="# of Videos"
+                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px' }}
+              />
+              <input
+                type="number"
+                value={proposalForm.pay}
+                onChange={e => setProposalForm(f => ({ ...f, pay: e.target.value }))}
+                placeholder="Pay ($)"
+                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px' }}
+              />
+            </div>
+            <textarea
+              value={proposalForm.description}
+              onChange={e => setProposalForm(f => ({ ...f, description: e.target.value }))}
+              placeholder="Description / notes"
+              rows={2}
+              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px', resize: 'vertical' }}
+            />
+            <button type="submit" style={{ background: '#6366f1', color: '#fff', border: 'none', borderRadius: '6px', padding: '8px 14px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', alignSelf: 'flex-start' }}>
+              Submit Proposal
+            </button>
+          </form>
+        )}
+
+        {/* Pending proposals */}
+        {proposalsLoading && pendingProposals.length === 0 ? (
+          <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px' }}>Loading...</p>
+        ) : pendingProposals.length === 0 ? (
+          <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px', margin: '4px 0' }}>No pending proposals</p>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '10px', marginBottom: '8px' }}>
+            {pendingProposals.map(p => (
+              <div key={p.id} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '8px', padding: '14px', borderLeft: '3px solid #f59e0b' }}>
+                <div style={{ fontWeight: 600, fontSize: '14px', color: '#fff', marginBottom: '6px' }}>{p.sponsor_name}</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', fontSize: '12px', color: 'rgba(255,255,255,0.6)', marginBottom: '6px' }}>
+                  {p.timeframe && <span>{p.timeframe}</span>}
+                  {p.num_videos && <span>{p.num_videos} video{p.num_videos !== 1 ? 's' : ''}</span>}
+                  {p.pay && <span style={{ color: '#22c55e' }}>${Number(p.pay).toLocaleString()}</span>}
+                </div>
+                {p.description && <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginBottom: '8px' }}>{p.description}</div>}
+                <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', marginBottom: '10px' }}>
+                  Proposed by {p.creator?.full_name || 'Unknown'} · {new Date(p.created_at).toLocaleDateString()}
+                </div>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button
+                    onClick={() => handleConfirmProposal(p)}
+                    style={{ background: '#22c55e', color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+                  >
+                    Confirm
+                  </button>
+                  <button
+                    onClick={() => handleDeclineProposal(p.id)}
+                    style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+                  >
+                    Decline
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Resolved proposals */}
+        {resolvedProposals.length > 0 && (
+          <details style={{ marginTop: '4px' }}>
+            <summary style={{ color: 'rgba(255,255,255,0.4)', fontSize: '12px', cursor: 'pointer', userSelect: 'none' }}>
+              {resolvedProposals.length} resolved proposal{resolvedProposals.length !== 1 ? 's' : ''}
+            </summary>
+            <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {resolvedProposals.map(p => (
+                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'rgba(255,255,255,0.5)', padding: '4px 0' }}>
+                  <span style={{
+                    background: p.status === 'accepted' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
+                    color: p.status === 'accepted' ? '#22c55e' : '#ef4444',
+                    borderRadius: '4px', padding: '1px 6px', fontSize: '11px', fontWeight: 600,
+                  }}>
+                    {p.status}
+                  </span>
+                  <span style={{ color: 'rgba(255,255,255,0.7)' }}>{p.sponsor_name}</span>
+                  {p.pay && <span style={{ color: 'rgba(255,255,255,0.4)' }}>${Number(p.pay).toLocaleString()}</span>}
+                  <span style={{ color: 'rgba(255,255,255,0.3)' }}>{new Date(p.created_at).toLocaleDateString()}</span>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+      </div>
+
       <div style={styles.topBar}>
         <div>
           <h1 style={styles.pageTitle}>Sponsors</h1>
@@ -2648,10 +2931,23 @@ export default function Projects({ onNavigate }) {
                                         <option value="yes">Yes</option>
                                       </select>
                                     </div>
+                                    <div style={styles.field}>
+                                      <label style={styles.label}>Pay ($)</label>
+                                      <input type="number" step="0.01" value={deliverablePay} onChange={e => setDeliverablePay(e.target.value)} placeholder="0.00" style={styles.input} />
+                                    </div>
+                                    <div style={styles.field}>
+                                      <label style={styles.label}>Beat Sheet</label>
+                                      <select value={deliverableBeatSheetId} onChange={e => setDeliverableBeatSheetId(e.target.value)} style={styles.select}>
+                                        <option value="">None</option>
+                                        {beatSheets.map(bs => (
+                                          <option key={bs.id} value={bs.id}>{bs.title}</option>
+                                        ))}
+                                      </select>
+                                    </div>
                                   </div>
                                   <div style={styles.field}>
-                                    <label style={styles.label}>Notes</label>
-                                    <textarea value={deliverableNotes} onChange={e => setDeliverableNotes(e.target.value)} placeholder="Requirements, talking points..." rows={2} style={{ ...styles.input, resize: 'vertical' }} />
+                                    <label style={styles.label}>Ad Copy</label>
+                                    <textarea value={deliverableNotes} onChange={e => setDeliverableNotes(e.target.value)} placeholder="Ad copy, talking points, key messaging..." rows={2} style={{ ...styles.input, resize: 'vertical' }} />
                                   </div>
                                   <button type="submit" style={styles.submitBtn}>{editingDeliverable ? 'Update Deliverable' : 'Add Deliverable'}</button>
                                 </form>
@@ -2744,185 +3040,58 @@ export default function Projects({ onNavigate }) {
         </DragDropContext>
       )}
 
-      {/* ====== READS SECTION ====== */}
-      <div style={{ marginTop: '40px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-          <div>
-            <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#fff' }}>Reads</h2>
-            <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'rgba(255,255,255,0.4)' }}>
-              {reads.length} read{reads.length !== 1 ? 's' : ''}
-              {reads.length > 0 && (() => {
-                const total = reads.reduce((sum, r) => sum + (parseFloat(r.payout) || 0), 0);
-                return total > 0 ? ` · $${total.toLocaleString()} total` : '';
-              })()}
-            </p>
-          </div>
-          <button onClick={() => { resetReadForm(); setShowReadForm(!showReadForm); }} style={styles.addBtn}>
-            {showReadForm && !editingRead ? '✕ Cancel' : '+ Add Read'}
-          </button>
-        </div>
+      {/* ====== UPCOMING AD READS SECTION ====== */}
+      {(() => {
+        const upcomingReads = allDeliverables.filter(d => d.status !== 'posted');
+        const totalPay = upcomingReads.reduce((sum, d) => sum + (parseFloat(d.pay) || 0), 0);
+        return (
+          <div style={{ marginTop: '40px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '24px' }}>
+            <div style={{ marginBottom: '16px' }}>
+              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#fff' }}>Upcoming Ad Reads</h2>
+              <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'rgba(255,255,255,0.4)' }}>
+                {upcomingReads.length} deliverable{upcomingReads.length !== 1 ? 's' : ''}
+                {totalPay > 0 ? ` · $${totalPay.toLocaleString()} total` : ''}
+              </p>
+            </div>
 
-        {showReadForm && (
-          <form onSubmit={handleSaveRead} style={styles.formCard}>
-            <div style={styles.formGrid}>
-              <div style={styles.field}>
-                <label style={styles.label}>Sponsor *</label>
-                <select
-                  value={readForm.sponsor_id}
-                  onChange={(e) => setReadForm({ ...readForm, sponsor_id: e.target.value })}
-                  required
-                  style={styles.select}
-                >
-                  <option value="">Select sponsor...</option>
-                  {sponsors.map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
+            {upcomingReads.length === 0 ? (
+              <div style={styles.emptyCard}>
+                <p style={styles.emptyText}>No upcoming ad reads. Add deliverables to sponsors above.</p>
               </div>
-              <div style={styles.field}>
-                <label style={styles.label}>Payout ($)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={readForm.payout}
-                  onChange={(e) => setReadForm({ ...readForm, payout: e.target.value })}
-                  placeholder="0.00"
-                  style={styles.input}
-                />
-              </div>
-            </div>
-            <div style={styles.field}>
-              <label style={styles.label}>Ad Copy / Script</label>
-              <textarea
-                value={readForm.long_form}
-                onChange={(e) => setReadForm({ ...readForm, long_form: e.target.value })}
-                placeholder="Full ad copy or talking points..."
-                rows={4}
-                style={{ ...styles.input, resize: 'vertical' }}
-              />
-            </div>
-            <div style={styles.field}>
-              <label style={styles.label}>Attachment</label>
-              {editingRead && editingRead.original_filename && !readForm.removeFile && !readForm.file && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', padding: '8px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                  <span style={{ fontSize: '14px' }}>{editingRead.file_type === 'pdf' ? '📄' : editingRead.file_type === 'docx' ? '📝' : '📋'}</span>
-                  <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', flex: 1 }}>{editingRead.original_filename}</span>
-                  <button type="button" onClick={() => setReadForm({ ...readForm, removeFile: true })} style={{ background: 'rgba(239,68,68,0.1)', color: '#fca5a5', border: 'none', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', cursor: 'pointer' }}>Remove</button>
-                </div>
-              )}
-              {readForm.removeFile && !readForm.file && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', padding: '8px 12px', borderRadius: '8px', background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.1)' }}>
-                  <span style={{ fontSize: '13px', color: '#fca5a5' }}>File will be removed on save</span>
-                  <button type="button" onClick={() => setReadForm({ ...readForm, removeFile: false })} style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)', border: 'none', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', cursor: 'pointer' }}>Undo</button>
-                </div>
-              )}
-              <input
-                ref={readFileInputRef}
-                type="file"
-                accept=".pdf,.docx,.md"
-                onChange={(e) => setReadForm({ ...readForm, file: e.target.files[0] || null, removeFile: false })}
-                style={{ fontSize: '13px', color: 'rgba(255,255,255,0.6)' }}
-              />
-            </div>
-            <button type="submit" style={styles.submitBtn}>{editingRead ? 'Update Read' : 'Add Read'}</button>
-          </form>
-        )}
-
-        {readsLoading ? (
-          <p style={styles.emptyText}>Loading reads...</p>
-        ) : reads.length === 0 ? (
-          <div style={styles.emptyCard}>
-            <p style={styles.emptyText}>No reads yet. Add one to track sponsor ad copy.</p>
-          </div>
-        ) : (
-          <div style={styles.projectList}>
-            {reads.map(read => {
-              const isExpanded = expandedReadId === read.id;
-              const linkedVideos = maydayVideos.filter(v => v.sponsor_read_id === read.id);
-              return (
-                <div key={read.id} style={styles.sponsorCard}>
-                  <div style={styles.sponsorCardHeader} onClick={() => setExpandedReadId(isExpanded ? null : read.id)}>
-                    <div style={styles.projectRowLeft}>
-                      <span style={{ fontSize: '18px' }}>📖</span>
-                      <div>
-                        <div style={styles.projectRowName}>{read.sponsor?.name || 'Unknown Sponsor'}</div>
-                        <div style={styles.projectRowMeta}>
-                          {read.payout ? `$${parseFloat(read.payout).toLocaleString()}` : 'No payout set'}
-                          {linkedVideos.length > 0 && ` · ${linkedVideos.length} video${linkedVideos.length !== 1 ? 's' : ''}`}
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {upcomingReads.map(d => {
+                  const linkedSheet = beatSheets.find(bs => bs.id === d.beat_sheet_id);
+                  return (
+                    <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: '14px', fontWeight: 600, color: '#fff', marginBottom: '2px' }}>{d.title}</div>
+                        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+                          <span>{d.sponsor_name}</span>
+                          {d.campaign_name && <><span style={{ opacity: 0.4 }}>/</span><span>{d.campaign_name}</span></>}
+                          {d.due_date && <><span style={{ opacity: 0.4 }}>/</span><span>{new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></>}
                         </div>
                       </div>
-                    </div>
-                    <div style={styles.projectRowRight}>
-                      {read.payout && (
-                        <span style={{ ...styles.paymentBadge, background: 'rgba(34,197,94,0.1)', color: '#22c55e' }}>
-                          ${parseFloat(read.payout).toLocaleString()}
+                      {d.pay != null && (
+                        <span style={{ fontSize: '13px', fontWeight: 600, color: '#22c55e', whiteSpace: 'nowrap' }}>
+                          ${parseFloat(d.pay).toLocaleString()}
                         </span>
                       )}
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="rgba(255,255,255,0.3)"
-                        style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>
-                        <path d="M4 6l4 4 4-4" />
-                      </svg>
+                      <span style={{
+                        fontSize: '11px', fontWeight: 600, padding: '3px 8px', borderRadius: '6px', whiteSpace: 'nowrap',
+                        background: linkedSheet ? 'rgba(99,102,241,0.1)' : 'rgba(239,68,68,0.1)',
+                        color: linkedSheet ? '#a5b4fc' : '#fca5a5',
+                      }}>
+                        {linkedSheet ? linkedSheet.title : 'Unassigned'}
+                      </span>
                     </div>
-                  </div>
-
-                  {isExpanded && (
-                    <div style={styles.projectDetail}>
-                      {read.long_form && (
-                        <div style={styles.detailSection}>
-                          <h4 style={styles.detailLabel}>Ad Copy</h4>
-                          <p style={{ margin: 0, fontSize: '13px', color: 'rgba(255,255,255,0.6)', whiteSpace: 'pre-wrap' }}>{read.long_form}</p>
-                        </div>
-                      )}
-
-                      {read.original_filename && (
-                        <div style={styles.detailSection}>
-                          <h4 style={styles.detailLabel}>Attachment</h4>
-                          <a
-                            href={supabase.storage.from('resources').getPublicUrl(read.file_path).data.publicUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', textDecoration: 'none', cursor: 'pointer' }}
-                          >
-                            <span style={{ fontSize: '16px' }}>{read.file_type === 'pdf' ? '📄' : read.file_type === 'docx' ? '📝' : '📋'}</span>
-                            <span style={{ fontSize: '13px', color: '#818cf8' }}>{read.original_filename}</span>
-                            <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)' }}>
-                              {read.file_size < 1024 ? `${read.file_size} B` : read.file_size < 1048576 ? `${(read.file_size / 1024).toFixed(1)} KB` : `${(read.file_size / 1048576).toFixed(1)} MB`}
-                            </span>
-                          </a>
-                        </div>
-                      )}
-
-                      {linkedVideos.length > 0 && (
-                        <div style={styles.detailSection}>
-                          <h4 style={styles.detailLabel}>Linked Videos</h4>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                            {linkedVideos.map(v => (
-                              <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', borderRadius: '8px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)' }}>
-                                <span style={{ fontSize: '13px', color: '#fff', flex: 1 }}>{v.title}</span>
-                                <span style={{
-                                  fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '4px',
-                                  textTransform: 'uppercase', letterSpacing: '0.3px',
-                                  background: `${MAYDAY_STAGE_COLORS[v.stage]}15`,
-                                  color: MAYDAY_STAGE_COLORS[v.stage],
-                                }}>{MAYDAY_STAGE_LABELS[v.stage]}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-                        <button onClick={() => startEditRead(read)} style={{ ...styles.addBtn, fontSize: '12px', padding: '6px 12px' }}>Edit</button>
-                        <button onClick={() => handleDeleteRead(read)} style={{ ...styles.addBtn, fontSize: '12px', padding: '6px 12px', background: 'rgba(239,68,68,0.1)', color: '#fca5a5' }}>Delete</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                  );
+                })}
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        );
+      })()}
       </>
       )}
     </div>
