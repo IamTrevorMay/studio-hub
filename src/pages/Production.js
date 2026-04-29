@@ -63,6 +63,9 @@ export default function Production() {
   // ── tag input state ──
   const [tagInputs, setTagInputs] = useState({});
 
+  // ── context visibility state ──
+  const [expandedContexts, setExpandedContexts] = useState(new Set());
+
   // ── beat media upload state ──
   const [uploadingCells, setUploadingCells] = useState({});
   const [dropHighlight, setDropHighlight] = useState(null);
@@ -155,11 +158,13 @@ export default function Production() {
   const openSheet = (sheet) => {
     setActiveSheet(sheet);
     setTitle(sheet.title);
-    setBeats(sheet.beats || [newBeat()]);
+    const loadedBeats = sheet.beats || [newBeat()];
+    setBeats(loadedBeats);
     setDriveFolderId(sheet.drive_folder_id);
     setDriveFolderName(sheet.drive_folder_name);
     setSaveStatus('saved');
     setTagInputs({});
+    setExpandedContexts(new Set(loadedBeats.filter(b => b.context).map(b => b.id)));
   };
 
   const closeEditor = async () => {
@@ -868,15 +873,24 @@ export default function Production() {
                           rows={1}
                           style={styles.beatInput}
                         />
-                        <textarea
-                          value={beat.context}
-                          onChange={e => { updateBeat(beat.id, 'context', e.target.value); autoResize(e.target); }}
-                          onKeyDown={e => handleBulletKeyDown(e, beat.id, 'context')}
-                          data-autoresize="true"
-                          placeholder="Context... (type • or - for bullets)"
-                          rows={1}
-                          style={styles.contextInput}
-                        />
+                        {expandedContexts.has(beat.id) ? (
+                          <textarea
+                            value={beat.context}
+                            onChange={e => { updateBeat(beat.id, 'context', e.target.value); autoResize(e.target); }}
+                            onKeyDown={e => handleBulletKeyDown(e, beat.id, 'context')}
+                            data-autoresize="true"
+                            placeholder="Context... (type • or - for bullets)"
+                            rows={1}
+                            style={styles.contextInput}
+                          />
+                        ) : (
+                          <button
+                            onClick={() => setExpandedContexts(prev => new Set([...prev, beat.id]))}
+                            style={styles.addContextBtn}
+                          >
+                            + Context
+                          </button>
+                        )}
                       </div>
 
                       {/* Col 2: Graphics */}
@@ -1354,6 +1368,16 @@ const styles = {
     resize: 'none',
     overflow: 'hidden',
     lineHeight: 1.5,
+  },
+  addContextBtn: {
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.3)',
+    fontSize: 12,
+    fontFamily: "'DM Sans', sans-serif",
+    cursor: 'pointer',
+    padding: '2px 0',
+    alignSelf: 'flex-start',
   },
 
   // ── tag columns ──
