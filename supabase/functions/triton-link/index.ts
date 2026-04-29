@@ -50,7 +50,7 @@ Deno.serve(async (req: Request) => {
 
     // Sign a short-lived JWT for Triton
     const secret = Deno.env.get("STUDIO_TRITON_SECRET");
-    const tritonUrl = Deno.env.get("TRITON_URL") || "https://tritonapex.io";
+    const tritonUrl = Deno.env.get("TRITON_URL") || "https://www.tritonapex.io";
 
     if (!secret) {
       return new Response(JSON.stringify({ error: "SSO not configured" }), {

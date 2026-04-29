@@ -22,7 +22,6 @@ import Teleprompter from './tools/Teleprompter';
 import Organize from './tools/Organize';
 import PostShow from './tools/PostShow';
 import Telestration from './tools/Telestration';
-import EmailAndy from './EmailAndy';
 
 import Morty from '../components/Morty';
 
@@ -49,7 +48,6 @@ const NAV_ITEMS = [
   { key: 'research', label: 'Research', icon: ResearchIcon },
   { key: 'calendar', label: 'Calendar', icon: CalendarIcon },
   { key: 'goals', label: 'Goals', icon: GoalsIcon },
-  { key: 'andy', label: 'Email Andy', icon: AndyIcon },
   { key: 'channels', label: 'Channels', icon: ChannelsIcon },
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
 ];
@@ -64,7 +62,7 @@ function getTabFromPath() {
 
 // Items marked { external: { triton: '/path' } } don't set an active tab —
 // they open Triton Apex in a new tab via a short-lived SSO link.
-const TRITON_BASE = 'https://tritonapex.io';
+const TRITON_BASE = 'https://www.tritonapex.io';
 async function openTritonTool(targetPath) {
   try {
     const { data, error } = await supabase.functions.invoke('triton-link', {
@@ -96,7 +94,6 @@ const NAV_ICON_MAP = {
   research: ResearchIcon,
   calendar: CalendarIcon,
   goals: GoalsIcon,
-  andy: AndyIcon,
   channels: ChannelsIcon,
   messages: MessagesIcon,
 };
@@ -157,15 +154,6 @@ export default function AppLayout() {
       setActiveTab('admin');
       // Clean up URL
       window.history.replaceState({}, '', window.location.pathname);
-    }
-  }, []);
-
-  // Handle Gmail (Email Andy) OAuth redirect
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('gmail_connected') === 'true' || params.get('gmail_error')) {
-      setActiveTab('andy');
-      window.history.replaceState({}, '', '/andy');
     }
   }, []);
 
@@ -559,7 +547,6 @@ export default function AppLayout() {
           {activeTab === 'reviews' && <Reviews />}
           {activeTab === 'goals' && <Goals />}
 
-          {activeTab === 'andy' && <EmailAndy />}
           {activeTab === 'channels' && <Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} />}
           {activeTab === 'messages' && <Messages onNavigate={navigateTo} />}
           {isAdmin && activeTab === 'admin' && <AdminPanel initialTab={adminInitialTab} />}
@@ -692,15 +679,6 @@ function ToolsIcon({ active }) {
   );
 }
 
-
-function AndyIcon({ active }) {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
-      <rect x="3" y="5" width="14" height="10" rx="2" />
-      <path d="M3 7l7 4 7-4" />
-    </svg>
-  );
-}
 
 function AdminIcon({ active }) {
   return (
