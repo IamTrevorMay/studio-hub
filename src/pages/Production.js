@@ -76,6 +76,20 @@ export default function Production() {
   // ── folder sections ──
   const [collapsedFolders, setCollapsedFolders] = useState(new Set());
 
+  // ── version history ──
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [versions, setVersions] = useState([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+  const [previewVersion, setPreviewVersion] = useState(null);
+  const snapshotTimer = useRef(null);
+  const lastSnapshotBeats = useRef(null);
+  const beatsRef = useRef(beats);
+  const titleRef = useRef(title);
+
+  // ── keep refs in sync for interval callback ──
+  useEffect(() => { beatsRef.current = beats; }, [beats]);
+  useEffect(() => { titleRef.current = title; }, [title]);
+
   // ─── fetch sheets ───────────────────────────────────────────────────────────
   const fetchSheets = useCallback(async () => {
     setLoading(true);
@@ -169,6 +183,7 @@ export default function Production() {
 
   const closeEditor = async () => {
     clearTimeout(saveTimer.current);
+    clearInterval(snapshotTimer.current);
     // force-save before leaving if unsaved; await so fetchSheets gets fresh data
     if (saveStatus !== 'saved' && activeSheet) {
       await supabase.from('beat_sheets').update({
@@ -178,7 +193,12 @@ export default function Production() {
         updated_at: new Date().toISOString(),
       }).eq('id', activeSheet.id);
     }
+    // save version snapshot on close
+    if (activeSheet) await saveSnapshot(activeSheet.id, title, beats);
     setActiveSheet(null);
+    setShowVersionHistory(false);
+    setVersions([]);
+    setPreviewVersion(null);
     fetchSheets();
   };
 
@@ -191,6 +211,74 @@ export default function Production() {
     if (!window.confirm(`Delete "${title}"? This cannot be undone.`)) return;
     await supabase.from('beat_sheets').delete().eq('id', id);
     fetchSheets();
+  };
+
+  // ─── version history ──────────────────────────────────────────────────────
+
+  const saveSnapshot = async (sheetId, snapshotTitle, snapshotBeats) => {
+    const serialized = JSON.stringify(snapshotBeats);
+    if (serialized === lastSnapshotBeats.current) return; // skip duplicate
+    lastSnapshotBeats.current = serialized;
+    await supabase.from('beat_sheet_versions').insert({
+      sheet_id: sheetId,
+      title: snapshotTitle,
+      beats: snapshotBeats,
+      beat_count: (snapshotBeats || []).length,
+      saved_by: profile?.id || null,
+    });
+  };
+
+  // periodic snapshot every 10 minutes while editor is open
+  useEffect(() => {
+    if (!activeSheet) return;
+    lastSnapshotBeats.current = JSON.stringify(beats);
+    snapshotTimer.current = setInterval(() => {
+      saveSnapshot(activeSheet.id, titleRef.current, beatsRef.current);
+    }, 10 * 60 * 1000);
+    return () => clearInterval(snapshotTimer.current);
+  }, [activeSheet?.id]);
+
+  const fetchVersions = async (sheetId) => {
+    setVersionsLoading(true);
+    const { data, error } = await supabase
+      .from('beat_sheet_versions')
+      .select('id, title, beat_count, created_at')
+      .eq('sheet_id', sheetId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (error) console.error('Fetch versions error:', error);
+    setVersions(data || []);
+    setVersionsLoading(false);
+  };
+
+  const previewVersionData = async (versionId) => {
+    const { data, error } = await supabase
+      .from('beat_sheet_versions')
+      .select('*')
+      .eq('id', versionId)
+      .single();
+    if (error) { console.error('Preview version error:', error); return; }
+    setPreviewVersion(data);
+  };
+
+  const restoreVersion = async (version) => {
+    if (!window.confirm('Restore this version? Your current beats will be saved as a snapshot first.')) return;
+    // snapshot current state before restoring
+    await saveSnapshot(activeSheet.id, title, beats);
+    // apply restored version
+    setTitle(version.title);
+    setBeats(version.beats || []);
+    setExpandedContexts(new Set((version.beats || []).filter(b => b.context).map(b => b.id)));
+    setShowVersionHistory(false);
+    setPreviewVersion(null);
+    // scheduleSave will auto-fire from the state change
+  };
+
+  const openVersionHistory = () => {
+    if (!activeSheet) return;
+    fetchVersions(activeSheet.id);
+    setPreviewVersion(null);
+    setShowVersionHistory(true);
   };
 
   // ─── beat operations ────────────────────────────────────────────────────────
@@ -511,6 +599,91 @@ export default function Production() {
     );
   };
 
+  // ── version history modal ──
+  const renderVersionHistory = () => {
+    if (!showVersionHistory) return null;
+    return (
+      <div style={styles.modalOverlay} onMouseDown={(e) => { if (e.target === e.currentTarget) { setShowVersionHistory(false); setPreviewVersion(null); } }}>
+        <div style={{ ...styles.modal, width: previewVersion ? 820 : 480, display: 'flex', flexDirection: 'column', maxHeight: '80vh' }} onClick={e => e.stopPropagation()}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <h3 style={{ margin: 0, color: 'rgba(255,255,255,0.9)', fontSize: 16 }}>Version History</h3>
+            <button onClick={() => { setShowVersionHistory(false); setPreviewVersion(null); }} style={styles.iconBtn}>&times;</button>
+          </div>
+
+          <div style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0 }}>
+            {/* Version list */}
+            <div style={{ width: previewVersion ? 260 : '100%', overflowY: 'auto', flexShrink: 0 }}>
+              {versionsLoading ? (
+                <div style={{ padding: 20, textAlign: 'center', color: 'rgba(255,255,255,0.4)' }}>Loading...</div>
+              ) : versions.length === 0 ? (
+                <div style={{ padding: 20, textAlign: 'center', color: 'rgba(255,255,255,0.4)' }}>No versions yet</div>
+              ) : versions.map(v => (
+                <div
+                  key={v.id}
+                  onClick={() => previewVersionData(v.id)}
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                    background: previewVersion?.id === v.id ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.03)',
+                    border: previewVersion?.id === v.id ? '1px solid rgba(99,102,241,0.3)' : '1px solid transparent',
+                    marginBottom: 6,
+                  }}
+                >
+                  <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', fontWeight: 500 }}>
+                    {new Date(v.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    {' \u00b7 '}
+                    {new Date(v.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>
+                    {v.beat_count} beat{v.beat_count !== 1 ? 's' : ''}
+                    {v.title ? ` \u00b7 ${v.title}` : ''}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Preview panel */}
+            {previewVersion && (
+              <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', borderLeft: '1px solid rgba(255,255,255,0.08)', paddingLeft: 16 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.8)', marginBottom: 8 }}>
+                  {previewVersion.title}
+                </div>
+                <div style={{ flex: 1, overflowY: 'auto', marginBottom: 12 }}>
+                  {(previewVersion.beats || []).map((beat, i) => (
+                    <div key={beat.id || i} style={{ padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: 6, marginBottom: 4 }}>
+                      <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', fontWeight: 500 }}>
+                        {beat.title || '(empty beat)'}
+                      </div>
+                      {beat.context && (
+                        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 4, whiteSpace: 'pre-wrap' }}>
+                          {beat.context}
+                        </div>
+                      )}
+                      {((beat.graphics && beat.graphics.length > 0) || (beat.videos && beat.videos.length > 0)) && (
+                        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 4 }}>
+                          {beat.graphics?.length ? `${beat.graphics.length} graphic${beat.graphics.length !== 1 ? 's' : ''}` : ''}
+                          {beat.graphics?.length && beat.videos?.length ? ' \u00b7 ' : ''}
+                          {beat.videos?.length ? `${beat.videos.length} video${beat.videos.length !== 1 ? 's' : ''}` : ''}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={() => restoreVersion(previewVersion)}
+                  style={styles.btnPrimary}
+                >
+                  Restore This Version
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // ── folder browser modal ──
   const renderFolderBrowser = () => {
     if (!showFolderBrowser) return null;
@@ -822,6 +995,14 @@ export default function Production() {
           {pushingScript ? 'Pushing...' : 'Push Script'}
         </button>
 
+        <button onClick={openVersionHistory} style={styles.btnSecondary}>
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" style={{ marginRight: 6 }}>
+            <circle cx="7" cy="7" r="5.5" />
+            <path d="M7 4v3.5l2.5 1.5" />
+          </svg>
+          History
+        </button>
+
         <span style={styles.saveIndicator}>
           {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'unsaved' ? 'Unsaved' : 'Saved'}
         </span>
@@ -1101,6 +1282,7 @@ export default function Production() {
       <button onClick={addBeat} style={styles.addBeatBtn}>+ Beat</button>
 
       {renderFolderBrowser()}
+      {renderVersionHistory()}
       {renderToast()}
     </div>
   );
