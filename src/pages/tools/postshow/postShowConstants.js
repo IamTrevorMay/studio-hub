@@ -1,16 +1,21 @@
 // Post-Show Workflow Automation Constants & Data Models
+//
+// Three-phase workflow:
+//   1. Cut    — mark in/out timestamps, run ffmpeg.wasm in browser to produce clip Blobs
+//   2. Upload — push each Blob to its assignee's Drive folder via a resumable upload
+//   3. Kanban — push synced clips into shorts_queue
+//
+// (The earlier "Notify" Discord step and the localhost:4400 helper service are gone.)
 
 export const PHASES = [
-  { key: 'cut', label: 'Cut', description: 'Mark timestamps and batch cut video clips' },
-  { key: 'upload', label: 'Upload', description: 'Assign and upload clips to Google Drive' },
-  { key: 'notify', label: 'Notify', description: 'Send Discord notifications to editors' },
+  { key: 'cut', label: 'Cut', description: 'Mark timestamps and cut video clips in-browser' },
+  { key: 'upload', label: 'Upload', description: 'Upload clips to each editor\u2019s Drive folder' },
   { key: 'kanban', label: 'Kanban', description: 'Sync clips to project board cards' },
 ];
 
 export const PHASE_COLORS = {
   cut: '#6366f1',
   upload: '#3b82f6',
-  notify: '#f59e0b',
   kanban: '#22c55e',
 };
 
@@ -18,15 +23,14 @@ export const CLIP_TYPES = ['short', 'long'];
 
 export const OUTPUT_FORMATS = ['mp4', 'mov'];
 
-// Default recipients — user can edit these in settings
+// Default recipients — user can edit these in settings.
+// Drive folder is now selected via Drive folder picker, not a typed path.
 export const DEFAULT_RECIPIENTS = [
-  { id: 'aaron', name: 'Aaron', driveFolderPath: '', discordChannelId: '', discordUserId: '' },
-  { id: 'alana', name: 'Alana', driveFolderPath: '', discordChannelId: '', discordUserId: '' },
+  { id: 'aaron', name: 'Aaron', driveFolderId: '', driveFolderName: '' },
+  { id: 'alana', name: 'Alana', driveFolderId: '', driveFolderName: '' },
 ];
 
-export const DISCORD_TEMPLATE_TYPES = ['video_assignment', 'podcast_assignment'];
-
-export const CLIP_STATUSES = ['pending', 'cutting', 'cut', 'uploading', 'uploaded', 'notified', 'synced', 'error'];
+export const CLIP_STATUSES = ['pending', 'cutting', 'cut', 'uploading', 'uploaded', 'synced', 'error'];
 
 export const STATUS_LABELS = {
   pending: 'Pending',
@@ -34,7 +38,6 @@ export const STATUS_LABELS = {
   cut: 'Cut',
   uploading: 'Uploading',
   uploaded: 'Uploaded',
-  notified: 'Notified',
   synced: 'Synced',
   error: 'Error',
 };
@@ -45,7 +48,6 @@ export const STATUS_COLORS = {
   cut: '#6366f1',
   uploading: '#3b82f6',
   uploaded: '#22c55e',
-  notified: '#ec4899',
   synced: '#10b981',
   error: '#ef4444',
 };
@@ -62,23 +64,11 @@ export function createClip(overrides = {}) {
     postByDate: '',
     showDate: new Date().toISOString().slice(0, 10),
     assignee: '',
-    driveFolder: '',
+    driveFolderId: '',
+    driveFolderName: '',
+    driveLink: '',
     status: 'pending',
     outputFormat: 'mp4',
-    ...overrides,
-  };
-}
-
-// Create a blank podcast assignment object
-export function createPodcastAssignment(overrides = {}) {
-  return {
-    id: crypto.randomUUID(),
-    title: '',
-    startTime: '',
-    endTime: '',
-    assignee: '',
-    discordChannelId: '',
-    status: 'pending',
     ...overrides,
   };
 }

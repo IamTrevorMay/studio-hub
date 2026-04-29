@@ -1,48 +1,66 @@
 import React, { useState } from 'react';
+import { supabase } from '../../../supabaseClient';
+import { useAuth } from '../../../contexts/AuthContext';
 import { STATUS_COLORS, STATUS_LABELS } from './postShowConstants';
 
-export default function PhaseFour({ session, onSessionChange, recipients, settings }) {
+// Map a clip into a shorts_queue row. The schema (id, title, source_show,
+// urgency, post_by, stage, sort_order, drive_link, ...) is enforced by
+// Postgres; we just fill the columns we care about.
+function clipToShortsQueueRow(clip, session, profileId) {
+  const urgency = clip.timeSensitive ? 'time_sensitive' : 'evergreen';
+  return {
+    title: clip.title,
+    source_show: session.showDate || null,
+    urgency,
+    post_by: clip.postByDate || null,
+    stage: 'editing',
+    sort_order: 0,
+    drive_link: clip.driveLink || null,
+    created_by: profileId || null,
+  };
+}
+
+export default function PhaseFour({ session, onSessionChange, recipients }) {
+  const { profile } = useAuth();
   const [syncing, setSyncing] = useState(false);
 
   // Only show clips that have been uploaded or further
   const eligibleClips = (session.clips || []).filter(c =>
-    ['uploaded', 'notified', 'synced'].includes(c.status)
+    ['uploaded', 'synced'].includes(c.status),
   );
 
-  // For auto-kanban: shorts assigned to Alana
+  // Auto-sync rule (unchanged): shorts assigned to Alana
   const autoSyncClips = eligibleClips.filter(c =>
-    c.type === 'short' && c.assignee === 'alana' && c.status !== 'synced'
+    c.type === 'short' && c.assignee === 'alana' && c.status !== 'synced',
   );
   const syncedClips = eligibleClips.filter(c => c.status === 'synced');
-  const otherClips = eligibleClips.filter(c => c.status !== 'synced' && !(c.type === 'short' && c.assignee === 'alana'));
+  const otherClips = eligibleClips.filter(c =>
+    c.status !== 'synced' && !(c.type === 'short' && c.assignee === 'alana'),
+  );
+
+  async function syncOne(clip) {
+    const row = clipToShortsQueueRow(clip, session, profile?.id);
+    const { error } = await supabase.from('shorts_queue').insert(row);
+    if (error) throw error;
+    onSessionChange(prev => ({
+      ...prev,
+      clips: prev.clips.map(c => c.id === clip.id ? { ...c, status: 'synced' } : c),
+    }));
+  }
 
   async function handleSync() {
     if (autoSyncClips.length === 0) return;
     setSyncing(true);
     try {
-      const resp = await fetch(`${settings.apiBaseUrl}/api/kanban/sync`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          clips: autoSyncClips.map(c => ({
-            id: c.id,
-            title: c.title,
-            timeSensitive: c.timeSensitive,
-            postByDate: c.postByDate,
-            showDate: c.showDate,
-            driveLink: c.driveLink || '',
-            type: c.type,
-          })),
-        }),
-      });
-      if (!resp.ok) throw new Error(await resp.text() || 'Sync failed');
-
-      const allClips = session.clips.map(c =>
-        autoSyncClips.find(a => a.id === c.id) ? { ...c, status: 'synced' } : c
-      );
-      onSessionChange({ ...session, clips: allClips });
-    } catch (err) {
-      alert(`Kanban sync failed: ${err.message}\n\nMake sure the local API service is running at ${settings.apiBaseUrl}`);
+      // Insert each clip; the RLS policy on shorts_queue is permissive for
+      // authenticated users so a single insert call works per row.
+      for (const clip of autoSyncClips) {
+        try {
+          await syncOne(clip);
+        } catch (err) {
+          console.error(`Kanban sync failed for clip ${clip.id}:`, err);
+        }
+      }
     } finally {
       setSyncing(false);
     }
@@ -53,27 +71,7 @@ export default function PhaseFour({ session, onSessionChange, recipients, settin
     try {
       const clip = session.clips.find(c => c.id === clipId);
       if (!clip) return;
-      const resp = await fetch(`${settings.apiBaseUrl}/api/kanban/sync`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          clips: [{
-            id: clip.id,
-            title: clip.title,
-            timeSensitive: clip.timeSensitive,
-            postByDate: clip.postByDate,
-            showDate: clip.showDate,
-            driveLink: clip.driveLink || '',
-            type: clip.type,
-          }],
-        }),
-      });
-      if (!resp.ok) throw new Error(await resp.text() || 'Sync failed');
-
-      const allClips = session.clips.map(c =>
-        c.id === clipId ? { ...c, status: 'synced' } : c
-      );
-      onSessionChange({ ...session, clips: allClips });
+      await syncOne(clip);
     } catch (err) {
       alert(`Sync failed: ${err.message}`);
     } finally {
@@ -83,14 +81,13 @@ export default function PhaseFour({ session, onSessionChange, recipients, settin
 
   return (
     <div style={st.phase}>
-      {/* Auto-sync explanation */}
       <div style={st.infoBox}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, color: '#22c55e' }}>
           <circle cx="12" cy="12" r="10" />
           <path d="M12 16v-4M12 8h.01" />
         </svg>
         <span style={st.infoText}>
-          Shorts assigned to Alana are automatically synced to the Kanban editing column with card metadata (title, time-sensitive flag, post-by date, show date, and video link).
+          Shorts assigned to Alana auto-sync into the editing column with title, urgency, post-by date, and Drive link.
         </span>
       </div>
 
@@ -100,7 +97,6 @@ export default function PhaseFour({ session, onSessionChange, recipients, settin
         </div>
       ) : (
         <>
-          {/* Auto-sync section */}
           {autoSyncClips.length > 0 && (
             <div style={st.section}>
               <div style={st.sectionHeader}>
@@ -133,7 +129,6 @@ export default function PhaseFour({ session, onSessionChange, recipients, settin
             </div>
           )}
 
-          {/* Other clips — manual sync */}
           {otherClips.length > 0 && (
             <div style={st.section}>
               <h4 style={st.sectionTitle}>Other Clips</h4>
@@ -165,7 +160,6 @@ export default function PhaseFour({ session, onSessionChange, recipients, settin
             </div>
           )}
 
-          {/* Synced clips */}
           {syncedClips.length > 0 && (
             <div style={st.section}>
               <h4 style={st.sectionTitle}>Synced ({syncedClips.length})</h4>

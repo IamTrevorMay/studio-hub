@@ -1,12 +1,50 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { createClip, isClipReady, isValidTimestamp, formatTimestamp, parseTimestamp, CLIP_TYPES, OUTPUT_FORMATS, STATUS_COLORS, STATUS_LABELS } from './postShowConstants';
 
+// ─── ffmpeg.wasm singleton ──────────────────────────────────────────────
+// Single-threaded build: no SharedArrayBuffer required, so no Vercel COOP/COEP
+// header changes. Slower than the multi-threaded build but plenty for short-form
+// social clips. Loaded lazily on first cut.
+let ffmpegInstance = null;
+let ffmpegLoadPromise = null;
+
+async function getFFmpeg() {
+  if (ffmpegInstance) return ffmpegInstance;
+  if (ffmpegLoadPromise) return ffmpegLoadPromise;
+
+  ffmpegLoadPromise = (async () => {
+    const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+    const ff = new FFmpeg();
+    await ff.load();
+    ffmpegInstance = ff;
+    return ff;
+  })();
+  return ffmpegLoadPromise;
+}
+
+// Read a File or Blob into a Uint8Array. We use FileReader instead of
+// fetchFile from @ffmpeg/util because fetchFile uses fetch() under the hood,
+// which is overkill for an already-local Blob and doesn't add chunking.
+function readFileAsUint8(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(new Uint8Array(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsArrayBuffer(file);
+  });
+}
+
 // ─── Clip Row ───────────────────────────────────────────────────────────
-function ClipRow({ clip, index, onChange, onRemove, onPreview, recipients }) {
+function ClipRow({ clip, index, onChange, onRemove, onPreview, onDownload, recipients }) {
   const update = (field, value) => {
     if (field === 'assignee') {
       const recipient = recipients.find(r => r.id === value);
-      onChange(index, { ...clip, assignee: value, driveFolder: recipient?.driveFolderPath || '' });
+      onChange(index, {
+        ...clip,
+        assignee: value,
+        driveFolderId: recipient?.driveFolderId || '',
+        driveFolderName: recipient?.driveFolderName || '',
+      });
     } else {
       onChange(index, { ...clip, [field]: value });
     }
@@ -110,8 +148,15 @@ function ClipRow({ clip, index, onChange, onRemove, onPreview, recipients }) {
           </span>
         )}
         {isClipReady(clip) && (
-          <button style={st.previewBtn} title="Preview in player" onClick={() => onPreview(clip)}>
+          <button style={st.iconBtn} title="Preview in player" onClick={() => onPreview(clip)}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+          </button>
+        )}
+        {clip._outputUrl && (
+          <button style={st.iconBtn} title="Download cut" onClick={() => onDownload(clip)}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
+            </svg>
           </button>
         )}
         <button style={st.removeBtn} title="Remove clip" onClick={() => onRemove(index)}>
@@ -125,15 +170,26 @@ function ClipRow({ clip, index, onChange, onRemove, onPreview, recipients }) {
 }
 
 // ─── Phase One Component ────────────────────────────────────────────────
-export default function PhaseOne({ session, onSessionChange, recipients, settings }) {
+export default function PhaseOne({ session, onSessionChange, recipients, settings, onSettingsChange }) {
   const [cutting, setCutting] = useState(false);
-  const [cutProgress, setCutProgress] = useState(null);
+  const [cutProgress, setCutProgress] = useState(null); // { done, total, current }
   const [previewClip, setPreviewClip] = useState(null);
+  const [ffmpegLoading, setFfmpegLoading] = useState(false);
   const videoRef = useRef(null);
   const fileInputRef = useRef(null);
 
   const clips = session.clips || [];
   const sourceFile = session.sourceFileName;
+  const framePerfect = settings.framePerfect !== false;
+
+  // Revoke object URLs on unmount so we don't leak memory
+  useEffect(() => {
+    return () => {
+      if (session._sourceObjectUrl) URL.revokeObjectURL(session._sourceObjectUrl);
+      (session.clips || []).forEach(c => { if (c._outputUrl) URL.revokeObjectURL(c._outputUrl); });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const updateClips = useCallback((newClips) => {
     onSessionChange({ ...session, clips: newClips });
@@ -148,12 +204,22 @@ export default function PhaseOne({ session, onSessionChange, recipients, setting
       alert('Please select an MP4 or MOV file.');
       return;
     }
+    // Revoke any prior source URL + clip URLs since the source is changing
+    if (session._sourceObjectUrl) URL.revokeObjectURL(session._sourceObjectUrl);
+    (session.clips || []).forEach(c => { if (c._outputUrl) URL.revokeObjectURL(c._outputUrl); });
+
     onSessionChange({
       ...session,
       sourceFileName: file.name,
-      sourceFilePath: file.name, // Browser can't give full path; user references by name
       _sourceObjectUrl: URL.createObjectURL(file),
       _sourceFile: file,
+      // Reset clip output state — old cuts pointed at the old source
+      clips: (session.clips || []).map(c => ({
+        ...c,
+        status: c.status === 'cut' || c.status === 'uploaded' || c.status === 'synced' ? 'pending' : c.status,
+        _outputBlob: undefined,
+        _outputUrl: undefined,
+      })),
     });
   }
 
@@ -169,6 +235,8 @@ export default function PhaseOne({ session, onSessionChange, recipients, setting
   }
 
   function removeClip(index) {
+    const c = clips[index];
+    if (c?._outputUrl) URL.revokeObjectURL(c._outputUrl);
     updateClips(clips.filter((_, i) => i !== index));
   }
 
@@ -177,7 +245,6 @@ export default function PhaseOne({ session, onSessionChange, recipients, setting
     if (!videoRef.current) return;
     const seconds = Math.floor(videoRef.current.currentTime);
     const ts = formatTimestamp(seconds);
-    // Apply to the last clip's field, or create one
     if (clips.length === 0) {
       updateClips([createClip({ [field]: ts, showDate: session.showDate })]);
     } else {
@@ -198,55 +265,117 @@ export default function PhaseOne({ session, onSessionChange, recipients, setting
     }
   }
 
-  // ── Batch cut via local API ──
+  // ── Download cut clip ──
+  function handleDownloadClip(clip) {
+    if (!clip._outputUrl) return;
+    const a = document.createElement('a');
+    a.href = clip._outputUrl;
+    a.download = `${clip.title.replace(/[^\w-]+/g, '_') || 'clip'}.${clip.outputFormat || 'mp4'}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  // ── Batch cut via ffmpeg.wasm ──
   async function handleBatchCut() {
     const readyClips = clips.filter(isClipReady);
     if (readyClips.length === 0) {
       alert('No clips are ready to cut. Make sure each clip has a title and valid in/out timestamps.');
       return;
     }
+    if (!session._sourceFile) {
+      alert('Source file is not loaded in memory. Re-select the source file before cutting.');
+      return;
+    }
+
     setCutting(true);
-    setCutProgress({ done: 0, total: readyClips.length, current: '' });
+    setCutProgress({ done: 0, total: readyClips.length, current: 'Loading ffmpeg…' });
 
     try {
-      const resp = await fetch(`${settings.apiBaseUrl}/api/videos/cut`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sourceFile: session.sourceFilePath,
-          clips: readyClips.map(c => ({
-            id: c.id,
-            title: c.title,
-            startTime: c.startTime,
-            endTime: c.endTime,
-            type: c.type,
-            outputFormat: c.outputFormat,
-          })),
-        }),
-      });
+      setFfmpegLoading(true);
+      const ffmpeg = await getFFmpeg();
+      setFfmpegLoading(false);
 
-      if (!resp.ok) {
-        const err = await resp.text();
-        throw new Error(err || 'Cut request failed');
+      // Write the source into ffmpeg's virtual FS once for the whole batch
+      setCutProgress({ done: 0, total: readyClips.length, current: 'Reading source…' });
+      const sourceBytes = await readFileAsUint8(session._sourceFile);
+      const ext = (session._sourceFile.name.split('.').pop() || 'mp4').toLowerCase();
+      const inputName = `input.${ext}`;
+      await ffmpeg.writeFile(inputName, sourceBytes);
+
+      let done = 0;
+      for (const clip of readyClips) {
+        const start = parseTimestamp(clip.startTime);
+        const end = parseTimestamp(clip.endTime);
+        const outName = `out_${clip.id}.${clip.outputFormat || 'mp4'}`;
+        const outMime = clip.outputFormat === 'mov' ? 'video/quicktime' : 'video/mp4';
+
+        setCutProgress({ done, total: readyClips.length, current: `Cutting "${clip.title}"…` });
+        // Mark in-progress
+        onSessionChange(prev => ({
+          ...prev,
+          clips: prev.clips.map(c => c.id === clip.id ? { ...c, status: 'cutting' } : c),
+        }));
+
+        // Frame-perfect: re-encode H.264 + AAC. Fast: stream copy (snaps to I-frames).
+        const args = framePerfect
+          ? [
+              '-ss', String(start),
+              '-to', String(end),
+              '-i', inputName,
+              '-c:v', 'libx264',
+              '-c:a', 'aac',
+              '-preset', 'ultrafast',
+              '-movflags', '+faststart',
+              outName,
+            ]
+          : [
+              '-ss', String(start),
+              '-to', String(end),
+              '-i', inputName,
+              '-c', 'copy',
+              outName,
+            ];
+
+        try {
+          await ffmpeg.exec(args);
+          const data = await ffmpeg.readFile(outName);
+          // ffmpeg.wasm returns either a Uint8Array or an object with .buffer
+          const blob = new Blob([data instanceof Uint8Array ? data : data.buffer], { type: outMime });
+          const url = URL.createObjectURL(blob);
+
+          onSessionChange(prev => ({
+            ...prev,
+            clips: prev.clips.map(c => c.id === clip.id ? {
+              ...c,
+              status: 'cut',
+              _outputBlob: blob,
+              _outputUrl: url,
+            } : c),
+          }));
+
+          // Clean up the per-clip output from ffmpeg's FS so memory doesn't grow unbounded
+          try { await ffmpeg.deleteFile(outName); } catch (e) { /* ignore */ }
+        } catch (clipErr) {
+          console.error(`Cut failed for clip "${clip.title}":`, clipErr);
+          onSessionChange(prev => ({
+            ...prev,
+            clips: prev.clips.map(c => c.id === clip.id ? { ...c, status: 'error' } : c),
+          }));
+        }
+
+        done++;
+        setCutProgress({ done, total: readyClips.length, current: done === readyClips.length ? 'Complete' : '' });
       }
 
-      const result = await resp.json();
-
-      // Update clip statuses using functional update to avoid stale closure
-      const statusMap = {};
-      (result.results || []).forEach(r => {
-        statusMap[r.id] = r.success ? 'cut' : 'error';
-      });
-      onSessionChange(prev => ({
-        ...prev,
-        clips: prev.clips.map(c => statusMap[c.id] ? { ...c, status: statusMap[c.id] } : c),
-      }));
-      setCutProgress({ done: readyClips.length, total: readyClips.length, current: 'Complete' });
+      // Source out of ffmpeg's FS too
+      try { await ffmpeg.deleteFile(inputName); } catch (e) { /* ignore */ }
     } catch (err) {
       console.error('Batch cut error:', err);
-      alert(`Cut failed: ${err.message}\n\nMake sure the local API service is running at ${settings.apiBaseUrl}`);
+      alert(`Cut failed: ${err.message || err}`);
     } finally {
       setCutting(false);
+      setFfmpegLoading(false);
     }
   }
 
@@ -279,6 +408,9 @@ export default function PhaseOne({ session, onSessionChange, recipients, setting
               <polyline points="14 2 14 8 20 8" />
             </svg>
             <span style={st.fileName}>{sourceFile}</span>
+            {!session._sourceObjectUrl && (
+              <span style={st.fileWarn}>(reload the file — it's not in memory)</span>
+            )}
           </div>
         )}
 
@@ -290,7 +422,6 @@ export default function PhaseOne({ session, onSessionChange, recipients, setting
               controls
               style={st.videoPlayer}
               onTimeUpdate={() => {
-                // Stop playback at clip end if previewing
                 if (previewClip && videoRef.current) {
                   const endSec = parseTimestamp(previewClip.endTime);
                   if (endSec != null && videoRef.current.currentTime >= endSec) {
@@ -301,12 +432,8 @@ export default function PhaseOne({ session, onSessionChange, recipients, setting
               }}
             />
             <div style={st.markBtns}>
-              <button style={st.markBtn} onClick={() => markTime('startTime')}>
-                Mark In
-              </button>
-              <button style={st.markBtn} onClick={() => markTime('endTime')}>
-                Mark Out
-              </button>
+              <button style={st.markBtn} onClick={() => markTime('startTime')}>Mark In</button>
+              <button style={st.markBtn} onClick={() => markTime('endTime')}>Mark Out</button>
             </div>
           </div>
         )}
@@ -353,6 +480,7 @@ export default function PhaseOne({ session, onSessionChange, recipients, setting
                 onChange={updateClip}
                 onRemove={removeClip}
                 onPreview={handlePreviewClip}
+                onDownload={handleDownloadClip}
                 recipients={recipients}
               />
             ))}
@@ -363,12 +491,23 @@ export default function PhaseOne({ session, onSessionChange, recipients, setting
       {/* Batch cut action */}
       {clips.length > 0 && (
         <div style={st.actionBar}>
+          <label style={st.precisionToggle}>
+            <input
+              type="checkbox"
+              checked={framePerfect}
+              onChange={e => onSettingsChange({ ...settings, framePerfect: e.target.checked })}
+              style={st.checkbox}
+            />
+            Frame-perfect (slower)
+          </label>
           <span style={st.readyLabel}>
             {readyCount} of {clips.length} clip{clips.length !== 1 ? 's' : ''} ready
           </span>
           {cutProgress && (
             <span style={st.progressLabel}>
-              {cutProgress.done}/{cutProgress.total} cut &middot; {cutProgress.current}
+              {ffmpegLoading
+                ? 'Loading ffmpeg…'
+                : `${cutProgress.done}/${cutProgress.total} cut${cutProgress.current ? ` · ${cutProgress.current}` : ''}`}
             </span>
           )}
           <button
@@ -392,6 +531,7 @@ const st = {
   sectionTitle: { fontSize: '15px', fontWeight: 700, color: '#e2e8f0', margin: 0 },
   fileInfo: { display: 'flex', alignItems: 'center', gap: '8px', color: 'rgba(255,255,255,0.5)', fontSize: '13px' },
   fileName: { color: '#e2e8f0' },
+  fileWarn: { color: '#f59e0b', fontSize: '12px' },
   playerWrapper: { display: 'flex', flexDirection: 'column', gap: '8px' },
   videoPlayer: { width: '100%', maxHeight: '360px', borderRadius: '8px', background: '#000' },
   markBtns: { display: 'flex', gap: '8px' },
@@ -434,9 +574,9 @@ const st = {
   duration: { fontSize: '12px', color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace' },
   checkLabel: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: 'rgba(255,255,255,0.5)', cursor: 'pointer' },
   checkbox: { accentColor: '#6366f1' },
-  previewBtn: {
+  iconBtn: {
     padding: '4px', background: 'none', border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: '6px', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', display: 'flex',
+    borderRadius: '6px', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', display: 'flex',
     alignItems: 'center', justifyContent: 'center',
   },
   removeBtn: {
@@ -454,7 +594,8 @@ const st = {
     display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '12px',
     padding: '16px 0', borderTop: '1px solid rgba(255,255,255,0.06)',
   },
-  readyLabel: { fontSize: '13px', color: 'rgba(255,255,255,0.4)', marginRight: 'auto' },
+  precisionToggle: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', marginRight: 'auto' },
+  readyLabel: { fontSize: '13px', color: 'rgba(255,255,255,0.4)' },
   progressLabel: { fontSize: '12px', color: '#f59e0b' },
   emptyState: {
     padding: '40px', textAlign: 'center',

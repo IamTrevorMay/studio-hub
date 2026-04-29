@@ -1,13 +1,26 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { PHASES, PHASE_COLORS } from './postshow/postShowConstants';
-import { loadSession, saveSession, loadRecipients, saveRecipients, loadSettings, saveSettings, loadDiscordTemplates, saveDiscordTemplates } from './postshow/postShowStorage';
+import { loadSession, saveSession, loadRecipients, saveRecipients, loadSettings, saveSettings } from './postshow/postShowStorage';
 import PhaseOne from './postshow/PhaseOne';
 import PhaseTwo from './postshow/PhaseTwo';
-import PhaseThree from './postshow/PhaseThree';
 import PhaseFour from './postshow/PhaseFour';
 
+// Pull the folder ID out of any standard Drive URL.
+// Examples accepted:
+//   https://drive.google.com/drive/folders/1AbC123...
+//   https://drive.google.com/drive/u/0/folders/1AbC123...?usp=sharing
+//   1AbC123...                                           (raw ID)
+function parseDriveFolderId(input) {
+  if (!input) return '';
+  const trimmed = input.trim();
+  // Raw ID — Drive IDs are typically 25+ chars of [A-Za-z0-9_-].
+  if (/^[A-Za-z0-9_-]{20,}$/.test(trimmed)) return trimmed;
+  const m = trimmed.match(/\/folders\/([A-Za-z0-9_-]+)/);
+  return m ? m[1] : '';
+}
+
 // ─── Settings Panel ─────────────────────────────────────────────────────
-function SettingsPanel({ settings, onSettingsChange, recipients, onRecipientsChange, discordTemplates, onTemplatesChange, onClose }) {
+function SettingsPanel({ settings, onSettingsChange, recipients, onRecipientsChange, onClose }) {
   const [activeTab, setActiveTab] = useState('general');
 
   function updateRecipient(index, field, value) {
@@ -16,13 +29,19 @@ function SettingsPanel({ settings, onSettingsChange, recipients, onRecipientsCha
     onRecipientsChange(next);
   }
 
+  function updateRecipientFolder(index, urlOrId) {
+    const next = [...recipients];
+    const folderId = parseDriveFolderId(urlOrId);
+    next[index] = { ...next[index], driveFolderId: folderId, driveFolderName: next[index].driveFolderName || '' };
+    onRecipientsChange(next);
+  }
+
   function addRecipient() {
     onRecipientsChange([...recipients, {
       id: crypto.randomUUID(),
       name: '',
-      driveFolderPath: '',
-      discordChannelId: '',
-      discordUserId: '',
+      driveFolderId: '',
+      driveFolderName: '',
     }]);
   }
 
@@ -34,7 +53,7 @@ function SettingsPanel({ settings, onSettingsChange, recipients, onRecipientsCha
     <div style={st.settingsOverlay} onClick={onClose}>
       <div style={st.settingsPanel} onClick={e => e.stopPropagation()}>
         <div style={st.settingsHeader}>
-          <h3 style={st.settingsTitle}>Post Show Settings</h3>
+          <h3 style={st.settingsTitle}>Clipping Tool Settings</h3>
           <button style={st.closeBtn} onClick={onClose}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M18 6L6 18M6 6l12 12" />
@@ -42,12 +61,10 @@ function SettingsPanel({ settings, onSettingsChange, recipients, onRecipientsCha
           </button>
         </div>
 
-        {/* Tabs */}
         <div style={st.settingsTabs}>
           {[
             { key: 'general', label: 'General' },
             { key: 'recipients', label: 'Recipients' },
-            { key: 'templates', label: 'Templates' },
           ].map(t => (
             <button
               key={t.key}
@@ -61,16 +78,6 @@ function SettingsPanel({ settings, onSettingsChange, recipients, onRecipientsCha
           {activeTab === 'general' && (
             <div style={st.fieldGroup}>
               <div style={st.field}>
-                <label style={st.fieldLabel}>Local API Base URL</label>
-                <input
-                  style={st.fieldInput}
-                  value={settings.apiBaseUrl}
-                  onChange={e => onSettingsChange({ ...settings, apiBaseUrl: e.target.value })}
-                  placeholder="http://localhost:4400"
-                />
-                <span style={st.fieldHint}>The local backend service that handles video cutting, Drive uploads, Discord, and Kanban sync.</span>
-              </div>
-              <div style={st.field}>
                 <label style={st.fieldLabel}>Default Output Format</label>
                 <select
                   style={st.fieldSelect}
@@ -80,6 +87,20 @@ function SettingsPanel({ settings, onSettingsChange, recipients, onRecipientsCha
                   <option value="mp4">MP4</option>
                   <option value="mov">MOV</option>
                 </select>
+              </div>
+              <div style={st.field}>
+                <label style={st.checkLabel}>
+                  <input
+                    type="checkbox"
+                    checked={settings.framePerfect !== false}
+                    onChange={e => onSettingsChange({ ...settings, framePerfect: e.target.checked })}
+                    style={st.checkbox}
+                  />
+                  Frame-perfect cuts (re-encode; slower but exact start/end)
+                </label>
+                <span style={st.fieldHint}>
+                  Off: stream copy. Faster but cuts snap to the nearest keyframe (may shift the start by up to a couple seconds).
+                </span>
               </div>
               <div style={st.field}>
                 <label style={st.checkLabel}>
@@ -97,6 +118,9 @@ function SettingsPanel({ settings, onSettingsChange, recipients, onRecipientsCha
 
           {activeTab === 'recipients' && (
             <div style={st.fieldGroup}>
+              <div style={st.fieldHint}>
+                Paste each editor's Drive folder URL — open the folder in Drive, copy the URL, paste it here.
+              </div>
               {recipients.map((r, i) => (
                 <div key={r.id} style={st.recipientCard}>
                   <div style={st.recipientHeader}>
@@ -106,7 +130,7 @@ function SettingsPanel({ settings, onSettingsChange, recipients, onRecipientsCha
                       onChange={e => updateRecipient(i, 'name', e.target.value)}
                       placeholder="Recipient name"
                     />
-                    <button style={st.removeBtn} onClick={() => removeRecipient(i)}>
+                    <button style={st.removeBtn} onClick={() => removeRecipient(i)} title="Remove">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M18 6L6 18M6 6l12 12" />
                       </svg>
@@ -114,62 +138,22 @@ function SettingsPanel({ settings, onSettingsChange, recipients, onRecipientsCha
                   </div>
                   <input
                     style={st.fieldInput}
-                    value={r.driveFolderPath}
-                    onChange={e => updateRecipient(i, 'driveFolderPath', e.target.value)}
-                    placeholder="Google Drive folder path (e.g., Editors/Aaron/Shorts)"
+                    value={r.driveFolderName}
+                    onChange={e => updateRecipient(i, 'driveFolderName', e.target.value)}
+                    placeholder="Folder display name (optional, for the UI)"
                   />
-                  <div style={st.recipientRow}>
-                    <input
-                      style={{ ...st.fieldInput, flex: 1 }}
-                      value={r.discordChannelId}
-                      onChange={e => updateRecipient(i, 'discordChannelId', e.target.value)}
-                      placeholder="Discord Channel ID"
-                    />
-                    <input
-                      style={{ ...st.fieldInput, flex: 1 }}
-                      value={r.discordUserId}
-                      onChange={e => updateRecipient(i, 'discordUserId', e.target.value)}
-                      placeholder="Discord User ID"
-                    />
-                  </div>
+                  <input
+                    style={st.fieldInput}
+                    value={r.driveFolderId}
+                    onChange={e => updateRecipientFolder(i, e.target.value)}
+                    placeholder="Paste Drive folder URL or ID"
+                  />
+                  {r.driveFolderId && (
+                    <span style={st.folderIdHint}>Folder ID: {r.driveFolderId}</span>
+                  )}
                 </div>
               ))}
               <button style={st.addBtn} onClick={addRecipient}>+ Add Recipient</button>
-            </div>
-          )}
-
-          {activeTab === 'templates' && (
-            <div style={st.fieldGroup}>
-              <div style={st.field}>
-                <label style={st.fieldLabel}>Video Assignment Template</label>
-                <textarea
-                  style={st.fieldTextarea}
-                  value={discordTemplates.video_assignment.template}
-                  onChange={e => onTemplatesChange({
-                    ...discordTemplates,
-                    video_assignment: { ...discordTemplates.video_assignment, template: e.target.value },
-                  })}
-                  rows={8}
-                />
-                <span style={st.fieldHint}>
-                  Variables: {'{assignee}'}, {'{title}'}, {'{type}'}, {'{timeSensitive}'}, {'{postByDate}'}, {'{showDate}'}, {'{driveLink}'}
-                </span>
-              </div>
-              <div style={st.field}>
-                <label style={st.fieldLabel}>Podcast Assignment Template</label>
-                <textarea
-                  style={st.fieldTextarea}
-                  value={discordTemplates.podcast_assignment.template}
-                  onChange={e => onTemplatesChange({
-                    ...discordTemplates,
-                    podcast_assignment: { ...discordTemplates.podcast_assignment, template: e.target.value },
-                  })}
-                  rows={6}
-                />
-                <span style={st.fieldHint}>
-                  Variables: {'{assignee}'}, {'{title}'}, {'{startTime}'}, {'{endTime}'}
-                </span>
-              </div>
             </div>
           )}
         </div>
@@ -184,38 +168,36 @@ export default function PostShow({ onBack }) {
   const [session, setSession] = useState(loadSession);
   const [recipients, setRecipients] = useState(loadRecipients);
   const [settings, setSettings] = useState(loadSettings);
-  const [discordTemplates, setDiscordTemplates] = useState(loadDiscordTemplates);
   const [showSettings, setShowSettings] = useState(false);
 
-  // Persist on change
-  useEffect(() => { saveSession(session); }, [session]);
+  // Persist on change. Strip non-serializable fields (Blob, ObjectURL, File)
+  // before saving so localStorage doesn't choke and stays under quota.
+  useEffect(() => {
+    const cleaned = {
+      ...session,
+      _sourceObjectUrl: undefined,
+      _sourceFile: undefined,
+      clips: (session.clips || []).map(({ _outputBlob, _outputUrl, ...rest }) => rest),
+    };
+    saveSession(cleaned);
+  }, [session]);
   useEffect(() => { saveRecipients(recipients); }, [recipients]);
   useEffect(() => { saveSettings(settings); }, [settings]);
-  useEffect(() => { saveDiscordTemplates(discordTemplates); }, [discordTemplates]);
 
   const handleSessionChange = useCallback((updater) => {
-    if (typeof updater === 'function') {
-      setSession(prev => {
-        const newSession = updater(prev);
-        const { _sourceObjectUrl, _sourceFile, ...serializable } = newSession;
-        saveSession(serializable);
-        return newSession;
-      });
-    } else {
-      const { _sourceObjectUrl, _sourceFile, ...serializable } = updater;
-      setSession(updater);
-      saveSession(serializable);
-    }
+    setSession(prev => typeof updater === 'function' ? updater(prev) : updater);
   }, []);
 
   function handleNewSession() {
     if (session.clips.length > 0 && !window.confirm('Start a new session? Current clips will be cleared.')) return;
+    // Revoke any in-memory URLs first
+    if (session._sourceObjectUrl) URL.revokeObjectURL(session._sourceObjectUrl);
+    (session.clips || []).forEach(c => { if (c._outputUrl) URL.revokeObjectURL(c._outputUrl); });
+
     const fresh = {
       sourceFileName: '',
-      sourceFilePath: '',
       showDate: new Date().toISOString().slice(0, 10),
       clips: [],
-      podcastAssignments: [],
     };
     setSession(fresh);
     setActivePhase('cut');
@@ -223,16 +205,14 @@ export default function PostShow({ onBack }) {
 
   // Count clips at various stages for phase badges
   const totalClips = session.clips?.length || 0;
-  const cutClips = (session.clips || []).filter(c => ['cut', 'uploading', 'uploaded', 'notified', 'synced'].includes(c.status)).length;
-  const uploadedClips = (session.clips || []).filter(c => ['uploaded', 'notified', 'synced'].includes(c.status)).length;
-  const notifiedClips = (session.clips || []).filter(c => ['notified', 'synced'].includes(c.status)).length;
+  const cutClips = (session.clips || []).filter(c => ['cut', 'uploading', 'uploaded', 'synced'].includes(c.status)).length;
+  const uploadedClips = (session.clips || []).filter(c => ['uploaded', 'synced'].includes(c.status)).length;
   const syncedClips = (session.clips || []).filter(c => c.status === 'synced').length;
 
-  const phaseCounts = { cut: totalClips, upload: cutClips, notify: uploadedClips, kanban: syncedClips };
+  const phaseCounts = { cut: totalClips, upload: cutClips, kanban: syncedClips };
 
   return (
     <div style={st.container}>
-      {/* Header */}
       <div style={st.header}>
         <div style={st.headerLeft}>
           <button onClick={onBack} style={st.backBtn} title="Back to Tools">
@@ -264,7 +244,6 @@ export default function PostShow({ onBack }) {
         </div>
       </div>
 
-      {/* Phase navigation */}
       <div style={st.phaseNav}>
         {PHASES.map((phase, i) => {
           const isActive = activePhase === phase.key;
@@ -304,7 +283,6 @@ export default function PostShow({ onBack }) {
         })}
       </div>
 
-      {/* Phase content */}
       <div style={st.phaseContent}>
         {activePhase === 'cut' && (
           <PhaseOne
@@ -312,6 +290,7 @@ export default function PostShow({ onBack }) {
             onSessionChange={handleSessionChange}
             recipients={recipients}
             settings={settings}
+            onSettingsChange={setSettings}
           />
         )}
         {activePhase === 'upload' && (
@@ -320,16 +299,6 @@ export default function PostShow({ onBack }) {
             onSessionChange={handleSessionChange}
             recipients={recipients}
             settings={settings}
-          />
-        )}
-        {activePhase === 'notify' && (
-          <PhaseThree
-            session={session}
-            onSessionChange={handleSessionChange}
-            recipients={recipients}
-            settings={settings}
-            discordTemplates={discordTemplates}
-            onTemplatesChange={setDiscordTemplates}
           />
         )}
         {activePhase === 'kanban' && (
@@ -342,15 +311,12 @@ export default function PostShow({ onBack }) {
         )}
       </div>
 
-      {/* Settings panel */}
       {showSettings && (
         <SettingsPanel
           settings={settings}
           onSettingsChange={setSettings}
           recipients={recipients}
           onRecipientsChange={setRecipients}
-          discordTemplates={discordTemplates}
-          onTemplatesChange={setDiscordTemplates}
           onClose={() => setShowSettings(false)}
         />
       )}
@@ -386,7 +352,6 @@ const st = {
     cursor: 'pointer', fontFamily: 'inherit',
   },
 
-  // Phase navigation
   phaseNav: {
     display: 'flex', alignItems: 'center', gap: '4px',
     padding: '16px 24px', overflowX: 'auto',
@@ -404,10 +369,8 @@ const st = {
   phaseDesc: { fontSize: '11px', color: 'rgba(255,255,255,0.3)', lineHeight: 1.3 },
   phaseConnector: { display: 'flex', alignItems: 'center', flexShrink: 0 },
 
-  // Phase content
   phaseContent: { flex: 1, padding: '24px', overflow: 'auto' },
 
-  // Settings panel
   settingsOverlay: {
     position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
     display: 'flex', justifyContent: 'flex-end', zIndex: 1000,
@@ -451,13 +414,8 @@ const st = {
     background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: '8px', outline: 'none', fontFamily: 'inherit', cursor: 'pointer',
   },
-  fieldTextarea: {
-    padding: '10px 12px', fontSize: '13px', color: '#e2e8f0',
-    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: '8px', outline: 'none', fontFamily: 'monospace', resize: 'vertical',
-    width: '100%', boxSizing: 'border-box',
-  },
-  fieldHint: { fontSize: '11px', color: 'rgba(255,255,255,0.25)', lineHeight: 1.4 },
+  fieldHint: { fontSize: '11px', color: 'rgba(255,255,255,0.35)', lineHeight: 1.4 },
+  folderIdHint: { fontSize: '11px', color: 'rgba(34,197,94,0.8)', fontFamily: 'monospace' },
   checkLabel: {
     display: 'flex', alignItems: 'center', gap: '8px',
     fontSize: '13px', color: 'rgba(255,255,255,0.5)', cursor: 'pointer',
@@ -469,7 +427,6 @@ const st = {
     border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px',
   },
   recipientHeader: { display: 'flex', alignItems: 'center', gap: '8px' },
-  recipientRow: { display: 'flex', gap: '8px' },
   removeBtn: {
     padding: '4px', background: 'none', border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: '6px', color: '#ef4444', cursor: 'pointer', display: 'flex',

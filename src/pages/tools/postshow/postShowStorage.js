@@ -1,10 +1,15 @@
-// LocalStorage persistence for Post-Show workflow data
+// LocalStorage persistence for Clipping Tool data.
+//
+// Session (current source file + clips) is intentionally per-device — the
+// source video lives on the local disk and there's no point syncing the
+// half-edited cut list to other machines. Recipients / settings are also
+// per-device for now; we plan to migrate them to Supabase later (per the
+// "user content must sync across machines" rule). Punted at user's request.
 
 const STORAGE_KEYS = {
   session: 'postshow_session',
   recipients: 'postshow_recipients',
   settings: 'postshow_settings',
-  discordTemplates: 'postshow_discord_templates',
 };
 
 function safeGet(key, fallback) {
@@ -24,15 +29,13 @@ function safeSet(key, value) {
   }
 }
 
-// --- Session (clips, source file, podcast assignments) ---
+// --- Session ---
 
 export function loadSession() {
   return safeGet(STORAGE_KEYS.session, {
     sourceFileName: '',
-    sourceFilePath: '',
     showDate: new Date().toISOString().slice(0, 10),
     clips: [],
-    podcastAssignments: [],
   });
 }
 
@@ -45,12 +48,23 @@ export function clearSession() {
 }
 
 // --- Recipients ---
+//
+// Each recipient stores a Drive folder ID + display name (selected via the
+// folder picker). The legacy `driveFolderPath` / `discordChannelId` /
+// `discordUserId` fields were dropped when the Discord notify step was
+// removed; load() upgrades any old rows in localStorage to the new shape.
 
 export function loadRecipients() {
-  return safeGet(STORAGE_KEYS.recipients, [
-    { id: 'aaron', name: 'Aaron', driveFolderPath: '', discordChannelId: '', discordUserId: '' },
-    { id: 'alana', name: 'Alana', driveFolderPath: '', discordChannelId: '', discordUserId: '' },
+  const raw = safeGet(STORAGE_KEYS.recipients, [
+    { id: 'aaron', name: 'Aaron', driveFolderId: '', driveFolderName: '' },
+    { id: 'alana', name: 'Alana', driveFolderId: '', driveFolderName: '' },
   ]);
+  return raw.map(r => ({
+    id: r.id,
+    name: r.name || '',
+    driveFolderId: r.driveFolderId || '',
+    driveFolderName: r.driveFolderName || r.driveFolderPath || '',
+  }));
 }
 
 export function saveRecipients(recipients) {
@@ -60,35 +74,14 @@ export function saveRecipients(recipients) {
 // --- Settings ---
 
 export function loadSettings() {
-  return safeGet(STORAGE_KEYS.settings, {
-    defaultOutputFormat: 'mp4',
-    apiBaseUrl: 'http://localhost:4400',
-    googleDriveConnected: false,
-    discordConnected: false,
-    discordBotToken: '',
-    autoKanbanSync: true,
-  });
+  const raw = safeGet(STORAGE_KEYS.settings, {});
+  return {
+    defaultOutputFormat: raw.defaultOutputFormat || 'mp4',
+    framePerfect: raw.framePerfect !== false, // default true
+    autoKanbanSync: raw.autoKanbanSync !== false, // default true
+  };
 }
 
 export function saveSettings(settings) {
   safeSet(STORAGE_KEYS.settings, settings);
-}
-
-// --- Discord Templates ---
-
-export function loadDiscordTemplates() {
-  return safeGet(STORAGE_KEYS.discordTemplates, {
-    video_assignment: {
-      name: 'Video Assignment',
-      template: 'New video assignment for {assignee}:\n\nTitle: {title}\nType: {type}\nTime-Sensitive: {timeSensitive}\nPost By: {postByDate}\nShow Date: {showDate}\nDrive Link: {driveLink}\n\nPlease begin editing at your earliest convenience.',
-    },
-    podcast_assignment: {
-      name: 'Podcast Assignment',
-      template: 'New podcast clip assignment for {assignee}:\n\nTitle: {title}\nTimestamp: {startTime} - {endTime}\n\nPlease cut and prepare this segment.',
-    },
-  });
-}
-
-export function saveDiscordTemplates(templates) {
-  safeSet(STORAGE_KEYS.discordTemplates, templates);
 }

@@ -1,7 +1,64 @@
 import React, { useState } from 'react';
+import { supabase } from '../../../supabaseClient';
 import { STATUS_COLORS, STATUS_LABELS } from './postShowConstants';
 
-export default function PhaseTwo({ session, onSessionChange, recipients, settings }) {
+const FN_URL = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/drive-upload-init`;
+
+// Open a Drive resumable upload session for `clip` and PUT the cut Blob to it.
+// Returns { id, webViewLink } from Drive on success.
+async function uploadClipToDrive(clip, parentFolderId, accessToken) {
+  if (!clip._outputBlob) throw new Error('Clip has no cut output yet — run Phase 1 first.');
+  if (!parentFolderId) throw new Error('Recipient has no Drive folder configured.');
+
+  const blob = clip._outputBlob;
+  const mimeType = blob.type || (clip.outputFormat === 'mov' ? 'video/quicktime' : 'video/mp4');
+  const filename = `${clip.title.replace(/[^\w\-. ]+/g, '_').trim() || 'clip'}.${clip.outputFormat || 'mp4'}`;
+
+  // Step 1: ask our edge function to open a Drive resumable session on our behalf.
+  // The function uses the shared service-account refresh token and returns the
+  // upload URL — the actual bytes never pass through Supabase.
+  const initRes = await fetch(FN_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      filename,
+      parentFolderId,
+      mimeType,
+      sizeBytes: blob.size,
+    }),
+  });
+  if (!initRes.ok) {
+    const errBody = await initRes.json().catch(() => ({}));
+    throw new Error(errBody.error || `Init failed: ${initRes.status}`);
+  }
+  const { uploadUrl } = await initRes.json();
+  if (!uploadUrl) throw new Error('No upload URL returned');
+
+  // Step 2: PUT the bytes directly to Drive. For files under ~100 MB a single
+  // PUT is the simplest path — Drive's resumable URL accepts the whole body.
+  // (Chunking with Content-Range would be needed for very large uploads.)
+  const putRes = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': mimeType },
+    body: blob,
+  });
+  if (!putRes.ok) {
+    const errText = await putRes.text();
+    throw new Error(`Drive upload failed: ${putRes.status} ${errText}`);
+  }
+  const result = await putRes.json();
+
+  // Drive returns minimal fields by default; build a webViewLink from the id.
+  return {
+    id: result.id,
+    webViewLink: result.webViewLink || `https://drive.google.com/file/d/${result.id}/view`,
+  };
+}
+
+export default function PhaseTwo({ session, onSessionChange, recipients }) {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
   const [clipProgress, setClipProgress] = useState({}); // { [clipId]: 'waiting' | 'uploading' | 'done' | 'error' }
@@ -14,65 +71,59 @@ export default function PhaseTwo({ session, onSessionChange, recipients, setting
     const allClips = session.clips.map(c => {
       if (c.id !== clipId) return c;
       const recipient = recipients.find(r => r.id === assigneeId);
-      return { ...c, assignee: assigneeId, driveFolder: recipient?.driveFolderPath || '' };
+      return {
+        ...c,
+        assignee: assigneeId,
+        driveFolderId: recipient?.driveFolderId || '',
+        driveFolderName: recipient?.driveFolderName || '',
+      };
     });
     onSessionChange({ ...session, clips: allClips });
   }
 
   async function handleUploadAll() {
-    const toUpload = clips.filter(c => c.status === 'cut' && c.assignee);
+    const toUpload = clips.filter(c => c.status === 'cut' && c.assignee && c._outputBlob);
     if (toUpload.length === 0) {
-      alert('No clips ready to upload. Ensure clips are cut and assigned to a recipient.');
+      alert('No clips ready to upload. Each clip needs to be cut, assigned, and have its cut output still in memory.');
       return;
     }
+
+    // Confirm we have a fresh user session to authorize the edge function call
+    const { data: { session: authSession } } = await supabase.auth.getSession();
+    const accessToken = authSession?.access_token;
+    if (!accessToken) {
+      alert('Not signed in. Refresh the page and sign in again.');
+      return;
+    }
+
     setUploading(true);
     setUploadProgress({ done: 0, total: toUpload.length });
 
-    // Initialize all clip progress to waiting
     const initialProgress = {};
     toUpload.forEach(c => { initialProgress[c.id] = 'waiting'; });
     setClipProgress(initialProgress);
 
-    // Mark all as uploading status in session
+    // Mark all as uploading in session
     let allClips = session.clips.map(c =>
-      toUpload.find(u => u.id === c.id) ? { ...c, status: 'uploading' } : c
+      toUpload.find(u => u.id === c.id) ? { ...c, status: 'uploading' } : c,
     );
     onSessionChange({ ...session, clips: allClips });
 
     let doneCount = 0;
-
     for (const clip of toUpload) {
-      // Set this clip to uploading
       setClipProgress(prev => ({ ...prev, [clip.id]: 'uploading' }));
+      const recipient = recipients.find(r => r.id === clip.assignee);
+      const folderId = clip.driveFolderId || recipient?.driveFolderId || '';
 
       try {
-        const r = recipients.find(r => r.id === clip.assignee);
-        const resp = await fetch(`${settings.apiBaseUrl}/api/drive/upload`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            clips: [{
-              id: clip.id,
-              title: clip.title,
-              type: clip.type,
-              outputFormat: clip.outputFormat,
-              assignee: clip.assignee,
-              driveFolder: clip.driveFolder || r?.driveFolderPath || '',
-            }],
-          }),
-        });
-
-        if (!resp.ok) throw new Error(await resp.text() || 'Upload failed');
-        const result = await resp.json();
-        const clipResult = (result.results || [])[0];
-
-        if (clipResult?.success) {
-          setClipProgress(prev => ({ ...prev, [clip.id]: 'done' }));
-          allClips = allClips.map(c => c.id === clip.id ? { ...c, status: 'uploaded', driveLink: clipResult.driveLink || '' } : c);
-        } else {
-          setClipProgress(prev => ({ ...prev, [clip.id]: 'error' }));
-          allClips = allClips.map(c => c.id === clip.id ? { ...c, status: 'cut' } : c);
-        }
+        const result = await uploadClipToDrive(clip, folderId, accessToken);
+        setClipProgress(prev => ({ ...prev, [clip.id]: 'done' }));
+        allClips = allClips.map(c => c.id === clip.id ? {
+          ...c,
+          status: 'uploaded',
+          driveLink: result.webViewLink,
+          driveFileId: result.id,
+        } : c);
       } catch (err) {
         console.error(`Upload error for clip ${clip.id}:`, err);
         setClipProgress(prev => ({ ...prev, [clip.id]: 'error' }));
@@ -124,10 +175,9 @@ export default function PhaseTwo({ session, onSessionChange, recipients, setting
                       </select>
                     </span>
                     <span style={{ ...st.cell, color: 'rgba(255,255,255,0.3)', fontSize: '12px' }}>
-                      {recipient?.driveFolderPath || '—'}
+                      {recipient?.driveFolderName || (recipient?.driveFolderId ? '(folder)' : '—')}
                     </span>
                   </div>
-                  {/* Per-clip progress bar */}
                   {progress && (
                     <div style={st.progressBarTrack}>
                       <div style={{
@@ -148,7 +198,8 @@ export default function PhaseTwo({ session, onSessionChange, recipients, setting
     );
   }
 
-  const uploadableCount = clips.filter(c => c.status === 'cut' && c.assignee).length;
+  const uploadableCount = clips.filter(c => c.status === 'cut' && c.assignee && c._outputBlob).length;
+  const missingBlobCount = clips.filter(c => c.status === 'cut' && !c._outputBlob).length;
 
   return (
     <div style={st.phase}>
@@ -164,6 +215,11 @@ export default function PhaseTwo({ session, onSessionChange, recipients, setting
         </div>
       ) : (
         <>
+          {missingBlobCount > 0 && (
+            <div style={st.warnBox}>
+              {missingBlobCount} clip{missingBlobCount !== 1 ? 's' : ''} marked as cut but no longer in memory. Re-cut to upload.
+            </div>
+          )}
           {renderClipGroup('Shorts', shorts)}
           {renderClipGroup('Longs', longs)}
 
@@ -221,13 +277,16 @@ const st = {
   },
   readyLabel: { fontSize: '13px', color: 'rgba(255,255,255,0.4)', marginRight: 'auto' },
   progressLabel: { fontSize: '12px', color: '#22c55e' },
+  warnBox: {
+    padding: '10px 14px', background: 'rgba(245,158,11,0.08)',
+    border: '1px solid rgba(245,158,11,0.2)', borderRadius: '8px',
+    color: '#f59e0b', fontSize: '13px',
+  },
   emptyState: {
     padding: '40px', textAlign: 'center',
     border: '1px dashed rgba(255,255,255,0.08)', borderRadius: '10px',
   },
   emptyText: { fontSize: '13px', color: 'rgba(255,255,255,0.3)', margin: 0 },
-
-  // Per-clip progress bars
   progressBarTrack: {
     height: '3px', borderRadius: '2px', background: 'rgba(255,255,255,0.06)',
     width: '100%', marginTop: '6px', overflow: 'hidden',
