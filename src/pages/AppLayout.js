@@ -36,7 +36,7 @@ const NAV_ITEMS = [
   { key: 'scene_builder', label: 'Custom Visuals', icon: ToolsIcon, external: { triton: '/design/scene-composer' } },
   { key: 'screenwriter', label: 'Screenwriter', icon: IdeationIcon },
   { key: 'teleprompter', label: 'Teleprompter', icon: ToolsIcon },
-  { key: 'broadcast', label: 'Broadcast', icon: ToolsIcon, external: { triton: '/broadcast' } },
+  { key: 'broadcast', label: 'Broadcast', icon: ToolsIcon, external: { url: 'https://www.tritonapex.io/broadcast' } },
   { key: 'telestration', label: 'Telestrator', icon: ToolsIcon },
   { key: 'post_show', label: 'Clipping Tool', icon: ToolsIcon },
   { key: 'assets', label: 'Assets', icon: ResourcesIcon, external: { url: 'https://www.mayday.systems/' } },
@@ -63,16 +63,22 @@ function getTabFromPath() {
 // Items marked { external: { triton: '/path' } } don't set an active tab —
 // they open Triton Apex in a new tab via a short-lived SSO link.
 const TRITON_BASE = 'https://www.tritonapex.io';
-async function openTritonTool(targetPath) {
-  try {
-    const { data, error } = await supabase.functions.invoke('triton-link', {
-      body: { target: targetPath },
-    });
-    if (error || !data?.url) throw new Error(error?.message || 'No URL returned');
-    window.open(data.url, '_blank', 'noopener');
-  } catch {
-    window.open(`${TRITON_BASE}${targetPath}`, '_blank', 'noopener');
-  }
+function openTritonTool(targetPath) {
+  // Open tab synchronously so the browser doesn't block it as a popup
+  const win = window.open('about:blank', '_blank');
+  (async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke('triton-link', {
+        body: { target: targetPath },
+      });
+      if (error || !data?.url) throw new Error(error?.message || 'No URL returned');
+      if (win) win.location.href = data.url;
+    } catch {
+      const fallback = `${TRITON_BASE}${targetPath}`;
+      if (win) win.location.href = fallback;
+      else window.open(fallback, '_blank', 'noopener');
+    }
+  })();
 }
 
 const NAV_ICON_MAP = {
