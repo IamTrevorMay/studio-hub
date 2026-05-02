@@ -135,10 +135,7 @@ export default function Projects({ onNavigate }) {
   const [campaignForm, setCampaignForm] = useState({ name: '', description: '', start_date: '', end_date: '', contact_name: '', contact_email: '', payment_amount: '', payment_status: 'unpaid', channel: '' });
   const [briefFile, setBriefFile] = useState(null);
 
-  // Sponsor view mode
-  const [sponsorViewMode, setSponsorViewMode] = useState(() => localStorage.getItem('sponsor_view') || 'list');
   const [allDeliverables, setAllDeliverables] = useState([]);
-  const [expandedDeliverableId, setExpandedDeliverableId] = useState(null);
 
   const [showArchivedSection, setShowArchivedSection] = useState(false);
 
@@ -182,9 +179,6 @@ export default function Projects({ onNavigate }) {
     localStorage.setItem('projects_view', viewMode);
   }, [viewMode]);
 
-  useEffect(() => {
-    localStorage.setItem('sponsor_view', sponsorViewMode);
-  }, [sponsorViewMode]);
 
   const fetchProjects = useCallback(async () => {
     console.log('[Projects] fetchProjects called at', new Date().toISOString());
@@ -1233,13 +1227,12 @@ export default function Projects({ onNavigate }) {
     fetchSponsors();
   }
 
-  async function handleDeliverableStageChange(deliverableId, newStage) {
-    const updates = {
-      status: newStage,
-      completed_at: newStage === 'posted' ? new Date().toISOString() : null,
+  async function handleToggleDelivered(deliverableId, currentValue) {
+    const newValue = !currentValue;
+    await supabase.from('sponsor_deliverables').update({
+      delivered: newValue,
       updated_at: new Date().toISOString(),
-    };
-    await supabase.from('sponsor_deliverables').update(updates).eq('id', deliverableId);
+    }).eq('id', deliverableId);
     fetchSponsors();
   }
 
@@ -1322,20 +1315,6 @@ export default function Projects({ onNavigate }) {
     fetchSponsors();
   }
 
-  // Deliverable stage assignments
-  async function handleAssignDeliverableStage(deliverableId, stage, userId) {
-    const { error } = await supabase.from('deliverable_stage_assignments').insert({
-      deliverable_id: deliverableId, stage, user_id: userId,
-    });
-    if (error && error.code !== '23505') console.error('Error assigning stage:', error);
-    fetchSponsors();
-  }
-
-  async function handleRemoveDeliverableStageAssignment(id) {
-    await supabase.from('deliverable_stage_assignments').delete().eq('id', id);
-    fetchSponsors();
-  }
-
   // Project stage assignments
   async function handleAssignProjectStage(projectId, stage, userId) {
     const { error } = await supabase.from('project_stage_assignments').insert({
@@ -1360,17 +1339,6 @@ export default function Projects({ onNavigate }) {
   async function handleRemoveProjectStageAssignment(id) {
     await supabase.from('project_stage_assignments').delete().eq('id', id);
     fetchProjects();
-  }
-
-  // Kanban drag for deliverables
-  function onDeliverablesDragEnd(result) {
-    if (!result.destination) return;
-    const { draggableId, destination } = result;
-    const newStage = destination.droppableId;
-    const deliverable = allDeliverables.find(d => d.id === draggableId);
-    if (deliverable && deliverable.status !== newStage) {
-      handleDeliverableStageChange(draggableId, newStage);
-    }
   }
 
   async function onDragEnd(result) {
@@ -1479,53 +1447,40 @@ export default function Projects({ onNavigate }) {
 
   const editingCount = shorts.filter(s => s.stage === 'editing').length;
   const readyCount = shorts.filter(s => s.stage === 'ready_to_post').length;
-  const activeSponsorsCount = sponsors.filter(s => s.status === 'active').length;
+  const activeSponsorsCount = sponsors.filter(s => {
+    const dels = s.sponsor_deliverables || [];
+    return dels.length === 0 || dels.some(d => !d.delivered);
+  }).length;
   const pendingProposals = proposals.filter(p => p.status === 'pending');
   const resolvedProposals = proposals.filter(p => p.status !== 'pending');
   const activeMaydayCount = maydayVideos.filter(v => v.stage !== 'complete').length;
 
   function renderDeliverableRow(d, sponsor) {
-    const isDetailExpanded = expandedDeliverableId === d.id;
-    const stageAssignments = d.deliverable_stage_assignments || [];
-    const currentStageAssignments = stageAssignments.filter(a => a.stage === d.status);
     return (
       <div key={d.id} style={styles.deliverableRow}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, flexWrap: 'wrap' }}>
-          {/* Mini stage pipeline */}
-          <div style={{ display: 'flex', gap: '2px' }}>
-            {DELIVERABLE_STAGES.map(stage => (
-              <button
-                key={stage}
-                onClick={(e) => { e.stopPropagation(); handleDeliverableStageChange(d.id, stage); }}
-                title={DELIVERABLE_STAGE_LABELS[stage]}
-                style={{
-                  width: '18px', height: '18px', borderRadius: '4px', border: 'none', cursor: 'pointer', padding: 0,
-                  background: d.status === stage ? DELIVERABLE_STAGE_COLORS[stage] : DELIVERABLE_STAGES.indexOf(d.status) > DELIVERABLE_STAGES.indexOf(stage) ? `${DELIVERABLE_STAGE_COLORS[stage]}40` : 'rgba(255,255,255,0.06)',
-                  transition: 'all 0.15s',
-                }}
-              />
-            ))}
-          </div>
+          <button
+            onClick={(e) => { e.stopPropagation(); handleToggleDelivered(d.id, d.delivered); }}
+            style={{
+              padding: '3px 10px', borderRadius: '6px', border: 'none', cursor: 'pointer',
+              fontSize: '11px', fontWeight: 600, fontFamily: 'inherit', transition: 'all 0.15s',
+              background: d.delivered ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.06)',
+              color: d.delivered ? '#86efac' : 'rgba(255,255,255,0.7)',
+            }}
+          >
+            {d.delivered ? 'Delivered' : 'Open'}
+          </button>
           <span style={{ fontSize: '14px', flexShrink: 0 }}>{DELIVERABLE_TYPES[d.deliverable_type]?.icon || '📋'}</span>
-          <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => setExpandedDeliverableId(isDetailExpanded ? null : d.id)}>
-            <div style={{ fontSize: '13px', color: d.status === 'posted' ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.85)', textDecoration: d.status === 'posted' ? 'line-through' : 'none' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: '13px', color: d.delivered ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.85)', textDecoration: d.delivered ? 'line-through' : 'none' }}>
               {d.title}
             </div>
           </div>
-          {/* Platform pills */}
           {(d.platforms || []).map(p => (
             <span key={p} style={{ fontSize: '9px', fontWeight: 600, padding: '2px 5px', borderRadius: '4px', background: 'rgba(99,102,241,0.12)', color: '#a5b4fc' }}>{p}</span>
           ))}
           {d.needs_review && (
             <span style={{ fontSize: '9px', fontWeight: 700, padding: '2px 5px', borderRadius: '4px', background: 'rgba(236,72,153,0.15)', color: '#f9a8d4', textTransform: 'uppercase', letterSpacing: '0.3px' }}>REVIEW</span>
-          )}
-          {/* Stage assigned avatars */}
-          {currentStageAssignments.length > 0 && (
-            <div style={{ display: 'flex', marginLeft: '4px' }}>
-              {currentStageAssignments.map(a => (
-                <div key={a.id} style={styles.kanbanAvatar} title={a.profile?.full_name}>{a.profile?.full_name?.charAt(0)}</div>
-              ))}
-            </div>
           )}
           {d.due_date && (
             <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap' }}>
@@ -1535,38 +1490,6 @@ export default function Projects({ onNavigate }) {
           <button onClick={() => startEditDeliverable(d)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Edit">✎</button>
           <button onClick={() => handleDeleteDeliverable(d)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Delete">✕</button>
         </div>
-        {/* Expanded stage assignments */}
-        {isDetailExpanded && (
-          <div style={{ width: '100%', marginTop: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-            {DELIVERABLE_STAGES.map(stage => {
-              const stageAs = stageAssignments.filter(a => a.stage === stage);
-              return (
-                <div key={stage} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0', borderLeft: d.status === stage ? `2px solid ${DELIVERABLE_STAGE_COLORS[stage]}` : '2px solid transparent', paddingLeft: '8px' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 600, color: DELIVERABLE_STAGE_COLORS[stage], width: '90px', flexShrink: 0 }}>{DELIVERABLE_STAGE_LABELS[stage]}</span>
-                  <div style={{ display: 'flex', gap: '4px', flex: 1, flexWrap: 'wrap', alignItems: 'center' }}>
-                    {stageAs.map(a => (
-                      <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(99,102,241,0.1)', padding: '2px 6px', borderRadius: '6px' }}>
-                        <div style={{ ...styles.kanbanAvatar, width: '18px', height: '18px', fontSize: '9px', marginLeft: 0, border: 'none' }}>{a.profile?.full_name?.charAt(0)}</div>
-                        <span style={{ fontSize: '11px', color: '#a5b4fc' }}>{a.profile?.full_name}</span>
-                        <button onClick={() => handleRemoveDeliverableStageAssignment(a.id)} style={styles.removeBtn}>✕</button>
-                      </div>
-                    ))}
-                    <select
-                      onChange={(e) => { if (e.target.value) { handleAssignDeliverableStage(d.id, stage, e.target.value); e.target.value = ''; } }}
-                      defaultValue=""
-                      style={{ ...styles.smallSelect, padding: '3px 6px', fontSize: '11px' }}
-                    >
-                      <option value="">+ Assign</option>
-                      {teamMembers.filter(m => !stageAs.some(a => a.user_id === m.id)).map(m => (
-                        <option key={m.id} value={m.id}>{m.full_name}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
       </div>
     );
   }
@@ -2621,83 +2544,15 @@ export default function Projects({ onNavigate }) {
         <div>
           <h1 style={styles.pageTitle}>Sponsors</h1>
           <p style={styles.pageSubtitle}>
-            {activeSponsorsCount} active · {sponsors.filter(s => s.status === 'completed').length} completed
-            {(() => {
-              const allCampaigns = sponsors.flatMap(s => s.sponsor_campaigns || []);
-              const totalPay = allCampaigns.reduce((sum, c) => sum + (parseFloat(c.payment_amount) || 0), 0);
-              const totalReceived = allCampaigns.filter(c => c.payment_status === 'paid').reduce((sum, c) => sum + (parseFloat(c.payment_amount) || 0), 0);
-              if (totalPay === 0) return null;
-              return <span style={{ color: '#22c55e', marginLeft: '8px' }}>
-                · ${totalReceived.toLocaleString()} received of ${totalPay.toLocaleString()}
-              </span>;
-            })()}
+            {activeSponsorsCount} active · {sponsors.length - activeSponsorsCount} inactive
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <div style={styles.viewToggle}>
-            <button
-              onClick={() => setSponsorViewMode('list')}
-              style={{
-                ...styles.viewToggleBtn,
-                ...(sponsorViewMode === 'list' ? styles.viewToggleBtnActive : {}),
-              }}
-              title="List view"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <rect x="1" y="2" width="14" height="2" rx="0.5" />
-                <rect x="1" y="7" width="14" height="2" rx="0.5" />
-                <rect x="1" y="12" width="14" height="2" rx="0.5" />
-              </svg>
-            </button>
-            <button
-              onClick={() => setSponsorViewMode('board')}
-              style={{
-                ...styles.viewToggleBtn,
-                ...(sponsorViewMode === 'board' ? styles.viewToggleBtnActive : {}),
-              }}
-              title="Board view"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <rect x="1" y="1" width="4" height="14" rx="1" />
-                <rect x="6" y="1" width="4" height="10" rx="1" />
-                <rect x="11" y="1" width="4" height="12" rx="1" />
-              </svg>
-            </button>
-          </div>
           <button onClick={() => { resetSponsorForm(); setShowSponsorForm(!showSponsorForm); }} style={styles.addBtn}>
             {showSponsorForm && !editingSponsor ? '✕ Cancel' : '+ New Sponsor'}
           </button>
         </div>
       </div>
-
-      {/* Sponsor KPI Summary */}
-      {(() => {
-        const allCampaigns = sponsors.flatMap(s => s.sponsor_campaigns || []);
-        const totalDeal = allCampaigns.reduce((sum, c) => sum + (parseFloat(c.payment_amount) || 0), 0);
-        const totalPaid = allCampaigns.filter(c => c.payment_status === 'paid').reduce((sum, c) => sum + (parseFloat(c.payment_amount) || 0), 0);
-        const totalOwed = totalDeal - totalPaid;
-        if (totalDeal === 0) return null;
-        return (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-            {[
-              { label: 'Total Deal Value', value: totalDeal, color: '#6366f1' },
-              { label: 'Total Paid', value: totalPaid, color: '#22c55e' },
-              { label: 'Total Owed', value: totalOwed, color: totalOwed > 0 ? '#f59e0b' : '#22c55e' },
-            ].map(card => (
-              <div key={card.label} style={{
-                background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
-                borderRadius: '14px', padding: '20px 24px', position: 'relative', overflow: 'hidden',
-              }}>
-                <div style={{ position: 'absolute', top: 0, left: 0, width: '3px', height: '100%', background: card.color }} />
-                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>{card.label}</div>
-                <div style={{ fontSize: '28px', fontWeight: 700, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>
-                  ${card.value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                </div>
-              </div>
-            ))}
-          </div>
-        );
-      })()}
 
       {/* Sponsor Form */}
       {showSponsorForm && (
@@ -2716,26 +2571,31 @@ export default function Projects({ onNavigate }) {
         </form>
       )}
 
-      {/* Sponsor List / Board */}
+      {/* Sponsor List */}
       {sponsorLoading ? (
         <p style={styles.emptyText}>Loading sponsors...</p>
-      ) : sponsorViewMode === 'list' ? (
-        sponsors.length === 0 ? (
-          <div style={styles.emptyCard}>
-            <p style={styles.emptyText}>No sponsors yet. Add one to get started.</p>
-          </div>
-        ) : (
-          <div style={styles.projectList}>
-            {sponsors.map(sponsor => {
+      ) : sponsors.length === 0 ? (
+        <div style={styles.emptyCard}>
+          <p style={styles.emptyText}>No sponsors yet. Add one to get started.</p>
+        </div>
+      ) : (
+        <div style={styles.projectList}>
+          {[...sponsors].sort((a, b) => {
+              const aActive = (a.sponsor_deliverables || []).length === 0 || (a.sponsor_deliverables || []).some(d => !d.delivered);
+              const bActive = (b.sponsor_deliverables || []).length === 0 || (b.sponsor_deliverables || []).some(d => !d.delivered);
+              if (aActive && !bActive) return -1;
+              if (!aActive && bActive) return 1;
+              return new Date(b.created_at) - new Date(a.created_at);
+            }).map(sponsor => {
               const isExpanded = expandedSponsorId === sponsor.id;
               const deliverables = sponsor.sponsor_deliverables || [];
               const campaigns = sponsor.sponsor_campaigns || [];
-              const postedDels = deliverables.filter(d => d.status === 'posted').length;
+              const isActive = deliverables.length === 0 || deliverables.some(d => !d.delivered);
+              const deliveredCount = deliverables.filter(d => d.delivered).length;
               return (
                 <div key={sponsor.id} style={styles.sponsorCard}>
                   <div style={styles.sponsorCardHeader} onClick={() => setExpandedSponsorId(isExpanded ? null : sponsor.id)}>
                     <div style={styles.projectRowLeft}>
-                      <span style={{ fontSize: '18px' }}>🤝</span>
                       <div>
                         <div style={styles.projectRowName}>{sponsor.name}</div>
                         <div style={styles.projectRowMeta}>
@@ -2744,11 +2604,11 @@ export default function Projects({ onNavigate }) {
                       </div>
                     </div>
                     <div style={styles.projectRowRight}>
-                      <span style={{ ...styles.statusTag, background: `${SPONSOR_STATUS_COLORS[sponsor.status]}15`, color: SPONSOR_STATUS_COLORS[sponsor.status] }}>
-                        {sponsor.status}
+                      <span style={{ ...styles.statusTag, background: isActive ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.06)', color: isActive ? '#10b981' : 'rgba(255,255,255,0.4)' }}>
+                        {isActive ? 'Active' : 'Inactive'}
                       </span>
                       {deliverables.length > 0 && (
-                        <span style={styles.checklistBadge}>{postedDels}/{deliverables.length}</span>
+                        <span style={styles.checklistBadge}>{deliveredCount}/{deliverables.length}</span>
                       )}
                       <svg width="16" height="16" viewBox="0 0 16 16" fill="rgba(255,255,255,0.3)"
                         style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>
@@ -2841,8 +2701,8 @@ export default function Projects({ onNavigate }) {
 
                         {campaigns.length > 0 && campaigns.map(campaign => {
                           const campaignDels = deliverables.filter(d => d.campaign_id === campaign.id);
-                          const allPosted = campaignDels.length > 0 && campaignDels.every(d => d.status === 'posted');
-                          const postedCount = campaignDels.filter(d => d.status === 'posted').length;
+                          const allDeliveredCamp = campaignDels.length > 0 && campaignDels.every(d => d.delivered);
+                          const campDeliveredCount = campaignDels.filter(d => d.delivered).length;
                           return (
                             <div key={campaign.id} style={{ marginBottom: '8px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', padding: '10px 12px' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0', flexWrap: 'wrap' }}>
@@ -2862,11 +2722,15 @@ export default function Projects({ onNavigate }) {
                                     {campaign.payment_status}
                                   </span>
                                 )}
-                                {allPosted && (
-                                  <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: 'rgba(34,197,94,0.15)', color: '#86efac', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Delivered!</span>
-                                )}
+                                <span style={{
+                                  fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase', letterSpacing: '0.3px',
+                                  background: allDeliveredCamp ? 'rgba(34,197,94,0.15)' : 'rgba(99,102,241,0.15)',
+                                  color: allDeliveredCamp ? '#86efac' : '#a5b4fc',
+                                }}>
+                                  {allDeliveredCamp ? 'Closed' : 'Open'}
+                                </span>
                                 {campaignDels.length > 0 && (
-                                  <span style={styles.checklistBadge}>{postedCount}/{campaignDels.length}</span>
+                                  <span style={styles.checklistBadge}>{campDeliveredCount}/{campaignDels.length}</span>
                                 )}
                                 <button onClick={() => { setCampaignForm({ name: campaign.name, description: campaign.description || '', start_date: campaign.start_date || '', end_date: campaign.end_date || '', contact_name: campaign.contact_name || '', contact_email: campaign.contact_email || '', payment_amount: campaign.payment_amount || '', payment_status: campaign.payment_status || 'unpaid', channel: campaign.channel || '' }); setEditingCampaign(campaign.id); setShowCampaignForm(sponsor.id); }} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Edit">✎</button>
                                 <button onClick={() => handleDeleteCampaign(campaign.id)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Delete">✕</button>
@@ -2982,67 +2846,18 @@ export default function Projects({ onNavigate }) {
               );
             })}
           </div>
-        )
-      ) : (
-        /* Kanban Board View */
-        <DragDropContext onDragEnd={onDeliverablesDragEnd}>
-          <div style={styles.boardContainer}>
-            {DELIVERABLE_STAGES.map(stage => {
-              const columnDels = allDeliverables.filter(d => d.status === stage);
-              return (
-                <Droppable droppableId={stage} key={stage}>
-                  {(provided, snapshot) => (
-                    <div
-                      ref={provided.innerRef}
-                      {...provided.droppableProps}
-                      style={{
-                        ...styles.boardColumn,
-                        background: snapshot.isDraggingOver ? `${DELIVERABLE_STAGE_COLORS[stage]}08` : 'rgba(255,255,255,0.02)',
-                      }}
-                    >
-                      <div style={styles.boardColumnHeader}>
-                        <div style={{ ...styles.boardColumnDot, background: DELIVERABLE_STAGE_COLORS[stage] }} />
-                        <span style={{ ...styles.boardColumnTitle, color: DELIVERABLE_STAGE_COLORS[stage] }}>{DELIVERABLE_STAGE_LABELS[stage]}</span>
-                        <span style={styles.boardColumnCount}>{columnDels.length}</span>
-                      </div>
-                      <div style={styles.boardColumnBody}>
-                        {columnDels.map((d, index) => (
-                          <Draggable key={d.id} draggableId={d.id} index={index}>
-                            {(provided, snapshot) => (
-                              <div
-                                ref={provided.innerRef}
-                                {...provided.draggableProps}
-                                {...provided.dragHandleProps}
-                                style={{
-                                  ...styles.kanbanCard,
-                                  ...(snapshot.isDragging ? { boxShadow: '0 8px 24px rgba(0,0,0,0.4)', border: '1px solid rgba(99,102,241,0.3)' } : {}),
-                                  ...provided.draggableProps.style,
-                                }}
-                              >
-                                <DeliverableKanbanCard deliverable={d} />
-                              </div>
-                            )}
-                          </Draggable>
-                        ))}
-                        {provided.placeholder}
-                        {columnDels.length === 0 && (
-                          <div style={{ padding: '24px 16px', textAlign: 'center' }}>
-                            <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.2)', margin: 0 }}>No deliverables</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </Droppable>
-              );
-            })}
-          </div>
-        </DragDropContext>
       )}
 
       {/* ====== UPCOMING AD READS SECTION ====== */}
       {(() => {
-        const upcomingReads = allDeliverables.filter(d => d.status !== 'posted');
+        const upcomingReads = allDeliverables
+          .filter(d => !d.delivered)
+          .sort((a, b) => {
+            if (!a.due_date && !b.due_date) return 0;
+            if (!a.due_date) return 1;
+            if (!b.due_date) return -1;
+            return a.due_date.localeCompare(b.due_date);
+          });
         const totalPay = upcomingReads.reduce((sum, d) => sum + (parseFloat(d.pay) || 0), 0);
         return (
           <div style={{ marginTop: '40px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '24px' }}>
@@ -3089,6 +2904,51 @@ export default function Projects({ onNavigate }) {
                 })}
               </div>
             )}
+          </div>
+        );
+      })()}
+
+      {/* ====== MONEY SECTION ====== */}
+      {(() => {
+        const allCampaigns = sponsors.flatMap(s => s.sponsor_campaigns || []);
+        const totalDeal = allCampaigns.reduce((sum, c) => sum + (parseFloat(c.payment_amount) || 0), 0);
+        const totalPaid = allCampaigns.filter(c => c.payment_status === 'paid').reduce((sum, c) => sum + (parseFloat(c.payment_amount) || 0), 0);
+        const totalOwed = totalDeal - totalPaid;
+        const upcomingValue = allDeliverables
+          .filter(d => !d.delivered)
+          .reduce((sum, d) => sum + (parseFloat(d.pay) || 0), 0);
+        const lateCampaigns = allCampaigns.filter(campaign => {
+          const campaignDels = allDeliverables.filter(d => d.campaign_id === campaign.id);
+          const allDel = campaignDels.length > 0 && campaignDels.every(d => d.delivered);
+          return allDel && campaign.payment_status !== 'paid';
+        });
+        const lateValue = lateCampaigns.reduce((sum, c) => sum + (parseFloat(c.payment_amount) || 0), 0);
+        if (totalDeal === 0) return null;
+        return (
+          <div style={{ marginTop: '40px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '24px' }}>
+            <div style={{ marginBottom: '16px' }}>
+              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#fff' }}>Money</h2>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px' }}>
+              {[
+                { label: 'Total Deal Value', value: totalDeal, color: '#6366f1' },
+                { label: 'Total Paid', value: totalPaid, color: '#22c55e' },
+                { label: 'Total Owed', value: totalOwed, color: totalOwed > 0 ? '#f59e0b' : '#22c55e' },
+                { label: 'Upcoming', value: upcomingValue, color: '#6366f1' },
+                { label: 'Late', value: lateValue, color: lateValue > 0 ? '#ef4444' : '#22c55e' },
+              ].map(card => (
+                <div key={card.label} style={{
+                  background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+                  borderRadius: '14px', padding: '20px 24px', position: 'relative', overflow: 'hidden',
+                }}>
+                  <div style={{ position: 'absolute', top: 0, left: 0, width: '3px', height: '100%', background: card.color }} />
+                  <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>{card.label}</div>
+                  <div style={{ fontSize: '28px', fontWeight: 700, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>
+                    ${card.value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         );
       })()}
@@ -3668,46 +3528,6 @@ function KanbanCard({ project }) {
       {project.creator?.full_name && (
         <div style={styles.kanbanAddedBy}>Added by {project.creator.full_name}</div>
       )}
-    </>
-  );
-}
-
-function DeliverableKanbanCard({ deliverable }) {
-  const d = deliverable;
-  const currentStageAssignments = (d.deliverable_stage_assignments || []).filter(a => a.stage === d.status);
-  return (
-    <>
-      <div style={styles.kanbanCardName}>{d.title}</div>
-      <div style={styles.kanbanCardMeta}>
-        <span style={{ ...styles.kanbanTypeBadge, background: `${DELIVERABLE_STAGE_COLORS[d.status]}15`, color: DELIVERABLE_STAGE_COLORS[d.status] }}>
-          {DELIVERABLE_TYPES[d.deliverable_type]?.icon} {DELIVERABLE_TYPES[d.deliverable_type]?.label}
-        </span>
-      </div>
-      <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', marginBottom: '6px' }}>
-        {d.sponsor_name}{d.campaign_name ? ` · ${d.campaign_name}` : ''}
-      </div>
-      {((d.platforms || []).length > 0 || d.needs_review) && (
-        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '6px' }}>
-          {(d.platforms || []).map(p => (
-            <span key={p} style={{ fontSize: '9px', fontWeight: 600, padding: '2px 5px', borderRadius: '4px', background: 'rgba(99,102,241,0.12)', color: '#a5b4fc' }}>{p}</span>
-          ))}
-          {d.needs_review && (
-            <span style={{ fontSize: '9px', fontWeight: 700, padding: '2px 5px', borderRadius: '4px', background: 'rgba(236,72,153,0.15)', color: '#f9a8d4', textTransform: 'uppercase', letterSpacing: '0.3px' }}>REVIEW</span>
-          )}
-        </div>
-      )}
-      <div style={styles.kanbanCardFooter}>
-        <div style={styles.kanbanAvatars}>
-          {currentStageAssignments.slice(0, 3).map(a => (
-            <div key={a.id} style={styles.kanbanAvatar} title={a.profile?.full_name}>{a.profile?.full_name?.charAt(0)}</div>
-          ))}
-        </div>
-        {d.due_date && (
-          <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>
-            {new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-          </span>
-        )}
-      </div>
     </>
   );
 }
