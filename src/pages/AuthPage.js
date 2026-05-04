@@ -68,13 +68,31 @@ export default function AuthPage() {
       // Update their profile
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
+        // Look up invitation to get assigned role
+        const { data: invitation } = await supabase.from('invitations')
+          .select('role')
+          .eq('email', user.email.toLowerCase())
+          .is('accepted_at', null)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        const assignedRole = invitation?.role || 'member';
+
         await supabase.from('profiles').upsert({
           id: user.id,
           email: user.email,
           full_name: fullName.trim(),
-          role: 'member',
+          role: assignedRole,
           updated_at: new Date().toISOString(),
         });
+
+        // If freelancer, create their freelancer_profiles row
+        if (assignedRole === 'freelancer') {
+          await supabase.from('freelancer_profiles').upsert({
+            id: user.id,
+          });
+        }
 
         // Mark invitation as accepted
         await supabase.from('invitations')

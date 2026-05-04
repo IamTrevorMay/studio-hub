@@ -77,7 +77,19 @@ export default function useNavConfig() {
    * - Items in config but not in code are skipped
    * - Items in code but not in config are appended at the end
    */
-  const getResolvedNav = useCallback((navItems, isAdmin, isPartner) => {
+  const getResolvedNav = useCallback((navItems, isAdmin, isPartner, isFreelancer) => {
+    // Freelancers get a locked sidebar
+    if (isFreelancer) {
+      return [
+        { type: 'item', key: 'fl_dashboard', label: 'Dashboard' },
+        { type: 'item', key: 'fl_hours', label: 'Hours' },
+        { type: 'item', key: 'resources', label: 'Resources' },
+        { type: 'item', key: 'assets', label: 'Assets Cloud' },
+        { type: 'item', key: 'fl_profile', label: 'Profile' },
+        { type: 'item', key: 'fl_notifications', label: 'Notifications' },
+      ];
+    }
+
     // Partners get a locked two-item sidebar
     if (isPartner) {
       return [

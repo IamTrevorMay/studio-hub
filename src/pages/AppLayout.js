@@ -24,6 +24,11 @@ import Organize from './tools/Organize';
 import PostShow from './tools/PostShow';
 import Telestration from './tools/Telestration';
 
+import FreelancerDashboard from './FreelancerDashboard';
+import FreelancerHours from './FreelancerHours';
+import FreelancerProfile from './FreelancerProfile';
+import FreelancerNotifications from './FreelancerNotifications';
+import Freelancers from './Freelancers';
 import Morty from '../components/Morty';
 
 // Sidebar catalog. Labels listed here are aliased internally — the user
@@ -50,11 +55,12 @@ const NAV_ITEMS = [
   { key: 'calendar', label: 'Calendar', icon: CalendarIcon },
   { key: 'goals', label: 'Goals', icon: GoalsIcon },
   { key: 'business_dev', label: 'Business Dev', icon: BusinessDevIcon, adminOnly: true },
+  { key: 'freelancers', label: 'Freelancers', icon: ToolsIcon, adminOnly: true },
   { key: 'channels', label: 'Channels', icon: ChannelsIcon },
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
 ];
 
-const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin'));
+const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications'));
 
 function getTabFromPath() {
   const path = window.location.pathname.replace(/^\/+/, '').split('/')[0];
@@ -108,7 +114,7 @@ const NAV_ICON_MAP = {
 };
 
 export default function AppLayout() {
-  const { profile, signOut, isAdmin, isAssistant, isPartner, unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, refreshNotifications } = useAuth();
+  const { profile, signOut, isAdmin, isAssistant, isPartner, isFreelancer, unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, refreshNotifications } = useAuth();
   const { getResolvedNav, saveConfig, saving } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => getTabFromPath() || localStorage.getItem('studio-hub-tab') || 'dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -129,7 +135,7 @@ export default function AppLayout() {
     localStorage.setItem('nav-folder-state', JSON.stringify(folderCollapseState));
   }, [folderCollapseState]);
 
-  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner);
+  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isFreelancer);
 
   function toggleFolder(folderId) {
     setFolderCollapseState(prev => ({ ...prev, [folderId]: !prev[folderId] }));
@@ -165,6 +171,13 @@ export default function AppLayout() {
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);
+
+  // Redirect freelancers to their dashboard if landing on a non-freelancer tab
+  useEffect(() => {
+    if (isFreelancer && !activeTab.startsWith('fl_') && activeTab !== 'resources' && activeTab !== 'assets') {
+      setActiveTab('fl_dashboard');
+    }
+  }, [isFreelancer]); // eslint-disable-line
 
   const dashboardNotifCount = unreadAnnouncementCount + (isAdmin ? newItineraryCount : 0);
 
@@ -560,6 +573,11 @@ export default function AppLayout() {
           {activeTab === 'channels' && <Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} />}
           {activeTab === 'messages' && <Messages onNavigate={navigateTo} />}
           {isAdmin && activeTab === 'admin' && <AdminPanel initialTab={adminInitialTab} />}
+          {isAdmin && activeTab === 'freelancers' && <Freelancers />}
+          {isFreelancer && activeTab === 'fl_dashboard' && <FreelancerDashboard onNavigate={navigateTo} />}
+          {isFreelancer && activeTab === 'fl_hours' && <FreelancerHours />}
+          {isFreelancer && activeTab === 'fl_profile' && <FreelancerProfile />}
+          {isFreelancer && activeTab === 'fl_notifications' && <FreelancerNotifications onNavigate={navigateTo} />}
         </div>
       </main>
       {profile?.mascot_enabled !== false && <Morty />}

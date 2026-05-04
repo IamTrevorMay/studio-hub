@@ -52,7 +52,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // Parse the request body
-    const { email } = await req.json();
+    const { email, role } = await req.json();
     if (!email) {
       return new Response(JSON.stringify({ error: "Email is required" }), {
         status: 400,
@@ -79,10 +79,12 @@ Deno.serve(async (req: Request) => {
     }
 
     // Log the invite in the invitations table
+    const inviteRole = role || "member";
     await userClient.from("invitations").insert({
       email: email.toLowerCase().trim(),
       invited_by: user.id,
       accepted_at: null,
+      role: inviteRole,
     });
 
     return new Response(
