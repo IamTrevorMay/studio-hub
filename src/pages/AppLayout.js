@@ -15,6 +15,7 @@ import Resources from './Resources';
 import Analytics from './Analytics';
 import Research from './Research';
 import Goals from './Goals';
+import BusinessDev from './BusinessDev';
 import Production from './Production';
 import Write from './Write';
 import Screenwriter from './Screenwriter';
@@ -48,6 +49,7 @@ const NAV_ITEMS = [
   { key: 'research', label: 'Research', icon: ResearchIcon },
   { key: 'calendar', label: 'Calendar', icon: CalendarIcon },
   { key: 'goals', label: 'Goals', icon: GoalsIcon },
+  { key: 'business_dev', label: 'Business Dev', icon: BusinessDevIcon, adminOnly: true },
   { key: 'channels', label: 'Channels', icon: ChannelsIcon },
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
 ];
@@ -100,6 +102,7 @@ const NAV_ICON_MAP = {
   research: ResearchIcon,
   calendar: CalendarIcon,
   goals: GoalsIcon,
+  business_dev: BusinessDevIcon,
   channels: ChannelsIcon,
   messages: MessagesIcon,
 };
@@ -552,6 +555,7 @@ export default function AppLayout() {
           {activeTab === 'research' && <Research />}
           {activeTab === 'reviews' && <Reviews />}
           {activeTab === 'goals' && <Goals />}
+          {isAdmin && activeTab === 'business_dev' && <BusinessDev />}
 
           {activeTab === 'channels' && <Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} />}
           {activeTab === 'messages' && <Messages onNavigate={navigateTo} />}
@@ -671,6 +675,16 @@ function GoalsIcon({ active }) {
       <circle cx="10" cy="10" r="7" />
       <circle cx="10" cy="10" r="4" />
       <circle cx="10" cy="10" r="1" fill={active ? '#a5b4fc' : '#6b7280'} />
+    </svg>
+  );
+}
+
+function BusinessDevIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <path d="M3 17V11M8 17V8M13 17V5M18 17V3" strokeLinecap="round" />
+      <path d="M2 18h17" strokeLinecap="round" />
+      <circle cx="13" cy="5" r="1.4" fill={active ? '#a5b4fc' : '#6b7280'} />
     </svg>
   );
 }

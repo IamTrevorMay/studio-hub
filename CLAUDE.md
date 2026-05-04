@@ -76,3 +76,59 @@ supabase/
 - `node_modules/` changes in git status are normal (local package drift) — do not commit them
 - `.env` contains Supabase keys — never commit secrets
 - Migration `20260328200001_cron_generate_trends.sql` contains a hardcoded `CRON_SECRET` — be mindful if repo is shared
+
+## Business Dev page (planned, admin-only)
+
+Permanent program tracker for the unified Mayday Media + Neptune Performance buildout and ongoing operations. Mayday Media is the existing content/creator side; Neptune Performance is a new baseball development lab being built out (physical space, product, marketing, scheduling). Both share a new building. Page lives in sidebar below Goals.
+
+### Structure
+- **Hierarchy:** Workstream → Initiative → Task (three fixed levels)
+- **Workstreams (7, fixed for v1):** Facility, Product, Marketing & Brand, Sales / BD, Operations, Finance, Tech / Systems
+- **Tagging:** every initiative and task tagged Mayday / Neptune / Shared. Tasks can override their parent initiative's tag.
+- **Owners:** admins only for now (revisit later — non-admin owners + visibility deferred)
+- **Separate worlds:** does not share data with Goals page's `initiatives` table; new `bd_*` tables only.
+
+### Initiative metadata
+- Title, description, links (multiple, label + URL)
+- Status: `ideas` / `planned` / `active` / `waiting` / `done` (async-friendly set)
+- Owner (single admin), target date, budget (cents), priority (high/med/low), tag, workstream, position (manual order)
+
+### Task metadata
+- Title, notes, due date, owner, tag (override or inherit), position, completed_at
+- Status is just a checkbox (done / not done)
+- **Recurrence:** simple — `recurrence_interval` (daily/weekly/monthly) + `recurrence_count`. On check, server creates next instance with `due_date += interval`; old completed instance stays.
+
+### Views (4 tabs)
+1. **Main** — workstream-grouped accordion. Initiatives sorted by status (Active → Planned → Waiting → Ideas) then due date; manual drag-to-reorder writes `position`. Click to expand inline (description, links, tasks).
+2. **Timeline / Gantt** — horizontal bars per initiative across a time axis, grouped by workstream, color-coded by tag.
+3. **Calendar** — month grid with task due dates, initiative target dates, milestones as pills.
+4. **My Stuff** — current admin's owned tasks + initiatives only. BD-scoped (no MyBoard merge for v1).
+
+### Header (above tabs, always visible)
+- **Launch countdown** — driven by `bd_settings.launch_target_date`
+- **Milestones row** — chip pins from `bd_milestones`, addable/editable/retirable
+- **Overall %** — done initiatives / total non-archived
+
+### Filters (main view)
+- Tag pills: All / Mayday / Neptune / Shared
+- "Hide Done" toggle (default on)
+
+### Behaviors
+- **Auto-archive:** an initiative or task with `completed_at + 1 day < now` collapses into a "Completed" expander under its workstream/parent.
+- **Notifications:** in-app via existing bell system. Daily check flags overdue tasks, due-today tasks, and overdue initiatives into the existing `notifications` table.
+- **RLS:** admin role required for all read/write on `bd_*` tables.
+
+### Proposed tables
+- `bd_initiatives` (id, workstream, title, description, status, tag, owner_id, target_date, budget_cents, priority, position, completed_at, created_by, created_at, updated_at)
+- `bd_initiative_links` (id, initiative_id, label, url)
+- `bd_tasks` (id, initiative_id, title, notes, tag, owner_id, due_date, completed_at, recurrence_interval, recurrence_count, position, created_by, created_at, updated_at)
+- `bd_milestones` (id, title, target_date, position, retired_at)
+- `bd_settings` (single-row: launch_target_date)
+
+### Deferred (not v1)
+- Comments / discussion threads on initiatives
+- File attachments (links cover most needs)
+- Budget rollup view (budget shown per initiative; no aggregate yet)
+- Non-admin owners and visibility
+- MyBoard / personal_tasks integration
+- Email reminders

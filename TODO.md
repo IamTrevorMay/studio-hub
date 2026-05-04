@@ -17,6 +17,7 @@
 - [ ] **Stale tab — coordinated fix** — Address all layers together: reconnect logic, useVisibilityRefresh hook (dead code), silent token refresh failures, error boundaries, refreshKey coverage gaps.
 - [ ] **Re-enable content table in PlatformView** — Disabled during #310 debugging. Restore once error is fixed.
 - [ ] **Remove debug logging from PlatformView** — Clean up console.log after identifying #310 source.
+- [ ] **Build "Business Dev" page (admin-only)** — Permanent program tracker for unified Mayday Media + Neptune Performance buildout/ops. Workstream-first hierarchy (Workstream → Initiative → Task) across 7 fixed workstreams. Tags: Mayday/Neptune/Shared. Four views: Main (workstream-grouped), Timeline/Gantt, Calendar, My Stuff. Header shows launch countdown + milestones + overall %. Initiative metadata: target date, async-friendly status (Ideas/Planned/Active/Waiting/Done), owner, budget, description, links, priority. Tasks: title/due date/owner/notes/checkbox + simple recurrence. Filters: tag pills + Hide Done. Done auto-collapses to Completed section after 1 day. In-app notifications via existing bell system. Separate tables from Goals roadmap (`bd_initiatives`, `bd_initiative_links`, `bd_tasks`, `bd_milestones`, `bd_settings`). See CLAUDE.md "Business Dev page" section for full spec. Sidebar position: below Goals.
 
 ## Recently Completed (2026-04-18)
 
