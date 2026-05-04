@@ -128,6 +128,12 @@ export default function Projects({ onNavigate }) {
   const [deliverableCampaignId, setDeliverableCampaignId] = useState('');
   const [deliverablePay, setDeliverablePay] = useState('');
   const [deliverableBeatSheetId, setDeliverableBeatSheetId] = useState('');
+  const [deliverableVideoEventId, setDeliverableVideoEventId] = useState('');
+
+  // Video events for sponsor calendar
+  const [videoEvents, setVideoEvents] = useState([]);
+  const [sponsorCalOpen, setSponsorCalOpen] = useState(false);
+  const [sponsorCalMonth, setSponsorCalMonth] = useState(() => new Date());
 
   // Campaign state
   const [showCampaignForm, setShowCampaignForm] = useState(null); // sponsorId or null
@@ -646,10 +652,25 @@ export default function Projects({ onNavigate }) {
     }
   }, []);
 
+  const fetchVideoEvents = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('calendar_events')
+        .select('*')
+        .eq('event_type', 'video_post')
+        .order('start_date', { ascending: true });
+      if (error) throw error;
+      setVideoEvents(data || []);
+    } catch (err) {
+      console.error('Error fetching video events:', err);
+    }
+  }, []);
+
   useEffect(() => {
     if (activeSection !== 'sponsors') return;
     fetchSponsors();
-  }, [activeSection, fetchSponsors]);
+    fetchVideoEvents();
+  }, [activeSection, fetchSponsors, fetchVideoEvents]);
 
   useEffect(() => {
     if (activeSection !== 'sponsors') return;
@@ -659,9 +680,10 @@ export default function Projects({ onNavigate }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sponsor_deliverables' }, () => fetchSponsors())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sponsor_campaigns' }, () => fetchSponsors())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'deliverable_stage_assignments' }, () => fetchSponsors())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'calendar_events' }, () => fetchVideoEvents())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [activeSection, fetchSponsors, refreshKey]);
+  }, [activeSection, fetchSponsors, fetchVideoEvents, refreshKey]);
 
   // ===== Reads fetch =====
   const fetchReads = useCallback(async () => {
@@ -1050,7 +1072,7 @@ export default function Projects({ onNavigate }) {
     setDeliverableTitle(''); setDeliverableType('long_form_read');
     setDueDate(''); setDeliverableNotes('');
     setDeliverablePlatforms([]); setDeliverableNeedsReview(false); setDeliverableCampaignId('');
-    setDeliverablePay(''); setDeliverableBeatSheetId('');
+    setDeliverablePay(''); setDeliverableBeatSheetId(''); setDeliverableVideoEventId('');
     setEditingDeliverable(null); setShowDeliverableForm(null);
   }
 
@@ -1071,6 +1093,7 @@ export default function Projects({ onNavigate }) {
     setDeliverableCampaignId(d.campaign_id || '');
     setDeliverablePay(d.pay != null ? String(d.pay) : '');
     setDeliverableBeatSheetId(d.beat_sheet_id || '');
+    setDeliverableVideoEventId(d.video_event_id || '');
     setEditingDeliverable(d.id);
     setShowDeliverableForm(d.campaign_id);
   }
@@ -1126,6 +1149,7 @@ export default function Projects({ onNavigate }) {
         campaign_id: campaignId || deliverableCampaignId || null,
         pay: deliverablePay ? parseFloat(deliverablePay) : null,
         beat_sheet_id: deliverableBeatSheetId || null,
+        video_event_id: deliverableVideoEventId || null,
         updated_at: new Date().toISOString(),
       }).eq('id', editingDeliverable);
       if (error) { alert('Error updating deliverable: ' + error.message); return; }
@@ -1169,6 +1193,7 @@ export default function Projects({ onNavigate }) {
         campaign_id: campaignId || null,
         pay: deliverablePay ? parseFloat(deliverablePay) : null,
         beat_sheet_id: deliverableBeatSheetId || null,
+        video_event_id: deliverableVideoEventId || null,
       }).select().single();
       if (error) { alert('Error creating deliverable: ' + error.message); return; }
 
@@ -1487,6 +1512,15 @@ export default function Projects({ onNavigate }) {
               {new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
             </span>
           )}
+          {d.video_event_id && (() => {
+            const ev = videoEvents.find(e => e.id === d.video_event_id);
+            return ev ? (
+              <span style={{ fontSize: '9px', fontWeight: 600, padding: '2px 5px', borderRadius: '4px',
+                background: 'rgba(168,85,247,0.12)', color: '#c084fc' }}>
+                {'\uD83D\uDCF9'} {new Date(ev.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — {ev.title}
+              </span>
+            ) : null;
+          })()}
           <button onClick={() => startEditDeliverable(d)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Edit">✎</button>
           <button onClick={() => handleDeleteDeliverable(d)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Delete">✕</button>
         </div>
@@ -2548,11 +2582,86 @@ export default function Projects({ onNavigate }) {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <button onClick={() => setSponsorCalOpen(v => !v)} style={styles.sponsorCalToggle}>
+            {sponsorCalOpen ? 'Calendar \u25B2' : 'Calendar \u25BC'}
+          </button>
           <button onClick={() => { resetSponsorForm(); setShowSponsorForm(!showSponsorForm); }} style={styles.addBtn}>
             {showSponsorForm && !editingSponsor ? '✕ Cancel' : '+ New Sponsor'}
           </button>
         </div>
       </div>
+
+      {/* Sponsor Calendar */}
+      {sponsorCalOpen && (() => {
+        const year = sponsorCalMonth.getFullYear();
+        const month = sponsorCalMonth.getMonth();
+        const firstDay = new Date(year, month, 1);
+        const lastDay = new Date(year, month + 1, 0);
+        const startPad = firstDay.getDay();
+        const totalDays = lastDay.getDate();
+        const weeks = [];
+        let currentDay = 1 - startPad;
+        while (currentDay <= totalDays) {
+          const week = [];
+          for (let i = 0; i < 7; i++) {
+            week.push(new Date(year, month, currentDay));
+            currentDay++;
+          }
+          weeks.push(week);
+        }
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const monthLabel = sponsorCalMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        return (
+          <div style={styles.sponsorCalWrapper}>
+            <div style={styles.sponsorCalNav}>
+              <button onClick={() => setSponsorCalMonth(new Date(year, month - 1, 1))} style={styles.sponsorCalNavBtn}>{'\u2190'}</button>
+              <span style={{ fontSize: '15px', fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>{monthLabel}</span>
+              <button onClick={() => setSponsorCalMonth(new Date(year, month + 1, 1))} style={styles.sponsorCalNavBtn}>{'\u2192'}</button>
+            </div>
+            <div style={styles.sponsorCalGrid}>
+              {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => (
+                <div key={d} style={styles.sponsorCalWeekdayCell}>{d}</div>
+              ))}
+              {weeks.flat().map((date, idx) => {
+                const inMonth = date.getMonth() === month;
+                const isToday = date.getTime() === today.getTime();
+                const dateStr = date.toISOString().split('T')[0];
+                const dayEvents = videoEvents.filter(ev => {
+                  const evDate = ev.start_date?.split('T')[0];
+                  return evDate === dateStr;
+                });
+                return (
+                  <div key={idx} style={{
+                    ...styles.sponsorCalDayCell,
+                    opacity: inMonth ? 1 : 0.3,
+                    background: isToday ? 'rgba(99,102,241,0.1)' : 'transparent',
+                  }}>
+                    <div style={{ fontSize: '11px', color: isToday ? '#a5b4fc' : 'rgba(255,255,255,0.5)', fontWeight: isToday ? 700 : 400, marginBottom: '2px' }}>
+                      {date.getDate()}
+                    </div>
+                    {dayEvents.map(ev => {
+                      const attachedDels = allDeliverables.filter(d => d.video_event_id === ev.id);
+                      return (
+                        <div key={ev.id}>
+                          <div style={styles.sponsorCalEventPill} title={ev.title}>
+                            {'\uD83D\uDCF9'} {ev.title?.length > 14 ? ev.title.slice(0, 14) + '\u2026' : ev.title}
+                          </div>
+                          {attachedDels.map(del => (
+                            <div key={del.id} style={styles.sponsorCalBadge} title={del.campaign_name || del.sponsor_name}>
+                              {'\uD83E\uDD1D'} {(del.campaign_name || del.sponsor_name || '').length > 12 ? (del.campaign_name || del.sponsor_name || '').slice(0, 12) + '\u2026' : (del.campaign_name || del.sponsor_name)}
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Sponsor Form */}
       {showSponsorForm && (
@@ -2805,6 +2914,17 @@ export default function Projects({ onNavigate }) {
                                         <option value="">None</option>
                                         {beatSheets.map(bs => (
                                           <option key={bs.id} value={bs.id}>{bs.title}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    <div style={styles.field}>
+                                      <label style={styles.label}>Attached Video</label>
+                                      <select value={deliverableVideoEventId} onChange={e => setDeliverableVideoEventId(e.target.value)} style={styles.select}>
+                                        <option value="">None</option>
+                                        {videoEvents.map(ev => (
+                                          <option key={ev.id} value={ev.id}>
+                                            {'\uD83D\uDCF9'} {new Date(ev.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — {ev.title}
+                                          </option>
                                         ))}
                                       </select>
                                     </div>
@@ -4497,5 +4617,84 @@ const styles = {
     borderRadius: '8px',
     background: 'rgba(255,255,255,0.02)',
     border: '1px solid rgba(255,255,255,0.04)',
+  },
+  sponsorCalToggle: {
+    padding: '10px 16px',
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '10px',
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  sponsorCalWrapper: {
+    background: 'rgba(255,255,255,0.02)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '14px',
+    padding: '16px',
+    marginBottom: '24px',
+  },
+  sponsorCalNav: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '16px',
+    marginBottom: '12px',
+  },
+  sponsorCalNavBtn: {
+    background: 'none',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '6px',
+    color: 'rgba(255,255,255,0.6)',
+    cursor: 'pointer',
+    padding: '4px 10px',
+    fontSize: '14px',
+    fontFamily: 'inherit',
+  },
+  sponsorCalGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(7, 1fr)',
+    gap: '1px',
+  },
+  sponsorCalWeekdayCell: {
+    textAlign: 'center',
+    fontSize: '11px',
+    fontWeight: 600,
+    color: 'rgba(255,255,255,0.35)',
+    padding: '4px 0 8px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+  },
+  sponsorCalDayCell: {
+    minHeight: '70px',
+    padding: '4px',
+    borderRadius: '6px',
+    border: '1px solid rgba(255,255,255,0.04)',
+  },
+  sponsorCalEventPill: {
+    fontSize: '9px',
+    fontWeight: 600,
+    padding: '2px 4px',
+    borderRadius: '4px',
+    background: 'rgba(168,85,247,0.15)',
+    color: '#c084fc',
+    marginBottom: '2px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  sponsorCalBadge: {
+    fontSize: '8px',
+    fontWeight: 600,
+    padding: '1px 4px',
+    borderRadius: '3px',
+    background: 'rgba(16,185,129,0.15)',
+    color: '#6ee7b7',
+    marginBottom: '1px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
 };
