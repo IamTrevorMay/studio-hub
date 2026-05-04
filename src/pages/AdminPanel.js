@@ -408,6 +408,7 @@ export default function AdminPanel({ initialTab }) {
                 >
                   <option value="member">Member</option>
                   <option value="assistant">Assistant</option>
+                  <option value="partner">Partner</option>
                   <option value="admin">Admin</option>
                 </select>
                 {member.id !== profile.id && (

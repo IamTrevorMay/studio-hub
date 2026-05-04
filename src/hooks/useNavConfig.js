@@ -77,7 +77,15 @@ export default function useNavConfig() {
    * - Items in config but not in code are skipped
    * - Items in code but not in config are appended at the end
    */
-  const getResolvedNav = useCallback((navItems, isAdmin) => {
+  const getResolvedNav = useCallback((navItems, isAdmin, isPartner) => {
+    // Partners get a locked two-item sidebar
+    if (isPartner) {
+      return [
+        { type: 'item', key: 'dashboard', label: 'Dashboard' },
+        { type: 'item', key: 'business_dev', label: 'Business Dev' },
+      ];
+    }
+
     // If no config or empty, return hardcoded items as-is
     if (!config || !config.items || config.items.length === 0) {
       return navItems

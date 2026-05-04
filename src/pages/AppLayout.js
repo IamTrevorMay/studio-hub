@@ -108,7 +108,7 @@ const NAV_ICON_MAP = {
 };
 
 export default function AppLayout() {
-  const { profile, signOut, isAdmin, isAssistant, unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, refreshNotifications } = useAuth();
+  const { profile, signOut, isAdmin, isAssistant, isPartner, unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, refreshNotifications } = useAuth();
   const { getResolvedNav, saveConfig, saving } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => getTabFromPath() || localStorage.getItem('studio-hub-tab') || 'dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -129,7 +129,7 @@ export default function AppLayout() {
     localStorage.setItem('nav-folder-state', JSON.stringify(folderCollapseState));
   }, [folderCollapseState]);
 
-  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin);
+  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner);
 
   function toggleFolder(folderId) {
     setFolderCollapseState(prev => ({ ...prev, [folderId]: !prev[folderId] }));
@@ -555,7 +555,7 @@ export default function AppLayout() {
           {activeTab === 'research' && <Research />}
           {activeTab === 'reviews' && <Reviews />}
           {activeTab === 'goals' && <Goals />}
-          {isAdmin && activeTab === 'business_dev' && <BusinessDev />}
+          {(isAdmin || isPartner) && activeTab === 'business_dev' && <BusinessDev />}
 
           {activeTab === 'channels' && <Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} />}
           {activeTab === 'messages' && <Messages onNavigate={navigateTo} />}

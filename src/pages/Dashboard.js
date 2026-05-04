@@ -55,7 +55,7 @@ const CHECKIN_COLORS = { 1: '#ef4444', 2: '#f97316', 3: '#eab308', 4: '#84cc16',
 const CHECKIN_LABELS = { 1: 'Red', 2: 'Orange', 3: 'Yellow', 4: 'Light Green', 5: 'Green' };
 
 export default function Dashboard({ onNavigate }) {
-  const { profile, updateProfile, isAdmin, isAssistant, refreshKey } = useAuth();
+  const { profile, updateProfile, isAdmin, isAssistant, isPartner, refreshKey } = useAuth();
   const { safeQuery } = useSupabaseQuery();
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -106,6 +106,14 @@ export default function Dashboard({ onNavigate }) {
   const [statusNoteDraft, setStatusNoteDraft] = useState(profile?.status_note || '');
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const statusMenuRef = useRef(null);
+
+  // OOO state
+  const [showOooModal, setShowOooModal] = useState(false);
+  const [oooStartDate, setOooStartDate] = useState('');
+  const [oooEndDate, setOooEndDate] = useState('');
+  const [oooSubmitting, setOooSubmitting] = useState(false);
+  const [pendingOooRequests, setPendingOooRequests] = useState([]);
+  const [approvedOooToday, setApprovedOooToday] = useState([]);
 
   // Stage tasks state
   const [stageTasks, setStageTasks] = useState([]);
@@ -213,6 +221,30 @@ export default function Dashboard({ onNavigate }) {
       setTeamLoading(false);
     }
   }, [profile?.id]);
+
+  const fetchOooRequests = useCallback(async () => {
+    if (!profile?.id) return;
+    try {
+      // Fetch pending requests (admin needs these for approval)
+      const { data: pending } = await supabase
+        .from('ooo_requests')
+        .select('*, requester:profiles!user_id(id, full_name)')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: true });
+      setPendingOooRequests(pending || []);
+
+      // Fetch approved requests overlapping today
+      const { data: approved } = await supabase
+        .from('ooo_requests')
+        .select('user_id')
+        .eq('status', 'approved')
+        .lte('start_date', todayStr)
+        .gte('end_date', todayStr);
+      setApprovedOooToday((approved || []).map(r => r.user_id));
+    } catch (err) {
+      console.error('Error fetching OOO requests:', err);
+    }
+  }, [profile?.id, todayStr]);
 
   const fetchAnnouncements = useCallback(async () => {
     if (!profile?.id) return;
@@ -464,11 +496,13 @@ export default function Dashboard({ onNavigate }) {
 
   useEffect(() => {
     if (!profile?.id) return;
-    fetchAssignments();
-    fetchStageTasks();
-    fetchSponsorDeliverables();
-    fetchStatsCounts();
-  }, [profile?.id, fetchAssignments, fetchStageTasks, fetchSponsorDeliverables, fetchStatsCounts]);
+    if (!isPartner) {
+      fetchAssignments();
+      fetchStageTasks();
+      fetchSponsorDeliverables();
+      fetchStatsCounts();
+    }
+  }, [profile?.id, isPartner, fetchAssignments, fetchStageTasks, fetchSponsorDeliverables, fetchStatsCounts]);
 
   useEffect(() => {
     if ((isAdmin || isAssistant) && profile?.id) {
@@ -488,6 +522,10 @@ export default function Dashboard({ onNavigate }) {
   }, [profile?.id, fetchTeamProfiles]);
 
   useEffect(() => {
+    if (profile?.id) fetchOooRequests();
+  }, [profile?.id, fetchOooRequests]);
+
+  useEffect(() => {
     if (!profile?.id) return;
     const channel = supabase
       .channel('team-presence')
@@ -504,16 +542,30 @@ export default function Dashboard({ onNavigate }) {
     return () => { supabase.removeChannel(channel); };
   }, [profile?.id, fetchTeamProfiles, refreshKey]);
 
+  useEffect(() => {
+    if (!profile?.id) return;
+    const channel = supabase
+      .channel('ooo-changes')
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'ooo_requests',
+      }, () => { fetchOooRequests(); })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [profile?.id, fetchOooRequests]);
+
   useVisibilityRefresh(useCallback(() => {
     if (!profile?.id) return;
-    fetchAssignments();
-    fetchStageTasks();
-    fetchSponsorDeliverables();
-    fetchStatsCounts();
+    if (!isPartner) {
+      fetchAssignments();
+      fetchStageTasks();
+      fetchSponsorDeliverables();
+      fetchStatsCounts();
+    }
     if (isAdmin || isAssistant) fetchItinerary();
     fetchAnnouncements();
     fetchTeamProfiles();
-  }, [profile?.id, isAdmin, isAssistant, fetchAssignments, fetchStageTasks, fetchSponsorDeliverables, fetchStatsCounts, fetchItinerary, fetchAnnouncements, fetchTeamProfiles]));
+    fetchOooRequests();
+  }, [profile?.id, isAdmin, isAssistant, isPartner, fetchAssignments, fetchStageTasks, fetchSponsorDeliverables, fetchStatsCounts, fetchItinerary, fetchAnnouncements, fetchTeamProfiles, fetchOooRequests]));
 
   useEffect(() => {
     if (profile?.id) fetchCheckins();
@@ -838,6 +890,95 @@ export default function Dashboard({ onNavigate }) {
   async function saveStatusNote() {
     await updateProfile({ status_note: statusNoteDraft.trim() || null });
     setEditingStatusNote(false);
+  }
+
+  async function submitOooRequest() {
+    if (!oooStartDate || !oooEndDate || !profile?.id) return;
+    setOooSubmitting(true);
+    try {
+      const { error } = await supabase.from('ooo_requests').insert({
+        user_id: profile.id,
+        start_date: oooStartDate,
+        end_date: oooEndDate,
+      });
+      if (error) throw error;
+
+      // Notify admins
+      const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin');
+      const notifications = (admins || [])
+        .filter(a => a.id !== profile.id)
+        .map(a => ({
+          user_id: a.id,
+          type: 'ooo_request',
+          title: `${profile.full_name} requested time off`,
+          body: `${oooStartDate} to ${oooEndDate}`,
+          created_at: new Date().toISOString(),
+        }));
+      if (notifications.length > 0) {
+        await supabase.from('notifications').insert(notifications);
+      }
+
+      setShowOooModal(false);
+      setOooStartDate('');
+      setOooEndDate('');
+      fetchOooRequests();
+    } catch (err) {
+      console.error('Error submitting OOO request:', err);
+    } finally {
+      setOooSubmitting(false);
+    }
+  }
+
+  async function handleOooDecision(request, decision) {
+    if (!profile?.id) return;
+    try {
+      if (decision === 'approved') {
+        // Create calendar event for the OOO period
+        const requesterName = request.requester?.full_name || 'Team member';
+        const { data: calEvent, error: evError } = await supabase.from('calendar_events').insert({
+          title: `${requesterName} \u2014 Out of Office`,
+          event_type: 'unavailable',
+          start_date: new Date(`${request.start_date}T00:00:00`).toISOString(),
+          end_date: new Date(`${request.end_date}T23:59:59`).toISOString(),
+          all_day: true,
+          created_by: profile.id,
+        }).select('id').single();
+        if (evError) throw evError;
+
+        await supabase.from('ooo_requests').update({
+          status: 'approved',
+          reviewed_by: profile.id,
+          reviewed_at: new Date().toISOString(),
+          calendar_event_id: calEvent.id,
+        }).eq('id', request.id);
+
+        // Notify requester
+        await supabase.from('notifications').insert({
+          user_id: request.user_id,
+          type: 'ooo_request',
+          title: 'Time off approved',
+          body: `Your OOO request (${request.start_date} to ${request.end_date}) was approved.`,
+          created_at: new Date().toISOString(),
+        });
+      } else {
+        await supabase.from('ooo_requests').update({
+          status: 'rejected',
+          reviewed_by: profile.id,
+          reviewed_at: new Date().toISOString(),
+        }).eq('id', request.id);
+
+        await supabase.from('notifications').insert({
+          user_id: request.user_id,
+          type: 'ooo_request',
+          title: 'Time off declined',
+          body: `Your OOO request (${request.start_date} to ${request.end_date}) was declined.`,
+          created_at: new Date().toISOString(),
+        });
+      }
+      fetchOooRequests();
+    } catch (err) {
+      console.error('Error handling OOO decision:', err);
+    }
   }
 
   function getDaysUntil(deadline) {
@@ -1328,7 +1469,7 @@ export default function Dashboard({ onNavigate }) {
     );
   }
 
-  const isMember = !isAdmin && !isAssistant;
+  const isMember = !isAdmin && !isAssistant && !isPartner;
 
   return (
     <div style={styles.page}>
@@ -1400,6 +1541,7 @@ export default function Dashboard({ onNavigate }) {
           )}
           <p style={styles.profileEmail}>{profile?.email}</p>
         </div>
+        {!isPartner && (
         <div style={styles.statsRow}>
           <div style={styles.stat}>
             <div style={styles.statValue}>{teamActiveCount}</div>
@@ -1418,6 +1560,7 @@ export default function Dashboard({ onNavigate }) {
             <div style={styles.statLabel}>Stage Tasks</div>
           </div>
         </div>
+        )}
       </div>
 
       {/* Announcements */}
@@ -1554,6 +1697,77 @@ export default function Dashboard({ onNavigate }) {
         );
       })()}
 
+      {/* Admin: Pending OOO Requests */}
+      {isAdmin && pendingOooRequests.length > 0 && (
+        <div style={styles.section}>
+          <h2 style={styles.sectionTitle}>Pending Requests</h2>
+          <div style={{
+            background: 'rgba(255,255,255,0.02)',
+            border: '1px solid rgba(255,255,255,0.06)',
+            borderRadius: '12px',
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px',
+          }}>
+            {pendingOooRequests.map(req => {
+              const startFmt = new Date(req.start_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              const endFmt = new Date(req.end_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              return (
+                <div key={req.id} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '10px 12px',
+                  background: 'rgba(249,115,22,0.06)',
+                  border: '1px solid rgba(249,115,22,0.15)',
+                  borderRadius: '8px',
+                }}>
+                  <div style={{
+                    width: '32px', height: '32px', borderRadius: '50%',
+                    background: 'rgba(249,115,22,0.15)', color: '#f97316',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '13px', fontWeight: 700, flexShrink: 0,
+                  }}>
+                    {req.requester?.full_name?.charAt(0)?.toUpperCase() || '?'}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: '#e2e8f0' }}>
+                      {req.requester?.full_name || 'Unknown'}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)' }}>
+                      {startFmt} {'\u2013'} {endFmt}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleOooDecision(req, 'approved')}
+                    style={{
+                      padding: '5px 12px', borderRadius: '6px',
+                      border: '1px solid rgba(34,197,94,0.3)',
+                      background: 'rgba(34,197,94,0.1)', color: '#22c55e',
+                      fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                    }}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    onClick={() => handleOooDecision(req, 'rejected')}
+                    style={{
+                      padding: '5px 12px', borderRadius: '6px',
+                      border: '1px solid rgba(239,68,68,0.3)',
+                      background: 'rgba(239,68,68,0.1)', color: '#ef4444',
+                      fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                    }}
+                  >
+                    Decline
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Team + Check In */}
       <div style={styles.section}>
         <div style={styles.teamCheckinRow}>
@@ -1602,6 +1816,23 @@ export default function Dashboard({ onNavigate }) {
                     </div>
                   )}
                 </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowOooModal(true); }}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    background: 'rgba(255,255,255,0.04)',
+                    color: 'rgba(255,255,255,0.5)',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  Request OOO
+                </button>
                 <div style={{ flex: 1 }} />
                 {editingStatusNote ? (
                   <div style={styles.noteEditRow}>
@@ -1641,13 +1872,14 @@ export default function Dashboard({ onNavigate }) {
                       return (order[getEffectiveStatus(a)] ?? 2) - (order[getEffectiveStatus(b)] ?? 2);
                     })
                     .map(member => {
+                      const isOoo = approvedOooToday.includes(member.id);
                       const effectiveStatus = getEffectiveStatus(member);
-                      const dotColor = effectiveStatus === 'online' ? '#22c55e' : effectiveStatus === 'busy' ? '#f59e0b' : '#6b7280';
+                      const dotColor = isOoo ? '#f97316' : effectiveStatus === 'online' ? '#22c55e' : effectiveStatus === 'busy' ? '#f59e0b' : '#6b7280';
                       const isMe = member.id === profile?.id;
                       return (
                         <div key={member.id} style={{
                           ...styles.teamMember,
-                          opacity: effectiveStatus === 'offline' ? 0.5 : 1,
+                          opacity: isOoo ? 0.7 : effectiveStatus === 'offline' ? 0.5 : 1,
                         }}>
                           <div style={styles.teamMemberAvatar}>
                             {member.full_name?.charAt(0)?.toUpperCase() || '?'}
@@ -1659,7 +1891,7 @@ export default function Dashboard({ onNavigate }) {
                             </div>
                             <div style={styles.teamMemberMeta}>
                               {member.title && <span>{member.title}</span>}
-                              {member.status_note && (
+                              {!isOoo && member.status_note && (
                                 <span style={styles.teamMemberNote}>
                                   {member.title ? ' · ' : ''}{member.status_note}
                                 </span>
@@ -1667,7 +1899,7 @@ export default function Dashboard({ onNavigate }) {
                             </div>
                           </div>
                           <span style={{ ...styles.statusLabel, color: dotColor }}>
-                            {effectiveStatus === 'online' ? 'Online' : effectiveStatus === 'busy' ? 'Busy' : 'Offline'}
+                            {isOoo ? 'Out of Office' : effectiveStatus === 'online' ? 'Online' : effectiveStatus === 'busy' ? 'Busy' : 'Offline'}
                           </span>
                         </div>
                       );
@@ -1974,7 +2206,7 @@ export default function Dashboard({ onNavigate }) {
       )}
 
       {/* Sponsored Deliverables */}
-      {(sponsorDeliverables.length > 0 || sponsorDelLoading) && (
+      {!isPartner && (sponsorDeliverables.length > 0 || sponsorDelLoading) && (
         <div style={styles.section}>
           <h2 style={styles.sectionTitle}>Sponsored</h2>
           {sponsorDelLoading ? (
@@ -2024,7 +2256,7 @@ export default function Dashboard({ onNavigate }) {
       )}
 
       {/* Stage Tasks */}
-      {stageTasks.length > 0 && (
+      {!isPartner && stageTasks.length > 0 && (
         <div style={styles.section}>
           <h2 style={styles.sectionTitle}>Project Tasks</h2>
           {stageTasksLoading ? (
@@ -2104,7 +2336,7 @@ export default function Dashboard({ onNavigate }) {
       )}
 
       {/* Completed Projects */}
-      {completedAssignments.length > 0 && (
+      {!isPartner && completedAssignments.length > 0 && (
         <div style={styles.section}>
           <h2 style={styles.sectionTitle}>Recently Completed</h2>
           <div style={styles.completedList}>
@@ -2123,10 +2355,10 @@ export default function Dashboard({ onNavigate }) {
       )}
 
       {/* Sprint Planning */}
-      <SprintPanel profile={profile} boardVersion={boardVersion} onSprintChange={() => setSprintVersion(v => v + 1)} />
+      {!isPartner && <SprintPanel profile={profile} boardVersion={boardVersion} onSprintChange={() => setSprintVersion(v => v + 1)} />}
 
-      {/* Sprint */}
-      <MyBoard profile={profile} onNavigate={onNavigate} todayEvents={todayEvents} onBoardChange={() => setBoardVersion(v => v + 1)} sprintVersion={sprintVersion} />
+      {/* MyBoard */}
+      {!isPartner && <MyBoard profile={profile} onNavigate={onNavigate} todayEvents={todayEvents} onBoardChange={() => setBoardVersion(v => v + 1)} sprintVersion={sprintVersion} />}
 
       {/* Morty Mascot Controls */}
       <div style={{
@@ -2187,6 +2419,87 @@ export default function Dashboard({ onNavigate }) {
           </button>
         )}
       </div>
+
+      {/* OOO Request Modal */}
+      {showOooModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.6)', zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }} onMouseDown={(e) => { if (e.target === e.currentTarget) setShowOooModal(false); }}>
+          <div style={{
+            background: '#1a1a2e', borderRadius: '14px',
+            border: '1px solid rgba(255,255,255,0.08)',
+            padding: '28px', width: '380px', maxWidth: '90vw',
+          }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 20px', fontSize: '16px', fontWeight: 700, color: '#fff' }}>
+              Request Time Off
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginBottom: '6px', fontWeight: 600 }}>
+                  Start Date
+                </label>
+                <input
+                  type="date"
+                  value={oooStartDate}
+                  onChange={(e) => { setOooStartDate(e.target.value); if (!oooEndDate || e.target.value > oooEndDate) setOooEndDate(e.target.value); }}
+                  style={{
+                    width: '100%', padding: '8px 10px', borderRadius: '8px',
+                    border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)',
+                    color: '#e2e8f0', fontSize: '13px', fontFamily: 'inherit',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginBottom: '6px', fontWeight: 600 }}>
+                  End Date
+                </label>
+                <input
+                  type="date"
+                  value={oooEndDate}
+                  min={oooStartDate}
+                  onChange={(e) => setOooEndDate(e.target.value)}
+                  style={{
+                    width: '100%', padding: '8px 10px', borderRadius: '8px',
+                    border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)',
+                    color: '#e2e8f0', fontSize: '13px', fontFamily: 'inherit',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '10px', marginTop: '22px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => { setShowOooModal(false); setOooStartDate(''); setOooEndDate(''); }}
+                style={{
+                  padding: '8px 16px', borderRadius: '8px',
+                  border: '1px solid rgba(255,255,255,0.1)', background: 'transparent',
+                  color: 'rgba(255,255,255,0.6)', fontSize: '13px', fontWeight: 600,
+                  cursor: 'pointer', fontFamily: 'inherit',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitOooRequest}
+                disabled={!oooStartDate || !oooEndDate || oooSubmitting}
+                style={{
+                  padding: '8px 16px', borderRadius: '8px',
+                  border: '1px solid rgba(99,102,241,0.3)', background: 'rgba(99,102,241,0.15)',
+                  color: '#a5b4fc', fontSize: '13px', fontWeight: 600,
+                  cursor: (!oooStartDate || !oooEndDate || oooSubmitting) ? 'default' : 'pointer',
+                  fontFamily: 'inherit',
+                  opacity: (!oooStartDate || !oooEndDate || oooSubmitting) ? 0.5 : 1,
+                }}
+              >
+                {oooSubmitting ? 'Submitting...' : 'Submit Request'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

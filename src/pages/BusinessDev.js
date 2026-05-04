@@ -93,7 +93,7 @@ function effectiveTag(task, initiative) { return task.tag || initiative?.tag || 
 // ════════════════════════════════════════════════════════════
 // Empty form templates
 // ════════════════════════════════════════════════════════════
-const EMPTY_PHASE = { name: '', launch_target_date: '' };
+const EMPTY_PHASE = { name: '', launch_target_date: '', assigned_partners: [] };
 const EMPTY_INITIATIVE = {
   workstream: 'facility', title: '', description: '', status: 'planned',
   tag: 'shared', owner_id: null, target_date: '', budget_dollars: '',
@@ -106,7 +106,7 @@ const EMPTY_MILESTONE = { title: '', target_date: '' };
 // Main page
 // ════════════════════════════════════════════════════════════
 export default function BusinessDev() {
-  const { profile, isAdmin } = useAuth();
+  const { profile, isAdmin, isPartner } = useAuth();
 
   // Data
   const [phases, setPhases] = useState([]);
@@ -115,6 +115,7 @@ export default function BusinessDev() {
   const [links, setLinks] = useState([]);
   const [milestones, setMilestones] = useState([]);
   const [admins, setAdmins] = useState([]);
+  const [partners, setPartners] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // View
@@ -155,15 +156,17 @@ export default function BusinessDev() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [phRes, initRes, taskRes, linkRes, msRes, adminRes] = await Promise.all([
+      const [phRes, initRes, taskRes, linkRes, msRes, adminRes, partnerRes] = await Promise.all([
         supabase.from('bd_phases').select('*').is('archived_at', null).order('position'),
         supabase.from('bd_initiatives').select('*').order('position'),
         supabase.from('bd_tasks').select('*').order('position'),
         supabase.from('bd_initiative_links').select('*').order('position'),
         supabase.from('bd_milestones').select('*').is('retired_at', null).order('target_date'),
-        supabase.from('profiles').select('id, full_name, role').eq('role', 'admin').order('full_name'),
+        supabase.from('profiles').select('id, full_name, role').in('role', ['admin', 'partner']).order('full_name'),
+        supabase.from('profiles').select('id, full_name').eq('role', 'partner').order('full_name'),
       ]);
       const phs = phRes.data || [];
+      setPartners(partnerRes.data || []);
       setPhases(phs);
       setInitiatives(initRes.data || []);
       setTasks(taskRes.data || []);
@@ -205,9 +208,9 @@ export default function BusinessDev() {
   }, []);
 
   useEffect(() => {
-    if (!profile?.id || !isAdmin) return;
+    if (!profile?.id || (!isAdmin && !isPartner)) return;
     fetchAll();
-  }, [profile?.id, isAdmin, fetchAll]);
+  }, [profile?.id, isAdmin, isPartner, fetchAll]);
   useVisibilityRefresh(fetchAll);
 
   // ─────────────────────────────────────────────
@@ -250,7 +253,7 @@ export default function BusinessDev() {
   }
   function openEditPhase(phase) {
     setEditingPhaseId(phase.id);
-    setPhaseForm({ name: phase.name, launch_target_date: phase.launch_target_date || '' });
+    setPhaseForm({ name: phase.name, launch_target_date: phase.launch_target_date || '', assigned_partners: phase.assigned_partners || [] });
     setShowPhaseForm(true);
   }
   function cancelPhaseForm() {
@@ -262,7 +265,7 @@ export default function BusinessDev() {
     e.preventDefault();
     const name = phaseForm.name.trim();
     if (!name) return;
-    const payload = { name, launch_target_date: phaseForm.launch_target_date || null };
+    const payload = { name, launch_target_date: phaseForm.launch_target_date || null, assigned_partners: phaseForm.assigned_partners || [] };
     if (editingPhaseId) {
       const { error } = await supabase.from('bd_phases').update(payload).eq('id', editingPhaseId);
       if (error) { alert(error.message); return; }
@@ -525,7 +528,7 @@ export default function BusinessDev() {
   // ─────────────────────────────────────────────
   // Render
   // ─────────────────────────────────────────────
-  if (!isAdmin) return <div style={styles.page}><div style={styles.loading}>Admin access required.</div></div>;
+  if (!isAdmin && !isPartner) return <div style={styles.page}><div style={styles.loading}>Access restricted.</div></div>;
   if (loading)  return <div style={styles.page}><div style={styles.loading}>Loading Business Dev...</div></div>;
 
   return (
@@ -535,7 +538,7 @@ export default function BusinessDev() {
           <h1 style={styles.pageTitle}>Business Dev</h1>
           <p style={styles.pageSubtitle}>Multi-phase program tracker</p>
         </div>
-        <button onClick={openCreatePhase} style={styles.primaryBtn}>+ Phase</button>
+        {isAdmin && <button onClick={openCreatePhase} style={styles.primaryBtn}>+ Phase</button>}
       </div>
 
       {/* Tab bar */}
@@ -554,18 +557,19 @@ export default function BusinessDev() {
       </div>
 
       {/* Phase form */}
-      {showPhaseForm && (
+      {isAdmin && showPhaseForm && (
         <PhaseForm
           form={phaseForm}
           setForm={setPhaseForm}
           editing={!!editingPhaseId}
           onSubmit={handlePhaseSubmit}
           onCancel={cancelPhaseForm}
+          partners={partners}
         />
       )}
 
       {/* Initiative form (always rendered when active; phase selector lets you move it) */}
-      {showInitForm && (
+      {isAdmin && showInitForm && (
         <InitiativeForm
           form={initForm}
           setForm={setInitForm}
@@ -614,6 +618,7 @@ export default function BusinessDev() {
                 linksByInitiative={linksByInitiative}
                 milestones={milestonesByPhase[phase.id] || []}
                 admins={admins}
+                isAdmin={isAdmin}
                 expanded={!!expandedPhases[phase.id]}
                 onToggleExpand={() => setExpandedPhases(prev => ({ ...prev, [phase.id]: !prev[phase.id] }))}
                 onEditPhase={() => openEditPhase(phase)}
@@ -710,6 +715,7 @@ export default function BusinessDev() {
           tasks={tasks}
           tasksByInitiative={tasksByInitiative}
           enabledPhases={enabledPhases}
+          isAdmin={isAdmin}
           onToggleTask={handleToggleTask}
           onEditInit={openEditInit}
           onEditTask={openEditTask}
@@ -722,7 +728,12 @@ export default function BusinessDev() {
 // ════════════════════════════════════════════════════════════
 // Phase form
 // ════════════════════════════════════════════════════════════
-function PhaseForm({ form, setForm, editing, onSubmit, onCancel }) {
+function PhaseForm({ form, setForm, editing, onSubmit, onCancel, partners }) {
+  function togglePartner(pid) {
+    const cur = form.assigned_partners || [];
+    const next = cur.includes(pid) ? cur.filter(id => id !== pid) : [...cur, pid];
+    setForm({ ...form, assigned_partners: next });
+  }
   return (
     <form onSubmit={onSubmit} style={styles.form}>
       <div style={styles.formLabel}>{editing ? 'Edit Phase' : 'New Phase'}</div>
@@ -742,6 +753,23 @@ function PhaseForm({ form, setForm, editing, onSubmit, onCancel }) {
           style={styles.input}
         />
       </div>
+      {partners && partners.length > 0 && (
+        <div style={{ marginTop: '8px' }}>
+          <label style={styles.formInlineLabel}>Assigned Partners:</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '4px' }}>
+            {partners.map(p => (
+              <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px', color: 'rgba(255,255,255,0.7)', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={(form.assigned_partners || []).includes(p.id)}
+                  onChange={() => togglePartner(p.id)}
+                />
+                {p.full_name}
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
       <div style={styles.formRow}>
         <button type="submit" style={styles.primaryBtn}>{editing ? 'Update' : 'Create Phase'}</button>
         <button type="button" onClick={onCancel} style={styles.subtleBtn}>Cancel</button>
@@ -796,7 +824,7 @@ function DeletePhaseConfirm({ phase, counts, confirmText, setConfirmText, onCanc
 function PhaseCard(props) {
   const {
     phase, phaseIdx, phaseCount, initiatives, tasksByInitiative, linksByInitiative,
-    milestones, admins,
+    milestones, admins, isAdmin,
     expanded, onToggleExpand, onEditPhase, onDeletePhase, onMovePhaseUp, onMovePhaseDown,
     tagFilter, setTagFilter, hideDone, setHideDone,
     collapsedWorkstreams, setCollapsedWorkstreams,
@@ -862,6 +890,7 @@ function PhaseCard(props) {
 
         <div style={{ flex: 1 }} />
 
+        {isAdmin && (
         <div style={styles.phaseActions}>
           {onMovePhaseUp && <button onClick={onMovePhaseUp} style={styles.iconBtn} title="Move up">▲</button>}
           {onMovePhaseDown && <button onClick={onMovePhaseDown} style={styles.iconBtn} title="Move down">▼</button>}
@@ -873,6 +902,7 @@ function PhaseCard(props) {
             <button onClick={onDeletePhase} style={{ ...styles.iconBtn, color: '#fca5a5' }} title="Delete phase">delete</button>
           )}
         </div>
+        )}
       </div>
 
       {expanded && (
@@ -881,13 +911,13 @@ function PhaseCard(props) {
           <div style={styles.milestonesRow}>
             <span style={styles.milestonesLabel}>Milestones:</span>
             {milestones.map(ms => (
-              <button key={ms.id} onClick={() => onEditMilestone(ms)} style={styles.milestoneChip}
+              <button key={ms.id} onClick={isAdmin ? () => onEditMilestone(ms) : undefined} style={{ ...styles.milestoneChip, cursor: isAdmin ? 'pointer' : 'default' }}
                 title={`${ms.title}${ms.target_date ? ' — ' + formatDate(ms.target_date) : ''}`}>
                 <span style={styles.milestoneTitle}>{ms.title}</span>
                 {ms.target_date && <span style={styles.milestoneDate}>{formatDateShort(ms.target_date)}</span>}
               </button>
             ))}
-            <button onClick={() => onCreateMilestone(phase.id)} style={styles.milestoneAdd}>+</button>
+            {isAdmin && <button onClick={() => onCreateMilestone(phase.id)} style={styles.milestoneAdd}>+</button>}
           </div>
 
           {/* Milestone form (per phase) */}
@@ -970,7 +1000,7 @@ function PhaseCard(props) {
                   <span style={{ ...styles.workstreamDot, background: ws.color }} />
                   <span style={styles.workstreamLabel}>{ws.label}</span>
                   <span style={styles.workstreamCount}>{doneCount} / {totalCount} done</span>
-                  <button onClick={(e) => { e.stopPropagation(); onCreateInit(phase.id, ws.key); }} style={styles.workstreamAddBtn}>+</button>
+                  {isAdmin && <button onClick={(e) => { e.stopPropagation(); onCreateInit(phase.id, ws.key); }} style={styles.workstreamAddBtn}>+</button>}
                 </button>
 
                 {!collapsed && (
@@ -985,6 +1015,7 @@ function PhaseCard(props) {
                         tasks={tasksByInitiative[init.id] || []}
                         initiativeLinks={linksByInitiative[init.id] || []}
                         admins={admins}
+                        isAdmin={isAdmin}
                         expanded={!!expandedInitiatives[init.id]}
                         onToggleExpand={() => setExpandedInitiatives(prev => ({ ...prev, [init.id]: !prev[init.id] }))}
                         onEdit={() => onEditInit(init)}
@@ -1010,6 +1041,7 @@ function PhaseCard(props) {
                         tasksByInitiative={tasksByInitiative}
                         linksByInitiative={linksByInitiative}
                         admins={admins}
+                        isAdmin={isAdmin}
                         onEditInit={onEditInit}
                         onDeleteInit={onDeleteInit}
                         onStatusChange={onStatusChange}
@@ -1026,7 +1058,7 @@ function PhaseCard(props) {
   );
 }
 
-function CompletedSection({ initiatives, tasksByInitiative, linksByInitiative, admins, onEditInit, onDeleteInit, onStatusChange }) {
+function CompletedSection({ initiatives, tasksByInitiative, linksByInitiative, admins, isAdmin, onEditInit, onDeleteInit, onStatusChange }) {
   const [open, setOpen] = useState(false);
   return (
     <div style={styles.completedWrap}>
@@ -1041,6 +1073,7 @@ function CompletedSection({ initiatives, tasksByInitiative, linksByInitiative, a
           tasks={tasksByInitiative[init.id] || []}
           initiativeLinks={linksByInitiative[init.id] || []}
           admins={admins}
+          isAdmin={isAdmin}
           expanded={false}
           onToggleExpand={() => {}}
           onEdit={() => onEditInit(init)}
@@ -1058,7 +1091,7 @@ function CompletedSection({ initiatives, tasksByInitiative, linksByInitiative, a
 // ════════════════════════════════════════════════════════════
 function InitiativeCard(props) {
   const {
-    initiative, tasks, initiativeLinks, admins,
+    initiative, tasks, initiativeLinks, admins, isAdmin,
     expanded, onToggleExpand, onEdit, onDelete, onStatusChange,
     onMoveUp, onMoveDown, dimmed,
     taskFormFor, editingTaskId, taskForm, setTaskForm,
@@ -1098,6 +1131,7 @@ function InitiativeCard(props) {
         {initiative.budget_cents != null && <span style={styles.metaPill}>{formatBudget(initiative.budget_cents)}</span>}
         {dl && <span style={{ ...styles.metaPill, color: dl.color }}>{formatDateShort(initiative.target_date)} · {dl.sub}</span>}
         {totalTasks > 0 && <span style={styles.taskCounter}>{doneTasks}/{totalTasks}</span>}
+        {isAdmin && (
         <div style={styles.initActions}>
           {onMoveUp && <button onClick={onMoveUp} style={styles.iconBtn} title="Move up">▲</button>}
           {onMoveDown && <button onClick={onMoveDown} style={styles.iconBtn} title="Move down">▼</button>}
@@ -1108,6 +1142,7 @@ function InitiativeCard(props) {
           <button onClick={onEdit} style={styles.iconBtn} title="Edit">edit</button>
           <button onClick={onDelete} style={styles.iconBtn} title="Delete">×</button>
         </div>
+        )}
       </div>
 
       {totalTasks > 0 && (
@@ -1128,7 +1163,7 @@ function InitiativeCard(props) {
           )}
           <div style={styles.tasksHeader}>
             <span>Tasks</span>
-            {taskFormFor !== initiative.id && (
+            {isAdmin && taskFormFor !== initiative.id && (
               <button onClick={() => onOpenCreateTask(initiative.id)} style={styles.subtleBtn}>+ Task</button>
             )}
           </div>
@@ -1137,6 +1172,7 @@ function InitiativeCard(props) {
               key={task.id}
               task={task}
               admins={admins}
+              isAdmin={isAdmin}
               initiative={initiative}
               isEditing={editingTaskId === task.id && taskFormFor === initiative.id}
               taskForm={taskForm}
@@ -1148,7 +1184,7 @@ function InitiativeCard(props) {
               onDelete={() => onDeleteTask(task.id)}
             />
           ))}
-          {taskFormFor === initiative.id && !editingTaskId && (
+          {isAdmin && taskFormFor === initiative.id && !editingTaskId && (
             <TaskForm form={taskForm} setForm={setTaskForm} admins={admins}
               onSubmit={(e) => onTaskSubmit(e, initiative.id)} onCancel={onCancelTaskForm} />
           )}
@@ -1164,7 +1200,7 @@ function InitiativeCard(props) {
 // ════════════════════════════════════════════════════════════
 // Task row
 // ════════════════════════════════════════════════════════════
-function TaskRow({ task, admins, initiative, isEditing, taskForm, setTaskForm, onToggle, onEdit, onSubmit, onCancel, onDelete }) {
+function TaskRow({ task, admins, isAdmin, initiative, isEditing, taskForm, setTaskForm, onToggle, onEdit, onSubmit, onCancel, onDelete }) {
   if (isEditing) return <TaskForm form={taskForm} setForm={setTaskForm} admins={admins} onSubmit={onSubmit} onCancel={onCancel} editing />;
   const done = !!task.completed_at;
   const owner = admins.find(a => a.id === task.owner_id);
@@ -1173,9 +1209,13 @@ function TaskRow({ task, admins, initiative, isEditing, taskForm, setTaskForm, o
   const tagMeta = TAG_MAP[tag];
   return (
     <div style={{ ...styles.taskRow, opacity: done ? 0.55 : 1 }}>
-      <button onClick={onToggle} style={styles.checkBtn}>
-        <span style={{ ...styles.checkBox, ...(done ? styles.checkBoxDone : {}) }}>{done && '✓'}</span>
-      </button>
+      {isAdmin ? (
+        <button onClick={onToggle} style={styles.checkBtn}>
+          <span style={{ ...styles.checkBox, ...(done ? styles.checkBoxDone : {}) }}>{done && '✓'}</span>
+        </button>
+      ) : (
+        <span style={{ ...styles.checkBox, ...(done ? styles.checkBoxDone : {}), marginRight: '8px' }}>{done && '✓'}</span>
+      )}
       <span style={{ ...styles.taskTitle, textDecoration: done ? 'line-through' : 'none' }}>{task.title}</span>
       {task.recurrence_interval && <span style={styles.recurChip} title={`Repeats ${task.recurrence_interval}`}>↻ {task.recurrence_interval}</span>}
       {task.tag && task.tag !== initiative.tag && (
@@ -1185,8 +1225,8 @@ function TaskRow({ task, admins, initiative, isEditing, taskForm, setTaskForm, o
       {dl && !done && <span style={{ ...styles.metaPill, color: dl.color }}>{formatDateShort(task.due_date)} · {dl.sub}</span>}
       {dl && done && <span style={styles.metaPill}>{formatDateShort(task.due_date)}</span>}
       {owner && <span style={styles.ownerChip} title={owner.full_name}>{owner.full_name?.charAt(0).toUpperCase()}</span>}
-      <button onClick={onEdit} style={styles.iconBtn}>edit</button>
-      <button onClick={onDelete} style={styles.iconBtn}>×</button>
+      {isAdmin && <button onClick={onEdit} style={styles.iconBtn}>edit</button>}
+      {isAdmin && <button onClick={onDelete} style={styles.iconBtn}>×</button>}
     </div>
   );
 }
@@ -1582,7 +1622,7 @@ function CalendarView({ phasesById, phaseIndexById, initiatives, tasks, mileston
 // ════════════════════════════════════════════════════════════
 // My Stuff view
 // ════════════════════════════════════════════════════════════
-function MyStuffView({ profile, phasesById, phaseIndexById, initiatives, tasks, tasksByInitiative, enabledPhases, onToggleTask, onEditInit, onEditTask }) {
+function MyStuffView({ profile, phasesById, phaseIndexById, initiatives, tasks, tasksByInitiative, enabledPhases, isAdmin, onToggleTask, onEditInit, onEditTask }) {
   const initiativesById = Object.fromEntries(initiatives.map(i => [i.id, i]));
 
   const myInits = initiatives.filter(i => i.owner_id === profile.id && i.status !== 'done' && enabledPhases[i.phase_id]);
@@ -1618,16 +1658,20 @@ function MyStuffView({ profile, phasesById, phaseIndexById, initiatives, tasks, 
           const ws = WORKSTREAM_MAP[init?.workstream];
           return (
             <div key={task.id} style={styles.taskRow}>
-              <button onClick={() => onToggleTask(task)} style={styles.checkBtn}>
-                <span style={styles.checkBox} />
-              </button>
+              {isAdmin ? (
+                <button onClick={() => onToggleTask(task)} style={styles.checkBtn}>
+                  <span style={styles.checkBox} />
+                </button>
+              ) : (
+                <span style={{ ...styles.checkBox, marginRight: '8px' }} />
+              )}
               <span style={styles.taskTitle}>{task.title}</span>
               {phase && <span style={{ ...styles.miniTag, color: phaseC, background: phaseC + '22' }}>{phase.name}</span>}
               {ws && <span style={{ ...styles.miniTag, color: ws.color, background: ws.color + '22' }}>{ws.label}</span>}
               {init && <span style={styles.contextLabel}>in {init.title}</span>}
               <div style={{ flex: 1 }} />
               {dl && <span style={{ ...styles.metaPill, color: dl.color }}>{formatDateShort(task.due_date)} · {dl.sub}</span>}
-              <button onClick={() => onEditTask(task)} style={styles.iconBtn}>edit</button>
+              {isAdmin && <button onClick={() => onEditTask(task)} style={styles.iconBtn}>edit</button>}
             </div>
           );
         })}
@@ -1654,7 +1698,7 @@ function MyStuffView({ profile, phasesById, phaseIndexById, initiatives, tasks, 
                 <div style={{ flex: 1 }} />
                 <span style={styles.taskCounter}>{doneCount}/{taskList.length}</span>
                 {dl && <span style={{ ...styles.metaPill, color: dl.color }}>{formatDateShort(init.target_date)} · {dl.sub}</span>}
-                <button onClick={() => onEditInit(init)} style={styles.iconBtn}>edit</button>
+                {isAdmin && <button onClick={() => onEditInit(init)} style={styles.iconBtn}>edit</button>}
               </div>
             </div>
           );
