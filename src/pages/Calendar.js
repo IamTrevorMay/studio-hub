@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
@@ -207,9 +207,6 @@ export default function Calendar({ onNavigate }) {
   const [showMetricool, setShowMetricool] = useState(true);
   const [metricoolError, setMetricoolError] = useState(null);
   const [activeTooltip, setActiveTooltip] = useState(null);
-  const [activeDropdown, setActiveDropdown] = useState(null);
-  const [dropdownComments, setDropdownComments] = useState([]);
-  const [commentText, setCommentText] = useState('');
   const [showEventModal, setShowEventModal] = useState(false);
   const [editingEventId, setEditingEventId] = useState(null);
   const [eventForm, setEventForm] = useState(EMPTY_EVENT_FORM);
@@ -225,10 +222,10 @@ export default function Calendar({ onNavigate }) {
       const saved = localStorage.getItem('calendar_filters');
       if (saved) return JSON.parse(saved);
     } catch {}
-    return { projects: true, stages: false, substack_article: true, deadline: true, meeting: true, live_recording: true, filming: true, video_post: true, unavailable: true, social_posts: true };
+    return { substack_article: true, deadline: true, meeting: true, live_recording: true, filming: true, video_post: true, unavailable: true, social_posts: true };
   });
   const [dragOverDate, setDragOverDate] = useState(null);
-  const dropdownRef = useRef(null);
+  const [videoDeliverables, setVideoDeliverables] = useState([]);
   const modalRef = useRef(null);
   const guestDropdownRef = useRef(null);
   const timeGridRef = useRef(null);
@@ -245,9 +242,6 @@ export default function Calendar({ onNavigate }) {
 
   useEffect(() => {
     function handleClick(e) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-        setActiveDropdown(null);
-      }
       if (guestDropdownRef.current && !guestDropdownRef.current.contains(e.target)) {
         setShowGuestDropdown(false);
       }
@@ -258,7 +252,7 @@ export default function Calendar({ onNavigate }) {
 
   const fetchProjects = useCallback(async () => {
     try {
-      const { data, error } = await supabase.from('projects').select('*').order('start_date', { ascending: true });
+      const { data, error } = await supabase.from('projects').select('*').eq('type', 'substack_article').order('start_date', { ascending: true });
       if (error) throw error;
       setProjects(data || []);
     } catch (err) {
@@ -303,14 +297,28 @@ export default function Calendar({ onNavigate }) {
     }
   }, []);
 
+  const fetchVideoDeliverables = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('sponsor_deliverables')
+        .select('*, sponsor:sponsors(name), campaign:sponsor_campaigns(name)')
+        .not('video_event_id', 'is', null);
+      if (error) throw error;
+      setVideoDeliverables(data || []);
+    } catch (err) {
+      console.error('Error fetching video deliverables:', err);
+    }
+  }, []);
+
   useEffect(() => {
-    Promise.all([fetchProjects(), fetchCalendarEvents(), fetchHubUsers()]);
-  }, [fetchProjects, fetchCalendarEvents, fetchHubUsers]);
+    Promise.all([fetchProjects(), fetchCalendarEvents(), fetchHubUsers(), fetchVideoDeliverables()]);
+  }, [fetchProjects, fetchCalendarEvents, fetchHubUsers, fetchVideoDeliverables]);
   useVisibilityRefresh(useCallback(() => {
     fetchProjects();
     fetchCalendarEvents();
     fetchHubUsers();
-  }, [fetchProjects, fetchCalendarEvents, fetchHubUsers]));
+    fetchVideoDeliverables();
+  }, [fetchProjects, fetchCalendarEvents, fetchHubUsers, fetchVideoDeliverables]));
 
   // Scroll time grid to 7 AM on mount / view change
   useEffect(() => {
@@ -356,6 +364,16 @@ export default function Calendar({ onNavigate }) {
     }
   }, [viewDate, viewMode, showMetricool, fetchMetricoolPosts]);
 
+  const deliverablesByEventId = useMemo(() => {
+    const map = {};
+    videoDeliverables.forEach(d => {
+      if (!d.video_event_id) return;
+      if (!map[d.video_event_id]) map[d.video_event_id] = [];
+      map[d.video_event_id].push(d);
+    });
+    return map;
+  }, [videoDeliverables]);
+
   async function handleEventDrop(targetDate) {
     const ev = dragEventRef.current;
     dragEventRef.current = null;
@@ -371,51 +389,6 @@ export default function Calendar({ onNavigate }) {
       .update({ start_date: newStart.toISOString(), end_date: newEnd.toISOString() })
       .eq('id', ev.id);
     fetchCalendarEvents();
-  }
-
-  async function handleStatusChange(projectId, newStatus) {
-    setActiveDropdown(null);
-    await supabase.from('projects').update({ status: newStatus }).eq('id', projectId);
-    fetchProjects();
-  }
-
-  async function fetchComments(projectId) {
-    try {
-      const { data } = await supabase
-        .from('project_comments')
-        .select('*, profile:profiles(id, full_name)')
-        .eq('project_id', projectId)
-        .order('created_at', { ascending: true });
-      setDropdownComments(data || []);
-    } catch (err) {
-      console.error('Error fetching comments:', err);
-    }
-  }
-
-  async function handleAddComment(projectId) {
-    if (!commentText.trim() || !profile?.id) return;
-    const { error } = await supabase.from('project_comments').insert({
-      project_id: projectId, user_id: profile.id, content: commentText.trim(),
-    });
-    if (error) {
-      console.error('Error adding comment:', error);
-      return;
-    }
-    setCommentText('');
-    fetchComments(projectId);
-  }
-
-  async function handleDeleteComment(commentId, projectId) {
-    const { error } = await supabase.from('project_comments').delete().eq('id', commentId);
-    if (error) console.error('Error deleting comment:', error);
-    fetchComments(projectId);
-  }
-
-  async function handleDeleteProject(projectId) {
-    if (!window.confirm('Delete this project and all its data?')) return;
-    await supabase.from('projects').delete().eq('id', projectId);
-    setActiveDropdown(null);
-    fetchProjects();
   }
 
   async function syncToGoogleCalendar(action, eventId) {
@@ -774,12 +747,9 @@ export default function Calendar({ onNavigate }) {
     const weekEnd = dk(week[6].date);
     const bars = [];
 
-    if (!visibleFilters.projects && !visibleFilters.stages && !visibleFilters.substack_article) return { bars: [], rowCount: 0 };
+    if (!visibleFilters.substack_article) return { bars: [], rowCount: 0 };
 
     projects.forEach(project => {
-      // Substack articles have their own independent filter
-      if (project.type === 'substack_article' && !visibleFilters.substack_article) return;
-      if (project.type !== 'substack_article' && !visibleFilters.projects && !visibleFilters.stages) return;
       if (project.deadline < weekStart || project.start_date > weekEnd) return;
       let startIdx = 0;
       let endIdx = 6;
@@ -823,30 +793,6 @@ export default function Calendar({ onNavigate }) {
     return { bars, rowCount: rows.length };
   }
 
-  function getStageSegments(project) {
-    const st = project.stage_timelines;
-    if (!st || typeof st !== 'object') return null;
-    const stages = STATUSES.filter(s => st[s] && (st[s].start || st[s].end));
-    if (stages.length === 0) return null;
-    if (!project.start_date || !project.deadline) return null;
-    const projStart = new Date(project.start_date + 'T00:00:00');
-    const projEnd = new Date(project.deadline + 'T00:00:00');
-    const totalMs = projEnd - projStart;
-    if (totalMs <= 0) return null;
-    return stages.map(stage => {
-      const sd = st[stage];
-      let sDate = sd.start ? new Date(sd.start + 'T00:00:00') : projStart;
-      let eDate = sd.end ? new Date(sd.end + 'T00:00:00') : sDate;
-      // Clamp to project boundaries
-      if (sDate < projStart) sDate = projStart;
-      if (eDate > projEnd) eDate = projEnd;
-      if (sDate > projEnd || eDate < projStart) return null;
-      const leftPct = ((sDate - projStart) / totalMs) * 100;
-      const widthPct = ((eDate - sDate) / totalMs) * 100;
-      return { stage, color: STATUS_COLORS[stage], leftPct: Math.max(0, leftPct), widthPct: Math.max(1, widthPct) };
-    }).filter(Boolean);
-  }
-
   function getPostsForDate(date) {
     const d = dk(date);
     return scheduledPosts.filter(p => p.publicationDate.dateTime.startsWith(d));
@@ -863,30 +809,12 @@ export default function Calendar({ onNavigate }) {
     return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
   }
 
-  function showProjectTooltip(e, project) {
-    if (activeDropdown) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    setActiveTooltip({ type: 'project', data: project, x: rect.left + rect.width / 2, y: rect.top - 4 });
-  }
-
   function showPostTooltip(e, post) {
     const rect = e.currentTarget.getBoundingClientRect();
     setActiveTooltip({ type: 'post', data: post, x: rect.left + rect.width / 2, y: rect.top - 4 });
   }
 
   function hideTooltip() { setActiveTooltip(null); }
-
-  function handleProjectClick(e, project) {
-    e.stopPropagation();
-    setActiveTooltip(null);
-    if (activeDropdown === project.id) {
-      setActiveDropdown(null);
-    } else {
-      setActiveDropdown(project.id);
-      setCommentText('');
-      fetchComments(project.id);
-    }
-  }
 
   function handleEventClick(e, ev) {
     e.stopPropagation();
@@ -925,6 +853,11 @@ export default function Calendar({ onNavigate }) {
         </span>
         {isRecurring && <span style={{ fontSize: '8px', flexShrink: 0, opacity: 0.6 }}>{'\uD83D\uDD01'}</span>}
         {ev.google_synced_at && <span style={{ fontSize: '8px', flexShrink: 0, opacity: 0.5 }} title="Synced to Google Calendar">{'\u2713'}</span>}
+        {ev.event_type === 'video_post' && (deliverablesByEventId[ev.id] || []).length > 0 && (
+          <span style={{ fontSize: '8px', flexShrink: 0, background: 'rgba(16,185,129,0.2)', color: '#6ee7b7', padding: '0 3px', borderRadius: '3px', fontWeight: 700 }} title={(deliverablesByEventId[ev.id] || []).map(d => d.sponsor?.name || 'Sponsor').join(', ')}>
+            {'\uD83E\uDD1D'} {(deliverablesByEventId[ev.id] || []).length}
+          </span>
+        )}
       </div>
     );
   }
@@ -984,14 +917,13 @@ export default function Calendar({ onNavigate }) {
   // ──────────── RENDER ────────────
 
   return (
-    <div style={styles.page} onClick={() => { setActiveDropdown(null); setActiveTooltip(null); setSelectedEvent(null); }}>
+    <div style={styles.page} onClick={() => { setActiveTooltip(null); setSelectedEvent(null); }}>
       <div style={styles.topBar}>
         <div>
           <h1 style={styles.pageTitle}>Calendar</h1>
           <p style={styles.pageSubtitle}>
-            {projects.length} projects
-            {calendarEvents.length > 0 && ` \u00B7 ${calendarEvents.length} events`}
-            {showMetricool && scheduledPosts.length > 0 && ` \u00B7 ${scheduledPosts.length} scheduled posts`}
+            {calendarEvents.length > 0 && `${calendarEvents.length} events`}
+            {showMetricool && scheduledPosts.length > 0 && `${calendarEvents.length > 0 ? ' \u00B7 ' : ''}${scheduledPosts.length} scheduled posts`}
           </p>
         </div>
         <button
@@ -1046,18 +978,6 @@ export default function Calendar({ onNavigate }) {
 
       {showFilters && (
         <div style={styles.filterRow}>
-          <FilterChip
-            label="Projects"
-            color="#8b5cf6"
-            active={visibleFilters.projects}
-            onClick={() => toggleFilter('projects')}
-          />
-          <FilterChip
-            label="Stages"
-            color="#f59e0b"
-            active={visibleFilters.stages}
-            onClick={() => toggleFilter('stages')}
-          />
           <FilterChip
             label="📝 Substack"
             color="#FF6719"
@@ -1209,13 +1129,12 @@ export default function Calendar({ onNavigate }) {
                       );
                     })}
 
-                    {/* Project bars overlay */}
+                    {/* Substack bars overlay */}
                     {bars.map(bar => {
-                      const color = STATUS_COLORS[bar.project.status];
+                      const color = '#FF6719';
                       const leftPct = (bar.startIdx / 7) * 100;
                       const widthPct = (bar.span / 7) * 100;
                       const topPx = 30 + bar.row * 24;
-                      const segments = visibleFilters.stages && !visibleFilters.projects ? getStageSegments(bar.project) : null;
 
                       return (
                         <div
@@ -1226,107 +1145,20 @@ export default function Calendar({ onNavigate }) {
                             width: `${widthPct}%`,
                             top: `${topPx}px`,
                             height: '20px',
-                            background: segments ? 'rgba(255,255,255,0.03)' : `${color}25`,
-                            borderLeft: segments ? 'none' : `3px solid ${color}`,
+                            background: `${color}25`,
+                            borderLeft: `3px solid ${color}`,
                             borderRadius: '4px',
                             display: 'flex',
                             alignItems: 'center',
                             padding: '0 6px',
-                            cursor: 'pointer',
                             zIndex: 3,
-                            overflow: 'visible',
+                            overflow: 'hidden',
                           }}
-                          onMouseEnter={(e) => showProjectTooltip(e, bar.project)}
                           onMouseLeave={hideTooltip}
-                          onClick={(e) => handleProjectClick(e, bar.project)}
                         >
-                          {segments && (
-                            <div style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, borderRadius: '4px', overflow: 'hidden', pointerEvents: 'none' }}>
-                              {segments.map(seg => (
-                                <div key={seg.stage} style={{ position: 'absolute', left: `${seg.leftPct}%`, width: `${seg.widthPct}%`, top: 0, bottom: 0, background: `${seg.color}35`, borderLeft: `2px solid ${seg.color}` }} />
-                              ))}
-                            </div>
-                          )}
-                          <span style={{ fontSize: '10px', fontWeight: 700, color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', position: 'relative', zIndex: 1, textShadow: segments ? '0 0 3px rgba(0,0,0,0.5)' : 'none' }}>
-                            {bar.project.type === 'substack_article' ? '📝 ' : ''}{bar.project.name}
+                          <span style={{ fontSize: '10px', fontWeight: 700, color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {'\uD83D\uDCDD'} {bar.project.name}
                           </span>
-
-                          {activeDropdown === bar.project.id && (
-                            <div ref={dropdownRef} style={styles.statusDropdown} onClick={(e) => e.stopPropagation()}>
-                              <div style={styles.dropdownTitle}>{bar.project.name}</div>
-                              <div style={styles.dropdownTagsWrap}>
-                                {STATUSES.map(s => {
-                                  const isActive = bar.project.status === s;
-                                  return (
-                                    <button
-                                      key={s}
-                                      onClick={(e) => { e.stopPropagation(); handleStatusChange(bar.project.id, s); }}
-                                      style={{
-                                        ...styles.statusTag,
-                                        background: isActive ? `${STATUS_COLORS[s]}35` : 'rgba(255,255,255,0.04)',
-                                        color: isActive ? STATUS_COLORS[s] : 'rgba(255,255,255,0.4)',
-                                        borderColor: isActive ? `${STATUS_COLORS[s]}60` : 'rgba(255,255,255,0.08)',
-                                        fontWeight: isActive ? 700 : 500,
-                                      }}
-                                    >
-                                      <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: STATUS_COLORS[s], flexShrink: 0 }} />
-                                      {STATUS_LABELS[s]}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-
-                              <div style={styles.dropdownDivider} />
-                              <div style={styles.dropdownSectionLabel}>Comments</div>
-                              <div style={styles.dropdownComments}>
-                                {dropdownComments.length === 0 ? (
-                                  <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.25)', margin: '2px 0' }}>No comments yet</p>
-                                ) : (
-                                  dropdownComments.map(c => (
-                                    <div key={c.id} style={styles.dropdownComment}>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                        <span style={styles.dropdownCommentAuthor}>{c.profile?.full_name}</span>
-                                        <span style={styles.dropdownCommentTime}>
-                                          {new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                                        </span>
-                                        {(c.user_id === profile?.id || isAdmin) && (
-                                          <button
-                                            onClick={(e) => { e.stopPropagation(); handleDeleteComment(c.id, bar.project.id); }}
-                                            style={styles.dropdownCommentDelete}
-                                          >{'\u2715'}</button>
-                                        )}
-                                      </div>
-                                      <span style={styles.dropdownCommentText}>{c.content}</span>
-                                    </div>
-                                  ))
-                                )}
-                              </div>
-                              <div style={styles.dropdownCommentForm}>
-                                <input
-                                  value={commentText}
-                                  onChange={(e) => setCommentText(e.target.value)}
-                                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddComment(bar.project.id); } }}
-                                  placeholder="Add a comment..."
-                                  style={styles.dropdownCommentInput}
-                                  onClick={(e) => e.stopPropagation()}
-                                />
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); handleAddComment(bar.project.id); }}
-                                  style={styles.dropdownCommentBtn}
-                                  disabled={!commentText.trim()}
-                                >Post</button>
-                              </div>
-                              {(bar.project.created_by === profile?.id || isAdmin) && (
-                                <>
-                                  <div style={styles.dropdownDivider} />
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); handleDeleteProject(bar.project.id); }}
-                                    style={styles.dropdownDeleteBtn}
-                                  >{'\uD83D\uDDD1'} Delete Project</button>
-                                </>
-                              )}
-                            </div>
-                          )}
                         </div>
                       );
                     })}
@@ -1586,48 +1418,8 @@ export default function Calendar({ onNavigate }) {
       )}
 
       {/* Hover Tooltip */}
-      {activeTooltip && !activeDropdown && (
+      {activeTooltip && (
         <div style={{ ...styles.tooltip, left: `${activeTooltip.x}px`, top: `${activeTooltip.y}px` }}>
-          {activeTooltip.type === 'project' && (() => {
-            const p = activeTooltip.data;
-            const st = p.stage_timelines;
-            const hasStages = st && typeof st === 'object' && STATUSES.some(s => st[s] && (st[s].start || st[s].end));
-            const fmtD = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-            return (
-              <>
-                <div style={styles.tooltipTitle}>{p.name}</div>
-                <div style={styles.tooltipRow}>
-                  <div style={{ ...styles.tooltipDot, background: STATUS_COLORS[p.status] }} />
-                  <span>{STATUS_LABELS[p.status]}</span>
-                </div>
-                <div style={styles.tooltipMeta}>
-                  {p.type.replace('_', ' ')}{p.channel && ` \u00B7 ${p.channel}`}
-                </div>
-                <div style={styles.tooltipMeta}>
-                  {new Date(p.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  {' \u2192 '}
-                  {new Date(p.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                </div>
-                {hasStages && (
-                  <div style={{ marginTop: '6px', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '6px' }}>
-                    {STATUSES.filter(s => st[s] && (st[s].start || st[s].end)).map(s => {
-                      const isCurrent = p.status === s;
-                      return (
-                        <div key={s} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', padding: '1px 0', fontWeight: isCurrent ? 700 : 400 }}>
-                          <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: STATUS_COLORS[s], flexShrink: 0 }} />
-                          <span style={{ color: STATUS_COLORS[s], width: '58px' }}>{STATUS_LABELS[s]}</span>
-                          <span style={{ color: 'rgba(255,255,255,0.4)' }}>
-                            {st[s].start ? fmtD(st[s].start) : '?'} {'\u2192'} {st[s].end ? fmtD(st[s].end) : '?'}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                <div style={styles.tooltipHint}>Click to change status</div>
-              </>
-            );
-          })()}
           {activeTooltip.type === 'post' && (
             <>
               <div style={styles.tooltipTitle}>{getPostDisplayText(activeTooltip.data)}</div>
@@ -1732,6 +1524,18 @@ export default function Calendar({ onNavigate }) {
                 {selectedEvent.creator?.full_name || 'Unknown'}
               </span>
             </div>
+            {selectedEvent.event_type === 'video_post' && (deliverablesByEventId[selectedEvent.id] || []).length > 0 && (
+              <div style={styles.eventDetailRow}>
+                <span style={styles.eventDetailLabel}>Sponsor Reads</span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {(deliverablesByEventId[selectedEvent.id] || []).map(d => (
+                    <span key={d.id} style={{ fontSize: '13px', color: '#6ee7b7', background: 'rgba(16,185,129,0.1)', padding: '3px 8px', borderRadius: '4px' }}>
+                      {'\uD83E\uDD1D'} {d.sponsor?.name || 'Sponsor'}{d.title ? ` — ${d.title}` : ''}{d.campaign?.name ? ` (${d.campaign.name})` : ''}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
             {(selectedEvent.created_by === profile?.id || isAdmin) && (
               <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                 <button
@@ -2154,14 +1958,6 @@ export default function Calendar({ onNavigate }) {
           {Object.entries(EVENT_TYPE_COLORS).map(([type, color]) => (
             <div key={type} style={styles.legendItem}>
               <div style={{ ...styles.legendDot, background: color }} /><span>{EVENT_TYPE_LABELS[type]}</span>
-            </div>
-          ))}
-        </div>
-        <div style={styles.legendGroup}>
-          <span style={styles.legendGroupLabel}>Projects:</span>
-          {Object.entries(STATUS_COLORS).map(([status, color]) => (
-            <div key={status} style={styles.legendItem}>
-              <div style={{ ...styles.legendDot, background: color }} /><span>{STATUS_LABELS[status]}</span>
             </div>
           ))}
         </div>

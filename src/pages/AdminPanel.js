@@ -112,25 +112,23 @@ export default function AdminPanel({ initialTab }) {
   async function handleRemoveMember(member) {
     if (!window.confirm(`Remove ${member.full_name} from the team? This cannot be undone.`)) return;
     try {
-      // Delete profile (cascades will clean up assignments etc.)
-      const { error } = await supabase.from('profiles').delete().eq('id', member.id);
-      if (error) throw error;
-      // Delete the auth user via edge function
       const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        await fetch(
-          `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/remove-user`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${session.access_token}`,
-              'apikey': process.env.REACT_APP_SUPABASE_ANON_KEY,
-            },
-            body: JSON.stringify({ userId: member.id }),
-          }
-        );
-      }
+      if (!session) throw new Error('Not authenticated');
+      // Delete auth user via edge function (cascades to profile via FK)
+      const res = await fetch(
+        `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/remove-user`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': process.env.REACT_APP_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({ userId: member.id }),
+        }
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to remove member');
       fetchTeamMembers();
     } catch (err) {
       console.error('Remove member failed:', err);

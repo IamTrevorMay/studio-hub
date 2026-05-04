@@ -1563,6 +1563,11 @@ export default function Dashboard({ onNavigate }) {
         )}
       </div>
 
+      {/* Two-column layout */}
+      <div style={{ display: 'flex', gap: '28px', alignItems: 'flex-start' }}>
+      {/* Left Column */}
+      <div style={{ flex: 2, minWidth: 0 }}>
+
       {/* Announcements */}
       <div style={{ ...styles.itineraryCard, marginBottom: '36px' }}>
         {renderAnnouncements({ showInput: isAdmin || isAssistant })}
@@ -2354,11 +2359,17 @@ export default function Dashboard({ onNavigate }) {
         </div>
       )}
 
-      {/* Sprint Planning */}
-      {!isPartner && <SprintPanel profile={profile} boardVersion={boardVersion} onSprintChange={() => setSprintVersion(v => v + 1)} />}
+      </div>
+      {/* Right Column */}
+      <div style={{ flex: 3, minWidth: 0 }}>
+        <h2 style={styles.sectionTitle}>Sprint</h2>
+        {/* Sprint Planning */}
+        {!isPartner && <SprintPanel profile={profile} boardVersion={boardVersion} onSprintChange={() => setSprintVersion(v => v + 1)} />}
 
-      {/* MyBoard */}
-      {!isPartner && <MyBoard profile={profile} onNavigate={onNavigate} todayEvents={todayEvents} onBoardChange={() => setBoardVersion(v => v + 1)} sprintVersion={sprintVersion} />}
+        {/* MyBoard */}
+        {!isPartner && <MyBoard profile={profile} onNavigate={onNavigate} todayEvents={todayEvents} onBoardChange={() => setBoardVersion(v => v + 1)} sprintVersion={sprintVersion} />}
+      </div>
+      </div>
 
       {/* Morty Mascot Controls */}
       <div style={{
@@ -2507,7 +2518,7 @@ export default function Dashboard({ onNavigate }) {
 const styles = {
   page: {
     padding: '32px 40px',
-    maxWidth: '1100px',
+    maxWidth: 'none',
   },
   header: {
     marginBottom: '32px',

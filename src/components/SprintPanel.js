@@ -150,27 +150,24 @@ export default function SprintPanel({ profile, boardVersion, onSprintChange }) {
 const rowStyle = {
   display: 'flex',
   gap: '20px',
-  alignItems: 'stretch',
   marginBottom: '24px',
-  flexWrap: 'wrap',
 };
 
 const summaryPanelStyle = {
-  flex: 3,
+  flex: 1,
   background: 'rgba(255,255,255,0.03)',
   border: '1px solid rgba(255,255,255,0.06)',
   borderRadius: '14px',
   padding: '20px',
-  minWidth: '280px',
+  minWidth: 0,
 };
 
 const goalsPanelStyle = {
-  flex: 2,
+  flex: 1,
   background: 'rgba(255,255,255,0.03)',
   border: '1px solid rgba(255,255,255,0.06)',
   borderRadius: '14px',
   padding: '20px',
-  minWidth: '220px',
 };
 
 const progressTrackStyle = {
