@@ -77,12 +77,13 @@ supabase/
 - `.env` contains Supabase keys — never commit secrets
 - Migration `20260328200001_cron_generate_trends.sql` contains a hardcoded `CRON_SECRET` — be mindful if repo is shared
 
-## Business Dev page (planned, admin-only)
+## Business Dev page (admin-only, nested under Core Team folder)
 
-Permanent program tracker for the unified Mayday Media + Neptune Performance buildout and ongoing operations. Mayday Media is the existing content/creator side; Neptune Performance is a new baseball development lab being built out (physical space, product, marketing, scheduling). Both share a new building. Page lives in sidebar below Goals.
+Permanent multi-phase program tracker. The first phase is "Mayday Media + Neptune Performance — buildout & ops" but new phases can be added at any time (each is a self-contained program with its own launch date, milestones, initiatives, and tasks). Mayday Media is the existing content/creator side; Neptune Performance is a new baseball development lab being built out. Page lives in sidebar under the Core Team folder (alongside Analytics).
 
 ### Structure
-- **Hierarchy:** Workstream → Initiative → Task (three fixed levels)
+- **Hierarchy:** Phase → Workstream → Initiative → Task (four levels; phases group everything else)
+- **Phases:** `bd_phases` table. Each has name, launch_target_date, position, archived_at. Initiatives + milestones reference phase via `phase_id` (cascade delete).
 - **Workstreams (7, fixed for v1):** Facility, Product, Marketing & Brand, Sales / BD, Operations, Finance, Tech / Systems
 - **Tagging:** every initiative and task tagged Mayday / Neptune / Shared. Tasks can override their parent initiative's tag.
 - **Owners:** admins only for now (revisit later — non-admin owners + visibility deferred)
@@ -99,31 +100,35 @@ Permanent program tracker for the unified Mayday Media + Neptune Performance bui
 - **Recurrence:** simple — `recurrence_interval` (daily/weekly/monthly) + `recurrence_count`. On check, server creates next instance with `due_date += interval`; old completed instance stays.
 
 ### Views (4 tabs)
-1. **Main** — workstream-grouped accordion. Initiatives sorted by status (Active → Planned → Waiting → Ideas) then due date; manual drag-to-reorder writes `position`. Click to expand inline (description, links, tasks).
-2. **Timeline / Gantt** — horizontal bars per initiative across a time axis, grouped by workstream, color-coded by tag.
-3. **Calendar** — month grid with task due dates, initiative target dates, milestones as pills.
-4. **My Stuff** — current admin's owned tasks + initiatives only. BD-scoped (no MyBoard merge for v1).
+1. **Phases** (default) — vertical list of collapsible phase cards. Each card has its own header (countdown, milestones, overall %), its own filter bar (tag pills + Hide Done), and a workstream-grouped tree of initiatives. Solo phase auto-expands; multi-phase setups default collapsed.
+2. **Timeline / Gantt** — horizontal bars per initiative across a time axis, grouped by phase then workstream, color-coded by tag. Phase chip filter at top.
+3. **Calendar** — month grid with task due dates, initiative target dates, milestones as pills. Pills colored by phase. Phase chip filter at top.
+4. **My Stuff** — current admin's owned tasks + initiatives only. Phase chip filter at top. BD-scoped (no MyBoard merge for v1).
 
-### Header (above tabs, always visible)
-- **Launch countdown** — driven by `bd_settings.launch_target_date`
-- **Milestones row** — chip pins from `bd_milestones`, addable/editable/retirable
-- **Overall %** — done initiatives / total non-archived
+### Per-phase header (inside each phase card)
+- **Launch countdown** — driven by phase's own `launch_target_date`
+- **Milestones row** — chip pins from `bd_milestones` filtered to that phase
+- **Overall %** — done initiatives in phase / total in phase
 
-### Filters (main view)
+### Per-phase filters (inside each phase card)
 - Tag pills: All / Mayday / Neptune / Shared
 - "Hide Done" toggle (default on)
+Phase-chip filters live at the top of Timeline/Calendar/My Stuff (multi-select, all on by default).
 
 ### Behaviors
 - **Auto-archive:** an initiative or task with `completed_at + 1 day < now` collapses into a "Completed" expander under its workstream/parent.
 - **Notifications:** in-app via existing bell system. Daily check flags overdue tasks, due-today tasks, and overdue initiatives into the existing `notifications` table.
 - **RLS:** admin role required for all read/write on `bd_*` tables.
+- **Delete phase:** opens a modal that requires typing the exact phase name to confirm. Cascade-deletes all initiatives, links, tasks, and milestones inside.
+- **Move initiative across phases:** initiative edit form has a phase selector — change it to relocate.
 
-### Proposed tables
-- `bd_initiatives` (id, workstream, title, description, status, tag, owner_id, target_date, budget_cents, priority, position, completed_at, created_by, created_at, updated_at)
-- `bd_initiative_links` (id, initiative_id, label, url)
+### Tables
+- `bd_phases` (id, name, launch_target_date, position, archived_at, created_by, created_at, updated_at)
+- `bd_initiatives` (id, **phase_id**, workstream, title, description, status, tag, owner_id, target_date, budget_cents, priority, position, completed_at, created_by, created_at, updated_at)
+- `bd_initiative_links` (id, initiative_id, label, url, position)
 - `bd_tasks` (id, initiative_id, title, notes, tag, owner_id, due_date, completed_at, recurrence_interval, recurrence_count, position, created_by, created_at, updated_at)
-- `bd_milestones` (id, title, target_date, position, retired_at)
-- `bd_settings` (single-row: launch_target_date)
+- `bd_milestones` (id, **phase_id**, title, target_date, position, retired_at, created_by, created_at)
+- `bd_settings` (single-row, currently empty after launch_target_date moved to phases)
 
 ### Deferred (not v1)
 - Comments / discussion threads on initiatives

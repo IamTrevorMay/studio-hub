@@ -738,10 +738,22 @@ function PostProductionIcon({ active }) {
   );
 }
 
+function CoreTeamIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <circle cx="7" cy="8" r="3" />
+      <circle cx="14" cy="8" r="2.4" />
+      <path d="M2 17c0-2.5 2.2-4.5 5-4.5s5 2 5 4.5" strokeLinecap="round" />
+      <path d="M12.5 17c0-2 1.5-3.5 3.5-3.5S19.5 15 19.5 17" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 const FOLDER_ICON_MAP = {
   pre_production: PreProductionIcon,
   filming: FilmingIcon,
   post_production: PostProductionIcon,
+  core_team: CoreTeamIcon,
 };
 
 function formatNotifTime(dateStr) {
