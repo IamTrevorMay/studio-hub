@@ -1049,13 +1049,12 @@ function TaskRow({ task, admins, initiative, isEditing, taskForm, setTaskForm, o
 // Initiative form
 // ════════════════════════════════════════════════════════════
 function InitiativeForm({ form, setForm, editing, admins, existingLinks, onSubmit, onCancel }) {
-  // Initialize _links if not present
+  // Initialize _links if not present (only on mount; no deps needed)
   useEffect(() => {
     if (form._links === undefined) {
       setForm(f => ({ ...f, _links: existingLinks.map(l => ({ id: l.id, label: l.label, url: l.url })) }));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []); // eslint-disable-line
 
   function updateLink(idx, key, val) {
     const next = [...(form._links || [])];
