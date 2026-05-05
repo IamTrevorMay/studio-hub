@@ -5,6 +5,8 @@ import { createClip, isClipReady, isValidTimestamp, formatTimestamp, parseTimest
 // Single-threaded build: no SharedArrayBuffer required, so no Vercel COOP/COEP
 // header changes. Slower than the multi-threaded build but plenty for short-form
 // social clips. Loaded lazily on first cut.
+const CLIP_COLORS = ['#f97316', '#eab308', '#3b82f6', '#ef4444', '#22c55e', '#ec4899', '#8b5cf6', '#06b6d4'];
+
 let ffmpegInstance = null;
 let ffmpegLoadPromise = null;
 
@@ -169,12 +171,46 @@ function ClipRow({ clip, index, onChange, onRemove, onPreview, onDownload, recip
   );
 }
 
+// ─── Clip Timeline ─────────────────────────────────────────────────────
+function ClipTimeline({ clips, duration, videoRef }) {
+  if (!duration) return null;
+  const markers = clips
+    .map((c, i) => {
+      const startSec = parseTimestamp(c.startTime);
+      const endSec = parseTimestamp(c.endTime);
+      if (startSec == null || endSec == null) return null;
+      return { index: i, startPct: (startSec / duration) * 100, endPct: (endSec / duration) * 100, color: CLIP_COLORS[i % CLIP_COLORS.length] };
+    })
+    .filter(Boolean);
+
+  const handleClick = (e) => {
+    if (!videoRef.current) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pct = (e.clientX - rect.left) / rect.width;
+    videoRef.current.currentTime = Math.max(0, Math.min(pct * duration, duration));
+  };
+
+  return (
+    <div style={st.timelineTrack} onClick={handleClick}>
+      {markers.map((m) => (
+        <React.Fragment key={m.index}>
+          <div style={{ ...st.timelineRegion, left: m.startPct + '%', width: (m.endPct - m.startPct) + '%', background: m.color + '30' }} />
+          <div style={{ ...st.timelineMarker, left: m.startPct + '%', background: m.color }} />
+          <div style={{ ...st.timelineMarker, left: m.endPct + '%', background: m.color }} />
+          <div style={{ ...st.timelineLabel, left: m.startPct + '%', color: m.color }}>{m.index + 1}</div>
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
+
 // ─── Phase One Component ────────────────────────────────────────────────
 export default function PhaseOne({ session, onSessionChange, recipients, settings, onSettingsChange }) {
   const [cutting, setCutting] = useState(false);
   const [cutProgress, setCutProgress] = useState(null); // { done, total, current }
   const [previewClip, setPreviewClip] = useState(null);
   const [ffmpegLoading, setFfmpegLoading] = useState(false);
+  const [duration, setDuration] = useState(0);
   const videoRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -421,6 +457,9 @@ export default function PhaseOne({ session, onSessionChange, recipients, setting
               src={session._sourceObjectUrl}
               controls
               style={st.videoPlayer}
+              onLoadedMetadata={() => {
+                if (videoRef.current) setDuration(videoRef.current.duration || 0);
+              }}
               onTimeUpdate={() => {
                 if (previewClip && videoRef.current) {
                   const endSec = parseTimestamp(previewClip.endTime);
@@ -431,6 +470,7 @@ export default function PhaseOne({ session, onSessionChange, recipients, setting
                 }
               }}
             />
+            <ClipTimeline clips={clips} duration={duration} videoRef={videoRef} />
             <div style={st.markBtns}>
               <button style={st.markBtn} onClick={() => markTime('startTime')}>Mark In</button>
               <button style={st.markBtn} onClick={() => markTime('endTime')}>Mark Out</button>
@@ -534,6 +574,13 @@ const st = {
   fileWarn: { color: '#f59e0b', fontSize: '12px' },
   playerWrapper: { display: 'flex', flexDirection: 'column', gap: '8px' },
   videoPlayer: { width: '100%', maxHeight: '360px', borderRadius: '8px', background: '#000' },
+  timelineTrack: {
+    position: 'relative', width: '100%', height: '8px', background: 'rgba(255,255,255,0.06)',
+    borderRadius: '4px', cursor: 'pointer', overflow: 'visible',
+  },
+  timelineRegion: { position: 'absolute', top: 0, height: '100%', borderRadius: '4px' },
+  timelineMarker: { position: 'absolute', top: '-6px', width: '2px', height: '14px', borderRadius: '1px' },
+  timelineLabel: { position: 'absolute', top: '-20px', fontSize: '10px', fontWeight: 700, transform: 'translateX(-50%)', pointerEvents: 'none' },
   markBtns: { display: 'flex', gap: '8px' },
   markBtn: {
     padding: '6px 16px', fontSize: '12px', fontWeight: 600, color: '#e2e8f0',
