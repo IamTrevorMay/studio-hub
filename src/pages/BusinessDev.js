@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 // ════════════════════════════════════════════════════════════
@@ -107,6 +108,7 @@ const EMPTY_MILESTONE = { title: '', target_date: '' };
 // ════════════════════════════════════════════════════════════
 export default function BusinessDev() {
   const { profile, isAdmin, isPartner } = useAuth();
+  const confirm = useConfirm();
 
   // Data
   const [phases, setPhases] = useState([]);
@@ -396,7 +398,7 @@ export default function BusinessDev() {
     fetchAll();
   }
   async function handleDeleteInit(id) {
-    if (!window.confirm('Delete this initiative and all its tasks?')) return;
+    if (!(await confirm('Delete this initiative and all its tasks?'))) return;
     await supabase.from('bd_initiatives').delete().eq('id', id);
     fetchAll();
   }
@@ -468,6 +470,31 @@ export default function BusinessDev() {
       const maxPos = Math.max(0, ...siblings.map(t => t.position || 0));
       const { error } = await supabase.from('bd_tasks').insert({ ...payload, position: maxPos + 1, created_by: profile.id });
       if (error) { alert(error.message); return; }
+      // Auto-add to owner's sprint backlog
+      if (payload.owner_id) {
+        try {
+          const parentInit = initiatives.find(i => i.id === initiativeId);
+          const tag = effectiveTag(payload, parentInit);
+          const tagInfo = TAG_MAP[tag] || TAG_MAP['shared'];
+          // Ensure bucket option exists for this owner
+          await supabase.from('user_task_options').upsert(
+            { user_id: payload.owner_id, kind: 'bucket', value: tag, color: tagInfo.color },
+            { onConflict: 'user_id,kind,value' }
+          );
+          const initiativeTitle = parentInit?.title || 'BD Task';
+          await supabase.from('personal_tasks').insert({
+            created_by: payload.owner_id,
+            content: `${title} | ${initiativeTitle}`,
+            status: 'backlog',
+            category: 'business_development',
+            bucket: tag,
+            due_date: payload.due_date,
+            position: 0,
+          });
+        } catch (err) {
+          console.error('Auto-add to backlog failed:', err);
+        }
+      }
     }
     cancelTaskForm();
     fetchAll();
@@ -478,7 +505,7 @@ export default function BusinessDev() {
     fetchAll();
   }
   async function handleDeleteTask(id) {
-    if (!window.confirm('Delete this task?')) return;
+    if (!(await confirm('Delete this task?'))) return;
     await supabase.from('bd_tasks').delete().eq('id', id);
     fetchAll();
   }
@@ -520,7 +547,7 @@ export default function BusinessDev() {
     fetchAll();
   }
   async function handleRetireMilestone(id) {
-    if (!window.confirm('Retire this milestone?')) return;
+    if (!(await confirm('Retire this milestone?'))) return;
     await supabase.from('bd_milestones').update({ retired_at: new Date().toISOString() }).eq('id', id);
     fetchAll();
   }
