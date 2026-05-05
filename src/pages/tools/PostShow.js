@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { supabase } from '../../supabaseClient';
+import { useAuth } from '../../contexts/AuthContext';
+import { useConfirm } from '../../contexts/ConfirmContext';
 import { PHASES, PHASE_COLORS } from './postshow/postShowConstants';
-import { loadSession, saveSession, loadRecipients, saveRecipients, loadSettings, saveSettings } from './postshow/postShowStorage';
+import { loadSession, saveSession, loadSettings, saveSettings } from './postshow/postShowStorage';
 import PhaseOne from './postshow/PhaseOne';
 import PhaseTwo from './postshow/PhaseTwo';
 import PhaseFour from './postshow/PhaseFour';
@@ -20,32 +23,44 @@ function parseDriveFolderId(input) {
 }
 
 // ─── Settings Panel ─────────────────────────────────────────────────────
-function SettingsPanel({ settings, onSettingsChange, recipients, onRecipientsChange, onClose }) {
+function SettingsPanel({ settings, onSettingsChange, recipients, onRecipientsChange, onClose, isAdmin }) {
   const [activeTab, setActiveTab] = useState('general');
 
-  function updateRecipient(index, field, value) {
+  async function updateRecipient(index, field, value) {
     const next = [...recipients];
     next[index] = { ...next[index], [field]: value };
     onRecipientsChange(next);
+    const r = next[index];
+    await supabase.from('clipping_tool_recipients').update({
+      name: r.name, drive_folder_id: r.driveFolderId, drive_folder_name: r.driveFolderName,
+    }).eq('id', r.id);
   }
 
-  function updateRecipientFolder(index, urlOrId) {
+  async function updateRecipientFolder(index, urlOrId) {
     const next = [...recipients];
     const folderId = parseDriveFolderId(urlOrId);
     next[index] = { ...next[index], driveFolderId: folderId, driveFolderName: next[index].driveFolderName || '' };
     onRecipientsChange(next);
+    await supabase.from('clipping_tool_recipients').update({
+      drive_folder_id: folderId,
+    }).eq('id', next[index].id);
   }
 
-  function addRecipient() {
-    onRecipientsChange([...recipients, {
-      id: crypto.randomUUID(),
-      name: '',
-      driveFolderId: '',
-      driveFolderName: '',
-    }]);
+  async function addRecipient() {
+    const position = recipients.length;
+    const { data } = await supabase.from('clipping_tool_recipients').insert({
+      name: '', drive_folder_id: '', drive_folder_name: '', position,
+    }).select().single();
+    if (data) {
+      onRecipientsChange([...recipients, {
+        id: data.id, name: '', driveFolderId: '', driveFolderName: '',
+      }]);
+    }
   }
 
-  function removeRecipient(index) {
+  async function removeRecipient(index) {
+    const r = recipients[index];
+    await supabase.from('clipping_tool_recipients').delete().eq('id', r.id);
     onRecipientsChange(recipients.filter((_, i) => i !== index));
   }
 
@@ -64,7 +79,7 @@ function SettingsPanel({ settings, onSettingsChange, recipients, onRecipientsCha
         <div style={st.settingsTabs}>
           {[
             { key: 'general', label: 'General' },
-            { key: 'recipients', label: 'Recipients' },
+            ...(isAdmin ? [{ key: 'recipients', label: 'Recipients' }] : []),
           ].map(t => (
             <button
               key={t.key}
@@ -116,7 +131,7 @@ function SettingsPanel({ settings, onSettingsChange, recipients, onRecipientsCha
             </div>
           )}
 
-          {activeTab === 'recipients' && (
+          {activeTab === 'recipients' && isAdmin && (
             <div style={st.fieldGroup}>
               <div style={st.fieldHint}>
                 Paste each editor's Drive folder URL — open the folder in Drive, copy the URL, paste it here.
@@ -164,11 +179,30 @@ function SettingsPanel({ settings, onSettingsChange, recipients, onRecipientsCha
 
 // ─── Main PostShow Component ────────────────────────────────────────────
 export default function PostShow({ onBack }) {
+  const { isAdmin } = useAuth();
+  const confirm = useConfirm();
   const [activePhase, setActivePhase] = useState('cut');
   const [session, setSession] = useState(loadSession);
-  const [recipients, setRecipients] = useState(loadRecipients);
+  const [recipients, setRecipients] = useState([]);
   const [settings, setSettings] = useState(loadSettings);
   const [showSettings, setShowSettings] = useState(false);
+
+  // Load recipients from Supabase (global, shared across all users)
+  useEffect(() => {
+    async function fetchRecipients() {
+      const { data } = await supabase
+        .from('clipping_tool_recipients')
+        .select('*')
+        .order('position');
+      if (data) setRecipients(data.map(r => ({
+        id: r.id,
+        name: r.name,
+        driveFolderId: r.drive_folder_id,
+        driveFolderName: r.drive_folder_name,
+      })));
+    }
+    fetchRecipients();
+  }, []);
 
   // Persist on change. Strip non-serializable fields (Blob, ObjectURL, File)
   // before saving so localStorage doesn't choke and stays under quota.
@@ -181,15 +215,14 @@ export default function PostShow({ onBack }) {
     };
     saveSession(cleaned);
   }, [session]);
-  useEffect(() => { saveRecipients(recipients); }, [recipients]);
   useEffect(() => { saveSettings(settings); }, [settings]);
 
   const handleSessionChange = useCallback((updater) => {
     setSession(prev => typeof updater === 'function' ? updater(prev) : updater);
   }, []);
 
-  function handleNewSession() {
-    if (session.clips.length > 0 && !window.confirm('Start a new session? Current clips will be cleared.')) return;
+  async function handleNewSession() {
+    if (session.clips.length > 0 && !(await confirm('Start a new session? Current clips will be cleared.'))) return;
     // Revoke any in-memory URLs first
     if (session._sourceObjectUrl) URL.revokeObjectURL(session._sourceObjectUrl);
     (session.clips || []).forEach(c => { if (c._outputUrl) URL.revokeObjectURL(c._outputUrl); });
@@ -318,6 +351,7 @@ export default function PostShow({ onBack }) {
           recipients={recipients}
           onRecipientsChange={setRecipients}
           onClose={() => setShowSettings(false)}
+          isAdmin={isAdmin}
         />
       )}
     </div>

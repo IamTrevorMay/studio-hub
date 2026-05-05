@@ -9,7 +9,7 @@
 
 export const PHASES = [
   { key: 'cut', label: 'Cut', description: 'Mark timestamps and cut video clips in-browser' },
-  { key: 'upload', label: 'Upload', description: 'Upload clips to each editor\u2019s Drive folder' },
+  { key: 'upload', label: 'Review & Upload', description: 'Upload clips to each editor\u2019s Drive folder' },
   { key: 'kanban', label: 'Kanban', description: 'Sync clips to project board cards' },
 ];
 

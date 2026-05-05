@@ -67,19 +67,6 @@ export default function PhaseTwo({ session, onSessionChange, recipients }) {
   const shorts = clips.filter(c => c.type === 'short');
   const longs = clips.filter(c => c.type === 'long');
 
-  function updateClipAssignee(clipId, assigneeId) {
-    const allClips = session.clips.map(c => {
-      if (c.id !== clipId) return c;
-      const recipient = recipients.find(r => r.id === assigneeId);
-      return {
-        ...c,
-        assignee: assigneeId,
-        driveFolderId: recipient?.driveFolderId || '',
-        driveFolderName: recipient?.driveFolderName || '',
-      };
-    });
-    onSessionChange({ ...session, clips: allClips });
-  }
 
   async function handleUploadAll() {
     const toUpload = clips.filter(c => c.status === 'cut' && c.assignee && c._outputBlob);
@@ -163,16 +150,8 @@ export default function PhaseTwo({ session, onSessionChange, recipients }) {
                         {STATUS_LABELS[clip.status]}
                       </span>
                     </span>
-                    <span style={{ ...st.cell, flex: 1.5 }}>
-                      <select
-                        style={st.select}
-                        value={clip.assignee}
-                        onChange={e => updateClipAssignee(clip.id, e.target.value)}
-                        disabled={clip.status === 'uploading'}
-                      >
-                        <option value="">Assign...</option>
-                        {recipients.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                      </select>
+                    <span style={{ ...st.cell, flex: 1.5, color: clip.assignee ? '#e2e8f0' : 'rgba(255,255,255,0.3)', fontSize: '13px' }}>
+                      {recipient?.name || (clip.assignee ? clip.assignee : '—')}
                     </span>
                     <span style={{ ...st.cell, color: 'rgba(255,255,255,0.3)', fontSize: '12px' }}>
                       {recipient?.driveFolderName || (recipient?.driveFolderId ? '(folder)' : '—')}
