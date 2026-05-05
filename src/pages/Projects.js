@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useConfirm } from '../contexts/ConfirmContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
@@ -92,6 +93,7 @@ const MAYDAY_STAGE_COLORS = {
 
 export default function Projects({ onNavigate }) {
   const { profile, isAdmin, refreshKey } = useAuth();
+  const confirm = useConfirm();
   const { safeQuery } = useSupabaseQuery();
   const [projects, setProjects] = useState([]);
   const [teamMembers, setTeamMembers] = useState([]);
@@ -364,7 +366,8 @@ export default function Projects({ onNavigate }) {
 
   async function handleStatusChange(projectId, newStatus) {
     const project = projects.find(p => p.id === projectId);
-    await supabase.from('projects').update({ status: newStatus }).eq('id', projectId);
+    const { error } = await supabase.from('projects').update({ status: newStatus }).eq('id', projectId);
+    if (error) { console.error('Status change failed:', error); return; }
     // Notify assigned users
     if (project?.project_assignments) {
       const notifs = project.project_assignments
@@ -556,12 +559,12 @@ export default function Projects({ onNavigate }) {
   }
 
   async function handleDeleteShort(shortId) {
-    if (!window.confirm('Delete this clip from the queue?')) return;
+    if (!(await confirm('Delete this clip from the queue?'))) return;
     await supabase.from('shorts_queue').delete().eq('id', shortId);
     fetchShorts();
   }
 
-  function onShortsDragEnd(result) {
+  async function onShortsDragEnd(result) {
     if (!result.destination) return;
     const { draggableId, source, destination } = result;
     const newStage = destination.droppableId;
@@ -588,11 +591,11 @@ export default function Projects({ onNavigate }) {
       const reordered = [...columnItems];
       const [moved] = reordered.splice(oldIndex, 1);
       reordered.splice(destination.index, 0, moved);
-      reordered.forEach((item, idx) => {
-        if (item.sort_order !== idx) {
-          supabase.from('shorts_queue').update({ sort_order: idx }).eq('id', item.id).then();
-        }
-      });
+      await Promise.all(reordered.map((item, idx) =>
+        item.sort_order !== idx
+          ? supabase.from('shorts_queue').update({ sort_order: idx }).eq('id', item.id)
+          : null
+      ).filter(Boolean));
       fetchShorts();
     }
   }
@@ -608,7 +611,7 @@ export default function Projects({ onNavigate }) {
   }
 
   async function handleDeleteProject(projectId) {
-    if (!window.confirm('Delete this project and all its data?')) return;
+    if (!(await confirm('Delete this project and all its data?'))) return;
     await supabase.from('projects').delete().eq('id', projectId);
     fetchProjects();
   }
@@ -905,7 +908,7 @@ export default function Projects({ onNavigate }) {
   }
 
   async function handleDeleteRead(read) {
-    if (!window.confirm('Delete this read?')) return;
+    if (!(await confirm('Delete this read?'))) return;
     if (read.file_path) {
       await supabase.storage.from('resources').remove([read.file_path]);
     }
@@ -1025,7 +1028,7 @@ export default function Projects({ onNavigate }) {
   }
 
   async function handleDeleteMayday(videoId) {
-    if (!window.confirm('Delete this video?')) return;
+    if (!(await confirm('Delete this video?'))) return;
     const video = maydayVideos.find(v => v.id === videoId);
     if (video?.calendar_event_id) {
       await supabase.from('calendar_events').delete().eq('id', video.calendar_event_id);
@@ -1034,7 +1037,7 @@ export default function Projects({ onNavigate }) {
     fetchMaydayVideos();
   }
 
-  function onMaydayDragEnd(result) {
+  async function onMaydayDragEnd(result) {
     if (!result.destination) return;
     const { draggableId, source, destination } = result;
     const newStage = destination.droppableId;
@@ -1051,11 +1054,11 @@ export default function Projects({ onNavigate }) {
       const reordered = [...columnItems];
       const [moved] = reordered.splice(oldIndex, 1);
       reordered.splice(destination.index, 0, moved);
-      reordered.forEach((item, idx) => {
-        if (item.sort_order !== idx) {
-          supabase.from('mayday_videos').update({ sort_order: idx }).eq('id', item.id).then();
-        }
-      });
+      await Promise.all(reordered.map((item, idx) =>
+        item.sort_order !== idx
+          ? supabase.from('mayday_videos').update({ sort_order: idx }).eq('id', item.id)
+          : null
+      ).filter(Boolean));
       fetchMaydayVideos();
     }
   }
@@ -1193,7 +1196,7 @@ export default function Projects({ onNavigate }) {
   }
 
   async function handleDeleteSponsor(sponsorId) {
-    if (!window.confirm('Delete this sponsor and all its deliverables?')) return;
+    if (!(await confirm('Delete this sponsor and all its deliverables?'))) return;
     // Delete linked calendar events first
     const sponsor = sponsors.find(s => s.id === sponsorId);
     if (sponsor?.sponsor_deliverables) {
@@ -1400,7 +1403,7 @@ export default function Projects({ onNavigate }) {
   }
 
   async function handleRemoveBrief(campaignId, briefUrl) {
-    if (!window.confirm('Remove this brief file?')) return;
+    if (!(await confirm('Remove this brief file?'))) return;
     // Extract storage path from URL
     const pathMatch = briefUrl.match(/campaign-briefs\/(.+)$/);
     if (pathMatch) {
@@ -1411,7 +1414,7 @@ export default function Projects({ onNavigate }) {
   }
 
   async function handleDeleteCampaign(campaignId) {
-    if (!window.confirm('Delete this campaign? Deliverables will be uncampaigned.')) return;
+    if (!(await confirm('Delete this campaign? Deliverables will be uncampaigned.'))) return;
     await supabase.from('sponsor_campaigns').delete().eq('id', campaignId);
     fetchSponsors();
   }

@@ -97,13 +97,20 @@ function buildGoogleEvent(ev: any) {
   };
 
   if (ev.all_day) {
-    const startDate = new Date(ev.start_date).toISOString().split("T")[0];
-    const endD = new Date(ev.end_date);
-    endD.setDate(endD.getDate() + 1);
-    const endDate = endD.toISOString().split("T")[0];
+    const startParsed = new Date(ev.start_date);
+    const endParsed = new Date(ev.end_date);
+    if (isNaN(startParsed.getTime()) || isNaN(endParsed.getTime())) {
+      throw new Error(`Invalid dates on event "${ev.title}": start=${ev.start_date}, end=${ev.end_date}`);
+    }
+    const startDate = startParsed.toISOString().split("T")[0];
+    endParsed.setDate(endParsed.getDate() + 1);
+    const endDate = endParsed.toISOString().split("T")[0];
     event.start = { date: startDate };
     event.end = { date: endDate };
   } else {
+    if (!ev.start_date || !ev.end_date) {
+      throw new Error(`Missing dates on event "${ev.title}"`);
+    }
     event.start = { dateTime: ev.start_date, timeZone: "America/Los_Angeles" };
     event.end = { dateTime: ev.end_date, timeZone: "America/Los_Angeles" };
   }

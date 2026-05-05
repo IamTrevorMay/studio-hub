@@ -545,19 +545,9 @@ export function AuthProvider({ children }) {
     // 5-minute fallback poll as safety net for dropped connections
     const interval = setInterval(refreshNotifications, 300000);
 
-    // Re-fetch notifications + re-ping presence when tab returns
-    const handleVisibilityRefresh = () => {
-      if (document.visibilityState === 'visible') {
-        refreshNotifications();
-        supabase.from('profiles').update({ status: 'active', last_seen_at: new Date().toISOString() }).eq('id', user.id).then(() => {});
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityRefresh);
-
     return () => {
       supabase.removeChannel(channel);
       clearInterval(interval);
-      document.removeEventListener('visibilitychange', handleVisibilityRefresh);
     };
   }, [user, refreshNotifications, fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions, fetchUnreadNotificationCount, fetchPendingProposalCount, refreshKey]);
 

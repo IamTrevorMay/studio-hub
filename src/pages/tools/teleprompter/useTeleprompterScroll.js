@@ -4,6 +4,8 @@ export default function useTeleprompterScroll(speed, isPlaying) {
   const scrollRef = useRef(null);
   const rafRef = useRef(null);
   const lastTimeRef = useRef(null);
+  const speedRef = useRef(speed);
+  speedRef.current = speed;
 
   const tick = useCallback((timestamp) => {
     if (!scrollRef.current) return;
@@ -16,14 +18,14 @@ export default function useTeleprompterScroll(speed, isPlaying) {
     const delta = Math.min(rawDelta, 100);
 
     // speed 1-10 → pixels per second (20-200)
-    const pxPerSec = speed * 20;
+    const pxPerSec = speedRef.current * 20;
     const pxThisFrame = (pxPerSec * delta) / 1000;
 
     const el = scrollRef.current;
     el.scrollTop += pxThisFrame;
 
     rafRef.current = requestAnimationFrame(tick);
-  }, [speed]);
+  }, []);
 
   useEffect(() => {
     if (isPlaying) {

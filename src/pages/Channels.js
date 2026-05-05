@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 
@@ -31,6 +32,7 @@ function applyFormatMarker(textareaRef, text, marker, setter) {
 
 export default function Channels({ initialChannelName, onChannelOpened }) {
   const { profile, isAdmin, unreadMentionChannelIds, markChannelSeen, refreshNotifications, refreshKey } = useAuth();
+  const confirm = useConfirm();
   const [channels, setChannels] = useState([]);
   const [activeChannel, setActiveChannel] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -128,6 +130,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
 
   useEffect(() => {
     if (!activeChannel) return;
+    let mounted = true;
     const channel = supabase
       .channel(`channel-${activeChannel.id}`)
       .on('postgres_changes', {
@@ -139,12 +142,13 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
           .select('*, profile:profiles(id, full_name, title, avatar_url)')
           .eq('id', payload.new.id)
           .single();
-        if (data) setMessages(prev => [...prev, data]);
+        if (data && mounted) setMessages(prev => [...prev, data]);
       })
       .on('postgres_changes', {
         event: 'UPDATE', schema: 'public', table: 'channel_messages',
         filter: `channel_id=eq.${activeChannel.id}`,
       }, (payload) => {
+        if (!mounted) return;
         setMessages(prev => prev.map(m => m.id === payload.new.id
           ? { ...m, content: payload.new.content, edited_at: payload.new.edited_at, is_pinned: payload.new.is_pinned }
           : m
@@ -152,7 +156,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
         fetchPinnedMessages(activeChannel.id);
       })
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => { mounted = false; supabase.removeChannel(channel); };
   }, [activeChannel, fetchMessages, fetchPinnedMessages, refreshKey]);
 
   useEffect(() => {
@@ -205,7 +209,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
 
   async function handleDeleteChannel(channelId) {
     const ch = channels.find(c => c.id === channelId);
-    if (!window.confirm(`Delete #${ch?.name || 'channel'} and all its messages?`)) return;
+    if (!(await confirm(`Delete #${ch?.name || 'channel'} and all its messages?`))) return;
     await supabase.from('channels').delete().eq('id', channelId);
     if (activeChannel?.id === channelId) setActiveChannel(null);
     fetchChannels();

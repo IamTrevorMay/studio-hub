@@ -189,7 +189,7 @@ Deno.serve(async (req: Request) => {
       .select("id")
       .eq("platform", cfg.platform)
       .eq("is_active", true)
-      .single();
+      .maybeSingle();
 
     if (!account) {
       results[cfg.platform] = { skipped: true, reason: "no active account" };
@@ -354,7 +354,7 @@ Deno.serve(async (req: Request) => {
         .eq("platform_account_id", yt.id)
         .order("date", { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       if (!anchor) continue;
 

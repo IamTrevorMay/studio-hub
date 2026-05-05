@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../../supabaseClient';
+import { useConfirm } from '../../contexts/ConfirmContext';
 import * as fabric from 'fabric';
 import { jsPDF } from 'jspdf';
 import {
@@ -18,6 +19,7 @@ const EMPTY_ANNOTATIONS = {
 };
 
 export default function Storyboard({ docId, title, onBack, onSaveTemplate }) {
+  const confirm = useConfirm();
   // Canvas refs
   const canvasElRef = useRef(null);
   const fabricRef = useRef(null);
@@ -263,7 +265,7 @@ export default function Storyboard({ docId, title, onBack, onSaveTemplate }) {
 
   async function deletePage(idx) {
     if (pages.length <= 1) return;
-    if (!window.confirm(`Delete page ${idx + 1}?`)) return;
+    if (!(await confirm(`Delete page ${idx + 1}?`))) return;
     const page = pages[idx];
     await supabase.from('storyboard_pages').delete().eq('id', page.id);
     const newPages = pages.filter((_, i) => i !== idx);
@@ -712,18 +714,22 @@ export default function Storyboard({ docId, title, onBack, onSaveTemplate }) {
   }
 
   // ------- KEYBOARD SHORTCUTS -------
+  const keyHandlersRef = useRef({ undo, redo, deleteSelectedObject, addText, setTool });
+  keyHandlersRef.current = { undo, redo, deleteSelectedObject, addText, setTool };
+
   useEffect(() => {
     function handleKey(e) {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
-      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
-      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && e.shiftKey) { e.preventDefault(); redo(); }
-      if ((e.metaKey || e.ctrlKey) && e.key === 'y') { e.preventDefault(); redo(); }
+      const h = keyHandlersRef.current;
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); h.undo(); }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && e.shiftKey) { e.preventDefault(); h.redo(); }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'y') { e.preventDefault(); h.redo(); }
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (e.target === document.body) { e.preventDefault(); deleteSelectedObject(); }
+        if (e.target === document.body) { e.preventDefault(); h.deleteSelectedObject(); }
       }
-      if (e.key === 'v' && !e.metaKey && !e.ctrlKey) setTool('select');
-      if (e.key === 'b' && !e.metaKey && !e.ctrlKey) setTool('draw');
-      if (e.key === 't' && !e.metaKey && !e.ctrlKey) addText();
+      if (e.key === 'v' && !e.metaKey && !e.ctrlKey) h.setTool('select');
+      if (e.key === 'b' && !e.metaKey && !e.ctrlKey) h.setTool('draw');
+      if (e.key === 't' && !e.metaKey && !e.ctrlKey) h.addText();
     }
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);

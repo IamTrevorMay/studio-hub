@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../../supabaseClient';
+import { useConfirm } from '../../contexts/ConfirmContext';
 
 const COLORS = ['#ffffff', '#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899', '#6b7280'];
 const WIDTHS = [2, 4, 8, 14];
 
 export default function Whiteboard({ docId, title, docType, onBack, onSaveTemplate }) {
+  const confirm = useConfirm();
   const canvasRef = useRef(null);
   const [strokes, setStrokes] = useState([]);
   const [currentStroke, setCurrentStroke] = useState(null);
@@ -125,19 +127,22 @@ export default function Whiteboard({ docId, title, docType, onBack, onSaveTempla
     setUndoStack(prev => prev.slice(0, -1));
   }
 
-  function handleClear() {
-    if (!window.confirm('Clear the entire canvas?')) return;
+  async function handleClear() {
+    if (!(await confirm('Clear the entire canvas?'))) return;
     setUndoStack([]);
     setStrokes([]);
   }
 
+  const strokesRef = useRef(strokes);
+  strokesRef.current = strokes;
+
   const save = useCallback(async () => {
     setSaving(true);
     await supabase.from(tableName)
-      .update({ content: { strokes }, updated_at: new Date().toISOString() })
+      .update({ content: { strokes: strokesRef.current }, updated_at: new Date().toISOString() })
       .eq('id', docId);
     setSaving(false);
-  }, [strokes, docId, tableName]);
+  }, [docId, tableName]);
 
   // Auto-save on stroke changes (debounced)
   useEffect(() => {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 import ScriptEditor from './editors/screenplay-editor/components/editor/ScriptEditor';
@@ -51,6 +52,7 @@ class ScreenplayErrorBoundary extends React.Component {
 
 export default function Screenwriter({ initialScriptId, onScriptOpened }) {
   const { user, refreshKey } = useAuth();
+  const confirm = useConfirm();
   const [scripts, setScripts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(null);
@@ -117,16 +119,15 @@ export default function Screenwriter({ initialScriptId, onScriptOpened }) {
       .select('id, title, updated_at, created_at, revision_color, locked, content')
       .single();
 
-    if (!error && data) {
-      setActiveScript(data);
-    }
+    if (error) { alert('Failed to create script: ' + error.message); }
+    else if (data) { setActiveScript(data); }
     setCreating(false);
   };
 
   // Delete script
   const handleDelete = async (id, e) => {
     e.stopPropagation();
-    if (!window.confirm('Delete this screenplay? This cannot be undone.')) return;
+    if (!(await confirm('Delete this screenplay? This cannot be undone.'))) return;
     setDeletingId(id);
     await supabase.from('screenwriter_scripts').delete().eq('id', id);
     setScripts((prev) => prev.filter((s) => s.id !== id));

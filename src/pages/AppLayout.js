@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import useNavConfig from '../hooks/useNavConfig';
@@ -204,13 +204,14 @@ export default function AppLayout() {
     setActiveTab(tab);
   }
 
-  async function fetchNotifications() {
+  const fetchNotifications = useCallback(async () => {
+    if (!profile?.id) return;
     setNotificationsLoading(true);
     try {
       const { data, error } = await supabase
         .from('notifications')
         .select('*')
-        .eq('user_id', profile?.id)
+        .eq('user_id', profile.id)
         .order('created_at', { ascending: false })
         .limit(50);
       if (error) throw error;
@@ -220,7 +221,7 @@ export default function AppLayout() {
     } finally {
       setNotificationsLoading(false);
     }
-  }
+  }, [profile?.id]);
 
   async function markNotificationRead(id) {
     await supabase.from('notifications').update({ is_read: true }).eq('id', id);
@@ -245,7 +246,7 @@ export default function AppLayout() {
 
   React.useEffect(() => {
     if (showNotifications && profile?.id) fetchNotifications();
-  }, [showNotifications, profile?.id]);
+  }, [showNotifications, profile?.id, fetchNotifications]);
 
   React.useEffect(() => {
     if (!showNotifications) return;
