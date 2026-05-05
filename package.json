@@ -59,6 +59,10 @@
     "start": "craco start",
     "build": "CI=false craco build",
     "test": "craco test",
+    "test:frontend": "craco test --watchAll=false",
+    "test:edge": "deno test supabase/functions/ --allow-env --allow-net --allow-read --no-check",
+    "test:db": "cat supabase/tests/run-db-checks.sql | npx supabase db query --linked",
+    "test:all": "npm run test:frontend && npm run test:edge && npm run test:db",
     "eject": "react-scripts eject"
   },
   "browserslist": {
@@ -72,5 +76,9 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2"
   }
 }
