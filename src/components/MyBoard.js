@@ -860,6 +860,14 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
       advanceProjectStage(task.project_id, task.project_stage);
     }
 
+    if (task.bd_task_id) {
+      if (newStatus === 'done') {
+        supabase.from('bd_tasks').update({ completed_at: new Date().toISOString() }).eq('id', task.bd_task_id);
+      } else if (task.status === 'done') {
+        supabase.from('bd_tasks').update({ completed_at: null }).eq('id', task.bd_task_id);
+      }
+    }
+
     if (onBoardChange) onBoardChange();
   }
 
