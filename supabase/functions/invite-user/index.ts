@@ -59,6 +59,7 @@ Deno.serve(async (req: Request) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    const inviteRole = role || "member";
 
     // Create an admin client with the service role key to invite users
     const adminClient = createClient(
@@ -66,8 +67,10 @@ Deno.serve(async (req: Request) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Send the invite email
+    // Send the invite email. Pass role in user_metadata so the
+    // handle_new_user() trigger picks it up when the profile is auto-created.
     const { data, error } = await adminClient.auth.admin.inviteUserByEmail(email, {
+      data: { role: inviteRole },
       redirectTo: Deno.env.get("SITE_URL") || "https://studio-hub-fawn.vercel.app",
     });
 
@@ -78,14 +81,16 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Log the invite in the invitations table
-    const inviteRole = role || "member";
-    await userClient.from("invitations").insert({
+    // Log the invite in the invitations table (AuthPage looks this up on accept)
+    const { error: inviteLogError } = await userClient.from("invitations").insert({
       email: email.toLowerCase().trim(),
       invited_by: user.id,
       accepted_at: null,
       role: inviteRole,
     });
+    if (inviteLogError) {
+      console.error("Failed to log invitation:", inviteLogError);
+    }
 
     return new Response(
       JSON.stringify({ success: true, message: `Invitation email sent to ${email}` }),

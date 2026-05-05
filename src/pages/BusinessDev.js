@@ -448,6 +448,63 @@ export default function BusinessDev() {
     setEditingTaskId(null);
     setTaskForm(EMPTY_TASK);
   }
+  // Mirror a bd_task into the owner's personal_tasks backlog (idempotent).
+  // Pass the bd_task object you just wrote (with its id). Handles insert,
+  // owner change, field updates, owner removal, and completion.
+  async function syncTaskToBacklog(bdTask) {
+    try {
+      const parentInit = initiatives.find(i => i.id === bdTask.initiative_id);
+      const initiativeTitle = parentInit?.title || 'BD Task';
+      const content = `${bdTask.title} | ${initiativeTitle}`;
+      const tag = bdTask.tag || parentInit?.tag || 'shared';
+      const tagInfo = TAG_MAP[tag] || TAG_MAP.shared;
+
+      const { data: existing } = await supabase
+        .from('personal_tasks')
+        .select('id, created_by')
+        .eq('bd_task_id', bdTask.id)
+        .maybeSingle();
+
+      // No owner or task is done -> remove from backlog
+      if (!bdTask.owner_id || bdTask.completed_at) {
+        if (existing) await supabase.from('personal_tasks').delete().eq('id', existing.id);
+        return;
+      }
+
+      // Owner unchanged -> just update fields
+      if (existing && existing.created_by === bdTask.owner_id) {
+        await supabase.from('personal_tasks').update({
+          content, bucket: tag, due_date: bdTask.due_date,
+        }).eq('id', existing.id);
+        return;
+      }
+
+      // Owner changed -> drop old row first
+      if (existing) {
+        await supabase.from('personal_tasks').delete().eq('id', existing.id);
+      }
+
+      // Ensure the bucket option exists for the new owner
+      await supabase.from('user_task_options').upsert(
+        { user_id: bdTask.owner_id, kind: 'bucket', value: tag, label: tagInfo.label, color: tagInfo.color },
+        { onConflict: 'user_id,kind,value' }
+      );
+
+      await supabase.from('personal_tasks').insert({
+        created_by: bdTask.owner_id,
+        content,
+        status: 'backlog',
+        category: 'business_development',
+        bucket: tag,
+        due_date: bdTask.due_date,
+        position: 0,
+        bd_task_id: bdTask.id,
+      });
+    } catch (err) {
+      console.error('syncTaskToBacklog failed:', err);
+    }
+  }
+
   async function handleTaskSubmit(e, initiativeId) {
     e?.preventDefault();
     const title = taskForm.title.trim();
@@ -462,46 +519,31 @@ export default function BusinessDev() {
       recurrence_interval: taskForm.recurrence_interval || null,
       recurrence_count: taskForm.recurrence_interval ? parseInt(taskForm.recurrence_count) || 1 : 1,
     };
+
+    let savedTask;
     if (editingTaskId) {
-      const { error } = await supabase.from('bd_tasks').update(payload).eq('id', editingTaskId);
+      const { data, error } = await supabase.from('bd_tasks').update(payload).eq('id', editingTaskId).select().single();
       if (error) { alert(error.message); return; }
+      savedTask = data;
     } else {
       const siblings = (tasksByInitiative[initiativeId] || []);
       const maxPos = Math.max(0, ...siblings.map(t => t.position || 0));
-      const { error } = await supabase.from('bd_tasks').insert({ ...payload, position: maxPos + 1, created_by: profile.id });
+      const { data, error } = await supabase.from('bd_tasks')
+        .insert({ ...payload, position: maxPos + 1, created_by: profile.id })
+        .select()
+        .single();
       if (error) { alert(error.message); return; }
-      // Auto-add to owner's sprint backlog
-      if (payload.owner_id) {
-        try {
-          const parentInit = initiatives.find(i => i.id === initiativeId);
-          const tag = effectiveTag(payload, parentInit);
-          const tagInfo = TAG_MAP[tag] || TAG_MAP['shared'];
-          // Ensure bucket option exists for this owner
-          await supabase.from('user_task_options').upsert(
-            { user_id: payload.owner_id, kind: 'bucket', value: tag, color: tagInfo.color },
-            { onConflict: 'user_id,kind,value' }
-          );
-          const initiativeTitle = parentInit?.title || 'BD Task';
-          await supabase.from('personal_tasks').insert({
-            created_by: payload.owner_id,
-            content: `${title} | ${initiativeTitle}`,
-            status: 'backlog',
-            category: 'business_development',
-            bucket: tag,
-            due_date: payload.due_date,
-            position: 0,
-          });
-        } catch (err) {
-          console.error('Auto-add to backlog failed:', err);
-        }
-      }
+      savedTask = data;
     }
+    await syncTaskToBacklog(savedTask);
     cancelTaskForm();
     fetchAll();
   }
+
   async function handleToggleTask(task) {
     const completed_at = task.completed_at ? null : new Date().toISOString();
-    await supabase.from('bd_tasks').update({ completed_at }).eq('id', task.id);
+    const { data, error } = await supabase.from('bd_tasks').update({ completed_at }).eq('id', task.id).select().single();
+    if (!error && data) await syncTaskToBacklog(data);
     fetchAll();
   }
   async function handleDeleteTask(id) {

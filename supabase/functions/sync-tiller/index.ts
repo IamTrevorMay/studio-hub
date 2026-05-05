@@ -28,8 +28,8 @@ const INCOME_CATEGORIES = new Set([
 ]);
 
 async function getAccessToken(): Promise<string> {
-  const clientId = Deno.env.get("GOOGLE_DRIVE_CLIENT_ID")!;
-  const clientSecret = Deno.env.get("GOOGLE_DRIVE_CLIENT_SECRET")!;
+  const clientId = Deno.env.get("GOOGLE_CLIENT_ID")!;
+  const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")!;
   const refreshToken = Deno.env.get("GOOGLE_DRIVE_REFRESH_TOKEN")!;
 
   const res = await fetch("https://oauth2.googleapis.com/token", {

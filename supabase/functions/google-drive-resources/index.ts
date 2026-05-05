@@ -15,8 +15,8 @@ const DOC_MIME = "application/vnd.google-apps.document";
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 
 async function getDriveAccessToken(): Promise<string> {
-  const clientId = Deno.env.get("GOOGLE_DRIVE_CLIENT_ID")!;
-  const clientSecret = Deno.env.get("GOOGLE_DRIVE_CLIENT_SECRET")!;
+  const clientId = Deno.env.get("GOOGLE_CLIENT_ID")!;
+  const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")!;
   const refreshToken = Deno.env.get("GOOGLE_DRIVE_REFRESH_TOKEN")!;
 
   const res = await fetch("https://oauth2.googleapis.com/token", {

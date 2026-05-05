@@ -111,6 +111,10 @@ const NAV_ICON_MAP = {
   business_dev: BusinessDevIcon,
   channels: ChannelsIcon,
   messages: MessagesIcon,
+  fl_dashboard: DashboardIcon,
+  fl_hours: HoursIcon,
+  fl_profile: ProfileIcon,
+  fl_notifications: NotificationsIcon,
 };
 
 export default function AppLayout() {
@@ -763,6 +767,33 @@ function CoreTeamIcon({ active }) {
       <circle cx="14" cy="8" r="2.4" />
       <path d="M2 17c0-2.5 2.2-4.5 5-4.5s5 2 5 4.5" strokeLinecap="round" />
       <path d="M12.5 17c0-2 1.5-3.5 3.5-3.5S19.5 15 19.5 17" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function HoursIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <circle cx="10" cy="10" r="7" />
+      <path d="M10 6v4l2.5 2.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ProfileIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <circle cx="10" cy="7" r="3.2" />
+      <path d="M3.5 17c0-3 2.9-5.5 6.5-5.5s6.5 2.5 6.5 5.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function NotificationsIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <path d="M15 8a5 5 0 00-10 0c0 5.5-2.5 7.5-2.5 7.5h15S15 13.5 15 8z" strokeLinejoin="round" />
+      <path d="M11.5 18a1.7 1.7 0 01-3 0" strokeLinecap="round" />
     </svg>
   );
 }
