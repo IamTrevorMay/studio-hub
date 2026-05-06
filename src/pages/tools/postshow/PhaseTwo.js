@@ -58,7 +58,7 @@ async function uploadClipToDrive(clip, parentFolderId, accessToken) {
   };
 }
 
-export default function PhaseTwo({ session, onSessionChange, recipients }) {
+export default function PhaseTwo({ session, onSessionChange, recipients, profileId }) {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
   const [clipProgress, setClipProgress] = useState({}); // { [clipId]: 'waiting' | 'uploading' | 'done' | 'error' }
@@ -82,6 +82,8 @@ export default function PhaseTwo({ session, onSessionChange, recipients }) {
       alert('Not signed in. Refresh the page and sign in again.');
       return;
     }
+
+    const uploadStartedAt = new Date().toISOString();
 
     setUploading(true);
     setUploadProgress({ done: 0, total: toUpload.length });
@@ -123,6 +125,39 @@ export default function PhaseTwo({ session, onSessionChange, recipients }) {
     }
 
     setUploading(false);
+
+    // Log the upload job (fire-and-forget)
+    try {
+      const successCount = toUpload.filter(c => allClips.find(ac => ac.id === c.id)?.status === 'uploaded').length;
+      const failCount = toUpload.length - successCount;
+      const recipientNames = [...new Set(
+        toUpload
+          .map(c => recipients.find(r => r.id === c.assignee)?.name)
+          .filter(Boolean)
+      )];
+      const errorTitles = toUpload
+        .filter(c => allClips.find(ac => ac.id === c.id)?.status !== 'uploaded')
+        .map(c => c.title);
+      const jobStatus = failCount === 0 ? 'completed' : successCount === 0 ? 'failed' : 'partial';
+
+      if (profileId) {
+        await supabase.from('clipping_job_logs').insert({
+          created_by: profileId,
+          source_filename: session.sourceFileName || '',
+          video_title: session.sourceFileName?.replace(/\.[^.]+$/, '') || '',
+          total_clips: toUpload.length,
+          successful_clips: successCount,
+          failed_clips: failCount,
+          recipients: recipientNames,
+          status: jobStatus,
+          error_output: errorTitles.length > 0 ? `Failed clips: ${errorTitles.join(', ')}` : null,
+          started_at: uploadStartedAt,
+          completed_at: new Date().toISOString(),
+        });
+      }
+    } catch (logErr) {
+      console.error('Failed to log clipping job:', logErr);
+    }
   }
 
   function renderClipGroup(title, groupClips) {
