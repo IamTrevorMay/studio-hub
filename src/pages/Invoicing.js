@@ -218,22 +218,28 @@ export default function Invoicing() {
   const [editingContact, setEditingContact] = useState(null);
 
   // ── Fetch ──────────────────────────────────────────────
-  const initialLoadDone = useRef(false);
   const fetchAll = useCallback(async () => {
-    if (!initialLoadDone.current) setLoading(true);
-    const [invRes, conRes, tplRes] = await Promise.all([
-      supabase.from('invoices').select('*, invoice_line_items(*)').order('created_at', { ascending: false }),
-      supabase.from('invoice_contacts').select('*').order('name'),
-      supabase.from('invoice_templates').select('*').order('name'),
-    ]);
-    if (invRes.data) setInvoices(invRes.data);
-    if (conRes.data) setContacts(conRes.data);
-    if (tplRes.data) setTemplates(tplRes.data);
-    initialLoadDone.current = true;
-    setLoading(false);
+    setLoading(true);
+    try {
+      const [invRes, conRes, tplRes] = await Promise.all([
+        supabase.from('invoices').select('*, invoice_line_items(*)').order('created_at', { ascending: false }),
+        supabase.from('invoice_contacts').select('*').order('name'),
+        supabase.from('invoice_templates').select('*').order('name'),
+      ]);
+      setInvoices(invRes.data || []);
+      setContacts(conRes.data || []);
+      setTemplates(tplRes.data || []);
+    } catch (err) {
+      console.error('Invoicing fetch error:', err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  useEffect(() => {
+    if (!profile?.id) return;
+    fetchAll();
+  }, [profile?.id, fetchAll]);
   useVisibilityRefresh(fetchAll);
 
   // ── Computed ───────────────────────────────────────────
@@ -830,12 +836,12 @@ function InvoiceEditor({ invoiceId, invoices, contacts, contactsById, templates,
     let invoiceRow;
     if (existing) {
       const { data, error } = await supabase.from('invoices').update(payload).eq('id', existing.id).select().single();
-      if (error) { console.error('Save error:', error); setSaving(false); return; }
+      if (error) { alert(error.message); setSaving(false); return; }
       invoiceRow = data;
     } else {
       payload.created_by = profile?.id;
       const { data, error } = await supabase.from('invoices').insert(payload).select().single();
-      if (error) { console.error('Save error:', error); setSaving(false); return; }
+      if (error) { alert(error.message); setSaving(false); return; }
       invoiceRow = data;
     }
 
@@ -1118,9 +1124,24 @@ function ContactModal({ contacts, editingContact, onEditContact, profile, onClos
     setSaving(true);
     if (form.id) {
       const { id, created_at, created_by, updated_at, ...payload } = form;
-      await supabase.from('invoice_contacts').update(payload).eq('id', id);
+      const { error } = await supabase.from('invoice_contacts').update(payload).eq('id', id);
+      if (error) { alert(error.message); setSaving(false); return; }
     } else {
-      await supabase.from('invoice_contacts').insert({ ...form, created_by: profile?.id });
+      const { error } = await supabase.from('invoice_contacts').insert({
+        name: form.name,
+        company: form.company || null,
+        email: form.email || null,
+        phone: form.phone || null,
+        address_line1: form.address_line1 || null,
+        address_line2: form.address_line2 || null,
+        city: form.city || null,
+        state: form.state || null,
+        zip: form.zip || null,
+        country: form.country || null,
+        notes: form.notes || null,
+        created_by: profile?.id,
+      });
+      if (error) { alert(error.message); setSaving(false); return; }
     }
     await onSaved();
     setSaving(false);
@@ -1132,7 +1153,8 @@ function ContactModal({ contacts, editingContact, onEditContact, profile, onClos
   async function deleteContact() {
     if (!form.id) return;
     if (!window.confirm(`Delete contact "${form.name}"?`)) return;
-    await supabase.from('invoice_contacts').delete().eq('id', form.id);
+    const { error } = await supabase.from('invoice_contacts').delete().eq('id', form.id);
+    if (error) { alert(error.message); return; }
     await onSaved();
     setMode('list');
     setForm({ ...EMPTY_CONTACT });
