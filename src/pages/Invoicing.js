@@ -30,6 +30,15 @@ const EMPTY_INVOICE = {
   contact_id: null,
   issue_date: '',
   due_date: '',
+  po_number: '',
+  payment_terms: '',
+  tax_rate: 0,
+  discount_cents: 0,
+  shipping_cents: 0,
+  amount_paid_cents: 0,
+  payment_instructions: '',
+  terms_conditions: '',
+  sender_tax_id: '',
   notes: '',
   line_items: [{ ...EMPTY_LINE_ITEM }],
 };
@@ -73,33 +82,86 @@ function formatDateShort(dateStr) {
 // ════════════════════════════════════════════════════════════
 // PDF Export
 // ════════════════════════════════════════════════════════════
-function generateInvoicePDF(invoice, lineItems, contact) {
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+async function generateInvoicePDF(invoice, lineItems, contact, options = {}) {
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const pageW = doc.internal.pageSize.getWidth();
   let y = 50;
 
-  // Header
-  doc.setFontSize(28);
-  doc.setFont('helvetica', 'bold');
-  doc.text('INVOICE', 50, y);
+  // Logo
+  try {
+    const logoImg = await loadImage(process.env.PUBLIC_URL + '/mayday-media-logo.png');
+    const logoH = 50;
+    const logoW = logoH * (logoImg.width / logoImg.height);
+    doc.addImage(logoImg, 'PNG', 50, y, logoW, logoH);
+    y += logoH + 10;
+  } catch {
+    y += 10;
+  }
 
+  // Title
+  doc.setFontSize(16);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Invoice from Mayday Media', 50, y);
+  y += 18;
+
+  // Company address & email
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(100, 100, 100);
+  doc.text('13600 NE 126th PL Suite B Kirkland, WA 98034', 50, y);
+  y += 12;
+  doc.text('emilyj@Iamtrevormay.com', 50, y);
+  y += 12;
+
+  // Tax ID
+  if (invoice.sender_tax_id) {
+    doc.text(`Tax ID: ${invoice.sender_tax_id}`, 50, y);
+    y += 12;
+  }
+
+  doc.setTextColor(0, 0, 0);
+  y += 8;
+
+  // Invoice number + PO + dates + terms (right-aligned, starting near top)
+  let ry = 50;
   doc.setFontSize(11);
   doc.setFont('helvetica', 'normal');
   const invNum = formatInvoiceNumber(invoice.invoice_number);
-  doc.text(invNum, pageW - 50, y - 10, { align: 'right' });
-  y += 20;
+  doc.text(invNum, pageW - 50, ry, { align: 'right' });
+  ry += 16;
+  if (invoice.po_number) {
+    doc.text(`PO #: ${invoice.po_number}`, pageW - 50, ry, { align: 'right' });
+    ry += 16;
+  }
   if (invoice.issue_date) {
-    doc.text(`Issue Date: ${formatDate(invoice.issue_date)}`, pageW - 50, y, { align: 'right' });
-    y += 16;
+    doc.text(`Issue Date: ${formatDate(invoice.issue_date)}`, pageW - 50, ry, { align: 'right' });
+    ry += 16;
   }
   if (invoice.due_date) {
-    doc.text(`Due Date: ${formatDate(invoice.due_date)}`, pageW - 50, y, { align: 'right' });
-    y += 16;
+    doc.text(`Due Date: ${formatDate(invoice.due_date)}`, pageW - 50, ry, { align: 'right' });
+    ry += 16;
   }
   if (invoice.paid_date) {
-    doc.text(`Paid Date: ${formatDate(invoice.paid_date)}`, pageW - 50, y, { align: 'right' });
-    y += 16;
+    doc.text(`Paid Date: ${formatDate(invoice.paid_date)}`, pageW - 50, ry, { align: 'right' });
+    ry += 16;
   }
+  if (invoice.payment_terms) {
+    doc.text(`Terms: ${invoice.payment_terms}`, pageW - 50, ry, { align: 'right' });
+    ry += 16;
+  }
+
+  // Ensure y is below both left and right columns
+  y = Math.max(y, ry + 10);
 
   // Direction badge
   const dirLabel = invoice.direction === 'inbound' ? 'INBOUND (Receivable)' : 'OUTBOUND (Payable)';
@@ -149,18 +211,75 @@ function generateInvoicePDF(invoice, lineItems, contact) {
     y += 16;
   });
 
-  // Subtotal
+  // Financial summary
   y += 8;
   doc.setDrawColor(200, 200, 200);
   doc.line(300, y - 4, pageW - 50, y - 4);
+  doc.setFontSize(10);
+
+  const subtotal = invoice.subtotal_cents || 0;
+  const discountCents = Number(invoice.discount_cents) || 0;
+  const taxRate = Number(invoice.tax_rate) || 0;
+  const taxCents = Number(invoice.tax_cents) || 0;
+  const shippingCents = Number(invoice.shipping_cents) || 0;
+  const totalCents = Number(invoice.total_cents) || subtotal;
+  const amountPaidCents = Number(invoice.amount_paid_cents) || 0;
+
+  // Subtotal (always)
+  doc.setFont('helvetica', 'normal');
+  doc.text('Subtotal:', 380, y + 6);
+  doc.text(formatCurrency(subtotal), pageW - 56, y + 6, { align: 'right' });
+  y += 18;
+
+  // Discount (if > 0)
+  if (discountCents > 0) {
+    doc.text('Discount:', 380, y + 6);
+    doc.text(`-${formatCurrency(discountCents)}`, pageW - 56, y + 6, { align: 'right' });
+    y += 18;
+  }
+
+  // Tax (if tax_rate > 0)
+  if (taxRate > 0) {
+    doc.text(`Tax (${taxRate}%):`, 380, y + 6);
+    doc.text(formatCurrency(taxCents), pageW - 56, y + 6, { align: 'right' });
+    y += 18;
+  }
+
+  // Shipping (if > 0)
+  if (shippingCents > 0) {
+    doc.text('Shipping:', 380, y + 6);
+    doc.text(formatCurrency(shippingCents), pageW - 56, y + 6, { align: 'right' });
+    y += 18;
+  }
+
+  // Total (always)
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
-  doc.text('Subtotal:', 380, y + 6);
-  doc.text(formatCurrency(invoice.subtotal_cents), pageW - 56, y + 6, { align: 'right' });
-  y += 30;
+  doc.text('Total:', 380, y + 6);
+  doc.text(formatCurrency(totalCents), pageW - 56, y + 6, { align: 'right' });
+  y += 18;
+
+  // Amount Paid (if > 0)
+  if (amountPaidCents > 0) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.text('Amount Paid:', 380, y + 6);
+    doc.text(`-${formatCurrency(amountPaidCents)}`, pageW - 56, y + 6, { align: 'right' });
+    y += 18;
+
+    // Balance Due
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text('Balance Due:', 380, y + 6);
+    doc.text(formatCurrency(totalCents - amountPaidCents), pageW - 56, y + 6, { align: 'right' });
+    y += 18;
+  }
+
+  y += 12;
 
   // Notes
   if (invoice.notes) {
+    if (y > 680) { doc.addPage(); y = 50; }
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
     doc.text('Notes / Memo:', 50, y);
@@ -169,7 +288,35 @@ function generateInvoicePDF(invoice, lineItems, contact) {
     doc.setFontSize(9);
     const noteLines = doc.splitTextToSize(invoice.notes, pageW - 100);
     doc.text(noteLines, 50, y);
-    y += noteLines.length * 12;
+    y += noteLines.length * 12 + 10;
+  }
+
+  // Payment Instructions
+  if (invoice.payment_instructions) {
+    if (y > 680) { doc.addPage(); y = 50; }
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.text('Payment Instructions:', 50, y);
+    y += 16;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    const piLines = doc.splitTextToSize(invoice.payment_instructions, pageW - 100);
+    doc.text(piLines, 50, y);
+    y += piLines.length * 12 + 10;
+  }
+
+  // Terms & Conditions
+  if (invoice.terms_conditions) {
+    if (y > 680) { doc.addPage(); y = 50; }
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.text('Terms & Conditions:', 50, y);
+    y += 16;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    const tcLines = doc.splitTextToSize(invoice.terms_conditions, pageW - 100);
+    doc.text(tcLines, 50, y);
+    y += tcLines.length * 12 + 10;
   }
 
   // PAID watermark
@@ -181,6 +328,9 @@ function generateInvoicePDF(invoice, lineItems, contact) {
     doc.setTextColor(0, 0, 0);
   }
 
+  if (options.preview) {
+    return doc;
+  }
   doc.save(`${formatInvoiceNumber(invoice.invoice_number)}.pdf`);
 }
 
@@ -257,13 +407,14 @@ export default function Invoicing() {
     let paidThisMonth = 0;
     let paidAllTime = 0;
     invoices.forEach(inv => {
+      const amt = inv.total_cents || inv.subtotal_cents || 0;
       if (inv.status !== 'paid') {
-        outstanding += inv.subtotal_cents || 0;
+        outstanding += amt;
         if (inv.due_date && inv.due_date < today) overdueCount++;
       } else {
-        paidAllTime += inv.subtotal_cents || 0;
+        paidAllTime += amt;
         if (inv.paid_date && inv.paid_date.startsWith(thisMonth)) {
-          paidThisMonth += inv.subtotal_cents || 0;
+          paidThisMonth += amt;
         }
       }
     });
@@ -623,7 +774,7 @@ function InvoiceRow({ inv, contactsById, onClick, full }) {
         </div>
       )}
       <div style={{ flex: '0 0 110px', textAlign: 'right', fontWeight: 600, color: '#e2e8f0', fontFamily: 'monospace' }}>
-        {formatCurrency(inv.subtotal_cents)}
+        {formatCurrency(inv.total_cents || inv.subtotal_cents)}
       </div>
       <div style={{ flex: '0 0 90px' }}>
         <span style={{ ...styles.badge, background: st.bg, color: st.color }}>{st.label}</span>
@@ -710,7 +861,7 @@ function CalendarView({ invoices, contactsById, month, year, setMonth, setYear, 
                       onClick={() => onOpen(inv.id)}
                       style={{ ...styles.calendarEvent, color: pillColor, background: pillBg, cursor: 'pointer' }}
                     >
-                      {formatInvoiceNumber(inv.invoice_number)} {formatCurrency(inv.subtotal_cents)}
+                      {formatInvoiceNumber(inv.invoice_number)} {formatCurrency(inv.total_cents || inv.subtotal_cents)}
                     </div>
                   );
                 })}
@@ -740,6 +891,15 @@ function InvoiceEditor({ invoiceId, invoices, contacts, contactsById, templates,
         issue_date: existing.issue_date || '',
         due_date: existing.due_date || '',
         paid_date: existing.paid_date || '',
+        po_number: existing.po_number || '',
+        payment_terms: existing.payment_terms || '',
+        tax_rate: Number(existing.tax_rate) || 0,
+        discount_cents: Number(existing.discount_cents) || 0,
+        shipping_cents: Number(existing.shipping_cents) || 0,
+        amount_paid_cents: Number(existing.amount_paid_cents) || 0,
+        payment_instructions: existing.payment_instructions || '',
+        terms_conditions: existing.terms_conditions || '',
+        sender_tax_id: existing.sender_tax_id || '',
         notes: existing.notes || '',
         template_id: existing.template_id || '',
       };
@@ -752,6 +912,15 @@ function InvoiceEditor({ invoiceId, invoices, contacts, contactsById, templates,
         issue_date: todayStr(),
         due_date: '',
         paid_date: '',
+        po_number: '',
+        payment_terms: '',
+        tax_rate: 0,
+        discount_cents: 0,
+        shipping_cents: 0,
+        amount_paid_cents: 0,
+        payment_instructions: '',
+        terms_conditions: '',
+        sender_tax_id: '',
         notes: templateData.notes || '',
         template_id: templateData.template_id || '',
       };
@@ -763,6 +932,15 @@ function InvoiceEditor({ invoiceId, invoices, contacts, contactsById, templates,
       issue_date: todayStr(),
       due_date: '',
       paid_date: '',
+      po_number: '',
+      payment_terms: '',
+      tax_rate: 0,
+      discount_cents: 0,
+      shipping_cents: 0,
+      amount_paid_cents: 0,
+      payment_instructions: '',
+      terms_conditions: '',
+      sender_tax_id: '',
       notes: '',
       template_id: '',
     };
@@ -814,6 +992,9 @@ function InvoiceEditor({ invoiceId, invoices, contacts, contactsById, templates,
   }
 
   const subtotalCents = lineItems.reduce((sum, li) => sum + (li.total_cents || 0), 0);
+  const taxCents = Math.round(subtotalCents * Number(form.tax_rate || 0) / 100);
+  const totalCents = subtotalCents - Number(form.discount_cents || 0) + taxCents + Number(form.shipping_cents || 0);
+  const balanceDueCents = totalCents - Number(form.amount_paid_cents || 0);
 
   const selectedContact = form.contact_id ? contactsById[form.contact_id] : null;
 
@@ -829,6 +1010,17 @@ function InvoiceEditor({ invoiceId, invoices, contacts, contactsById, templates,
       due_date: form.due_date || null,
       paid_date: status === 'paid' ? (form.paid_date || todayStr()) : (form.paid_date || null),
       subtotal_cents: subtotalCents,
+      po_number: form.po_number || null,
+      payment_terms: form.payment_terms || null,
+      tax_rate: Number(form.tax_rate) || 0,
+      tax_cents: taxCents,
+      discount_cents: Number(form.discount_cents) || 0,
+      shipping_cents: Number(form.shipping_cents) || 0,
+      amount_paid_cents: Number(form.amount_paid_cents) || 0,
+      total_cents: totalCents,
+      payment_instructions: form.payment_instructions || null,
+      terms_conditions: form.terms_conditions || null,
+      sender_tax_id: form.sender_tax_id || null,
       notes: form.notes || null,
       template_id: form.template_id || null,
     };
@@ -889,9 +1081,19 @@ function InvoiceEditor({ invoiceId, invoices, contacts, contactsById, templates,
     fetchAll();
   }
 
-  function exportPDF() {
-    const invData = existing ? { ...existing, ...form, subtotal_cents: subtotalCents } : { ...form, invoice_number: 0, subtotal_cents: subtotalCents };
-    generateInvoicePDF(invData, lineItems, selectedContact);
+  function buildPDFData() {
+    const base = existing ? { ...existing, ...form } : { ...form, invoice_number: 0 };
+    return { ...base, subtotal_cents: subtotalCents, tax_cents: taxCents, total_cents: totalCents };
+  }
+
+  async function exportPDF() {
+    await generateInvoicePDF(buildPDFData(), lineItems, selectedContact);
+  }
+
+  async function previewPDF() {
+    const pdfDoc = await generateInvoicePDF(buildPDFData(), lineItems, selectedContact, { preview: true });
+    const blobUrl = pdfDoc.output('bloburl');
+    window.open(blobUrl, '_blank');
   }
 
   return (
@@ -939,6 +1141,14 @@ function InvoiceEditor({ invoiceId, invoices, contacts, contactsById, templates,
               <input type="date" style={styles.input} value={form.paid_date} onChange={e => updateField('paid_date', e.target.value)} />
             </div>
           )}
+          <div style={styles.fieldGroup}>
+            <label style={styles.label}>PO Number</label>
+            <input type="text" style={styles.input} placeholder="Optional" value={form.po_number} onChange={e => updateField('po_number', e.target.value)} />
+          </div>
+          <div style={styles.fieldGroup}>
+            <label style={styles.label}>Payment Terms</label>
+            <input type="text" style={styles.input} placeholder="e.g. Net 30" value={form.payment_terms} onChange={e => updateField('payment_terms', e.target.value)} />
+          </div>
         </div>
       </div>
 
@@ -1030,12 +1240,84 @@ function InvoiceEditor({ invoiceId, invoices, contacts, contactsById, templates,
         ))}
         <button style={styles.addLineBtn} onClick={addLineItem}>+ Add Line Item</button>
 
-        {/* Subtotal */}
-        <div style={styles.subtotalRow}>
-          <div style={{ fontSize: '14px', fontWeight: 700, color: '#e2e8f0' }}>Subtotal</div>
-          <div style={{ fontSize: '18px', fontWeight: 700, color: '#e2e8f0', fontFamily: 'monospace' }}>
-            {formatCurrency(subtotalCents)}
+        {/* Financial Summary */}
+        <div style={{ marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={styles.subtotalRow}>
+            <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.6)' }}>Subtotal</div>
+            <div style={{ fontSize: '14px', fontWeight: 600, color: '#e2e8f0', fontFamily: 'monospace' }}>
+              {formatCurrency(subtotalCents)}
+            </div>
           </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '4px' }}>
+            <div style={styles.fieldGroup}>
+              <label style={styles.label}>Discount ($)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                style={{ ...styles.input, textAlign: 'right' }}
+                value={((form.discount_cents || 0) / 100).toFixed(2)}
+                onChange={e => updateField('discount_cents', Math.round((parseFloat(e.target.value) || 0) * 100))}
+              />
+            </div>
+            <div style={styles.fieldGroup}>
+              <label style={styles.label}>Tax Rate (%)</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  style={{ ...styles.input, textAlign: 'right', flex: 1 }}
+                  value={form.tax_rate || ''}
+                  placeholder="0"
+                  onChange={e => updateField('tax_rate', parseFloat(e.target.value) || 0)}
+                />
+                {form.tax_rate > 0 && (
+                  <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                    = {formatCurrency(taxCents)}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div style={styles.fieldGroup}>
+              <label style={styles.label}>Shipping ($)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                style={{ ...styles.input, textAlign: 'right' }}
+                value={((form.shipping_cents || 0) / 100).toFixed(2)}
+                onChange={e => updateField('shipping_cents', Math.round((parseFloat(e.target.value) || 0) * 100))}
+              />
+            </div>
+            <div style={styles.fieldGroup}>
+              <label style={styles.label}>Amount Paid / Deposit ($)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                style={{ ...styles.input, textAlign: 'right' }}
+                value={((form.amount_paid_cents || 0) / 100).toFixed(2)}
+                onChange={e => updateField('amount_paid_cents', Math.round((parseFloat(e.target.value) || 0) * 100))}
+              />
+            </div>
+          </div>
+
+          <div style={{ ...styles.subtotalRow, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '10px', marginTop: '4px' }}>
+            <div style={{ fontSize: '14px', fontWeight: 700, color: '#e2e8f0' }}>Total</div>
+            <div style={{ fontSize: '18px', fontWeight: 700, color: '#e2e8f0', fontFamily: 'monospace' }}>
+              {formatCurrency(totalCents)}
+            </div>
+          </div>
+          {Number(form.amount_paid_cents || 0) > 0 && (
+            <div style={styles.subtotalRow}>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: '#a5b4fc' }}>Balance Due</div>
+              <div style={{ fontSize: '16px', fontWeight: 700, color: '#a5b4fc', fontFamily: 'monospace' }}>
+                {formatCurrency(balanceDueCents)}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1045,10 +1327,47 @@ function InvoiceEditor({ invoiceId, invoices, contacts, contactsById, templates,
         <textarea
           style={styles.textarea}
           rows={3}
-          placeholder="Payment terms, thank you notes, etc."
+          placeholder="Thank you notes, special instructions, etc."
           value={form.notes}
           onChange={e => updateField('notes', e.target.value)}
         />
+      </div>
+
+      {/* Additional Sections */}
+      <div style={styles.editorSection}>
+        <div style={styles.sectionTitle}>Additional Details</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={styles.fieldGroup}>
+            <label style={styles.label}>Payment Instructions</label>
+            <textarea
+              style={styles.textarea}
+              rows={3}
+              placeholder="Bank details, payment methods, wire instructions..."
+              value={form.payment_instructions}
+              onChange={e => updateField('payment_instructions', e.target.value)}
+            />
+          </div>
+          <div style={styles.fieldGroup}>
+            <label style={styles.label}>Terms & Conditions</label>
+            <textarea
+              style={styles.textarea}
+              rows={3}
+              placeholder="Late payment penalties, cancellation policy, etc."
+              value={form.terms_conditions}
+              onChange={e => updateField('terms_conditions', e.target.value)}
+            />
+          </div>
+          <div style={styles.fieldGroup}>
+            <label style={styles.label}>Tax ID / EIN</label>
+            <input
+              type="text"
+              style={{ ...styles.input, maxWidth: '260px' }}
+              placeholder="e.g. 12-3456789"
+              value={form.sender_tax_id}
+              onChange={e => updateField('sender_tax_id', e.target.value)}
+            />
+          </div>
+        </div>
       </div>
 
       {/* Actions */}
@@ -1067,6 +1386,7 @@ function InvoiceEditor({ invoiceId, invoices, contacts, contactsById, templates,
               Mark Paid
             </button>
           )}
+          <button style={styles.secondaryBtn} onClick={previewPDF}>Preview</button>
           <button style={styles.secondaryBtn} onClick={exportPDF}>Export PDF</button>
           <button style={styles.secondaryBtn} onClick={() => setShowSaveTemplate(true)}>Save as Template</button>
         </div>
