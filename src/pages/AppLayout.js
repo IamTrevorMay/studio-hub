@@ -16,6 +16,7 @@ import Analytics from './Analytics';
 import Research from './Research';
 import Goals from './Goals';
 import BusinessDev from './BusinessDev';
+import Invoicing from './Invoicing';
 import Production from './Production';
 import Write from './Write';
 import Screenwriter from './Screenwriter';
@@ -55,6 +56,7 @@ const NAV_ITEMS = [
   { key: 'calendar', label: 'Calendar', icon: CalendarIcon },
   { key: 'goals', label: 'Goals', icon: GoalsIcon },
   { key: 'business_dev', label: 'Business Dev', icon: BusinessDevIcon, adminOnly: true },
+  { key: 'invoicing', label: 'Invoicing', icon: InvoicingIcon },
   { key: 'freelancers', label: 'Freelancers', icon: ToolsIcon, adminOnly: true },
   { key: 'channels', label: 'Channels', icon: ChannelsIcon },
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
@@ -109,6 +111,7 @@ const NAV_ICON_MAP = {
   calendar: CalendarIcon,
   goals: GoalsIcon,
   business_dev: BusinessDevIcon,
+  invoicing: InvoicingIcon,
   channels: ChannelsIcon,
   messages: MessagesIcon,
   fl_dashboard: DashboardIcon,
@@ -574,6 +577,7 @@ export default function AppLayout() {
           {activeTab === 'reviews' && <Reviews />}
           {activeTab === 'goals' && <Goals />}
           {(isAdmin || isPartner) && activeTab === 'business_dev' && <BusinessDev />}
+          {(isAdmin || isAssistant) && activeTab === 'invoicing' && <Invoicing />}
 
           {activeTab === 'channels' && <Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} />}
           {activeTab === 'messages' && <Messages onNavigate={navigateTo} />}
@@ -708,6 +712,16 @@ function BusinessDevIcon({ active }) {
       <path d="M3 17V11M8 17V8M13 17V5M18 17V3" strokeLinecap="round" />
       <path d="M2 18h17" strokeLinecap="round" />
       <circle cx="13" cy="5" r="1.4" fill={active ? '#a5b4fc' : '#6b7280'} />
+    </svg>
+  );
+}
+
+function InvoicingIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <rect x="4" y="2" width="12" height="16" rx="2" />
+      <path d="M7 6h6M7 9h6M7 12h4" strokeLinecap="round" />
+      <path d="M4 15h12" />
     </svg>
   );
 }
