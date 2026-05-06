@@ -218,8 +218,9 @@ export default function Invoicing() {
   const [editingContact, setEditingContact] = useState(null);
 
   // ── Fetch ──────────────────────────────────────────────
+  const initialLoadDone = useRef(false);
   const fetchAll = useCallback(async () => {
-    setLoading(true);
+    if (!initialLoadDone.current) setLoading(true);
     const [invRes, conRes, tplRes] = await Promise.all([
       supabase.from('invoices').select('*, invoice_line_items(*)').order('created_at', { ascending: false }),
       supabase.from('invoice_contacts').select('*').order('name'),
@@ -228,6 +229,7 @@ export default function Invoicing() {
     if (invRes.data) setInvoices(invRes.data);
     if (conRes.data) setContacts(conRes.data);
     if (tplRes.data) setTemplates(tplRes.data);
+    initialLoadDone.current = true;
     setLoading(false);
   }, []);
 
@@ -337,7 +339,7 @@ export default function Invoicing() {
             onEditContact={setEditingContact}
             profile={profile}
             onClose={() => { setShowContactModal(false); setEditingContact(null); }}
-            onSaved={() => { fetchAll(); }}
+            onSaved={async () => { await fetchAll(); }}
           />
         )}
       </div>
@@ -411,7 +413,7 @@ export default function Invoicing() {
           onEditContact={setEditingContact}
           profile={profile}
           onClose={() => { setShowContactModal(false); setEditingContact(null); }}
-          onSaved={() => { fetchAll(); }}
+          onSaved={async () => { await fetchAll(); }}
         />
       )}
     </div>
@@ -1120,8 +1122,8 @@ function ContactModal({ contacts, editingContact, onEditContact, profile, onClos
     } else {
       await supabase.from('invoice_contacts').insert({ ...form, created_by: profile?.id });
     }
+    await onSaved();
     setSaving(false);
-    onSaved();
     setMode('list');
     setForm({ ...EMPTY_CONTACT });
     onEditContact(null);
@@ -1131,7 +1133,7 @@ function ContactModal({ contacts, editingContact, onEditContact, profile, onClos
     if (!form.id) return;
     if (!window.confirm(`Delete contact "${form.name}"?`)) return;
     await supabase.from('invoice_contacts').delete().eq('id', form.id);
-    onSaved();
+    await onSaved();
     setMode('list');
     setForm({ ...EMPTY_CONTACT });
     onEditContact(null);
