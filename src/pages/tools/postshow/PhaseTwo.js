@@ -58,7 +58,7 @@ async function uploadClipToDrive(clip, parentFolderId, accessToken) {
   };
 }
 
-export default function PhaseTwo({ session, onSessionChange, recipients, profileId }) {
+export default function PhaseTwo({ session, onSessionChange, recipients, settings, profileId }) {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
   const [clipProgress, setClipProgress] = useState({}); // { [clipId]: 'waiting' | 'uploading' | 'done' | 'error' }
@@ -125,6 +125,38 @@ export default function PhaseTwo({ session, onSessionChange, recipients, profile
     }
 
     setUploading(false);
+
+    // Auto-sync eligible clips to Shorts Queue kanban
+    if (settings?.autoKanbanSync) {
+      const toSync = allClips.filter(c =>
+        c.status === 'uploaded' && c.type === 'short' && c.assignee === 'alana',
+      );
+      for (const clip of toSync) {
+        try {
+          const urgency = clip.timeSensitive ? 'time_sensitive' : 'evergreen';
+          const { error } = await supabase.from('shorts_queue').insert({
+            title: clip.title,
+            source_show: session.showDate || null,
+            urgency,
+            post_by: clip.postByDate || null,
+            stage: 'editing',
+            sort_order: 0,
+            drive_link: clip.driveLink || null,
+            created_by: profileId || null,
+          });
+          if (!error) {
+            allClips = allClips.map(c => c.id === clip.id ? { ...c, status: 'synced' } : c);
+          } else {
+            console.error(`Auto-sync failed for clip ${clip.id}:`, error);
+          }
+        } catch (err) {
+          console.error(`Auto-sync failed for clip ${clip.id}:`, err);
+        }
+      }
+      if (toSync.length > 0) {
+        onSessionChange({ ...session, clips: allClips });
+      }
+    }
 
     // Log the upload job (fire-and-forget)
     try {
