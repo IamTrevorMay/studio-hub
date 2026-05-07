@@ -1,7 +1,15 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import AuthPage from './pages/AuthPage';
-import AppLayout from './pages/AppLayout';
+import { isMobileViewport } from './hooks/useIsMobile';
+
+// Pick the layout + auth chunks once at boot. Cross-breakpoint resize requires reload.
+const Layout = isMobileViewport()
+  ? React.lazy(() => import('./pages/AppLayoutMobile'))
+  : React.lazy(() => import('./pages/AppLayout'));
+const AuthPage = isMobileViewport()
+  ? React.lazy(() => import('./pages/AuthPageMobile'))
+  : React.lazy(() => import('./pages/AuthPage'));
+
 function AppContent() {
   const { user, profile, loading, signOut, isPasswordRecovery } = useAuth();
 
@@ -37,10 +45,36 @@ function AppContent() {
 
   // During password recovery, always show AuthPage (reset form)
   if (isPasswordRecovery) {
-    return <AuthPage />;
+    return (
+      <Suspense fallback={<LayoutFallback />}>
+        <AuthPage />
+      </Suspense>
+    );
   }
 
-  return user && profile ? <AppLayout /> : <AuthPage />;
+  if (!(user && profile)) {
+    return (
+      <Suspense fallback={<LayoutFallback />}>
+        <AuthPage />
+      </Suspense>
+    );
+  }
+
+  return (
+    <Suspense fallback={<LayoutFallback />}>
+      <Layout />
+    </Suspense>
+  );
+}
+
+function LayoutFallback() {
+  return (
+    <div style={styles.loading}>
+      <div style={styles.loadingInner}>
+        <div style={styles.spinner} />
+      </div>
+    </div>
+  );
 }
 
 export default function App() {
