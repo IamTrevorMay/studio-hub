@@ -50,8 +50,8 @@ function Freelancers() {
 
   // New assignment form
   const [newAssign, setNewAssign] = useState({
-    freelancer_id: '', title: '', description: '', assignment_type: 'other',
-    due_date: '', pay_amount: '', project_id: '', deliverable_id: '', mayday_video_id: '',
+    freelancer_id: '', title: '', description: '',
+    due_date: '', pay_amount: '',
   });
 
   /* ── Hours state ── */
@@ -194,12 +194,8 @@ function Freelancers() {
       freelancer_id: newAssign.freelancer_id,
       title: newAssign.title.trim(),
       description: newAssign.description.trim() || null,
-      assignment_type: newAssign.assignment_type,
       due_date: newAssign.due_date || null,
       pay_amount: newAssign.pay_amount ? parseFloat(newAssign.pay_amount) : null,
-      project_id: newAssign.project_id.trim() || null,
-      deliverable_id: newAssign.deliverable_id.trim() || null,
-      mayday_video_id: newAssign.mayday_video_id.trim() || null,
       created_by: profile.id,
     };
     const { error } = await supabase.from('freelancer_assignments').insert(row);
@@ -215,7 +211,7 @@ function Freelancers() {
       link_target: null,
     });
 
-    setNewAssign({ freelancer_id: '', title: '', description: '', assignment_type: 'other', due_date: '', pay_amount: '', project_id: '', deliverable_id: '', mayday_video_id: '' });
+    setNewAssign({ freelancer_id: '', title: '', description: '', due_date: '', pay_amount: '' });
     setShowNewAssignment(false);
     fetchAssignments();
   };
@@ -638,18 +634,6 @@ function Freelancers() {
                   />
                 </div>
                 <div style={styles.formField}>
-                  <label style={styles.label}>Type</label>
-                  <select
-                    value={newAssign.assignment_type}
-                    onChange={e => setNewAssign(p => ({ ...p, assignment_type: e.target.value }))}
-                    style={styles.select}
-                  >
-                    {TYPE_OPTIONS.map(t => (
-                      <option key={t} value={t}>{TYPE_LABELS[t]}</option>
-                    ))}
-                  </select>
-                </div>
-                <div style={styles.formField}>
                   <label style={styles.label}>Due Date</label>
                   <input
                     type="date"
@@ -668,33 +652,6 @@ function Freelancers() {
                     placeholder="0.00"
                     min="0"
                     step="0.01"
-                  />
-                </div>
-                <div style={styles.formField}>
-                  <label style={styles.label}>Project ID</label>
-                  <input
-                    value={newAssign.project_id}
-                    onChange={e => setNewAssign(p => ({ ...p, project_id: e.target.value }))}
-                    style={styles.input}
-                    placeholder="Optional UUID"
-                  />
-                </div>
-                <div style={styles.formField}>
-                  <label style={styles.label}>Deliverable ID</label>
-                  <input
-                    value={newAssign.deliverable_id}
-                    onChange={e => setNewAssign(p => ({ ...p, deliverable_id: e.target.value }))}
-                    style={styles.input}
-                    placeholder="Optional UUID"
-                  />
-                </div>
-                <div style={styles.formField}>
-                  <label style={styles.label}>Mayday Video ID</label>
-                  <input
-                    value={newAssign.mayday_video_id}
-                    onChange={e => setNewAssign(p => ({ ...p, mayday_video_id: e.target.value }))}
-                    style={styles.input}
-                    placeholder="Optional UUID"
                   />
                 </div>
               </div>
