@@ -423,6 +423,49 @@ export default function BusinessDev() {
   }
 
   // ─────────────────────────────────────────────
+  // Drag-and-drop reorder
+  // ─────────────────────────────────────────────
+  async function handleReorderInitiative(draggedId, targetId, phaseId, workstream) {
+    const siblings = initiatives
+      .filter(i => i.phase_id === phaseId && i.workstream === workstream)
+      .sort((a, b) => (a.position || 0) - (b.position || 0));
+    const ordered = siblings.map(i => i.id);
+    const fromIdx = ordered.indexOf(draggedId);
+    if (fromIdx === -1) return;
+    ordered.splice(fromIdx, 1);
+    const toIdx = ordered.indexOf(targetId);
+    if (toIdx === -1) return;
+    ordered.splice(toIdx, 0, draggedId);
+    await Promise.all(ordered.map((id, i) =>
+      supabase.from('bd_initiatives').update({ position: i }).eq('id', id)
+    ));
+    fetchAll();
+  }
+
+  async function handleReorderTask(draggedId, targetId, sourceInitId, destInitId) {
+    // Move task to a different initiative if needed
+    if (sourceInitId !== destInitId) {
+      await supabase.from('bd_tasks').update({ initiative_id: destInitId }).eq('id', draggedId);
+    }
+    // Reorder within the destination initiative
+    const destTasks = tasks
+      .filter(t => t.initiative_id === destInitId && t.id !== draggedId)
+      .sort((a, b) => (a.position || 0) - (b.position || 0));
+    const ordered = destTasks.map(t => t.id);
+    if (targetId) {
+      const toIdx = ordered.indexOf(targetId);
+      if (toIdx !== -1) ordered.splice(toIdx, 0, draggedId);
+      else ordered.push(draggedId);
+    } else {
+      ordered.push(draggedId);
+    }
+    await Promise.all(ordered.map((id, i) =>
+      supabase.from('bd_tasks').update({ position: i }).eq('id', id)
+    ));
+    fetchAll();
+  }
+
+  // ─────────────────────────────────────────────
   // Task CRUD
   // ─────────────────────────────────────────────
   function openCreateTask(initiativeId) {
@@ -715,6 +758,8 @@ export default function BusinessDev() {
                 onEditInit={openEditInit}
                 onDeleteInit={handleDeleteInit}
                 onMoveInit={handleMoveInitiative}
+                onReorderInit={handleReorderInitiative}
+                onReorderTask={handleReorderTask}
                 onCreateInit={openCreateInit}
                 onStatusChange={handleInitiativeStatusChange}
                 milestoneFormFor={milestoneFormFor}
@@ -900,10 +945,13 @@ function PhaseCard(props) {
     expandedInitiatives, setExpandedInitiatives,
     taskFormFor, editingTaskId, taskForm, setTaskForm,
     onOpenCreateTask, onOpenEditTask, onTaskSubmit, onCancelTaskForm, onToggleTask, onDeleteTask,
-    onEditInit, onDeleteInit, onMoveInit, onCreateInit, onStatusChange,
+    onEditInit, onDeleteInit, onMoveInit, onReorderInit, onReorderTask, onCreateInit, onStatusChange,
     milestoneFormFor, editingMilestoneId, milestoneForm, setMilestoneForm,
     onCreateMilestone, onEditMilestone, onMilestoneSubmit, onCancelMilestoneForm, onRetireMilestone,
   } = props;
+  const [dragOverInitId, setDragOverInitId] = useState(null);
+  const [dragOverTaskId, setDragOverTaskId] = useState(null);
+  const [dragOverInitDrop, setDragOverInitDrop] = useState(null); // initiative id receiving a task drop
 
   const launchCountdown = useMemo(() => {
     if (!phase.launch_target_date) return null;
@@ -1102,6 +1150,19 @@ function PhaseCard(props) {
                         onCancelTaskForm={onCancelTaskForm}
                         onToggleTask={onToggleTask}
                         onDeleteTask={onDeleteTask}
+                        isDragOver={dragOverInitId === init.id}
+                        onInitDragStart={(e) => { e.dataTransfer.setData('bd-init-id', init.id); e.dataTransfer.setData('bd-init-phase', phase.id); e.dataTransfer.setData('bd-init-ws', ws.key); e.dataTransfer.effectAllowed = 'move'; }}
+                        onInitDragOver={(e) => { if (e.dataTransfer.types.includes('bd-init-id')) { e.preventDefault(); setDragOverInitId(init.id); } }}
+                        onInitDragLeave={() => setDragOverInitId(null)}
+                        onInitDrop={(e) => { e.preventDefault(); setDragOverInitId(null); const draggedId = e.dataTransfer.getData('bd-init-id'); const srcPhase = e.dataTransfer.getData('bd-init-phase'); const srcWs = e.dataTransfer.getData('bd-init-ws'); if (draggedId && draggedId !== init.id && srcPhase === phase.id && srcWs === ws.key) onReorderInit(draggedId, init.id, phase.id, ws.key); }}
+                        isTaskDragOver={dragOverInitDrop === init.id}
+                        dragOverTaskId={dragOverTaskId}
+                        onTaskDragStart={(taskId, initId) => (e) => { e.dataTransfer.setData('bd-task-id', taskId); e.dataTransfer.setData('bd-task-src-init', initId); e.dataTransfer.effectAllowed = 'move'; e.stopPropagation(); }}
+                        onTaskDragOver={(taskId, initId) => (e) => { if (e.dataTransfer.types.includes('bd-task-id')) { e.preventDefault(); e.stopPropagation(); setDragOverTaskId(taskId); setDragOverInitDrop(initId); } }}
+                        onTaskDragLeave={() => { setDragOverTaskId(null); setDragOverInitDrop(null); }}
+                        onTaskDrop={(targetTaskId, destInitId) => (e) => { e.preventDefault(); e.stopPropagation(); setDragOverTaskId(null); setDragOverInitDrop(null); const draggedId = e.dataTransfer.getData('bd-task-id'); const srcInit = e.dataTransfer.getData('bd-task-src-init'); if (draggedId && draggedId !== targetTaskId) onReorderTask(draggedId, targetTaskId, srcInit, destInitId); }}
+                        onInitTaskAreaDragOver={(initId) => (e) => { if (e.dataTransfer.types.includes('bd-task-id')) { e.preventDefault(); e.stopPropagation(); setDragOverInitDrop(initId); setDragOverTaskId(null); } }}
+                        onInitTaskAreaDrop={(initId) => (e) => { e.preventDefault(); e.stopPropagation(); setDragOverInitDrop(null); setDragOverTaskId(null); const draggedId = e.dataTransfer.getData('bd-task-id'); const srcInit = e.dataTransfer.getData('bd-task-src-init'); if (draggedId) onReorderTask(draggedId, null, srcInit, initId); }}
                       />
                     ))}
                     {showCompleted && (
@@ -1166,6 +1227,11 @@ function InitiativeCard(props) {
     taskFormFor, editingTaskId, taskForm, setTaskForm,
     onOpenCreateTask, onOpenEditTask, onTaskSubmit, onCancelTaskForm,
     onToggleTask, onDeleteTask,
+    // drag-and-drop
+    isDragOver, onInitDragStart, onInitDragOver, onInitDragLeave, onInitDrop,
+    isTaskDragOver, dragOverTaskId,
+    onTaskDragStart, onTaskDragOver, onTaskDragLeave, onTaskDrop,
+    onInitTaskAreaDragOver, onInitTaskAreaDrop,
   } = props;
 
   const tag = TAG_MAP[initiative.tag];
@@ -1186,7 +1252,15 @@ function InitiativeCard(props) {
   });
 
   return (
-    <div style={{ ...styles.initiativeCard, opacity: dimmed ? 0.55 : 1 }}>
+    <div
+      style={{ ...styles.initiativeCard, opacity: dimmed ? 0.55 : 1, ...(isDragOver ? { borderColor: '#6366f1', background: 'rgba(99,102,241,0.06)' } : {}), ...(isTaskDragOver ? { borderColor: '#10b981', background: 'rgba(16,185,129,0.04)' } : {}) }}
+      draggable={isAdmin && !dimmed}
+      onDragStart={onInitDragStart}
+      onDragOver={onInitDragOver}
+      onDragLeave={onInitDragLeave}
+      onDrop={onInitDrop}
+      onDragEnd={() => {}}
+    >
       <div style={styles.initRowHeader}>
         <button onClick={onToggleExpand} style={styles.initCaretBtn} title={expanded ? 'Collapse' : 'Expand'}>
           <span style={{ display: 'inline-block', transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.12s' }}>▶</span>
@@ -1236,6 +1310,10 @@ function InitiativeCard(props) {
               <button onClick={() => onOpenCreateTask(initiative.id)} style={styles.subtleBtn}>+ Task</button>
             )}
           </div>
+          <div
+            onDragOver={onInitTaskAreaDragOver ? onInitTaskAreaDragOver(initiative.id) : undefined}
+            onDrop={onInitTaskAreaDrop ? onInitTaskAreaDrop(initiative.id) : undefined}
+          >
           {sortedTasks.map(task => (
             <TaskRow
               key={task.id}
@@ -1251,8 +1329,14 @@ function InitiativeCard(props) {
               onSubmit={(e) => onTaskSubmit(e, initiative.id)}
               onCancel={onCancelTaskForm}
               onDelete={() => onDeleteTask(task.id)}
+              isDragOver={dragOverTaskId === task.id}
+              onDragStart={onTaskDragStart ? onTaskDragStart(task.id, initiative.id) : undefined}
+              onDragOver={onTaskDragOver ? onTaskDragOver(task.id, initiative.id) : undefined}
+              onDragLeave={onTaskDragLeave}
+              onDrop={onTaskDrop ? onTaskDrop(task.id, initiative.id) : undefined}
             />
           ))}
+          </div>
           {isAdmin && taskFormFor === initiative.id && !editingTaskId && (
             <TaskForm form={taskForm} setForm={setTaskForm} admins={admins}
               onSubmit={(e) => onTaskSubmit(e, initiative.id)} onCancel={onCancelTaskForm} />
@@ -1269,7 +1353,8 @@ function InitiativeCard(props) {
 // ════════════════════════════════════════════════════════════
 // Task row
 // ════════════════════════════════════════════════════════════
-function TaskRow({ task, admins, isAdmin, initiative, isEditing, taskForm, setTaskForm, onToggle, onEdit, onSubmit, onCancel, onDelete }) {
+function TaskRow({ task, admins, isAdmin, initiative, isEditing, taskForm, setTaskForm, onToggle, onEdit, onSubmit, onCancel, onDelete,
+  isDragOver, onDragStart, onDragOver, onDragLeave, onDrop }) {
   if (isEditing) return <TaskForm form={taskForm} setForm={setTaskForm} admins={admins} onSubmit={onSubmit} onCancel={onCancel} editing />;
   const done = !!task.completed_at;
   const owner = admins.find(a => a.id === task.owner_id);
@@ -1277,7 +1362,14 @@ function TaskRow({ task, admins, isAdmin, initiative, isEditing, taskForm, setTa
   const tag = effectiveTag(task, initiative);
   const tagMeta = TAG_MAP[tag];
   return (
-    <div style={{ ...styles.taskRow, opacity: done ? 0.55 : 1 }}>
+    <div
+      style={{ ...styles.taskRow, opacity: done ? 0.55 : 1, ...(isDragOver ? { borderTop: '2px solid #6366f1', marginTop: '-2px' } : {}) }}
+      draggable={isAdmin}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
       {isAdmin ? (
         <button onClick={onToggle} style={styles.checkBtn}>
           <span style={{ ...styles.checkBox, ...(done ? styles.checkBoxDone : {}) }}>{done && '✓'}</span>
@@ -1294,8 +1386,8 @@ function TaskRow({ task, admins, isAdmin, initiative, isEditing, taskForm, setTa
       {dl && !done && <span style={{ ...styles.metaPill, color: dl.color }}>{formatDateShort(task.due_date)} · {dl.sub}</span>}
       {dl && done && <span style={styles.metaPill}>{formatDateShort(task.due_date)}</span>}
       {owner && <span style={styles.ownerChip} title={owner.full_name}>{owner.full_name?.charAt(0).toUpperCase()}</span>}
-      {isAdmin && <button onClick={onEdit} style={styles.iconBtn}>edit</button>}
-      {isAdmin && <button onClick={onDelete} style={styles.iconBtn}>×</button>}
+      {isAdmin && <button onClick={(e) => { e.stopPropagation(); onEdit(); }} style={styles.iconBtn}>edit</button>}
+      {isAdmin && <button onClick={(e) => { e.stopPropagation(); onDelete(); }} style={styles.iconBtn}>×</button>}
     </div>
   );
 }
