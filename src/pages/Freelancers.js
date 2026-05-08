@@ -73,7 +73,7 @@ function Freelancers() {
   const fetchTeam = useCallback(async () => {
     const { data: profiles } = await supabase
       .from('profiles')
-      .select('id, full_name, email, avatar_url')
+      .select('id, full_name, email, avatar_url, title')
       .eq('role', 'freelancer')
       .order('full_name');
     setFreelancers(profiles || []);
@@ -611,7 +611,7 @@ function Freelancers() {
                   >
                     <option value="">Select...</option>
                     {freelancers.map(fl => (
-                      <option key={fl.id} value={fl.id}>{fl.full_name || fl.email}</option>
+                      <option key={fl.id} value={fl.id}>{fl.full_name || fl.email}{fl.title ? ` — ${fl.title}` : ''}</option>
                     ))}
                   </select>
                 </div>
