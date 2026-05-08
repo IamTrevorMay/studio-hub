@@ -29,8 +29,10 @@ import FreelancerDashboard from './FreelancerDashboard';
 import FreelancerHours from './FreelancerHours';
 import FreelancerProfile from './FreelancerProfile';
 import FreelancerNotifications from './FreelancerNotifications';
+import FreelancerDocuments from './FreelancerDocuments';
 import Freelancers from './Freelancers';
 import Morty from '../components/Morty';
+import FreelancerTour from '../components/FreelancerTour';
 
 // Sidebar catalog. Labels listed here are aliased internally — the user
 // refers to Production as "Beat Sheet", Scene Builder as "Custom Visuals",
@@ -62,7 +64,7 @@ const NAV_ITEMS = [
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
 ];
 
-const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications'));
+const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_documents'));
 
 function getTabFromPath() {
   const path = window.location.pathname.replace(/^\/+/, '').split('/')[0];
@@ -118,10 +120,11 @@ const NAV_ICON_MAP = {
   fl_hours: HoursIcon,
   fl_profile: ProfileIcon,
   fl_notifications: NotificationsIcon,
+  fl_documents: DocumentsIcon,
 };
 
 export default function AppLayout() {
-  const { profile, signOut, isAdmin, isAssistant, isPartner, isFreelancer, unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, refreshNotifications } = useAuth();
+  const { profile, signOut, isAdmin, isAssistant, isPartner, isFreelancer, unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, refreshNotifications } = useAuth();
   const { getResolvedNav, saveConfig, saving } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => getTabFromPath() || localStorage.getItem('studio-hub-tab') || 'dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -136,6 +139,7 @@ export default function AppLayout() {
   const [folderCollapseState, setFolderCollapseState] = useState(() =>
     JSON.parse(localStorage.getItem('nav-folder-state') || '{}')
   );
+  const [showTour, setShowTour] = useState(false);
 
   // Persist folder collapse state
   useEffect(() => {
@@ -185,6 +189,22 @@ export default function AppLayout() {
       setActiveTab('fl_dashboard');
     }
   }, [isFreelancer]); // eslint-disable-line
+
+  // Check whether freelancer has completed the onboarding tour
+  useEffect(() => {
+    if (!isFreelancer || !profile?.id) return;
+    supabase.from('freelancer_profiles').select('tour_completed_at').eq('id', profile.id).single()
+      .then(({ data }) => {
+        if (data && !data.tour_completed_at) setShowTour(true);
+      });
+  }, [isFreelancer, profile?.id]);
+
+  async function handleTourComplete() {
+    setShowTour(false);
+    await supabase.from('freelancer_profiles')
+      .update({ tour_completed_at: new Date().toISOString() })
+      .eq('id', profile.id);
+  }
 
   const dashboardNotifCount = unreadAnnouncementCount + (isAdmin ? newItineraryCount : 0);
 
@@ -323,6 +343,7 @@ export default function AppLayout() {
                         return (
                           <button
                             key={child.key}
+                            data-nav-key={child.key}
                             onClick={() => handleNavClick(child.key)}
                             style={{
                               ...styles.navItem,
@@ -366,6 +387,7 @@ export default function AppLayout() {
                           return (
                             <button
                               key={child.key}
+                              data-nav-key={child.key}
                               onClick={() => handleNavClick(child.key)}
                               style={{
                                 ...styles.navItem,
@@ -399,6 +421,7 @@ export default function AppLayout() {
                   return (
                     <button
                       key={entry.key}
+                      data-nav-key={entry.key}
                       onClick={() => handleNavClick(entry.key)}
                       style={{
                         ...styles.navItem,
@@ -418,6 +441,9 @@ export default function AppLayout() {
                       )}
                       {entry.key === 'projects' && pendingProposalCount > 0 && (
                         <span style={styles.navBadge}>{pendingProposalCount}</span>
+                      )}
+                      {entry.key === 'fl_documents' && unsignedDocCount > 0 && (
+                        <span style={styles.navBadge}>{unsignedDocCount}</span>
                       )}
                     </button>
                   );
@@ -587,9 +613,16 @@ export default function AppLayout() {
           {isFreelancer && activeTab === 'fl_hours' && <FreelancerHours />}
           {isFreelancer && activeTab === 'fl_profile' && <FreelancerProfile />}
           {isFreelancer && activeTab === 'fl_notifications' && <FreelancerNotifications onNavigate={navigateTo} />}
+          {isFreelancer && activeTab === 'fl_documents' && <FreelancerDocuments />}
         </div>
       </main>
       {profile?.mascot_enabled !== false && <Morty />}
+      {showTour && (
+        <FreelancerTour
+          onComplete={handleTourComplete}
+          onNavigate={(key) => setActiveTab(key)}
+        />
+      )}
     </div>
   );
 }
@@ -809,6 +842,16 @@ function NotificationsIcon({ active }) {
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
       <path d="M15 8a5 5 0 00-10 0c0 5.5-2.5 7.5-2.5 7.5h15S15 13.5 15 8z" strokeLinejoin="round" />
       <path d="M11.5 18a1.7 1.7 0 01-3 0" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function DocumentsIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <path d="M6 2h5l5 5v9a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2z" strokeLinejoin="round" />
+      <path d="M11 2v5h5" strokeLinejoin="round" />
+      <path d="M7 12h6M7 15h4" strokeLinecap="round" />
     </svg>
   );
 }
