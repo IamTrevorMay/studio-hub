@@ -136,6 +136,7 @@ export default function Projects({ onNavigate }) {
   const [deliverablePay, setDeliverablePay] = useState('');
   const [deliverableBeatSheetId, setDeliverableBeatSheetId] = useState('');
   const [deliverableVideoEventId, setDeliverableVideoEventId] = useState('');
+  const [deliverableChannel, setDeliverableChannel] = useState('');
 
   // Video events for sponsor calendar
   const [videoEvents, setVideoEvents] = useState([]);
@@ -148,7 +149,7 @@ export default function Projects({ onNavigate }) {
   // Campaign state
   const [showCampaignForm, setShowCampaignForm] = useState(null); // sponsorId or null
   const [editingCampaign, setEditingCampaign] = useState(null);
-  const [campaignForm, setCampaignForm] = useState({ name: '', description: '', start_date: '', end_date: '', contact_name: '', contact_email: '', payment_amount: '', payment_status: 'unpaid', channel: '' });
+  const [campaignForm, setCampaignForm] = useState({ name: '', description: '', start_date: '', end_date: '', contact_name: '', contact_email: '', payment_status: 'unpaid' });
   const [briefFile, setBriefFile] = useState(null);
 
   const [allDeliverables, setAllDeliverables] = useState([]);
@@ -651,7 +652,7 @@ export default function Projects({ onNavigate }) {
       (data || []).forEach(s => {
         (s.sponsor_deliverables || []).forEach(d => {
           const campaign = (s.sponsor_campaigns || []).find(c => c.id === d.campaign_id);
-          flat.push({ ...d, sponsor_name: s.name, sponsor_id: s.id, campaign_name: campaign?.name || null, campaign_channel: campaign?.channel || null });
+          flat.push({ ...d, sponsor_name: s.name, sponsor_id: s.id, campaign_name: campaign?.name || null });
         });
       });
       setAllDeliverables(flat);
@@ -1111,7 +1112,6 @@ export default function Projects({ onNavigate }) {
         sponsor_id: sponsorId,
         name: proposal.sponsor_name + ' Campaign',
         description: proposal.description || null,
-        payment_amount: proposal.pay ? parseFloat(proposal.pay) : 0,
         payment_status: 'unpaid',
       };
       // Parse timeframe if it matches YYYY-MM-DD - YYYY-MM-DD
@@ -1152,6 +1152,7 @@ export default function Projects({ onNavigate }) {
     setDueDate(''); setDeliverableNotes('');
     setDeliverablePlatforms([]); setDeliverableNeedsReview(false); setDeliverableCampaignId('');
     setDeliverablePay(''); setDeliverableBeatSheetId(''); setDeliverableVideoEventId('');
+    setDeliverableChannel('');
     setEditingDeliverable(null); setShowDeliverableForm(null);
   }
 
@@ -1173,6 +1174,7 @@ export default function Projects({ onNavigate }) {
     setDeliverablePay(d.pay != null ? String(d.pay) : '');
     setDeliverableBeatSheetId(d.beat_sheet_id || '');
     setDeliverableVideoEventId(d.video_event_id || '');
+    setDeliverableChannel(d.channel || '');
     setEditingDeliverable(d.id);
     setShowDeliverableForm(d.campaign_id);
   }
@@ -1229,6 +1231,7 @@ export default function Projects({ onNavigate }) {
         pay: deliverablePay ? parseFloat(deliverablePay) : null,
         beat_sheet_id: deliverableBeatSheetId || null,
         video_event_id: deliverableVideoEventId || null,
+        channel: deliverableChannel || null,
         updated_at: new Date().toISOString(),
       }).eq('id', editingDeliverable);
       if (error) { alert('Error updating deliverable: ' + error.message); return; }
@@ -1273,6 +1276,7 @@ export default function Projects({ onNavigate }) {
         pay: deliverablePay ? parseFloat(deliverablePay) : null,
         beat_sheet_id: deliverableBeatSheetId || null,
         video_event_id: deliverableVideoEventId || null,
+        channel: deliverableChannel || null,
       }).select().single();
       if (error) { alert('Error creating deliverable: ' + error.message); return; }
 
@@ -1319,6 +1323,9 @@ export default function Projects({ onNavigate }) {
       }
     }
 
+    const syncCampId = campaignId || deliverableCampaignId;
+    if (syncCampId) await syncCampaignRevenue(syncCampId);
+
     resetDeliverableForm();
     fetchSponsors();
   }
@@ -1328,6 +1335,7 @@ export default function Projects({ onNavigate }) {
       await supabase.from('calendar_events').delete().eq('id', deliverable.calendar_event_id);
     }
     await supabase.from('sponsor_deliverables').delete().eq('id', deliverable.id);
+    if (deliverable.campaign_id) await syncCampaignRevenue(deliverable.campaign_id);
     fetchSponsors();
   }
 
@@ -1342,7 +1350,7 @@ export default function Projects({ onNavigate }) {
 
   // Campaign CRUD
   function resetCampaignForm() {
-    setCampaignForm({ name: '', description: '', start_date: '', end_date: '', contact_name: '', contact_email: '', payment_amount: '', payment_status: 'unpaid', channel: '' });
+    setCampaignForm({ name: '', description: '', start_date: '', end_date: '', contact_name: '', contact_email: '', payment_status: 'unpaid' });
     setBriefFile(null);
     setEditingCampaign(null); setShowCampaignForm(null);
   }
@@ -1357,9 +1365,7 @@ export default function Projects({ onNavigate }) {
       end_date: campaignForm.end_date || null,
       contact_name: campaignForm.contact_name || null,
       contact_email: campaignForm.contact_email || null,
-      payment_amount: campaignForm.payment_amount ? parseFloat(campaignForm.payment_amount) : 0,
       payment_status: campaignForm.payment_status || 'unpaid',
-      channel: campaignForm.channel || null,
       updated_at: new Date().toISOString(),
     };
     let campaignId = editingCampaign;
@@ -1380,26 +1386,44 @@ export default function Projects({ onNavigate }) {
         await supabase.from('sponsor_campaigns').update({ brief_url: urlData.publicUrl, brief_name: briefFile.name }).eq('id', campaignId);
       }
     }
-    // Sync revenue_event based on payment status
+    await syncCampaignRevenue(campaignId);
+
+    resetCampaignForm();
+    fetchSponsors();
+  }
+
+  async function syncCampaignRevenue(campaignId) {
+    if (!campaignId) return;
     const revenueKey = `sponsor_campaign_${campaignId}`;
-    if (payload.payment_status === 'paid' && payload.payment_amount > 0) {
-      const amountCents = Math.round(payload.payment_amount * 100);
+    const { data: campaign } = await supabase
+      .from('sponsor_campaigns')
+      .select('id, sponsor_id, payment_status, end_date')
+      .eq('id', campaignId)
+      .single();
+    if (!campaign) {
+      await supabase.from('revenue_events').delete().eq('stripe_event_id', revenueKey);
+      return;
+    }
+    const { data: dels } = await supabase
+      .from('sponsor_deliverables')
+      .select('pay')
+      .eq('campaign_id', campaignId);
+    const totalPay = (dels || []).reduce((sum, d) => sum + (parseFloat(d.pay) || 0), 0);
+    if (campaign.payment_status === 'paid' && totalPay > 0) {
+      const amountCents = Math.round(totalPay * 100);
       await supabase.from('revenue_events').upsert({
         stripe_event_id: revenueKey,
         event_type: 'sponsorship',
         amount_cents: amountCents,
         net_amount_cents: amountCents,
         product_category: 'sponsorship',
-        occurred_at: payload.end_date || new Date().toISOString(),
+        occurred_at: campaign.end_date || new Date().toISOString(),
         platform_account_id: null,
-        metadata: { source: 'sponsor_campaign', campaign_id: campaignId, sponsor_id: sponsorId },
+        metadata: { source: 'sponsor_campaign', campaign_id: campaignId, sponsor_id: campaign.sponsor_id },
       }, { onConflict: 'stripe_event_id' });
     } else {
       await supabase.from('revenue_events').delete().eq('stripe_event_id', revenueKey);
     }
-
-    resetCampaignForm();
-    fetchSponsors();
   }
 
   async function handleRemoveBrief(campaignId, briefUrl) {
@@ -1580,6 +1604,11 @@ export default function Projects({ onNavigate }) {
               {d.title}
             </div>
           </div>
+          {d.channel && CHANNEL_COLORS[d.channel] && (
+            <span style={{ fontSize: '9px', fontWeight: 700, padding: '2px 5px', borderRadius: '4px', background: CHANNEL_COLORS[d.channel].bg, color: CHANNEL_COLORS[d.channel].color }}>
+              {CHANNEL_COLORS[d.channel].label}
+            </span>
+          )}
           {(d.platforms || []).map(p => (
             <span key={p} style={{ fontSize: '9px', fontWeight: 600, padding: '2px 5px', borderRadius: '4px', background: 'rgba(99,102,241,0.12)', color: '#a5b4fc' }}>{p}</span>
           ))}
@@ -2720,7 +2749,7 @@ export default function Projects({ onNavigate }) {
                       <span>{date.getDate()}</span>
                       {videoSlotConfig.filter(s => s.day_of_week === date.getDay()).map(s => {
                         const ch = CHANNEL_COLORS[s.channel] || CHANNEL_COLORS.socials;
-                        const slottedDel = allDeliverables.find(d => d.slot_date === dateStr && d.campaign_channel === s.channel);
+                        const slottedDel = allDeliverables.find(d => d.slot_date === dateStr && d.channel === s.channel);
                         const isOpen = slotDropdown && slotDropdown.dateStr === dateStr && slotDropdown.channel === s.channel;
                         return (
                           <span key={s.channel} style={{ position: 'relative', display: 'inline-block' }}>
@@ -2744,7 +2773,7 @@ export default function Projects({ onNavigate }) {
                                   </div>
                                 )}
                                 {(() => {
-                                  const available = allDeliverables.filter(d => !d.video_event_id && !d.slot_date && d.campaign_channel === s.channel);
+                                  const available = allDeliverables.filter(d => !d.video_event_id && !d.slot_date && d.channel === s.channel);
                                   if (!available.length) return (
                                     <div style={{ padding: '6px 10px', fontSize: '11px', color: 'rgba(255,255,255,0.3)' }}>No deliverables</div>
                                   );
@@ -2881,15 +2910,6 @@ export default function Projects({ onNavigate }) {
                                 <input value={campaignForm.name} onChange={e => setCampaignForm({ ...campaignForm, name: e.target.value })} placeholder="e.g. Q1 Launch" required style={styles.input} />
                               </div>
                               <div style={styles.field}>
-                                <label style={styles.label}>Channel</label>
-                                <select value={campaignForm.channel} onChange={e => setCampaignForm({ ...campaignForm, channel: e.target.value })} style={styles.select}>
-                                  <option value="">— Select channel —</option>
-                                  <option value="mayday">Mayday</option>
-                                  <option value="tmb">Trevor May Baseball</option>
-                                  <option value="socials">Socials</option>
-                                </select>
-                              </div>
-                              <div style={styles.field}>
                                 <label style={styles.label}>Start Date</label>
                                 <input type="date" value={campaignForm.start_date} onChange={e => setCampaignForm({ ...campaignForm, start_date: e.target.value })} style={styles.input} />
                               </div>
@@ -2905,12 +2925,6 @@ export default function Projects({ onNavigate }) {
                                 <label style={styles.label}>Contact Email</label>
                                 <input value={campaignForm.contact_email} onChange={e => setCampaignForm({ ...campaignForm, contact_email: e.target.value })} placeholder="john@sponsor.com" type="email" style={styles.input} />
                               </div>
-                              {isAdmin && (
-                                <div style={styles.field}>
-                                  <label style={styles.label}>Payment Amount</label>
-                                  <input value={campaignForm.payment_amount} onChange={e => setCampaignForm({ ...campaignForm, payment_amount: e.target.value })} placeholder="0.00" type="number" step="0.01" min="0" style={styles.input} />
-                                </div>
-                              )}
                               {isAdmin && (
                                 <div style={styles.field}>
                                   <label style={styles.label}>Payment Status</label>
@@ -2934,12 +2948,15 @@ export default function Projects({ onNavigate }) {
                           </form>
                         )}
 
-                        {campaigns.length > 0 && campaigns.map(campaign => {
+                        {campaigns.length > 0 && (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px' }}>
+                        {campaigns.map(campaign => {
                           const campaignDels = deliverables.filter(d => d.campaign_id === campaign.id);
                           const allDeliveredCamp = campaignDels.length > 0 && campaignDels.every(d => d.delivered);
                           const campDeliveredCount = campaignDels.filter(d => d.delivered).length;
+                          const campTotalPay = campaignDels.reduce((sum, d) => sum + (parseFloat(d.pay) || 0), 0);
                           return (
-                            <div key={campaign.id} style={{ marginBottom: '8px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', padding: '10px 12px' }}>
+                            <div key={campaign.id} style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', padding: '10px 12px', minWidth: 0 }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0', flexWrap: 'wrap' }}>
                                 <span style={{ fontSize: '13px', fontWeight: 600, color: '#e2e8f0', flex: 1 }}>{campaign.name}</span>
                                 {campaign.start_date && campaign.end_date && (
@@ -2947,9 +2964,9 @@ export default function Projects({ onNavigate }) {
                                     {new Date(campaign.start_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – {new Date(campaign.end_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                                   </span>
                                 )}
-                                {isAdmin && campaign.payment_amount > 0 && (
+                                {isAdmin && campTotalPay > 0 && (
                                   <span style={{ ...styles.paymentBadge, background: `${PAYMENT_STATUS_COLORS[campaign.payment_status]}15`, color: PAYMENT_STATUS_COLORS[campaign.payment_status] }}>
-                                    ${Number(campaign.payment_amount).toLocaleString()}
+                                    ${campTotalPay.toLocaleString()}
                                   </span>
                                 )}
                                 {isAdmin && (
@@ -2967,7 +2984,7 @@ export default function Projects({ onNavigate }) {
                                 {campaignDels.length > 0 && (
                                   <span style={styles.checklistBadge}>{campDeliveredCount}/{campaignDels.length}</span>
                                 )}
-                                <button onClick={() => { setCampaignForm({ name: campaign.name, description: campaign.description || '', start_date: campaign.start_date || '', end_date: campaign.end_date || '', contact_name: campaign.contact_name || '', contact_email: campaign.contact_email || '', payment_amount: campaign.payment_amount || '', payment_status: campaign.payment_status || 'unpaid', channel: campaign.channel || '' }); setEditingCampaign(campaign.id); setShowCampaignForm(sponsor.id); }} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Edit">✎</button>
+                                <button onClick={() => { setCampaignForm({ name: campaign.name, description: campaign.description || '', start_date: campaign.start_date || '', end_date: campaign.end_date || '', contact_name: campaign.contact_name || '', contact_email: campaign.contact_email || '', payment_status: campaign.payment_status || 'unpaid' }); setEditingCampaign(campaign.id); setShowCampaignForm(sponsor.id); }} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Edit">✎</button>
                                 <button onClick={() => handleDeleteCampaign(campaign.id)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Delete">✕</button>
                               </div>
                               {/* Campaign contact + brief info */}
@@ -3009,6 +3026,15 @@ export default function Projects({ onNavigate }) {
                                         {Object.entries(DELIVERABLE_TYPES).map(([k, v]) => (
                                           <option key={k} value={k}>{v.icon} {v.label}</option>
                                         ))}
+                                      </select>
+                                    </div>
+                                    <div style={styles.field}>
+                                      <label style={styles.label}>Channel</label>
+                                      <select value={deliverableChannel} onChange={e => setDeliverableChannel(e.target.value)} style={styles.select}>
+                                        <option value="">— Select channel —</option>
+                                        <option value="mayday">Mayday</option>
+                                        <option value="tmb">Trevor May Baseball</option>
+                                        <option value="socials">Socials</option>
                                       </select>
                                     </div>
                                     <div style={styles.field}>
@@ -3065,6 +3091,8 @@ export default function Projects({ onNavigate }) {
                             </div>
                           );
                         })}
+                        </div>
+                        )}
                       </div>
 
                       {/* Uncampaigned Deliverables (legacy) */}
@@ -3120,11 +3148,11 @@ export default function Projects({ onNavigate }) {
                 <p style={styles.emptyText}>No upcoming ad reads. Add deliverables to sponsors above.</p>
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px' }}>
                 {upcomingReads.map(d => {
                   const linkedSheet = beatSheets.find(bs => bs.id === d.beat_sheet_id);
                   return (
-                    <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', minWidth: 0 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: '14px', fontWeight: 600, color: '#fff', marginBottom: '2px' }}>{d.title}</div>
                         <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
@@ -3171,8 +3199,18 @@ export default function Projects({ onNavigate }) {
       {/* ====== MONEY SECTION ====== */}
       {(() => {
         const allCampaigns = sponsors.flatMap(s => s.sponsor_campaigns || []);
-        const totalDeal = allCampaigns.reduce((sum, c) => sum + (parseFloat(c.payment_amount) || 0), 0);
-        const totalPaid = allCampaigns.filter(c => c.payment_status === 'paid').reduce((sum, c) => sum + (parseFloat(c.payment_amount) || 0), 0);
+        const campaignTotals = new Map(
+          allCampaigns.map(c => [
+            c.id,
+            allDeliverables
+              .filter(d => d.campaign_id === c.id)
+              .reduce((sum, d) => sum + (parseFloat(d.pay) || 0), 0),
+          ])
+        );
+        const totalDeal = Array.from(campaignTotals.values()).reduce((sum, v) => sum + v, 0);
+        const totalPaid = allCampaigns
+          .filter(c => c.payment_status === 'paid')
+          .reduce((sum, c) => sum + (campaignTotals.get(c.id) || 0), 0);
         const totalOwed = totalDeal - totalPaid;
         const upcomingValue = allDeliverables
           .filter(d => !d.delivered)
@@ -3182,7 +3220,7 @@ export default function Projects({ onNavigate }) {
           const allDel = campaignDels.length > 0 && campaignDels.every(d => d.delivered);
           return allDel && campaign.payment_status !== 'paid';
         });
-        const lateValue = lateCampaigns.reduce((sum, c) => sum + (parseFloat(c.payment_amount) || 0), 0);
+        const lateValue = lateCampaigns.reduce((sum, c) => sum + (campaignTotals.get(c.id) || 0), 0);
         if (totalDeal === 0) return null;
         return (
           <div style={{ marginTop: '40px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '24px' }}>
