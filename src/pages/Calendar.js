@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 
@@ -196,6 +197,7 @@ function expandRecurringEvents(events, rangeStart, rangeEnd) {
 
 export default function Calendar({ onNavigate }) {
   const { profile, isAdmin, refreshKey } = useAuth();
+  const confirm = useConfirm();
   const [projects, setProjects] = useState([]);
   const [scheduledPosts, setScheduledPosts] = useState([]);
   const [calendarEvents, setCalendarEvents] = useState([]);
@@ -226,6 +228,9 @@ export default function Calendar({ onNavigate }) {
   });
   const [dragOverDate, setDragOverDate] = useState(null);
   const [videoDeliverables, setVideoDeliverables] = useState([]);
+  const [unassignedDeliverables, setUnassignedDeliverables] = useState([]);
+  const [showDeliverableDropdown, setShowDeliverableDropdown] = useState(false);
+  const deliverableDropdownRef = useRef(null);
   const modalRef = useRef(null);
   const guestDropdownRef = useRef(null);
   const timeGridRef = useRef(null);
@@ -244,6 +249,9 @@ export default function Calendar({ onNavigate }) {
     function handleClick(e) {
       if (guestDropdownRef.current && !guestDropdownRef.current.contains(e.target)) {
         setShowGuestDropdown(false);
+      }
+      if (deliverableDropdownRef.current && !deliverableDropdownRef.current.contains(e.target)) {
+        setShowDeliverableDropdown(false);
       }
     }
     document.addEventListener('mousedown', handleClick);
@@ -310,15 +318,58 @@ export default function Calendar({ onNavigate }) {
     }
   }, []);
 
+  const fetchUnassignedDeliverables = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('sponsor_deliverables')
+        .select('*, sponsor:sponsors(name), campaign:sponsor_campaigns(name)')
+        .is('video_event_id', null)
+        .eq('delivered', false);
+      if (error) throw error;
+      setUnassignedDeliverables(data || []);
+    } catch (err) {
+      console.error('Error fetching unassigned deliverables:', err);
+    }
+  }, []);
+
+  const handleAttachDeliverable = useCallback(async (deliverableId, eventId) => {
+    await supabase.from('sponsor_deliverables')
+      .update({ video_event_id: eventId })
+      .eq('id', deliverableId);
+    fetchVideoDeliverables();
+    fetchUnassignedDeliverables();
+  }, [fetchVideoDeliverables, fetchUnassignedDeliverables]);
+
+  const handleDetachDeliverable = useCallback(async (deliverableId) => {
+    await supabase.from('sponsor_deliverables')
+      .update({ video_event_id: null })
+      .eq('id', deliverableId);
+    fetchVideoDeliverables();
+    fetchUnassignedDeliverables();
+  }, [fetchVideoDeliverables, fetchUnassignedDeliverables]);
+
   useEffect(() => {
-    Promise.all([fetchProjects(), fetchCalendarEvents(), fetchHubUsers(), fetchVideoDeliverables()]);
-  }, [fetchProjects, fetchCalendarEvents, fetchHubUsers, fetchVideoDeliverables]);
+    Promise.all([fetchProjects(), fetchCalendarEvents(), fetchHubUsers(), fetchVideoDeliverables(), fetchUnassignedDeliverables()]);
+  }, [fetchProjects, fetchCalendarEvents, fetchHubUsers, fetchVideoDeliverables, fetchUnassignedDeliverables]);
   useVisibilityRefresh(useCallback(() => {
     fetchProjects();
     fetchCalendarEvents();
     fetchHubUsers();
     fetchVideoDeliverables();
-  }, [fetchProjects, fetchCalendarEvents, fetchHubUsers, fetchVideoDeliverables]));
+    fetchUnassignedDeliverables();
+  }, [fetchProjects, fetchCalendarEvents, fetchHubUsers, fetchVideoDeliverables, fetchUnassignedDeliverables]));
+
+  // Realtime: keep deliverables in sync across users
+  useEffect(() => {
+    const channel = supabase
+      .channel('calendar-deliverables')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sponsor_deliverables' }, () => {
+        fetchVideoDeliverables();
+        fetchUnassignedDeliverables();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [fetchVideoDeliverables, fetchUnassignedDeliverables]);
 
   // Scroll time grid to 7 AM on mount / view change
   useEffect(() => {
@@ -478,7 +529,7 @@ export default function Calendar({ onNavigate }) {
   }
 
   async function handleDeleteEvent(eventId) {
-    if (!window.confirm('Delete this event?')) return;
+    if (!(await confirm('Delete this event?'))) return;
     try {
       await syncToGoogleCalendar('delete', eventId);
       const { error } = await supabase.from('calendar_events').delete().eq('id', eventId);
@@ -1524,15 +1575,61 @@ export default function Calendar({ onNavigate }) {
                 {selectedEvent.creator?.full_name || 'Unknown'}
               </span>
             </div>
-            {selectedEvent.event_type === 'video_post' && (deliverablesByEventId[selectedEvent.id] || []).length > 0 && (
+            {selectedEvent.event_type === 'video_post' && (
               <div style={styles.eventDetailRow}>
                 <span style={styles.eventDetailLabel}>Sponsor Reads</span>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  {(deliverablesByEventId[selectedEvent.id] || []).map(d => (
-                    <span key={d.id} style={{ fontSize: '13px', color: '#6ee7b7', background: 'rgba(16,185,129,0.1)', padding: '3px 8px', borderRadius: '4px' }}>
-                      {'\uD83E\uDD1D'} {d.sponsor?.name || 'Sponsor'}{d.title ? ` — ${d.title}` : ''}{d.campaign?.name ? ` (${d.campaign.name})` : ''}
-                    </span>
-                  ))}
+                  {(deliverablesByEventId[selectedEvent.id] || []).length > 0 ? (
+                    (deliverablesByEventId[selectedEvent.id] || []).map(d => (
+                      <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ flex: 1, fontSize: '13px', color: '#6ee7b7', background: 'rgba(16,185,129,0.1)', padding: '3px 8px', borderRadius: '4px' }}>
+                          {'\uD83E\uDD1D'} {d.sponsor?.name || 'Sponsor'}{d.title ? ` — ${d.title}` : ''}{d.campaign?.name ? ` (${d.campaign.name})` : ''}{d.pay != null ? ` · $${parseFloat(d.pay).toLocaleString()}` : ''}
+                        </span>
+                        {isAdmin && (
+                          <button
+                            onClick={() => handleDetachDeliverable(d.id)}
+                            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)', cursor: 'pointer', fontSize: '14px', padding: '2px 4px', lineHeight: 1, fontFamily: 'inherit' }}
+                            onMouseEnter={e => e.currentTarget.style.color = '#f87171'}
+                            onMouseLeave={e => e.currentTarget.style.color = 'rgba(255,255,255,0.35)'}
+                            title="Detach deliverable"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.3)' }}>No sponsor reads assigned</span>
+                  )}
+                  {isAdmin && (
+                    <div ref={deliverableDropdownRef} style={{ position: 'relative', marginTop: '4px' }}>
+                      <button
+                        onClick={() => setShowDeliverableDropdown(v => !v)}
+                        style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: '6px', color: '#6ee7b7', fontSize: '12px', fontWeight: 600, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit' }}
+                      >
+                        + Assign Deliverable
+                      </button>
+                      {showDeliverableDropdown && (
+                        <div style={{ position: 'absolute', left: 0, top: '100%', marginTop: '4px', zIndex: 9999, background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', padding: '4px 0', minWidth: '260px', maxHeight: '200px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+                          {unassignedDeliverables.length === 0 ? (
+                            <div style={{ padding: '8px 12px', fontSize: '12px', color: 'rgba(255,255,255,0.3)' }}>No unassigned deliverables</div>
+                          ) : (
+                            unassignedDeliverables.map(d => (
+                              <div
+                                key={d.id}
+                                onClick={() => { handleAttachDeliverable(d.id, selectedEvent.id); setShowDeliverableDropdown(false); }}
+                                style={{ padding: '6px 12px', fontSize: '12px', color: 'rgba(255,255,255,0.8)', cursor: 'pointer' }}
+                                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+                                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                              >
+                                {d.sponsor?.name || 'Sponsor'}{d.title ? ` — ${d.title}` : ''}{d.campaign?.name ? ` (${d.campaign.name})` : ''}{d.pay != null ? ` · $${parseFloat(d.pay).toLocaleString()}` : ''}
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             )}

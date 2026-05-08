@@ -138,13 +138,8 @@ export default function Projects({ onNavigate }) {
   const [deliverableVideoEventId, setDeliverableVideoEventId] = useState('');
   const [deliverableChannel, setDeliverableChannel] = useState('');
 
-  // Video events for sponsor calendar
+  // Video events for deliverable linking
   const [videoEvents, setVideoEvents] = useState([]);
-  const [videoSlotConfig, setVideoSlotConfig] = useState([]);
-  const [slotDropdown, setSlotDropdown] = useState(null); // { dateStr, channel, x, y }
-  const slotDropdownRef = useRef(null);
-  const [sponsorCalOpen, setSponsorCalOpen] = useState(false);
-  const [sponsorCalMonth, setSponsorCalMonth] = useState(() => new Date());
 
   // Campaign state
   const [showCampaignForm, setShowCampaignForm] = useState(null); // sponsorId or null
@@ -681,56 +676,11 @@ export default function Projects({ onNavigate }) {
     }
   }, []);
 
-  const fetchVideoSlotConfig = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .from('video_slot_config')
-        .select('channel, day_of_week');
-      if (error) throw error;
-      setVideoSlotConfig(data || []);
-    } catch (err) {
-      console.error('Error fetching video slot config:', err);
-    }
-  }, []);
-
-  const handleAssignSlot = useCallback(async (deliverableId, dateStr) => {
-    try {
-      await supabase.from('sponsor_deliverables').update({ slot_date: dateStr }).eq('id', deliverableId);
-      setSlotDropdown(null);
-      await fetchSponsors();
-    } catch (err) {
-      console.error('Error assigning slot:', err);
-    }
-  }, [fetchSponsors]);
-
-  const handleClearSlot = useCallback(async (deliverableId) => {
-    try {
-      await supabase.from('sponsor_deliverables').update({ slot_date: null, video_event_id: null }).eq('id', deliverableId);
-      setSlotDropdown(null);
-      await fetchSponsors();
-    } catch (err) {
-      console.error('Error clearing slot:', err);
-    }
-  }, [fetchSponsors]);
-
-  // Close slot dropdown on click outside
-  useEffect(() => {
-    if (!slotDropdown) return;
-    const handler = (e) => {
-      if (slotDropdownRef.current && !slotDropdownRef.current.contains(e.target)) {
-        setSlotDropdown(null);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [slotDropdown]);
-
   useEffect(() => {
     if (activeSection !== 'sponsors') return;
     fetchSponsors();
     fetchVideoEvents();
-    fetchVideoSlotConfig();
-  }, [activeSection, fetchSponsors, fetchVideoEvents, fetchVideoSlotConfig]);
+  }, [activeSection, fetchSponsors, fetchVideoEvents]);
 
   useEffect(() => {
     if (activeSection !== 'sponsors') return;
@@ -745,28 +695,6 @@ export default function Projects({ onNavigate }) {
     return () => { supabase.removeChannel(channel); };
   }, [activeSection, fetchSponsors, fetchVideoEvents, refreshKey]);
 
-  // Auto-attach slotted deliverables to video events when dates match
-  useEffect(() => {
-    if (!videoEvents.length || !allDeliverables.length) return;
-    const updates = [];
-    videoEvents.forEach(ev => {
-      const evDate = ev.start_date?.split('T')[0];
-      if (!evDate) return;
-      allDeliverables.forEach(d => {
-        if (d.video_event_id) return; // already linked
-        if (!d.slot_date) return; // not slotted
-        if (d.slot_date !== evDate) return;
-        updates.push({ id: d.id, video_event_id: ev.id });
-      });
-    });
-    if (!updates.length) return;
-    (async () => {
-      for (const u of updates) {
-        await supabase.from('sponsor_deliverables').update({ video_event_id: u.video_event_id }).eq('id', u.id);
-      }
-      fetchSponsors();
-    })();
-  }, [videoEvents, allDeliverables, fetchSponsors]); // eslint-disable-line
 
   // ===== Reads fetch =====
   const fetchReads = useCallback(async () => {
@@ -3056,9 +2984,6 @@ export default function Projects({ onNavigate }) {
                   {totalPay > 0 ? ` · $${totalPay.toLocaleString()} total` : ''}
                 </p>
               </div>
-              <button onClick={() => setSponsorCalOpen(v => !v)} style={styles.sponsorCalToggle}>
-                {sponsorCalOpen ? 'Calendar ▲' : 'Calendar ▼'}
-              </button>
             </div>
 
             {upcomingReads.length === 0 ? (
@@ -3091,11 +3016,6 @@ export default function Projects({ onNavigate }) {
                             {'\uD83D\uDCF9'} {ev.title?.length > 16 ? ev.title.slice(0, 16) + '\u2026' : ev.title}
                           </span>
                         );
-                        if (d.slot_date) return (
-                          <span style={{ fontSize: '10px', fontWeight: 600, padding: '2px 6px', borderRadius: '5px', whiteSpace: 'nowrap', background: 'rgba(99,102,241,0.1)', color: '#a5b4fc' }}>
-                            Slotted {new Date(d.slot_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                          </span>
-                        );
                         return null;
                       })()}
                       <span style={{
@@ -3110,124 +3030,6 @@ export default function Projects({ onNavigate }) {
                 })}
               </div>
             )}
-            {/* Sponsor Calendar */}
-            {sponsorCalOpen && (() => {
-              const year = sponsorCalMonth.getFullYear();
-              const month = sponsorCalMonth.getMonth();
-              const firstDay = new Date(year, month, 1);
-              const lastDay = new Date(year, month + 1, 0);
-              const startPad = firstDay.getDay();
-              const totalDays = lastDay.getDate();
-              const weeks = [];
-              let currentDay = 1 - startPad;
-              while (currentDay <= totalDays) {
-                const week = [];
-                for (let i = 0; i < 7; i++) {
-                  week.push(new Date(year, month, currentDay));
-                  currentDay++;
-                }
-                weeks.push(week);
-              }
-              const today = new Date();
-              today.setHours(0, 0, 0, 0);
-              const monthLabel = sponsorCalMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-              return (
-                <div style={styles.sponsorCalWrapper}>
-                  <div style={styles.sponsorCalNav}>
-                    <button onClick={() => setSponsorCalMonth(new Date(year, month - 1, 1))} style={styles.sponsorCalNavBtn}>{'\u2190'}</button>
-                    <span style={{ fontSize: '15px', fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>{monthLabel}</span>
-                    <button onClick={() => setSponsorCalMonth(new Date(year, month + 1, 1))} style={styles.sponsorCalNavBtn}>{'\u2192'}</button>
-                  </div>
-                  <div style={styles.sponsorCalGrid}>
-                    {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => (
-                      <div key={d} style={styles.sponsorCalWeekdayCell}>{d}</div>
-                    ))}
-                    {weeks.flat().map((date, idx) => {
-                      const inMonth = date.getMonth() === month;
-                      const isToday = date.getTime() === today.getTime();
-                      const dateStr = date.toISOString().split('T')[0];
-                      const dayEvents = videoEvents.filter(ev => {
-                        const evDate = ev.start_date?.split('T')[0];
-                        return evDate === dateStr;
-                      });
-                      return (
-                        <div key={idx} style={{
-                          ...styles.sponsorCalDayCell,
-                          opacity: inMonth ? 1 : 0.3,
-                          background: isToday ? 'rgba(99,102,241,0.1)' : 'transparent',
-                        }}>
-                          <div style={{ fontSize: '11px', color: isToday ? '#a5b4fc' : 'rgba(255,255,255,0.5)', fontWeight: isToday ? 700 : 400, marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                            <span>{date.getDate()}</span>
-                            {videoSlotConfig.filter(s => s.day_of_week === date.getDay()).map(s => {
-                              const ch = CHANNEL_COLORS[s.channel] || CHANNEL_COLORS.socials;
-                              const slottedDel = allDeliverables.find(d => d.slot_date === dateStr && d.channel === s.channel);
-                              const isOpen = slotDropdown && slotDropdown.dateStr === dateStr && slotDropdown.channel === s.channel;
-                              return (
-                                <span key={s.channel} style={{ position: 'relative', display: 'inline-block' }}>
-                                  <span
-                                    onClick={(e) => { e.stopPropagation(); setSlotDropdown(isOpen ? null : { dateStr, channel: s.channel, x: e.currentTarget.getBoundingClientRect().left, y: e.currentTarget.getBoundingClientRect().bottom }); }}
-                                    style={{ fontSize: '7px', fontWeight: 700, padding: '1px 3px', borderRadius: '3px', background: slottedDel ? ch.bg.replace('0.12', '0.3') : ch.bg, color: ch.color, letterSpacing: '0.5px', lineHeight: 1, cursor: 'pointer', opacity: slottedDel ? 1 : 0.6, maxWidth: '48px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}
-                                    title={slottedDel ? `${slottedDel.sponsor_name} — ${slottedDel.campaign_name || slottedDel.title || ''}` : ch.label}
-                                  >
-                                    {slottedDel ? (slottedDel.sponsor_name?.length > 5 ? slottedDel.sponsor_name.slice(0, 5) + '\u2026' : slottedDel.sponsor_name) : ch.label}
-                                  </span>
-                                  {isOpen && (
-                                    <div ref={slotDropdownRef} style={{ position: 'fixed', left: slotDropdown.x, top: slotDropdown.y + 2, zIndex: 9999, background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', padding: '4px 0', minWidth: '180px', maxHeight: '200px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
-                                      {slottedDel && (
-                                        <div
-                                          onClick={(e) => { e.stopPropagation(); handleClearSlot(slottedDel.id); }}
-                                          style={{ padding: '6px 10px', fontSize: '11px', color: '#f87171', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.08)' }}
-                                          onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
-                                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                                        >
-                                          ✕ Clear: {slottedDel.sponsor_name}
-                                        </div>
-                                      )}
-                                      {(() => {
-                                        const available = allDeliverables.filter(d => !d.video_event_id && !d.slot_date && d.channel === s.channel);
-                                        if (!available.length) return (
-                                          <div style={{ padding: '6px 10px', fontSize: '11px', color: 'rgba(255,255,255,0.3)' }}>No deliverables</div>
-                                        );
-                                        return available.map(d => (
-                                          <div
-                                            key={d.id}
-                                            onClick={(e) => { e.stopPropagation(); handleAssignSlot(d.id, dateStr); }}
-                                            style={{ padding: '6px 10px', fontSize: '11px', color: 'rgba(255,255,255,0.8)', cursor: 'pointer' }}
-                                            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
-                                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                                          >
-                                            {d.sponsor_name} — {d.title || d.campaign_name || 'Untitled'}
-                                          </div>
-                                        ));
-                                      })()}
-                                    </div>
-                                  )}
-                                </span>
-                              );
-                            })}
-                          </div>
-                          {dayEvents.map(ev => {
-                            const attachedDels = allDeliverables.filter(d => d.video_event_id === ev.id);
-                            return (
-                              <div key={ev.id}>
-                                <div style={styles.sponsorCalEventPill} title={ev.title}>
-                                  {'\uD83D\uDCF9'} {ev.title?.length > 14 ? ev.title.slice(0, 14) + '\u2026' : ev.title}
-                                </div>
-                                {attachedDels.map(del => (
-                                  <div key={del.id} style={styles.sponsorCalBadge} title={del.campaign_name || del.sponsor_name}>
-                                    {'\uD83E\uDD1D'} {(del.campaign_name || del.sponsor_name || '').length > 12 ? (del.campaign_name || del.sponsor_name || '').slice(0, 12) + '\u2026' : (del.campaign_name || del.sponsor_name)}
-                                  </div>
-                                ))}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })()}
           </div>
         );
       })()}
@@ -4832,84 +4634,5 @@ const styles = {
     borderRadius: '8px',
     background: 'rgba(255,255,255,0.02)',
     border: '1px solid rgba(255,255,255,0.04)',
-  },
-  sponsorCalToggle: {
-    padding: '10px 16px',
-    background: 'rgba(255,255,255,0.06)',
-    border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: '10px',
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: '13px',
-    fontWeight: 600,
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-  },
-  sponsorCalWrapper: {
-    background: 'rgba(255,255,255,0.02)',
-    border: '1px solid rgba(255,255,255,0.06)',
-    borderRadius: '14px',
-    padding: '16px',
-    marginBottom: '24px',
-  },
-  sponsorCalNav: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '16px',
-    marginBottom: '12px',
-  },
-  sponsorCalNavBtn: {
-    background: 'none',
-    border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: '6px',
-    color: 'rgba(255,255,255,0.6)',
-    cursor: 'pointer',
-    padding: '4px 10px',
-    fontSize: '14px',
-    fontFamily: 'inherit',
-  },
-  sponsorCalGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(7, 1fr)',
-    gap: '1px',
-  },
-  sponsorCalWeekdayCell: {
-    textAlign: 'center',
-    fontSize: '11px',
-    fontWeight: 600,
-    color: 'rgba(255,255,255,0.35)',
-    padding: '4px 0 8px',
-    textTransform: 'uppercase',
-    letterSpacing: '0.5px',
-  },
-  sponsorCalDayCell: {
-    minHeight: '70px',
-    padding: '4px',
-    borderRadius: '6px',
-    border: '1px solid rgba(255,255,255,0.04)',
-  },
-  sponsorCalEventPill: {
-    fontSize: '9px',
-    fontWeight: 600,
-    padding: '2px 4px',
-    borderRadius: '4px',
-    background: 'rgba(168,85,247,0.15)',
-    color: '#c084fc',
-    marginBottom: '2px',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  sponsorCalBadge: {
-    fontSize: '8px',
-    fontWeight: 600,
-    padding: '1px 4px',
-    borderRadius: '3px',
-    background: 'rgba(16,185,129,0.15)',
-    color: '#6ee7b7',
-    marginBottom: '1px',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
   },
 };
