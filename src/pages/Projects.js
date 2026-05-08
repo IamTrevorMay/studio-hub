@@ -151,6 +151,9 @@ export default function Projects({ onNavigate }) {
   const [editingCampaign, setEditingCampaign] = useState(null);
   const [campaignForm, setCampaignForm] = useState({ name: '', description: '', start_date: '', end_date: '', contact_name: '', contact_email: '', payment_status: 'unpaid' });
   const [briefFile, setBriefFile] = useState(null);
+  const [briefMode, setBriefMode] = useState('upload'); // 'upload' | 'link'
+  const [briefLinkUrl, setBriefLinkUrl] = useState('');
+  const [briefLinkLabel, setBriefLinkLabel] = useState('');
 
   const [allDeliverables, setAllDeliverables] = useState([]);
 
@@ -1352,6 +1355,9 @@ export default function Projects({ onNavigate }) {
   function resetCampaignForm() {
     setCampaignForm({ name: '', description: '', start_date: '', end_date: '', contact_name: '', contact_email: '', payment_status: 'unpaid' });
     setBriefFile(null);
+    setBriefMode('upload');
+    setBriefLinkUrl('');
+    setBriefLinkLabel('');
     setEditingCampaign(null); setShowCampaignForm(null);
   }
 
@@ -1377,13 +1383,22 @@ export default function Projects({ onNavigate }) {
       if (error) { alert('Error creating campaign: ' + error.message); return; }
       campaignId = data.id;
     }
-    // Upload brief if file selected
-    if (briefFile && campaignId) {
-      const filePath = `${campaignId}/${Date.now()}_${briefFile.name}`;
-      const { error: uploadError } = await supabase.storage.from('campaign-briefs').upload(filePath, briefFile);
-      if (uploadError) { alert('Brief upload failed: ' + uploadError.message); } else {
-        const { data: urlData } = supabase.storage.from('campaign-briefs').getPublicUrl(filePath);
-        await supabase.from('sponsor_campaigns').update({ brief_url: urlData.publicUrl, brief_name: briefFile.name }).eq('id', campaignId);
+    // Save brief: upload file or set link
+    if (campaignId) {
+      if (briefMode === 'upload' && briefFile) {
+        const filePath = `${campaignId}/${Date.now()}_${briefFile.name}`;
+        const { error: uploadError } = await supabase.storage.from('campaign-briefs').upload(filePath, briefFile);
+        if (uploadError) { alert('Brief upload failed: ' + uploadError.message); } else {
+          const { data: urlData } = supabase.storage.from('campaign-briefs').getPublicUrl(filePath);
+          await supabase.from('sponsor_campaigns').update({ brief_url: urlData.publicUrl, brief_name: briefFile.name }).eq('id', campaignId);
+        }
+      } else if (briefMode === 'link' && briefLinkUrl.trim()) {
+        const url = briefLinkUrl.trim();
+        let label = briefLinkLabel.trim();
+        if (!label) {
+          try { label = new URL(url).hostname.replace(/^www\./, ''); } catch { label = 'Brief'; }
+        }
+        await supabase.from('sponsor_campaigns').update({ brief_url: url, brief_name: label }).eq('id', campaignId);
       }
     }
     await syncCampaignRevenue(campaignId);
@@ -1678,7 +1693,7 @@ export default function Projects({ onNavigate }) {
             ...(activeSection === 'sponsors' ? styles.sectionTabActive : {}),
           }}
         >
-          Ad Reads
+          Deliverables
           {activeSponsorsCount > 0 && (
             <span style={styles.sectionTabBadge}>{activeSponsorsCount}</span>
           )}
@@ -2818,6 +2833,8 @@ export default function Projects({ onNavigate }) {
         );
       })()}
 
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', alignItems: 'flex-start' }}>
+        <div style={{ minWidth: 0 }}>
       {/* Sponsor Form */}
       {showSponsorForm && (
         <form onSubmit={handleSaveSponsor} style={styles.formCard}>
@@ -2936,8 +2953,32 @@ export default function Projects({ onNavigate }) {
                                 </div>
                               )}
                               <div style={styles.field}>
-                                <label style={styles.label}>Brief (PDF/DOCX)</label>
-                                <input type="file" accept=".pdf,.docx,.doc" onChange={e => setBriefFile(e.target.files[0] || null)} style={{ ...styles.input, padding: '6px 8px' }} />
+                                <label style={styles.label}>Brief</label>
+                                <div style={{ display: 'flex', gap: '4px', marginBottom: '6px' }}>
+                                  {['upload', 'link'].map(m => (
+                                    <button
+                                      key={m}
+                                      type="button"
+                                      onClick={() => setBriefMode(m)}
+                                      style={{
+                                        flex: 1, padding: '4px 8px', borderRadius: '6px', border: '1px solid',
+                                        fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                                        background: briefMode === m ? 'rgba(99,102,241,0.2)' : 'transparent',
+                                        color: briefMode === m ? '#a5b4fc' : 'rgba(255,255,255,0.35)',
+                                        borderColor: briefMode === m ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.08)',
+                                        textTransform: 'capitalize',
+                                      }}
+                                    >{m}</button>
+                                  ))}
+                                </div>
+                                {briefMode === 'upload' ? (
+                                  <input type="file" accept=".pdf,.docx,.doc" onChange={e => setBriefFile(e.target.files[0] || null)} style={{ ...styles.input, padding: '6px 8px' }} />
+                                ) : (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                    <input type="url" value={briefLinkUrl} onChange={e => setBriefLinkUrl(e.target.value)} placeholder="https://..." style={styles.input} />
+                                    <input value={briefLinkLabel} onChange={e => setBriefLinkLabel(e.target.value)} placeholder="Label (optional)" style={styles.input} />
+                                  </div>
+                                )}
                               </div>
                             </div>
                             <div style={styles.field}>
@@ -2948,15 +2989,13 @@ export default function Projects({ onNavigate }) {
                           </form>
                         )}
 
-                        {campaigns.length > 0 && (
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px' }}>
-                        {campaigns.map(campaign => {
+                        {campaigns.length > 0 && campaigns.map(campaign => {
                           const campaignDels = deliverables.filter(d => d.campaign_id === campaign.id);
                           const allDeliveredCamp = campaignDels.length > 0 && campaignDels.every(d => d.delivered);
                           const campDeliveredCount = campaignDels.filter(d => d.delivered).length;
                           const campTotalPay = campaignDels.reduce((sum, d) => sum + (parseFloat(d.pay) || 0), 0);
                           return (
-                            <div key={campaign.id} style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', padding: '10px 12px', minWidth: 0 }}>
+                            <div key={campaign.id} style={{ marginBottom: '8px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', padding: '10px 12px' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0', flexWrap: 'wrap' }}>
                                 <span style={{ fontSize: '13px', fontWeight: 600, color: '#e2e8f0', flex: 1 }}>{campaign.name}</span>
                                 {campaign.start_date && campaign.end_date && (
@@ -3091,8 +3130,6 @@ export default function Projects({ onNavigate }) {
                             </div>
                           );
                         })}
-                        </div>
-                        )}
                       </div>
 
                       {/* Uncampaigned Deliverables (legacy) */}
@@ -3121,6 +3158,7 @@ export default function Projects({ onNavigate }) {
             })}
           </div>
       )}
+        </div>
 
       {/* ====== UPCOMING AD READS SECTION ====== */}
       {(() => {
@@ -3134,9 +3172,9 @@ export default function Projects({ onNavigate }) {
           });
         const totalPay = upcomingReads.reduce((sum, d) => sum + (parseFloat(d.pay) || 0), 0);
         return (
-          <div style={{ marginTop: '40px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '24px' }}>
+          <div style={{ minWidth: 0 }}>
             <div style={{ marginBottom: '16px' }}>
-              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#fff' }}>Upcoming Ad Reads</h2>
+              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#fff' }}>Upcoming Deliverables</h2>
               <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'rgba(255,255,255,0.4)' }}>
                 {upcomingReads.length} deliverable{upcomingReads.length !== 1 ? 's' : ''}
                 {totalPay > 0 ? ` · $${totalPay.toLocaleString()} total` : ''}
@@ -3145,10 +3183,10 @@ export default function Projects({ onNavigate }) {
 
             {upcomingReads.length === 0 ? (
               <div style={styles.emptyCard}>
-                <p style={styles.emptyText}>No upcoming ad reads. Add deliverables to sponsors above.</p>
+                <p style={styles.emptyText}>No upcoming deliverables. Add deliverables to sponsors above.</p>
               </div>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 {upcomingReads.map(d => {
                   const linkedSheet = beatSheets.find(bs => bs.id === d.beat_sheet_id);
                   return (
@@ -3195,6 +3233,7 @@ export default function Projects({ onNavigate }) {
           </div>
         );
       })()}
+      </div>
 
       {/* ====== MONEY SECTION ====== */}
       {(() => {
