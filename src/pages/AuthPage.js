@@ -68,23 +68,31 @@ export default function AuthPage() {
       // Update their profile
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        // Look up invitation to get assigned role
-        const { data: invitation } = await supabase.from('invitations')
-          .select('role, title')
-          .eq('email', user.email.toLowerCase())
-          .is('accepted_at', null)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        // The invite-user edge function stores role & title in user_metadata.
+        // Use that as the primary source (avoids RLS issues on invitations table).
+        const meta = user.user_metadata || {};
+        let assignedRole = meta.role || null;
+        let assignedTitle = meta.title || null;
 
-        const assignedRole = invitation?.role || 'member';
+        // Fall back to querying the invitations table if metadata is missing
+        if (!assignedRole) {
+          const { data: invitation } = await supabase.from('invitations')
+            .select('role, title')
+            .eq('email', user.email.toLowerCase())
+            .is('accepted_at', null)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          assignedRole = invitation?.role || 'member';
+          assignedTitle = assignedTitle || invitation?.title || null;
+        }
 
         await supabase.from('profiles').upsert({
           id: user.id,
           email: user.email,
           full_name: fullName.trim(),
           role: assignedRole,
-          title: invitation?.title || null,
+          title: assignedTitle,
           updated_at: new Date().toISOString(),
         });
 
