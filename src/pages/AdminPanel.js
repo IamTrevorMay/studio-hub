@@ -446,7 +446,13 @@ export default function AdminPanel({ initialTab }) {
                     )}
                   </div>
                   <div style={styles.teamMeta}>
-                    {member.email} · {member.title || 'No title set'}
+                    {member.email} ·{' '}
+                    <span
+                      onClick={() => setTitlePickerFor(titlePickerFor === member.id ? null : member.id)}
+                      style={{ cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '3px' }}
+                    >
+                      {member.title || 'No title set'}
+                    </span>
                   </div>
                 </div>
                 <select

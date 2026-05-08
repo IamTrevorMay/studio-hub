@@ -59,7 +59,7 @@ const NAV_ITEMS = [
   { key: 'goals', label: 'Goals', icon: GoalsIcon },
   { key: 'business_dev', label: 'Business Dev', icon: BusinessDevIcon, adminOnly: true },
   { key: 'invoicing', label: 'Invoicing', icon: InvoicingIcon },
-  { key: 'freelancers', label: 'Freelancers', icon: ToolsIcon, adminOnly: true },
+  { key: 'freelancers', label: 'Freelancers', icon: FreelancersIcon, adminOnly: true },
   { key: 'channels', label: 'Channels', icon: ChannelsIcon },
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
 ];
@@ -114,6 +114,7 @@ const NAV_ICON_MAP = {
   goals: GoalsIcon,
   business_dev: BusinessDevIcon,
   invoicing: InvoicingIcon,
+  freelancers: FreelancersIcon,
   channels: ChannelsIcon,
   messages: MessagesIcon,
   fl_dashboard: DashboardIcon,
@@ -755,6 +756,17 @@ function InvoicingIcon({ active }) {
       <rect x="4" y="2" width="12" height="16" rx="2" />
       <path d="M7 6h6M7 9h6M7 12h4" strokeLinecap="round" />
       <path d="M4 15h12" />
+    </svg>
+  );
+}
+
+function FreelancersIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <circle cx="7" cy="6" r="2.5" />
+      <path d="M2 16c0-2.5 2-4.5 5-4.5s5 2 5 4.5" strokeLinecap="round" />
+      <circle cx="14" cy="7" r="2" />
+      <path d="M18 16c0-2 -1.5-3.5-4-3.5" strokeLinecap="round" />
     </svg>
   );
 }
