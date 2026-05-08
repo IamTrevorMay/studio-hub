@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 import * as mammoth from 'mammoth';
@@ -139,6 +140,7 @@ function FormattedCommentInput({ value, onChange, onSubmit, placeholder, style, 
 
 export default function Reviews() {
   const { profile, isAdmin, refreshKey } = useAuth();
+  const confirm = useConfirm();
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -211,7 +213,7 @@ export default function Reviews() {
   }
 
   async function handleDeleteReview(reviewId) {
-    if (!window.confirm('Delete this review and all its versions/comments?')) return;
+    if (!(await confirm('Delete this review and all its versions/comments?'))) return;
     await supabase.from('reviews').delete().eq('id', reviewId);
     if (activeReview?.id === reviewId) setActiveReview(null);
     fetchReviews();
@@ -373,7 +375,7 @@ export default function Reviews() {
   }
 
   async function handleDeleteScriptReview(id) {
-    if (!window.confirm('Delete this script review and all its versions?')) return;
+    if (!(await confirm('Delete this script review and all its versions?'))) return;
     // Delete storage files first
     const { data: versions } = await supabase.from('script_review_versions')
       .select('file_url').eq('review_id', id);
@@ -2466,7 +2468,7 @@ function ScriptReviewDetail({ review, onBack, profile, isAdmin, refreshKey }) {
   }
 
   async function handleReopenReview() {
-    if (!window.confirm('Reopen this review? It will return to "In Review" status and re-enable annotation tools.')) return;
+    if (!(await confirm('Reopen this review? It will return to "In Review" status and re-enable annotation tools.'))) return;
     try {
       const now = new Date().toISOString();
       const { error } = await supabase.from('script_reviews')

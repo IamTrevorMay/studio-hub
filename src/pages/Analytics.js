@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 
@@ -3035,6 +3036,7 @@ function getDaysInRange(startStr, endStr) {
 }
 
 function ManualMetricsForm({ platform, fields, accounts }) {
+  const confirm = useConfirm();
   const [startDate, setStartDate] = useState(daysAgoStr(30));
   const [endDate, setEndDate] = useState(todayStr());
   const [views, setViews] = useState('');
@@ -3113,7 +3115,7 @@ function ManualMetricsForm({ platform, fields, accounts }) {
   async function handleDeleteRange() {
     if (!account || !deleteStart || !deleteEnd) return;
     if (deleteStart > deleteEnd) { setDeleteResult({ error: 'Start must be before end' }); return; }
-    if (!window.confirm(`Delete all manual ${meta.label} data from ${deleteStart} to ${deleteEnd}?`)) return;
+    if (!(await confirm(`Delete all manual ${meta.label} data from ${deleteStart} to ${deleteEnd}?`))) return;
     setDeleting(true); setDeleteResult(null);
     try {
       let deleted = 0;
@@ -3160,7 +3162,7 @@ function ManualMetricsForm({ platform, fields, accounts }) {
 
   async function handleDeleteSingleDay(entry) {
     if (!account) return;
-    if (!window.confirm(`Delete ${meta.label} data for ${entry.date}?`)) return;
+    if (!(await confirm(`Delete ${meta.label} data for ${entry.date}?`))) return;
     try {
       if (entry.pdm_id) await supabase.from('platform_daily_metrics').delete().eq('id', entry.pdm_id);
       if (entry.rev_id) await supabase.from('revenue_events').delete().eq('id', entry.rev_id);
@@ -3174,7 +3176,7 @@ function ManualMetricsForm({ platform, fields, accounts }) {
 
   async function handleDeleteSelected() {
     if (!account || selectedDates.size === 0) return;
-    if (!window.confirm(`Delete ${selectedDates.size} selected ${meta.label} entr${selectedDates.size === 1 ? 'y' : 'ies'}?`)) return;
+    if (!(await confirm(`Delete ${selectedDates.size} selected ${meta.label} entr${selectedDates.size === 1 ? 'y' : 'ies'}?`))) return;
     setDeleting(true); setDeleteResult(null);
     try {
       const selected = entries.filter(e => selectedDates.has(e.date));

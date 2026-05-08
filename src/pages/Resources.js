@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 const FN_URL = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/google-drive-resources`;
 
 export default function Resources() {
   const { profile } = useAuth();
+  const confirm = useConfirm();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -111,7 +113,7 @@ export default function Resources() {
 
   async function handleDelete(item) {
     const label = item.type === 'folder' ? 'folder (and all its contents)' : 'document';
-    if (!window.confirm(`Move this ${label} to Drive trash?`)) return;
+    if (!(await confirm(`Move this ${label} to Drive trash?`))) return;
     try {
       await callFn('POST', '', { action: 'delete', id: item.id });
       fetchItems(currentFolderId);

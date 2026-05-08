@@ -1,8 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
+
+const FREELANCER_TITLES = [
+  'Long Form Editor', 'Short Form Editor', 'Podcast Editor',
+  'Graphic Designer', 'Developer', 'Writer', 'Producer', 'Production/Camera',
+];
 
 const EVENT_TYPE_LABELS = {
   deadline: 'Deadline',
@@ -17,12 +23,16 @@ const EVENT_TYPES = Object.keys(EVENT_TYPE_LABELS);
 
 export default function AdminPanel({ initialTab }) {
   const { profile, isAdmin, refreshKey } = useAuth();
+  const confirm = useConfirm();
   const [invitations, setInvitations] = useState([]);
   const [teamMembers, setTeamMembers] = useState([]);
   const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState('member');
+  const [inviteTitle, setInviteTitle] = useState('');
   const [loading, setLoading] = useState(false);
   const [inviteSuccess, setInviteSuccess] = useState('');
   const [inviteError, setInviteError] = useState('');
+  const [titlePickerFor, setTitlePickerFor] = useState(null);
   const [activeTab, setActiveTab] = useState(initialTab || 'invite');
 
   // Google Calendar state
@@ -72,7 +82,7 @@ export default function AdminPanel({ initialTab }) {
             'Authorization': `Bearer ${session.access_token}`,
             'apikey': process.env.REACT_APP_SUPABASE_ANON_KEY,
           },
-          body: JSON.stringify({ email: inviteEmail.toLowerCase().trim() }),
+          body: JSON.stringify({ email: inviteEmail.toLowerCase().trim(), role: inviteRole, title: inviteRole === 'freelancer' ? inviteTitle : null }),
         }
       );
 
@@ -81,6 +91,8 @@ export default function AdminPanel({ initialTab }) {
 
       const sentTo = inviteEmail;
       setInviteEmail('');
+      setInviteRole('member');
+      setInviteTitle('');
       fetchInvitations();
       setInviteSuccess(`✉ Invitation email sent to ${sentTo}!`);
       setTimeout(() => setInviteSuccess(''), 8000);
@@ -93,7 +105,7 @@ export default function AdminPanel({ initialTab }) {
   }
 
   async function handleDeleteInvitation(inv) {
-    if (!window.confirm(`Delete invitation for ${inv.email}?`)) return;
+    if (!(await confirm(`Delete invitation for ${inv.email}?`))) return;
     const { error } = await supabase.from('invitations').delete().eq('id', inv.id);
     if (error) {
       console.error('Delete invitation failed:', error);
@@ -106,11 +118,23 @@ export default function AdminPanel({ initialTab }) {
   async function handleRoleChange(userId, newRole) {
     const { error } = await supabase.from('profiles').update({ role: newRole }).eq('id', userId);
     if (error) console.error('Role change failed:', error);
+    if (newRole === 'freelancer') {
+      setTitlePickerFor(userId);
+    } else {
+      setTitlePickerFor(null);
+    }
+    fetchTeamMembers();
+  }
+
+  async function handleTitleAssign(userId, title) {
+    const { error } = await supabase.from('profiles').update({ title }).eq('id', userId);
+    if (error) console.error('Title assign failed:', error);
+    setTitlePickerFor(null);
     fetchTeamMembers();
   }
 
   async function handleRemoveMember(member) {
-    if (!window.confirm(`Remove ${member.full_name} from the team? This cannot be undone.`)) return;
+    if (!(await confirm(`Remove ${member.full_name} from the team? This cannot be undone.`))) return;
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Not authenticated');
@@ -215,7 +239,7 @@ export default function AdminPanel({ initialTab }) {
   }
 
   async function handleGcalDisconnect() {
-    if (!window.confirm('Disconnect Google Calendar? This will remove all calendar mappings and sync data.')) return;
+    if (!(await confirm('Disconnect Google Calendar? This will remove all calendar mappings and sync data.'))) return;
     setGcalLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -316,18 +340,45 @@ export default function AdminPanel({ initialTab }) {
           {/* Invite Form */}
           <div style={styles.card}>
             <h3 style={styles.cardTitle}>Invite a Team Member</h3>
-            <form onSubmit={handleInvite} style={styles.inviteForm}>
-              <input
-                type="email"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                placeholder="colleague@company.com"
-                required
-                style={styles.input}
-              />
-              <button type="submit" disabled={loading} style={styles.inviteBtn}>
-                {loading ? 'Sending...' : '✉ Send Invite'}
-              </button>
+            <form onSubmit={handleInvite} style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '12px' }}>
+              <div style={styles.inviteForm}>
+                <input
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  placeholder="colleague@company.com"
+                  required
+                  style={styles.input}
+                />
+                <button type="submit" disabled={loading} style={styles.inviteBtn}>
+                  {loading ? 'Sending...' : '✉ Send Invite'}
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <select
+                  value={inviteRole}
+                  onChange={(e) => { setInviteRole(e.target.value); if (e.target.value !== 'freelancer') setInviteTitle(''); }}
+                  style={styles.roleSelect}
+                >
+                  <option value="member">Member</option>
+                  <option value="assistant">Assistant</option>
+                  <option value="partner">Partner</option>
+                  <option value="freelancer">Freelancer</option>
+                  <option value="admin">Admin</option>
+                </select>
+                {inviteRole === 'freelancer' && (
+                  <select
+                    value={inviteTitle}
+                    onChange={(e) => setInviteTitle(e.target.value)}
+                    style={styles.roleSelect}
+                  >
+                    <option value="">Select title...</option>
+                    {FREELANCER_TITLES.map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
             </form>
             {inviteSuccess && <div style={styles.successMsg}>{inviteSuccess}</div>}
             {inviteError && <div style={styles.errorMsg}>{inviteError}</div>}
@@ -410,6 +461,18 @@ export default function AdminPanel({ initialTab }) {
                   <option value="freelancer">Freelancer</option>
                   <option value="admin">Admin</option>
                 </select>
+                {titlePickerFor === member.id && (
+                  <select
+                    value=""
+                    onChange={(e) => handleTitleAssign(member.id, e.target.value)}
+                    style={styles.roleSelect}
+                  >
+                    <option value="">Assign title...</option>
+                    {FREELANCER_TITLES.map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                )}
                 {member.id !== profile.id && (
                   <button
                     onClick={() => handleRemoveMember(member)}

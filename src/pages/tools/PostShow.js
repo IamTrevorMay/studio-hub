@@ -7,6 +7,7 @@ import { loadSession, saveSession, loadSettings, saveSettings } from './postshow
 import PhaseOne from './postshow/PhaseOne';
 import PhaseTwo from './postshow/PhaseTwo';
 import PhaseFour from './postshow/PhaseFour';
+import PhaseHistory from './postshow/PhaseHistory';
 
 // Pull the folder ID out of any standard Drive URL.
 // Examples accepted:
@@ -179,7 +180,7 @@ function SettingsPanel({ settings, onSettingsChange, recipients, onRecipientsCha
 
 // ─── Main PostShow Component ────────────────────────────────────────────
 export default function PostShow({ onBack }) {
-  const { isAdmin } = useAuth();
+  const { isAdmin, profile } = useAuth();
   const confirm = useConfirm();
   const [activePhase, setActivePhase] = useState('cut');
   const [session, setSession] = useState(loadSession);
@@ -242,7 +243,7 @@ export default function PostShow({ onBack }) {
   const uploadedClips = (session.clips || []).filter(c => ['uploaded', 'synced'].includes(c.status)).length;
   const syncedClips = (session.clips || []).filter(c => c.status === 'synced').length;
 
-  const phaseCounts = { cut: totalClips, upload: cutClips, kanban: syncedClips };
+  const phaseCounts = { cut: totalClips, upload: cutClips, kanban: syncedClips, history: 0 };
 
   return (
     <div style={st.container}>
@@ -332,6 +333,7 @@ export default function PostShow({ onBack }) {
             onSessionChange={handleSessionChange}
             recipients={recipients}
             settings={settings}
+            profileId={profile?.id}
           />
         )}
         {activePhase === 'kanban' && (
@@ -342,6 +344,7 @@ export default function PostShow({ onBack }) {
             settings={settings}
           />
         )}
+        {activePhase === 'history' && <PhaseHistory />}
       </div>
 
       {showSettings && (

@@ -70,7 +70,7 @@ export default function AuthPage() {
       if (user) {
         // Look up invitation to get assigned role
         const { data: invitation } = await supabase.from('invitations')
-          .select('role')
+          .select('role, title')
           .eq('email', user.email.toLowerCase())
           .is('accepted_at', null)
           .order('created_at', { ascending: false })
@@ -84,6 +84,7 @@ export default function AuthPage() {
           email: user.email,
           full_name: fullName.trim(),
           role: assignedRole,
+          title: invitation?.title || null,
           updated_at: new Date().toISOString(),
         });
 

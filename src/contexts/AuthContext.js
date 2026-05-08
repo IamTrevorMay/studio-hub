@@ -12,6 +12,7 @@ export function AuthProvider({ children }) {
   const [authError, setAuthError] = useState(null);
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [unsignedDocCount, setUnsignedDocCount] = useState(0);
   const initDone = useRef(false);
   const visibilityInFlight = useRef(false);
 
@@ -508,13 +509,29 @@ export function AuthProvider({ children }) {
     setNewItineraryCount(0);
   }, []);
 
+  const fetchUnsignedDocCount = useCallback(async () => {
+    if (!user || profile?.role !== 'freelancer') { setUnsignedDocCount(0); return; }
+    try {
+      const { count, error } = await supabase
+        .from('freelancer_documents')
+        .select('*', { count: 'exact', head: true })
+        .eq('freelancer_id', user.id)
+        .eq('doc_type', 'signing')
+        .is('signed_at', null);
+      if (!error) setUnsignedDocCount(count || 0);
+    } catch (err) {
+      console.error('Error fetching unsigned doc count:', err);
+    }
+  }, [user, profile?.role]);
+
   const refreshNotifications = useCallback(() => {
     fetchUnreadAnnouncementCount();
     fetchNewItineraryCount();
     fetchUnreadMentions();
     fetchUnreadNotificationCount();
     fetchPendingProposalCount();
-  }, [fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions, fetchUnreadNotificationCount, fetchPendingProposalCount]);
+    fetchUnsignedDocCount();
+  }, [fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions, fetchUnreadNotificationCount, fetchPendingProposalCount, fetchUnsignedDocCount]);
 
   // Initial fetch + real-time subscriptions + 5-min fallback poll
   useEffect(() => {
@@ -540,6 +557,9 @@ export function AuthProvider({ children }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'ad_read_proposals' }, () => {
         fetchPendingProposalCount();
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'freelancer_documents' }, () => {
+        fetchUnsignedDocCount();
+      })
       .subscribe();
 
     // 5-minute fallback poll as safety net for dropped connections
@@ -549,7 +569,7 @@ export function AuthProvider({ children }) {
       supabase.removeChannel(channel);
       clearInterval(interval);
     };
-  }, [user, refreshNotifications, fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions, fetchUnreadNotificationCount, fetchPendingProposalCount, refreshKey]);
+  }, [user, refreshNotifications, fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions, fetchUnreadNotificationCount, fetchPendingProposalCount, fetchUnsignedDocCount, refreshKey]);
 
   const value = {
     user,
@@ -576,6 +596,7 @@ export function AuthProvider({ children }) {
     refreshNotifications,
     unreadNotificationCount,
     pendingProposalCount,
+    unsignedDocCount,
     refreshKey,
   };
 

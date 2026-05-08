@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 
@@ -90,6 +91,7 @@ const EMPTY_MONTHLY = { title: '', content_type_filter: 'video', target_value: '
 
 export default function Goals() {
   const { profile, isAdmin, refreshKey } = useAuth();
+  const confirm = useConfirm();
   const [goals, setGoals] = useState([]);
   const [initiatives, setInitiatives] = useState([]);
   const [accounts, setAccounts] = useState([]);
@@ -416,7 +418,7 @@ export default function Goals() {
     fetchAll();
   }
   async function handleDeleteGoal(id) {
-    if (!window.confirm('Delete this goal?')) return;
+    if (!(await confirm('Delete this goal?'))) return;
     await supabase.from('goals').delete().eq('id', id);
     fetchAll();
   }
@@ -459,7 +461,7 @@ export default function Goals() {
     fetchAll();
   }
   async function handleDeleteInit(id) {
-    if (!window.confirm('Delete this initiative?')) return;
+    if (!(await confirm('Delete this initiative?'))) return;
     await supabase.from('initiatives').delete().eq('id', id);
     fetchAll();
   }
@@ -518,7 +520,7 @@ export default function Goals() {
     fetchAll();
   }
   async function handleDeleteMonthly(id) {
-    if (!window.confirm('Delete this monthly goal?')) return;
+    if (!(await confirm('Delete this monthly goal?'))) return;
     await supabase.from('monthly_goals').delete().eq('id', id);
     fetchAll();
   }

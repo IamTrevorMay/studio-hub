@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 import Whiteboard from './editors/Whiteboard';
@@ -27,6 +28,7 @@ const DOC_TYPES = {
 
 export default function Ideation({ initialConceptId, onConceptOpened }) {
   const { profile, isAdmin, refreshKey } = useAuth();
+  const confirm = useConfirm();
   const [concepts, setConcepts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreateConcept, setShowCreateConcept] = useState(false);
@@ -185,7 +187,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
   }
 
   async function handleDeleteConcept(conceptId) {
-    if (!window.confirm('Delete this concept and all its documents?')) return;
+    if (!(await confirm('Delete this concept and all its documents?'))) return;
     await supabase.from('concepts').delete().eq('id', conceptId);
     if (activeConcept?.id === conceptId) { setActiveConcept(null); setActiveDoc(null); }
     fetchConcepts();
@@ -258,7 +260,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
   }
 
   async function handleDeleteDoc(docId) {
-    if (!window.confirm('Delete this document?')) return;
+    if (!(await confirm('Delete this document?'))) return;
     await supabase.from('concept_documents').delete().eq('id', docId);
     if (activeDoc?.id === docId) setActiveDoc(null);
     if (activeConcept) fetchDocuments(activeConcept.id);

@@ -1,6 +1,7 @@
 import React, { Suspense } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { isMobileViewport } from './hooks/useIsMobile';
+import { ConfirmProvider } from './contexts/ConfirmContext';
 
 // Pick the layout + auth chunks once at boot. Cross-breakpoint resize requires reload.
 const Layout = isMobileViewport()
@@ -80,7 +81,9 @@ function LayoutFallback() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <ConfirmProvider>
+        <AppContent />
+      </ConfirmProvider>
     </AuthProvider>
   );
 }

@@ -82,9 +82,9 @@ export default function useNavConfig() {
     if (isFreelancer) {
       return [
         { type: 'item', key: 'fl_dashboard', label: 'Dashboard' },
-        { type: 'item', key: 'fl_hours', label: 'Hours' },
         { type: 'item', key: 'resources', label: 'Resources' },
-        { type: 'item', key: 'assets', label: 'Assets Cloud' },
+        { type: 'item', key: 'assets', label: 'Upload/Download' },
+        { type: 'item', key: 'fl_documents', label: 'Documents' },
         { type: 'item', key: 'fl_profile', label: 'Profile' },
         { type: 'item', key: 'fl_notifications', label: 'Notifications' },
       ];

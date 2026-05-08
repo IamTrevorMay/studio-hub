@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 
-const TABS = ['Team', 'Assignments', 'Hours'];
+const TABS = ['Team', 'Assignments', 'Hours', 'Documents'];
 
 const STATUS_OPTIONS = ['assigned', 'in_progress', 'completed'];
 const STATUS_LABELS = { assigned: 'Assigned', in_progress: 'In Progress', completed: 'Completed' };
@@ -57,6 +57,14 @@ function Freelancers() {
   /* ── Hours state ── */
   const [hours, setHours] = useState([]);
   const [hoursFreelancerFilter, setHoursFreelancerFilter] = useState('all');
+
+  /* ── Documents state ── */
+  const [docs, setDocs] = useState([]);
+  const [docsFreelancerFilter, setDocsFreelancerFilter] = useState('all');
+  const [showUploadForm, setShowUploadForm] = useState(false);
+  const [uploadForm, setUploadForm] = useState({ title: '', description: '', doc_type: 'signing', freelancer_ids: [] });
+  const [uploadFile, setUploadFile] = useState(null);
+  const [uploadLoading, setUploadLoading] = useState(false);
 
   /* ─────────────────────────────────────────── */
   /*  Data fetching                              */
@@ -130,12 +138,21 @@ function Freelancers() {
     setHours(data || []);
   }, []);
 
+  const fetchDocs = useCallback(async () => {
+    const { data } = await supabase
+      .from('freelancer_documents')
+      .select('*, freelancer:profiles!freelancer_documents_freelancer_id_fkey(full_name)')
+      .order('created_at', { ascending: false });
+    setDocs(data || []);
+  }, []);
+
   useEffect(() => {
     if (!isAdmin) return;
     if (activeTab === 'Team') fetchTeam();
     if (activeTab === 'Assignments') { fetchAssignments(); fetchTeam(); }
     if (activeTab === 'Hours') { fetchHours(); fetchTeam(); }
-  }, [activeTab, isAdmin, fetchTeam, fetchAssignments, fetchHours]);
+    if (activeTab === 'Documents') { fetchDocs(); fetchTeam(); }
+  }, [activeTab, isAdmin, fetchTeam, fetchAssignments, fetchHours, fetchDocs]);
 
   useEffect(() => {
     if (expandedAssignment) fetchComments(expandedAssignment);
@@ -264,6 +281,48 @@ function Freelancers() {
     fetchHours();
   };
 
+  /* ── Document handlers ── */
+
+  const handleUploadDoc = async () => {
+    if (!uploadFile || !uploadForm.title.trim() || uploadForm.freelancer_ids.length === 0) return;
+    setUploadLoading(true);
+    try {
+      for (const fId of uploadForm.freelancer_ids) {
+        const storagePath = `${fId}/${Date.now()}_${uploadFile.name}`;
+        const { error: uploadError } = await supabase.storage
+          .from('freelancer-documents')
+          .upload(storagePath, uploadFile);
+        if (uploadError) throw uploadError;
+
+        const { error: insertError } = await supabase.from('freelancer_documents').insert({
+          freelancer_id: fId,
+          uploaded_by: profile.id,
+          title: uploadForm.title.trim(),
+          description: uploadForm.description.trim() || null,
+          doc_type: uploadForm.doc_type,
+          storage_path: storagePath,
+          file_name: uploadFile.name,
+        });
+        if (insertError) throw insertError;
+      }
+      setShowUploadForm(false);
+      setUploadForm({ title: '', description: '', doc_type: 'signing', freelancer_ids: [] });
+      setUploadFile(null);
+      fetchDocs();
+    } catch (err) {
+      console.error('Upload failed:', err);
+      alert('Upload failed: ' + err.message);
+    }
+    setUploadLoading(false);
+  };
+
+  const handleDeleteDoc = async (doc) => {
+    if (!window.confirm(`Delete "${doc.title}" for ${doc.freelancer?.full_name}?`)) return;
+    await supabase.storage.from('freelancer-documents').remove([doc.storage_path]);
+    await supabase.from('freelancer_documents').delete().eq('id', doc.id);
+    fetchDocs();
+  };
+
   /* ─────────────────────────────────────────── */
   /*  Helpers                                    */
   /* ─────────────────────────────────────────── */
@@ -308,6 +367,11 @@ function Freelancers() {
 
   const filteredHours = hours.filter(h => {
     if (hoursFreelancerFilter !== 'all' && h.freelancer_id !== hoursFreelancerFilter) return false;
+    return true;
+  });
+
+  const filteredDocs = docs.filter(d => {
+    if (docsFreelancerFilter !== 'all' && d.freelancer_id !== docsFreelancerFilter) return false;
     return true;
   });
 
@@ -928,6 +992,164 @@ function Freelancers() {
                       )}
                     </div>
                   </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════ */}
+      {/*  TAB 4: DOCUMENTS                      */}
+      {/* ══════════════════════════════════════ */}
+      {activeTab === 'Documents' && (
+        <div>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 20, alignItems: 'center' }}>
+            <button style={styles.primaryBtn} onClick={() => setShowUploadForm(v => !v)}>
+              {showUploadForm ? 'Cancel' : 'Upload Document'}
+            </button>
+            <select
+              value={docsFreelancerFilter}
+              onChange={e => setDocsFreelancerFilter(e.target.value)}
+              style={styles.select}
+            >
+              <option value="all">All Freelancers</option>
+              {freelancers.map(fl => (
+                <option key={fl.id} value={fl.id}>{fl.full_name || fl.email}</option>
+              ))}
+            </select>
+          </div>
+
+          {showUploadForm && (
+            <div style={{ ...styles.card, marginBottom: 20 }}>
+              <h3 style={{ fontSize: 15, fontWeight: 600, color: '#e2e8f0', margin: '0 0 14px' }}>Upload Document</h3>
+              <div style={styles.formGrid}>
+                <div style={styles.formField}>
+                  <label style={styles.label}>Title</label>
+                  <input
+                    type="text"
+                    value={uploadForm.title}
+                    onChange={e => setUploadForm(p => ({ ...p, title: e.target.value }))}
+                    placeholder="Document title"
+                    style={styles.input}
+                  />
+                </div>
+                <div style={styles.formField}>
+                  <label style={styles.label}>Type</label>
+                  <select
+                    value={uploadForm.doc_type}
+                    onChange={e => setUploadForm(p => ({ ...p, doc_type: e.target.value }))}
+                    style={styles.select}
+                  >
+                    <option value="signing">Signing</option>
+                    <option value="reference">Reference</option>
+                  </select>
+                </div>
+                <div style={{ ...styles.formField, gridColumn: '1 / -1' }}>
+                  <label style={styles.label}>Description (optional)</label>
+                  <input
+                    type="text"
+                    value={uploadForm.description}
+                    onChange={e => setUploadForm(p => ({ ...p, description: e.target.value }))}
+                    placeholder="Brief description"
+                    style={styles.input}
+                  />
+                </div>
+                <div style={{ ...styles.formField, gridColumn: '1 / -1' }}>
+                  <label style={styles.label}>Freelancer(s)</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {freelancers.map(fl => {
+                      const sel = uploadForm.freelancer_ids.includes(fl.id);
+                      return (
+                        <button
+                          key={fl.id}
+                          type="button"
+                          onClick={() => setUploadForm(p => ({
+                            ...p,
+                            freelancer_ids: sel
+                              ? p.freelancer_ids.filter(x => x !== fl.id)
+                              : [...p.freelancer_ids, fl.id],
+                          }))}
+                          style={{
+                            ...styles.filterPill,
+                            ...(sel ? styles.filterPillActive : {}),
+                          }}
+                        >
+                          {fl.full_name || fl.email}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div style={styles.formField}>
+                  <label style={styles.label}>PDF File</label>
+                  <input
+                    type="file"
+                    accept=".pdf"
+                    onChange={e => setUploadFile(e.target.files?.[0] || null)}
+                    style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)' }}
+                  />
+                </div>
+              </div>
+              <div style={{ marginTop: 14 }}>
+                <button
+                  onClick={handleUploadDoc}
+                  disabled={uploadLoading || !uploadFile || !uploadForm.title.trim() || uploadForm.freelancer_ids.length === 0}
+                  style={{
+                    ...styles.primaryBtn,
+                    ...(uploadLoading ? { opacity: 0.5 } : {}),
+                  }}
+                >
+                  {uploadLoading ? 'Uploading...' : 'Upload'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {filteredDocs.length === 0 ? (
+            <p style={styles.emptyText}>No documents uploaded yet.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {filteredDocs.map(doc => (
+                <div key={doc.id} style={{ ...styles.card, display: 'flex', alignItems: 'center', gap: 14 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: '#e2e8f0' }}>
+                      {doc.title}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>
+                      {doc.freelancer?.full_name || 'Unknown'} · {doc.file_name} · {formatDate(doc.created_at?.slice(0, 10))}
+                    </div>
+                    {doc.description && (
+                      <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>{doc.description}</div>
+                    )}
+                  </div>
+                  <span style={{
+                    ...styles.typeBadge,
+                    ...(doc.doc_type === 'reference' ? { background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)' } : {}),
+                  }}>
+                    {doc.doc_type === 'signing' ? 'Sign' : 'Reference'}
+                  </span>
+                  {doc.doc_type === 'signing' && (
+                    <span style={{
+                      ...styles.statusBadge,
+                      ...(doc.signed_at
+                        ? { background: 'rgba(34,197,94,0.15)', color: '#34d399' }
+                        : { background: 'rgba(245,158,11,0.15)', color: '#fbbf24' }),
+                    }}>
+                      {doc.signed_at ? 'Signed' : 'Pending'}
+                    </span>
+                  )}
+                  <button
+                    onClick={() => handleDeleteDoc(doc)}
+                    style={{
+                      padding: '4px 10px', background: 'transparent',
+                      border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6,
+                      color: '#ef4444', fontSize: 12, cursor: 'pointer',
+                      fontFamily: 'DM Sans, sans-serif', flexShrink: 0,
+                    }}
+                  >
+                    Delete
+                  </button>
                 </div>
               ))}
             </div>

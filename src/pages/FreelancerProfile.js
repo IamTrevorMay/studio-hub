@@ -8,7 +8,6 @@ export default function FreelancerProfile() {
   const { profile } = useAuth();
   const [form, setForm] = useState({
     full_name: '',
-    title: '',
     specialty: '',
     hourly_rate: '',
     phone: '',
@@ -28,12 +27,11 @@ export default function FreelancerProfile() {
     if (!profile?.id) return;
     setLoading(true);
     const [{ data: prof }, { data: flProf }] = await Promise.all([
-      supabase.from('profiles').select('full_name, title, email, avatar_url').eq('id', profile.id).single(),
+      supabase.from('profiles').select('full_name, email, avatar_url').eq('id', profile.id).single(),
       supabase.from('freelancer_profiles').select('*').eq('id', profile.id).single(),
     ]);
     setForm({
       full_name: prof?.full_name || '',
-      title: prof?.title || '',
       specialty: flProf?.specialty || '',
       hourly_rate: flProf?.hourly_rate != null ? String(flProf.hourly_rate) : '',
       phone: flProf?.phone || '',
@@ -60,7 +58,6 @@ export default function FreelancerProfile() {
       await Promise.all([
         supabase.from('profiles').update({
           full_name: form.full_name,
-          title: form.title,
           updated_at: new Date().toISOString(),
         }).eq('id', profile.id),
         supabase.from('freelancer_profiles').update({
@@ -128,17 +125,6 @@ export default function FreelancerProfile() {
             type="text"
             value={form.full_name}
             onChange={e => updateField('full_name', e.target.value)}
-            style={styles.input}
-          />
-        </div>
-
-        <div style={styles.fieldGroup}>
-          <label style={styles.fieldLabel}>Title</label>
-          <input
-            type="text"
-            value={form.title}
-            onChange={e => updateField('title', e.target.value)}
-            placeholder="e.g. Video Editor"
             style={styles.input}
           />
         </div>

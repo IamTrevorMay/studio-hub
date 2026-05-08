@@ -52,7 +52,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // Parse the request body
-    const { email, role } = await req.json();
+    const { email, role, title } = await req.json();
     if (!email) {
       return new Response(JSON.stringify({ error: "Email is required" }), {
         status: 400,
@@ -70,7 +70,7 @@ Deno.serve(async (req: Request) => {
     // Send the invite email. Pass role in user_metadata so the
     // handle_new_user() trigger picks it up when the profile is auto-created.
     const { data, error } = await adminClient.auth.admin.inviteUserByEmail(email, {
-      data: { role: inviteRole },
+      data: { role: inviteRole, title: title || null },
       redirectTo: Deno.env.get("SITE_URL") || "https://studio-hub-fawn.vercel.app",
     });
 
@@ -87,6 +87,7 @@ Deno.serve(async (req: Request) => {
       invited_by: user.id,
       accepted_at: null,
       role: inviteRole,
+      title: title || null,
     });
     if (inviteLogError) {
       console.error("Failed to log invitation:", inviteLogError);
