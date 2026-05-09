@@ -339,7 +339,7 @@ export default function Write() {
 // Dashboard To Do widget, but every authenticated user sees and edits the
 // same rows. No "delete checked on refresh" because it's shared.
 // ────────────────────────────────────────────────────────────────────────────
-function IdeasSection() {
+export function IdeasSection() {
   const { profile } = useAuth();
   const [ideas, setIdeas] = useState([]);
   const [collapsed, setCollapsed] = useState(false);

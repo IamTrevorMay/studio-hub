@@ -31,6 +31,7 @@ import FreelancerProfile from './FreelancerProfile';
 import FreelancerNotifications from './FreelancerNotifications';
 import FreelancerDocuments from './FreelancerDocuments';
 import Freelancers from './Freelancers';
+import Ideas from './Ideas';
 import Morty from '../components/Morty';
 import FreelancerTour from '../components/FreelancerTour';
 
@@ -64,7 +65,7 @@ const NAV_ITEMS = [
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
 ];
 
-const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_documents'));
+const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_documents', 'ideas'));
 
 function getTabFromPath() {
   const path = window.location.pathname.replace(/^\/+/, '').split('/')[0];
@@ -122,6 +123,7 @@ const NAV_ICON_MAP = {
   fl_profile: ProfileIcon,
   fl_notifications: NotificationsIcon,
   fl_documents: DocumentsIcon,
+  ideas: IdeationIcon,
 };
 
 export default function AppLayout() {
@@ -141,13 +143,20 @@ export default function AppLayout() {
     JSON.parse(localStorage.getItem('nav-folder-state') || '{}')
   );
   const [showTour, setShowTour] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
+
+  useEffect(() => {
+    function handleResize() { setIsMobile(window.innerWidth <= 768); }
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Persist folder collapse state
   useEffect(() => {
     localStorage.setItem('nav-folder-state', JSON.stringify(folderCollapseState));
   }, [folderCollapseState]);
 
-  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isFreelancer);
+  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isFreelancer, isMobile);
 
   function toggleFolder(folderId) {
     setFolderCollapseState(prev => ({ ...prev, [folderId]: !prev[folderId] }));
@@ -186,7 +195,7 @@ export default function AppLayout() {
 
   // Redirect freelancers to their dashboard if landing on a non-freelancer tab
   useEffect(() => {
-    if (isFreelancer && !activeTab.startsWith('fl_') && activeTab !== 'resources' && activeTab !== 'assets' && activeTab !== 'channels' && activeTab !== 'messages') {
+    if (isFreelancer && !activeTab.startsWith('fl_') && activeTab !== 'resources' && activeTab !== 'assets' && activeTab !== 'channels' && activeTab !== 'messages' && activeTab !== 'ideas') {
       setActiveTab('fl_dashboard');
     }
   }, [isFreelancer]); // eslint-disable-line
@@ -594,6 +603,7 @@ export default function AppLayout() {
           {activeTab === 'ideation' && <Ideation initialConceptId={navTarget} onConceptOpened={() => setNavTarget(null)} />}
           {activeTab === 'resources' && <Resources />}
           {activeTab === 'write' && <Write />}
+          {activeTab === 'ideas' && <Ideas />}
           {activeTab === 'screenwriter' && <Screenwriter initialScriptId={navTarget} onScriptOpened={() => setNavTarget(null)} />}
           {activeTab === 'teleprompter' && <Teleprompter onBack={() => setActiveTab('dashboard')} />}
           {activeTab === 'telestration' && <Telestration onBack={() => setActiveTab('dashboard')} />}
