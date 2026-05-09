@@ -77,21 +77,20 @@ export default function useNavConfig() {
    * - Items in config but not in code are skipped
    * - Items in code but not in config are appended at the end
    */
-  const getResolvedNav = useCallback((navItems, isAdmin, isPartner, isFreelancer, isMobile) => {
+  const getResolvedNav = useCallback((navItems, isAdmin, isPartner, isFreelancer) => {
     // Freelancers get a locked sidebar
     if (isFreelancer) {
-      const items = [
+      return [
         { type: 'item', key: 'fl_dashboard', label: 'Dashboard' },
         { type: 'item', key: 'resources', label: 'Resources' },
         { type: 'item', key: 'assets', label: 'Upload/Download' },
         { type: 'item', key: 'fl_documents', label: 'Documents' },
         { type: 'item', key: 'channels', label: 'Channels' },
         { type: 'item', key: 'messages', label: 'Messages' },
+        { type: 'item', key: 'ideas', label: 'Ideas' },
         { type: 'item', key: 'fl_profile', label: 'Profile' },
         { type: 'item', key: 'fl_notifications', label: 'Notifications' },
       ];
-      if (isMobile) items.push({ type: 'item', key: 'ideas', label: 'Ideas' });
-      return items;
     }
 
     // Partners get a locked two-item sidebar
@@ -104,11 +103,9 @@ export default function useNavConfig() {
 
     // If no config or empty, return hardcoded items as-is
     if (!config || !config.items || config.items.length === 0) {
-      const items = navItems
+      return navItems
         .filter(item => !item.adminOnly || isAdmin)
         .map(item => ({ type: 'item', key: item.key, label: item.label, adminOnly: item.adminOnly }));
-      if (isMobile) items.push({ type: 'item', key: 'ideas', label: 'Ideas' });
-      return items;
     }
 
     const codeKeys = new Set(navItems.map(i => i.key));
@@ -149,7 +146,6 @@ export default function useNavConfig() {
       }
     }
 
-    if (isMobile) result.push({ type: 'item', key: 'ideas', label: 'Ideas' });
     return result;
   }, [config]);
 

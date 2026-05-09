@@ -63,6 +63,7 @@ const NAV_ITEMS = [
   { key: 'freelancers', label: 'Freelancers', icon: FreelancersIcon, adminOnly: true },
   { key: 'channels', label: 'Channels', icon: ChannelsIcon },
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
+  { key: 'ideas', label: 'Ideas', icon: IdeationIcon },
 ];
 
 const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_documents', 'ideas'));
@@ -143,20 +144,13 @@ export default function AppLayout() {
     JSON.parse(localStorage.getItem('nav-folder-state') || '{}')
   );
   const [showTour, setShowTour] = useState(false);
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
-
-  useEffect(() => {
-    function handleResize() { setIsMobile(window.innerWidth <= 768); }
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
 
   // Persist folder collapse state
   useEffect(() => {
     localStorage.setItem('nav-folder-state', JSON.stringify(folderCollapseState));
   }, [folderCollapseState]);
 
-  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isFreelancer, isMobile);
+  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isFreelancer);
 
   function toggleFolder(folderId) {
     setFolderCollapseState(prev => ({ ...prev, [folderId]: !prev[folderId] }));
