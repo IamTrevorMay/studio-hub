@@ -654,6 +654,14 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
           .neq('status', 'done')
           .neq('status', 'archived');
       }
+
+      // Also adopt any orphaned tasks in sprint-column statuses that have no sprint
+      await supabase
+        .from('personal_tasks')
+        .update({ sprint_id: newSprint.id, updated_at: new Date().toISOString() })
+        .eq('created_by', profile.id)
+        .is('sprint_id', null)
+        .in('status', ['ready', 'in_progress', 'holding']);
     }
 
     if (week.start === selectedWeek.start) {
