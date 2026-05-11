@@ -53,6 +53,49 @@ function phaseColor(phaseIdx) { return PHASE_PALETTE[phaseIdx % PHASE_PALETTE.le
 
 const COMPLETED_GRACE_HOURS = 24;
 
+const PLATFORM_META = {
+  youtube:   { label: 'YouTube',   color: '#FF0000' },
+  facebook:  { label: 'Facebook',  color: '#1877F2' },
+  instagram: { label: 'Instagram', color: '#E4405F' },
+  tiktok:    { label: 'TikTok',    color: '#00F2EA' },
+  substack:  { label: 'Substack',  color: '#FF6719' },
+  twitch:    { label: 'Twitch',    color: '#9146FF' },
+  stripe:    { label: 'Stripe',    color: '#635BFF' },
+  fourthwall:{ label: 'Fourthwall',color: '#E8451C' },
+};
+
+const METRIC_OPTIONS = [
+  { key: 'views',              label: 'Views' },
+  { key: 'likes',              label: 'Likes' },
+  { key: 'comments',           label: 'Comments' },
+  { key: 'shares',             label: 'Shares' },
+  { key: 'watch_time_seconds', label: 'Watch Time (hrs)' },
+];
+
+function getDateRangeForCategory(category) {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  if (category === 'quarterly') {
+    const qStart = new Date(year, Math.floor(month / 3) * 3, 1);
+    return { start: qStart.toISOString().split('T')[0], end: now.toISOString().split('T')[0] };
+  }
+  if (category === 'none') {
+    return { start: '2020-01-01', end: now.toISOString().split('T')[0] };
+  }
+  return { start: `${year}-01-01`, end: now.toISOString().split('T')[0] };
+}
+
+function formatMetricValue(key, value) {
+  if (key === 'watch_time_seconds') return Math.round(value / 3600).toLocaleString() + 'h';
+  return Math.round(value).toLocaleString();
+}
+
+function formatTargetForMetric(key, value) {
+  if (key === 'watch_time_seconds') return value * 3600;
+  return value;
+}
+
 // ════════════════════════════════════════════════════════════
 // Helpers
 // ════════════════════════════════════════════════════════════
@@ -91,6 +134,22 @@ function isRecentlyCompleted(completedAt) {
 }
 function effectiveTag(task, initiative) { return task.tag || initiative?.tag || 'shared'; }
 
+function progressColor(pct) {
+  const r = Math.round(0x86 + (0x16 - 0x86) * pct);
+  const g = Math.round(0xef + (0xa3 - 0xef) * pct);
+  const b = Math.round(0xac + (0x4a - 0xac) * pct);
+  return `rgb(${r},${g},${b})`;
+}
+
+function formatTimeAgo(dateStr) {
+  if (!dateStr) return '';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  if (diff < 60000) return 'just now';
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+  return `${Math.floor(diff / 86400000)}d ago`;
+}
+
 // ════════════════════════════════════════════════════════════
 // Empty form templates
 // ════════════════════════════════════════════════════════════
@@ -102,6 +161,8 @@ const EMPTY_INITIATIVE = {
 };
 const EMPTY_TASK = { title: '', notes: '', tag: '', owner_id: null, due_date: '', recurrence_interval: '', recurrence_count: 1 };
 const EMPTY_MILESTONE = { title: '', target_date: '' };
+const EMPTY_BD_GOAL = { title: '', current_value: '', target_value: '', category: 'quarterly', goal_type: 'manual', metrics: [], platform_account_ids: [] };
+const EMPTY_BD_MONTHLY = { title: '', target_value: '' };
 
 // ════════════════════════════════════════════════════════════
 // Main page
@@ -151,6 +212,20 @@ export default function BusinessDev() {
   // Delete-confirm state
   const [deletingPhase, setDeletingPhase] = useState(null); // phase object
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
+
+  // BD Goals state
+  const [bdGoalsExpanded, setBdGoalsExpanded] = useState(true);
+  const [bdGoals, setBdGoals] = useState([]);
+  const [bdMonthlyGoals, setBdMonthlyGoals] = useState([]);
+  const [expandedYearlyBdGoals, setExpandedYearlyBdGoals] = useState({});
+  const [showBdGoalForm, setShowBdGoalForm] = useState(false);
+  const [editingBdGoalId, setEditingBdGoalId] = useState(null);
+  const [bdGoalForm, setBdGoalForm] = useState(EMPTY_BD_GOAL);
+  const [showBdMonthlyForm, setShowBdMonthlyForm] = useState(null); // parent goal id
+  const [editingBdMonthlyId, setEditingBdMonthlyId] = useState(null);
+  const [bdMonthlyForm, setBdMonthlyForm] = useState(EMPTY_BD_MONTHLY);
+  const [bdAccounts, setBdAccounts] = useState([]);
+  const [bdRollupData, setBdRollupData] = useState({});
 
   // ─────────────────────────────────────────────
   // Fetch all
@@ -214,6 +289,179 @@ export default function BusinessDev() {
     fetchAll();
   }, [profile?.id, isAdmin, isPartner, fetchAll]);
   useVisibilityRefresh(fetchAll);
+
+  // ─────────────────────────────────────────────
+  // BD Goals fetch & CRUD
+  // ─────────────────────────────────────────────
+  const fetchBdRollupData = useCallback(async (metricGoals) => {
+    if (!metricGoals.length) { setBdRollupData({}); return; }
+    const hasNone = metricGoals.some(g => g.category === 'none');
+    const hasYearly = metricGoals.some(g => g.category === 'yearly');
+    const noneRange = getDateRangeForCategory('none');
+    const yearRange = getDateRangeForCategory('yearly');
+    const quarterRange = getDateRangeForCategory('quarterly');
+    const start = hasNone ? noneRange.start : hasYearly ? yearRange.start : quarterRange.start;
+    const end = yearRange.end;
+    const allAccountIds = [...new Set(metricGoals.flatMap(g => g.platform_account_ids || []))];
+    if (!allAccountIds.length) { setBdRollupData({}); return; }
+    const { data: rollups } = await supabase
+      .from('platform_daily_metrics')
+      .select('*')
+      .gte('date', start)
+      .lte('date', end)
+      .in('platform_account_id', allAccountIds);
+    if (!rollups) { setBdRollupData({}); return; }
+    const result = {};
+    for (const goal of metricGoals) {
+      const range = getDateRangeForCategory(goal.category);
+      const goalAccountIds = goal.platform_account_ids || [];
+      const goalMetrics = goal.metrics || [];
+      const filtered = rollups.filter(r =>
+        goalAccountIds.includes(r.platform_account_id) &&
+        r.date >= range.start && r.date <= range.end
+      );
+      const sums = {};
+      for (const m of goalMetrics) {
+        sums[m] = filtered.reduce((acc, r) => acc + (Number(r[m]) || 0), 0);
+      }
+      result[goal.id] = sums;
+    }
+    setBdRollupData(result);
+  }, []);
+
+  const fetchBdGoals = useCallback(async () => {
+    const [gRes, mRes, acctRes] = await Promise.all([
+      supabase.from('goals').select('*').eq('scope', 'bd').order('created_at', { ascending: false }),
+      supabase.from('monthly_goals').select('*').eq('scope', 'bd').order('created_at'),
+      supabase.from('platform_accounts').select('*').eq('is_active', true).order('platform'),
+    ]);
+    const goals = gRes.data || [];
+    setBdGoals(goals);
+    setBdMonthlyGoals(mRes.data || []);
+    setBdAccounts(acctRes.data || []);
+    const metricGoals = goals.filter(g => g.goal_type === 'metric');
+    fetchBdRollupData(metricGoals);
+  }, [fetchBdRollupData]);
+
+  useEffect(() => {
+    if (!profile?.id || !isAdmin) return;
+    fetchBdGoals();
+  }, [profile?.id, isAdmin, fetchBdGoals]);
+
+  function openCreateBdGoal() {
+    setEditingBdGoalId(null);
+    setBdGoalForm(EMPTY_BD_GOAL);
+    setShowBdGoalForm(true);
+  }
+  function openEditBdGoal(goal) {
+    setEditingBdGoalId(goal.id);
+    const gt = goal.goal_type || 'manual';
+    const tv = gt === 'metric' && goal.metrics?.length === 1 && goal.metrics[0] === 'watch_time_seconds'
+      ? String(Math.round((goal.target_value || 0) / 3600))
+      : String(goal.target_value || 0);
+    setBdGoalForm({
+      title: goal.title,
+      current_value: String(goal.current_value || 0),
+      target_value: tv,
+      category: goal.category,
+      goal_type: gt,
+      metrics: goal.metrics || [],
+      platform_account_ids: goal.platform_account_ids || [],
+    });
+    setShowBdGoalForm(true);
+  }
+  function cancelBdGoalForm() {
+    setShowBdGoalForm(false);
+    setEditingBdGoalId(null);
+    setBdGoalForm(EMPTY_BD_GOAL);
+  }
+  async function handleBdGoalSubmit(e) {
+    e.preventDefault();
+    const title = bdGoalForm.title.trim();
+    if (!title) return;
+    const goalType = bdGoalForm.goal_type || 'manual';
+    let current_value, target_value, metrics, platform_account_ids;
+    if (goalType === 'metric') {
+      if (!(bdGoalForm.metrics || []).length) { alert('Select at least one metric'); return; }
+      if (!(bdGoalForm.platform_account_ids || []).length) { alert('Select at least one platform'); return; }
+      current_value = 0;
+      metrics = bdGoalForm.metrics;
+      platform_account_ids = bdGoalForm.platform_account_ids;
+      const rawTarget = parseInt(bdGoalForm.target_value) || 1;
+      target_value = metrics.length === 1 ? formatTargetForMetric(metrics[0], rawTarget) : rawTarget;
+    } else if (goalType === 'checkbox') {
+      current_value = 0;
+      target_value = 1;
+      metrics = [];
+      platform_account_ids = [];
+    } else {
+      current_value = parseInt(bdGoalForm.current_value) || 0;
+      target_value = parseInt(bdGoalForm.target_value) || 1;
+      metrics = [];
+      platform_account_ids = [];
+    }
+    const payload = { title, current_value, target_value, category: bdGoalForm.category, goal_type: goalType, metrics, platform_account_ids, scope: 'bd' };
+    if (editingBdGoalId) {
+      const { error } = await supabase.from('goals').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', editingBdGoalId);
+      if (error) { alert(error.message); return; }
+    } else {
+      const { error } = await supabase.from('goals').insert({ ...payload, created_by: profile.id });
+      if (error) { alert(error.message); return; }
+    }
+    cancelBdGoalForm();
+    fetchBdGoals();
+  }
+  async function handleDeleteBdGoal(id) {
+    if (!(await confirm('Delete this goal?'))) return;
+    await supabase.from('goals').delete().eq('id', id);
+    fetchBdGoals();
+  }
+  async function handleToggleBdGoalCheckbox(goal) {
+    const done = (goal.current_value || 0) >= 1;
+    const now = new Date().toISOString();
+    await supabase.from('goals').update({
+      current_value: done ? 0 : 1,
+      completed_at: done ? null : now,
+      updated_at: now,
+    }).eq('id', goal.id);
+    fetchBdGoals();
+  }
+
+  function openCreateBdMonthly(parentGoalId) {
+    setEditingBdMonthlyId(null);
+    setBdMonthlyForm(EMPTY_BD_MONTHLY);
+    setShowBdMonthlyForm(parentGoalId);
+  }
+  function openEditBdMonthly(mg) {
+    setEditingBdMonthlyId(mg.id);
+    setBdMonthlyForm({ title: mg.title, target_value: String(mg.target_value || 0) });
+    setShowBdMonthlyForm(mg.parent_goal_id);
+  }
+  function cancelBdMonthlyForm() {
+    setShowBdMonthlyForm(null);
+    setEditingBdMonthlyId(null);
+    setBdMonthlyForm(EMPTY_BD_MONTHLY);
+  }
+  async function handleBdMonthlySubmit(e) {
+    e.preventDefault();
+    const title = bdMonthlyForm.title.trim();
+    if (!title) return;
+    const target_value = parseInt(bdMonthlyForm.target_value) || 1;
+    if (editingBdMonthlyId) {
+      const { error } = await supabase.from('monthly_goals').update({ title, target_value, updated_at: new Date().toISOString() }).eq('id', editingBdMonthlyId);
+      if (error) { alert(error.message); return; }
+    } else {
+      const { error } = await supabase.from('monthly_goals').insert({ title, target_value, parent_goal_id: showBdMonthlyForm, scope: 'bd', created_by: profile.id });
+      if (error) { alert(error.message); return; }
+    }
+    cancelBdMonthlyForm();
+    fetchBdGoals();
+  }
+  async function handleDeleteBdMonthly(id) {
+    if (!(await confirm('Delete this monthly goal?'))) return;
+    await supabase.from('monthly_goals').delete().eq('id', id);
+    fetchBdGoals();
+  }
 
   // ─────────────────────────────────────────────
   // Derived
@@ -713,6 +961,45 @@ export default function BusinessDev() {
         />
       )}
 
+      {/* BD Goals section (phases view only, admin only) */}
+      {view === 'phases' && isAdmin && (
+        <BdGoalsSection
+          goals={bdGoals}
+          monthlyGoals={bdMonthlyGoals}
+          expanded={bdGoalsExpanded}
+          onToggleExpand={() => setBdGoalsExpanded(prev => !prev)}
+          expandedYearly={expandedYearlyBdGoals}
+          setExpandedYearly={setExpandedYearlyBdGoals}
+          onCreateGoal={openCreateBdGoal}
+          onEditGoal={openEditBdGoal}
+          onDeleteGoal={handleDeleteBdGoal}
+          onToggleCheckbox={handleToggleBdGoalCheckbox}
+          onCreateMonthly={openCreateBdMonthly}
+          onEditMonthly={openEditBdMonthly}
+          onDeleteMonthly={handleDeleteBdMonthly}
+          monthlyFormFor={showBdMonthlyForm}
+          editingMonthlyId={editingBdMonthlyId}
+          monthlyForm={bdMonthlyForm}
+          setMonthlyForm={setBdMonthlyForm}
+          onMonthlySubmit={handleBdMonthlySubmit}
+          onCancelMonthlyForm={cancelBdMonthlyForm}
+          accounts={bdAccounts}
+          rollupData={bdRollupData}
+        />
+      )}
+
+      {/* BD Goal modal form */}
+      {showBdGoalForm && (
+        <BdGoalFormModal
+          form={bdGoalForm}
+          setForm={setBdGoalForm}
+          editing={!!editingBdGoalId}
+          onSubmit={handleBdGoalSubmit}
+          onCancel={cancelBdGoalForm}
+          accounts={bdAccounts}
+        />
+      )}
+
       {/* Views */}
       {view === 'phases' && (
         phases.length === 0 ? (
@@ -835,6 +1122,341 @@ export default function BusinessDev() {
           onEditTask={openEditTask}
         />
       )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════
+// BD Goals Section
+// ════════════════════════════════════════════════════════════
+function BdGoalsSection({
+  goals, monthlyGoals, expanded, onToggleExpand,
+  expandedYearly, setExpandedYearly,
+  onCreateGoal, onEditGoal, onDeleteGoal, onToggleCheckbox,
+  onCreateMonthly, onEditMonthly, onDeleteMonthly,
+  monthlyFormFor, editingMonthlyId, monthlyForm, setMonthlyForm,
+  onMonthlySubmit, onCancelMonthlyForm,
+  accounts, rollupData,
+}) {
+  const quarterly = goals.filter(g => g.category === 'quarterly');
+  const yearly = goals.filter(g => g.category === 'yearly');
+  const uncategorized = goals.filter(g => g.category === 'none');
+  const monthlyByParent = {};
+  for (const mg of monthlyGoals) {
+    if (mg.parent_goal_id) (monthlyByParent[mg.parent_goal_id] = monthlyByParent[mg.parent_goal_id] || []).push(mg);
+  }
+
+  return (
+    <div style={styles.bdGoalsSection}>
+      <div style={styles.bdGoalsHeader} onClick={onToggleExpand}>
+        <span style={{ ...styles.workstreamCaret, transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
+        <span style={{ fontSize: '14px', fontWeight: 700, color: '#e2e8f0' }}>Goals</span>
+        <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', fontWeight: 500 }}>{goals.length}</span>
+        <div style={{ flex: 1 }} />
+        <button onClick={e => { e.stopPropagation(); onCreateGoal(); }} style={styles.primaryBtn}>+ Goal</button>
+      </div>
+      {expanded && (
+        <div style={styles.bdGoalsBody}>
+          {goals.length === 0 && (
+            <div style={styles.empty}>No goals yet. Click + Goal to add one.</div>
+          )}
+
+          {quarterly.length > 0 && (
+            <div>
+              <div style={styles.bdGoalsGroupLabel}>Quarterly</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {quarterly.map(g => (
+                  <BdGoalCard key={g.id} goal={g} onEdit={() => onEditGoal(g)} onDelete={() => onDeleteGoal(g.id)} onToggleCheckbox={onToggleCheckbox} rollupData={rollupData} accounts={accounts} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {yearly.length > 0 && (
+            <div>
+              <div style={styles.bdGoalsGroupLabel}>Yearly</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {yearly.map(g => {
+                  const children = monthlyByParent[g.id] || [];
+                  const isExpanded = !!expandedYearly[g.id];
+                  return (
+                    <div key={g.id}>
+                      <BdGoalCard goal={g} onEdit={() => onEditGoal(g)} onDelete={() => onDeleteGoal(g.id)} onToggleCheckbox={onToggleCheckbox} rollupData={rollupData} accounts={accounts}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
+                          {children.length > 0 && (
+                            <button
+                              onClick={() => setExpandedYearly(prev => ({ ...prev, [g.id]: !prev[g.id] }))}
+                              style={{ ...styles.iconBtn, fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}
+                            >
+                              <span style={{ display: 'inline-block', transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>▶</span>
+                              {' '}{children.length} monthly goal{children.length !== 1 ? 's' : ''}
+                            </button>
+                          )}
+                          <button onClick={() => onCreateMonthly(g.id)} style={{ ...styles.iconBtn, fontSize: '11px', color: '#a5b4fc' }}>+ Monthly</button>
+                        </div>
+                      </BdGoalCard>
+                      {isExpanded && children.length > 0 && (
+                        <div style={{ marginLeft: '20px', marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          {children.map(mg => (
+                            <BdMonthlyCard key={mg.id} mg={mg} onEdit={() => onEditMonthly(mg)} onDelete={() => onDeleteMonthly(mg.id)} />
+                          ))}
+                        </div>
+                      )}
+                      {monthlyFormFor === g.id && (
+                        <form onSubmit={onMonthlySubmit} style={{ marginLeft: '20px', marginTop: '4px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <input
+                            value={monthlyForm.title}
+                            onChange={e => setMonthlyForm({ ...monthlyForm, title: e.target.value })}
+                            placeholder="Monthly goal title"
+                            autoFocus
+                            style={{ ...styles.input, flex: 1, minWidth: '140px' }}
+                          />
+                          <input
+                            value={monthlyForm.target_value}
+                            onChange={e => setMonthlyForm({ ...monthlyForm, target_value: e.target.value })}
+                            placeholder="Target"
+                            type="number"
+                            min="1"
+                            style={{ ...styles.input, width: '70px' }}
+                          />
+                          <button type="submit" style={styles.primaryBtn}>{editingMonthlyId ? 'Save' : 'Add'}</button>
+                          <button type="button" onClick={onCancelMonthlyForm} style={styles.subtleBtn}>Cancel</button>
+                        </form>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {uncategorized.length > 0 && (
+            <div>
+              <div style={styles.bdGoalsGroupLabel}>No Timeframe</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {uncategorized.map(g => (
+                  <BdGoalCard key={g.id} goal={g} onEdit={() => onEditGoal(g)} onDelete={() => onDeleteGoal(g.id)} onToggleCheckbox={onToggleCheckbox} rollupData={rollupData} accounts={accounts} />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BdGoalCard({ goal, onEdit, onDelete, onToggleCheckbox, rollupData, accounts, children }) {
+  const isMetric = goal.goal_type === 'metric';
+  const isCheckbox = goal.goal_type === 'checkbox';
+  const target = goal.target_value || 1;
+
+  let current = goal.current_value || 0;
+  let displayCurrent, displayTarget;
+
+  if (isMetric) {
+    const sums = (rollupData || {})[goal.id] || {};
+    const metricKeys = goal.metrics || [];
+    if (metricKeys.length === 1) {
+      current = sums[metricKeys[0]] || 0;
+      displayCurrent = formatMetricValue(metricKeys[0], current);
+      displayTarget = formatMetricValue(metricKeys[0], target);
+    } else {
+      current = metricKeys.reduce((acc, k) => acc + (sums[k] || 0), 0);
+      displayCurrent = Math.round(current).toLocaleString();
+      displayTarget = Math.round(target).toLocaleString();
+    }
+  } else if (isCheckbox) {
+    current = goal.current_value || 0;
+  } else {
+    displayCurrent = String(current);
+    displayTarget = String(target);
+  }
+
+  const pct = isCheckbox ? (current >= 1 ? 1 : 0) : Math.min(current / target, 1);
+  const pctDisplay = Math.round(pct * 100);
+
+  return (
+    <div style={styles.bdGoalCard}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        {isCheckbox && (
+          <button onClick={() => onToggleCheckbox && onToggleCheckbox(goal)} style={current >= 1 ? styles.bdCheckboxDone : styles.bdCheckbox}>
+            {current >= 1 ? '\u2713' : ''}
+          </button>
+        )}
+        <span style={{ fontSize: '13px', fontWeight: 600, color: isCheckbox && current >= 1 ? 'rgba(255,255,255,0.4)' : '#e2e8f0', flex: 1, textDecoration: isCheckbox && current >= 1 ? 'line-through' : 'none' }}>{goal.title}</span>
+        {isCheckbox ? (
+          <span style={{ fontSize: '11px', fontWeight: 600, color: current >= 1 ? '#22c55e' : 'rgba(255,255,255,0.4)' }}>{current >= 1 ? 'Complete' : 'Incomplete'}</span>
+        ) : (
+          <>
+            <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}>{displayCurrent} / {displayTarget}</span>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: progressColor(pct) }}>{pctDisplay}%</span>
+          </>
+        )}
+        <button onClick={onEdit} style={styles.iconBtn} title="Edit">{'\u270E'}</button>
+        <button onClick={onDelete} style={styles.iconBtn} title="Delete">{'\u2715'}</button>
+      </div>
+      {!isCheckbox && (
+        <div style={styles.bdGoalBarBg}>
+          <div style={{ ...styles.bdGoalBarFill, width: `${pctDisplay}%`, background: progressColor(pct) }} />
+        </div>
+      )}
+      {isMetric && (
+        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '6px' }}>
+          {(goal.metrics || []).map(mk => {
+            const mo = METRIC_OPTIONS.find(m => m.key === mk);
+            return <span key={mk} style={styles.bdMetricTag}>{mo ? mo.label : mk}</span>;
+          })}
+          {(goal.platform_account_ids || []).map(aid => {
+            const acct = (accounts || []).find(a => a.id === aid);
+            if (!acct) return null;
+            const pm = PLATFORM_META[acct.platform] || {};
+            return <span key={aid} style={{ ...styles.bdPlatformTag, borderColor: (pm.color || '#666') + '44', color: pm.color || '#fff' }}>{acct.account_name}</span>;
+          })}
+        </div>
+      )}
+      {goal.updated_at && (
+        <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', marginTop: '4px' }}>Updated {formatTimeAgo(goal.updated_at)}</div>
+      )}
+      {children}
+    </div>
+  );
+}
+
+function BdMonthlyCard({ mg, onEdit, onDelete }) {
+  return (
+    <div style={{ ...styles.bdGoalCard, padding: '6px 10px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <span style={{ fontSize: '12px', color: '#e2e8f0', flex: 1 }}>{mg.title}</span>
+        <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)' }}>target: {mg.target_value || 0}</span>
+        <button onClick={onEdit} style={styles.iconBtn} title="Edit">✎</button>
+        <button onClick={onDelete} style={styles.iconBtn} title="Delete">✕</button>
+      </div>
+    </div>
+  );
+}
+
+function BdGoalFormModal({ form, setForm, editing, onSubmit, onCancel, accounts }) {
+  const isMetricForm = form.goal_type === 'metric';
+  const isCheckboxForm = form.goal_type === 'checkbox';
+
+  function toggleMetric(key) {
+    const cur = form.metrics || [];
+    if (cur.includes(key)) {
+      setForm({ ...form, metrics: cur.filter(k => k !== key) });
+    } else if (cur.length < 3) {
+      setForm({ ...form, metrics: [...cur, key] });
+    }
+  }
+  function togglePlatformAccount(id) {
+    const cur = form.platform_account_ids || [];
+    if (cur.includes(id)) {
+      setForm({ ...form, platform_account_ids: cur.filter(a => a !== id) });
+    } else {
+      setForm({ ...form, platform_account_ids: [...cur, id] });
+    }
+  }
+
+  return (
+    <div style={styles.modalOverlay} onClick={onCancel}>
+      <div style={{ ...styles.modal, borderColor: 'rgba(99,102,241,0.3)' }} onClick={e => e.stopPropagation()}>
+        <div style={{ ...styles.modalTitle, color: '#a5b4fc' }}>{editing ? 'Edit Goal' : 'New Goal'}</div>
+        <form onSubmit={onSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {/* Type toggle */}
+          <div style={{ display: 'flex', gap: '6px' }}>
+            {[{ key: 'manual', label: 'Manual' }, { key: 'metric', label: 'Metric' }, { key: 'checkbox', label: 'Checkbox' }].map(t => (
+              <button key={t.key} type="button"
+                onClick={() => setForm({ ...form, goal_type: t.key })}
+                style={{ ...styles.bdTypeBtn, ...(form.goal_type === t.key ? styles.bdTypeBtnActive : {}) }}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <div>
+            <label style={styles.formLabel}>Title</label>
+            <input
+              value={form.title}
+              onChange={e => setForm({ ...form, title: e.target.value })}
+              placeholder={isCheckboxForm ? 'e.g., Set up CRM' : isMetricForm ? 'e.g., Reach 100k total views' : 'e.g., Sign 5 new clients'}
+              autoFocus
+              style={{ ...styles.input, width: '100%', marginTop: '4px' }}
+            />
+          </div>
+          <div>
+            <label style={styles.formLabel}>Category</label>
+            <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+              {[{ key: 'quarterly', label: 'Quarterly' }, { key: 'yearly', label: 'Yearly' }, { key: 'none', label: 'No timeframe' }].map(cat => (
+                <label key={cat.key} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#e2e8f0', cursor: 'pointer' }}>
+                  <input type="radio" name="bdGoalCategory" value={cat.key} checked={form.category === cat.key}
+                    onChange={() => setForm({ ...form, category: cat.key })} />
+                  {cat.label}
+                </label>
+              ))}
+            </div>
+          </div>
+          {/* Manual fields */}
+          {!isMetricForm && !isCheckboxForm && (
+            <div style={styles.formRow}>
+              <div style={{ flex: 1 }}>
+                <label style={styles.formLabel}>Current Value</label>
+                <input value={form.current_value} onChange={e => setForm({ ...form, current_value: e.target.value })}
+                  type="number" min="0" style={{ ...styles.input, width: '100%', marginTop: '4px' }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={styles.formLabel}>Target Value</label>
+                <input value={form.target_value} onChange={e => setForm({ ...form, target_value: e.target.value })}
+                  type="number" min="1" style={{ ...styles.input, width: '100%', marginTop: '4px' }} />
+              </div>
+            </div>
+          )}
+          {/* Metric fields */}
+          {isMetricForm && (
+            <>
+              <div>
+                <label style={styles.formLabel}>Target Value</label>
+                <input value={form.target_value} onChange={e => setForm({ ...form, target_value: e.target.value })}
+                  type="number" min="1" style={{ ...styles.input, width: '100%', marginTop: '4px' }} />
+              </div>
+              <div>
+                <label style={styles.formLabel}>Metrics (up to 3)</label>
+                <div style={styles.bdChipRow}>
+                  {METRIC_OPTIONS.map(m => {
+                    const selected = (form.metrics || []).includes(m.key);
+                    return (
+                      <button key={m.key} type="button" onClick={() => toggleMetric(m.key)}
+                        style={{ ...styles.bdChip, ...(selected ? styles.bdChipSelected : {}) }}>
+                        {m.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div>
+                <label style={styles.formLabel}>Platforms</label>
+                <div style={styles.bdChipRow}>
+                  {(accounts || []).filter(a => a.platform !== 'stripe').map(acct => {
+                    const selected = (form.platform_account_ids || []).includes(acct.id);
+                    const pm = PLATFORM_META[acct.platform] || {};
+                    return (
+                      <button key={acct.id} type="button" onClick={() => togglePlatformAccount(acct.id)}
+                        style={{
+                          ...styles.bdChip,
+                          ...(selected ? { background: (pm.color || '#666') + '22', borderColor: (pm.color || '#666') + '66', color: pm.color || '#fff' } : {}),
+                        }}>
+                        {acct.account_name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '6px' }}>
+            <button type="button" onClick={onCancel} style={styles.subtleBtn}>Cancel</button>
+            <button type="submit" style={styles.primaryBtn}>{editing ? 'Save' : 'Create'}</button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
@@ -2259,5 +2881,73 @@ const styles = {
   mineHeader: {
     margin: '0 0 10px', fontSize: '13px', fontWeight: 700,
     color: '#e2e8f0', textTransform: 'uppercase', letterSpacing: '0.5px',
+  },
+
+  // BD Goals
+  bdGoalsSection: {
+    background: 'rgba(255,255,255,0.02)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '14px', overflow: 'hidden', marginBottom: '12px',
+  },
+  bdGoalsHeader: {
+    display: 'flex', alignItems: 'center', gap: '10px',
+    padding: '12px 18px', cursor: 'pointer',
+    background: 'rgba(255,255,255,0.025)',
+  },
+  bdGoalsBody: {
+    padding: '8px 18px 18px',
+    display: 'flex', flexDirection: 'column', gap: '12px',
+  },
+  bdGoalsGroupLabel: {
+    fontSize: '11px', fontWeight: 700, color: 'rgba(255,255,255,0.45)',
+    textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px',
+  },
+  bdGoalCard: {
+    background: 'rgba(255,255,255,0.025)',
+    border: '1px solid rgba(255,255,255,0.05)',
+    borderRadius: '8px', padding: '10px 12px',
+  },
+  bdGoalBarBg: {
+    height: '4px', background: 'rgba(255,255,255,0.06)',
+    borderRadius: '2px', overflow: 'hidden', marginTop: '6px',
+  },
+  bdGoalBarFill: { height: '100%', borderRadius: '2px', transition: 'width 0.3s' },
+  bdTypeBtn: {
+    flex: 1, padding: '8px 14px', borderRadius: '8px',
+    border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)',
+    color: 'rgba(255,255,255,0.4)', fontSize: '13px', fontWeight: 600,
+    cursor: 'pointer', fontFamily: 'inherit',
+  },
+  bdTypeBtnActive: {
+    background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.4)', color: '#a5b4fc',
+  },
+  bdCheckbox: {
+    width: '18px', height: '18px', borderRadius: '4px',
+    border: '1.5px solid rgba(255,255,255,0.25)', background: 'transparent',
+    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: '12px', color: 'transparent', padding: 0, flexShrink: 0,
+  },
+  bdCheckboxDone: {
+    width: '18px', height: '18px', borderRadius: '4px',
+    border: '1.5px solid #22c55e', background: 'rgba(34,197,94,0.15)',
+    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: '12px', color: '#22c55e', padding: 0, flexShrink: 0,
+  },
+  bdMetricTag: {
+    fontSize: '10px', fontWeight: 600, padding: '2px 6px', borderRadius: '4px',
+    background: 'rgba(99,102,241,0.12)', color: '#a5b4fc',
+  },
+  bdPlatformTag: {
+    fontSize: '10px', fontWeight: 600, padding: '2px 6px', borderRadius: '4px',
+    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
+  },
+  bdChipRow: { display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' },
+  bdChip: {
+    padding: '6px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: 500,
+    border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)',
+    color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontFamily: 'inherit',
+  },
+  bdChipSelected: {
+    background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.4)', color: '#a5b4fc',
   },
 };
