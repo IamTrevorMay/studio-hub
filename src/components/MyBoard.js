@@ -610,6 +610,16 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
   // ── Start sprint for a week ──
   async function startSprint(week) {
     if (!profile?.id) return;
+
+    // Complete any stale active sprint from a previous week so the
+    // one_active_sprint_per_user unique constraint doesn't block the insert.
+    await supabase
+      .from('sprints')
+      .update({ status: 'completed', updated_at: new Date().toISOString() })
+      .eq('user_id', profile.id)
+      .eq('status', 'active')
+      .neq('start_date', week.start);
+
     const { data: newSprint, error } = await supabase.from('sprints').insert({
       user_id: profile.id,
       start_date: week.start,
@@ -705,7 +715,7 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
     const content = newTaskText.trim();
 
     const inboxTasks = tasks.filter(t => t.status === 'inbox');
-    const maxPos = inboxTasks.length > 0 ? Math.max(...inboxTasks.map(t => t.position)) : 0;
+    const minPos = inboxTasks.length > 0 ? Math.min(...inboxTasks.map(t => t.position)) : 10;
 
     const tempTask = {
       id: `temp-${Date.now()}`,
@@ -717,7 +727,7 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
       due_date: null,
       project_id: null,
       concept_id: null,
-      position: maxPos + 10,
+      position: minPos - 10,
       completed_at: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -730,7 +740,7 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
       const { error } = await supabase.from('personal_tasks').insert({
         created_by: profile.id,
         content,
-        position: maxPos + 10,
+        position: minPos - 10,
       });
       if (error) throw error;
       fetchTasks();

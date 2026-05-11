@@ -26,6 +26,7 @@ import BusinessDev from './BusinessDevMobile';
 import Invoicing from './InvoicingMobile';
 import Production from './ProductionMobile';
 import FreelancerDashboard from './FreelancerDashboardMobile';
+import Ideas from './Ideas';
 
 // Same NAV_ITEMS source-of-truth as desktop. Kept in sync intentionally — desktop
 // AppLayout owns the canonical list; this is a slimmed mirror used to feed the
@@ -52,6 +53,7 @@ const NAV_ITEMS = [
   { key: 'business_dev', label: 'Business Dev', adminOnly: true },
   { key: 'invoicing', label: 'Invoicing' },
   { key: 'freelancers', label: 'Freelancers', adminOnly: true },
+  { key: 'ideas', label: 'Ideas' },
   { key: 'channels', label: 'Channels' },
   { key: 'messages', label: 'Messages' },
 ];
@@ -254,6 +256,7 @@ function renderActiveTab({ activeTab, isAdmin, isAssistant, isPartner, isFreelan
     case 'goals': return <Goals />;
     case 'business_dev': return <BusinessDev />;
     case 'invoicing': return <Invoicing />;
+    case 'ideas': return <Ideas />;
     case 'channels': return <Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} />;
     case 'messages': return <Messages onNavigate={navigateTo} />;
     case 'admin': return <AdminPanel />;

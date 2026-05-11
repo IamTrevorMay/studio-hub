@@ -3,9 +3,8 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 
 /**
  * SidebarEditMode — Admin DnD editor for sidebar navigation.
- * Single flat Droppable with folder membership determined by position.
- * Collapsed folders break the auto-assign chain — items after a collapsed
- * folder land at root level, not inside the folder.
+ * Single flat Droppable. Folder membership is set only on the moved item
+ * based on its immediate neighbor above — existing items keep their folderId.
  */
 export default function SidebarEditMode({ resolvedNav, navIconMap, onSave, onReset, onCancel, saving }) {
   const [items, setItems] = useState([]);
@@ -31,20 +30,25 @@ export default function SidebarEditMode({ resolvedNav, navIconMap, onSave, onRes
     if (!result.destination) return;
     const newItems = Array.from(items);
     const [moved] = newItems.splice(result.source.index, 1);
-    newItems.splice(result.destination.index, 0, moved);
-    setItems(recalcFolders(newItems));
-  }
+    const destIndex = result.destination.index;
+    newItems.splice(destIndex, 0, moved);
 
-  // Collapsed folders set currentFolderId to null so subsequent items land at root level.
-  function recalcFolders(list) {
-    let currentFolderId = null;
-    return list.map(entry => {
-      if (entry.type === 'folder') {
-        currentFolderId = entry.collapsed ? null : entry.id;
-        return { ...entry };
+    // Only update the moved item's folderId based on what's directly above it.
+    // All other items keep their existing folderId.
+    if (moved.type !== 'folder') {
+      const above = destIndex > 0 ? newItems[destIndex - 1] : null;
+      if (!above) {
+        moved.folderId = null;
+      } else if (above.type === 'folder' && !above.collapsed) {
+        moved.folderId = above.id;
+      } else if (above.type === 'folder' && above.collapsed) {
+        moved.folderId = null;
+      } else {
+        moved.folderId = above.folderId || null;
       }
-      return { ...entry, folderId: currentFolderId };
-    });
+    }
+
+    setItems(newItems);
   }
 
   function toggleFolderCollapse(folderId) {
@@ -73,7 +77,7 @@ export default function SidebarEditMode({ resolvedNav, navIconMap, onSave, onRes
         const result = [...prev];
         result[idx] = { ...result[idx], collapsed: false };
         result.splice(idx + 1, 0, ...children);
-        return recalcFolders(result);
+        return result;
       });
     }
   }

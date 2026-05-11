@@ -151,6 +151,9 @@ export default function Projects({ onNavigate }) {
   const [briefLinkLabel, setBriefLinkLabel] = useState('');
 
   const [allDeliverables, setAllDeliverables] = useState([]);
+  const [expandedUpcomingId, setExpandedUpcomingId] = useState(null);
+  const [editingAdCopy, setEditingAdCopy] = useState({});
+  const [editingDueDate, setEditingDueDate] = useState({});
 
   const [showArchivedSection, setShowArchivedSection] = useState(false);
 
@@ -650,7 +653,7 @@ export default function Projects({ onNavigate }) {
       (data || []).forEach(s => {
         (s.sponsor_deliverables || []).forEach(d => {
           const campaign = (s.sponsor_campaigns || []).find(c => c.id === d.campaign_id);
-          flat.push({ ...d, sponsor_name: s.name, sponsor_id: s.id, campaign_name: campaign?.name || null });
+          flat.push({ ...d, sponsor_name: s.name, sponsor_id: s.id, campaign_name: campaign?.name || null, brief_url: campaign?.brief_url || null, brief_name: campaign?.brief_name || null });
         });
       });
       setAllDeliverables(flat);
@@ -2994,37 +2997,94 @@ export default function Projects({ onNavigate }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 {upcomingReads.map(d => {
                   const linkedSheet = beatSheets.find(bs => bs.id === d.beat_sheet_id);
+                  const isExpanded = expandedUpcomingId === d.id;
                   return (
-                    <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', minWidth: 0 }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: '14px', fontWeight: 600, color: '#fff', marginBottom: '2px' }}>{d.title}</div>
-                        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
-                          <span>{d.sponsor_name}</span>
-                          {d.campaign_name && <><span style={{ opacity: 0.4 }}>/</span><span>{d.campaign_name}</span></>}
-                          {d.due_date && <><span style={{ opacity: 0.4 }}>/</span><span>{new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></>}
+                    <div key={d.id} style={{ borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', minWidth: 0, overflow: 'hidden' }}>
+                      {/* Collapsed header row */}
+                      <div
+                        onClick={() => {
+                          if (isExpanded) {
+                            setExpandedUpcomingId(null);
+                          } else {
+                            setExpandedUpcomingId(d.id);
+                            setEditingAdCopy(prev => ({ ...prev, [d.id]: d.notes || '' }));
+                            setEditingDueDate(prev => ({ ...prev, [d.id]: d.due_date || '' }));
+                          }
+                        }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', cursor: 'pointer', minWidth: 0 }}
+                      >
+                        <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', transition: 'transform 0.15s', transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)', flexShrink: 0 }}>&#9654;</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: '14px', fontWeight: 600, color: '#fff', marginBottom: '2px' }}>{d.title}</div>
+                          <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+                            <span>{d.sponsor_name}</span>
+                            {d.campaign_name && <><span style={{ opacity: 0.4 }}>/</span><span>{d.campaign_name}</span></>}
+                            {d.due_date && <><span style={{ opacity: 0.4 }}>/</span><span>{new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></>}
+                            {d.brief_url && (
+                              <a href={d.brief_url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: '11px', color: '#a5b4fc', textDecoration: 'none' }}>
+                                {'📄'} {d.brief_name || 'Campaign Brief'}
+                              </a>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                      {d.pay != null && (
-                        <span style={{ fontSize: '13px', fontWeight: 600, color: '#22c55e', whiteSpace: 'nowrap' }}>
-                          ${parseFloat(d.pay).toLocaleString()}
-                        </span>
-                      )}
-                      {(() => {
-                        const ev = d.video_event_id ? videoEvents.find(e => e.id === d.video_event_id) : null;
-                        if (ev) return (
-                          <span style={{ fontSize: '10px', fontWeight: 600, padding: '2px 6px', borderRadius: '5px', whiteSpace: 'nowrap', background: 'rgba(168,85,247,0.12)', color: '#c084fc' }}>
-                            {'\uD83D\uDCF9'} {ev.title?.length > 16 ? ev.title.slice(0, 16) + '\u2026' : ev.title}
+                        {d.pay != null && (
+                          <span style={{ fontSize: '13px', fontWeight: 600, color: '#22c55e', whiteSpace: 'nowrap' }}>
+                            ${parseFloat(d.pay).toLocaleString()}
                           </span>
-                        );
-                        return null;
-                      })()}
-                      <span style={{
-                        fontSize: '11px', fontWeight: 600, padding: '3px 8px', borderRadius: '6px', whiteSpace: 'nowrap',
-                        background: linkedSheet ? 'rgba(99,102,241,0.1)' : 'rgba(239,68,68,0.1)',
-                        color: linkedSheet ? '#a5b4fc' : '#fca5a5',
-                      }}>
-                        {linkedSheet ? linkedSheet.title : 'Unassigned'}
-                      </span>
+                        )}
+                        {(() => {
+                          const ev = d.video_event_id ? videoEvents.find(e => e.id === d.video_event_id) : null;
+                          if (ev) return (
+                            <span style={{ fontSize: '10px', fontWeight: 600, padding: '2px 6px', borderRadius: '5px', whiteSpace: 'nowrap', background: 'rgba(168,85,247,0.12)', color: '#c084fc' }}>
+                              {'\uD83D\uDCF9'} {ev.title?.length > 16 ? ev.title.slice(0, 16) + '\u2026' : ev.title}
+                            </span>
+                          );
+                          return null;
+                        })()}
+                        <span style={{
+                          fontSize: '11px', fontWeight: 600, padding: '3px 8px', borderRadius: '6px', whiteSpace: 'nowrap',
+                          background: linkedSheet ? 'rgba(99,102,241,0.1)' : 'rgba(239,68,68,0.1)',
+                          color: linkedSheet ? '#a5b4fc' : '#fca5a5',
+                        }}>
+                          {linkedSheet ? linkedSheet.title : 'Unassigned'}
+                        </span>
+                      </div>
+
+                      {/* Expanded detail panel */}
+                      {isExpanded && (
+                        <div style={{ padding: '0 14px 12px 36px', display: 'flex', flexDirection: 'column', gap: '10px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                          <div style={{ paddingTop: '10px' }}>
+                            <label style={{ fontSize: '11px', fontWeight: 600, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Ad Copy</label>
+                            <textarea
+                              value={editingAdCopy[d.id] ?? ''}
+                              onChange={e => setEditingAdCopy(prev => ({ ...prev, [d.id]: e.target.value }))}
+                              onBlur={async () => {
+                                const newVal = (editingAdCopy[d.id] ?? '').trim() || null;
+                                if (newVal === (d.notes || null)) return;
+                                await supabase.from('sponsor_deliverables').update({ notes: newVal, updated_at: new Date().toISOString() }).eq('id', d.id);
+                                fetchSponsors();
+                              }}
+                              placeholder="Ad copy, talking points, key messaging..."
+                              rows={3}
+                              style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '8px 10px', color: '#fff', fontSize: '13px', fontFamily: 'inherit', resize: 'vertical', outline: 'none', boxSizing: 'border-box' }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '11px', fontWeight: 600, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Due Date</label>
+                            <input
+                              type="date"
+                              value={editingDueDate[d.id] ?? ''}
+                              onChange={async (e) => {
+                                const newDate = e.target.value || null;
+                                setEditingDueDate(prev => ({ ...prev, [d.id]: e.target.value }));
+                                await supabase.from('sponsor_deliverables').update({ due_date: newDate, updated_at: new Date().toISOString() }).eq('id', d.id);
+                                fetchSponsors();
+                              }}
+                              style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '6px 10px', color: '#fff', fontSize: '13px', fontFamily: 'inherit', outline: 'none', colorScheme: 'dark' }}
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
