@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { tritonSupabase } from '../tritonClient';
 import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+import DOMPurify from 'dompurify';
 
 
 const SECTIONS = ['inbox', 'briefs', 'cards', 'news', 'trends', 'daily'];
@@ -167,10 +168,18 @@ export default function Research() {
   const handleRegenerateDaily = async () => {
     setRegeneratingDaily(true);
     try {
-      const res = await fetch(
-        `https://ytfjkoxowfskuibdsfea.supabase.co/functions/v1/fetch-daily-graphics?secret=${process.env.REACT_APP_CRON_SECRET || '300897BA-1E26-4328-97E8-FFB11BCF2C6D'}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }
-      );
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+      const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
+      const res = await fetch(`${supabaseUrl}/functions/v1/fetch-daily-graphics`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          apikey: process.env.REACT_APP_SUPABASE_ANON_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: '{}',
+      });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || `Server error ${res.status}`);
       await fetchDailyDates();
@@ -617,7 +626,7 @@ export default function Research() {
               )}
               <div
                 style={s.readerContent}
-                dangerouslySetInnerHTML={{ __html: selectedItem.content || selectedItem.description || '' }}
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(selectedItem.content || selectedItem.description || '')}}
               />
               {selectedItem.link && (
                 <a href={selectedItem.link} target="_blank" rel="noopener noreferrer" style={s.readOriginal}>
@@ -668,7 +677,7 @@ export default function Research() {
                   )}
                 </div>
               )}
-              <div style={s.readerContent} dangerouslySetInnerHTML={{ __html: selectedItem.content || '' }} />
+              <div style={s.readerContent} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(selectedItem.content || '')}} />
             </>
           )}
         </div>
@@ -1045,7 +1054,7 @@ export default function Research() {
                       </div>
                     )}
                   </div>
-                  <div style={s.briefContent} dangerouslySetInnerHTML={{ __html: currentBrief.content || '' }} />
+                  <div style={s.briefContent} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(currentBrief.content || '')}} />
                   <div style={s.briefActions}>
                     <button
                       onClick={() => {

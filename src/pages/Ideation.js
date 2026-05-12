@@ -10,6 +10,7 @@ import StickyBoard from './editors/StickyBoard';
 import DocEditor from './editors/DocEditor';
 import Storyboard from './editors/Storyboard';
 import ScriptEditor from './editors/screenplay-editor/components/editor/ScriptEditor';
+import DOMPurify from 'dompurify';
 
 const CONCEPT_COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#22c55e', '#3b82f6', '#ef4444', '#14b8a6'];
 const CONCEPT_CATEGORIES = [
@@ -546,7 +547,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
                 .ann-highlight:not([data-color]) { background: rgba(250,204,21,0.35); }
                 .ann-note { border-bottom: 2px dashed rgba(99,102,241,0.4); }
               `}</style>
-              <div style={reviewStyles.docPage} dangerouslySetInnerHTML={{ __html: feedbackHtml }} />
+              <div style={reviewStyles.docPage} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(feedbackHtml)}} />
             </div>
             {/* RIGHT: Annotation sidebar */}
             <div style={reviewStyles.splitRight}>

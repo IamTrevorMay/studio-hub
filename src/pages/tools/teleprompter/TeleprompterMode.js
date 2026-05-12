@@ -3,6 +3,7 @@ import useTeleprompterScroll from './useTeleprompterScroll';
 import usePedalScroll from './usePedalScroll';
 import TeleprompterControls from './TeleprompterControls';
 import ScriptEditor, { ensureHtml } from './ScriptEditor';
+import DOMPurify from 'dompurify';
 
 export default function TeleprompterMode({
   stream,
@@ -244,7 +245,7 @@ export default function TeleprompterMode({
             wordBreak: 'break-word',
           }}>
             {script ? (
-              <div dangerouslySetInnerHTML={{ __html: ensureHtml(script) }} />
+              <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(ensureHtml(script))}} />
             ) : (
               <span style={{ opacity: 0.3, fontSize: '24px' }}>
                 Click "Script" to add your text...

@@ -6,6 +6,7 @@ import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 import * as mammoth from 'mammoth';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 
 function extractVideoId(url) {
   if (!url) return null;
@@ -2006,7 +2007,7 @@ function DocumentViewer({ version, fileUrl, conceptDocHtml, isLatest, onSwitchTo
                 ref={docContentRef}
                 className="script-doc-content"
                 style={dv.docHtmlContent}
-                dangerouslySetInnerHTML={{ __html: htmlContent }}
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(htmlContent)}}
               />
             </div>
           </div>

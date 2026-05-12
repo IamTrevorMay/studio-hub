@@ -42,8 +42,16 @@ Deno.serve(async (req) => {
   }
 });
 
-async function handleWebhook(req: Request, supabase: any, stripeKey: string) {
+async function handleWebhook(req: Request, supabase: any, _stripeKey: string) {
+  const webhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET");
+  if (!webhookSecret) return errorResponse("Missing STRIPE_WEBHOOK_SECRET", 500);
+
   const body = await req.text();
+  const signatureHeader = req.headers.get("stripe-signature") || "";
+
+  const verified = await verifyStripeSignature(body, signatureHeader, webhookSecret);
+  if (!verified) return errorResponse("Invalid Stripe signature", 401);
+
   let event: any;
   try {
     event = JSON.parse(body);
@@ -51,16 +59,51 @@ async function handleWebhook(req: Request, supabase: any, stripeKey: string) {
     return errorResponse("Invalid JSON payload", 400);
   }
 
-  const verifyRes = await fetch(`https://api.stripe.com/v1/events/${event.id}`, {
-    headers: { Authorization: `Bearer ${stripeKey}` },
-  });
-  if (!verifyRes.ok) {
-    return errorResponse("Could not verify event with Stripe", 401);
-  }
-  const verifiedEvent = await verifyRes.json();
-
-  const result = await processStripeEvent(supabase, verifiedEvent);
+  const result = await processStripeEvent(supabase, event);
   return jsonResponse({ received: true, ...result });
+}
+
+// Stripe webhook signature verification:
+// stripe-signature header is `t=<ts>,v1=<hmac>[,v1=<hmac>...]`
+// signed payload = `<ts>.<body>`; signature = HMAC-SHA256(payload, secret).
+// Reject if no v1 signature matches or timestamp is older than tolerance.
+async function verifyStripeSignature(
+  body: string,
+  header: string,
+  secret: string,
+  toleranceSeconds = 300,
+): Promise<boolean> {
+  const parts = header.split(",").map((p) => p.trim().split("="));
+  const timestamp = parts.find((p) => p[0] === "t")?.[1];
+  const signatures = parts.filter((p) => p[0] === "v1").map((p) => p[1]);
+  if (!timestamp || signatures.length === 0) return false;
+
+  const tsNum = parseInt(timestamp, 10);
+  if (!Number.isFinite(tsNum)) return false;
+  if (Math.abs(Date.now() / 1000 - tsNum) > toleranceSeconds) return false;
+
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const mac = await crypto.subtle.sign("HMAC", key, enc.encode(`${timestamp}.${body}`));
+  const expected = Array.from(new Uint8Array(mac))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+
+  // constant-time compare against each provided signature
+  return signatures.some((sig) => constantTimeEqual(sig, expected));
+}
+
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
 }
 
 async function processStripeEvent(supabase: any, event: any) {
@@ -68,18 +111,13 @@ async function processStripeEvent(supabase: any, event: any) {
   const obj = event.data?.object;
   if (!obj) return { skipped: true, reason: "No data object" };
 
-  const { data: existing } = await supabase
-    .from("revenue_events")
-    .select("id")
-    .eq("stripe_event_id", event.id)
-    .single();
-
-  if (existing) return { skipped: true, reason: "Duplicate event" };
+  // Idempotency: rely on unique(stripe_event_id) + upsert ignoreDuplicates,
+  // so Stripe retries can't double-insert under concurrent delivery.
 
   switch (eventType) {
     case "charge.succeeded": {
       const productCategory = await categorizeCharge(supabase, obj);
-      await supabase.from("revenue_events").insert({
+      await supabase.from("revenue_events").upsert({
         stripe_event_id: event.id,
         event_type: "charge",
         amount_cents: obj.amount,
@@ -94,12 +132,12 @@ async function processStripeEvent(supabase: any, event: any) {
           payment_method_type: obj.payment_method_details?.type,
           receipt_url: obj.receipt_url,
         },
-      });
+      }, { onConflict: "stripe_event_id", ignoreDuplicates: true });
       return { processed: "charge.succeeded" };
     }
 
     case "charge.refunded": {
-      await supabase.from("revenue_events").insert({
+      await supabase.from("revenue_events").upsert({
         stripe_event_id: event.id,
         event_type: "refund",
         amount_cents: -(obj.amount_refunded || obj.amount),
@@ -109,12 +147,12 @@ async function processStripeEvent(supabase: any, event: any) {
         customer_id: obj.customer,
         occurred_at: new Date(obj.created * 1000).toISOString(),
         metadata: { reason: obj.refunds?.data?.[0]?.reason },
-      });
+      }, { onConflict: "stripe_event_id", ignoreDuplicates: true });
       return { processed: "charge.refunded" };
     }
 
     case "customer.subscription.created": {
-      await supabase.from("revenue_events").insert({
+      await supabase.from("revenue_events").upsert({
         stripe_event_id: event.id,
         event_type: "subscription_start",
         amount_cents: obj.items?.data?.[0]?.price?.unit_amount || 0,
@@ -131,12 +169,12 @@ async function processStripeEvent(supabase: any, event: any) {
           status: obj.status,
           interval: obj.items?.data?.[0]?.price?.recurring?.interval,
         },
-      });
+      }, { onConflict: "stripe_event_id", ignoreDuplicates: true });
       return { processed: "customer.subscription.created" };
     }
 
     case "customer.subscription.deleted": {
-      await supabase.from("revenue_events").insert({
+      await supabase.from("revenue_events").upsert({
         stripe_event_id: event.id,
         event_type: "subscription_cancel",
         amount_cents: 0,
@@ -152,13 +190,13 @@ async function processStripeEvent(supabase: any, event: any) {
           cancel_reason: obj.cancellation_details?.reason,
           cancel_feedback: obj.cancellation_details?.feedback,
         },
-      });
+      }, { onConflict: "stripe_event_id", ignoreDuplicates: true });
       return { processed: "customer.subscription.deleted" };
     }
 
     case "invoice.paid": {
       if (obj.subscription) {
-        await supabase.from("revenue_events").insert({
+        await supabase.from("revenue_events").upsert({
           stripe_event_id: event.id,
           event_type: "subscription_renewal",
           amount_cents: obj.amount_paid,
@@ -171,7 +209,7 @@ async function processStripeEvent(supabase: any, event: any) {
           is_recurring: true,
           occurred_at: new Date(obj.created * 1000).toISOString(),
           metadata: { invoice_url: obj.hosted_invoice_url },
-        });
+        }, { onConflict: "stripe_event_id", ignoreDuplicates: true });
         return { processed: "invoice.paid (renewal)" };
       }
       return { skipped: true, reason: "Non-subscription invoice" };
@@ -200,14 +238,8 @@ async function handleBatchReconciliation(supabase: any, stripeHeaders: Record<st
     const balData = await balRes.json();
 
     for (const txn of balData.data || []) {
-      const { data: existing } = await supabase
-        .from("revenue_events")
-        .select("id")
-        .eq("stripe_event_id", `bal_${txn.id}`)
-        .single();
-
-      if (!existing) {
-        await supabase.from("revenue_events").insert({
+      {
+        await supabase.from("revenue_events").upsert({
           stripe_event_id: `bal_${txn.id}`,
           event_type: "charge",
           amount_cents: txn.amount,
@@ -217,7 +249,7 @@ async function handleBatchReconciliation(supabase: any, stripeHeaders: Record<st
           product_name: txn.description,
           occurred_at: new Date(txn.created * 1000).toISOString(),
           metadata: { source: "batch_reconciliation", fee: txn.fee },
-        });
+        }, { onConflict: "stripe_event_id", ignoreDuplicates: true });
         processed++;
       }
     }
