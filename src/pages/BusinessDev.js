@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -161,7 +162,7 @@ const EMPTY_INITIATIVE = {
 };
 const EMPTY_TASK = { title: '', notes: '', tag: '', owner_id: null, due_date: '', recurrence_interval: '', recurrence_count: 1 };
 const EMPTY_MILESTONE = { title: '', target_date: '' };
-const EMPTY_BD_GOAL = { title: '', current_value: '', target_value: '', category: 'quarterly', goal_type: 'manual', metrics: [], platform_account_ids: [] };
+const EMPTY_BD_GOAL = { title: '', description: '', current_value: '', target_value: '', category: 'quarterly', goal_type: 'manual', metrics: [], platform_account_ids: [] };
 const EMPTY_BD_MONTHLY = { title: '', target_value: '' };
 
 // ════════════════════════════════════════════════════════════
@@ -217,6 +218,12 @@ export default function BusinessDev() {
   const [bdGoalsExpanded, setBdGoalsExpanded] = useState(true);
   const [bdGoals, setBdGoals] = useState([]);
   const [bdMonthlyGoals, setBdMonthlyGoals] = useState([]);
+  // BD Notes (per-user, behaves like Dashboard To Do)
+  const [bdNotes, setBdNotes] = useState([]);
+  const [bdNoteInputOpen, setBdNoteInputOpen] = useState(false);
+  const [bdNoteDraft, setBdNoteDraft] = useState('');
+  const [bdNoteEditingId, setBdNoteEditingId] = useState(null);
+  const [bdNoteEditingText, setBdNoteEditingText] = useState('');
   const [expandedYearlyBdGoals, setExpandedYearlyBdGoals] = useState({});
   const [showBdGoalForm, setShowBdGoalForm] = useState(false);
   const [editingBdGoalId, setEditingBdGoalId] = useState(null);
@@ -330,8 +337,11 @@ export default function BusinessDev() {
   }, []);
 
   const fetchBdGoals = useCallback(async () => {
+    if (!profile?.id) return;
     const [gRes, mRes, acctRes] = await Promise.all([
-      supabase.from('goals').select('*').eq('scope', 'bd').order('created_at', { ascending: false }),
+      supabase.from('goals').select('*').eq('scope', 'bd').eq('created_by', profile.id)
+        .order('position', { ascending: true, nullsFirst: false })
+        .order('created_at', { ascending: false }),
       supabase.from('monthly_goals').select('*').eq('scope', 'bd').order('created_at'),
       supabase.from('platform_accounts').select('*').eq('is_active', true).order('platform'),
     ]);
@@ -341,7 +351,7 @@ export default function BusinessDev() {
     setBdAccounts(acctRes.data || []);
     const metricGoals = goals.filter(g => g.goal_type === 'metric');
     fetchBdRollupData(metricGoals);
-  }, [fetchBdRollupData]);
+  }, [profile?.id, fetchBdRollupData]);
 
   useEffect(() => {
     if (!profile?.id || !isAdmin) return;
@@ -361,6 +371,7 @@ export default function BusinessDev() {
       : String(goal.target_value || 0);
     setBdGoalForm({
       title: goal.title,
+      description: goal.description || '',
       current_value: String(goal.current_value || 0),
       target_value: tv,
       category: goal.category,
@@ -400,16 +411,51 @@ export default function BusinessDev() {
       metrics = [];
       platform_account_ids = [];
     }
-    const payload = { title, current_value, target_value, category: bdGoalForm.category, goal_type: goalType, metrics, platform_account_ids, scope: 'bd' };
+    const payload = { title, description: bdGoalForm.description?.trim() || null, current_value, target_value, category: bdGoalForm.category, goal_type: goalType, metrics, platform_account_ids, scope: 'bd' };
     if (editingBdGoalId) {
       const { error } = await supabase.from('goals').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', editingBdGoalId);
       if (error) { alert(error.message); return; }
     } else {
-      const { error } = await supabase.from('goals').insert({ ...payload, created_by: profile.id });
+      const nextPosition = bdGoals.length > 0 ? Math.max(...bdGoals.map(g => g.position || 0)) + 1 : 0;
+      const { error } = await supabase.from('goals').insert({ ...payload, created_by: profile.id, position: nextPosition });
       if (error) { alert(error.message); return; }
     }
     cancelBdGoalForm();
     fetchBdGoals();
+  }
+
+  async function handleBdGoalsDragEnd(category, result) {
+    if (!result.destination) return;
+    const group = bdGoals.filter(g => g.category === category);
+    const reordered = Array.from(group);
+    const [moved] = reordered.splice(result.source.index, 1);
+    reordered.splice(result.destination.index, 0, moved);
+    // Re-base positions for this category using a contiguous block starting at the
+    // smallest existing position in the group (or 0 if none set yet).
+    const baseRaw = Math.min(...group.map(g => (g.position != null ? g.position : Number.POSITIVE_INFINITY)));
+    const base = Number.isFinite(baseRaw) ? baseRaw : 0;
+    const reindexed = reordered.map((g, idx) => ({ ...g, position: base + idx }));
+    // Optimistic state update: replace just this category's goals.
+    setBdGoals(prev => {
+      const others = prev.filter(g => g.category !== category);
+      const merged = [...others, ...reindexed];
+      // Preserve overall order by position-then-created
+      return merged.sort((a, b) => {
+        const pa = a.position == null ? Number.POSITIVE_INFINITY : a.position;
+        const pb = b.position == null ? Number.POSITIVE_INFINITY : b.position;
+        if (pa !== pb) return pa - pb;
+        return new Date(b.created_at) - new Date(a.created_at);
+      });
+    });
+    const updates = reindexed.map(g =>
+      supabase.from('goals').update({ position: g.position }).eq('id', g.id)
+    );
+    const results = await Promise.all(updates);
+    const firstError = results.find(r => r.error)?.error;
+    if (firstError) {
+      console.error('Error reordering goals:', firstError);
+      fetchBdGoals();
+    }
   }
   async function handleDeleteBdGoal(id) {
     if (!(await confirm('Delete this goal?'))) return;
@@ -461,6 +507,94 @@ export default function BusinessDev() {
     if (!(await confirm('Delete this monthly goal?'))) return;
     await supabase.from('monthly_goals').delete().eq('id', id);
     fetchBdGoals();
+  }
+
+  // ── BD Notes (per-user, mirrors Dashboard To Do) ──
+  const fetchBdNotes = useCallback(async () => {
+    if (!profile?.id) return;
+    await supabase.from('bd_user_notes').delete().eq('user_id', profile.id).eq('checked', true);
+    const { data, error } = await supabase
+      .from('bd_user_notes')
+      .select('*')
+      .eq('user_id', profile.id)
+      .order('position', { ascending: true });
+    if (error) { console.error('Error loading bd notes:', error); return; }
+    setBdNotes(data || []);
+  }, [profile?.id]);
+
+  useEffect(() => {
+    if (!profile?.id || !isAdmin) return;
+    fetchBdNotes();
+  }, [profile?.id, isAdmin, fetchBdNotes]);
+
+  async function addBdNote() {
+    const text = bdNoteDraft.trim();
+    if (!text || !profile?.id) return;
+    const nextPosition = bdNotes.length > 0 ? Math.max(...bdNotes.map(n => n.position || 0)) + 1 : 0;
+    const { data, error } = await supabase
+      .from('bd_user_notes')
+      .insert({ user_id: profile.id, text, checked: false, position: nextPosition })
+      .select()
+      .single();
+    if (error) { alert(`Could not save note: ${error.message || 'unknown error'}`); return; }
+    setBdNotes(prev => [...prev, data]);
+    setBdNoteDraft('');
+    setBdNoteInputOpen(false);
+  }
+
+  async function toggleBdNote(id) {
+    const current = bdNotes.find(n => n.id === id);
+    if (!current) return;
+    const nextChecked = !current.checked;
+    setBdNotes(prev => prev.map(n => n.id === id ? { ...n, checked: nextChecked } : n));
+    const { error } = await supabase
+      .from('bd_user_notes')
+      .update({ checked: nextChecked, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) {
+      console.error('Error toggling note:', error);
+      setBdNotes(prev => prev.map(n => n.id === id ? { ...n, checked: current.checked } : n));
+    }
+  }
+
+  async function deleteBdNote(id) {
+    const previous = bdNotes;
+    setBdNotes(prev => prev.filter(n => n.id !== id));
+    const { error } = await supabase.from('bd_user_notes').delete().eq('id', id);
+    if (error) { console.error('Error deleting note:', error); setBdNotes(previous); }
+  }
+
+  async function saveBdNoteEdit(id) {
+    const trimmed = bdNoteEditingText.trim();
+    setBdNoteEditingId(null);
+    setBdNoteEditingText('');
+    if (!trimmed) return;
+    const current = bdNotes.find(n => n.id === id);
+    if (!current || current.text === trimmed) return;
+    setBdNotes(prev => prev.map(n => n.id === id ? { ...n, text: trimmed } : n));
+    const { error } = await supabase
+      .from('bd_user_notes')
+      .update({ text: trimmed, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) {
+      console.error('Error saving note edit:', error);
+      setBdNotes(prev => prev.map(n => n.id === id ? { ...n, text: current.text } : n));
+    }
+  }
+
+  async function handleBdNotesDragEnd(result) {
+    if (!result.destination) return;
+    const items = Array.from(bdNotes);
+    const [moved] = items.splice(result.source.index, 1);
+    items.splice(result.destination.index, 0, moved);
+    const reindexed = items.map((n, idx) => ({ ...n, position: idx }));
+    setBdNotes(reindexed);
+    const updates = reindexed.map(n =>
+      supabase.from('bd_user_notes').update({ position: n.position }).eq('id', n.id)
+    );
+    const results = await Promise.all(updates);
+    const firstError = results.find(r => r.error)?.error;
+    if (firstError) console.error('Error reordering notes:', firstError);
   }
 
   // ─────────────────────────────────────────────
@@ -734,6 +868,26 @@ export default function BusinessDev() {
     });
     setTaskFormFor(task.initiative_id);
   }
+  // The task form is rendered inline inside the Phases view (inside its
+  // initiative card). When edit is clicked from My Stuff (or any non-phases
+  // view), we need to switch views and make sure the parent phase + workstream
+  // are expanded so the form is actually visible.
+  function openEditTaskFromAnywhere(task) {
+    const init = initiatives.find(i => i.id === task.initiative_id);
+    if (init?.phase_id) {
+      setExpandedPhases(prev => ({ ...prev, [init.phase_id]: true }));
+      // Clear filters on the parent phase so the initiative is guaranteed visible.
+      setTagFilters(prev => ({ ...prev, [init.phase_id]: 'all' }));
+      setHideDones(prev => ({ ...prev, [init.phase_id]: false }));
+      if (init.workstream) {
+        const wsKey = `${init.phase_id}::${init.workstream}`;
+        setCollapsedWorkstreams(prev => ({ ...prev, [wsKey]: false }));
+      }
+    }
+    if (init) setExpandedInitiatives(prev => ({ ...prev, [init.id]: true }));
+    if (view !== 'phases') setView('phases');
+    openEditTask(task);
+  }
   function cancelTaskForm() {
     setTaskFormFor(null);
     setEditingTaskId(null);
@@ -839,7 +993,15 @@ export default function BusinessDev() {
   }
   async function handleDeleteTask(id) {
     if (!(await confirm('Delete this task?'))) return;
-    await supabase.from('bd_tasks').delete().eq('id', id);
+    // Drop the personal_tasks mirror first (RLS-permitting; ignore failures
+    // since RLS may scope to the row owner only — the bd_task delete is what
+    // the user actually cares about).
+    await supabase.from('personal_tasks').delete().eq('bd_task_id', id);
+    const { error } = await supabase.from('bd_tasks').delete().eq('id', id);
+    if (error) {
+      alert(`Could not delete task: ${error.message}`);
+      return;
+    }
     fetchAll();
   }
 
@@ -901,6 +1063,52 @@ export default function BusinessDev() {
         {isAdmin && <button onClick={openCreatePhase} style={styles.primaryBtn}>+ Phase</button>}
       </div>
 
+      {/* Goals + Notes row (admin only) */}
+      {isAdmin && (
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px', marginBottom: '16px', alignItems: 'flex-start' }}>
+          <BdGoalsSection
+            goals={bdGoals}
+            monthlyGoals={bdMonthlyGoals}
+            expanded={bdGoalsExpanded}
+            onToggleExpand={() => setBdGoalsExpanded(prev => !prev)}
+            expandedYearly={expandedYearlyBdGoals}
+            setExpandedYearly={setExpandedYearlyBdGoals}
+            onCreateGoal={openCreateBdGoal}
+            onEditGoal={openEditBdGoal}
+            onDeleteGoal={handleDeleteBdGoal}
+            onToggleCheckbox={handleToggleBdGoalCheckbox}
+            onCreateMonthly={openCreateBdMonthly}
+            onEditMonthly={openEditBdMonthly}
+            onDeleteMonthly={handleDeleteBdMonthly}
+            monthlyFormFor={showBdMonthlyForm}
+            editingMonthlyId={editingBdMonthlyId}
+            monthlyForm={bdMonthlyForm}
+            setMonthlyForm={setBdMonthlyForm}
+            onMonthlySubmit={handleBdMonthlySubmit}
+            onCancelMonthlyForm={cancelBdMonthlyForm}
+            accounts={bdAccounts}
+            rollupData={bdRollupData}
+            onDragEnd={handleBdGoalsDragEnd}
+          />
+          <BdNotesSection
+            notes={bdNotes}
+            inputOpen={bdNoteInputOpen}
+            setInputOpen={setBdNoteInputOpen}
+            draft={bdNoteDraft}
+            setDraft={setBdNoteDraft}
+            editingId={bdNoteEditingId}
+            setEditingId={setBdNoteEditingId}
+            editingText={bdNoteEditingText}
+            setEditingText={setBdNoteEditingText}
+            onAdd={addBdNote}
+            onToggle={toggleBdNote}
+            onDelete={deleteBdNote}
+            onSaveEdit={saveBdNoteEdit}
+            onDragEnd={handleBdNotesDragEnd}
+          />
+        </div>
+      )}
+
       {/* Tab bar */}
       <div style={styles.tabBar}>
         {[
@@ -961,32 +1169,7 @@ export default function BusinessDev() {
         />
       )}
 
-      {/* BD Goals section (phases view only, admin only) */}
-      {view === 'phases' && isAdmin && (
-        <BdGoalsSection
-          goals={bdGoals}
-          monthlyGoals={bdMonthlyGoals}
-          expanded={bdGoalsExpanded}
-          onToggleExpand={() => setBdGoalsExpanded(prev => !prev)}
-          expandedYearly={expandedYearlyBdGoals}
-          setExpandedYearly={setExpandedYearlyBdGoals}
-          onCreateGoal={openCreateBdGoal}
-          onEditGoal={openEditBdGoal}
-          onDeleteGoal={handleDeleteBdGoal}
-          onToggleCheckbox={handleToggleBdGoalCheckbox}
-          onCreateMonthly={openCreateBdMonthly}
-          onEditMonthly={openEditBdMonthly}
-          onDeleteMonthly={handleDeleteBdMonthly}
-          monthlyFormFor={showBdMonthlyForm}
-          editingMonthlyId={editingBdMonthlyId}
-          monthlyForm={bdMonthlyForm}
-          setMonthlyForm={setBdMonthlyForm}
-          onMonthlySubmit={handleBdMonthlySubmit}
-          onCancelMonthlyForm={cancelBdMonthlyForm}
-          accounts={bdAccounts}
-          rollupData={bdRollupData}
-        />
-      )}
+      {/* BD Goals section was here; now rendered above the tab bar */}
 
       {/* BD Goal modal form */}
       {showBdGoalForm && (
@@ -1119,7 +1302,7 @@ export default function BusinessDev() {
           isAdmin={isAdmin}
           onToggleTask={handleToggleTask}
           onEditInit={openEditInit}
-          onEditTask={openEditTask}
+          onEditTask={openEditTaskFromAnywhere}
         />
       )}
     </div>
@@ -1136,7 +1319,7 @@ function BdGoalsSection({
   onCreateMonthly, onEditMonthly, onDeleteMonthly,
   monthlyFormFor, editingMonthlyId, monthlyForm, setMonthlyForm,
   onMonthlySubmit, onCancelMonthlyForm,
-  accounts, rollupData,
+  accounts, rollupData, onDragEnd,
 }) {
   const quarterly = goals.filter(g => g.category === 'quarterly');
   const yearly = goals.filter(g => g.category === 'yearly');
@@ -1144,6 +1327,93 @@ function BdGoalsSection({
   const monthlyByParent = {};
   for (const mg of monthlyGoals) {
     if (mg.parent_goal_id) (monthlyByParent[mg.parent_goal_id] = monthlyByParent[mg.parent_goal_id] || []).push(mg);
+  }
+
+  function renderGroup(category, items, label) {
+    if (items.length === 0) return null;
+    return (
+      <div>
+        <div style={styles.bdGoalsGroupLabel}>{label}</div>
+        <DragDropContext onDragEnd={r => onDragEnd && onDragEnd(category, r)}>
+          <Droppable droppableId={`bd-goals-${category}`}>
+            {(provided) => (
+              <div ref={provided.innerRef} {...provided.droppableProps} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {items.map((g, idx) => (
+                  <Draggable key={g.id} draggableId={g.id} index={idx}>
+                    {(p, snapshot) => (
+                      <div
+                        ref={p.innerRef}
+                        {...p.draggableProps}
+                        style={{
+                          ...(snapshot.isDragging ? { boxShadow: '0 4px 16px rgba(0,0,0,0.3)', opacity: 0.95 } : {}),
+                          ...p.draggableProps.style,
+                        }}
+                      >
+                        {category === 'yearly' ? (
+                          (() => {
+                            const children = monthlyByParent[g.id] || [];
+                            const isExpanded = !!expandedYearly[g.id];
+                            return (
+                              <>
+                                <BdGoalCard goal={g} onEdit={() => onEditGoal(g)} onDelete={() => onDeleteGoal(g.id)} onToggleCheckbox={onToggleCheckbox} rollupData={rollupData} accounts={accounts} dragHandleProps={p.dragHandleProps}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
+                                    {children.length > 0 && (
+                                      <button
+                                        onClick={() => setExpandedYearly(prev => ({ ...prev, [g.id]: !prev[g.id] }))}
+                                        style={{ ...styles.iconBtn, fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}
+                                      >
+                                        <span style={{ display: 'inline-block', transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>▶</span>
+                                        {' '}{children.length} monthly goal{children.length !== 1 ? 's' : ''}
+                                      </button>
+                                    )}
+                                    <button onClick={() => onCreateMonthly(g.id)} style={{ ...styles.iconBtn, fontSize: '11px', color: '#a5b4fc' }}>+ Monthly</button>
+                                  </div>
+                                </BdGoalCard>
+                                {isExpanded && children.length > 0 && (
+                                  <div style={{ marginLeft: '20px', marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                    {children.map(mg => (
+                                      <BdMonthlyCard key={mg.id} mg={mg} onEdit={() => onEditMonthly(mg)} onDelete={() => onDeleteMonthly(mg.id)} />
+                                    ))}
+                                  </div>
+                                )}
+                                {monthlyFormFor === g.id && (
+                                  <form onSubmit={onMonthlySubmit} style={{ marginLeft: '20px', marginTop: '4px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                    <input
+                                      value={monthlyForm.title}
+                                      onChange={e => setMonthlyForm({ ...monthlyForm, title: e.target.value })}
+                                      placeholder="Monthly goal title"
+                                      autoFocus
+                                      style={{ ...styles.input, flex: 1, minWidth: '140px' }}
+                                    />
+                                    <input
+                                      value={monthlyForm.target_value}
+                                      onChange={e => setMonthlyForm({ ...monthlyForm, target_value: e.target.value })}
+                                      placeholder="Target"
+                                      type="number"
+                                      min="1"
+                                      style={{ ...styles.input, width: '70px' }}
+                                    />
+                                    <button type="submit" style={styles.primaryBtn}>{editingMonthlyId ? 'Save' : 'Add'}</button>
+                                    <button type="button" onClick={onCancelMonthlyForm} style={styles.subtleBtn}>Cancel</button>
+                                  </form>
+                                )}
+                              </>
+                            );
+                          })()
+                        ) : (
+                          <BdGoalCard goal={g} onEdit={() => onEditGoal(g)} onDelete={() => onDeleteGoal(g.id)} onToggleCheckbox={onToggleCheckbox} rollupData={rollupData} accounts={accounts} dragHandleProps={p.dragHandleProps} />
+                        )}
+                      </div>
+                    )}
+                  </Draggable>
+                ))}
+                {provided.placeholder}
+              </div>
+            )}
+          </Droppable>
+        </DragDropContext>
+      </div>
+    );
   }
 
   return (
@@ -1160,93 +1430,115 @@ function BdGoalsSection({
           {goals.length === 0 && (
             <div style={styles.empty}>No goals yet. Click + Goal to add one.</div>
           )}
-
-          {quarterly.length > 0 && (
-            <div>
-              <div style={styles.bdGoalsGroupLabel}>Quarterly</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                {quarterly.map(g => (
-                  <BdGoalCard key={g.id} goal={g} onEdit={() => onEditGoal(g)} onDelete={() => onDeleteGoal(g.id)} onToggleCheckbox={onToggleCheckbox} rollupData={rollupData} accounts={accounts} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {yearly.length > 0 && (
-            <div>
-              <div style={styles.bdGoalsGroupLabel}>Yearly</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                {yearly.map(g => {
-                  const children = monthlyByParent[g.id] || [];
-                  const isExpanded = !!expandedYearly[g.id];
-                  return (
-                    <div key={g.id}>
-                      <BdGoalCard goal={g} onEdit={() => onEditGoal(g)} onDelete={() => onDeleteGoal(g.id)} onToggleCheckbox={onToggleCheckbox} rollupData={rollupData} accounts={accounts}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
-                          {children.length > 0 && (
-                            <button
-                              onClick={() => setExpandedYearly(prev => ({ ...prev, [g.id]: !prev[g.id] }))}
-                              style={{ ...styles.iconBtn, fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}
-                            >
-                              <span style={{ display: 'inline-block', transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>▶</span>
-                              {' '}{children.length} monthly goal{children.length !== 1 ? 's' : ''}
-                            </button>
-                          )}
-                          <button onClick={() => onCreateMonthly(g.id)} style={{ ...styles.iconBtn, fontSize: '11px', color: '#a5b4fc' }}>+ Monthly</button>
-                        </div>
-                      </BdGoalCard>
-                      {isExpanded && children.length > 0 && (
-                        <div style={{ marginLeft: '20px', marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          {children.map(mg => (
-                            <BdMonthlyCard key={mg.id} mg={mg} onEdit={() => onEditMonthly(mg)} onDelete={() => onDeleteMonthly(mg.id)} />
-                          ))}
-                        </div>
-                      )}
-                      {monthlyFormFor === g.id && (
-                        <form onSubmit={onMonthlySubmit} style={{ marginLeft: '20px', marginTop: '4px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                          <input
-                            value={monthlyForm.title}
-                            onChange={e => setMonthlyForm({ ...monthlyForm, title: e.target.value })}
-                            placeholder="Monthly goal title"
-                            autoFocus
-                            style={{ ...styles.input, flex: 1, minWidth: '140px' }}
-                          />
-                          <input
-                            value={monthlyForm.target_value}
-                            onChange={e => setMonthlyForm({ ...monthlyForm, target_value: e.target.value })}
-                            placeholder="Target"
-                            type="number"
-                            min="1"
-                            style={{ ...styles.input, width: '70px' }}
-                          />
-                          <button type="submit" style={styles.primaryBtn}>{editingMonthlyId ? 'Save' : 'Add'}</button>
-                          <button type="button" onClick={onCancelMonthlyForm} style={styles.subtleBtn}>Cancel</button>
-                        </form>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {uncategorized.length > 0 && (
-            <div>
-              <div style={styles.bdGoalsGroupLabel}>No Timeframe</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                {uncategorized.map(g => (
-                  <BdGoalCard key={g.id} goal={g} onEdit={() => onEditGoal(g)} onDelete={() => onDeleteGoal(g.id)} onToggleCheckbox={onToggleCheckbox} rollupData={rollupData} accounts={accounts} />
-                ))}
-              </div>
-            </div>
-          )}
+          {renderGroup('quarterly', quarterly, 'Quarterly')}
+          {renderGroup('yearly', yearly, 'Yearly')}
+          {renderGroup('none', uncategorized, 'No Timeframe')}
         </div>
       )}
     </div>
   );
 }
 
-function BdGoalCard({ goal, onEdit, onDelete, onToggleCheckbox, rollupData, accounts, children }) {
+function BdNotesSection({
+  notes, inputOpen, setInputOpen, draft, setDraft,
+  editingId, setEditingId, editingText, setEditingText,
+  onAdd, onToggle, onDelete, onSaveEdit, onDragEnd,
+}) {
+  return (
+    <div style={styles.bdGoalsSection}>
+      <div style={{ ...styles.bdGoalsHeader, cursor: 'default' }}>
+        <span style={{ fontSize: '14px', fontWeight: 700, color: '#e2e8f0' }}>Notes</span>
+        <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', fontWeight: 500 }}>{notes.length}</span>
+        <div style={{ flex: 1 }} />
+        {!inputOpen && (
+          <button onClick={() => setInputOpen(true)} style={styles.primaryBtn}>+ Note</button>
+        )}
+      </div>
+      <div style={styles.bdGoalsBody}>
+        {inputOpen && (
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+            <input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') onAdd();
+                if (e.key === 'Escape') { setInputOpen(false); setDraft(''); }
+              }}
+              placeholder="Add a note..."
+              style={{ ...styles.input, flex: 1 }}
+              autoFocus
+            />
+            <button onClick={onAdd} disabled={!draft.trim()} style={{ ...styles.primaryBtn, opacity: draft.trim() ? 1 : 0.4 }}>Add</button>
+            <button onClick={() => { setInputOpen(false); setDraft(''); }} style={styles.subtleBtn}>Cancel</button>
+          </div>
+        )}
+        <DragDropContext onDragEnd={onDragEnd}>
+          <Droppable droppableId="bd-notes">
+            {(provided) => (
+              <div ref={provided.innerRef} {...provided.droppableProps} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {notes.map((n, idx) => (
+                  <Draggable key={n.id} draggableId={n.id} index={idx}>
+                    {(p, snapshot) => (
+                      <div
+                        ref={p.innerRef}
+                        {...p.draggableProps}
+                        style={{
+                          ...styles.bdGoalCard,
+                          padding: '8px 10px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          ...(snapshot.isDragging ? { boxShadow: '0 4px 16px rgba(0,0,0,0.3)', opacity: 0.95 } : {}),
+                          ...p.draggableProps.style,
+                        }}
+                      >
+                        <div {...p.dragHandleProps} style={{ color: 'rgba(255,255,255,0.2)', fontSize: '14px', cursor: 'grab', userSelect: 'none', lineHeight: 1 }}>⠿</div>
+                        <input
+                          type="checkbox"
+                          checked={n.checked}
+                          onChange={() => onToggle(n.id)}
+                          style={{ width: '14px', height: '14px', cursor: 'pointer', accentColor: '#6366f1' }}
+                        />
+                        {editingId === n.id ? (
+                          <input
+                            value={editingText}
+                            onChange={(e) => setEditingText(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') onSaveEdit(n.id);
+                              if (e.key === 'Escape') { setEditingId(null); setEditingText(''); }
+                            }}
+                            onBlur={() => onSaveEdit(n.id)}
+                            style={{ ...styles.input, flex: 1 }}
+                            autoFocus
+                          />
+                        ) : (
+                          <span
+                            style={{ flex: 1, fontSize: '13px', color: '#e2e8f0', textDecoration: n.checked ? 'line-through' : 'none', opacity: n.checked ? 0.45 : 1, cursor: 'text' }}
+                            onDoubleClick={() => { setEditingId(n.id); setEditingText(n.text); }}
+                            title="Double-click to edit"
+                          >
+                            {n.text}
+                          </span>
+                        )}
+                        <button onClick={() => onDelete(n.id)} style={{ ...styles.iconBtn, color: '#ef4444' }} title="Delete">✕</button>
+                      </div>
+                    )}
+                  </Draggable>
+                ))}
+                {provided.placeholder}
+                {notes.length === 0 && !inputOpen && (
+                  <div style={{ ...styles.empty, padding: '8px 0' }}>No notes yet</div>
+                )}
+              </div>
+            )}
+          </Droppable>
+        </DragDropContext>
+      </div>
+    </div>
+  );
+}
+
+function BdGoalCard({ goal, onEdit, onDelete, onToggleCheckbox, rollupData, accounts, children, dragHandleProps }) {
   const isMetric = goal.goal_type === 'metric';
   const isCheckbox = goal.goal_type === 'checkbox';
   const target = goal.target_value || 1;
@@ -1279,6 +1571,9 @@ function BdGoalCard({ goal, onEdit, onDelete, onToggleCheckbox, rollupData, acco
   return (
     <div style={styles.bdGoalCard}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        {dragHandleProps && (
+          <div {...dragHandleProps} style={{ color: 'rgba(255,255,255,0.2)', fontSize: '14px', cursor: 'grab', userSelect: 'none', lineHeight: 1 }} title="Drag to reorder">\u283f</div>
+        )}
         {isCheckbox && (
           <button onClick={() => onToggleCheckbox && onToggleCheckbox(goal)} style={current >= 1 ? styles.bdCheckboxDone : styles.bdCheckbox}>
             {current >= 1 ? '\u2713' : ''}
@@ -1296,6 +1591,11 @@ function BdGoalCard({ goal, onEdit, onDelete, onToggleCheckbox, rollupData, acco
         <button onClick={onEdit} style={styles.iconBtn} title="Edit">{'\u270E'}</button>
         <button onClick={onDelete} style={styles.iconBtn} title="Delete">{'\u2715'}</button>
       </div>
+      {goal.description && (
+        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.55)', marginTop: '4px', whiteSpace: 'pre-wrap', lineHeight: 1.4 }}>
+          {goal.description}
+        </div>
+      )}
       {!isCheckbox && (
         <div style={styles.bdGoalBarBg}>
           <div style={{ ...styles.bdGoalBarFill, width: `${pctDisplay}%`, background: progressColor(pct) }} />
@@ -1380,6 +1680,16 @@ function BdGoalFormModal({ form, setForm, editing, onSubmit, onCancel, accounts 
               placeholder={isCheckboxForm ? 'e.g., Set up CRM' : isMetricForm ? 'e.g., Reach 100k total views' : 'e.g., Sign 5 new clients'}
               autoFocus
               style={{ ...styles.input, width: '100%', marginTop: '4px' }}
+            />
+          </div>
+          <div>
+            <label style={styles.formLabel}>Description</label>
+            <textarea
+              value={form.description || ''}
+              onChange={e => setForm({ ...form, description: e.target.value })}
+              placeholder="Optional context, success criteria, links..."
+              rows={2}
+              style={{ ...styles.input, width: '100%', marginTop: '4px', resize: 'vertical', fontFamily: 'inherit' }}
             />
           </div>
           <div>
@@ -1583,11 +1893,16 @@ function PhaseCard(props) {
     return daysBetween(target, now);
   }, [phase.launch_target_date]);
 
-  const overallPct = useMemo(() => {
-    if (initiatives.length === 0) return 0;
-    const done = initiatives.filter(i => i.status === 'done').length;
-    return Math.round((done / initiatives.length) * 100);
-  }, [initiatives]);
+  const taskProgress = useMemo(() => {
+    let total = 0;
+    let done = 0;
+    for (const init of initiatives) {
+      const list = tasksByInitiative[init.id] || [];
+      total += list.length;
+      done += list.filter(t => t.completed_at).length;
+    }
+    return { total, done, pct: total === 0 ? 0 : Math.round((done / total) * 100) };
+  }, [initiatives, tasksByInitiative]);
 
   const filteredInitiatives = useMemo(() =>
     initiatives.filter(i => {
@@ -1623,8 +1938,8 @@ function PhaseCard(props) {
         )}
 
         <span style={styles.phaseHeaderStat}>
-          <span style={{ color: '#86efac' }}>{overallPct}%</span>
-          <span style={styles.phaseHeaderStatLabel}>{initiatives.filter(i => i.status === 'done').length} / {initiatives.length}</span>
+          <span style={{ color: '#86efac' }}>{taskProgress.pct}%</span>
+          <span style={styles.phaseHeaderStatLabel}>{taskProgress.done} / {taskProgress.total}</span>
         </span>
 
         <div style={{ flex: 1 }} />

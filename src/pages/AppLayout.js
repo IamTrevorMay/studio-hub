@@ -63,7 +63,6 @@ const NAV_ITEMS = [
   { key: 'freelancers', label: 'Freelancers', icon: FreelancersIcon, adminOnly: true },
   { key: 'channels', label: 'Channels', icon: ChannelsIcon },
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
-  { key: 'ideas', label: 'Ideas', icon: IdeationIcon },
 ];
 
 const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_documents', 'ideas'));
