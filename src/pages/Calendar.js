@@ -1627,7 +1627,7 @@ export default function Calendar({ onNavigate }) {
                                 onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
                                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                               >
-                                {d.sponsor?.name || 'Sponsor'}{d.title ? ` — ${d.title}` : ''}{d.campaign?.name ? ` (${d.campaign.name})` : ''}{d.channel ? ` · ${d.channel === 'tmb' ? 'TMB' : d.channel.charAt(0).toUpperCase() + d.channel.slice(1)}` : ''}{d.due_date ? ` · ${new Date(d.due_date + '-01T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}` : ''}{d.pay != null ? ` · $${parseFloat(d.pay).toLocaleString()}` : ''}
+                                {d.sponsor?.name || 'Sponsor'}{d.title ? ` — ${d.title}` : ''}{d.campaign?.name ? ` (${d.campaign.name})` : ''}{d.channel ? ` · ${d.channel === 'tmb' ? 'TMB' : d.channel.charAt(0).toUpperCase() + d.channel.slice(1)}` : ''}{d.due_date ? ` · ${new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}` : ''}{d.pay != null ? ` · $${parseFloat(d.pay).toLocaleString()}` : ''}
                               </div>
                             ))
                           )}
