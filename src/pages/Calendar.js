@@ -622,11 +622,14 @@ export default function Calendar({ onNavigate }) {
     setShowCustomRecurrence(false);
   }
 
-  function openNewEventModalAtTime(date, hour) {
+  function openNewEventModalAtTime(date, totalMinutes) {
     const dateStr = dk(date);
-    const startTime = `${String(hour).padStart(2, '0')}:00`;
-    const endHour = hour + 0.5 >= 24 ? 23 : hour;
-    const endMin = hour + 0.5 >= 24 ? 59 : 30;
+    const h = Math.floor(totalMinutes / 60);
+    const m = totalMinutes % 60;
+    const startTime = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    const endTotal = totalMinutes + 30;
+    const endHour = endTotal >= 1440 ? 23 : Math.floor(endTotal / 60);
+    const endMin = endTotal >= 1440 ? 59 : endTotal % 60;
     const endTime = `${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}`;
     const form = { ...EMPTY_EVENT_FORM, start_date: dateStr, end_date: dateStr, start_time: startTime, end_time: endTime };
     initialEventFormRef.current = form;
@@ -1098,7 +1101,7 @@ export default function Calendar({ onNavigate }) {
                           borderRight: di < 6 ? '1px solid rgba(255,255,255,0.04)' : 'none',
                           outline: dragOverDate === dayKey ? '1px solid rgba(99,102,241,0.4)' : 'none',
                         }}
-                        onDoubleClick={(e) => { e.stopPropagation(); openNewEventModal(day.date); }}
+                        onClick={(e) => { e.stopPropagation(); openNewEventModal(day.date); }}
                         onDragOver={(e) => { e.preventDefault(); setDragOverDate(dayKey); }}
                         onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOverDate(null); }}
                         onDrop={(e) => { e.preventDefault(); handleEventDrop(day.date); }}
@@ -1315,12 +1318,13 @@ export default function Calendar({ onNavigate }) {
                       ...styles.weekColumn,
                       borderRight: i < 6 ? '1px solid rgba(255,255,255,0.06)' : 'none',
                     }}
-                    onDoubleClick={(e) => {
+                    onClick={(e) => {
                       e.stopPropagation();
                       const rect = e.currentTarget.getBoundingClientRect();
                       const y = e.clientY - rect.top + (timeGridRef.current?.scrollTop || 0);
-                      const hour = Math.floor(y / HOUR_HEIGHT);
-                      openNewEventModalAtTime(date, Math.min(Math.max(hour, 0), 23));
+                      const totalMinutes = Math.floor(y / HOUR_HEIGHT * 60);
+                      const snapped = Math.floor(totalMinutes / 15) * 15;
+                      openNewEventModalAtTime(date, Math.min(Math.max(snapped, 0), 1425));
                     }}
                     >
                       {laid.map(({ event: ev, columnCount, columnIdx }) => {
@@ -1414,12 +1418,13 @@ export default function Calendar({ onNavigate }) {
               {/* Single day column */}
               <div style={styles.dayColumnContainer}>
                 <div style={styles.dayColumn}
-                  onDoubleClick={(e) => {
+                  onClick={(e) => {
                     e.stopPropagation();
                     const rect = e.currentTarget.getBoundingClientRect();
                     const y = e.clientY - rect.top + (timeGridRef.current?.scrollTop || 0);
-                    const hour = Math.floor(y / HOUR_HEIGHT);
-                    openNewEventModalAtTime(viewDate, Math.min(Math.max(hour, 0), 23));
+                    const totalMinutes = Math.floor(y / HOUR_HEIGHT * 60);
+                    const snapped = Math.floor(totalMinutes / 15) * 15;
+                    openNewEventModalAtTime(viewDate, Math.min(Math.max(snapped, 0), 1425));
                   }}
                 >
                   {(() => {
