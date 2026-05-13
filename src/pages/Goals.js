@@ -134,10 +134,10 @@ export default function Goals() {
     setLoading(true);
     try {
       const [goalsRes, initRes, acctRes, monthlyRes] = await Promise.all([
-        supabase.from('goals').select('*').order('created_at', { ascending: false }),
+        supabase.from('goals').select('*').eq('scope', 'content').order('created_at', { ascending: false }),
         supabase.from('initiatives').select('*').order('deadline', { ascending: true }),
         supabase.from('platform_accounts').select('*').eq('is_active', true).order('platform'),
-        supabase.from('monthly_goals').select('*').order('created_at'),
+        supabase.from('monthly_goals').select('*').eq('scope', 'content').order('created_at'),
       ]);
       if (goalsRes.error) throw goalsRes.error;
       if (initRes.error) throw initRes.error;

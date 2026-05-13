@@ -32,8 +32,8 @@ export default function GoalsMobile() {
     setLoading(true);
     try {
       const [goalsRes, monthlyRes, initRes] = await Promise.all([
-        supabase.from('goals').select('*').order('created_at', { ascending: false }),
-        supabase.from('monthly_goals').select('*').order('created_at', { ascending: true }),
+        supabase.from('goals').select('*').eq('scope', 'content').order('created_at', { ascending: false }),
+        supabase.from('monthly_goals').select('*').eq('scope', 'content').order('created_at', { ascending: true }),
         supabase.from('initiatives').select('*').order('deadline', { ascending: true }),
       ]);
       setGoals(goalsRes.data || []);
