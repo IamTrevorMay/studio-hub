@@ -9,7 +9,7 @@ const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
 // ─── helpers ───────────────────────────────────────────────────────────────────
 
 function newBeat() {
-  return { id: crypto.randomUUID(), title: '', context: '', graphics: [], videos: [] };
+  return { id: crypto.randomUUID(), title: '', context: '', graphics: [], videos: [], notes: '' };
 }
 
 function timeAgo(dateStr) {
@@ -71,6 +71,9 @@ export default function Production() {
   // ── beat media upload state ──
   const [uploadingCells, setUploadingCells] = useState({});
   const [dropHighlight, setDropHighlight] = useState(null);
+
+  // ── context menu ──
+  const [contextMenu, setContextMenu] = useState(null); // { x, y, beatId }
 
   // ── confirm delete ──
   const [confirmDelete, setConfirmDelete] = useState(null);
@@ -292,6 +295,23 @@ export default function Production() {
 
   const deleteBeat = (beatId) => {
     setBeats(prev => prev.filter(b => b.id !== beatId));
+  };
+
+  const duplicateBeat = (beatId) => {
+    setBeats(prev => {
+      const idx = prev.findIndex(b => b.id === beatId);
+      if (idx === -1) return prev;
+      const src = prev[idx];
+      const copy = {
+        ...src,
+        id: crypto.randomUUID(),
+        graphics: [...(src.graphics || [])],
+        videos: [...(src.videos || [])],
+      };
+      const next = [...prev];
+      next.splice(idx + 1, 0, copy);
+      return next;
+    });
   };
 
   const addTag = (beatId, field, value) => {
@@ -1100,6 +1120,7 @@ export default function Production() {
         <div style={styles.colHeaderLeft}>Beat / Context</div>
         <div style={styles.colHeader}>Graphics</div>
         <div style={styles.colHeader}>Videos</div>
+        <div style={styles.colHeader}>Notes</div>
         <div style={{ width: 36 }} />
       </div>
 
@@ -1114,6 +1135,10 @@ export default function Production() {
                     <div
                       ref={provided.innerRef}
                       {...provided.draggableProps}
+                      onContextMenu={e => {
+                        e.preventDefault();
+                        setContextMenu({ x: e.clientX, y: e.clientY, beatId: beat.id });
+                      }}
                       style={{
                         ...styles.beatRow,
                         ...(snapshot.isDragging ? { boxShadow: '0 8px 32px rgba(99,102,241,0.25)', border: '1px solid rgba(99,102,241,0.3)' } : {}),
@@ -1349,6 +1374,18 @@ export default function Production() {
                         />
                       </div>
 
+                      {/* Col 4: Notes */}
+                      <div style={styles.notesCol}>
+                        <textarea
+                          value={beat.notes || ''}
+                          onChange={e => { updateBeat(beat.id, 'notes', e.target.value); autoResize(e.target); }}
+                          data-autoresize="true"
+                          placeholder="Notes..."
+                          rows={1}
+                          style={styles.notesInput}
+                        />
+                      </div>
+
                       {/* Delete beat */}
                       <button onClick={() => deleteBeat(beat.id)} style={styles.deleteBeatBtn} title="Delete beat">
                         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -1371,6 +1408,30 @@ export default function Production() {
       {renderFolderBrowser()}
       {renderVersionHistory()}
       {renderToast()}
+
+      {/* Beat context menu */}
+      {contextMenu && (
+        <div
+          style={styles.contextMenuBackdrop}
+          onClick={() => setContextMenu(null)}
+          onContextMenu={e => { e.preventDefault(); setContextMenu(null); }}
+        >
+          <div style={{ ...styles.contextMenuPopup, top: contextMenu.y, left: contextMenu.x }}>
+            <button
+              style={styles.contextMenuItem}
+              onClick={() => { duplicateBeat(contextMenu.beatId); setContextMenu(null); }}
+            >
+              Duplicate
+            </button>
+            <button
+              style={{ ...styles.contextMenuItem, color: '#ef4444' }}
+              onClick={() => { deleteBeat(contextMenu.beatId); setContextMenu(null); }}
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1649,6 +1710,29 @@ const styles = {
     alignSelf: 'flex-start',
   },
 
+  // ── notes column ──
+  notesCol: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    padding: '0 8px',
+  },
+  notesInput: {
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: 6,
+    padding: '8px 12px',
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 13,
+    fontFamily: "'DM Sans', sans-serif",
+    outline: 'none',
+    resize: 'none',
+    overflow: 'hidden',
+    lineHeight: 1.5,
+    width: '100%',
+    boxSizing: 'border-box',
+  },
+
   // ── tag columns ──
   tagCol: {
     flex: 1,
@@ -1861,5 +1945,37 @@ const styles = {
     fontSize: 13,
     fontFamily: "'DM Sans', sans-serif",
     outline: 'none',
+  },
+
+  // ── context menu ──
+  contextMenuBackdrop: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 9999,
+  },
+  contextMenuPopup: {
+    position: 'fixed',
+    background: '#1e1e2e',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: 8,
+    padding: '4px 0',
+    minWidth: 140,
+    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+    zIndex: 10000,
+  },
+  contextMenuItem: {
+    display: 'block',
+    width: '100%',
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 13,
+    fontFamily: "'DM Sans', sans-serif",
+    padding: '8px 16px',
+    textAlign: 'left',
+    cursor: 'pointer',
   },
 };

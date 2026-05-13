@@ -70,11 +70,14 @@ Deno.serve(async (req: Request) => {
     const accessToken = await getDriveAccessToken();
 
     // Build sheet data: header + one row per beat
-    const headerRow = ["Beat + Context", "Graphics", "Videos"];
+    const headerRow = ["Beat + Context", "Graphics", "Videos", "Notes"];
+    const formatMediaList = (items: any[]) =>
+      (items || []).map((item: any) => typeof item === 'string' ? item : (item.name || '')).join("\n");
     const dataRows = (beats || []).map((b: any) => [
       [b.title || "", b.context || ""].filter(Boolean).join("\n"),
-      (b.graphics || []).join("\n"),
-      (b.videos || []).join("\n"),
+      formatMediaList(b.graphics),
+      formatMediaList(b.videos),
+      b.notes || "",
     ]);
 
     const rows = [headerRow, ...dataRows];
@@ -130,6 +133,11 @@ Deno.serve(async (req: Request) => {
           { updateDimensionProperties: {
             range: { sheetId: 0, dimension: "COLUMNS", startIndex: 2, endIndex: 3 },
             properties: { pixelSize: 250 },
+            fields: "pixelSize",
+          }},
+          { updateDimensionProperties: {
+            range: { sheetId: 0, dimension: "COLUMNS", startIndex: 3, endIndex: 4 },
+            properties: { pixelSize: 300 },
             fields: "pixelSize",
           }},
           { repeatCell: {

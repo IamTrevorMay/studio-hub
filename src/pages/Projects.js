@@ -119,11 +119,7 @@ export default function Projects({ onNavigate }) {
   // Sponsors state
   const [sponsors, setSponsors] = useState([]);
   const [sponsorLoading, setSponsorLoading] = useState(false);
-  const [expandedSponsorId, setExpandedSponsorId] = useState(null);
-  const [showSponsorForm, setShowSponsorForm] = useState(false);
-  const [editingSponsor, setEditingSponsor] = useState(null);
-  const [sponsorName, setSponsorName] = useState('');
-  const [sponsorNotes, setSponsorNotes] = useState('');
+  const [expandedCampaignId, setExpandedCampaignId] = useState(null);
   const [showDeliverableForm, setShowDeliverableForm] = useState(null); // campaignId or null
   const [editingDeliverable, setEditingDeliverable] = useState(null);
   const [deliverableTitle, setDeliverableTitle] = useState('');
@@ -142,9 +138,9 @@ export default function Projects({ onNavigate }) {
   const [videoEvents, setVideoEvents] = useState([]);
 
   // Campaign state
-  const [showCampaignForm, setShowCampaignForm] = useState(null); // sponsorId or null
+  const [showCampaignForm, setShowCampaignForm] = useState(false);
   const [editingCampaign, setEditingCampaign] = useState(null);
-  const [campaignForm, setCampaignForm] = useState({ name: '', description: '', start_date: '', end_date: '', contact_name: '', contact_email: '', payment_status: 'unpaid' });
+  const [campaignForm, setCampaignForm] = useState({ name: '', brand: '', description: '', start_date: '', end_date: '', contact_name: '', contact_email: '', payment_status: 'unpaid' });
   const [briefFile, setBriefFile] = useState(null);
   const [briefMode, setBriefMode] = useState('upload'); // 'upload' | 'link'
   const [briefLinkUrl, setBriefLinkUrl] = useState('');
@@ -1075,12 +1071,6 @@ export default function Projects({ onNavigate }) {
     fetchProposals();
   }
 
-  function resetSponsorForm() {
-    setSponsorName('');
-    setSponsorNotes('');
-    setEditingSponsor(null); setShowSponsorForm(false);
-  }
-
   function resetDeliverableForm() {
     setDeliverableTitle(''); setDeliverableType('long_form_read');
     setDueDate(''); setDeliverableNotes('');
@@ -1090,17 +1080,25 @@ export default function Projects({ onNavigate }) {
     setEditingDeliverable(null); setShowDeliverableForm(null);
   }
 
-  function startEditSponsor(sponsor) {
-    setSponsorName(sponsor.name);
-    setSponsorNotes(sponsor.notes || '');
-    setEditingSponsor(sponsor.id);
-    setShowSponsorForm(true);
+  function startEditCampaign(campaign) {
+    setCampaignForm({
+      name: campaign.name,
+      brand: campaign.brand || '',
+      description: campaign.description || '',
+      start_date: campaign.start_date || '',
+      end_date: campaign.end_date || '',
+      contact_name: campaign.contact_name || '',
+      contact_email: campaign.contact_email || '',
+      payment_status: campaign.payment_status || 'unpaid',
+    });
+    setEditingCampaign(campaign.id);
+    setShowCampaignForm(true);
   }
 
   function startEditDeliverable(d) {
     setDeliverableTitle(d.title);
     setDeliverableType(d.deliverable_type);
-    setDueDate(d.due_date || '');
+    setDueDate(d.due_date ? d.due_date.slice(0, 7) : '');
     setDeliverableNotes(d.notes || '');
     setDeliverablePlatforms(d.platforms || []);
     setDeliverableNeedsReview(d.needs_review || false);
@@ -1113,41 +1111,6 @@ export default function Projects({ onNavigate }) {
     setShowDeliverableForm(d.campaign_id);
   }
 
-  async function handleSaveSponsor(e) {
-    e.preventDefault();
-    const payload = {
-      name: sponsorName,
-      notes: sponsorNotes || null,
-      updated_at: new Date().toISOString(),
-    };
-    if (editingSponsor) {
-      const { error } = await supabase.from('sponsors').update(payload).eq('id', editingSponsor);
-      if (error) { alert('Error updating sponsor: ' + error.message); return; }
-    } else {
-      const { error } = await supabase.from('sponsors').insert({ ...payload, created_by: profile.id });
-      if (error) { alert('Error creating sponsor: ' + error.message); return; }
-    }
-    resetSponsorForm();
-    fetchSponsors();
-  }
-
-  async function handleDeleteSponsor(sponsorId) {
-    if (!(await confirm('Delete this sponsor and all its deliverables?'))) return;
-    // Delete linked calendar events first
-    const sponsor = sponsors.find(s => s.id === sponsorId);
-    if (sponsor?.sponsor_deliverables) {
-      const eventIds = sponsor.sponsor_deliverables
-        .filter(d => d.calendar_event_id)
-        .map(d => d.calendar_event_id);
-      if (eventIds.length > 0) {
-        await supabase.from('calendar_events').delete().in('id', eventIds);
-      }
-    }
-    await supabase.from('sponsors').delete().eq('id', sponsorId);
-    if (expandedSponsorId === sponsorId) setExpandedSponsorId(null);
-    fetchSponsors();
-  }
-
   async function handleSaveDeliverable(e, sponsorId, campaignId) {
     e.preventDefault();
     const sponsor = sponsors.find(s => s.id === sponsorId);
@@ -1157,7 +1120,7 @@ export default function Projects({ onNavigate }) {
       const { error } = await supabase.from('sponsor_deliverables').update({
         title: deliverableTitle,
         deliverable_type: deliverableType,
-        due_date: dueDate || null,
+        due_date: dueDate ? dueDate + '-01' : null,
         notes: deliverableNotes || null,
         platforms: deliverablePlatforms,
         needs_review: deliverableNeedsReview,
@@ -1171,27 +1134,28 @@ export default function Projects({ onNavigate }) {
       if (error) { alert('Error updating deliverable: ' + error.message); return; }
 
       // Sync calendar event
-      if (dueDate && deliverable?.calendar_event_id) {
+      const dueDateFull = dueDate ? dueDate + '-01' : null;
+      if (dueDateFull && deliverable?.calendar_event_id) {
         // Update existing event
         await supabase.from('calendar_events').update({
           title: `🤝 ${sponsor?.name}: ${deliverableTitle}`,
-          start_date: `${dueDate}T09:00:00`,
-          end_date: `${dueDate}T10:00:00`,
+          start_date: `${dueDateFull}T09:00:00`,
+          end_date: `${dueDateFull}T10:00:00`,
         }).eq('id', deliverable.calendar_event_id);
-      } else if (dueDate && !deliverable?.calendar_event_id) {
+      } else if (dueDateFull && !deliverable?.calendar_event_id) {
         // Create new event
         const { data: evData } = await supabase.from('calendar_events').insert({
           title: `🤝 ${sponsor?.name}: ${deliverableTitle}`,
           event_type: 'sponsor',
-          start_date: `${dueDate}T09:00:00`,
-          end_date: `${dueDate}T10:00:00`,
+          start_date: `${dueDateFull}T09:00:00`,
+          end_date: `${dueDateFull}T10:00:00`,
           all_day: true,
           created_by: profile.id,
         }).select().single();
         if (evData) {
           await supabase.from('sponsor_deliverables').update({ calendar_event_id: evData.id }).eq('id', editingDeliverable);
         }
-      } else if (!dueDate && deliverable?.calendar_event_id) {
+      } else if (!dueDateFull && deliverable?.calendar_event_id) {
         // Remove event
         await supabase.from('calendar_events').delete().eq('id', deliverable.calendar_event_id);
         await supabase.from('sponsor_deliverables').update({ calendar_event_id: null }).eq('id', editingDeliverable);
@@ -1202,7 +1166,7 @@ export default function Projects({ onNavigate }) {
         sponsor_id: sponsorId,
         title: deliverableTitle,
         deliverable_type: deliverableType,
-        due_date: dueDate || null,
+        due_date: dueDate ? dueDate + '-01' : null,
         notes: deliverableNotes || null,
         platforms: deliverablePlatforms,
         needs_review: deliverableNeedsReview,
@@ -1215,12 +1179,13 @@ export default function Projects({ onNavigate }) {
       if (error) { alert('Error creating deliverable: ' + error.message); return; }
 
       // Auto-create calendar event if due_date set
-      if (dueDate && dData) {
+      const newDueDateFull = dueDate ? dueDate + '-01' : null;
+      if (newDueDateFull && dData) {
         const { data: evData } = await supabase.from('calendar_events').insert({
           title: `🤝 ${sponsor?.name}: ${deliverableTitle}`,
           event_type: 'sponsor',
-          start_date: `${dueDate}T09:00:00`,
-          end_date: `${dueDate}T10:00:00`,
+          start_date: `${newDueDateFull}T09:00:00`,
+          end_date: `${newDueDateFull}T10:00:00`,
           all_day: true,
           created_by: profile.id,
         }).select().single();
@@ -1284,16 +1249,37 @@ export default function Projects({ onNavigate }) {
 
   // Campaign CRUD
   function resetCampaignForm() {
-    setCampaignForm({ name: '', description: '', start_date: '', end_date: '', contact_name: '', contact_email: '', payment_status: 'unpaid' });
+    setCampaignForm({ name: '', brand: '', description: '', start_date: '', end_date: '', contact_name: '', contact_email: '', payment_status: 'unpaid' });
     setBriefFile(null);
     setBriefMode('upload');
     setBriefLinkUrl('');
     setBriefLinkLabel('');
-    setEditingCampaign(null); setShowCampaignForm(null);
+    setEditingCampaign(null); setShowCampaignForm(false);
   }
 
-  async function handleSaveCampaign(e, sponsorId) {
+  async function handleSaveCampaign(e) {
     e.preventDefault();
+    // Find or create sponsor from brand name
+    const brandName = (campaignForm.brand || '').trim();
+    if (!brandName) { alert('Brand name is required'); return; }
+    let sponsorId;
+    const { data: existing } = await supabase
+      .from('sponsors')
+      .select('id')
+      .ilike('name', brandName)
+      .limit(1)
+      .single();
+    if (existing) {
+      sponsorId = existing.id;
+    } else {
+      const { data: newSponsor, error: sErr } = await supabase
+        .from('sponsors')
+        .insert({ name: brandName, created_by: profile.id })
+        .select()
+        .single();
+      if (sErr) { alert('Error creating brand: ' + sErr.message); return; }
+      sponsorId = newSponsor.id;
+    }
     const payload = {
       sponsor_id: sponsorId,
       name: campaignForm.name,
@@ -1521,10 +1507,27 @@ export default function Projects({ onNavigate }) {
 
   const editingCount = shorts.filter(s => s.stage === 'editing').length;
   const readyCount = shorts.filter(s => s.stage === 'ready_to_post').length;
-  const activeSponsorsCount = sponsors.filter(s => {
-    const dels = s.sponsor_deliverables || [];
-    return dels.length === 0 || dels.some(d => !d.delivered);
-  }).length;
+  const allCampaignsFlat = sponsors.flatMap(s =>
+    (s.sponsor_campaigns || []).map(c => ({
+      ...c,
+      brand: s.name,
+      sponsor_id: s.id,
+      deliverables: (s.sponsor_deliverables || []).filter(d => d.campaign_id === c.id),
+    }))
+  );
+  const sortedCampaigns = [...allCampaignsFlat].sort((a, b) => {
+    const aActive = a.deliverables.length === 0 || a.deliverables.some(d => !d.delivered);
+    const bActive = b.deliverables.length === 0 || b.deliverables.some(d => !d.delivered);
+    if (aActive && !bActive) return -1;
+    if (!aActive && bActive) return 1;
+    return new Date(b.created_at) - new Date(a.created_at);
+  });
+  const activeCampaignsCount = allCampaignsFlat.filter(c =>
+    c.deliverables.length === 0 || c.deliverables.some(d => !d.delivered)
+  ).length;
+  const uncampaignedDeliverables = sponsors.flatMap(s =>
+    (s.sponsor_deliverables || []).filter(d => !d.campaign_id).map(d => ({ ...d, sponsor_name: s.name, sponsor_id: s.id }))
+  );
   const pendingProposals = proposals.filter(p => p.status === 'pending');
   const resolvedProposals = proposals.filter(p => p.status !== 'pending');
   const activeMaydayCount = maydayVideos.filter(v => v.stage !== 'complete').length;
@@ -1563,7 +1566,7 @@ export default function Projects({ onNavigate }) {
           )}
           {d.due_date && (
             <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap' }}>
-              {new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              {new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
             </span>
           )}
           {d.video_event_id && (() => {
@@ -1625,8 +1628,8 @@ export default function Projects({ onNavigate }) {
           }}
         >
           Deliverables
-          {activeSponsorsCount > 0 && (
-            <span style={styles.sectionTabBadge}>{activeSponsorsCount}</span>
+          {activeCampaignsCount > 0 && (
+            <span style={styles.sectionTabBadge}>{activeCampaignsCount}</span>
           )}
         </button>
       </div>
@@ -2525,7 +2528,7 @@ export default function Projects({ onNavigate }) {
             <input
               value={proposalForm.sponsor_name}
               onChange={e => setProposalForm(f => ({ ...f, sponsor_name: e.target.value }))}
-              placeholder="Sponsor Name *"
+              placeholder="Brand Name *"
               required
               style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px' }}
             />
@@ -2632,70 +2635,142 @@ export default function Projects({ onNavigate }) {
         <div style={{ minWidth: 0 }}>
       <div style={styles.topBar}>
         <div>
-          <h1 style={styles.pageTitle}>Sponsors</h1>
+          <h1 style={styles.pageTitle}>Campaigns</h1>
           <p style={styles.pageSubtitle}>
-            {activeSponsorsCount} active · {sponsors.length - activeSponsorsCount} inactive
+            {activeCampaignsCount} active · {sortedCampaigns.length - activeCampaignsCount} inactive
           </p>
         </div>
-        <button onClick={() => { resetSponsorForm(); setShowSponsorForm(!showSponsorForm); }} style={styles.addBtn}>
-          {showSponsorForm && !editingSponsor ? '✕ Cancel' : '+ New Sponsor'}
+        <button onClick={() => { resetCampaignForm(); setShowCampaignForm(!showCampaignForm); }} style={styles.addBtn}>
+          {showCampaignForm && !editingCampaign ? '✕ Cancel' : '+ New Campaign'}
         </button>
       </div>
-      {/* Sponsor Form */}
-      {showSponsorForm && (
-        <form onSubmit={handleSaveSponsor} style={styles.formCard}>
+
+      {/* Campaign Form (top-level) */}
+      {showCampaignForm && (
+        <form onSubmit={handleSaveCampaign} style={styles.formCard}>
           <div style={styles.formGrid}>
             <div style={styles.field}>
-              <label style={styles.label}>Sponsor Name *</label>
-              <input value={sponsorName} onChange={e => setSponsorName(e.target.value)} placeholder="e.g. NordVPN" required style={styles.input} />
+              <label style={styles.label}>Brand *</label>
+              <input
+                value={campaignForm.brand}
+                onChange={e => setCampaignForm({ ...campaignForm, brand: e.target.value })}
+                placeholder="e.g. NordVPN"
+                required
+                list="brand-suggestions"
+                style={styles.input}
+              />
+              <datalist id="brand-suggestions">
+                {sponsors.map(s => <option key={s.id} value={s.name} />)}
+              </datalist>
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Campaign Name *</label>
+              <input value={campaignForm.name} onChange={e => setCampaignForm({ ...campaignForm, name: e.target.value })} placeholder="e.g. Q1 Launch" required style={styles.input} />
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Start Date</label>
+              <input type="date" value={campaignForm.start_date} onChange={e => setCampaignForm({ ...campaignForm, start_date: e.target.value })} style={styles.input} />
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>End Date</label>
+              <input type="date" value={campaignForm.end_date} onChange={e => setCampaignForm({ ...campaignForm, end_date: e.target.value })} style={styles.input} />
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Contact Name</label>
+              <input value={campaignForm.contact_name} onChange={e => setCampaignForm({ ...campaignForm, contact_name: e.target.value })} placeholder="e.g. John Smith" style={styles.input} />
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Contact Email</label>
+              <input value={campaignForm.contact_email} onChange={e => setCampaignForm({ ...campaignForm, contact_email: e.target.value })} placeholder="john@sponsor.com" type="email" style={styles.input} />
+            </div>
+            {isAdmin && (
+              <div style={styles.field}>
+                <label style={styles.label}>Payment Status</label>
+                <select value={campaignForm.payment_status} onChange={e => setCampaignForm({ ...campaignForm, payment_status: e.target.value })} style={styles.select}>
+                  <option value="unpaid">Unpaid</option>
+                  <option value="partial">Partial</option>
+                  <option value="paid">Paid</option>
+                </select>
+              </div>
+            )}
+            <div style={styles.field}>
+              <label style={styles.label}>Brief</label>
+              <div style={{ display: 'flex', gap: '4px', marginBottom: '6px' }}>
+                {['upload', 'link'].map(m => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setBriefMode(m)}
+                    style={{
+                      flex: 1, padding: '4px 8px', borderRadius: '6px', border: '1px solid',
+                      fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                      background: briefMode === m ? 'rgba(99,102,241,0.2)' : 'transparent',
+                      color: briefMode === m ? '#a5b4fc' : 'rgba(255,255,255,0.35)',
+                      borderColor: briefMode === m ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.08)',
+                      textTransform: 'capitalize',
+                    }}
+                  >{m}</button>
+                ))}
+              </div>
+              {briefMode === 'upload' ? (
+                <input type="file" accept=".pdf,.docx,.doc" onChange={e => setBriefFile(e.target.files[0] || null)} style={{ ...styles.input, padding: '6px 8px' }} />
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <input type="url" value={briefLinkUrl} onChange={e => setBriefLinkUrl(e.target.value)} placeholder="https://..." style={styles.input} />
+                  <input value={briefLinkLabel} onChange={e => setBriefLinkLabel(e.target.value)} placeholder="Label (optional)" style={styles.input} />
+                </div>
+              )}
             </div>
           </div>
           <div style={styles.field}>
-            <label style={styles.label}>Notes</label>
-            <textarea value={sponsorNotes} onChange={e => setSponsorNotes(e.target.value)} placeholder="Deal details, talking points..." rows={3} style={{ ...styles.input, resize: 'vertical' }} />
+            <label style={styles.label}>Description</label>
+            <textarea value={campaignForm.description} onChange={e => setCampaignForm({ ...campaignForm, description: e.target.value })} placeholder="Campaign details..." rows={2} style={{ ...styles.input, resize: 'vertical' }} />
           </div>
-          <button type="submit" style={styles.submitBtn}>{editingSponsor ? 'Update Sponsor' : 'Create Sponsor'}</button>
+          <button type="submit" style={styles.submitBtn}>{editingCampaign ? 'Update Campaign' : 'Create Campaign'}</button>
         </form>
       )}
 
-      {/* Sponsor List */}
+      {/* Campaign List */}
       {sponsorLoading ? (
-        <p style={styles.emptyText}>Loading sponsors...</p>
-      ) : sponsors.length === 0 ? (
+        <p style={styles.emptyText}>Loading campaigns...</p>
+      ) : sortedCampaigns.length === 0 ? (
         <div style={styles.emptyCard}>
-          <p style={styles.emptyText}>No sponsors yet. Add one to get started.</p>
+          <p style={styles.emptyText}>No campaigns yet. Add one to get started.</p>
         </div>
       ) : (
         <div style={styles.projectList}>
-          {[...sponsors].sort((a, b) => {
-              const aActive = (a.sponsor_deliverables || []).length === 0 || (a.sponsor_deliverables || []).some(d => !d.delivered);
-              const bActive = (b.sponsor_deliverables || []).length === 0 || (b.sponsor_deliverables || []).some(d => !d.delivered);
-              if (aActive && !bActive) return -1;
-              if (!aActive && bActive) return 1;
-              return new Date(b.created_at) - new Date(a.created_at);
-            }).map(sponsor => {
-              const isExpanded = expandedSponsorId === sponsor.id;
-              const deliverables = sponsor.sponsor_deliverables || [];
-              const campaigns = sponsor.sponsor_campaigns || [];
-              const isActive = deliverables.length === 0 || deliverables.some(d => !d.delivered);
-              const deliveredCount = deliverables.filter(d => d.delivered).length;
+          {sortedCampaigns.map(campaign => {
+              const isExpanded = expandedCampaignId === campaign.id;
+              const campaignDels = campaign.deliverables;
+              const allDeliveredCamp = campaignDels.length > 0 && campaignDels.every(d => d.delivered);
+              const isActive = campaignDels.length === 0 || campaignDels.some(d => !d.delivered);
+              const campDeliveredCount = campaignDels.filter(d => d.delivered).length;
+              const campTotalPay = campaignDels.reduce((sum, d) => sum + (parseFloat(d.pay) || 0), 0);
               return (
-                <div key={sponsor.id} style={styles.sponsorCard}>
-                  <div style={styles.sponsorCardHeader} onClick={() => setExpandedSponsorId(isExpanded ? null : sponsor.id)}>
+                <div key={campaign.id} style={styles.sponsorCard}>
+                  <div style={styles.sponsorCardHeader} onClick={() => setExpandedCampaignId(isExpanded ? null : campaign.id)}>
                     <div style={styles.projectRowLeft}>
                       <div>
-                        <div style={styles.projectRowName}>{sponsor.name}</div>
-                        <div style={styles.projectRowMeta}>
-                          {campaigns.length > 0 ? `${campaigns.length} campaign${campaigns.length > 1 ? 's' : ''}` : 'No campaigns'}
-                        </div>
+                        <div style={styles.projectRowName}>{campaign.name}</div>
+                        <div style={styles.projectRowMeta}>{campaign.brand}</div>
                       </div>
                     </div>
                     <div style={styles.projectRowRight}>
+                      {campaign.start_date && campaign.end_date && (
+                        <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)' }}>
+                          {new Date(campaign.start_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – {new Date(campaign.end_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </span>
+                      )}
+                      {isAdmin && (
+                        <span style={{ ...styles.statusTag, background: `${PAYMENT_STATUS_COLORS[campaign.payment_status]}15`, color: PAYMENT_STATUS_COLORS[campaign.payment_status] }}>
+                          {campaign.payment_status}
+                        </span>
+                      )}
                       <span style={{ ...styles.statusTag, background: isActive ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.06)', color: isActive ? '#10b981' : 'rgba(255,255,255,0.4)' }}>
                         {isActive ? 'Active' : 'Inactive'}
                       </span>
-                      {deliverables.length > 0 && (
-                        <span style={styles.checklistBadge}>{deliveredCount}/{deliverables.length}</span>
+                      {campaignDels.length > 0 && (
+                        <span style={styles.checklistBadge}>{campDeliveredCount}/{campaignDels.length}</span>
                       )}
                       <svg width="16" height="16" viewBox="0 0 16 16" fill="rgba(255,255,255,0.3)"
                         style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>
@@ -2706,256 +2781,123 @@ export default function Projects({ onNavigate }) {
 
                   {isExpanded && (
                     <div style={styles.projectDetail}>
-                      {sponsor.notes && (
-                        <div style={styles.detailSection}>
-                          <h4 style={styles.detailLabel}>Notes</h4>
-                          <p style={{ margin: 0, fontSize: '13px', color: 'rgba(255,255,255,0.6)', whiteSpace: 'pre-wrap' }}>{sponsor.notes}</p>
-                        </div>
+                      {/* Campaign meta info */}
+                      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '8px' }}>
+                        {isAdmin && campTotalPay > 0 && (
+                          <span style={{ ...styles.paymentBadge, background: `${PAYMENT_STATUS_COLORS[campaign.payment_status]}15`, color: PAYMENT_STATUS_COLORS[campaign.payment_status] }}>
+                            ${campTotalPay.toLocaleString()}
+                          </span>
+                        )}
+                        {(campaign.contact_name || campaign.contact_email) && (
+                          <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>
+                            {campaign.contact_name}{campaign.contact_email && ` (${campaign.contact_email})`}
+                          </span>
+                        )}
+                        {campaign.brief_url && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                            <a href={campaign.brief_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '11px', color: '#a5b4fc', textDecoration: 'none' }}>
+                              📄 {campaign.brief_name || 'Brief'}
+                            </a>
+                            <button onClick={() => handleRemoveBrief(campaign.id, campaign.brief_url)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '10px', padding: '0 2px' }} title="Remove brief">✕</button>
+                          </span>
+                        )}
+                      </div>
+                      {campaign.description && (
+                        <p style={{ margin: '0 0 8px', fontSize: '13px', color: 'rgba(255,255,255,0.5)', whiteSpace: 'pre-wrap' }}>{campaign.description}</p>
                       )}
 
-                      {/* Campaigns */}
-                      <div style={styles.detailSection}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                          <h4 style={styles.detailLabel}>Campaigns</h4>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); resetCampaignForm(); setShowCampaignForm(showCampaignForm === sponsor.id ? null : sponsor.id); }}
-                            style={{ background: 'none', border: 'none', color: '#a5b4fc', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}
-                          >
-                            {showCampaignForm === sponsor.id && !editingCampaign ? '✕ Cancel' : '+ Add Campaign'}
-                          </button>
-                        </div>
+                      {/* Deliverables */}
+                      {campaignDels.length > 0 && <div style={{ marginBottom: '8px' }}>{campaignDels.map(d => renderDeliverableRow(d, sponsors.find(s => s.id === campaign.sponsor_id)))}</div>}
 
-                        {showCampaignForm === sponsor.id && (
-                          <form onSubmit={(e) => handleSaveCampaign(e, sponsor.id)} style={{ ...styles.formCard, marginBottom: '12px' }}>
-                            <div style={styles.formGrid}>
-                              <div style={styles.field}>
-                                <label style={styles.label}>Campaign Name *</label>
-                                <input value={campaignForm.name} onChange={e => setCampaignForm({ ...campaignForm, name: e.target.value })} placeholder="e.g. Q1 Launch" required style={styles.input} />
-                              </div>
-                              <div style={styles.field}>
-                                <label style={styles.label}>Start Date</label>
-                                <input type="date" value={campaignForm.start_date} onChange={e => setCampaignForm({ ...campaignForm, start_date: e.target.value })} style={styles.input} />
-                              </div>
-                              <div style={styles.field}>
-                                <label style={styles.label}>End Date</label>
-                                <input type="date" value={campaignForm.end_date} onChange={e => setCampaignForm({ ...campaignForm, end_date: e.target.value })} style={styles.input} />
-                              </div>
-                              <div style={styles.field}>
-                                <label style={styles.label}>Contact Name</label>
-                                <input value={campaignForm.contact_name} onChange={e => setCampaignForm({ ...campaignForm, contact_name: e.target.value })} placeholder="e.g. John Smith" style={styles.input} />
-                              </div>
-                              <div style={styles.field}>
-                                <label style={styles.label}>Contact Email</label>
-                                <input value={campaignForm.contact_email} onChange={e => setCampaignForm({ ...campaignForm, contact_email: e.target.value })} placeholder="john@sponsor.com" type="email" style={styles.input} />
-                              </div>
-                              {isAdmin && (
-                                <div style={styles.field}>
-                                  <label style={styles.label}>Payment Status</label>
-                                  <select value={campaignForm.payment_status} onChange={e => setCampaignForm({ ...campaignForm, payment_status: e.target.value })} style={styles.select}>
-                                    <option value="unpaid">Unpaid</option>
-                                    <option value="partial">Partial</option>
-                                    <option value="paid">Paid</option>
-                                  </select>
-                                </div>
-                              )}
-                              <div style={styles.field}>
-                                <label style={styles.label}>Brief</label>
-                                <div style={{ display: 'flex', gap: '4px', marginBottom: '6px' }}>
-                                  {['upload', 'link'].map(m => (
-                                    <button
-                                      key={m}
-                                      type="button"
-                                      onClick={() => setBriefMode(m)}
-                                      style={{
-                                        flex: 1, padding: '4px 8px', borderRadius: '6px', border: '1px solid',
-                                        fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-                                        background: briefMode === m ? 'rgba(99,102,241,0.2)' : 'transparent',
-                                        color: briefMode === m ? '#a5b4fc' : 'rgba(255,255,255,0.35)',
-                                        borderColor: briefMode === m ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.08)',
-                                        textTransform: 'capitalize',
-                                      }}
-                                    >{m}</button>
-                                  ))}
-                                </div>
-                                {briefMode === 'upload' ? (
-                                  <input type="file" accept=".pdf,.docx,.doc" onChange={e => setBriefFile(e.target.files[0] || null)} style={{ ...styles.input, padding: '6px 8px' }} />
-                                ) : (
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                    <input type="url" value={briefLinkUrl} onChange={e => setBriefLinkUrl(e.target.value)} placeholder="https://..." style={styles.input} />
-                                    <input value={briefLinkLabel} onChange={e => setBriefLinkLabel(e.target.value)} placeholder="Label (optional)" style={styles.input} />
-                                  </div>
-                                )}
+                      {/* Add Deliverable */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); resetDeliverableForm(); setDeliverableCampaignId(campaign.id); setShowDeliverableForm(showDeliverableForm === campaign.id ? null : campaign.id); }}
+                          style={{ background: 'none', border: 'none', color: '#a5b4fc', fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}
+                        >
+                          {showDeliverableForm === campaign.id && !editingDeliverable ? '✕ Cancel' : '+ Add Deliverable'}
+                        </button>
+                      </div>
+                      {showDeliverableForm === campaign.id && (
+                        <form onSubmit={(e) => handleSaveDeliverable(e, campaign.sponsor_id, campaign.id)} style={{ ...styles.formCard, marginTop: '8px' }}>
+                          <div style={styles.formGrid}>
+                            <div style={styles.field}>
+                              <label style={styles.label}>Title *</label>
+                              <input value={deliverableTitle} onChange={e => setDeliverableTitle(e.target.value)} placeholder="e.g. Mid-roll integration" required style={styles.input} />
+                            </div>
+                            <div style={styles.field}>
+                              <label style={styles.label}>Type</label>
+                              <select value={deliverableType} onChange={e => setDeliverableType(e.target.value)} style={styles.select}>
+                                {Object.entries(DELIVERABLE_TYPES).map(([k, v]) => (
+                                  <option key={k} value={k}>{v.icon} {v.label}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div style={styles.field}>
+                              <label style={styles.label}>Channel</label>
+                              <select value={deliverableChannel} onChange={e => setDeliverableChannel(e.target.value)} style={styles.select}>
+                                <option value="">— Select channel —</option>
+                                <option value="mayday">Mayday</option>
+                                <option value="tmb">Trevor May Baseball</option>
+                                <option value="socials">Socials</option>
+                              </select>
+                            </div>
+                            <div style={styles.field}>
+                              <label style={styles.label}>Due Month</label>
+                              <input type="month" value={dueDate} onChange={e => setDueDate(e.target.value)} style={styles.input} />
+                            </div>
+                            <div style={styles.field}>
+                              <label style={styles.label}>Platforms</label>
+                              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                {DELIVERABLE_PLATFORMS.map(p => (
+                                  <button key={p} type="button" onClick={() => setDeliverablePlatforms(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p])} style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', background: deliverablePlatforms.includes(p) ? 'rgba(99,102,241,0.2)' : 'transparent', color: deliverablePlatforms.includes(p) ? '#a5b4fc' : 'rgba(255,255,255,0.35)', borderColor: deliverablePlatforms.includes(p) ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.08)' }}>{p}</button>
+                                ))}
                               </div>
                             </div>
                             <div style={styles.field}>
-                              <label style={styles.label}>Description</label>
-                              <textarea value={campaignForm.description} onChange={e => setCampaignForm({ ...campaignForm, description: e.target.value })} placeholder="Campaign details..." rows={2} style={{ ...styles.input, resize: 'vertical' }} />
+                              <label style={styles.label}>Needs Review</label>
+                              <select value={deliverableNeedsReview ? 'yes' : 'no'} onChange={e => setDeliverableNeedsReview(e.target.value === 'yes')} style={styles.select}>
+                                <option value="no">No</option>
+                                <option value="yes">Yes</option>
+                              </select>
                             </div>
-                            <button type="submit" style={styles.submitBtn}>{editingCampaign ? 'Update Campaign' : 'Create Campaign'}</button>
-                          </form>
-                        )}
-
-                        {campaigns.length > 0 && campaigns.map(campaign => {
-                          const campaignDels = deliverables.filter(d => d.campaign_id === campaign.id);
-                          const allDeliveredCamp = campaignDels.length > 0 && campaignDels.every(d => d.delivered);
-                          const campDeliveredCount = campaignDels.filter(d => d.delivered).length;
-                          const campTotalPay = campaignDels.reduce((sum, d) => sum + (parseFloat(d.pay) || 0), 0);
-                          return (
-                            <div key={campaign.id} style={{ marginBottom: '8px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', padding: '10px 12px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0', flexWrap: 'wrap' }}>
-                                <span style={{ fontSize: '13px', fontWeight: 600, color: '#e2e8f0', flex: 1 }}>{campaign.name}</span>
-                                {campaign.start_date && campaign.end_date && (
-                                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)' }}>
-                                    {new Date(campaign.start_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – {new Date(campaign.end_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                                  </span>
-                                )}
-                                {isAdmin && campTotalPay > 0 && (
-                                  <span style={{ ...styles.paymentBadge, background: `${PAYMENT_STATUS_COLORS[campaign.payment_status]}15`, color: PAYMENT_STATUS_COLORS[campaign.payment_status] }}>
-                                    ${campTotalPay.toLocaleString()}
-                                  </span>
-                                )}
-                                {isAdmin && (
-                                  <span style={{ ...styles.statusTag, background: `${PAYMENT_STATUS_COLORS[campaign.payment_status]}15`, color: PAYMENT_STATUS_COLORS[campaign.payment_status] }}>
-                                    {campaign.payment_status}
-                                  </span>
-                                )}
-                                <span style={{
-                                  fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase', letterSpacing: '0.3px',
-                                  background: allDeliveredCamp ? 'rgba(34,197,94,0.15)' : 'rgba(99,102,241,0.15)',
-                                  color: allDeliveredCamp ? '#86efac' : '#a5b4fc',
-                                }}>
-                                  {allDeliveredCamp ? 'Closed' : 'Open'}
-                                </span>
-                                {campaignDels.length > 0 && (
-                                  <span style={styles.checklistBadge}>{campDeliveredCount}/{campaignDels.length}</span>
-                                )}
-                                <button onClick={() => { setCampaignForm({ name: campaign.name, description: campaign.description || '', start_date: campaign.start_date || '', end_date: campaign.end_date || '', contact_name: campaign.contact_name || '', contact_email: campaign.contact_email || '', payment_status: campaign.payment_status || 'unpaid' }); setEditingCampaign(campaign.id); setShowCampaignForm(sponsor.id); }} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Edit">✎</button>
-                                <button onClick={() => handleDeleteCampaign(campaign.id)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Delete">✕</button>
-                              </div>
-                              {/* Campaign contact + brief info */}
-                              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '6px', alignItems: 'center' }}>
-                                {(campaign.contact_name || campaign.contact_email) && (
-                                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>
-                                    {campaign.contact_name}{campaign.contact_email && ` (${campaign.contact_email})`}
-                                  </span>
-                                )}
-                                {campaign.brief_url && (
-                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                                    <a href={campaign.brief_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '11px', color: '#a5b4fc', textDecoration: 'none' }}>
-                                      📄 {campaign.brief_name || 'Brief'}
-                                    </a>
-                                    <button onClick={() => handleRemoveBrief(campaign.id, campaign.brief_url)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '10px', padding: '0 2px' }} title="Remove brief">✕</button>
-                                  </span>
-                                )}
-                              </div>
-                              {campaignDels.length > 0 && <div style={{ marginTop: '8px' }}>{campaignDels.map(d => renderDeliverableRow(d, sponsor))}</div>}
-                              {/* Add Deliverable inside campaign */}
-                              <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); resetDeliverableForm(); setDeliverableCampaignId(campaign.id); setShowDeliverableForm(showDeliverableForm === campaign.id ? null : campaign.id); }}
-                                  style={{ background: 'none', border: 'none', color: '#a5b4fc', fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}
-                                >
-                                  {showDeliverableForm === campaign.id && !editingDeliverable ? '✕ Cancel' : '+ Add Deliverable'}
-                                </button>
-                              </div>
-                              {showDeliverableForm === campaign.id && (
-                                <form onSubmit={(e) => handleSaveDeliverable(e, sponsor.id, campaign.id)} style={{ ...styles.formCard, marginTop: '8px' }}>
-                                  <div style={styles.formGrid}>
-                                    <div style={styles.field}>
-                                      <label style={styles.label}>Title *</label>
-                                      <input value={deliverableTitle} onChange={e => setDeliverableTitle(e.target.value)} placeholder="e.g. Mid-roll integration" required style={styles.input} />
-                                    </div>
-                                    <div style={styles.field}>
-                                      <label style={styles.label}>Type</label>
-                                      <select value={deliverableType} onChange={e => setDeliverableType(e.target.value)} style={styles.select}>
-                                        {Object.entries(DELIVERABLE_TYPES).map(([k, v]) => (
-                                          <option key={k} value={k}>{v.icon} {v.label}</option>
-                                        ))}
-                                      </select>
-                                    </div>
-                                    <div style={styles.field}>
-                                      <label style={styles.label}>Channel</label>
-                                      <select value={deliverableChannel} onChange={e => setDeliverableChannel(e.target.value)} style={styles.select}>
-                                        <option value="">— Select channel —</option>
-                                        <option value="mayday">Mayday</option>
-                                        <option value="tmb">Trevor May Baseball</option>
-                                        <option value="socials">Socials</option>
-                                      </select>
-                                    </div>
-                                    <div style={styles.field}>
-                                      <label style={styles.label}>Due Date</label>
-                                      <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} style={styles.input} />
-                                    </div>
-                                    <div style={styles.field}>
-                                      <label style={styles.label}>Platforms</label>
-                                      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                                        {DELIVERABLE_PLATFORMS.map(p => (
-                                          <button key={p} type="button" onClick={() => setDeliverablePlatforms(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p])} style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', background: deliverablePlatforms.includes(p) ? 'rgba(99,102,241,0.2)' : 'transparent', color: deliverablePlatforms.includes(p) ? '#a5b4fc' : 'rgba(255,255,255,0.35)', borderColor: deliverablePlatforms.includes(p) ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.08)' }}>{p}</button>
-                                        ))}
-                                      </div>
-                                    </div>
-                                    <div style={styles.field}>
-                                      <label style={styles.label}>Needs Review</label>
-                                      <select value={deliverableNeedsReview ? 'yes' : 'no'} onChange={e => setDeliverableNeedsReview(e.target.value === 'yes')} style={styles.select}>
-                                        <option value="no">No</option>
-                                        <option value="yes">Yes</option>
-                                      </select>
-                                    </div>
-                                    <div style={styles.field}>
-                                      <label style={styles.label}>Pay ($)</label>
-                                      <input type="number" step="0.01" value={deliverablePay} onChange={e => setDeliverablePay(e.target.value)} placeholder="0.00" style={styles.input} />
-                                    </div>
-                                    <div style={styles.field}>
-                                      <label style={styles.label}>Beat Sheet</label>
-                                      <select value={deliverableBeatSheetId} onChange={e => setDeliverableBeatSheetId(e.target.value)} style={styles.select}>
-                                        <option value="">None</option>
-                                        {beatSheets.map(bs => (
-                                          <option key={bs.id} value={bs.id}>{bs.title}</option>
-                                        ))}
-                                      </select>
-                                    </div>
-                                    <div style={styles.field}>
-                                      <label style={styles.label}>Attached Video</label>
-                                      <select value={deliverableVideoEventId} onChange={e => setDeliverableVideoEventId(e.target.value)} style={styles.select}>
-                                        <option value="">None</option>
-                                        {videoEvents.map(ev => (
-                                          <option key={ev.id} value={ev.id}>
-                                            {'\uD83D\uDCF9'} {new Date(ev.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — {ev.title}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    </div>
-                                  </div>
-                                  <div style={styles.field}>
-                                    <label style={styles.label}>Ad Copy</label>
-                                    <textarea value={deliverableNotes} onChange={e => setDeliverableNotes(e.target.value)} placeholder="Ad copy, talking points, key messaging..." rows={2} style={{ ...styles.input, resize: 'vertical' }} />
-                                  </div>
-                                  <button type="submit" style={styles.submitBtn}>{editingDeliverable ? 'Update Deliverable' : 'Add Deliverable'}</button>
-                                </form>
-                              )}
+                            <div style={styles.field}>
+                              <label style={styles.label}>Pay ($)</label>
+                              <input type="number" step="0.01" value={deliverablePay} onChange={e => setDeliverablePay(e.target.value)} placeholder="0.00" style={styles.input} />
                             </div>
-                          );
-                        })}
-                      </div>
-
-                      {/* Uncampaigned Deliverables (legacy) */}
-                      {(() => {
-                        const uncampaigned = deliverables.filter(d => !d.campaign_id);
-                        if (uncampaigned.length === 0) return null;
-                        return (
-                          <div style={styles.detailSection}>
-                            <h4 style={{ ...styles.detailLabel, marginBottom: '8px' }}>Uncampaigned</h4>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                              {uncampaigned.map(d => renderDeliverableRow(d, sponsor))}
+                            <div style={styles.field}>
+                              <label style={styles.label}>Beat Sheet</label>
+                              <select value={deliverableBeatSheetId} onChange={e => setDeliverableBeatSheetId(e.target.value)} style={styles.select}>
+                                <option value="">None</option>
+                                {beatSheets.map(bs => (
+                                  <option key={bs.id} value={bs.id}>{bs.title}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div style={styles.field}>
+                              <label style={styles.label}>Attached Video</label>
+                              <select value={deliverableVideoEventId} onChange={e => setDeliverableVideoEventId(e.target.value)} style={styles.select}>
+                                <option value="">None</option>
+                                {videoEvents.map(ev => (
+                                  <option key={ev.id} value={ev.id}>
+                                    {'\uD83D\uDCF9'} {new Date(ev.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — {ev.title}
+                                  </option>
+                                ))}
+                              </select>
                             </div>
                           </div>
-                        );
-                      })()}
+                          <div style={styles.field}>
+                            <label style={styles.label}>Ad Copy</label>
+                            <textarea value={deliverableNotes} onChange={e => setDeliverableNotes(e.target.value)} placeholder="Ad copy, talking points, key messaging..." rows={2} style={{ ...styles.input, resize: 'vertical' }} />
+                          </div>
+                          <button type="submit" style={styles.submitBtn}>{editingDeliverable ? 'Update Deliverable' : 'Add Deliverable'}</button>
+                        </form>
+                      )}
 
-                      {/* Sponsor Actions */}
+                      {/* Campaign Actions */}
                       <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-                        <button onClick={() => startEditSponsor(sponsor)} style={{ ...styles.filterBtn, fontSize: '12px' }}>Edit</button>
-                        <button onClick={() => handleDeleteSponsor(sponsor.id)} style={{ ...styles.filterBtn, fontSize: '12px', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}>Delete</button>
+                        <button onClick={() => startEditCampaign(campaign)} style={{ ...styles.filterBtn, fontSize: '12px' }}>Edit</button>
+                        <button onClick={() => handleDeleteCampaign(campaign.id)} style={{ ...styles.filterBtn, fontSize: '12px', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}>Delete</button>
                       </div>
                     </div>
                   )}
@@ -2963,6 +2905,18 @@ export default function Projects({ onNavigate }) {
               );
             })}
           </div>
+      )}
+
+      {/* Uncampaigned Deliverables (legacy) */}
+      {uncampaignedDeliverables.length > 0 && (
+        <details style={{ marginTop: '12px', padding: '0 4px' }}>
+          <summary style={{ color: 'rgba(255,255,255,0.4)', fontSize: '12px', cursor: 'pointer', userSelect: 'none' }}>
+            {uncampaignedDeliverables.length} uncampaigned deliverable{uncampaignedDeliverables.length !== 1 ? 's' : ''}
+          </summary>
+          <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            {uncampaignedDeliverables.map(d => renderDeliverableRow(d, sponsors.find(s => s.id === d.sponsor_id)))}
+          </div>
+        </details>
       )}
         </div>
 
@@ -3008,7 +2962,7 @@ export default function Projects({ onNavigate }) {
                           } else {
                             setExpandedUpcomingId(d.id);
                             setEditingAdCopy(prev => ({ ...prev, [d.id]: d.notes || '' }));
-                            setEditingDueDate(prev => ({ ...prev, [d.id]: d.due_date || '' }));
+                            setEditingDueDate(prev => ({ ...prev, [d.id]: d.due_date ? d.due_date.slice(0, 7) : '' }));
                           }
                         }}
                         style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', cursor: 'pointer', minWidth: 0 }}
@@ -3019,7 +2973,7 @@ export default function Projects({ onNavigate }) {
                           <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
                             <span>{d.sponsor_name}</span>
                             {d.campaign_name && <><span style={{ opacity: 0.4 }}>/</span><span>{d.campaign_name}</span></>}
-                            {d.due_date && <><span style={{ opacity: 0.4 }}>/</span><span>{new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></>}
+                            {d.due_date && <><span style={{ opacity: 0.4 }}>/</span><span>{new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span></>}
                             {d.brief_url && (
                               <a href={d.brief_url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: '11px', color: '#a5b4fc', textDecoration: 'none' }}>
                                 {'📄'} {d.brief_name || 'Campaign Brief'}
@@ -3030,6 +2984,11 @@ export default function Projects({ onNavigate }) {
                         {d.pay != null && (
                           <span style={{ fontSize: '13px', fontWeight: 600, color: '#22c55e', whiteSpace: 'nowrap' }}>
                             ${parseFloat(d.pay).toLocaleString()}
+                          </span>
+                        )}
+                        {d.channel && CHANNEL_COLORS[d.channel] && (
+                          <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '5px', whiteSpace: 'nowrap', background: CHANNEL_COLORS[d.channel].bg, color: CHANNEL_COLORS[d.channel].color }}>
+                            {CHANNEL_COLORS[d.channel].label}
                           </span>
                         )}
                         {(() => {
@@ -3070,12 +3029,12 @@ export default function Projects({ onNavigate }) {
                             />
                           </div>
                           <div>
-                            <label style={{ fontSize: '11px', fontWeight: 600, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Due Date</label>
+                            <label style={{ fontSize: '11px', fontWeight: 600, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Due Month</label>
                             <input
-                              type="date"
+                              type="month"
                               value={editingDueDate[d.id] ?? ''}
                               onChange={async (e) => {
-                                const newDate = e.target.value || null;
+                                const newDate = e.target.value ? e.target.value + '-01' : null;
                                 setEditingDueDate(prev => ({ ...prev, [d.id]: e.target.value }));
                                 await supabase.from('sponsor_deliverables').update({ due_date: newDate, updated_at: new Date().toISOString() }).eq('id', d.id);
                                 fetchSponsors();
