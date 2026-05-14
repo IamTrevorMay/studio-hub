@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
@@ -54,6 +53,25 @@ const DELIVERABLE_STAGE_LABELS = {
 const CHECKIN_COLORS = { 1: '#ef4444', 2: '#f97316', 3: '#eab308', 4: '#84cc16', 5: '#22c55e' };
 const CHECKIN_LABELS = { 1: 'Red', 2: 'Orange', 3: 'Yellow', 4: 'Light Green', 5: 'Green' };
 
+const PRIORITY_COLORS = {
+  10: '#ef4444', 9: '#f97316', 8: '#fb923c',
+  6: '#fbbf24', 5: '#eab308', 4: '#a3e635',
+  3: '#4ade80', 2: '#22c55e', 1: '#15803d',
+};
+const PRIORITY_OPTIONS = [10, 9, 8, 6, 5, 4, 3, 2, 1];
+
+function sortByPriority(items, completedKey = 'checked') {
+  return [...items].sort((a, b) => {
+    const ac = a[completedKey] ? 1 : 0;
+    const bc = b[completedKey] ? 1 : 0;
+    if (ac !== bc) return ac - bc;
+    const ap = a.priority ?? 0;
+    const bp = b.priority ?? 0;
+    if (ap !== bp) return bp - ap;
+    return (a.position ?? 0) - (b.position ?? 0);
+  });
+}
+
 export default function Dashboard({ onNavigate }) {
   const { profile, updateProfile, isAdmin, isAssistant, isPartner, refreshKey } = useAuth();
   const { safeQuery } = useSupabaseQuery();
@@ -75,6 +93,8 @@ export default function Dashboard({ onNavigate }) {
   const [showItineraryInput, setShowItineraryInput] = useState(false);
   const [editingItemId, setEditingItemId] = useState(null);
   const [editingItemText, setEditingItemText] = useState('');
+  const [newItemPriority, setNewItemPriority] = useState(null);
+  const [editingItemPriority, setEditingItemPriority] = useState(null);
 
   // Admin comment state
   const [commentingItemId, setCommentingItemId] = useState(null);
@@ -93,6 +113,8 @@ export default function Dashboard({ onNavigate }) {
   const [showTodoInput, setShowTodoInput] = useState(false);
   const [editingTodoId, setEditingTodoId] = useState(null);
   const [editingTodoText, setEditingTodoText] = useState('');
+  const [newTodoPriority, setNewTodoPriority] = useState(null);
+  const [editingTodoPriority, setEditingTodoPriority] = useState(null);
 
   // Today's schedule state
   const [todayEvents, setTodayEvents] = useState([]);
@@ -168,7 +190,7 @@ export default function Dashboard({ onNavigate }) {
           .eq('user_id', profile.id)
           .order('position', { ascending: true });
         if (error) throw error;
-        if (!cancelled) setTodoItems(data || []);
+        if (!cancelled) setTodoItems(sortByPriority(data || []));
       } catch (err) {
         console.error('Error loading dashboard todos:', err);
       }
@@ -195,7 +217,7 @@ export default function Dashboard({ onNavigate }) {
 
       const { data, error } = await query;
       if (error) throw error;
-      setItineraryItems(data || []);
+      setItineraryItems(sortByPriority(data || [], 'is_complete'));
     } catch (err) {
       console.error('Error fetching itinerary:', err);
       setItineraryItems([]);
@@ -695,13 +717,15 @@ export default function Dashboard({ onNavigate }) {
   }, [profile?.id, fetchTodayEvents]);
 
   async function addItineraryItem() {
-    if (!newItemText.trim()) return;
+    if (!newItemText.trim() || newItemPriority === null) return;
     const content = newItemText.trim();
+    const priority = newItemPriority;
     const tempItem = {
       id: `temp-${Date.now()}`,
       created_by: profile.id,
       target_date: todayStr,
       content,
+      priority,
       is_complete: false,
       admin_comment: null,
       created_at: new Date().toISOString(),
@@ -709,13 +733,15 @@ export default function Dashboard({ onNavigate }) {
       creator: { full_name: profile.full_name },
     };
     setNewItemText('');
+    setNewItemPriority(null);
     setShowItineraryInput(false);
-    setItineraryItems(prev => [...prev, tempItem]);
+    setItineraryItems(prev => sortByPriority([...prev, tempItem], 'is_complete'));
     try {
       const { error } = await supabase.from('daily_itinerary').insert({
         created_by: profile.id,
         target_date: todayStr,
         content,
+        priority,
       });
       if (error) throw error;
       fetchItinerary(); // Re-fetch to get real ID
@@ -723,12 +749,13 @@ export default function Dashboard({ onNavigate }) {
       console.error('Error adding itinerary item:', err);
       setItineraryItems(prev => prev.filter(i => i.id !== tempItem.id));
       setNewItemText(content);
+      setNewItemPriority(priority);
     }
   }
 
   async function updateItineraryItem(id, updates) {
     const prev = itineraryItems;
-    setItineraryItems(items => items.map(i => i.id === id ? { ...i, ...updates, updated_at: new Date().toISOString() } : i));
+    setItineraryItems(items => sortByPriority(items.map(i => i.id === id ? { ...i, ...updates, updated_at: new Date().toISOString() } : i), 'is_complete'));
     try {
       const { error } = await supabase
         .from('daily_itinerary')
@@ -754,11 +781,13 @@ export default function Dashboard({ onNavigate }) {
   }
 
   function handleEditSave(id) {
-    if (editingItemText.trim()) {
-      updateItineraryItem(id, { content: editingItemText.trim() });
-    }
+    const updates = {};
+    if (editingItemText.trim()) updates.content = editingItemText.trim();
+    if (editingItemPriority !== null) updates.priority = editingItemPriority;
+    if (Object.keys(updates).length > 0) updateItineraryItem(id, updates);
     setEditingItemId(null);
     setEditingItemText('');
+    setEditingItemPriority(null);
   }
 
   // Admin comment handlers
@@ -1026,8 +1055,9 @@ export default function Dashboard({ onNavigate }) {
   function renderItineraryItem(item) {
     const isEditing = editingItemId === item.id;
     const isCommenting = commentingItemId === item.id;
+    const borderColor = item.priority ? PRIORITY_COLORS[item.priority] : undefined;
     return (
-      <div key={item.id} style={styles.itineraryItemWrapper}>
+      <div key={item.id} style={{ ...styles.itineraryItemWrapper, ...(borderColor ? { borderLeft: `3px solid ${borderColor}` } : {}) }}>
         <div style={styles.itineraryItem}>
           <input
             type="checkbox"
@@ -1037,14 +1067,29 @@ export default function Dashboard({ onNavigate }) {
           />
           <div style={{ flex: 1, minWidth: 0 }}>
             {isEditing ? (
-              <input
-                value={editingItemText}
-                onChange={(e) => setEditingItemText(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleEditSave(item.id)}
-                onBlur={() => handleEditSave(item.id)}
-                style={styles.itineraryEditInput}
-                autoFocus
-              />
+              <>
+                <input
+                  value={editingItemText}
+                  onChange={(e) => setEditingItemText(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleEditSave(item.id)}
+                  style={styles.itineraryEditInput}
+                  autoFocus
+                />
+                <div style={{ display: 'flex', gap: '3px', marginTop: '6px', flexWrap: 'wrap' }}>
+                  {PRIORITY_OPTIONS.map(p => (
+                    <button
+                      key={p}
+                      onClick={() => setEditingItemPriority(p)}
+                      style={{
+                        width: 26, height: 26, borderRadius: '4px', border: editingItemPriority === p ? `2px solid ${PRIORITY_COLORS[p]}` : '1px solid rgba(255,255,255,0.12)',
+                        background: editingItemPriority === p ? `${PRIORITY_COLORS[p]}22` : 'rgba(255,255,255,0.04)',
+                        color: editingItemPriority === p ? PRIORITY_COLORS[p] : 'rgba(255,255,255,0.5)',
+                        fontSize: '11px', fontWeight: 700, cursor: 'pointer', padding: 0,
+                      }}
+                    >{p}</button>
+                  ))}
+                </div>
+              </>
             ) : (
               <span style={{
                 ...styles.itineraryContent,
@@ -1061,7 +1106,7 @@ export default function Dashboard({ onNavigate }) {
           <div style={styles.itineraryActions}>
             {!isEditing && (isAdmin || isAssistant) && (
               <button
-                onClick={() => { setEditingItemId(item.id); setEditingItemText(item.content); }}
+                onClick={() => { setEditingItemId(item.id); setEditingItemText(item.content); setEditingItemPriority(item.priority || null); }}
                 style={styles.itineraryActionBtn}
                 title="Edit"
               >
@@ -1132,14 +1177,14 @@ export default function Dashboard({ onNavigate }) {
   // ── Todo list functions ──
   const addTodoItem = async () => {
     const text = newTodoText.trim();
-    if (!text) return;
+    if (!text || newTodoPriority === null) return;
     if (!profile?.id) { alert('Cannot add todo: not signed in yet.'); return; }
     const nextPosition = todoItems.length > 0
       ? Math.max(...todoItems.map(i => i.position || 0)) + 1
       : 0;
     const { data, error } = await supabase
       .from('dashboard_todos')
-      .insert({ user_id: profile.id, text, checked: false, position: nextPosition })
+      .insert({ user_id: profile.id, text, checked: false, position: nextPosition, priority: newTodoPriority })
       .select()
       .single();
     if (error) {
@@ -1151,8 +1196,9 @@ export default function Dashboard({ onNavigate }) {
       alert('Todo saved but no row came back — check RLS / network tab.');
       return;
     }
-    setTodoItems(prev => [...prev, data]);
+    setTodoItems(prev => sortByPriority([...prev, data]));
     setNewTodoText('');
+    setNewTodoPriority(null);
     setShowTodoInput(false);
   };
 
@@ -1160,14 +1206,14 @@ export default function Dashboard({ onNavigate }) {
     const current = todoItems.find(i => i.id === id);
     if (!current) return;
     const nextChecked = !current.checked;
-    setTodoItems(prev => prev.map(item => item.id === id ? { ...item, checked: nextChecked } : item));
+    setTodoItems(prev => sortByPriority(prev.map(item => item.id === id ? { ...item, checked: nextChecked } : item)));
     const { error } = await supabase
       .from('dashboard_todos')
       .update({ checked: nextChecked, updated_at: new Date().toISOString() })
       .eq('id', id);
     if (error) {
       console.error('Error toggling todo:', error);
-      setTodoItems(prev => prev.map(item => item.id === id ? { ...item, checked: current.checked } : item));
+      setTodoItems(prev => sortByPriority(prev.map(item => item.id === id ? { ...item, checked: current.checked } : item)));
     }
   };
 
@@ -1183,35 +1229,26 @@ export default function Dashboard({ onNavigate }) {
 
   const saveTodoEdit = async (id) => {
     const trimmed = editingTodoText.trim();
+    const newPriority = editingTodoPriority;
     setEditingTodoId(null);
     setEditingTodoText('');
+    setEditingTodoPriority(null);
     if (!trimmed) return;
     const current = todoItems.find(i => i.id === id);
-    if (!current || current.text === trimmed) return;
-    setTodoItems(prev => prev.map(item => item.id === id ? { ...item, text: trimmed } : item));
+    if (!current) return;
+    const updates = { updated_at: new Date().toISOString() };
+    if (current.text !== trimmed) updates.text = trimmed;
+    if (newPriority !== null && current.priority !== newPriority) updates.priority = newPriority;
+    if (Object.keys(updates).length === 1) return; // only updated_at
+    setTodoItems(prev => sortByPriority(prev.map(item => item.id === id ? { ...item, text: trimmed, ...(newPriority !== null ? { priority: newPriority } : {}) } : item)));
     const { error } = await supabase
       .from('dashboard_todos')
-      .update({ text: trimmed, updated_at: new Date().toISOString() })
+      .update(updates)
       .eq('id', id);
     if (error) {
       console.error('Error saving todo edit:', error);
-      setTodoItems(prev => prev.map(item => item.id === id ? { ...item, text: current.text } : item));
+      setTodoItems(prev => sortByPriority(prev.map(item => item.id === id ? { ...item, text: current.text, priority: current.priority } : item)));
     }
-  };
-
-  const handleTodoDragEnd = async (result) => {
-    if (!result.destination) return;
-    const items = Array.from(todoItems);
-    const [moved] = items.splice(result.source.index, 1);
-    items.splice(result.destination.index, 0, moved);
-    const reindexed = items.map((item, idx) => ({ ...item, position: idx }));
-    setTodoItems(reindexed);
-    const updates = reindexed.map(item =>
-      supabase.from('dashboard_todos').update({ position: item.position }).eq('id', item.id)
-    );
-    const results = await Promise.all(updates);
-    const firstError = results.find(r => r.error)?.error;
-    if (firstError) console.error('Error reordering todos:', firstError);
   };
 
   // ── Todo list renderer ──
@@ -1233,100 +1270,112 @@ export default function Dashboard({ onNavigate }) {
         {!todoCollapsed && (
           <>
             {showTodoInput && (
-              <div style={styles.itineraryAddRow}>
-                <input
-                  value={newTodoText}
-                  onChange={(e) => setNewTodoText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') addTodoItem();
-                    if (e.key === 'Escape') { setShowTodoInput(false); setNewTodoText(''); }
-                  }}
-                  placeholder="Add a to-do item..."
-                  style={styles.itineraryInput}
-                  autoFocus
-                />
-                <button
-                  onClick={addTodoItem}
-                  disabled={!newTodoText.trim()}
-                  style={{ ...styles.itineraryAddBtn, opacity: newTodoText.trim() ? 1 : 0.4 }}
-                >
-                  Add
-                </button>
-                <button
-                  onClick={() => { setShowTodoInput(false); setNewTodoText(''); }}
-                  style={styles.cancelTitleBtn}
-                >
-                  Cancel
-                </button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div style={styles.itineraryAddRow}>
+                  <input
+                    value={newTodoText}
+                    onChange={(e) => setNewTodoText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && newTodoPriority !== null) addTodoItem();
+                      if (e.key === 'Escape') { setShowTodoInput(false); setNewTodoText(''); setNewTodoPriority(null); }
+                    }}
+                    placeholder="Add a to-do item..."
+                    style={styles.itineraryInput}
+                    autoFocus
+                  />
+                  <button
+                    onClick={addTodoItem}
+                    disabled={!newTodoText.trim() || newTodoPriority === null}
+                    style={{ ...styles.itineraryAddBtn, opacity: (newTodoText.trim() && newTodoPriority !== null) ? 1 : 0.4 }}
+                  >
+                    Add
+                  </button>
+                  <button
+                    onClick={() => { setShowTodoInput(false); setNewTodoText(''); setNewTodoPriority(null); }}
+                    style={styles.cancelTitleBtn}
+                  >
+                    Cancel
+                  </button>
+                </div>
+                <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
+                  {PRIORITY_OPTIONS.map(p => (
+                    <button
+                      key={p}
+                      onClick={() => setNewTodoPriority(p)}
+                      style={{
+                        width: 26, height: 26, borderRadius: '4px', border: newTodoPriority === p ? `2px solid ${PRIORITY_COLORS[p]}` : '1px solid rgba(255,255,255,0.12)',
+                        background: newTodoPriority === p ? `${PRIORITY_COLORS[p]}22` : 'rgba(255,255,255,0.04)',
+                        color: newTodoPriority === p ? PRIORITY_COLORS[p] : 'rgba(255,255,255,0.5)',
+                        fontSize: '11px', fontWeight: 700, cursor: 'pointer', padding: 0,
+                      }}
+                    >{p}</button>
+                  ))}
+                </div>
               </div>
             )}
-            <DragDropContext onDragEnd={handleTodoDragEnd}>
-              <Droppable droppableId="todo-list">
-                {(provided) => (
-                  <div ref={provided.innerRef} {...provided.droppableProps} style={{ ...styles.itineraryList, marginTop: showTodoInput ? '8px' : '0' }}>
-                    {todoItems.map((item, index) => (
-                      <Draggable key={item.id} draggableId={item.id} index={index}>
-                        {(provided, snapshot) => (
-                          <div
-                            ref={provided.innerRef}
-                            {...provided.draggableProps}
-                            style={{
-                              ...styles.itineraryItemWrapper,
-                              ...(snapshot.isDragging ? { boxShadow: '0 4px 16px rgba(0,0,0,0.3)', opacity: 0.95 } : {}),
-                              ...provided.draggableProps.style,
+            <div style={{ ...styles.itineraryList, marginTop: showTodoInput ? '8px' : '0' }}>
+              {todoItems.map((item) => {
+                const borderColor = item.priority ? PRIORITY_COLORS[item.priority] : undefined;
+                return (
+                  <div key={item.id} style={{ ...styles.itineraryItemWrapper, ...(borderColor ? { borderLeft: `3px solid ${borderColor}` } : {}) }}>
+                    <div style={styles.itineraryItem}>
+                      <input
+                        type="checkbox"
+                        checked={item.checked}
+                        onChange={() => toggleTodoItem(item.id)}
+                        style={styles.itineraryCheckbox}
+                      />
+                      {editingTodoId === item.id ? (
+                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          <input
+                            value={editingTodoText}
+                            onChange={(e) => setEditingTodoText(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') saveTodoEdit(item.id);
+                              if (e.key === 'Escape') { setEditingTodoId(null); setEditingTodoText(''); setEditingTodoPriority(null); }
                             }}
-                          >
-                            <div style={styles.itineraryItem}>
-                              <div {...provided.dragHandleProps} style={{ color: 'rgba(255,255,255,0.2)', fontSize: '14px', cursor: 'grab', userSelect: 'none', lineHeight: 1, paddingRight: '2px' }}>
-                                ⠿
-                              </div>
-                              <input
-                                type="checkbox"
-                                checked={item.checked}
-                                onChange={() => toggleTodoItem(item.id)}
-                                style={styles.itineraryCheckbox}
-                              />
-                              {editingTodoId === item.id ? (
-                                <input
-                                  value={editingTodoText}
-                                  onChange={(e) => setEditingTodoText(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') saveTodoEdit(item.id);
-                                    if (e.key === 'Escape') { setEditingTodoId(null); setEditingTodoText(''); }
-                                  }}
-                                  onBlur={() => saveTodoEdit(item.id)}
-                                  style={{ ...styles.itineraryEditInput, flex: 1 }}
-                                  autoFocus
-                                />
-                              ) : (
-                                <span
-                                  style={{ ...styles.itineraryContent, flex: 1, textDecoration: item.checked ? 'line-through' : 'none', opacity: item.checked ? 0.45 : 1, cursor: 'text' }}
-                                  onDoubleClick={() => { setEditingTodoId(item.id); setEditingTodoText(item.text); }}
-                                  title="Double-click to edit"
-                                >
-                                  {item.text}
-                                </span>
-                              )}
+                            style={{ ...styles.itineraryEditInput, flex: 1 }}
+                            autoFocus
+                          />
+                          <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
+                            {PRIORITY_OPTIONS.map(p => (
                               <button
-                                onClick={() => deleteTodoItem(item.id)}
-                                style={{ ...styles.itineraryActionBtn, color: '#ef4444' }}
-                                title="Delete"
-                              >
-                                ✕
-                              </button>
-                            </div>
+                                key={p}
+                                onClick={() => setEditingTodoPriority(p)}
+                                style={{
+                                  width: 26, height: 26, borderRadius: '4px', border: editingTodoPriority === p ? `2px solid ${PRIORITY_COLORS[p]}` : '1px solid rgba(255,255,255,0.12)',
+                                  background: editingTodoPriority === p ? `${PRIORITY_COLORS[p]}22` : 'rgba(255,255,255,0.04)',
+                                  color: editingTodoPriority === p ? PRIORITY_COLORS[p] : 'rgba(255,255,255,0.5)',
+                                  fontSize: '11px', fontWeight: 700, cursor: 'pointer', padding: 0,
+                                }}
+                              >{p}</button>
+                            ))}
                           </div>
-                        )}
-                      </Draggable>
-                    ))}
-                    {provided.placeholder}
-                    {todoItems.length === 0 && (
-                      <p style={{ ...styles.emptyText, marginTop: '8px' }}>No items yet</p>
-                    )}
+                        </div>
+                      ) : (
+                        <span
+                          style={{ ...styles.itineraryContent, flex: 1, textDecoration: item.checked ? 'line-through' : 'none', opacity: item.checked ? 0.45 : 1, cursor: 'text' }}
+                          onDoubleClick={() => { setEditingTodoId(item.id); setEditingTodoText(item.text); setEditingTodoPriority(item.priority || null); }}
+                          title="Double-click to edit"
+                        >
+                          {item.text}
+                        </span>
+                      )}
+                      <button
+                        onClick={() => deleteTodoItem(item.id)}
+                        style={{ ...styles.itineraryActionBtn, color: '#ef4444' }}
+                        title="Delete"
+                      >
+                        ✕
+                      </button>
+                    </div>
                   </div>
-                )}
-              </Droppable>
-            </DragDropContext>
+                );
+              })}
+              {todoItems.length === 0 && (
+                <p style={{ ...styles.emptyText, marginTop: '8px' }}>No items yet</p>
+              )}
+            </div>
           </>
         )}
       </div>
@@ -2093,34 +2142,50 @@ export default function Dashboard({ onNavigate }) {
               )}
             </div>
             {showItineraryInput && (
-              <div style={styles.itineraryAddRow}>
-                <input
-                  value={newItemText}
-                  onChange={(e) => setNewItemText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') addItineraryItem();
-                    if (e.key === 'Escape') { setShowItineraryInput(false); setNewItemText(''); }
-                  }}
-                  placeholder="Add an itinerary item..."
-                  style={styles.itineraryInput}
-                  autoFocus
-                />
-                <button
-                  onClick={addItineraryItem}
-                  disabled={!newItemText.trim()}
-                  style={{
-                    ...styles.itineraryAddBtn,
-                    opacity: newItemText.trim() ? 1 : 0.4,
-                  }}
-                >
-                  Add
-                </button>
-                <button
-                  onClick={() => { setShowItineraryInput(false); setNewItemText(''); }}
-                  style={styles.cancelTitleBtn}
-                >
-                  Cancel
-                </button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div style={styles.itineraryAddRow}>
+                  <input
+                    value={newItemText}
+                    onChange={(e) => setNewItemText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && newItemPriority !== null) addItineraryItem();
+                      if (e.key === 'Escape') { setShowItineraryInput(false); setNewItemText(''); setNewItemPriority(null); }
+                    }}
+                    placeholder="Add an itinerary item..."
+                    style={styles.itineraryInput}
+                    autoFocus
+                  />
+                  <button
+                    onClick={addItineraryItem}
+                    disabled={!newItemText.trim() || newItemPriority === null}
+                    style={{
+                      ...styles.itineraryAddBtn,
+                      opacity: (newItemText.trim() && newItemPriority !== null) ? 1 : 0.4,
+                    }}
+                  >
+                    Add
+                  </button>
+                  <button
+                    onClick={() => { setShowItineraryInput(false); setNewItemText(''); setNewItemPriority(null); }}
+                    style={styles.cancelTitleBtn}
+                  >
+                    Cancel
+                  </button>
+                </div>
+                <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
+                  {PRIORITY_OPTIONS.map(p => (
+                    <button
+                      key={p}
+                      onClick={() => setNewItemPriority(p)}
+                      style={{
+                        width: 26, height: 26, borderRadius: '4px', border: newItemPriority === p ? `2px solid ${PRIORITY_COLORS[p]}` : '1px solid rgba(255,255,255,0.12)',
+                        background: newItemPriority === p ? `${PRIORITY_COLORS[p]}22` : 'rgba(255,255,255,0.04)',
+                        color: newItemPriority === p ? PRIORITY_COLORS[p] : 'rgba(255,255,255,0.5)',
+                        fontSize: '11px', fontWeight: 700, cursor: 'pointer', padding: 0,
+                      }}
+                    >{p}</button>
+                  ))}
+                </div>
               </div>
             )}
             {itineraryLoading ? (
@@ -2155,34 +2220,50 @@ export default function Dashboard({ onNavigate }) {
               )}
             </div>
             {showItineraryInput && (
-              <div style={styles.itineraryAddRow}>
-                <input
-                  value={newItemText}
-                  onChange={(e) => setNewItemText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') addItineraryItem();
-                    if (e.key === 'Escape') { setShowItineraryInput(false); setNewItemText(''); }
-                  }}
-                  placeholder="Add an itinerary item..."
-                  style={styles.itineraryInput}
-                  autoFocus
-                />
-                <button
-                  onClick={addItineraryItem}
-                  disabled={!newItemText.trim()}
-                  style={{
-                    ...styles.itineraryAddBtn,
-                    opacity: newItemText.trim() ? 1 : 0.4,
-                  }}
-                >
-                  Add
-                </button>
-                <button
-                  onClick={() => { setShowItineraryInput(false); setNewItemText(''); }}
-                  style={styles.cancelTitleBtn}
-                >
-                  Cancel
-                </button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div style={styles.itineraryAddRow}>
+                  <input
+                    value={newItemText}
+                    onChange={(e) => setNewItemText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && newItemPriority !== null) addItineraryItem();
+                      if (e.key === 'Escape') { setShowItineraryInput(false); setNewItemText(''); setNewItemPriority(null); }
+                    }}
+                    placeholder="Add an itinerary item..."
+                    style={styles.itineraryInput}
+                    autoFocus
+                  />
+                  <button
+                    onClick={addItineraryItem}
+                    disabled={!newItemText.trim() || newItemPriority === null}
+                    style={{
+                      ...styles.itineraryAddBtn,
+                      opacity: (newItemText.trim() && newItemPriority !== null) ? 1 : 0.4,
+                    }}
+                  >
+                    Add
+                  </button>
+                  <button
+                    onClick={() => { setShowItineraryInput(false); setNewItemText(''); setNewItemPriority(null); }}
+                    style={styles.cancelTitleBtn}
+                  >
+                    Cancel
+                  </button>
+                </div>
+                <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
+                  {PRIORITY_OPTIONS.map(p => (
+                    <button
+                      key={p}
+                      onClick={() => setNewItemPriority(p)}
+                      style={{
+                        width: 26, height: 26, borderRadius: '4px', border: newItemPriority === p ? `2px solid ${PRIORITY_COLORS[p]}` : '1px solid rgba(255,255,255,0.12)',
+                        background: newItemPriority === p ? `${PRIORITY_COLORS[p]}22` : 'rgba(255,255,255,0.04)',
+                        color: newItemPriority === p ? PRIORITY_COLORS[p] : 'rgba(255,255,255,0.5)',
+                        fontSize: '11px', fontWeight: 700, cursor: 'pointer', padding: 0,
+                      }}
+                    >{p}</button>
+                  ))}
+                </div>
               </div>
             )}
             {itineraryLoading ? (

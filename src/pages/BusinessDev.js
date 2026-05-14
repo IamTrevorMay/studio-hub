@@ -97,6 +97,25 @@ function formatTargetForMetric(key, value) {
   return value;
 }
 
+const PRIORITY_COLORS = {
+  10: '#ef4444', 9: '#f97316', 8: '#fb923c',
+  6: '#fbbf24', 5: '#eab308', 4: '#a3e635',
+  3: '#4ade80', 2: '#22c55e', 1: '#15803d',
+};
+const PRIORITY_OPTIONS = [10, 9, 8, 6, 5, 4, 3, 2, 1];
+
+function sortByPriority(items, completedKey = 'checked') {
+  return [...items].sort((a, b) => {
+    const ac = a[completedKey] ? 1 : 0;
+    const bc = b[completedKey] ? 1 : 0;
+    if (ac !== bc) return ac - bc;
+    const ap = a.priority ?? 0;
+    const bp = b.priority ?? 0;
+    if (ap !== bp) return bp - ap;
+    return (a.position ?? 0) - (b.position ?? 0);
+  });
+}
+
 // ════════════════════════════════════════════════════════════
 // Helpers
 // ════════════════════════════════════════════════════════════
@@ -224,6 +243,8 @@ export default function BusinessDev() {
   const [bdNoteDraft, setBdNoteDraft] = useState('');
   const [bdNoteEditingId, setBdNoteEditingId] = useState(null);
   const [bdNoteEditingText, setBdNoteEditingText] = useState('');
+  const [bdNotePriority, setBdNotePriority] = useState(null);
+  const [bdNoteEditPriority, setBdNoteEditPriority] = useState(null);
   const [expandedYearlyBdGoals, setExpandedYearlyBdGoals] = useState({});
   const [showBdGoalForm, setShowBdGoalForm] = useState(false);
   const [editingBdGoalId, setEditingBdGoalId] = useState(null);
@@ -519,7 +540,7 @@ export default function BusinessDev() {
       .eq('user_id', profile.id)
       .order('position', { ascending: true });
     if (error) { console.error('Error loading bd notes:', error); return; }
-    setBdNotes(data || []);
+    setBdNotes(sortByPriority(data || []));
   }, [profile?.id]);
 
   useEffect(() => {
@@ -529,16 +550,17 @@ export default function BusinessDev() {
 
   async function addBdNote() {
     const text = bdNoteDraft.trim();
-    if (!text || !profile?.id) return;
+    if (!text || !profile?.id || bdNotePriority === null) return;
     const nextPosition = bdNotes.length > 0 ? Math.max(...bdNotes.map(n => n.position || 0)) + 1 : 0;
     const { data, error } = await supabase
       .from('bd_user_notes')
-      .insert({ user_id: profile.id, text, checked: false, position: nextPosition })
+      .insert({ user_id: profile.id, text, checked: false, position: nextPosition, priority: bdNotePriority })
       .select()
       .single();
     if (error) { alert(`Could not save note: ${error.message || 'unknown error'}`); return; }
-    setBdNotes(prev => [...prev, data]);
+    setBdNotes(prev => sortByPriority([...prev, data]));
     setBdNoteDraft('');
+    setBdNotePriority(null);
     setBdNoteInputOpen(false);
   }
 
@@ -546,14 +568,14 @@ export default function BusinessDev() {
     const current = bdNotes.find(n => n.id === id);
     if (!current) return;
     const nextChecked = !current.checked;
-    setBdNotes(prev => prev.map(n => n.id === id ? { ...n, checked: nextChecked } : n));
+    setBdNotes(prev => sortByPriority(prev.map(n => n.id === id ? { ...n, checked: nextChecked } : n)));
     const { error } = await supabase
       .from('bd_user_notes')
       .update({ checked: nextChecked, updated_at: new Date().toISOString() })
       .eq('id', id);
     if (error) {
       console.error('Error toggling note:', error);
-      setBdNotes(prev => prev.map(n => n.id === id ? { ...n, checked: current.checked } : n));
+      setBdNotes(prev => sortByPriority(prev.map(n => n.id === id ? { ...n, checked: current.checked } : n)));
     }
   }
 
@@ -566,36 +588,28 @@ export default function BusinessDev() {
 
   async function saveBdNoteEdit(id) {
     const trimmed = bdNoteEditingText.trim();
+    const newPriority = bdNoteEditPriority;
     setBdNoteEditingId(null);
     setBdNoteEditingText('');
+    setBdNoteEditPriority(null);
     if (!trimmed) return;
     const current = bdNotes.find(n => n.id === id);
-    if (!current || current.text === trimmed) return;
-    setBdNotes(prev => prev.map(n => n.id === id ? { ...n, text: trimmed } : n));
+    if (!current) return;
+    const updates = { updated_at: new Date().toISOString() };
+    if (current.text !== trimmed) updates.text = trimmed;
+    if (newPriority !== null && current.priority !== newPriority) updates.priority = newPriority;
+    if (Object.keys(updates).length === 1) return; // only updated_at
+    setBdNotes(prev => sortByPriority(prev.map(n => n.id === id ? { ...n, text: trimmed, ...(newPriority !== null ? { priority: newPriority } : {}) } : n)));
     const { error } = await supabase
       .from('bd_user_notes')
-      .update({ text: trimmed, updated_at: new Date().toISOString() })
+      .update(updates)
       .eq('id', id);
     if (error) {
       console.error('Error saving note edit:', error);
-      setBdNotes(prev => prev.map(n => n.id === id ? { ...n, text: current.text } : n));
+      setBdNotes(prev => sortByPriority(prev.map(n => n.id === id ? { ...n, text: current.text, priority: current.priority } : n)));
     }
   }
 
-  async function handleBdNotesDragEnd(result) {
-    if (!result.destination) return;
-    const items = Array.from(bdNotes);
-    const [moved] = items.splice(result.source.index, 1);
-    items.splice(result.destination.index, 0, moved);
-    const reindexed = items.map((n, idx) => ({ ...n, position: idx }));
-    setBdNotes(reindexed);
-    const updates = reindexed.map(n =>
-      supabase.from('bd_user_notes').update({ position: n.position }).eq('id', n.id)
-    );
-    const results = await Promise.all(updates);
-    const firstError = results.find(r => r.error)?.error;
-    if (firstError) console.error('Error reordering notes:', firstError);
-  }
 
   // ─────────────────────────────────────────────
   // Derived
@@ -1100,11 +1114,14 @@ export default function BusinessDev() {
             setEditingId={setBdNoteEditingId}
             editingText={bdNoteEditingText}
             setEditingText={setBdNoteEditingText}
+            priority={bdNotePriority}
+            setPriority={setBdNotePriority}
+            editPriority={bdNoteEditPriority}
+            setEditPriority={setBdNoteEditPriority}
             onAdd={addBdNote}
             onToggle={toggleBdNote}
             onDelete={deleteBdNote}
             onSaveEdit={saveBdNoteEdit}
-            onDragEnd={handleBdNotesDragEnd}
           />
         </div>
       )}
@@ -1442,7 +1459,8 @@ function BdGoalsSection({
 function BdNotesSection({
   notes, inputOpen, setInputOpen, draft, setDraft,
   editingId, setEditingId, editingText, setEditingText,
-  onAdd, onToggle, onDelete, onSaveEdit, onDragEnd,
+  priority, setPriority, editPriority, setEditPriority,
+  onAdd, onToggle, onDelete, onSaveEdit,
 }) {
   return (
     <div style={styles.bdGoalsSection}>
@@ -1456,83 +1474,103 @@ function BdNotesSection({
       </div>
       <div style={styles.bdGoalsBody}>
         {inputOpen && (
-          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-            <input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') onAdd();
-                if (e.key === 'Escape') { setInputOpen(false); setDraft(''); }
-              }}
-              placeholder="Add a note..."
-              style={{ ...styles.input, flex: 1 }}
-              autoFocus
-            />
-            <button onClick={onAdd} disabled={!draft.trim()} style={{ ...styles.primaryBtn, opacity: draft.trim() ? 1 : 0.4 }}>Add</button>
-            <button onClick={() => { setInputOpen(false); setDraft(''); }} style={styles.subtleBtn}>Cancel</button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && priority !== null) onAdd();
+                  if (e.key === 'Escape') { setInputOpen(false); setDraft(''); setPriority(null); }
+                }}
+                placeholder="Add a note..."
+                style={{ ...styles.input, flex: 1 }}
+                autoFocus
+              />
+              <button onClick={onAdd} disabled={!draft.trim() || priority === null} style={{ ...styles.primaryBtn, opacity: (draft.trim() && priority !== null) ? 1 : 0.4 }}>Add</button>
+              <button onClick={() => { setInputOpen(false); setDraft(''); setPriority(null); }} style={styles.subtleBtn}>Cancel</button>
+            </div>
+            <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
+              {PRIORITY_OPTIONS.map(p => (
+                <button
+                  key={p}
+                  onClick={() => setPriority(p)}
+                  style={{
+                    width: 26, height: 26, borderRadius: '4px', border: priority === p ? `2px solid ${PRIORITY_COLORS[p]}` : '1px solid rgba(255,255,255,0.12)',
+                    background: priority === p ? `${PRIORITY_COLORS[p]}22` : 'rgba(255,255,255,0.04)',
+                    color: priority === p ? PRIORITY_COLORS[p] : 'rgba(255,255,255,0.5)',
+                    fontSize: '11px', fontWeight: 700, cursor: 'pointer', padding: 0,
+                  }}
+                >{p}</button>
+              ))}
+            </div>
           </div>
         )}
-        <DragDropContext onDragEnd={onDragEnd}>
-          <Droppable droppableId="bd-notes">
-            {(provided) => (
-              <div ref={provided.innerRef} {...provided.droppableProps} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                {notes.map((n, idx) => (
-                  <Draggable key={n.id} draggableId={n.id} index={idx}>
-                    {(p, snapshot) => (
-                      <div
-                        ref={p.innerRef}
-                        {...p.draggableProps}
-                        style={{
-                          ...styles.bdGoalCard,
-                          padding: '8px 10px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                          ...(snapshot.isDragging ? { boxShadow: '0 4px 16px rgba(0,0,0,0.3)', opacity: 0.95 } : {}),
-                          ...p.draggableProps.style,
-                        }}
-                      >
-                        <div {...p.dragHandleProps} style={{ color: 'rgba(255,255,255,0.2)', fontSize: '14px', cursor: 'grab', userSelect: 'none', lineHeight: 1 }}>⠿</div>
-                        <input
-                          type="checkbox"
-                          checked={n.checked}
-                          onChange={() => onToggle(n.id)}
-                          style={{ width: '14px', height: '14px', cursor: 'pointer', accentColor: '#6366f1' }}
-                        />
-                        {editingId === n.id ? (
-                          <input
-                            value={editingText}
-                            onChange={(e) => setEditingText(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') onSaveEdit(n.id);
-                              if (e.key === 'Escape') { setEditingId(null); setEditingText(''); }
-                            }}
-                            onBlur={() => onSaveEdit(n.id)}
-                            style={{ ...styles.input, flex: 1 }}
-                            autoFocus
-                          />
-                        ) : (
-                          <span
-                            style={{ flex: 1, fontSize: '13px', color: '#e2e8f0', textDecoration: n.checked ? 'line-through' : 'none', opacity: n.checked ? 0.45 : 1, cursor: 'text' }}
-                            onDoubleClick={() => { setEditingId(n.id); setEditingText(n.text); }}
-                            title="Double-click to edit"
-                          >
-                            {n.text}
-                          </span>
-                        )}
-                        <button onClick={() => onDelete(n.id)} style={{ ...styles.iconBtn, color: '#ef4444' }} title="Delete">✕</button>
-                      </div>
-                    )}
-                  </Draggable>
-                ))}
-                {provided.placeholder}
-                {notes.length === 0 && !inputOpen && (
-                  <div style={{ ...styles.empty, padding: '8px 0' }}>No notes yet</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          {notes.map((n) => {
+            const borderColor = n.priority ? PRIORITY_COLORS[n.priority] : undefined;
+            return (
+              <div
+                key={n.id}
+                style={{
+                  ...styles.bdGoalCard,
+                  padding: '8px 10px',
+                  display: 'flex',
+                  alignItems: editingId === n.id ? 'flex-start' : 'center',
+                  gap: '8px',
+                  ...(borderColor ? { borderLeft: `3px solid ${borderColor}` } : {}),
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={n.checked}
+                  onChange={() => onToggle(n.id)}
+                  style={{ width: '14px', height: '14px', cursor: 'pointer', accentColor: '#6366f1', marginTop: editingId === n.id ? '4px' : 0 }}
+                />
+                {editingId === n.id ? (
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <input
+                      value={editingText}
+                      onChange={(e) => setEditingText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') onSaveEdit(n.id);
+                        if (e.key === 'Escape') { setEditingId(null); setEditingText(''); setEditPriority(null); }
+                      }}
+                      style={{ ...styles.input, flex: 1 }}
+                      autoFocus
+                    />
+                    <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
+                      {PRIORITY_OPTIONS.map(p => (
+                        <button
+                          key={p}
+                          onClick={() => setEditPriority(p)}
+                          style={{
+                            width: 26, height: 26, borderRadius: '4px', border: editPriority === p ? `2px solid ${PRIORITY_COLORS[p]}` : '1px solid rgba(255,255,255,0.12)',
+                            background: editPriority === p ? `${PRIORITY_COLORS[p]}22` : 'rgba(255,255,255,0.04)',
+                            color: editPriority === p ? PRIORITY_COLORS[p] : 'rgba(255,255,255,0.5)',
+                            fontSize: '11px', fontWeight: 700, cursor: 'pointer', padding: 0,
+                          }}
+                        >{p}</button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <span
+                    style={{ flex: 1, fontSize: '13px', color: '#e2e8f0', textDecoration: n.checked ? 'line-through' : 'none', opacity: n.checked ? 0.45 : 1, cursor: 'text' }}
+                    onDoubleClick={() => { setEditingId(n.id); setEditingText(n.text); setEditPriority(n.priority || null); }}
+                    title="Double-click to edit"
+                  >
+                    {n.text}
+                  </span>
                 )}
+                <button onClick={() => onDelete(n.id)} style={{ ...styles.iconBtn, color: '#ef4444' }} title="Delete">✕</button>
               </div>
-            )}
-          </Droppable>
-        </DragDropContext>
+            );
+          })}
+          {notes.length === 0 && !inputOpen && (
+            <div style={{ ...styles.empty, padding: '8px 0' }}>No notes yet</div>
+          )}
+        </div>
       </div>
     </div>
   );
