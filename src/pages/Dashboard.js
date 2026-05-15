@@ -1,4 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useEditor, EditorContent } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+import Underline from '@tiptap/extension-underline';
+import Placeholder from '@tiptap/extension-placeholder';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
@@ -103,8 +107,8 @@ export default function Dashboard({ onNavigate }) {
   // Announcements state
   const [announcements, setAnnouncements] = useState([]);
   const [announcementsLoading, setAnnouncementsLoading] = useState(false);
-  const [newAnnouncementText, setNewAnnouncementText] = useState('');
-  const [showAnnouncementInput, setShowAnnouncementInput] = useState(false);
+  const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
+  const [announcementToolbarOpen, setAnnouncementToolbarOpen] = useState(true);
 
   // Todo list state
   const [todoItems, setTodoItems] = useState([]);
@@ -166,6 +170,22 @@ export default function Dashboard({ onNavigate }) {
   const [goalLoading, setGoalLoading] = useState(false);
   const [editingGoalTarget, setEditingGoalTarget] = useState(null);
   const [goalTargetDraft, setGoalTargetDraft] = useState('');
+
+  // Tiptap editor for announcement modal
+  const announcementEditor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        heading: false,
+        codeBlock: false,
+        code: false,
+        blockquote: false,
+        horizontalRule: false,
+      }),
+      Underline,
+      Placeholder.configure({ placeholder: 'Write your announcement...' }),
+    ],
+    content: '',
+  });
 
   useEffect(() => {
     if (!statusMenuOpen) return;
@@ -810,9 +830,18 @@ export default function Dashboard({ onNavigate }) {
   }
 
   // Announcement handlers
+  function stripHtml(html) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    return tmp.textContent || tmp.innerText || '';
+  }
+
   async function addAnnouncement() {
-    if (!newAnnouncementText.trim()) return;
-    const content = newAnnouncementText.trim();
+    if (!announcementEditor) return;
+    const html = announcementEditor.getHTML();
+    const plainText = stripHtml(html).trim();
+    if (!plainText) return;
+    const content = html;
     const tempAnnouncement = {
       id: `temp-${Date.now()}`,
       created_by: profile.id,
@@ -822,8 +851,8 @@ export default function Dashboard({ onNavigate }) {
       creator: { full_name: profile.full_name },
       isRead: true,
     };
-    setNewAnnouncementText('');
-    setShowAnnouncementInput(false);
+    announcementEditor.commands.clearContent();
+    setShowAnnouncementModal(false);
     setAnnouncements(prev => [tempAnnouncement, ...prev]);
     try {
       const { error } = await supabase.from('announcements').insert({
@@ -842,7 +871,7 @@ export default function Dashboard({ onNavigate }) {
               user_id: m.id,
               type: 'announcement',
               title: 'New announcement',
-              body: content.substring(0, 100),
+              body: plainText.substring(0, 100),
               link_tab: 'dashboard',
             }));
           if (notifs.length > 0) {
@@ -1383,51 +1412,141 @@ export default function Dashboard({ onNavigate }) {
   }
 
   // ── Announcements renderer ──
+  function renderAnnouncementContent(content) {
+    if (!content) return null;
+    // If content looks like HTML, render it directly
+    if (content.startsWith('<')) {
+      return <div className="announcement-rich" style={styles.announcementContent} dangerouslySetInnerHTML={{ __html: content }} />;
+    }
+    // Legacy plain text: wrap in paragraph and apply formatContent for channel links
+    return <span style={styles.announcementContent}>{formatContent(content)}</span>;
+  }
+
+  function renderAnnouncementModal() {
+    if (!showAnnouncementModal) return null;
+    const ToolbarBtn = ({ active, onClick, title, children }) => (
+      <button
+        onClick={onClick}
+        title={title}
+        style={{
+          background: active ? 'rgba(99,102,241,0.3)' : 'rgba(255,255,255,0.05)',
+          border: '1px solid ' + (active ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.1)'),
+          borderRadius: 5,
+          color: active ? '#a5b4fc' : 'rgba(255,255,255,0.6)',
+          cursor: 'pointer',
+          padding: '4px 8px',
+          fontFamily: 'inherit',
+          fontSize: 13,
+          fontWeight: active ? 700 : 400,
+          lineHeight: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minWidth: 28,
+          height: 28,
+        }}
+      >
+        {children}
+      </button>
+    );
+    return (
+      <div style={styles.announcementModalOverlay} onClick={() => setShowAnnouncementModal(false)}>
+        <div style={styles.announcementModalContent} onClick={e => e.stopPropagation()}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: '#e2e8f0' }}>New Announcement</h3>
+            <button onClick={() => setShowAnnouncementModal(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: 18 }}>✕</button>
+          </div>
+
+          {/* Collapsible toolbar */}
+          <div style={{ marginBottom: 8 }}>
+            <button
+              onClick={() => setAnnouncementToolbarOpen(prev => !prev)}
+              style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit', padding: '2px 0', display: 'flex', alignItems: 'center', gap: 4 }}
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+                style={{ transform: announcementToolbarOpen ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.15s ease' }}>
+                <path d="M2 3.5l3 3 3-3" />
+              </svg>
+              Formatting
+            </button>
+            {announcementToolbarOpen && announcementEditor && (
+              <div style={styles.announcementToolbar}>
+                <ToolbarBtn active={announcementEditor.isActive('bold')} onClick={() => announcementEditor.chain().focus().toggleBold().run()} title="Bold">
+                  <strong>B</strong>
+                </ToolbarBtn>
+                <ToolbarBtn active={announcementEditor.isActive('italic')} onClick={() => announcementEditor.chain().focus().toggleItalic().run()} title="Italic">
+                  <em>I</em>
+                </ToolbarBtn>
+                <ToolbarBtn active={announcementEditor.isActive('underline')} onClick={() => announcementEditor.chain().focus().toggleUnderline().run()} title="Underline">
+                  <span style={{ textDecoration: 'underline' }}>U</span>
+                </ToolbarBtn>
+                <div style={{ width: 1, height: 18, background: 'rgba(255,255,255,0.1)', margin: '0 4px' }} />
+                <ToolbarBtn active={announcementEditor.isActive('bulletList')} onClick={() => announcementEditor.chain().focus().toggleBulletList().run()} title="Bullet List">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                    <circle cx="2.5" cy="3.5" r="1" fill="currentColor" stroke="none" />
+                    <circle cx="2.5" cy="7" r="1" fill="currentColor" stroke="none" />
+                    <circle cx="2.5" cy="10.5" r="1" fill="currentColor" stroke="none" />
+                    <line x1="5.5" y1="3.5" x2="12" y2="3.5" />
+                    <line x1="5.5" y1="7" x2="12" y2="7" />
+                    <line x1="5.5" y1="10.5" x2="12" y2="10.5" />
+                  </svg>
+                </ToolbarBtn>
+                <ToolbarBtn active={announcementEditor.isActive('orderedList')} onClick={() => announcementEditor.chain().focus().toggleOrderedList().run()} title="Numbered List">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                    <text x="1" y="5" fontSize="5" fill="currentColor" stroke="none" fontFamily="inherit">1</text>
+                    <text x="1" y="8.5" fontSize="5" fill="currentColor" stroke="none" fontFamily="inherit">2</text>
+                    <text x="1" y="12" fontSize="5" fill="currentColor" stroke="none" fontFamily="inherit">3</text>
+                    <line x1="5.5" y1="3.5" x2="12" y2="3.5" />
+                    <line x1="5.5" y1="7" x2="12" y2="7" />
+                    <line x1="5.5" y1="10.5" x2="12" y2="10.5" />
+                  </svg>
+                </ToolbarBtn>
+              </div>
+            )}
+          </div>
+
+          {/* Editor */}
+          <style>{`
+            .announcement-editor .tiptap { outline: none; min-height: 100px; }
+            .announcement-editor .tiptap p { margin: 0 0 0.4em; }
+            .announcement-editor .tiptap ul, .announcement-editor .tiptap ol { padding-left: 1.4em; margin: 0.2em 0; }
+            .announcement-editor .tiptap li { margin: 0.1em 0; }
+            .announcement-editor .tiptap p.is-editor-empty:first-child::before {
+              content: attr(data-placeholder);
+              color: rgba(255,255,255,0.25);
+              pointer-events: none;
+              float: left;
+              height: 0;
+            }
+          `}</style>
+          <div style={styles.announcementEditorWrap} className="announcement-editor">
+            <EditorContent editor={announcementEditor} />
+          </div>
+
+          {/* Actions */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+            <button onClick={() => { announcementEditor?.commands.clearContent(); setShowAnnouncementModal(false); }} style={styles.cancelTitleBtn}>Cancel</button>
+            <button onClick={addAnnouncement} style={styles.announcementPostBtn}>Post</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   function renderAnnouncements({ showInput }) {
     return (
       <div style={styles.announcementsSection}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <h3 style={styles.subSectionTitle}>Announcements</h3>
-          {showInput && !showAnnouncementInput && (
+          {showInput && (
             <button
-              onClick={() => setShowAnnouncementInput(true)}
+              onClick={() => { announcementEditor?.commands.clearContent(); setShowAnnouncementModal(true); }}
               style={styles.postAnnouncementBtn}
             >
               + Post
             </button>
           )}
         </div>
-        {showInput && showAnnouncementInput && (
-          <div style={styles.itineraryAddRow}>
-            <input
-              value={newAnnouncementText}
-              onChange={(e) => setNewAnnouncementText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') addAnnouncement();
-                if (e.key === 'Escape') { setShowAnnouncementInput(false); setNewAnnouncementText(''); }
-              }}
-              placeholder="Post an announcement to all members..."
-              style={styles.itineraryInput}
-              autoFocus
-            />
-            <button
-              onClick={addAnnouncement}
-              disabled={!newAnnouncementText.trim()}
-              style={{
-                ...styles.itineraryAddBtn,
-                opacity: newAnnouncementText.trim() ? 1 : 0.4,
-              }}
-            >
-              Post
-            </button>
-            <button
-              onClick={() => { setShowAnnouncementInput(false); setNewAnnouncementText(''); }}
-              style={styles.cancelTitleBtn}
-            >
-              Cancel
-            </button>
-          </div>
-        )}
         {announcementsLoading ? (
           <p style={styles.emptyText}>Loading...</p>
         ) : announcements.length === 0 ? (
@@ -1440,7 +1559,7 @@ export default function Dashboard({ onNavigate }) {
                 borderLeft: a.isRead ? '3px solid rgba(255,255,255,0.1)' : '3px solid #6366f1',
               }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <span style={styles.announcementContent}>{formatContent(a.content)}</span>
+                  {renderAnnouncementContent(a.content)}
                   <span style={styles.announcementMeta}>
                     {a.creator?.full_name} &middot; {new Date(a.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
                   </span>
@@ -2512,6 +2631,17 @@ export default function Dashboard({ onNavigate }) {
         )}
       </div>
 
+      {/* Announcement rich content styles */}
+      <style>{`
+        .announcement-rich p { margin: 0 0 0.3em; }
+        .announcement-rich p:last-child { margin-bottom: 0; }
+        .announcement-rich ul, .announcement-rich ol { padding-left: 1.4em; margin: 0.2em 0; }
+        .announcement-rich li { margin: 0.1em 0; }
+      `}</style>
+
+      {/* Announcement Editor Modal */}
+      {renderAnnouncementModal()}
+
       {/* OOO Request Modal */}
       {showOooModal && (
         <div style={{
@@ -3530,5 +3660,58 @@ const styles = {
     color: 'rgba(255,255,255,0.3)',
     textAlign: 'center',
     lineHeight: 1,
+  },
+
+  // ── announcement editor modal ──
+  announcementModalOverlay: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    background: 'rgba(0,0,0,0.6)',
+    zIndex: 1000,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  announcementModalContent: {
+    background: '#1a1a2e',
+    borderRadius: 12,
+    border: '1px solid rgba(255,255,255,0.1)',
+    padding: '20px 24px',
+    width: '100%',
+    maxWidth: 540,
+    maxHeight: '80vh',
+    overflow: 'auto',
+  },
+  announcementToolbar: {
+    display: 'flex',
+    gap: 4,
+    alignItems: 'center',
+    padding: '6px 0',
+  },
+  announcementEditorWrap: {
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 8,
+    padding: '10px 14px',
+    minHeight: 120,
+    maxHeight: 300,
+    overflow: 'auto',
+    fontSize: 14,
+    color: '#e2e8f0',
+    lineHeight: 1.6,
+  },
+  announcementPostBtn: {
+    padding: '6px 18px',
+    background: '#6366f1',
+    border: 'none',
+    borderRadius: 6,
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
   },
 };

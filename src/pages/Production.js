@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import ReactDOM from 'react-dom';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
@@ -136,6 +137,7 @@ export default function Production() {
 
   // ── folder sections ──
   const [collapsedFolders, setCollapsedFolders] = useState(new Set(['ideas', 'archive', 'unfiled']));
+  const [collapsedSegments, setCollapsedSegments] = useState(new Set());
 
   // ── version history ──
   const [showVersionHistory, setShowVersionHistory] = useState(false);
@@ -718,6 +720,11 @@ export default function Production() {
         });
       });
     }
+
+    // Re-trigger auto-resize on textareas after React re-renders the moved beat
+    requestAnimationFrame(() => {
+      document.querySelectorAll('[data-autoresize]').forEach(autoResize);
+    });
   };
 
   const toggleFolder = (folderId) => {
@@ -907,7 +914,8 @@ export default function Production() {
   };
 
   // ─── renderBeatRow (reused for top-level + segment-internal) ────────────────
-  const renderBeatRow = (beat, provided, snapshot, parentSegmentId) => (
+  const renderBeatRow = (beat, provided, snapshot, parentSegmentId) => {
+    const row = (
     <div
       ref={provided.innerRef}
       {...provided.draggableProps}
@@ -1169,7 +1177,9 @@ export default function Production() {
         </svg>
       </button>
     </div>
-  );
+    );
+    return snapshot.isDragging ? ReactDOM.createPortal(row, document.body) : row;
+  };
 
   // ─── render ─────────────────────────────────────────────────────────────────
 
@@ -1800,6 +1810,22 @@ export default function Production() {
                                 <circle cx="3" cy="14" r="1.5" /><circle cx="9" cy="14" r="1.5" />
                               </svg>
                             </div>
+                            <button
+                              onClick={() => setCollapsedSegments(prev => {
+                                const next = new Set(prev);
+                                const wasCollapsed = next.has(item.id);
+                                wasCollapsed ? next.delete(item.id) : next.add(item.id);
+                                if (wasCollapsed) requestAnimationFrame(() => document.querySelectorAll('[data-autoresize]').forEach(autoResize));
+                                return next;
+                              })}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+                              title={collapsedSegments.has(item.id) ? 'Expand segment' : 'Collapse segment'}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke={item.color || '#6366f1'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                                style={{ transform: collapsedSegments.has(item.id) ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.15s ease' }}>
+                                <path d="M4 5l3 3 3-3" />
+                              </svg>
+                            </button>
                             <input
                               value={item.title}
                               onChange={e => updateSegment(item.id, 'title', e.target.value)}
@@ -1831,6 +1857,11 @@ export default function Production() {
                                 </div>
                               )}
                             </div>
+                            {collapsedSegments.has(item.id) && (
+                              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', marginLeft: 'auto', paddingRight: 8, flexShrink: 0 }}>
+                                {item.children.length} beat{item.children.length !== 1 ? 's' : ''}
+                              </span>
+                            )}
                             <button onClick={() => deleteSegment(item.id)} style={styles.deleteBeatBtn} title="Delete segment">
                               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
                                 <path d="M2 4h10M5 4V2.5a.5.5 0 01.5-.5h3a.5.5 0 01.5.5V4M11 4v7.5a1 1 0 01-1 1H4a1 1 0 01-1-1V4" />
@@ -1841,8 +1872,8 @@ export default function Production() {
                           {/* Segment beats */}
                           <Droppable droppableId={`segment-${item.id}`} type="ITEMS">
                             {(segProvided) => (
-                              <div ref={segProvided.innerRef} {...segProvided.droppableProps} style={{ minHeight: 4 }}>
-                                {item.children.map((beat, bIdx) => (
+                              <div ref={segProvided.innerRef} {...segProvided.droppableProps} style={{ minHeight: collapsedSegments.has(item.id) ? 0 : 4, overflow: collapsedSegments.has(item.id) ? 'hidden' : undefined, maxHeight: collapsedSegments.has(item.id) ? 0 : undefined }}>
+                                {!collapsedSegments.has(item.id) && item.children.map((beat, bIdx) => (
                                   <Draggable key={beat.id} draggableId={beat.id} index={bIdx}>
                                     {(bProvided, bSnapshot) => renderBeatRow(beat, bProvided, bSnapshot, item.id)}
                                   </Draggable>
@@ -1852,7 +1883,9 @@ export default function Production() {
                             )}
                           </Droppable>
 
-                          <button onClick={() => addBeatToSegment(item.id)} style={styles.addBeatInSegmentBtn}>+ Beat</button>
+                          {!collapsedSegments.has(item.id) && (
+                            <button onClick={() => addBeatToSegment(item.id)} style={styles.addBeatInSegmentBtn}>+ Beat</button>
+                          )}
                         </div>
                       )}
                     </Draggable>
