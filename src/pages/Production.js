@@ -875,7 +875,8 @@ export default function Production() {
         return html;
       };
 
-      const cueStyle = 'opacity:0.4; font-size:0.7em; letter-spacing:0.08em; text-transform:uppercase; margin:0.3em 0;';
+      const graphicsCueStyle = 'color:#facc15; font-size:0.7em; font-weight:600; letter-spacing:0.08em; text-transform:uppercase; margin:0.3em 0;';
+      const videoCueStyle = 'color:#38bdf8; font-size:0.7em; font-weight:600; letter-spacing:0.08em; text-transform:uppercase; margin:0.3em 0;';
       const divider = '<div style="border-top:1px solid rgba(255,255,255,0.12); margin:1.8em 0;"></div>';
 
       // Build HTML: graphics cues, beat content (no context), video cues
@@ -884,10 +885,10 @@ export default function Production() {
         .map(b => {
           const parts = [];
           if (b.graphics?.length > 0)
-            parts.push(`<p style="${cueStyle}">${b.graphics.map(g => `[ ${g} ]`).join('  ')}</p>`);
+            parts.push(`<p style="${graphicsCueStyle}">${b.graphics.map(g => `[ ${g} ]`).join('  ')}</p>`);
           parts.push(textToHtml(b.title));
           if (b.videos?.length > 0)
-            parts.push(`<p style="${cueStyle}">${b.videos.map(v => `[ ${v} ]`).join('  ')}</p>`);
+            parts.push(`<p style="${videoCueStyle}">${b.videos.map(v => `[ ${v} ]`).join('  ')}</p>`);
           return parts.join('');
         });
       const htmlContent = htmlParts.join(divider);
