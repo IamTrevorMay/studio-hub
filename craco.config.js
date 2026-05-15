@@ -1,3 +1,5 @@
+const tailwindPostcss = require('@tailwindcss/postcss')
+
 module.exports = {
   webpack: {
     configure: (config) => {
@@ -11,9 +13,17 @@ module.exports = {
               loader.loader &&
               loader.loader.includes('postcss-loader')
             ) {
-              loader.options.postcssOptions.plugins.unshift(
-                require('@tailwindcss/postcss')
-              )
+              const origPlugins = loader.options.postcssOptions.plugins
+              // Only apply @tailwindcss/postcss to files that use Tailwind directives
+              loader.options.postcssOptions = (loaderContext) => {
+                const file = loaderContext.resourcePath || ''
+                const isTailwind = file.includes('doc-editor')
+                return {
+                  plugins: isTailwind
+                    ? [tailwindPostcss(), ...origPlugins]
+                    : origPlugins,
+                }
+              }
             }
           })
         })

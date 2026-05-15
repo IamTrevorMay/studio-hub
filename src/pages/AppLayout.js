@@ -24,6 +24,7 @@ import Teleprompter from './tools/Teleprompter';
 import Organize from './tools/Organize';
 import PostShow from './tools/PostShow';
 import Telestration from './tools/Telestration';
+import Timeline from './tools/Timeline';
 
 import FreelancerDashboard from './FreelancerDashboard';
 import FreelancerHours from './FreelancerHours';
@@ -49,6 +50,7 @@ const NAV_ITEMS = [
   { key: 'broadcast', label: 'Broadcast', icon: ToolsIcon, external: { url: 'https://www.tritonapex.io/broadcast' } },
   { key: 'telestration', label: 'Telestrator', icon: ToolsIcon },
   { key: 'post_show', label: 'Clipping Tool', icon: ToolsIcon },
+  { key: 'timeline', label: 'Timeline', icon: ToolsIcon },
   { key: 'assets', label: 'Assets', icon: ResourcesIcon, external: { url: 'https://www.mayday.systems/' } },
   { key: 'reviews', label: 'Reviews', icon: ReviewsIcon },
   { key: 'organize', label: 'Organize', icon: ToolsIcon },
@@ -104,6 +106,7 @@ const NAV_ICON_MAP = {
   broadcast: ToolsIcon,
   telestration: ToolsIcon,
   post_show: ToolsIcon,
+  timeline: ToolsIcon,
   assets: ResourcesIcon,
   reviews: ReviewsIcon,
   organize: ToolsIcon,
@@ -601,6 +604,7 @@ export default function AppLayout() {
           {activeTab === 'teleprompter' && <Teleprompter onBack={() => setActiveTab('dashboard')} />}
           {activeTab === 'telestration' && <Telestration onBack={() => setActiveTab('dashboard')} />}
           {activeTab === 'post_show' && <PostShow onBack={() => setActiveTab('dashboard')} />}
+          {activeTab === 'timeline' && <Timeline />}
           {activeTab === 'organize' && <Organize onBack={() => setActiveTab('dashboard')} />}
           {isAdmin && activeTab === 'analytics' && <Analytics />}
           {activeTab === 'research' && <Research />}
