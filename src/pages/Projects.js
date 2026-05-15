@@ -166,7 +166,14 @@ export default function Projects({ onNavigate }) {
   const [proposals, setProposals] = useState([]);
   const [proposalsLoading, setProposalsLoading] = useState(false);
   const [showProposalForm, setShowProposalForm] = useState(false);
-  const [proposalForm, setProposalForm] = useState({ sponsor_name: '', timeframe: '', num_videos: '', pay: '', description: '' });
+  const [proposalForm, setProposalForm] = useState({ sponsor_name: '', timeframe: '', num_videos_mayday: '', num_videos_tmb: '', pay_per_video_mayday: '', pay_per_video_tmb: '', description: '' });
+  const [editingProposal, setEditingProposal] = useState(null);
+
+  // Read Slots state
+  const [slotLimits, setSlotLimits] = useState([]);
+  const [editingSlots, setEditingSlots] = useState(null); // month string or null
+  const [slotDraft, setSlotDraft] = useState({ mayday: '', tmb: '' });
+  const [showSlotHistory, setShowSlotHistory] = useState(false);
 
   // Mayday Videos state
   const [maydayVideos, setMaydayVideos] = useState([]);
@@ -759,6 +766,21 @@ export default function Projects({ onNavigate }) {
     return () => { supabase.removeChannel(channel); };
   }, [activeSection, fetchProposals, refreshKey]);
 
+  // ===== Read Slots fetch =====
+  const fetchSlotLimits = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('read_slot_limits')
+      .select('*')
+      .order('month', { ascending: true });
+    if (error) console.error('Error fetching slot limits:', error);
+    setSlotLimits(data || []);
+  }, []);
+
+  useEffect(() => {
+    if (activeSection !== 'sponsors') return;
+    fetchSlotLimits();
+  }, [activeSection, fetchSlotLimits]);
+
   // ===== Mayday Videos fetch =====
   const fetchMaydayVideos = useCallback(async () => {
     setMaydayLoading(true);
@@ -996,7 +1018,8 @@ export default function Projects({ onNavigate }) {
 
   // ===== Proposal handlers =====
   function resetProposalForm() {
-    setProposalForm({ sponsor_name: '', timeframe: '', num_videos: '', pay: '', description: '' });
+    setProposalForm({ sponsor_name: '', timeframe: '', num_videos_mayday: '', num_videos_tmb: '', pay_per_video_mayday: '', pay_per_video_tmb: '', description: '' });
+    setEditingProposal(null);
     setShowProposalForm(false);
   }
 
@@ -1005,8 +1028,10 @@ export default function Projects({ onNavigate }) {
     const { error } = await supabase.from('ad_read_proposals').insert({
       sponsor_name: proposalForm.sponsor_name,
       timeframe: proposalForm.timeframe || null,
-      num_videos: proposalForm.num_videos ? parseInt(proposalForm.num_videos) : null,
-      pay: proposalForm.pay ? parseFloat(proposalForm.pay) : null,
+      num_videos_mayday: proposalForm.num_videos_mayday ? parseInt(proposalForm.num_videos_mayday) : null,
+      num_videos_tmb: proposalForm.num_videos_tmb ? parseInt(proposalForm.num_videos_tmb) : null,
+      pay_per_video_mayday: proposalForm.pay_per_video_mayday ? parseFloat(proposalForm.pay_per_video_mayday) : null,
+      pay_per_video_tmb: proposalForm.pay_per_video_tmb ? parseFloat(proposalForm.pay_per_video_tmb) : null,
       description: proposalForm.description || null,
       created_by: profile.id,
     });
@@ -1069,6 +1094,61 @@ export default function Projects({ onNavigate }) {
   async function handleDeclineProposal(id) {
     await supabase.from('ad_read_proposals').update({ status: 'declined' }).eq('id', id);
     fetchProposals();
+  }
+
+  function startEditProposal(p) {
+    setEditingProposal(p.id);
+    setProposalForm({
+      sponsor_name: p.sponsor_name,
+      timeframe: p.timeframe || '',
+      num_videos_mayday: p.num_videos_mayday != null ? String(p.num_videos_mayday) : '',
+      num_videos_tmb: p.num_videos_tmb != null ? String(p.num_videos_tmb) : '',
+      pay_per_video_mayday: p.pay_per_video_mayday != null ? String(p.pay_per_video_mayday) : '',
+      pay_per_video_tmb: p.pay_per_video_tmb != null ? String(p.pay_per_video_tmb) : '',
+      description: p.description || '',
+    });
+    setShowProposalForm(true);
+  }
+
+  async function handleUpdateProposal(e) {
+    e.preventDefault();
+    const { error } = await supabase.from('ad_read_proposals').update({
+      sponsor_name: proposalForm.sponsor_name,
+      timeframe: proposalForm.timeframe || null,
+      num_videos_mayday: proposalForm.num_videos_mayday ? parseInt(proposalForm.num_videos_mayday) : null,
+      num_videos_tmb: proposalForm.num_videos_tmb ? parseInt(proposalForm.num_videos_tmb) : null,
+      pay_per_video_mayday: proposalForm.pay_per_video_mayday ? parseFloat(proposalForm.pay_per_video_mayday) : null,
+      pay_per_video_tmb: proposalForm.pay_per_video_tmb ? parseFloat(proposalForm.pay_per_video_tmb) : null,
+      description: proposalForm.description || null,
+    }).eq('id', editingProposal);
+    if (error) { alert('Error updating proposal: ' + error.message); return; }
+    setEditingProposal(null);
+    resetProposalForm();
+    fetchProposals();
+  }
+
+  async function handleDeleteProposal(id) {
+    if (!(await confirm('Delete this proposal?'))) return;
+    await supabase.from('ad_read_proposals').delete().eq('id', id);
+    fetchProposals();
+  }
+
+  // ===== Read Slot handlers =====
+  async function handleSaveSlotLimits(month) {
+    for (const ch of ['mayday', 'tmb']) {
+      const val = parseInt(slotDraft[ch]);
+      if (isNaN(val) && !slotDraft[ch]) continue;
+      const limit = isNaN(val) ? 0 : val;
+      await supabase.from('read_slot_limits').upsert({
+        month,
+        channel: ch,
+        slot_limit: limit,
+        created_by: profile.id,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'month,channel' });
+    }
+    setEditingSlots(null);
+    fetchSlotLimits();
   }
 
   function resetDeliverableForm() {
@@ -2503,132 +2583,263 @@ export default function Projects({ onNavigate }) {
       {activeSection === 'sponsors' && (
       /* ====== SPONSORS SECTION ====== */
       <>
-      {/* ── Proposals ── */}
-      <div style={{ padding: '0 24px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', marginBottom: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>Proposals</h2>
-            {pendingProposals.length > 0 && (
-              <span style={{ background: '#ef4444', color: '#fff', borderRadius: '10px', padding: '1px 7px', fontSize: '12px', fontWeight: 600 }}>
-                {pendingProposals.length}
-              </span>
-            )}
+      {/* ── Proposals + Read Slots side-by-side ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', padding: '0 24px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', marginBottom: '16px', alignItems: 'flex-start' }}>
+
+        {/* ── Proposals column ── */}
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>Proposals</h2>
+              {pendingProposals.length > 0 && (
+                <span style={{ background: '#ef4444', color: '#fff', borderRadius: '10px', padding: '1px 7px', fontSize: '12px', fontWeight: 600 }}>
+                  {pendingProposals.length}
+                </span>
+              )}
+            </div>
+            <button
+              onClick={() => { if (showProposalForm && !editingProposal) { resetProposalForm(); } else { resetProposalForm(); setShowProposalForm(true); } }}
+              style={{ background: '#6366f1', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 12px', fontSize: '13px', fontWeight: 500, cursor: 'pointer' }}
+            >
+              {showProposalForm && !editingProposal ? 'Cancel' : '+ New Proposal'}
+            </button>
           </div>
-          <button
-            onClick={() => setShowProposalForm(v => !v)}
-            style={{ background: '#6366f1', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 12px', fontSize: '13px', fontWeight: 500, cursor: 'pointer' }}
-          >
-            {showProposalForm ? 'Cancel' : '+ New Proposal'}
-          </button>
+
+          {/* Proposal form (create or edit) */}
+          {showProposalForm && (
+            <form onSubmit={editingProposal ? handleUpdateProposal : handleCreateProposal} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '8px', padding: '16px', marginBottom: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <input value={proposalForm.sponsor_name} onChange={e => setProposalForm(f => ({ ...f, sponsor_name: e.target.value }))} placeholder="Brand Name *" required style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px' }} />
+                <input value={proposalForm.timeframe} onChange={e => setProposalForm(f => ({ ...f, timeframe: e.target.value }))} placeholder="Time Frame" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px' }} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '10px' }}>
+                <input type="number" value={proposalForm.num_videos_mayday} onChange={e => setProposalForm(f => ({ ...f, num_videos_mayday: e.target.value }))} placeholder="# Mayday Vids" min="0" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px' }} />
+                <input type="number" value={proposalForm.pay_per_video_mayday} onChange={e => setProposalForm(f => ({ ...f, pay_per_video_mayday: e.target.value }))} placeholder="$/Mayday Vid" min="0" step="any" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px' }} />
+                <input type="number" value={proposalForm.num_videos_tmb} onChange={e => setProposalForm(f => ({ ...f, num_videos_tmb: e.target.value }))} placeholder="# TMB Vids" min="0" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px' }} />
+                <input type="number" value={proposalForm.pay_per_video_tmb} onChange={e => setProposalForm(f => ({ ...f, pay_per_video_tmb: e.target.value }))} placeholder="$/TMB Vid" min="0" step="any" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px' }} />
+              </div>
+              <textarea value={proposalForm.description} onChange={e => setProposalForm(f => ({ ...f, description: e.target.value }))} placeholder="Description / notes" rows={2} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px', resize: 'vertical' }} />
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button type="submit" style={{ background: '#6366f1', color: '#fff', border: 'none', borderRadius: '6px', padding: '8px 14px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}>
+                  {editingProposal ? 'Update Proposal' : 'Submit Proposal'}
+                </button>
+                {editingProposal && (
+                  <button type="button" onClick={resetProposalForm} style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)', border: 'none', borderRadius: '6px', padding: '8px 14px', fontSize: '13px', cursor: 'pointer' }}>
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </form>
+          )}
+
+          {/* Pending proposals */}
+          {proposalsLoading && pendingProposals.length === 0 ? (
+            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px' }}>Loading...</p>
+          ) : pendingProposals.length === 0 ? (
+            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px', margin: '4px 0' }}>No pending proposals</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '8px' }}>
+              {pendingProposals.map(p => {
+                const maydayTotal = (p.num_videos_mayday || 0) * (p.pay_per_video_mayday || 0);
+                const tmbTotal = (p.num_videos_tmb || 0) * (p.pay_per_video_tmb || 0);
+                const totalPay = maydayTotal + tmbTotal;
+                return (
+                  <div key={p.id} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '8px', padding: '14px', borderLeft: '3px solid #f59e0b' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                      <div style={{ fontWeight: 600, fontSize: '14px', color: '#fff' }}>{p.sponsor_name}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        {p.timeframe && <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', padding: '2px 8px' }}>{p.timeframe}</span>}
+                        <button onClick={() => startEditProposal(p)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Edit">✎</button>
+                        <button onClick={() => handleDeleteProposal(p.id)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Delete">✕</button>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '10px' }}>
+                      {(p.num_videos_mayday || p.pay_per_video_mayday) ? (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.03)', borderRadius: '6px', padding: '8px 10px' }}>
+                          <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>Mayday</div>
+                          <div style={{ display: 'flex', gap: '12px', fontSize: '12px' }}>
+                            {p.num_videos_mayday != null && <span style={{ color: 'rgba(255,255,255,0.6)' }}>{p.num_videos_mayday} video{p.num_videos_mayday !== 1 ? 's' : ''}</span>}
+                            {p.pay_per_video_mayday != null && <span style={{ color: 'rgba(255,255,255,0.5)' }}>${Number(p.pay_per_video_mayday).toLocaleString()} / vid</span>}
+                            {maydayTotal > 0 && <span style={{ color: '#22c55e', fontWeight: 600 }}>${maydayTotal.toLocaleString()}</span>}
+                          </div>
+                        </div>
+                      ) : null}
+                      {(p.num_videos_tmb || p.pay_per_video_tmb) ? (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.03)', borderRadius: '6px', padding: '8px 10px' }}>
+                          <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>TM Baseball</div>
+                          <div style={{ display: 'flex', gap: '12px', fontSize: '12px' }}>
+                            {p.num_videos_tmb != null && <span style={{ color: 'rgba(255,255,255,0.6)' }}>{p.num_videos_tmb} video{p.num_videos_tmb !== 1 ? 's' : ''}</span>}
+                            {p.pay_per_video_tmb != null && <span style={{ color: 'rgba(255,255,255,0.5)' }}>${Number(p.pay_per_video_tmb).toLocaleString()} / vid</span>}
+                            {tmbTotal > 0 && <span style={{ color: '#22c55e', fontWeight: 600 }}>${tmbTotal.toLocaleString()}</span>}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                    {totalPay > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '8px', marginBottom: '8px' }}>
+                        <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>Total</span>
+                        <span style={{ fontSize: '14px', color: '#22c55e', fontWeight: 700 }}>${totalPay.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {p.description && <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginBottom: '8px', whiteSpace: 'pre-wrap' }}>{p.description}</div>}
+                    <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', marginBottom: '10px' }}>
+                      Proposed by {p.creator?.full_name || 'Unknown'} · {new Date(p.created_at).toLocaleDateString()}
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button onClick={() => handleConfirmProposal(p)} style={{ background: '#22c55e', color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>Confirm</button>
+                      <button onClick={() => handleDeclineProposal(p.id)} style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>Decline</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Resolved proposals */}
+          {resolvedProposals.length > 0 && (
+            <details style={{ marginTop: '4px' }}>
+              <summary style={{ color: 'rgba(255,255,255,0.4)', fontSize: '12px', cursor: 'pointer', userSelect: 'none' }}>
+                {resolvedProposals.length} resolved proposal{resolvedProposals.length !== 1 ? 's' : ''}
+              </summary>
+              <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {resolvedProposals.map(p => {
+                  const rTotal = ((p.num_videos_mayday || 0) * (p.pay_per_video_mayday || 0)) + ((p.num_videos_tmb || 0) * (p.pay_per_video_tmb || 0));
+                  return (
+                    <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'rgba(255,255,255,0.5)', padding: '4px 0' }}>
+                      <span style={{ background: p.status === 'accepted' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)', color: p.status === 'accepted' ? '#22c55e' : '#ef4444', borderRadius: '4px', padding: '1px 6px', fontSize: '11px', fontWeight: 600 }}>{p.status}</span>
+                      <span style={{ color: 'rgba(255,255,255,0.7)' }}>{p.sponsor_name}</span>
+                      {rTotal > 0 && <span style={{ color: 'rgba(255,255,255,0.4)' }}>${rTotal.toLocaleString()}</span>}
+                      <span style={{ color: 'rgba(255,255,255,0.3)' }}>{new Date(p.created_at).toLocaleDateString()}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </details>
+          )}
         </div>
 
-        {/* Proposal form */}
-        {showProposalForm && (
-          <form onSubmit={handleCreateProposal} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '8px', padding: '16px', marginBottom: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <input
-              value={proposalForm.sponsor_name}
-              onChange={e => setProposalForm(f => ({ ...f, sponsor_name: e.target.value }))}
-              placeholder="Brand Name *"
-              required
-              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px' }}
-            />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
-              <input
-                value={proposalForm.timeframe}
-                onChange={e => setProposalForm(f => ({ ...f, timeframe: e.target.value }))}
-                placeholder="Time Frame"
-                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px' }}
-              />
-              <input
-                type="number"
-                value={proposalForm.num_videos}
-                onChange={e => setProposalForm(f => ({ ...f, num_videos: e.target.value }))}
-                placeholder="# of Videos"
-                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px' }}
-              />
-              <input
-                type="number"
-                value={proposalForm.pay}
-                onChange={e => setProposalForm(f => ({ ...f, pay: e.target.value }))}
-                placeholder="Pay ($)"
-                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px' }}
-              />
-            </div>
-            <textarea
-              value={proposalForm.description}
-              onChange={e => setProposalForm(f => ({ ...f, description: e.target.value }))}
-              placeholder="Description / notes"
-              rows={2}
-              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px', resize: 'vertical' }}
-            />
-            <button type="submit" style={{ background: '#6366f1', color: '#fff', border: 'none', borderRadius: '6px', padding: '8px 14px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', alignSelf: 'flex-start' }}>
-              Submit Proposal
-            </button>
-          </form>
-        )}
+        {/* ── Read Slots column ── */}
+        <div>
+          <h2 style={{ margin: '0 0 12px', fontSize: '16px', fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>Read Slots</h2>
+          {(() => {
+            const now = new Date();
+            const buildMonth = (offset) => {
+              const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+              return d.toISOString().slice(0, 7);
+            };
+            const months = [buildMonth(0), buildMonth(1), buildMonth(2)];
+            const formatMonth = (m) => {
+              const [y, mo] = m.split('-');
+              return new Date(parseInt(y), parseInt(mo) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+            };
+            const getCount = (month, channel) => allDeliverables.filter(d => d.channel === channel && d.due_date && d.due_date.slice(0, 7) === month).length;
+            const getLimit = (month, channel) => {
+              const row = slotLimits.find(s => s.month === month && s.channel === channel);
+              return row ? row.slot_limit : null;
+            };
 
-        {/* Pending proposals */}
-        {proposalsLoading && pendingProposals.length === 0 ? (
-          <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px' }}>Loading...</p>
-        ) : pendingProposals.length === 0 ? (
-          <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px', margin: '4px 0' }}>No pending proposals</p>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '10px', marginBottom: '8px' }}>
-            {pendingProposals.map(p => (
-              <div key={p.id} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '8px', padding: '14px', borderLeft: '3px solid #f59e0b' }}>
-                <div style={{ fontWeight: 600, fontSize: '14px', color: '#fff', marginBottom: '6px' }}>{p.sponsor_name}</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', fontSize: '12px', color: 'rgba(255,255,255,0.6)', marginBottom: '6px' }}>
-                  {p.timeframe && <span>{p.timeframe}</span>}
-                  {p.num_videos && <span>{p.num_videos} video{p.num_videos !== 1 ? 's' : ''}</span>}
-                  {p.pay && <span style={{ color: '#22c55e' }}>${Number(p.pay).toLocaleString()}</span>}
-                </div>
-                {p.description && <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginBottom: '8px' }}>{p.description}</div>}
-                <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', marginBottom: '10px' }}>
-                  Proposed by {p.creator?.full_name || 'Unknown'} · {new Date(p.created_at).toLocaleDateString()}
-                </div>
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  <button
-                    onClick={() => handleConfirmProposal(p)}
-                    style={{ background: '#22c55e', color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
-                  >
-                    Confirm
-                  </button>
-                  <button
-                    onClick={() => handleDeclineProposal(p.id)}
-                    style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
-                  >
-                    Decline
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+            const renderMonthCard = (month) => {
+              const maydayCount = getCount(month, 'mayday');
+              const tmbCount = getCount(month, 'tmb');
+              const maydayLimit = getLimit(month, 'mayday');
+              const tmbLimit = getLimit(month, 'tmb');
+              const isEditing = editingSlots === month;
 
-        {/* Resolved proposals */}
-        {resolvedProposals.length > 0 && (
-          <details style={{ marginTop: '4px' }}>
-            <summary style={{ color: 'rgba(255,255,255,0.4)', fontSize: '12px', cursor: 'pointer', userSelect: 'none' }}>
-              {resolvedProposals.length} resolved proposal{resolvedProposals.length !== 1 ? 's' : ''}
-            </summary>
-            <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              {resolvedProposals.map(p => (
-                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'rgba(255,255,255,0.5)', padding: '4px 0' }}>
-                  <span style={{
-                    background: p.status === 'accepted' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
-                    color: p.status === 'accepted' ? '#22c55e' : '#ef4444',
-                    borderRadius: '4px', padding: '1px 6px', fontSize: '11px', fontWeight: 600,
-                  }}>
-                    {p.status}
-                  </span>
-                  <span style={{ color: 'rgba(255,255,255,0.7)' }}>{p.sponsor_name}</span>
-                  {p.pay && <span style={{ color: 'rgba(255,255,255,0.4)' }}>${Number(p.pay).toLocaleString()}</span>}
-                  <span style={{ color: 'rgba(255,255,255,0.3)' }}>{new Date(p.created_at).toLocaleDateString()}</span>
+              return (
+                <div key={month} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '8px', padding: '14px', marginBottom: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <div style={{ fontWeight: 600, fontSize: '13px', color: 'rgba(255,255,255,0.9)' }}>{formatMonth(month)}</div>
+                    {isAdmin && !isEditing && (
+                      <button
+                        onClick={() => { setEditingSlots(month); setSlotDraft({ mayday: maydayLimit != null ? String(maydayLimit) : '', tmb: tmbLimit != null ? String(tmbLimit) : '' }); }}
+                        style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', fontSize: '11px', cursor: 'pointer', padding: '2px 6px' }}
+                      >
+                        Set Limits
+                      </button>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    {/* Mayday card */}
+                    <div style={{ flex: 1, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: '6px', padding: '10px 12px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 600, color: '#a5b4fc', marginBottom: '6px' }}>Mayday</div>
+                      <div style={{ fontSize: '20px', fontWeight: 700, color: '#fff' }}>
+                        {maydayCount}{maydayLimit != null ? <span style={{ color: 'rgba(255,255,255,0.35)' }}>/{maydayLimit}</span> : null}
+                      </div>
+                      {maydayLimit != null && (
+                        <div style={{ marginTop: '6px', height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                          <div style={{ height: '100%', borderRadius: '2px', background: maydayCount >= maydayLimit ? '#22c55e' : '#6366f1', width: `${Math.min(100, maydayLimit > 0 ? (maydayCount / maydayLimit) * 100 : 0)}%`, transition: 'width 0.3s' }} />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* TMB card */}
+                    <div style={{ flex: 1, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.15)', borderRadius: '6px', padding: '10px 12px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 600, color: '#fca5a5', marginBottom: '6px' }}>TM Baseball</div>
+                      <div style={{ fontSize: '20px', fontWeight: 700, color: '#fff' }}>
+                        {tmbCount}{tmbLimit != null ? <span style={{ color: 'rgba(255,255,255,0.35)' }}>/{tmbLimit}</span> : null}
+                      </div>
+                      {tmbLimit != null && (
+                        <div style={{ marginTop: '6px', height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                          <div style={{ height: '100%', borderRadius: '2px', background: tmbCount >= tmbLimit ? '#22c55e' : '#ef4444', width: `${Math.min(100, tmbLimit > 0 ? (tmbCount / tmbLimit) * 100 : 0)}%`, transition: 'width 0.3s' }} />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Inline edit for limits */}
+                  {isEditing && (
+                    <div style={{ marginTop: '10px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <input type="number" value={slotDraft.mayday} onChange={e => setSlotDraft(d => ({ ...d, mayday: e.target.value }))} placeholder="Mayday limit" min="0" style={{ flex: 1, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '6px 8px', color: '#fff', fontSize: '12px' }} />
+                      <input type="number" value={slotDraft.tmb} onChange={e => setSlotDraft(d => ({ ...d, tmb: e.target.value }))} placeholder="TMB limit" min="0" style={{ flex: 1, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '6px 8px', color: '#fff', fontSize: '12px' }} />
+                      <button onClick={() => handleSaveSlotLimits(month)} style={{ background: '#6366f1', color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 10px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>Save</button>
+                      <button onClick={() => setEditingSlots(null)} style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)', border: 'none', borderRadius: '5px', padding: '5px 8px', fontSize: '12px', cursor: 'pointer' }}>✕</button>
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
-          </details>
-        )}
+              );
+            };
+
+            // Past months for history
+            const pastMonths = [];
+            for (let i = 1; i <= 12; i++) {
+              const pm = buildMonth(-i);
+              const hasMayday = getCount(pm, 'mayday') > 0 || getLimit(pm, 'mayday') != null;
+              const hasTmb = getCount(pm, 'tmb') > 0 || getLimit(pm, 'tmb') != null;
+              if (hasMayday || hasTmb) pastMonths.push(pm);
+            }
+
+            return (
+              <>
+                {months.map(renderMonthCard)}
+                {pastMonths.length > 0 && (
+                  <div style={{ marginTop: '4px' }}>
+                    <button onClick={() => setShowSlotHistory(v => !v)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', fontSize: '12px', cursor: 'pointer', padding: '4px 0' }}>
+                      {showSlotHistory ? 'Hide History' : 'History'}
+                    </button>
+                    {showSlotHistory && (
+                      <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {pastMonths.map(pm => {
+                          const mc = getCount(pm, 'mayday');
+                          const tc = getCount(pm, 'tmb');
+                          const ml = getLimit(pm, 'mayday');
+                          const tl = getLimit(pm, 'tmb');
+                          return (
+                            <div key={pm} style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '12px', color: 'rgba(255,255,255,0.5)', padding: '6px 10px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px' }}>
+                              <span style={{ fontWeight: 500, color: 'rgba(255,255,255,0.7)', minWidth: '120px' }}>{formatMonth(pm)}</span>
+                              <span style={{ color: '#a5b4fc' }}>MD: {mc}{ml != null ? `/${ml}` : ''}</span>
+                              <span style={{ color: '#fca5a5' }}>TMB: {tc}{tl != null ? `/${tl}` : ''}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            );
+          })()}
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', alignItems: 'flex-start' }}>

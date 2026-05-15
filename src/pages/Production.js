@@ -12,6 +12,51 @@ function newBeat() {
   return { id: crypto.randomUUID(), title: '', context: '', graphics: [], videos: [], notes: '' };
 }
 
+const SEGMENT_COLORS = [
+  '#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b',
+  '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#a855f7',
+];
+
+function newSegment() {
+  return {
+    type: 'segment',
+    id: crypto.randomUUID(),
+    title: '',
+    color: SEGMENT_COLORS[Math.floor(Math.random() * SEGMENT_COLORS.length)],
+    children: [newBeat()],
+  };
+}
+
+function isSegment(item) {
+  return item?.type === 'segment';
+}
+
+function flattenBeats(items) {
+  if (!items) return [];
+  const result = [];
+  for (const item of items) {
+    if (isSegment(item)) {
+      result.push(...(item.children || []));
+    } else {
+      result.push(item);
+    }
+  }
+  return result;
+}
+
+function countBeats(items) {
+  return flattenBeats(items).length;
+}
+
+function mapBeatsDeep(items, fn) {
+  return items.map(item => {
+    if (isSegment(item)) {
+      return { ...item, children: item.children.map(fn) };
+    }
+    return fn(item);
+  });
+}
+
 function timeAgo(dateStr) {
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
@@ -73,7 +118,18 @@ export default function Production() {
   const [dropHighlight, setDropHighlight] = useState(null);
 
   // ── context menu ──
-  const [contextMenu, setContextMenu] = useState(null); // { x, y, beatId }
+  const [contextMenu, setContextMenu] = useState(null); // { x, y, beatId, segmentId, isSegmentHeader }
+
+  // ── templates ──
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [templates, setTemplates] = useState([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const templateBtnRef = useRef(null);
+
+  // ── add menu ──
+  const [showAddMenuTop, setShowAddMenuTop] = useState(false);
+  const [showAddMenuBottom, setShowAddMenuBottom] = useState(false);
+  const [showColorDropdown, setShowColorDropdown] = useState(null); // segmentId or null
 
   // ── confirm delete ──
   const [confirmDelete, setConfirmDelete] = useState(null);
@@ -183,7 +239,7 @@ export default function Production() {
     setDriveFolderName(sheet.drive_folder_name);
     setSaveStatus('saved');
     setTagInputs({});
-    setExpandedContexts(new Set(loadedBeats.filter(b => b.context).map(b => b.id)));
+    setExpandedContexts(new Set(flattenBeats(loadedBeats).filter(b => b.context).map(b => b.id)));
   };
 
   const closeEditor = async () => {
@@ -228,7 +284,7 @@ export default function Production() {
       sheet_id: sheetId,
       title: snapshotTitle,
       beats: snapshotBeats,
-      beat_count: (snapshotBeats || []).length,
+      beat_count: countBeats(snapshotBeats || []),
       saved_by: profile?.id || null,
     });
   };
@@ -242,6 +298,32 @@ export default function Production() {
     }, 10 * 60 * 1000);
     return () => clearInterval(snapshotTimer.current);
   }, [activeSheet?.id]);
+
+  // close add menus and color dropdown on outside click
+  useEffect(() => {
+    if (!showAddMenuTop && !showAddMenuBottom && !showColorDropdown) return;
+    const handler = (e) => {
+      // Don't close if click is inside a dropdown
+      if (e.target.closest('[data-add-menu]') || e.target.closest('[data-color-dropdown]')) return;
+      setShowAddMenuTop(false);
+      setShowAddMenuBottom(false);
+      setShowColorDropdown(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showAddMenuTop, showAddMenuBottom, showColorDropdown]);
+
+  // close templates dropdown on outside click
+  useEffect(() => {
+    if (!showTemplates) return;
+    const handler = (e) => {
+      if (templateBtnRef.current && !templateBtnRef.current.parentElement.contains(e.target)) {
+        setShowTemplates(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showTemplates]);
 
   const fetchVersions = async (sheetId) => {
     setVersionsLoading(true);
@@ -273,7 +355,7 @@ export default function Production() {
     // apply restored version
     setTitle(version.title);
     setBeats(version.beats || []);
-    setExpandedContexts(new Set((version.beats || []).filter(b => b.context).map(b => b.id)));
+    setExpandedContexts(new Set(flattenBeats(version.beats || []).filter(b => b.context).map(b => b.id)));
     setShowVersionHistory(false);
     setPreviewVersion(null);
     // scheduleSave will auto-fire from the state change
@@ -290,39 +372,59 @@ export default function Production() {
   const addBeat = () => setBeats(prev => [...prev, newBeat()]);
 
   const updateBeat = (beatId, field, value) => {
-    setBeats(prev => prev.map(b => b.id === beatId ? { ...b, [field]: value } : b));
+    setBeats(prev => mapBeatsDeep(prev, b => b.id === beatId ? { ...b, [field]: value } : b));
   };
 
   const deleteBeat = (beatId) => {
-    setBeats(prev => prev.filter(b => b.id !== beatId));
+    setBeats(prev => prev.reduce((acc, item) => {
+      if (isSegment(item)) {
+        const filtered = item.children.filter(b => b.id !== beatId);
+        if (filtered.length !== item.children.length) {
+          acc.push({ ...item, children: filtered });
+        } else {
+          acc.push(item);
+        }
+      } else if (item.id !== beatId) {
+        acc.push(item);
+      }
+      return acc;
+    }, []));
   };
 
   const duplicateBeat = (beatId) => {
     setBeats(prev => {
-      const idx = prev.findIndex(b => b.id === beatId);
-      if (idx === -1) return prev;
-      const src = prev[idx];
-      const copy = {
-        ...src,
-        id: crypto.randomUUID(),
-        graphics: [...(src.graphics || [])],
-        videos: [...(src.videos || [])],
-      };
-      const next = [...prev];
-      next.splice(idx + 1, 0, copy);
-      return next;
+      // Check top level
+      const topIdx = prev.findIndex(b => !isSegment(b) && b.id === beatId);
+      if (topIdx !== -1) {
+        const src = prev[topIdx];
+        const copy = { ...src, id: crypto.randomUUID(), graphics: [...(src.graphics || [])], videos: [...(src.videos || [])] };
+        const next = [...prev];
+        next.splice(topIdx + 1, 0, copy);
+        return next;
+      }
+      // Check inside segments
+      return prev.map(item => {
+        if (!isSegment(item)) return item;
+        const idx = item.children.findIndex(b => b.id === beatId);
+        if (idx === -1) return item;
+        const src = item.children[idx];
+        const copy = { ...src, id: crypto.randomUUID(), graphics: [...(src.graphics || [])], videos: [...(src.videos || [])] };
+        const children = [...item.children];
+        children.splice(idx + 1, 0, copy);
+        return { ...item, children };
+      });
     });
   };
 
   const addTag = (beatId, field, value) => {
     if (!value.trim()) return;
-    setBeats(prev => prev.map(b =>
+    setBeats(prev => mapBeatsDeep(prev, b =>
       b.id === beatId ? { ...b, [field]: [...b[field], value.trim()] } : b
     ));
   };
 
   const removeTag = (beatId, field, index) => {
-    setBeats(prev => prev.map(b =>
+    setBeats(prev => mapBeatsDeep(prev, b =>
       b.id === beatId ? { ...b, [field]: b[field].filter((_, i) => i !== index) } : b
     ));
   };
@@ -334,7 +436,7 @@ export default function Production() {
   };
 
   const reorderTag = (beatId, field, fromIndex, toIndex) => {
-    setBeats(prev => prev.map(b => {
+    setBeats(prev => mapBeatsDeep(prev, b => {
       if (b.id !== beatId) return b;
       const arr = [...b[field]];
       const [moved] = arr.splice(fromIndex, 1);
@@ -345,12 +447,13 @@ export default function Production() {
 
   const moveTagAcrossBeats = (fromBeatId, field, fromIndex, toBeatId) => {
     setBeats(prev => {
-      const fromBeat = prev.find(b => b.id === fromBeatId);
+      const allBeats = flattenBeats(prev);
+      const fromBeat = allBeats.find(b => b.id === fromBeatId);
       if (!fromBeat) return prev;
-      const item = fromBeat[field][fromIndex];
-      return prev.map(b => {
+      const movedItem = fromBeat[field][fromIndex];
+      return mapBeatsDeep(prev, b => {
         if (b.id === fromBeatId) return { ...b, [field]: b[field].filter((_, i) => i !== fromIndex) };
-        if (b.id === toBeatId) return { ...b, [field]: [...b[field], item] };
+        if (b.id === toBeatId) return { ...b, [field]: [...b[field], movedItem] };
         return b;
       });
     });
@@ -370,7 +473,7 @@ export default function Production() {
         url: publicUrl,
         type: file.type.startsWith('image/') ? 'image' : 'video',
       };
-      setBeats(prev => prev.map(b =>
+      setBeats(prev => mapBeatsDeep(prev, b =>
         b.id === beatId ? { ...b, [field]: [...b[field], mediaObj] } : b
       ));
     } catch (err) {
@@ -403,12 +506,218 @@ export default function Production() {
     }
   };
 
+  const addBeatToTop = () => setBeats(prev => [newBeat(), ...prev]);
+  const addSegmentToTop = () => setBeats(prev => [newSegment(), ...prev]);
+
+  // ─── segment operations ──────────────────────────────────────────────────────
+  const addSegment = () => setBeats(prev => [...prev, newSegment()]);
+
+  const addBeatToSegment = (segmentId) => {
+    setBeats(prev => prev.map(item =>
+      isSegment(item) && item.id === segmentId
+        ? { ...item, children: [...item.children, newBeat()] }
+        : item
+    ));
+  };
+
+  const updateSegment = (segmentId, field, value) => {
+    setBeats(prev => prev.map(item =>
+      isSegment(item) && item.id === segmentId ? { ...item, [field]: value } : item
+    ));
+  };
+
+  const deleteSegment = (segmentId) => {
+    setBeats(prev => prev.filter(item => !(isSegment(item) && item.id === segmentId)));
+  };
+
+  const dissolveSegment = (segmentId) => {
+    setBeats(prev => {
+      const result = [];
+      for (const item of prev) {
+        if (isSegment(item) && item.id === segmentId) {
+          result.push(...item.children);
+        } else {
+          result.push(item);
+        }
+      }
+      return result;
+    });
+  };
+
+  const moveBeatToSegment = (beatId, targetSegmentId) => {
+    setBeats(prev => {
+      let movedBeat = null;
+      // Remove beat from current location
+      const withoutBeat = prev.reduce((acc, item) => {
+        if (isSegment(item)) {
+          const child = item.children.find(b => b.id === beatId);
+          if (child) {
+            movedBeat = child;
+            acc.push({ ...item, children: item.children.filter(b => b.id !== beatId) });
+          } else {
+            acc.push(item);
+          }
+        } else if (item.id === beatId) {
+          movedBeat = item;
+        } else {
+          acc.push(item);
+        }
+        return acc;
+      }, []);
+      if (!movedBeat) return prev;
+      // Add to target segment
+      return withoutBeat.map(item =>
+        isSegment(item) && item.id === targetSegmentId
+          ? { ...item, children: [...item.children, movedBeat] }
+          : item
+      );
+    });
+  };
+
+  const moveBeatToTopLevel = (beatId) => {
+    setBeats(prev => {
+      let movedBeat = null;
+      const withoutBeat = prev.map(item => {
+        if (!isSegment(item)) return item;
+        const child = item.children.find(b => b.id === beatId);
+        if (child) {
+          movedBeat = child;
+          return { ...item, children: item.children.filter(b => b.id !== beatId) };
+        }
+        return item;
+      });
+      if (!movedBeat) return prev;
+      return [...withoutBeat, movedBeat];
+    });
+  };
+
+  // ─── template operations ───────────────────────────────────────────────────
+  const fetchTemplates = async () => {
+    setTemplatesLoading(true);
+    const { data, error } = await supabase
+      .from('beat_sheet_templates')
+      .select('id, name, beats, created_by, created_at')
+      .order('created_at', { ascending: false });
+    if (error) console.error('Fetch templates error:', error);
+    setTemplates(data || []);
+    setTemplatesLoading(false);
+  };
+
+  const saveAsTemplate = async () => {
+    const name = window.prompt('Template name:');
+    if (!name?.trim()) return;
+    const { error } = await supabase.from('beat_sheet_templates').insert({
+      name: name.trim(),
+      beats,
+      created_by: profile?.id || null,
+    });
+    if (error) { console.error('Save template error:', error); return; }
+    setToast({ type: 'success', message: `Template "${name.trim()}" saved.` });
+    fetchTemplates();
+  };
+
+  const loadTemplate = (template) => {
+    // Deep-clone beats with fresh UUIDs
+    const cloneItem = (item) => {
+      if (isSegment(item)) {
+        return { ...item, id: crypto.randomUUID(), children: item.children.map(b => ({ ...b, id: crypto.randomUUID(), graphics: [...(b.graphics || [])], videos: [...(b.videos || [])] })) };
+      }
+      return { ...item, id: crypto.randomUUID(), graphics: [...(item.graphics || [])], videos: [...(item.videos || [])] };
+    };
+    const cloned = (template.beats || []).map(cloneItem);
+    setBeats(prev => [...prev, ...cloned]);
+    setShowTemplates(false);
+    setToast({ type: 'success', message: `Template "${template.name}" loaded.` });
+  };
+
+  const deleteTemplate = async (id, name) => {
+    if (!(await confirm(`Delete template "${name}"?`))) return;
+    const { error } = await supabase.from('beat_sheet_templates').delete().eq('id', id);
+    if (error) { console.error('Delete template error:', error); return; }
+    fetchTemplates();
+  };
+
+  // ─── drag end ──────────────────────────────────────────────────────────────
   const handleDragEnd = (result) => {
-    if (!result.destination) return;
-    const reordered = Array.from(beats);
-    const [moved] = reordered.splice(result.source.index, 1);
-    reordered.splice(result.destination.index, 0, moved);
-    setBeats(reordered);
+    const { source, destination, draggableId } = result;
+    if (!destination) return;
+    if (source.droppableId === destination.droppableId && source.index === destination.index) return;
+
+    const srcIsTop = source.droppableId === 'top-level';
+    const dstIsTop = destination.droppableId === 'top-level';
+    const srcSegId = !srcIsTop ? source.droppableId.replace('segment-', '') : null;
+    const dstSegId = !dstIsTop ? destination.droppableId.replace('segment-', '') : null;
+
+    // Prevent dropping a segment into another segment
+    const draggedIsSegment = beats.some(item => isSegment(item) && item.id === draggableId);
+    if (draggedIsSegment && !dstIsTop) return;
+
+    if (srcIsTop && dstIsTop) {
+      // Reorder within top level (beats and segments)
+      const reordered = Array.from(beats);
+      const [moved] = reordered.splice(source.index, 1);
+      reordered.splice(destination.index, 0, moved);
+      setBeats(reordered);
+    } else if (srcIsTop && !dstIsTop) {
+      // Move beat from top level into a segment
+      setBeats(prev => {
+        const item = prev[source.index];
+        if (isSegment(item)) return prev;
+        const withoutItem = [...prev];
+        withoutItem.splice(source.index, 1);
+        return withoutItem.map(i => {
+          if (!isSegment(i) || i.id !== dstSegId) return i;
+          const children = Array.from(i.children);
+          children.splice(destination.index, 0, item);
+          return { ...i, children };
+        });
+      });
+    } else if (!srcIsTop && dstIsTop) {
+      // Move beat from segment to top level
+      setBeats(prev => {
+        let movedBeat = null;
+        const updated = prev.map(item => {
+          if (!isSegment(item) || item.id !== srcSegId) return item;
+          const children = Array.from(item.children);
+          [movedBeat] = children.splice(source.index, 1);
+          return { ...item, children };
+        });
+        if (!movedBeat) return prev;
+        const result = Array.from(updated);
+        result.splice(destination.index, 0, movedBeat);
+        return result;
+      });
+    } else if (srcSegId === dstSegId) {
+      // Reorder within same segment
+      setBeats(prev => prev.map(item => {
+        if (!isSegment(item) || item.id !== srcSegId) return item;
+        const children = Array.from(item.children);
+        const [moved] = children.splice(source.index, 1);
+        children.splice(destination.index, 0, moved);
+        return { ...item, children };
+      }));
+    } else {
+      // Move beat between different segments
+      setBeats(prev => {
+        let movedBeat = null;
+        const updated = prev.map(item => {
+          if (!isSegment(item)) return item;
+          if (item.id === srcSegId) {
+            const children = Array.from(item.children);
+            [movedBeat] = children.splice(source.index, 1);
+            return { ...item, children };
+          }
+          return item;
+        });
+        if (!movedBeat) return prev;
+        return updated.map(item => {
+          if (!isSegment(item) || item.id !== dstSegId) return item;
+          const children = Array.from(item.children);
+          children.splice(destination.index, 0, movedBeat);
+          return { ...item, children };
+        });
+      });
+    }
   };
 
   const toggleFolder = (folderId) => {
@@ -523,7 +832,7 @@ export default function Production() {
           Authorization: `Bearer ${session.access_token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ folderId: driveFolderId, title, beats }),
+        body: JSON.stringify({ folderId: driveFolderId, title, beats: flattenBeats(beats) }),
       });
       if (!resp.ok) throw new Error(await resp.text());
       const data = await resp.json();
@@ -563,7 +872,7 @@ export default function Production() {
       const divider = '<div style="border-top:1px solid rgba(255,255,255,0.12); margin:1.8em 0;"></div>';
 
       // Build HTML: graphics cues, beat content (no context), video cues
-      const htmlParts = beats
+      const htmlParts = flattenBeats(beats)
         .filter(b => b.title.trim())
         .map(b => {
           const parts = [];
@@ -596,6 +905,271 @@ export default function Production() {
     }
     setPushingScript(false);
   };
+
+  // ─── renderBeatRow (reused for top-level + segment-internal) ────────────────
+  const renderBeatRow = (beat, provided, snapshot, parentSegmentId) => (
+    <div
+      ref={provided.innerRef}
+      {...provided.draggableProps}
+      onContextMenu={e => {
+        e.preventDefault();
+        setContextMenu({ x: e.clientX, y: e.clientY, beatId: beat.id, segmentId: parentSegmentId });
+      }}
+      style={{
+        ...styles.beatRow,
+        ...(snapshot.isDragging ? { boxShadow: '0 8px 32px rgba(99,102,241,0.25)', border: '1px solid rgba(99,102,241,0.3)' } : {}),
+        ...provided.draggableProps.style,
+      }}
+    >
+      {/* Drag handle */}
+      <div {...provided.dragHandleProps} style={styles.dragHandle} title="Drag to reorder">
+        <svg width="12" height="16" viewBox="0 0 12 16" fill="rgba(255,255,255,0.25)">
+          <circle cx="3" cy="2" r="1.5" /><circle cx="9" cy="2" r="1.5" />
+          <circle cx="3" cy="6" r="1.5" /><circle cx="9" cy="6" r="1.5" />
+          <circle cx="3" cy="10" r="1.5" /><circle cx="9" cy="10" r="1.5" />
+          <circle cx="3" cy="14" r="1.5" /><circle cx="9" cy="14" r="1.5" />
+        </svg>
+      </div>
+
+      {/* Col 1: Beat + Context */}
+      <div style={styles.beatCol}>
+        <textarea
+          value={beat.title}
+          onChange={e => { updateBeat(beat.id, 'title', e.target.value); autoResize(e.target); }}
+          onKeyDown={e => handleBulletKeyDown(e, beat.id, 'title')}
+          data-autoresize="true"
+          placeholder="Beat..."
+          rows={1}
+          style={styles.beatInput}
+        />
+        {expandedContexts.has(beat.id) ? (
+          <textarea
+            value={beat.context}
+            onChange={e => { updateBeat(beat.id, 'context', e.target.value); autoResize(e.target); }}
+            onKeyDown={e => handleBulletKeyDown(e, beat.id, 'context')}
+            data-autoresize="true"
+            placeholder="Context... (type • or - for bullets)"
+            rows={1}
+            style={styles.contextInput}
+          />
+        ) : (
+          <button
+            onClick={() => setExpandedContexts(prev => new Set([...prev, beat.id]))}
+            style={styles.addContextBtn}
+          >
+            + Context
+          </button>
+        )}
+      </div>
+
+      {/* Col 2: Graphics */}
+      <div
+        style={{
+          ...styles.tagCol,
+          ...(dropHighlight === `${beat.id}-graphics` ? styles.tagColDrop : {}),
+        }}
+        onDragOver={e => {
+          if (e.dataTransfer.types.includes('Files')) {
+            e.preventDefault();
+            setDropHighlight(`${beat.id}-graphics`);
+          } else if (tagDragRef.current?.field === 'graphics' && tagDragRef.current?.beatId !== beat.id) {
+            e.preventDefault();
+            setDropHighlight(`${beat.id}-graphics`);
+          }
+        }}
+        onDragLeave={e => {
+          if (!e.currentTarget.contains(e.relatedTarget)) setDropHighlight(null);
+        }}
+        onDrop={e => {
+          setDropHighlight(null);
+          if (e.dataTransfer.files.length > 0) {
+            e.preventDefault();
+            Array.from(e.dataTransfer.files).forEach(f => {
+              if (f.type.startsWith('image/') || f.type.startsWith('video/')) {
+                uploadBeatMedia(beat.id, 'graphics', f);
+              }
+            });
+          } else {
+            const d = tagDragRef.current;
+            if (d && d.field === 'graphics' && d.beatId !== beat.id) {
+              e.preventDefault();
+              moveTagAcrossBeats(d.beatId, d.field, d.fromIndex, beat.id);
+              tagDragRef.current = null;
+            }
+          }
+        }}
+      >
+        {beat.graphics.map((g, i) => {
+          const isMediaItem = typeof g === 'object' && g.url;
+          if (isMediaItem) {
+            return (
+              <div key={i} style={styles.mediaThumb}>
+                {g.type === 'image'
+                  ? <img src={g.url} alt={g.name} style={styles.mediaImg} />
+                  : (
+                    <div style={styles.mediaVideoIcon}>
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="rgba(165,180,252,0.7)" strokeWidth="1.5">
+                        <rect x="1" y="3" width="10" height="10" rx="1.5" />
+                        <path d="M11 6l4-2v8l-4-2V6z" />
+                      </svg>
+                    </div>
+                  )}
+                <span style={styles.mediaName}>{g.name}</span>
+                <button onClick={() => removeTag(beat.id, 'graphics', i)} style={styles.tagRemove}>&times;</button>
+              </div>
+            );
+          }
+          return (
+            <span
+              key={i}
+              style={{ ...styles.tag, cursor: 'grab' }}
+              draggable
+              onDragStart={() => { tagDragRef.current = { beatId: beat.id, field: 'graphics', fromIndex: i }; }}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                const d = tagDragRef.current;
+                if (!d || d.beatId !== beat.id || d.field !== 'graphics' || d.fromIndex === i) return;
+                reorderTag(d.beatId, d.field, d.fromIndex, i);
+                tagDragRef.current = null;
+              }}
+            >
+              <span style={styles.tagText}>{g}</span>
+              <button onClick={() => removeTag(beat.id, 'graphics', i)} style={styles.tagRemove}>&times;</button>
+            </span>
+          );
+        })}
+        {uploadingCells[`${beat.id}-graphics`] && (
+          <div style={styles.uploadingIndicator}>Uploading...</div>
+        )}
+        <input
+          value={tagInputs[`${beat.id}-graphics`] || ''}
+          onChange={e => setTagInputs(prev => ({ ...prev, [`${beat.id}-graphics`]: e.target.value }))}
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              addTag(beat.id, 'graphics', e.target.value);
+              setTagInputs(prev => ({ ...prev, [`${beat.id}-graphics`]: '' }));
+            }
+          }}
+          placeholder="+ add graphic"
+          style={styles.tagInput}
+        />
+      </div>
+
+      {/* Col 3: Videos */}
+      <div
+        style={{
+          ...styles.tagCol,
+          ...(dropHighlight === `${beat.id}-videos` ? styles.tagColDrop : {}),
+        }}
+        onDragOver={e => {
+          if (e.dataTransfer.types.includes('Files')) {
+            e.preventDefault();
+            setDropHighlight(`${beat.id}-videos`);
+          } else if (tagDragRef.current?.field === 'videos' && tagDragRef.current?.beatId !== beat.id) {
+            e.preventDefault();
+            setDropHighlight(`${beat.id}-videos`);
+          }
+        }}
+        onDragLeave={e => {
+          if (!e.currentTarget.contains(e.relatedTarget)) setDropHighlight(null);
+        }}
+        onDrop={e => {
+          setDropHighlight(null);
+          if (e.dataTransfer.files.length > 0) {
+            e.preventDefault();
+            Array.from(e.dataTransfer.files).forEach(f => {
+              if (f.type.startsWith('image/') || f.type.startsWith('video/')) {
+                uploadBeatMedia(beat.id, 'videos', f);
+              }
+            });
+          } else {
+            const d = tagDragRef.current;
+            if (d && d.field === 'videos' && d.beatId !== beat.id) {
+              e.preventDefault();
+              moveTagAcrossBeats(d.beatId, d.field, d.fromIndex, beat.id);
+              tagDragRef.current = null;
+            }
+          }
+        }}
+      >
+        {beat.videos.map((v, i) => {
+          const isMediaItem = typeof v === 'object' && v.url;
+          if (isMediaItem) {
+            return (
+              <div key={i} style={styles.mediaThumb}>
+                {v.type === 'image'
+                  ? <img src={v.url} alt={v.name} style={styles.mediaImg} />
+                  : (
+                    <div style={styles.mediaVideoIcon}>
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="rgba(165,180,252,0.7)" strokeWidth="1.5">
+                        <rect x="1" y="3" width="10" height="10" rx="1.5" />
+                        <path d="M11 6l4-2v8l-4-2V6z" />
+                      </svg>
+                    </div>
+                  )}
+                <span style={styles.mediaName}>{v.name}</span>
+                <button onClick={() => removeTag(beat.id, 'videos', i)} style={styles.tagRemove}>&times;</button>
+              </div>
+            );
+          }
+          return (
+            <span
+              key={i}
+              style={{ ...styles.tag, cursor: 'grab' }}
+              draggable
+              onDragStart={() => { tagDragRef.current = { beatId: beat.id, field: 'videos', fromIndex: i }; }}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                const d = tagDragRef.current;
+                if (!d || d.beatId !== beat.id || d.field !== 'videos' || d.fromIndex === i) return;
+                reorderTag(d.beatId, d.field, d.fromIndex, i);
+                tagDragRef.current = null;
+              }}
+            >
+              <span style={styles.tagText}>{v}</span>
+              <button onClick={() => removeTag(beat.id, 'videos', i)} style={styles.tagRemove}>&times;</button>
+            </span>
+          );
+        })}
+        {uploadingCells[`${beat.id}-videos`] && (
+          <div style={styles.uploadingIndicator}>Uploading...</div>
+        )}
+        <input
+          value={tagInputs[`${beat.id}-videos`] || ''}
+          onChange={e => setTagInputs(prev => ({ ...prev, [`${beat.id}-videos`]: e.target.value }))}
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              addTag(beat.id, 'videos', e.target.value);
+              setTagInputs(prev => ({ ...prev, [`${beat.id}-videos`]: '' }));
+            }
+          }}
+          placeholder="+ add video"
+          style={styles.tagInput}
+        />
+      </div>
+
+      {/* Col 4: Notes */}
+      <div style={styles.notesCol}>
+        <textarea
+          value={beat.notes || ''}
+          onChange={e => { updateBeat(beat.id, 'notes', e.target.value); autoResize(e.target); }}
+          data-autoresize="true"
+          placeholder="Notes..."
+          rows={1}
+          style={styles.notesInput}
+        />
+      </div>
+
+      {/* Delete beat */}
+      <button onClick={() => deleteBeat(beat.id)} style={styles.deleteBeatBtn} title="Delete beat">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <path d="M2 4h10M5 4V2.5a.5.5 0 01.5-.5h3a.5.5 0 01.5.5V4M11 4v7.5a1 1 0 01-1 1H4a1 1 0 01-1-1V4" />
+        </svg>
+      </button>
+    </div>
+  );
 
   // ─── render ─────────────────────────────────────────────────────────────────
 
@@ -672,25 +1246,43 @@ export default function Production() {
                   {previewVersion.title}
                 </div>
                 <div style={{ flex: 1, overflowY: 'auto', marginBottom: 12 }}>
-                  {(previewVersion.beats || []).map((beat, i) => (
-                    <div key={beat.id || i} style={{ padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: 6, marginBottom: 4 }}>
-                      <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', fontWeight: 500 }}>
-                        {beat.title || '(empty beat)'}
+                  {(previewVersion.beats || []).map((item, i) => {
+                    if (isSegment(item)) {
+                      return (
+                        <div key={item.id || i} style={{ background: `${item.color || '#6366f1'}12`, border: `1px solid ${item.color || '#6366f1'}30`, borderLeft: `3px solid ${item.color || '#6366f1'}`, borderRadius: 6, paddingLeft: 8, paddingTop: 6, paddingBottom: 4, marginBottom: 6 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: item.color || '#6366f1', marginBottom: 4 }}>
+                            {item.title || '(untitled segment)'}
+                          </div>
+                          {(item.children || []).map((beat, j) => (
+                            <div key={beat.id || j} style={{ padding: '6px 8px', background: 'rgba(255,255,255,0.03)', borderRadius: 6, marginBottom: 3 }}>
+                              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', fontWeight: 500 }}>{beat.title || '(empty beat)'}</div>
+                              {beat.context && <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 3, whiteSpace: 'pre-wrap' }}>{beat.context}</div>}
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    }
+                    const beat = item;
+                    return (
+                      <div key={beat.id || i} style={{ padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: 6, marginBottom: 4 }}>
+                        <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', fontWeight: 500 }}>
+                          {beat.title || '(empty beat)'}
+                        </div>
+                        {beat.context && (
+                          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 4, whiteSpace: 'pre-wrap' }}>
+                            {beat.context}
+                          </div>
+                        )}
+                        {((beat.graphics && beat.graphics.length > 0) || (beat.videos && beat.videos.length > 0)) && (
+                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 4 }}>
+                            {beat.graphics?.length ? `${beat.graphics.length} graphic${beat.graphics.length !== 1 ? 's' : ''}` : ''}
+                            {beat.graphics?.length && beat.videos?.length ? ' \u00b7 ' : ''}
+                            {beat.videos?.length ? `${beat.videos.length} video${beat.videos.length !== 1 ? 's' : ''}` : ''}
+                          </div>
+                        )}
                       </div>
-                      {beat.context && (
-                        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 4, whiteSpace: 'pre-wrap' }}>
-                          {beat.context}
-                        </div>
-                      )}
-                      {((beat.graphics && beat.graphics.length > 0) || (beat.videos && beat.videos.length > 0)) && (
-                        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 4 }}>
-                          {beat.graphics?.length ? `${beat.graphics.length} graphic${beat.graphics.length !== 1 ? 's' : ''}` : ''}
-                          {beat.graphics?.length && beat.videos?.length ? ' \u00b7 ' : ''}
-                          {beat.videos?.length ? `${beat.videos.length} video${beat.videos.length !== 1 ? 's' : ''}` : ''}
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
                 <button
                   onClick={() => restoreVersion(previewVersion)}
@@ -853,7 +1445,7 @@ export default function Production() {
                                   <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => openSheet(sheet)}>
                                     <div style={styles.sheetTitle}>{sheet.title}</div>
                                     <div style={styles.sheetMeta}>
-                                      {(sheet.beats || []).length} beat{(sheet.beats || []).length !== 1 ? 's' : ''}
+                                      {countBeats(sheet.beats || [])} beat{countBeats(sheet.beats || []) !== 1 ? 's' : ''}
                                       {' \u00b7 '}{timeAgo(sheet.updated_at)}
                                     </div>
                                   </div>
@@ -938,7 +1530,7 @@ export default function Production() {
                                   <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => openSheet(sheet)}>
                                     <div style={styles.sheetTitle}>{sheet.title}</div>
                                     <div style={styles.sheetMeta}>
-                                      {(sheet.beats || []).length} beat{(sheet.beats || []).length !== 1 ? 's' : ''}
+                                      {countBeats(sheet.beats || [])} beat{countBeats(sheet.beats || []) !== 1 ? 's' : ''}
                                       {' \u00b7 '}{timeAgo(sheet.updated_at)}
                                     </div>
                                   </div>
@@ -1023,7 +1615,7 @@ export default function Production() {
                                   <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => openSheet(sheet)}>
                                     <div style={styles.sheetTitle}>{sheet.title}</div>
                                     <div style={styles.sheetMeta}>
-                                      {(sheet.beats || []).length} beat{(sheet.beats || []).length !== 1 ? 's' : ''}
+                                      {countBeats(sheet.beats || [])} beat{countBeats(sheet.beats || []) !== 1 ? 's' : ''}
                                       {' \u00b7 '}{timeAgo(sheet.updated_at)}
                                     </div>
                                   </div>
@@ -1110,6 +1702,39 @@ export default function Production() {
           History
         </button>
 
+        <div style={{ position: 'relative' }}>
+          <button
+            ref={templateBtnRef}
+            onClick={() => { setShowTemplates(prev => !prev); if (!showTemplates) fetchTemplates(); }}
+            style={styles.btnSecondary}
+          >
+            Templates
+          </button>
+          {showTemplates && (
+            <div style={styles.templatesDropdown}>
+              <button onClick={saveAsTemplate} style={styles.templatesSaveBtn}>
+                Save Current as Template
+              </button>
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '4px 0' }} />
+              {templatesLoading ? (
+                <div style={{ padding: '12px 16px', fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>Loading...</div>
+              ) : templates.length === 0 ? (
+                <div style={{ padding: '12px 16px', fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>No templates yet</div>
+              ) : (
+                templates.map(t => (
+                  <div key={t.id} style={styles.templateRow}>
+                    <button onClick={() => loadTemplate(t)} style={styles.templateName}>
+                      <span>{t.name}</span>
+                      <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>{countBeats(t.beats || [])} beats</span>
+                    </button>
+                    <button onClick={() => deleteTemplate(t.id, t.name)} style={styles.templateDelete}>&times;</button>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+
         <span style={styles.saveIndicator}>
           {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'unsaved' ? 'Unsaved' : 'Saved'}
         </span>
@@ -1124,292 +1749,148 @@ export default function Production() {
         <div style={{ width: 36 }} />
       </div>
 
+      {/* Add beat / segment (top) */}
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8, position: 'relative' }}>
+        <div style={{ width: '20%', minWidth: 120, position: 'relative' }}>
+          <button onClick={() => setShowAddMenuTop(prev => !prev)} style={{ ...styles.addBeatBtn, width: '100%' }}>+ Add</button>
+          {showAddMenuTop && (
+            <div data-add-menu style={styles.addMenuDropdown}>
+              <button style={styles.addMenuItem} onClick={() => { addBeatToTop(); setShowAddMenuTop(false); }}>Beat</button>
+              <button style={styles.addMenuItem} onClick={() => { addSegmentToTop(); setShowAddMenuTop(false); }}>Segment</button>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Beat rows */}
       <DragDropContext onDragEnd={handleDragEnd}>
-        <Droppable droppableId="beats">
+        <Droppable droppableId="top-level" type="ITEMS">
           {(provided) => (
             <div ref={provided.innerRef} {...provided.droppableProps}>
-              {beats.map((beat, index) => (
-                <Draggable key={beat.id} draggableId={beat.id} index={index}>
-                  {(provided, snapshot) => (
-                    <div
-                      ref={provided.innerRef}
-                      {...provided.draggableProps}
-                      onContextMenu={e => {
-                        e.preventDefault();
-                        setContextMenu({ x: e.clientX, y: e.clientY, beatId: beat.id });
-                      }}
-                      style={{
-                        ...styles.beatRow,
-                        ...(snapshot.isDragging ? { boxShadow: '0 8px 32px rgba(99,102,241,0.25)', border: '1px solid rgba(99,102,241,0.3)' } : {}),
-                        ...provided.draggableProps.style,
-                      }}
-                    >
-                      {/* Drag handle */}
-                      <div {...provided.dragHandleProps} style={styles.dragHandle} title="Drag to reorder">
-                        <svg width="12" height="16" viewBox="0 0 12 16" fill="rgba(255,255,255,0.25)">
-                          <circle cx="3" cy="2" r="1.5" /><circle cx="9" cy="2" r="1.5" />
-                          <circle cx="3" cy="6" r="1.5" /><circle cx="9" cy="6" r="1.5" />
-                          <circle cx="3" cy="10" r="1.5" /><circle cx="9" cy="10" r="1.5" />
-                          <circle cx="3" cy="14" r="1.5" /><circle cx="9" cy="14" r="1.5" />
-                        </svg>
-                      </div>
-
-                      {/* Col 1: Beat + Context */}
-                      <div style={styles.beatCol}>
-                        <textarea
-                          value={beat.title}
-                          onChange={e => { updateBeat(beat.id, 'title', e.target.value); autoResize(e.target); }}
-                          onKeyDown={e => handleBulletKeyDown(e, beat.id, 'title')}
-                          data-autoresize="true"
-                          placeholder="Beat..."
-                          rows={1}
-                          style={styles.beatInput}
-                        />
-                        {expandedContexts.has(beat.id) ? (
-                          <textarea
-                            value={beat.context}
-                            onChange={e => { updateBeat(beat.id, 'context', e.target.value); autoResize(e.target); }}
-                            onKeyDown={e => handleBulletKeyDown(e, beat.id, 'context')}
-                            data-autoresize="true"
-                            placeholder="Context... (type • or - for bullets)"
-                            rows={1}
-                            style={styles.contextInput}
-                          />
-                        ) : (
-                          <button
-                            onClick={() => setExpandedContexts(prev => new Set([...prev, beat.id]))}
-                            style={styles.addContextBtn}
+              {beats.map((item, index) => {
+                if (isSegment(item)) {
+                  return (
+                    <Draggable key={item.id} draggableId={item.id} index={index}>
+                      {(provided, snapshot) => (
+                        <div
+                          ref={provided.innerRef}
+                          {...provided.draggableProps}
+                          style={{
+                            ...styles.segmentContainer,
+                            background: `${item.color || '#6366f1'}12`,
+                            border: `1px solid ${item.color || '#6366f1'}30`,
+                            borderLeft: `4px solid ${item.color || '#6366f1'}`,
+                            ...(snapshot.isDragging ? { boxShadow: `0 8px 32px ${item.color || '#6366f1'}40` } : {}),
+                            ...provided.draggableProps.style,
+                          }}
+                        >
+                          {/* Segment header */}
+                          <div
+                            style={styles.segmentHeader}
+                            onContextMenu={e => {
+                              e.preventDefault();
+                              setContextMenu({ x: e.clientX, y: e.clientY, segmentId: item.id, isSegmentHeader: true });
+                            }}
                           >
-                            + Context
-                          </button>
-                        )}
-                      </div>
+                            <div {...provided.dragHandleProps} style={styles.dragHandle} title="Drag to reorder segment">
+                              <svg width="12" height="16" viewBox="0 0 12 16" fill="rgba(255,255,255,0.25)">
+                                <circle cx="3" cy="2" r="1.5" /><circle cx="9" cy="2" r="1.5" />
+                                <circle cx="3" cy="6" r="1.5" /><circle cx="9" cy="6" r="1.5" />
+                                <circle cx="3" cy="10" r="1.5" /><circle cx="9" cy="10" r="1.5" />
+                                <circle cx="3" cy="14" r="1.5" /><circle cx="9" cy="14" r="1.5" />
+                              </svg>
+                            </div>
+                            <input
+                              value={item.title}
+                              onChange={e => updateSegment(item.id, 'title', e.target.value)}
+                              placeholder="Segment title..."
+                              style={{ ...styles.segmentTitleInput, color: item.color || '#6366f1' }}
+                            />
+                            <div style={{ position: 'relative' }}>
+                              <button
+                                onClick={() => setShowColorDropdown(prev => prev === item.id ? null : item.id)}
+                                style={{ ...styles.colorDot, background: item.color || '#6366f1', width: 20, height: 20, flexShrink: 0 }}
+                                title="Change color"
+                              />
+                              {showColorDropdown === item.id && (
+                                <div data-color-dropdown style={styles.colorDropdown}>
+                                  {SEGMENT_COLORS.map(c => (
+                                    <button
+                                      key={c}
+                                      onClick={() => { updateSegment(item.id, 'color', c); setShowColorDropdown(null); }}
+                                      style={{
+                                        ...styles.colorDot,
+                                        background: c,
+                                        width: 22,
+                                        height: 22,
+                                        outline: item.color === c ? '2px solid rgba(255,255,255,0.6)' : 'none',
+                                        outlineOffset: 2,
+                                      }}
+                                    />
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            <button onClick={() => deleteSegment(item.id)} style={styles.deleteBeatBtn} title="Delete segment">
+                              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                                <path d="M2 4h10M5 4V2.5a.5.5 0 01.5-.5h3a.5.5 0 01.5.5V4M11 4v7.5a1 1 0 01-1 1H4a1 1 0 01-1-1V4" />
+                              </svg>
+                            </button>
+                          </div>
 
-                      {/* Col 2: Graphics */}
-                      <div
-                        style={{
-                          ...styles.tagCol,
-                          ...(dropHighlight === `${beat.id}-graphics` ? styles.tagColDrop : {}),
-                        }}
-                        onDragOver={e => {
-                          if (e.dataTransfer.types.includes('Files')) {
-                            e.preventDefault();
-                            setDropHighlight(`${beat.id}-graphics`);
-                          } else if (tagDragRef.current?.field === 'graphics' && tagDragRef.current?.beatId !== beat.id) {
-                            e.preventDefault();
-                            setDropHighlight(`${beat.id}-graphics`);
-                          }
-                        }}
-                        onDragLeave={e => {
-                          if (!e.currentTarget.contains(e.relatedTarget)) setDropHighlight(null);
-                        }}
-                        onDrop={e => {
-                          setDropHighlight(null);
-                          if (e.dataTransfer.files.length > 0) {
-                            e.preventDefault();
-                            Array.from(e.dataTransfer.files).forEach(f => {
-                              if (f.type.startsWith('image/') || f.type.startsWith('video/')) {
-                                uploadBeatMedia(beat.id, 'graphics', f);
-                              }
-                            });
-                          } else {
-                            const d = tagDragRef.current;
-                            if (d && d.field === 'graphics' && d.beatId !== beat.id) {
-                              e.preventDefault();
-                              moveTagAcrossBeats(d.beatId, d.field, d.fromIndex, beat.id);
-                              tagDragRef.current = null;
-                            }
-                          }
-                        }}
-                      >
-                        {beat.graphics.map((g, i) => {
-                          const isMedia = typeof g === 'object' && g.url;
-                          if (isMedia) {
-                            return (
-                              <div key={i} style={styles.mediaThumb}>
-                                {g.type === 'image'
-                                  ? <img src={g.url} alt={g.name} style={styles.mediaImg} />
-                                  : (
-                                    <div style={styles.mediaVideoIcon}>
-                                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="rgba(165,180,252,0.7)" strokeWidth="1.5">
-                                        <rect x="1" y="3" width="10" height="10" rx="1.5" />
-                                        <path d="M11 6l4-2v8l-4-2V6z" />
-                                      </svg>
-                                    </div>
-                                  )}
-                                <span style={styles.mediaName}>{g.name}</span>
-                                <button onClick={() => removeTag(beat.id, 'graphics', i)} style={styles.tagRemove}>&times;</button>
+                          {/* Segment beats */}
+                          <Droppable droppableId={`segment-${item.id}`} type="ITEMS">
+                            {(segProvided) => (
+                              <div ref={segProvided.innerRef} {...segProvided.droppableProps} style={{ minHeight: 4 }}>
+                                {item.children.map((beat, bIdx) => (
+                                  <Draggable key={beat.id} draggableId={beat.id} index={bIdx}>
+                                    {(bProvided, bSnapshot) => renderBeatRow(beat, bProvided, bSnapshot, item.id)}
+                                  </Draggable>
+                                ))}
+                                {segProvided.placeholder}
                               </div>
-                            );
-                          }
-                          return (
-                            <span
-                              key={i}
-                              style={{ ...styles.tag, cursor: 'grab' }}
-                              draggable
-                              onDragStart={() => { tagDragRef.current = { beatId: beat.id, field: 'graphics', fromIndex: i }; }}
-                              onDragOver={(e) => e.preventDefault()}
-                              onDrop={(e) => {
-                                e.preventDefault();
-                                const d = tagDragRef.current;
-                                if (!d || d.beatId !== beat.id || d.field !== 'graphics' || d.fromIndex === i) return;
-                                reorderTag(d.beatId, d.field, d.fromIndex, i);
-                                tagDragRef.current = null;
-                              }}
-                            >
-                              <span style={styles.tagText}>{g}</span>
-                              <button onClick={() => removeTag(beat.id, 'graphics', i)} style={styles.tagRemove}>&times;</button>
-                            </span>
-                          );
-                        })}
-                        {uploadingCells[`${beat.id}-graphics`] && (
-                          <div style={styles.uploadingIndicator}>Uploading...</div>
-                        )}
-                        <input
-                          value={tagInputs[`${beat.id}-graphics`] || ''}
-                          onChange={e => setTagInputs(prev => ({ ...prev, [`${beat.id}-graphics`]: e.target.value }))}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter') {
-                              addTag(beat.id, 'graphics', e.target.value);
-                              setTagInputs(prev => ({ ...prev, [`${beat.id}-graphics`]: '' }));
-                            }
-                          }}
-                          placeholder="+ add graphic"
-                          style={styles.tagInput}
-                        />
-                      </div>
+                            )}
+                          </Droppable>
 
-                      {/* Col 3: Videos */}
-                      <div
-                        style={{
-                          ...styles.tagCol,
-                          ...(dropHighlight === `${beat.id}-videos` ? styles.tagColDrop : {}),
-                        }}
-                        onDragOver={e => {
-                          if (e.dataTransfer.types.includes('Files')) {
-                            e.preventDefault();
-                            setDropHighlight(`${beat.id}-videos`);
-                          } else if (tagDragRef.current?.field === 'videos' && tagDragRef.current?.beatId !== beat.id) {
-                            e.preventDefault();
-                            setDropHighlight(`${beat.id}-videos`);
-                          }
-                        }}
-                        onDragLeave={e => {
-                          if (!e.currentTarget.contains(e.relatedTarget)) setDropHighlight(null);
-                        }}
-                        onDrop={e => {
-                          setDropHighlight(null);
-                          if (e.dataTransfer.files.length > 0) {
-                            e.preventDefault();
-                            Array.from(e.dataTransfer.files).forEach(f => {
-                              if (f.type.startsWith('image/') || f.type.startsWith('video/')) {
-                                uploadBeatMedia(beat.id, 'videos', f);
-                              }
-                            });
-                          } else {
-                            const d = tagDragRef.current;
-                            if (d && d.field === 'videos' && d.beatId !== beat.id) {
-                              e.preventDefault();
-                              moveTagAcrossBeats(d.beatId, d.field, d.fromIndex, beat.id);
-                              tagDragRef.current = null;
-                            }
-                          }
-                        }}
-                      >
-                        {beat.videos.map((v, i) => {
-                          const isMedia = typeof v === 'object' && v.url;
-                          if (isMedia) {
-                            return (
-                              <div key={i} style={styles.mediaThumb}>
-                                {v.type === 'image'
-                                  ? <img src={v.url} alt={v.name} style={styles.mediaImg} />
-                                  : (
-                                    <div style={styles.mediaVideoIcon}>
-                                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="rgba(165,180,252,0.7)" strokeWidth="1.5">
-                                        <rect x="1" y="3" width="10" height="10" rx="1.5" />
-                                        <path d="M11 6l4-2v8l-4-2V6z" />
-                                      </svg>
-                                    </div>
-                                  )}
-                                <span style={styles.mediaName}>{v.name}</span>
-                                <button onClick={() => removeTag(beat.id, 'videos', i)} style={styles.tagRemove}>&times;</button>
-                              </div>
-                            );
-                          }
-                          return (
-                            <span
-                              key={i}
-                              style={{ ...styles.tag, cursor: 'grab' }}
-                              draggable
-                              onDragStart={() => { tagDragRef.current = { beatId: beat.id, field: 'videos', fromIndex: i }; }}
-                              onDragOver={(e) => e.preventDefault()}
-                              onDrop={(e) => {
-                                e.preventDefault();
-                                const d = tagDragRef.current;
-                                if (!d || d.beatId !== beat.id || d.field !== 'videos' || d.fromIndex === i) return;
-                                reorderTag(d.beatId, d.field, d.fromIndex, i);
-                                tagDragRef.current = null;
-                              }}
-                            >
-                              <span style={styles.tagText}>{v}</span>
-                              <button onClick={() => removeTag(beat.id, 'videos', i)} style={styles.tagRemove}>&times;</button>
-                            </span>
-                          );
-                        })}
-                        {uploadingCells[`${beat.id}-videos`] && (
-                          <div style={styles.uploadingIndicator}>Uploading...</div>
-                        )}
-                        <input
-                          value={tagInputs[`${beat.id}-videos`] || ''}
-                          onChange={e => setTagInputs(prev => ({ ...prev, [`${beat.id}-videos`]: e.target.value }))}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter') {
-                              addTag(beat.id, 'videos', e.target.value);
-                              setTagInputs(prev => ({ ...prev, [`${beat.id}-videos`]: '' }));
-                            }
-                          }}
-                          placeholder="+ add video"
-                          style={styles.tagInput}
-                        />
-                      </div>
+                          <button onClick={() => addBeatToSegment(item.id)} style={styles.addBeatInSegmentBtn}>+ Beat</button>
+                        </div>
+                      )}
+                    </Draggable>
+                  );
+                }
 
-                      {/* Col 4: Notes */}
-                      <div style={styles.notesCol}>
-                        <textarea
-                          value={beat.notes || ''}
-                          onChange={e => { updateBeat(beat.id, 'notes', e.target.value); autoResize(e.target); }}
-                          data-autoresize="true"
-                          placeholder="Notes..."
-                          rows={1}
-                          style={styles.notesInput}
-                        />
-                      </div>
-
-                      {/* Delete beat */}
-                      <button onClick={() => deleteBeat(beat.id)} style={styles.deleteBeatBtn} title="Delete beat">
-                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-                          <path d="M2 4h10M5 4V2.5a.5.5 0 01.5-.5h3a.5.5 0 01.5.5V4M11 4v7.5a1 1 0 01-1 1H4a1 1 0 01-1-1V4" />
-                        </svg>
-                      </button>
-                    </div>
-                  )}
-                </Draggable>
-              ))}
+                // Top-level beat
+                const beat = item;
+                return (
+                  <Draggable key={beat.id} draggableId={beat.id} index={index}>
+                    {(provided, snapshot) => renderBeatRow(beat, provided, snapshot, null)}
+                  </Draggable>
+                );
+              })}
               {provided.placeholder}
             </div>
           )}
         </Droppable>
       </DragDropContext>
 
-      {/* Add beat */}
-      <button onClick={addBeat} style={styles.addBeatBtn}>+ Beat</button>
+      {/* Add beat / segment (bottom) */}
+      <div style={{ display: 'flex', justifyContent: 'center', marginTop: 4, position: 'relative' }}>
+        <div style={{ width: '20%', minWidth: 120, position: 'relative' }}>
+          <button onClick={() => setShowAddMenuBottom(prev => !prev)} style={{ ...styles.addBeatBtn, width: '100%' }}>+ Add</button>
+          {showAddMenuBottom && (
+            <div data-add-menu style={{ ...styles.addMenuDropdown, bottom: '100%', top: 'auto', marginBottom: 6, marginTop: 0 }}>
+              <button style={styles.addMenuItem} onClick={() => { addBeat(); setShowAddMenuBottom(false); }}>Beat</button>
+              <button style={styles.addMenuItem} onClick={() => { addSegment(); setShowAddMenuBottom(false); }}>Segment</button>
+            </div>
+          )}
+        </div>
+      </div>
 
       {renderFolderBrowser()}
       {renderVersionHistory()}
       {renderToast()}
 
-      {/* Beat context menu */}
+      {/* Context menu */}
       {contextMenu && (
         <div
           style={styles.contextMenuBackdrop}
@@ -1417,18 +1898,64 @@ export default function Production() {
           onContextMenu={e => { e.preventDefault(); setContextMenu(null); }}
         >
           <div style={{ ...styles.contextMenuPopup, top: contextMenu.y, left: contextMenu.x }}>
-            <button
-              style={styles.contextMenuItem}
-              onClick={() => { duplicateBeat(contextMenu.beatId); setContextMenu(null); }}
-            >
-              Duplicate
-            </button>
-            <button
-              style={{ ...styles.contextMenuItem, color: '#ef4444' }}
-              onClick={() => { deleteBeat(contextMenu.beatId); setContextMenu(null); }}
-            >
-              Delete
-            </button>
+            {contextMenu.isSegmentHeader ? (
+              <>
+                <button
+                  style={styles.contextMenuItem}
+                  onClick={() => { dissolveSegment(contextMenu.segmentId); setContextMenu(null); }}
+                >
+                  Dissolve Segment
+                </button>
+                <button
+                  style={{ ...styles.contextMenuItem, color: '#ef4444' }}
+                  onClick={() => { deleteSegment(contextMenu.segmentId); setContextMenu(null); }}
+                >
+                  Delete Segment
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  style={styles.contextMenuItem}
+                  onClick={() => { duplicateBeat(contextMenu.beatId); setContextMenu(null); }}
+                >
+                  Duplicate
+                </button>
+                <button
+                  style={{ ...styles.contextMenuItem, color: '#ef4444' }}
+                  onClick={() => { deleteBeat(contextMenu.beatId); setContextMenu(null); }}
+                >
+                  Delete
+                </button>
+                {/* Move to Segment — only show for top-level beats when segments exist */}
+                {!contextMenu.segmentId && beats.some(isSegment) && (
+                  <>
+                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '4px 0' }} />
+                    {beats.filter(isSegment).map(seg => (
+                      <button
+                        key={seg.id}
+                        style={styles.contextMenuItem}
+                        onClick={() => { moveBeatToSegment(contextMenu.beatId, seg.id); setContextMenu(null); }}
+                      >
+                        Move to {seg.title || 'Untitled Segment'}
+                      </button>
+                    ))}
+                  </>
+                )}
+                {/* Move to Top Level — only show for beats inside a segment */}
+                {contextMenu.segmentId && (
+                  <>
+                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '4px 0' }} />
+                    <button
+                      style={styles.contextMenuItem}
+                      onClick={() => { moveBeatToTopLevel(contextMenu.beatId); setContextMenu(null); }}
+                    >
+                      Move to Top Level
+                    </button>
+                  </>
+                )}
+              </>
+            )}
           </div>
         </div>
       )}
@@ -1945,6 +2472,153 @@ const styles = {
     fontSize: 13,
     fontFamily: "'DM Sans', sans-serif",
     outline: 'none',
+  },
+
+  // ── add menu ──
+  addMenuDropdown: {
+    position: 'absolute',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    top: '100%',
+    marginTop: 6,
+    background: '#1e1e2e',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: 8,
+    padding: '4px 0',
+    minWidth: 120,
+    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+    zIndex: 100,
+  },
+  addMenuItem: {
+    display: 'block',
+    width: '100%',
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 13,
+    fontFamily: "'DM Sans', sans-serif",
+    padding: '8px 16px',
+    textAlign: 'left',
+    cursor: 'pointer',
+  },
+
+  // ── segments ──
+  segmentContainer: {
+    borderRadius: 10,
+    marginBottom: 6,
+    padding: '8px 0 4px',
+  },
+  segmentHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '0 8px 8px',
+  },
+  segmentTitleInput: {
+    flex: 1,
+    background: 'none',
+    border: 'none',
+    fontSize: 14,
+    fontWeight: 700,
+    fontFamily: "'DM Sans', sans-serif",
+    outline: 'none',
+    padding: '4px 8px',
+    color: '#6366f1',
+  },
+  colorDropdown: {
+    position: 'absolute',
+    top: '100%',
+    right: 0,
+    marginTop: 6,
+    background: '#1e1e2e',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: 8,
+    padding: 8,
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 6,
+    width: 130,
+    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+    zIndex: 100,
+  },
+  colorDot: {
+    width: 14,
+    height: 14,
+    borderRadius: '50%',
+    border: 'none',
+    cursor: 'pointer',
+    padding: 0,
+    flexShrink: 0,
+  },
+  addBeatInSegmentBtn: {
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.25)',
+    fontSize: 12,
+    cursor: 'pointer',
+    fontFamily: "'DM Sans', sans-serif",
+    padding: '6px 36px',
+    textAlign: 'left',
+  },
+
+  // ── templates ──
+  templatesDropdown: {
+    position: 'absolute',
+    top: '100%',
+    right: 0,
+    marginTop: 6,
+    background: '#1e1e2e',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: 10,
+    padding: '6px 0',
+    minWidth: 240,
+    maxHeight: 340,
+    overflowY: 'auto',
+    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+    zIndex: 100,
+  },
+  templatesSaveBtn: {
+    display: 'block',
+    width: '100%',
+    background: 'none',
+    border: 'none',
+    color: '#818cf8',
+    fontSize: 13,
+    fontWeight: 600,
+    fontFamily: "'DM Sans', sans-serif",
+    padding: '10px 16px',
+    textAlign: 'left',
+    cursor: 'pointer',
+  },
+  templateRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 4,
+  },
+  templateName: {
+    flex: 1,
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 13,
+    fontFamily: "'DM Sans', sans-serif",
+    padding: '8px 16px',
+    textAlign: 'left',
+    cursor: 'pointer',
+    minWidth: 0,
+  },
+  templateDelete: {
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.3)',
+    fontSize: 16,
+    cursor: 'pointer',
+    padding: '4px 12px 4px 0',
+    flexShrink: 0,
   },
 
   // ── context menu ──
