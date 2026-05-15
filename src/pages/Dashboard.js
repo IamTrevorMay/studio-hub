@@ -108,6 +108,7 @@ export default function Dashboard({ onNavigate }) {
   const [announcements, setAnnouncements] = useState([]);
   const [announcementsLoading, setAnnouncementsLoading] = useState(false);
   const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
+  const [announcementsCollapsed, setAnnouncementsCollapsed] = useState(false);
   const [announcementToolbarOpen, setAnnouncementToolbarOpen] = useState(true);
 
   // Todo list state
@@ -1534,11 +1535,23 @@ export default function Dashboard({ onNavigate }) {
   }
 
   function renderAnnouncements({ showInput }) {
+    const unreadCount = announcements.filter(a => !a.isRead).length;
     return (
       <div style={styles.announcementsSection}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h3 style={styles.subSectionTitle}>Announcements</h3>
-          {showInput && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: announcementsCollapsed ? 0 : undefined }}>
+          <h3
+            onClick={() => setAnnouncementsCollapsed(prev => !prev)}
+            style={{ ...styles.subSectionTitle, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, userSelect: 'none' }}
+          >
+            <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)' }}>{announcementsCollapsed ? '▶' : '▼'}</span>
+            Announcements
+            {announcementsCollapsed && unreadCount > 0 && (
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#6366f1', marginLeft: 4 }}>
+                {unreadCount} unread
+              </span>
+            )}
+          </h3>
+          {!announcementsCollapsed && showInput && (
             <button
               onClick={() => { announcementEditor?.commands.clearContent(); setShowAnnouncementModal(true); }}
               style={styles.postAnnouncementBtn}
@@ -1547,42 +1560,44 @@ export default function Dashboard({ onNavigate }) {
             </button>
           )}
         </div>
-        {announcementsLoading ? (
-          <p style={styles.emptyText}>Loading...</p>
-        ) : announcements.length === 0 ? (
-          <p style={{ ...styles.emptyText, marginTop: '8px' }}>No announcements today</p>
-        ) : (
-          <div style={styles.announcementList}>
-            {announcements.map(a => (
-              <div key={a.id} style={{
-                ...styles.announcementItem,
-                borderLeft: a.isRead ? '3px solid rgba(255,255,255,0.1)' : '3px solid #6366f1',
-              }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  {renderAnnouncementContent(a.content)}
-                  <span style={styles.announcementMeta}>
-                    {a.creator?.full_name} &middot; {new Date(a.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                  </span>
+        {!announcementsCollapsed && (
+          announcementsLoading ? (
+            <p style={styles.emptyText}>Loading...</p>
+          ) : announcements.length === 0 ? (
+            <p style={{ ...styles.emptyText, marginTop: '8px' }}>No announcements today</p>
+          ) : (
+            <div style={styles.announcementList}>
+              {announcements.map(a => (
+                <div key={a.id} style={{
+                  ...styles.announcementItem,
+                  borderLeft: a.isRead ? '3px solid rgba(255,255,255,0.1)' : '3px solid #6366f1',
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    {renderAnnouncementContent(a.content)}
+                    <span style={styles.announcementMeta}>
+                      {a.creator?.full_name} &middot; {new Date(a.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  <div style={styles.announcementActions}>
+                    {!a.isRead && (
+                      <button onClick={() => markAnnouncementRead(a.id)} style={styles.readBtn}>
+                        Mark Read
+                      </button>
+                    )}
+                    {a.created_by === profile.id && (
+                      <button
+                        onClick={() => deleteAnnouncement(a.id)}
+                        style={{ ...styles.itineraryActionBtn, color: '#ef4444' }}
+                        title="Delete"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <div style={styles.announcementActions}>
-                  {!a.isRead && (
-                    <button onClick={() => markAnnouncementRead(a.id)} style={styles.readBtn}>
-                      Mark Read
-                    </button>
-                  )}
-                  {a.created_by === profile.id && (
-                    <button
-                      onClick={() => deleteAnnouncement(a.id)}
-                      style={{ ...styles.itineraryActionBtn, color: '#ef4444' }}
-                      title="Delete"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )
         )}
       </div>
     );
