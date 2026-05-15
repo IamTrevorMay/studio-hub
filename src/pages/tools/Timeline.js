@@ -3,14 +3,7 @@ import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
 
 const TIMELINE_SERVICE_URL = 'http://localhost:8420';
-
-const CONFIDENCE_COLORS = {
-  high:   'rgba(34, 197, 94, 0.85)',
-  medium: 'rgba(234, 179, 8, 0.85)',
-  low:    'rgba(249, 115, 22, 0.85)',
-  manual: 'rgba(239, 68, 68, 0.85)',
-  unmatched: 'rgba(239, 68, 68, 0.5)',
-};
+const DRIVE_UPLOAD_URL = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/drive-upload-init`;
 
 const WHISPER_MODELS = [
   { value: 'base', label: 'Base (fastest)' },
@@ -19,40 +12,18 @@ const WHISPER_MODELS = [
   { value: 'large-v3', label: 'Large v3 (most accurate)' },
 ];
 
-function formatTimecode(seconds) {
-  if (!seconds || seconds <= 0) return '--:--:--';
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  const f = Math.floor((seconds % 1) * 30);
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}:${String(f).padStart(2, '0')}`;
-}
-
-function confidenceTier(beat) {
-  if (beat.manual) return 'manual';
-  if (beat.confidence >= 0.8) return 'high';
-  if (beat.confidence >= 0.5) return 'medium';
-  if (beat.confidence > 0) return 'low';
-  return 'unmatched';
-}
-
-function confidenceLabel(tier) {
-  return { high: 'High', medium: 'Med', low: 'Low', manual: 'Manual', unmatched: 'Unmatched' }[tier];
-}
-
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function Timeline() {
-  const { profile, isAdmin, isAssistant } = useAuth();
+  const { profile } = useAuth();
 
   // Step state
-  const [step, setStep] = useState('setup'); // setup | processing | review | exporting | done
+  const [step, setStep] = useState('setup'); // setup | processing | done
 
   // Setup state
   const [sheets, setSheets] = useState([]);
   const [selectedSheetId, setSelectedSheetId] = useState('');
-  const [videoFile, setVideoFile] = useState(null);
-  const [videoPath, setVideoPath] = useState('');
+  const [videoPaths, setVideoPaths] = useState(['']); // array of file paths
   const [whisperModel, setWhisperModel] = useState('medium');
   const [serviceOnline, setServiceOnline] = useState(null);
 
@@ -60,24 +31,15 @@ export default function Timeline() {
   const [processStatus, setProcessStatus] = useState('');
   const [processProgress, setProcessProgress] = useState(0);
 
-  // Review state
-  const [alignedBeats, setAlignedBeats] = useState([]);
-  const [unmatchedIds, setUnmatchedIds] = useState([]);
-  const [transcript, setTranscript] = useState(null);
-  const [duration, setDuration] = useState(0);
-  const [sourceFilename, setSourceFilename] = useState('');
-  const [placingBeatId, setPlacingBeatId] = useState(null);
-
-  // Video preview
-  const videoRef = useRef(null);
-  const videoUrlRef = useRef(null);
-  const [currentTime, setCurrentTime] = useState(0);
+  // Done state
+  const [doneInfo, setDoneInfo] = useState(null);
+  // { sourceFilename, matched, total, unmatched, multiTakeCount, fileCount, driveUploaded }
 
   // ─── Fetch beat sheets ──────────────────────────────────────────────────────
   const fetchSheets = useCallback(async () => {
     const { data } = await supabase
       .from('beat_sheets')
-      .select('id, title, beats, updated_at')
+      .select('id, title, beats, drive_folder_id, updated_at')
       .eq('is_archived', false)
       .order('updated_at', { ascending: false });
     setSheets(data || []);
@@ -101,30 +63,89 @@ export default function Timeline() {
     return () => { mounted = false; clearInterval(interval); };
   }, []);
 
-  // ─── Set video preview URL from path (streamed via local service) ────────
-  useEffect(() => {
-    if (videoPath.trim()) {
-      videoUrlRef.current = `${TIMELINE_SERVICE_URL}/video?path=${encodeURIComponent(videoPath.trim())}`;
-    }
-  }, [videoPath]);
-
-  // ─── Handle file selection (for file picker preview) ──────────────────────
-  function handleFileChange(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setVideoFile(file);
+  // ─── Multi-file path management ────────────────────────────────────────────
+  function addPathField() {
+    setVideoPaths(prev => [...prev, '']);
+  }
+  function updatePath(index, value) {
+    setVideoPaths(prev => prev.map((p, i) => i === index ? value : p));
+  }
+  function removePath(index) {
+    setVideoPaths(prev => prev.filter((_, i) => i !== index));
+  }
+  function movePathUp(index) {
+    if (index === 0) return;
+    setVideoPaths(prev => {
+      const next = [...prev];
+      [next[index - 1], next[index]] = [next[index], next[index - 1]];
+      return next;
+    });
+  }
+  function movePathDown(index) {
+    setVideoPaths(prev => {
+      if (index >= prev.length - 1) return prev;
+      const next = [...prev];
+      [next[index], next[index + 1]] = [next[index + 1], next[index]];
+      return next;
+    });
   }
 
-  // ─── Process: send file path to local service ──────────────────────────────
+  const validPaths = videoPaths.filter(p => p.trim());
+
+  // ─── Drive upload helper ───────────────────────────────────────────────────
+  async function uploadAAFToDrive(blob, filename, folderId) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return false;
+
+      const initRes = await fetch(DRIVE_UPLOAD_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          filename,
+          parentFolderId: folderId,
+          mimeType: 'application/octet-stream',
+          sizeBytes: blob.size,
+        }),
+      });
+
+      if (!initRes.ok) return false;
+      const { uploadUrl } = await initRes.json();
+
+      const putRes = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': blob.size.toString(),
+        },
+        body: blob,
+      });
+
+      return putRes.ok;
+    } catch (e) {
+      console.error('Drive upload failed:', e);
+      return false;
+    }
+  }
+
+  // ─── Process: send file paths to local service ─────────────────────────────
   async function handleProcess() {
     const sheet = sheets.find(s => s.id === selectedSheetId);
-    if (!sheet || !videoPath.trim()) return;
+    if (!sheet || !validPaths.length) return;
 
     setStep('processing');
-    setProcessStatus('Starting Whisper transcription...');
-    setProcessProgress(15);
+    setProcessProgress(10);
 
-    // Build beat sheet payload matching the Python model
+    const fileCount = validPaths.length;
+    if (fileCount > 1) {
+      setProcessStatus(`Concatenating ${fileCount} video files...`);
+    } else {
+      setProcessStatus('Starting Whisper transcription...');
+    }
+
     const beatSheet = {
       id: sheet.id,
       title: sheet.title,
@@ -138,9 +159,6 @@ export default function Timeline() {
       })),
     };
 
-    // Send file path — service reads directly from disk (no upload needed)
-    const filePath = videoPath;
-
     try {
       setProcessProgress(20);
       setProcessStatus('Transcribing audio with Whisper (this takes 2-3 min for a 20 min video)...');
@@ -149,9 +167,10 @@ export default function Timeline() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          file_path: filePath,
+          file_paths: validPaths,
           beat_sheet: beatSheet,
           whisper_model: whisperModel,
+          use_llm_fallback: true,
         }),
       });
 
@@ -172,7 +191,7 @@ export default function Timeline() {
       setProcessProgress(90);
       setProcessStatus(`Aligned ${matched}/${aligned.length} beats. Generating AAF...`);
 
-      // Auto-generate and download AAF
+      // Generate AAF
       const aafRes = await fetch(`${TIMELINE_SERVICE_URL}/generate-aaf`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -187,22 +206,38 @@ export default function Timeline() {
       if (!aafRes.ok) throw new Error(`AAF generation failed: ${aafRes.status}`);
 
       const blob = await aafRes.blob();
+      const fname = data.source_filename.replace(/\.[^.]+$/, '');
+      const aafFilename = `${fname}_timeline.aaf`;
+
+      // Download
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      const fname = data.source_filename.replace(/\.[^.]+$/, '');
       a.href = url;
-      a.download = `${fname}_timeline.aaf`;
+      a.download = aafFilename;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
 
-      setAlignedBeats(aligned);
-      setUnmatchedIds(unmatched);
-      setDuration(data.duration_s);
-      setSourceFilename(data.source_filename);
+      // Drive upload (if beat sheet has a drive folder)
+      let driveUploaded = false;
+      const driveFolderId = sheet.drive_folder_id;
+      if (driveFolderId) {
+        setProcessProgress(95);
+        setProcessStatus('Uploading AAF to Google Drive...');
+        driveUploaded = await uploadAAFToDrive(blob, aafFilename, driveFolderId);
+      }
+
       setProcessProgress(100);
-      setProcessStatus(`Done! ${matched}/${aligned.length} beats aligned. AAF downloaded.`);
+      setDoneInfo({
+        sourceFilename: data.source_filename,
+        matched,
+        total: aligned.length,
+        unmatched: unmatched.length,
+        multiTakeCount: data.multi_take_count || 0,
+        fileCount: data.file_count || 1,
+        driveUploaded,
+      });
       setStep('done');
     } catch (err) {
       console.error('Process error:', err);
@@ -212,70 +247,9 @@ export default function Timeline() {
     }
   }
 
-  // ─── Manual beat placement ─────────────────────────────────────────────────
-  function handleTimelineClick(e) {
-    if (!placingBeatId || !duration) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const frac = (e.clientX - rect.left) / rect.width;
-    const tc = frac * duration;
-
-    setAlignedBeats(prev => prev.map(b => {
-      if (b.beat_id !== placingBeatId) return b;
-      // Find the next beat's start for end_tc
-      const idx = prev.findIndex(x => x.beat_id === placingBeatId);
-      const nextMatched = prev.slice(idx + 1).find(x => x.confidence > 0 || x.manual);
-      const endTc = nextMatched ? nextMatched.start_tc : Math.min(tc + 5, duration);
-      return { ...b, start_tc: tc, end_tc: endTc, confidence: 1.0, manual: true };
-    }));
-    setUnmatchedIds(prev => prev.filter(id => id !== placingBeatId));
-    setPlacingBeatId(null);
-  }
-
-  // ─── Export AAF ────────────────────────────────────────────────────────────
-  async function handleExportAAF() {
-    setStep('exporting');
-    try {
-      const res = await fetch(`${TIMELINE_SERVICE_URL}/generate-aaf`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          aligned_beats: alignedBeats.filter(b => b.confidence > 0 || b.manual),
-          source_filename: sourceFilename,
-          duration_s: duration,
-          frame_rate: '29.97',
-        }),
-      });
-
-      if (!res.ok) throw new Error(`Export failed: ${res.status}`);
-
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      const name = sourceFilename.replace(/\.[^.]+$/, '');
-      a.href = url;
-      a.download = `${name}_timeline.aaf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      setStep('done');
-    } catch (err) {
-      console.error('Export error:', err);
-      setStep('review');
-    }
-  }
-
-  // ─── Seek video to beat ────────────────────────────────────────────────────
-  function seekToBeat(beat) {
-    if (videoRef.current && beat.start_tc > 0) {
-      videoRef.current.currentTime = beat.start_tc;
-    }
-  }
-
   // ─── Render ────────────────────────────────────────────────────────────────
 
   const selectedSheet = sheets.find(s => s.id === selectedSheetId);
-  const matchedCount = alignedBeats.filter(b => b.confidence > 0 || b.manual).length;
 
   return (
     <div style={styles.container}>
@@ -319,56 +293,55 @@ export default function Timeline() {
             </select>
           </div>
 
-          {/* Video File Path */}
+          {/* Video File Paths (multi-file) */}
           <div style={styles.field}>
-            <label style={styles.label}>Source Video</label>
-            <input
-              type="text"
-              style={styles.select}
-              placeholder="Paste file path, e.g. /Users/trevor/Desktop/recording.mp4"
-              value={videoPath}
-              onChange={e => {
-                setVideoPath(e.target.value);
-                // Also set up video preview if path looks valid
-                const p = e.target.value.trim();
-                if (p && (p.endsWith('.mp4') || p.endsWith('.mov') || p.endsWith('.mkv'))) {
-                  setVideoFile({ name: p.split('/').pop(), path: p });
-                }
-              }}
-            />
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 4 }}>
-              Drag the file from Finder into this field, or right-click → Copy as Pathname
-            </div>
-          </div>
-
-          {/* Or use file picker for preview */}
-          <div style={styles.field}>
-            <label style={styles.label}>Or browse for preview</label>
-            <div
-              style={styles.dropZone}
-              onClick={() => document.getElementById('timeline-file-input').click()}
-            >
-              {videoFile ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <span style={{ fontSize: 24 }}>&#127916;</span>
-                  <div style={{ fontSize: 14, fontWeight: 500, color: '#fff' }}>{videoFile.name}</div>
-                </div>
-              ) : (
-                <div style={{ textAlign: 'center', fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>
-                  Click to select video for preview player (optional)
-                </div>
-              )}
-            </div>
-            <input
-              id="timeline-file-input"
-              type="file"
-              accept="video/*"
-              style={{ display: 'none' }}
-              onChange={e => {
-                handleFileChange(e);
-                // Browser won't give us the real path, but we set the preview
-              }}
-            />
+            <label style={styles.label}>
+              Source Video{videoPaths.length > 1 ? 's' : ''} ({validPaths.length} file{validPaths.length !== 1 ? 's' : ''})
+            </label>
+            {videoPaths.map((p, i) => (
+              <div key={i} style={styles.pathRow}>
+                {videoPaths.length > 1 && (
+                  <div style={styles.pathOrder}>
+                    <button
+                      style={styles.orderBtn}
+                      onClick={() => movePathUp(i)}
+                      disabled={i === 0}
+                    >&#9650;</button>
+                    <span style={styles.orderNum}>{i + 1}</span>
+                    <button
+                      style={styles.orderBtn}
+                      onClick={() => movePathDown(i)}
+                      disabled={i === videoPaths.length - 1}
+                    >&#9660;</button>
+                  </div>
+                )}
+                <input
+                  type="text"
+                  style={{ ...styles.select, flex: 1 }}
+                  placeholder={i === 0
+                    ? "Paste file path, e.g. /Users/trevor/Desktop/recording.mp4"
+                    : "Additional video file path..."
+                  }
+                  value={p}
+                  onChange={e => updatePath(i, e.target.value)}
+                />
+                {videoPaths.length > 1 && (
+                  <button
+                    style={styles.removePathBtn}
+                    onClick={() => removePath(i)}
+                  >&times;</button>
+                )}
+              </div>
+            ))}
+            <button style={styles.addPathBtn} onClick={addPathField}>
+              + Add another video file
+            </button>
+            {videoPaths.length > 1 && (
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 4 }}>
+                Files will be concatenated in the order shown above.
+                Use arrows to reorder.
+              </div>
+            )}
           </div>
 
           {/* Whisper Model */}
@@ -390,6 +363,9 @@ export default function Timeline() {
             <div style={styles.beatPreview}>
               <div style={styles.previewHeader}>
                 {selectedSheet.title} - {(selectedSheet.beats || []).length} beats
+                {selectedSheet.drive_folder_id && (
+                  <span style={styles.driveBadge}>Drive linked</span>
+                )}
               </div>
               {(selectedSheet.beats || []).slice(0, 5).map((b, i) => (
                 <div key={b.id || i} style={styles.previewBeat}>
@@ -414,18 +390,17 @@ export default function Timeline() {
           <button
             style={{
               ...styles.processButton,
-              opacity: (!selectedSheetId || !videoPath.trim() || !serviceOnline) ? 0.4 : 1,
+              opacity: (!selectedSheetId || !validPaths.length || !serviceOnline) ? 0.4 : 1,
             }}
-            disabled={!selectedSheetId || !videoPath.trim() || !serviceOnline}
+            disabled={!selectedSheetId || !validPaths.length || !serviceOnline}
             onClick={handleProcess}
           >
-            Process
+            Process{validPaths.length > 1 ? ` (${validPaths.length} files)` : ''}
           </button>
 
-          {/* Debug: show which conditions are blocking */}
-          {(!selectedSheetId || !videoPath.trim() || !serviceOnline) && (
+          {(!selectedSheetId || !validPaths.length || !serviceOnline) && (
             <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', marginTop: 8 }}>
-              Needs: {!selectedSheetId && 'beat sheet · '}{!videoPath.trim() && 'file path · '}{!serviceOnline && 'service online'}
+              Needs: {!selectedSheetId && 'beat sheet · '}{!validPaths.length && 'file path · '}{!serviceOnline && 'service online'}
             </div>
           )}
 
@@ -452,20 +427,35 @@ export default function Timeline() {
       )}
 
       {/* Done Step */}
-      {step === 'done' && (
+      {step === 'done' && doneInfo && (
         <div style={styles.doneContainer}>
           <div style={styles.doneIcon}>&#10003;</div>
           <div style={styles.doneTitle}>AAF Downloaded</div>
           <div style={styles.doneSummary}>
-            {sourceFilename} — {matchedCount}/{alignedBeats.length} beats aligned
-            {unmatchedIds.length > 0 && ` (${unmatchedIds.length} unmatched)`}
+            {doneInfo.sourceFilename}
+            {doneInfo.fileCount > 1 && ` (+${doneInfo.fileCount - 1} more)`}
+            {' — '}
+            {doneInfo.matched}/{doneInfo.total} beats aligned
+            {doneInfo.unmatched > 0 && ` (${doneInfo.unmatched} unmatched)`}
           </div>
+
+          {doneInfo.multiTakeCount > 0 && (
+            <div style={styles.doneDetail}>
+              {doneInfo.multiTakeCount} beat{doneInfo.multiTakeCount > 1 ? 's' : ''} had multiple takes — using last take for each
+            </div>
+          )}
+
+          {doneInfo.driveUploaded && (
+            <div style={{ ...styles.doneDetail, color: '#22c55e' }}>
+              AAF uploaded to Google Drive
+            </div>
+          )}
+
           <button
-            style={styles.processButton}
+            style={{ ...styles.processButton, marginTop: 8 }}
             onClick={() => {
               setStep('setup');
-              setAlignedBeats([]);
-              setUnmatchedIds([]);
+              setDoneInfo(null);
               setProcessProgress(0);
               setProcessStatus('');
             }}
@@ -514,7 +504,7 @@ const styles = {
 
   // Setup
   setupContainer: {
-    maxWidth: 560,
+    maxWidth: 600,
   },
   field: {
     marginBottom: 20,
@@ -538,14 +528,60 @@ const styles = {
     fontSize: 14,
     fontFamily: "'DM Sans', sans-serif",
     outline: 'none',
+    boxSizing: 'border-box',
   },
-  dropZone: {
-    padding: 24,
-    border: '2px dashed rgba(255,255,255,0.15)',
-    borderRadius: 12,
+
+  // Multi-file paths
+  pathRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  pathOrder: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 0,
+    width: 28,
+    flexShrink: 0,
+  },
+  orderBtn: {
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.3)',
+    fontSize: 10,
     cursor: 'pointer',
-    transition: 'border-color 0.2s',
+    padding: 0,
+    lineHeight: 1,
   },
+  orderNum: {
+    fontSize: 11,
+    fontWeight: 700,
+    color: 'rgba(255,255,255,0.4)',
+  },
+  removePathBtn: {
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.3)',
+    fontSize: 18,
+    cursor: 'pointer',
+    padding: '0 4px',
+    flexShrink: 0,
+  },
+  addPathBtn: {
+    background: 'none',
+    border: '1px dashed rgba(255,255,255,0.15)',
+    borderRadius: 8,
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 13,
+    padding: '8px 16px',
+    cursor: 'pointer',
+    width: '100%',
+    fontFamily: "'DM Sans', sans-serif",
+    marginTop: 4,
+  },
+
   beatPreview: {
     background: 'rgba(255,255,255,0.04)',
     borderRadius: 10,
@@ -557,6 +593,17 @@ const styles = {
     fontWeight: 600,
     color: 'rgba(255,255,255,0.6)',
     marginBottom: 8,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+  },
+  driveBadge: {
+    fontSize: 10,
+    background: 'rgba(99,102,241,0.2)',
+    color: '#818cf8',
+    padding: '2px 6px',
+    borderRadius: 4,
+    fontWeight: 500,
   },
   previewBeat: {
     display: 'flex',
@@ -623,7 +670,6 @@ const styles = {
   },
   processingIcon: {
     fontSize: 48,
-    animation: 'spin 2s linear infinite',
   },
   processingStatus: {
     fontSize: 16,
@@ -651,8 +697,8 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     paddingTop: 80,
-    gap: 16,
-    maxWidth: 400,
+    gap: 12,
+    maxWidth: 440,
     margin: '0 auto',
   },
   doneIcon: {
@@ -673,203 +719,11 @@ const styles = {
   doneSummary: {
     fontSize: 14,
     color: 'rgba(255,255,255,0.5)',
-    marginBottom: 16,
-  },
-
-  // Review (unused but kept for reference)
-  reviewContainer: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 16,
-  },
-  summaryBar: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    background: 'rgba(255,255,255,0.04)',
-    padding: '12px 16px',
-    borderRadius: 10,
-    fontSize: 14,
-  },
-  summaryLeft: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    color: 'rgba(255,255,255,0.7)',
-  },
-  summaryDivider: {
-    color: 'rgba(255,255,255,0.2)',
-  },
-  exportButton: {
-    padding: '8px 20px',
-    background: '#6366f1',
-    color: '#fff',
-    border: 'none',
-    borderRadius: 8,
-    fontSize: 14,
-    fontWeight: 600,
-    cursor: 'pointer',
-    fontFamily: "'DM Sans', sans-serif",
-  },
-  doneButton: {
-    padding: '8px 20px',
-    background: 'rgba(34,197,94,0.2)',
-    color: '#22c55e',
-    border: '1px solid rgba(34,197,94,0.3)',
-    borderRadius: 8,
-    fontSize: 14,
-    fontWeight: 600,
-    cursor: 'default',
-    fontFamily: "'DM Sans', sans-serif",
-  },
-  backButton: {
-    padding: '8px 16px',
-    background: 'rgba(255,255,255,0.06)',
-    color: 'rgba(255,255,255,0.6)',
-    border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: 8,
-    fontSize: 13,
-    cursor: 'pointer',
-    fontFamily: "'DM Sans', sans-serif",
-  },
-
-  // Timeline
-  timelineSection: {
-    background: 'rgba(255,255,255,0.03)',
-    borderRadius: 12,
-    padding: 16,
-  },
-  videoPlayer: {
-    width: '100%',
-    maxHeight: 280,
-    borderRadius: 8,
-    marginBottom: 12,
-    background: '#000',
-  },
-  timelineBarSection: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 6,
-  },
-  trackLabel: {
-    width: 28,
-    fontSize: 11,
-    fontWeight: 700,
-    color: 'rgba(255,255,255,0.4)',
-    textAlign: 'right',
-    flexShrink: 0,
-  },
-  timelineBar: {
-    flex: 1,
-    height: 28,
-    background: 'rgba(255,255,255,0.06)',
-    borderRadius: 4,
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  v1Bar: {
-    position: 'absolute',
-    top: 2,
-    left: 0,
-    right: 0,
-    bottom: 2,
-    background: 'rgba(99,102,241,0.25)',
-    borderRadius: 3,
-  },
-  playhead: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: 2,
-    background: '#fff',
-    zIndex: 10,
-    pointerEvents: 'none',
-  },
-  placingHint: {
     textAlign: 'center',
+  },
+  doneDetail: {
     fontSize: 13,
-    color: '#6366f1',
-    marginTop: 8,
-    fontWeight: 500,
-  },
-
-  // Beat List
-  beatList: {
-    background: 'rgba(255,255,255,0.03)',
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  beatListHeader: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr 120px 130px',
-    gap: 12,
-    padding: '10px 16px',
-    fontSize: 11,
-    fontWeight: 700,
-    color: 'rgba(255,255,255,0.35)',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    borderBottom: '1px solid rgba(255,255,255,0.06)',
-  },
-  beatRow: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr 120px 130px',
-    gap: 12,
-    padding: '10px 16px',
-    borderBottom: '1px solid rgba(255,255,255,0.04)',
-    cursor: 'pointer',
-    transition: 'background 0.15s',
-    alignItems: 'center',
-  },
-  beatIndex: {
-    display: 'inline-block',
-    width: 22,
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.3)',
-    fontWeight: 600,
-  },
-  beatTitle: {
-    fontSize: 13,
-    fontWeight: 500,
-    color: 'rgba(255,255,255,0.85)',
-  },
-  beatBroll: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 4,
-  },
-  brollChip: {
-    fontSize: 11,
-    background: 'rgba(99,102,241,0.12)',
-    color: 'rgba(255,255,255,0.6)',
-    padding: '2px 8px',
-    borderRadius: 4,
-  },
-  beatTimecode: {
-    fontSize: 13,
-    fontFamily: 'monospace',
-    color: 'rgba(255,255,255,0.6)',
-  },
-  beatConfidence: {
-    display: 'flex',
-    alignItems: 'center',
-  },
-  confidenceBadge: {
-    fontSize: 11,
-    fontWeight: 600,
-    padding: '3px 8px',
-    borderRadius: 4,
-  },
-  placeButton: {
-    fontSize: 12,
-    padding: '4px 10px',
-    background: 'rgba(239,68,68,0.15)',
-    color: '#ef4444',
-    border: '1px solid rgba(239,68,68,0.3)',
-    borderRadius: 6,
-    cursor: 'pointer',
-    fontFamily: "'DM Sans', sans-serif",
-    fontWeight: 500,
+    color: 'rgba(255,255,255,0.4)',
+    textAlign: 'center',
   },
 };

@@ -53,6 +53,7 @@ class AlignRequest(BaseModel):
 class AlignResponse(BaseModel):
     aligned_beats: list[AlignedBeat]
     unmatched_beat_ids: list[str]
+    take_counts: dict[str, int] = {}  # beat_id -> number of takes found
 
 
 class AAFRequest(BaseModel):
@@ -60,9 +61,10 @@ class AAFRequest(BaseModel):
     source_filename: str
     duration_s: float
     frame_rate: str = "29.97"
-    whisper_model: str = "medium"
 
 
-class ProcessRequest(BaseModel):
+class ProcessByPathRequest(BaseModel):
+    file_paths: list[str]  # one or more video file paths (in order)
     beat_sheet: BeatSheet
     whisper_model: str = "medium"
+    use_llm_fallback: bool = True
