@@ -5,6 +5,7 @@ import useNavConfig from '../hooks/useNavConfig';
 import SidebarEditMode from '../components/SidebarEditMode';
 import Dashboard from './Dashboard';
 import Projects from './Projects';
+import Deliverables from './Deliverables';
 import Calendar from './Calendar';
 import Channels from './Channels';
 import Messages from './Messages';
@@ -55,6 +56,7 @@ const NAV_ITEMS = [
   { key: 'reviews', label: 'Reviews', icon: ReviewsIcon },
   { key: 'organize', label: 'Organize', icon: ToolsIcon },
   { key: 'projects', label: 'Projects', icon: ProjectsIcon },
+  { key: 'deliverables', label: 'Deliverables', icon: DeliverablesIcon },
   { key: 'resources', label: 'Resources', icon: ResourcesIcon },
   { key: 'analytics', label: 'Analytics', icon: AnalyticsIcon, adminOnly: true },
   { key: 'research', label: 'Research', icon: ResearchIcon },
@@ -111,6 +113,7 @@ const NAV_ICON_MAP = {
   reviews: ReviewsIcon,
   organize: ToolsIcon,
   projects: ProjectsIcon,
+  deliverables: DeliverablesIcon,
   resources: ResourcesIcon,
   analytics: AnalyticsIcon,
   research: ResearchIcon,
@@ -366,8 +369,8 @@ export default function AppLayout() {
                             {child.key === 'channels' && unreadMentionChannelIds.length > 0 && (
                               <span style={styles.navBadge}>{unreadMentionChannelIds.length}</span>
                             )}
-                            {child.key === 'projects' && pendingProposalCount > 0 && (
-                              <span style={styles.navBadge}>{pendingProposalCount}</span>
+                            {child.key === 'deliverables' && pendingProposalCount > 0 && (
+                              <span style={styles.navDot} />
                             )}
                           </button>
                         );
@@ -445,8 +448,8 @@ export default function AppLayout() {
                       {entry.key === 'channels' && unreadMentionChannelIds.length > 0 && (
                         <span style={styles.navBadge}>{unreadMentionChannelIds.length}</span>
                       )}
-                      {entry.key === 'projects' && pendingProposalCount > 0 && (
-                        <span style={styles.navBadge}>{pendingProposalCount}</span>
+                      {entry.key === 'deliverables' && pendingProposalCount > 0 && (
+                        <span style={styles.navDot} />
                       )}
                       {entry.key === 'fl_documents' && unsignedDocCount > 0 && (
                         <span style={styles.navBadge}>{unsignedDocCount}</span>
@@ -594,6 +597,7 @@ export default function AppLayout() {
         <div ref={mainContentRef} style={styles.mainContent}>
           {activeTab === 'dashboard' && <Dashboard onNavigate={navigateTo} />}
           {activeTab === 'projects' && <Projects onNavigate={navigateTo} />}
+          {activeTab === 'deliverables' && <Deliverables />}
           {activeTab === 'calendar' && <Calendar onNavigate={navigateTo} />}
           {activeTab === 'production' && <Production />}
           {activeTab === 'ideation' && <Ideation initialConceptId={navTarget} onConceptOpened={() => setNavTarget(null)} />}
@@ -753,6 +757,17 @@ function BusinessDevIcon({ active }) {
       <path d="M3 17V11M8 17V8M13 17V5M18 17V3" strokeLinecap="round" />
       <path d="M2 18h17" strokeLinecap="round" />
       <circle cx="13" cy="5" r="1.4" fill={active ? '#a5b4fc' : '#6b7280'} />
+    </svg>
+  );
+}
+
+function DeliverablesIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <path d="M2 10c2-2 3.5-3 5-3s2.5 1.5 3 3c.5-1.5 1.5-3 3-3s3 1 5 3" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M2 10c0 2 1 3.5 2.5 4M18 10c0 2-1 3.5-2.5 4" strokeLinecap="round" />
+      <circle cx="7" cy="7" r="1" fill={active ? '#a5b4fc' : '#6b7280'} stroke="none" />
+      <circle cx="13" cy="7" r="1" fill={active ? '#a5b4fc' : '#6b7280'} stroke="none" />
     </svg>
   );
 }
@@ -982,6 +997,15 @@ const styles = {
     justifyContent: 'center',
     padding: '0 5px',
     lineHeight: 1,
+  },
+  navDot: {
+    position: 'absolute',
+    top: '6px',
+    right: '10px',
+    width: '8px',
+    height: '8px',
+    borderRadius: '50%',
+    background: '#ef4444',
   },
   collapseBtn: {
     display: 'flex',
