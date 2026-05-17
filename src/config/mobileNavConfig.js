@@ -25,6 +25,7 @@ export const MOBILE_SUPPORT = {
   channels: 'condensed',
 
   // Read-only on mobile
+  deliverables: 'readonly',
   goals: 'readonly',
   business_dev: 'readonly',
   resources: 'readonly',
