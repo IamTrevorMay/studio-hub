@@ -69,11 +69,6 @@ function timeAgo(dateStr) {
   return `${days}d ago`;
 }
 
-const FOLDERS = [
-  { id: 'mayday', label: 'Mayday' },
-  { id: 'tm_baseball', label: 'TM Baseball' },
-  { id: 'ideas', label: 'Ideas' },
-];
 const ARCHIVE_FOLDER = { id: 'archive', label: 'Archive' };
 
 // ─── component ─────────────────────────────────────────────────────────────────
@@ -135,6 +130,13 @@ export default function Production() {
   // ── confirm delete ──
   const [confirmDelete, setConfirmDelete] = useState(null);
 
+  // ── dynamic folders ──
+  const [dbFolders, setDbFolders] = useState([]);
+  const [renamingFolderId, setRenamingFolderId] = useState(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [showNewFolderInput, setShowNewFolderInput] = useState(false);
+  const [newFolderInputValue, setNewFolderInputValue] = useState('');
+
   // ── folder sections ──
   const [collapsedFolders, setCollapsedFolders] = useState(new Set(['ideas', 'archive', 'unfiled']));
   const [collapsedSegments, setCollapsedSegments] = useState(new Set());
@@ -167,6 +169,29 @@ export default function Production() {
   }, []);
 
   useEffect(() => { fetchSheets(); }, [fetchSheets]);
+
+  // ─── fetch folders ────────────────────────────────────────────────────────────
+  const fetchFolders = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('beat_sheet_folders')
+      .select('*')
+      .order('position', { ascending: true });
+    if (error) console.error('Fetch folders error:', error);
+    setDbFolders(data || []);
+  }, []);
+
+  useEffect(() => { fetchFolders(); }, [fetchFolders]);
+
+  // ─── realtime subscription for folders ────────────────────────────────────────
+  useEffect(() => {
+    const channel = supabase
+      .channel('beat_sheet_folders_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'beat_sheet_folders' }, () => {
+        fetchFolders();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [fetchFolders]);
 
   // ─── initial textarea sizing ─────────────────────────────────────────────────
   // Run once when a sheet opens so textareas match their stored content height.
@@ -230,6 +255,60 @@ export default function Production() {
       .single();
     if (error) { console.error(error); return; }
     openSheet(data);
+  };
+
+  const duplicateSheet = async (sheet) => {
+    const clonedBeats = (sheet.beats || []).map(item => {
+      if (isSegment(item)) {
+        return {
+          ...item,
+          id: crypto.randomUUID(),
+          children: (item.children || []).map(b => ({ ...b, id: crypto.randomUUID() })),
+        };
+      }
+      return { ...item, id: crypto.randomUUID() };
+    });
+    const { data, error } = await supabase
+      .from('beat_sheets')
+      .insert({
+        user_id: profile.id,
+        title: `${sheet.title} (copy)`,
+        beats: clonedBeats,
+        folder: sheet.folder,
+      })
+      .select()
+      .single();
+    if (error) { console.error('Duplicate error:', error); return; }
+    setSheets(prev => [data, ...prev]);
+  };
+
+  const handleCreateFolder = async () => {
+    const name = newFolderInputValue.trim();
+    if (!name) return;
+    const maxPos = dbFolders.length > 0 ? Math.max(...dbFolders.map(f => f.position)) + 1 : 0;
+    const id = crypto.randomUUID();
+    setDbFolders(prev => [...prev, { id, name, position: maxPos, created_by: profile?.id }]);
+    setShowNewFolderInput(false);
+    setNewFolderInputValue('');
+    const { error } = await supabase.from('beat_sheet_folders').insert({ id, name, position: maxPos, created_by: profile?.id });
+    if (error) { console.error('Create folder error:', error); fetchFolders(); }
+  };
+
+  const handleRenameFolder = async (folderId) => {
+    const name = renameValue.trim();
+    if (!name) { setRenamingFolderId(null); return; }
+    setDbFolders(prev => prev.map(f => f.id === folderId ? { ...f, name } : f));
+    setRenamingFolderId(null);
+    const { error } = await supabase.from('beat_sheet_folders').update({ name }).eq('id', folderId);
+    if (error) { console.error('Rename folder error:', error); fetchFolders(); }
+  };
+
+  const handleDeleteFolder = async (folderId) => {
+    if (!(await confirm('Delete this folder? Sheets inside will be moved to Unfiled.'))) return;
+    setSheets(prev => prev.map(s => s.folder === folderId ? { ...s, folder: null } : s));
+    setDbFolders(prev => prev.filter(f => f.id !== folderId));
+    await supabase.from('beat_sheets').update({ folder: null }).eq('folder', folderId);
+    await supabase.from('beat_sheet_folders').delete().eq('id', folderId);
   };
 
   const openSheet = (sheet) => {
@@ -736,8 +815,24 @@ export default function Production() {
     });
   };
 
-  const handleSheetDragEnd = async (result) => {
+  const handleLandingDragEnd = async (result) => {
     if (!result.destination) return;
+    const { type } = result;
+
+    if (type === 'FOLDER') {
+      const { source, destination } = result;
+      if (source.index === destination.index) return;
+      const reordered = Array.from(dbFolders);
+      const [moved] = reordered.splice(source.index, 1);
+      reordered.splice(destination.index, 0, moved);
+      const updated = reordered.map((f, i) => ({ ...f, position: i }));
+      setDbFolders(updated);
+      const updates = updated.map(f => supabase.from('beat_sheet_folders').update({ position: f.position }).eq('id', f.id));
+      await Promise.all(updates);
+      return;
+    }
+
+    // type === 'SHEET'
     const { draggableId: sheetId, source, destination } = result;
     if (source.droppableId === destination.droppableId) return;
     const newFolder = destination.droppableId === 'unfiled' ? null : destination.droppableId;
@@ -1395,96 +1490,175 @@ export default function Production() {
       <div style={styles.page}>
         <div style={styles.header}>
           <h1 style={styles.pageTitle}>Beat Sheet</h1>
-          <button onClick={createSheet} style={styles.btnPrimary}>+ New Beat Sheet</button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => { setShowNewFolderInput(true); setNewFolderInputValue(''); }} style={styles.btnSecondary}>+ Folder</button>
+            <button onClick={createSheet} style={styles.btnPrimary}>+ New Beat Sheet</button>
+          </div>
         </div>
 
         {loading ? (
           <div style={styles.emptyState}>Loading...</div>
         ) : (
-          <DragDropContext onDragEnd={handleSheetDragEnd}>
-            {FOLDERS.map(folder => {
-              const folderSheets = sheets.filter(s => s.folder === folder.id);
-              const isCollapsed = collapsedFolders.has(folder.id);
-              return (
-                <div key={folder.id} style={styles.folderSection}>
-                  <button style={styles.folderSectionHeader} onClick={() => toggleFolder(folder.id)}>
-                    <svg
-                      width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5"
-                      style={{ color: 'rgba(255,255,255,0.35)', transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.15s', flexShrink: 0 }}
-                    >
-                      <path d="M2 3.5l3 3 3-3" />
-                    </svg>
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="#f59e0b" stroke="none" style={{ flexShrink: 0 }}>
-                      <path d="M1 3.5A1.5 1.5 0 012.5 2h2.379a1.5 1.5 0 011.06.44l.622.62a1.5 1.5 0 001.06.44H11.5A1.5 1.5 0 0113 5v5.5a1.5 1.5 0 01-1.5 1.5h-10A1.5 1.5 0 011 10.5v-7z"/>
-                    </svg>
-                    <span style={styles.folderSectionTitle}>{folder.label}</span>
-                    <span style={styles.folderCount}>{folderSheets.length}</span>
-                  </button>
-                  {!isCollapsed && (
-                    <Droppable droppableId={folder.id}>
-                      {(provided, snapshot) => (
-                        <div
-                          ref={provided.innerRef}
-                          {...provided.droppableProps}
-                          style={{
-                            ...styles.folderDropZone,
-                            background: snapshot.isDraggingOver ? 'rgba(99,102,241,0.05)' : 'transparent',
-                            borderColor: snapshot.isDraggingOver ? 'rgba(99,102,241,0.35)' : 'rgba(255,255,255,0.05)',
-                            minHeight: folderSheets.length === 0 ? 52 : undefined,
-                          }}
-                        >
-                          {folderSheets.length === 0 && (
-                            <div style={styles.folderEmptyHint}>
-                              {snapshot.isDraggingOver ? 'Drop here' : 'Drag sheets here'}
-                            </div>
-                          )}
-                          {folderSheets.map((sheet, index) => (
-                            <Draggable key={sheet.id} draggableId={sheet.id} index={index}>
-                              {(provided, snapshot) => (
-                                <div
-                                  ref={provided.innerRef}
-                                  {...provided.draggableProps}
-                                  style={{ ...styles.sheetCard, opacity: snapshot.isDragging ? 0.8 : 1, ...provided.draggableProps.style }}
+          <DragDropContext onDragEnd={handleLandingDragEnd}>
+            {/* New folder inline input */}
+            {showNewFolderInput && (
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                <input
+                  autoFocus
+                  value={newFolderInputValue}
+                  onChange={e => setNewFolderInputValue(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleCreateFolder(); if (e.key === 'Escape') setShowNewFolderInput(false); }}
+                  placeholder="Folder name..."
+                  style={styles.input}
+                />
+                <button onClick={handleCreateFolder} style={styles.btnSmall}>Create</button>
+                <button onClick={() => setShowNewFolderInput(false)} style={{ ...styles.actionBtn, color: 'rgba(255,255,255,0.4)' }}>
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M3 3l8 8M11 3l-8 8" />
+                  </svg>
+                </button>
+              </div>
+            )}
+
+            {/* Draggable folders */}
+            <Droppable droppableId="folder-list" type="FOLDER">
+              {(folderListProvided) => (
+                <div ref={folderListProvided.innerRef} {...folderListProvided.droppableProps}>
+                  {dbFolders.map((folder, folderIndex) => {
+                    const folderSheets = sheets.filter(s => s.folder === folder.id);
+                    const isCollapsed = collapsedFolders.has(folder.id);
+                    return (
+                      <Draggable key={folder.id} draggableId={`folder-${folder.id}`} index={folderIndex}>
+                        {(folderDragProvided, folderDragSnapshot) => (
+                          <div
+                            ref={folderDragProvided.innerRef}
+                            {...folderDragProvided.draggableProps}
+                            style={{ ...styles.folderSection, opacity: folderDragSnapshot.isDragging ? 0.85 : 1, ...folderDragProvided.draggableProps.style }}
+                          >
+                            <div style={styles.folderSectionHeader}>
+                              <div {...folderDragProvided.dragHandleProps} style={styles.folderDragHandle} title="Drag to reorder">
+                                <svg width="10" height="10" viewBox="0 0 12 12" fill="rgba(255,255,255,0.2)">
+                                  <circle cx="4" cy="3" r="1.2"/><circle cx="8" cy="3" r="1.2"/>
+                                  <circle cx="4" cy="6" r="1.2"/><circle cx="8" cy="6" r="1.2"/>
+                                  <circle cx="4" cy="9" r="1.2"/><circle cx="8" cy="9" r="1.2"/>
+                                </svg>
+                              </div>
+                              <button style={{ display: 'contents' }} onClick={() => toggleFolder(folder.id)}>
+                                <svg
+                                  width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5"
+                                  style={{ color: 'rgba(255,255,255,0.35)', transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.15s', flexShrink: 0 }}
                                 >
-                                  <div {...provided.dragHandleProps} style={styles.sheetDragHandle} title="Drag to move to another folder">
-                                    <svg width="12" height="12" viewBox="0 0 12 12" fill="rgba(255,255,255,0.25)">
-                                      <circle cx="4" cy="3" r="1.2"/><circle cx="8" cy="3" r="1.2"/>
-                                      <circle cx="4" cy="6" r="1.2"/><circle cx="8" cy="6" r="1.2"/>
-                                      <circle cx="4" cy="9" r="1.2"/><circle cx="8" cy="9" r="1.2"/>
-                                    </svg>
-                                  </div>
-                                  <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => openSheet(sheet)}>
-                                    <div style={styles.sheetTitle}>{sheet.title}</div>
-                                    <div style={styles.sheetMeta}>
-                                      {countBeats(sheet.beats || [])} beat{countBeats(sheet.beats || []) !== 1 ? 's' : ''}
-                                      {' \u00b7 '}{timeAgo(sheet.updated_at)}
-                                    </div>
-                                  </div>
-                                  <div style={{ display: 'flex', gap: 6 }}>
-                                    <button onClick={() => archiveSheet(sheet.id)} style={styles.actionBtn} title="Archive">
-                                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-                                        <rect x="1" y="1" width="12" height="4" rx="1" />
-                                        <path d="M2 5v6a1 1 0 001 1h8a1 1 0 001-1V5M5.5 8h3" />
-                                      </svg>
-                                    </button>
-                                    <button onClick={() => deleteSheet(sheet.id, sheet.title)} style={{ ...styles.actionBtn, color: '#ef4444' }} title="Delete">
-                                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-                                        <path d="M2 4h10M5 4V2.5a.5.5 0 01.5-.5h3a.5.5 0 01.5.5V4M11 4v7.5a1 1 0 01-1 1H4a1 1 0 01-1-1V4" />
-                                      </svg>
-                                    </button>
-                                  </div>
-                                </div>
+                                  <path d="M2 3.5l3 3 3-3" />
+                                </svg>
+                                <svg width="14" height="14" viewBox="0 0 14 14" fill="#f59e0b" stroke="none" style={{ flexShrink: 0 }}>
+                                  <path d="M1 3.5A1.5 1.5 0 012.5 2h2.379a1.5 1.5 0 011.06.44l.622.62a1.5 1.5 0 001.06.44H11.5A1.5 1.5 0 0113 5v5.5a1.5 1.5 0 01-1.5 1.5h-10A1.5 1.5 0 011 10.5v-7z"/>
+                                </svg>
+                              </button>
+                              {renamingFolderId === folder.id ? (
+                                <input
+                                  autoFocus
+                                  value={renameValue}
+                                  onChange={e => setRenameValue(e.target.value)}
+                                  onKeyDown={e => { if (e.key === 'Enter') handleRenameFolder(folder.id); if (e.key === 'Escape') setRenamingFolderId(null); }}
+                                  onBlur={() => handleRenameFolder(folder.id)}
+                                  style={{ ...styles.input, flex: 1, padding: '2px 8px', fontSize: 13, fontWeight: 600 }}
+                                />
+                              ) : (
+                                <span
+                                  style={styles.folderSectionTitle}
+                                  onDoubleClick={() => { setRenamingFolderId(folder.id); setRenameValue(folder.name); }}
+                                >
+                                  {folder.name}
+                                </span>
                               )}
-                            </Draggable>
-                          ))}
-                          {provided.placeholder}
-                        </div>
-                      )}
-                    </Droppable>
-                  )}
+                              <span style={styles.folderCount}>{folderSheets.length}</span>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleDeleteFolder(folder.id); }}
+                                style={{ ...styles.actionBtn, padding: 2 }}
+                                title="Delete folder"
+                              >
+                                <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                                  <path d="M3 3l8 8M11 3l-8 8" />
+                                </svg>
+                              </button>
+                            </div>
+                            {!isCollapsed && (
+                              <Droppable droppableId={folder.id} type="SHEET">
+                                {(provided, snapshot) => (
+                                  <div
+                                    ref={provided.innerRef}
+                                    {...provided.droppableProps}
+                                    style={{
+                                      ...styles.folderDropZone,
+                                      background: snapshot.isDraggingOver ? 'rgba(99,102,241,0.05)' : 'transparent',
+                                      borderColor: snapshot.isDraggingOver ? 'rgba(99,102,241,0.35)' : 'rgba(255,255,255,0.05)',
+                                      minHeight: folderSheets.length === 0 ? 52 : undefined,
+                                    }}
+                                  >
+                                    {folderSheets.length === 0 && (
+                                      <div style={styles.folderEmptyHint}>
+                                        {snapshot.isDraggingOver ? 'Drop here' : 'Drag sheets here'}
+                                      </div>
+                                    )}
+                                    {folderSheets.map((sheet, index) => (
+                                      <Draggable key={sheet.id} draggableId={sheet.id} index={index}>
+                                        {(provided, snapshot) => (
+                                          <div
+                                            ref={provided.innerRef}
+                                            {...provided.draggableProps}
+                                            style={{ ...styles.sheetCard, opacity: snapshot.isDragging ? 0.8 : 1, ...provided.draggableProps.style }}
+                                          >
+                                            <div {...provided.dragHandleProps} style={styles.sheetDragHandle} title="Drag to move to another folder">
+                                              <svg width="12" height="12" viewBox="0 0 12 12" fill="rgba(255,255,255,0.25)">
+                                                <circle cx="4" cy="3" r="1.2"/><circle cx="8" cy="3" r="1.2"/>
+                                                <circle cx="4" cy="6" r="1.2"/><circle cx="8" cy="6" r="1.2"/>
+                                                <circle cx="4" cy="9" r="1.2"/><circle cx="8" cy="9" r="1.2"/>
+                                              </svg>
+                                            </div>
+                                            <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => openSheet(sheet)}>
+                                              <div style={styles.sheetTitle}>{sheet.title}</div>
+                                              <div style={styles.sheetMeta}>
+                                                {countBeats(sheet.beats || [])} beat{countBeats(sheet.beats || []) !== 1 ? 's' : ''}
+                                                {' \u00b7 '}{timeAgo(sheet.updated_at)}
+                                              </div>
+                                            </div>
+                                            <div style={{ display: 'flex', gap: 6 }}>
+                                              <button onClick={() => duplicateSheet(sheet)} style={styles.actionBtn} title="Duplicate">
+                                                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                                                  <rect x="4" y="4" width="8" height="8" rx="1.5" />
+                                                  <path d="M10 4V2.5A1.5 1.5 0 008.5 1h-6A1.5 1.5 0 001 2.5v6A1.5 1.5 0 002.5 10H4" />
+                                                </svg>
+                                              </button>
+                                              <button onClick={() => archiveSheet(sheet.id)} style={styles.actionBtn} title="Archive">
+                                                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                                                  <rect x="1" y="1" width="12" height="4" rx="1" />
+                                                  <path d="M2 5v6a1 1 0 001 1h8a1 1 0 001-1V5M5.5 8h3" />
+                                                </svg>
+                                              </button>
+                                              <button onClick={() => deleteSheet(sheet.id, sheet.title)} style={{ ...styles.actionBtn, color: '#ef4444' }} title="Delete">
+                                                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                                                  <path d="M2 4h10M5 4V2.5a.5.5 0 01.5-.5h3a.5.5 0 01.5.5V4M11 4v7.5a1 1 0 01-1 1H4a1 1 0 01-1-1V4" />
+                                                </svg>
+                                              </button>
+                                            </div>
+                                          </div>
+                                        )}
+                                      </Draggable>
+                                    ))}
+                                    {provided.placeholder}
+                                  </div>
+                                )}
+                              </Droppable>
+                            )}
+                          </div>
+                        )}
+                      </Draggable>
+                    );
+                  })}
+                  {folderListProvided.placeholder}
                 </div>
-              );
-            })}
+              )}
+            </Droppable>
 
             {/* Unfiled */}
             {(() => {
@@ -1506,7 +1680,7 @@ export default function Production() {
                     <span style={styles.folderCount}>{unfiledSheets.length}</span>
                   </button>
                   {!isCollapsed && (
-                    <Droppable droppableId="unfiled">
+                    <Droppable droppableId="unfiled" type="SHEET">
                       {(provided, snapshot) => (
                         <div
                           ref={provided.innerRef}
@@ -1546,6 +1720,12 @@ export default function Production() {
                                     </div>
                                   </div>
                                   <div style={{ display: 'flex', gap: 6 }}>
+                                    <button onClick={() => duplicateSheet(sheet)} style={styles.actionBtn} title="Duplicate">
+                                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                                        <rect x="4" y="4" width="8" height="8" rx="1.5" />
+                                        <path d="M10 4V2.5A1.5 1.5 0 008.5 1h-6A1.5 1.5 0 001 2.5v6A1.5 1.5 0 002.5 10H4" />
+                                      </svg>
+                                    </button>
                                     <button onClick={() => archiveSheet(sheet.id)} style={styles.actionBtn} title="Archive">
                                       <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
                                         <rect x="1" y="1" width="12" height="4" rx="1" />
@@ -1591,7 +1771,7 @@ export default function Production() {
                     <span style={styles.folderCount}>{archiveSheets.length}</span>
                   </button>
                   {!isCollapsed && (
-                    <Droppable droppableId="archive">
+                    <Droppable droppableId="archive" type="SHEET">
                       {(provided, snapshot) => (
                         <div
                           ref={provided.innerRef}
@@ -1631,6 +1811,12 @@ export default function Production() {
                                     </div>
                                   </div>
                                   <div style={{ display: 'flex', gap: 6 }}>
+                                    <button onClick={() => duplicateSheet(sheet)} style={styles.actionBtn} title="Duplicate">
+                                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                                        <rect x="4" y="4" width="8" height="8" rx="1.5" />
+                                        <path d="M10 4V2.5A1.5 1.5 0 008.5 1h-6A1.5 1.5 0 001 2.5v6A1.5 1.5 0 002.5 10H4" />
+                                      </svg>
+                                    </button>
                                     <button onClick={() => archiveSheet(sheet.id)} style={styles.actionBtn} title="Archive">
                                       <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
                                         <rect x="1" y="1" width="12" height="4" rx="1" />
@@ -2026,6 +2212,13 @@ const styles = {
   },
   folderSection: {
     marginBottom: 4,
+  },
+  folderDragHandle: {
+    cursor: 'grab',
+    display: 'flex',
+    alignItems: 'center',
+    flexShrink: 0,
+    padding: '0 2px',
   },
   folderSectionHeader: {
     display: 'flex',
