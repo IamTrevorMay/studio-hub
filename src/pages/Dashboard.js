@@ -3177,7 +3177,10 @@ const styles = {
   emptyText: {
     color: 'rgba(255,255,255,0.35)',
     fontSize: '14px',
-    margin: 0,
+    marginTop: 0,
+    marginBottom: 0,
+    marginLeft: 0,
+    marginRight: 0,
   },
   completedList: {
     display: 'flex',

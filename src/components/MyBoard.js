@@ -418,7 +418,7 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
   }, []);
   const [loading, setLoading] = useState(true);
   const [editingTask, setEditingTask] = useState(null);
-  const [isNewTask, setIsNewTask] = useState(false);
+  const isNewTaskRef = useRef(false);
   const [projects, setProjects] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
   const [userOptions, setUserOptions] = useState({ category: [], subcategory: [], bucket: [] });
@@ -728,12 +728,13 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
       const { data, error } = await supabase.from('personal_tasks').insert({
         created_by: profile.id,
         content: '',
+        status: 'inbox',
         position: minPos - 10,
       }).select().single();
       if (error) throw error;
-      fetchTasks();
+      setTasks(prev => [...prev, data]);
       setEditingTask(data);
-      setIsNewTask(true);
+      isNewTaskRef.current = true;
     } catch (err) {
       console.error('Error creating task:', err);
     }
@@ -1142,21 +1143,21 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
           task={editingTask}
           onClose={() => {
             // If this was a newly created task and content is still empty, delete it
-            if (isNewTask) {
+            if (isNewTaskRef.current) {
+              isNewTaskRef.current = false;
               const current = tasksRef.current.find(t => t.id === editingTask.id);
               if (current && !current.content?.trim()) {
                 deleteTask(editingTask.id);
               }
-              setIsNewTask(false);
             }
             setEditingTask(null);
           }}
           onSave={(id, updates) => {
-            setIsNewTask(false);
+            isNewTaskRef.current = false;
             updateTask(id, updates);
           }}
           onDelete={(id) => {
-            setIsNewTask(false);
+            isNewTaskRef.current = false;
             deleteTask(id);
           }}
           projects={projects}
