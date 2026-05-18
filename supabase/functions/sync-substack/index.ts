@@ -11,7 +11,7 @@ import {
   fetchWithRetry,
   jsonResponse,
   errorResponse,
-} from "./shared/utils.ts";
+} from "../shared/utils.ts";
 
 serve(async (req) => {
   try {
