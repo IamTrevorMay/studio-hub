@@ -283,7 +283,7 @@ function TaskDetailModal({ task, onClose, onSave, onDelete, projects, categoryOp
     <div style={overlayStyle} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={modalStyle} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h3 style={{ margin: 0, fontSize: '16px', color: '#fff', fontWeight: 600 }}>Edit Task</h3>
+          <h3 style={{ margin: 0, fontSize: '16px', color: '#fff', fontWeight: 600 }}>{task.content ? 'Edit Task' : 'New Task'}</h3>
           <button onClick={onClose} style={closeBtnStyle}>{'\u2715'}</button>
         </div>
 
@@ -417,8 +417,8 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
     });
   }, []);
   const [loading, setLoading] = useState(true);
-  const [newTaskText, setNewTaskText] = useState('');
   const [editingTask, setEditingTask] = useState(null);
+  const [isNewTask, setIsNewTask] = useState(false);
   const [projects, setProjects] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
   const [userOptions, setUserOptions] = useState({ category: [], subcategory: [], bucket: [] });
@@ -717,45 +717,25 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
     if (onBoardChange) onBoardChange();
   }
 
-  // ── Quick capture ──
+  // ── Quick capture — create + open detail modal ──
   async function addTask() {
-    if (!newTaskText.trim() || !profile?.id) return;
-    const content = newTaskText.trim();
+    if (!profile?.id) return;
 
     const inboxTasks = tasks.filter(t => t.status === 'inbox');
     const minPos = inboxTasks.length > 0 ? Math.min(...inboxTasks.map(t => t.position)) : 10;
 
-    const tempTask = {
-      id: `temp-${Date.now()}`,
-      created_by: profile.id,
-      content,
-      category: 'task',
-      priority: null,
-      status: 'inbox',
-      due_date: null,
-      project_id: null,
-      concept_id: null,
-      position: minPos - 10,
-      completed_at: null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
-    setNewTaskText('');
-    setTasks(prev => [...prev, tempTask]);
-
     try {
-      const { error } = await supabase.from('personal_tasks').insert({
+      const { data, error } = await supabase.from('personal_tasks').insert({
         created_by: profile.id,
-        content,
+        content: '',
         position: minPos - 10,
-      });
+      }).select().single();
       if (error) throw error;
       fetchTasks();
+      setEditingTask(data);
+      setIsNewTask(true);
     } catch (err) {
-      console.error('Error adding task:', err);
-      setTasks(prev => prev.filter(t => t.id !== tempTask.id));
-      setNewTaskText(content);
+      console.error('Error creating task:', err);
     }
   }
 
@@ -1104,19 +1084,8 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
 
         {/* Quick capture (below Plan a Sprint) */}
         <div style={captureRowStyle}>
-          <input
-            value={newTaskText}
-            onChange={e => setNewTaskText(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && addTask()}
-            placeholder="Drop a task, idea, or note..."
-            style={captureInputStyle}
-          />
-          <button
-            onClick={addTask}
-            disabled={!newTaskText.trim()}
-            style={{ ...captureButtonStyle, opacity: newTaskText.trim() ? 1 : 0.4 }}
-          >
-            Add
+          <button onClick={addTask} style={captureButtonStyle}>
+            + New Task
           </button>
         </div>
 
@@ -1171,9 +1140,25 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
       {editingTask && (
         <TaskDetailModal
           task={editingTask}
-          onClose={() => setEditingTask(null)}
-          onSave={updateTask}
-          onDelete={deleteTask}
+          onClose={() => {
+            // If this was a newly created task and content is still empty, delete it
+            if (isNewTask) {
+              const current = tasksRef.current.find(t => t.id === editingTask.id);
+              if (current && !current.content?.trim()) {
+                deleteTask(editingTask.id);
+              }
+              setIsNewTask(false);
+            }
+            setEditingTask(null);
+          }}
+          onSave={(id, updates) => {
+            setIsNewTask(false);
+            updateTask(id, updates);
+          }}
+          onDelete={(id) => {
+            setIsNewTask(false);
+            deleteTask(id);
+          }}
           projects={projects}
           categoryOptions={categoryOptions}
           subcategoryOptions={subcategoryOptions}
@@ -1213,17 +1198,6 @@ const captureRowStyle = {
   display: 'flex',
   gap: '8px',
   marginBottom: '16px',
-};
-
-const captureInputStyle = {
-  flex: 1,
-  background: 'rgba(255,255,255,0.05)',
-  border: '1px solid rgba(255,255,255,0.08)',
-  borderRadius: '10px',
-  padding: '10px 14px',
-  color: '#fff',
-  fontSize: '13px',
-  outline: 'none',
 };
 
 const captureButtonStyle = {
