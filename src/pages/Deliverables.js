@@ -1411,7 +1411,8 @@ export default function Deliverables() {
           .filter(d => !d.delivered)
           .reduce((sum, d) => sum + (parseFloat(d.pay) || 0), 0);
         const lateCampaigns = filteredCampaigns.filter(campaign => {
-          const campaignDels = filteredDeliverables.filter(d => d.campaign_id === campaign.id);
+          // Always check ALL deliverables for late status, not just the filtered month
+          const campaignDels = allDeliverables.filter(d => d.campaign_id === campaign.id);
           const allDel = campaignDels.length > 0 && campaignDels.every(d => d.delivered);
           return allDel && campaign.payment_status !== 'paid';
         });
