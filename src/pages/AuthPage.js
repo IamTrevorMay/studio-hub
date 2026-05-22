@@ -68,13 +68,29 @@ export default function AuthPage() {
       // Update their profile
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        // The invite-user edge function stores role & title in user_metadata.
-        // Use that as the primary source (avoids RLS issues on invitations table).
+        // Determine the role for this user. Priority order:
+        // 1. user_metadata (set by inviteUserByEmail, but Supabase often resets it on confirm)
+        // 2. Existing profile (the handle_new_user trigger sets the correct role at invite time)
+        // 3. Invitations table (fallback, requires the new RLS policy)
+        // 4. Default to 'member'
         const meta = user.user_metadata || {};
         let assignedRole = meta.role || null;
         let assignedTitle = meta.title || null;
 
-        // Fall back to querying the invitations table if metadata is missing
+        // Check if the trigger already created the profile with the correct role
+        if (!assignedRole) {
+          const { data: existingProfile } = await supabase
+            .from('profiles')
+            .select('role, title')
+            .eq('id', user.id)
+            .maybeSingle();
+          if (existingProfile?.role && existingProfile.role !== 'member') {
+            assignedRole = existingProfile.role;
+            assignedTitle = assignedTitle || existingProfile.title || null;
+          }
+        }
+
+        // Fall back to querying the invitations table
         if (!assignedRole) {
           const { data: invitation } = await supabase.from('invitations')
             .select('role, title')

@@ -51,7 +51,7 @@ export default function SprintPanel({ profile, boardVersion, onSprintChange }) {
       const pts = (t) => parseInt(t.priority) || 0;
       setSprintTasks({
         total: data.reduce((sum, t) => sum + pts(t), 0),
-        completed: data.filter(t => t.status === 'done').reduce((sum, t) => sum + pts(t), 0),
+        completed: data.filter(t => t.status === 'done' || t.status === 'archived').reduce((sum, t) => sum + pts(t), 0),
       });
     }
   }, [activeSprint]);

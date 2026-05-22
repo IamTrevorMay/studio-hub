@@ -613,12 +613,28 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
 
     // Complete any stale active sprint from a previous week so the
     // one_active_sprint_per_user unique constraint doesn't block the insert.
-    await supabase
+    // Calculate velocity before closing so the velocity chart stays accurate.
+    const { data: staleSprints } = await supabase
       .from('sprints')
-      .update({ status: 'completed', updated_at: new Date().toISOString() })
+      .select('id')
       .eq('user_id', profile.id)
       .eq('status', 'active')
       .neq('start_date', week.start);
+
+    for (const stale of (staleSprints || [])) {
+      const { data: staleTasks } = await supabase
+        .from('personal_tasks')
+        .select('id, status, priority')
+        .eq('sprint_id', stale.id);
+      const pts = (t) => parseInt(t.priority) || 0;
+      const vel = (staleTasks || [])
+        .filter(t => t.status === 'done' || t.status === 'archived')
+        .reduce((sum, t) => sum + pts(t), 0);
+      await supabase
+        .from('sprints')
+        .update({ status: 'completed', velocity: vel, updated_at: new Date().toISOString() })
+        .eq('id', stale.id);
+    }
 
     const { data: newSprint, error } = await supabase.from('sprints').insert({
       user_id: profile.id,
