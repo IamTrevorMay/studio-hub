@@ -3,8 +3,14 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../supabaseClient';
 
 export default function AuthPage() {
-  const { signIn, isPasswordRecovery, clearRecovery } = useAuth();
-  const [mode, setMode] = useState('login'); // login, setup, forgot, reset
+  const { signIn, isPasswordRecovery, clearRecovery, isInviteSetup } = useAuth();
+  const [mode, setMode] = useState(() => {
+    // Determine initial mode synchronously before Supabase clears the hash
+    const hash = window.location.hash;
+    if (hash && hash.includes('type=recovery')) return 'reset';
+    if (hash && (hash.includes('type=invite') || hash.includes('type=signup') || hash.includes('type=magiclink'))) return 'setup';
+    return 'login';
+  });
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
@@ -12,22 +18,20 @@ export default function AuthPage() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState('');
 
-  // Check if user arrived via an invite magic link or password reset
+  // If AuthContext flagged this as an invite setup, ensure we're in setup mode
   useEffect(() => {
-    const hash = window.location.hash;
-    if (hash && (hash.includes('type=invite') || hash.includes('type=signup') || hash.includes('type=magiclink'))) {
+    if (isInviteSetup && mode === 'login') {
       setMode('setup');
     }
-    if (hash && hash.includes('type=recovery')) {
-      setMode('reset');
-    }
+  }, [isInviteSetup, mode]);
 
+  // Listen for auth state changes (e.g. PASSWORD_RECOVERY event)
+  useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
         setMode('reset');
       } else if (event === 'SIGNED_IN' && session?.user && !session.user.user_metadata?.full_name) {
-        // Only go to setup if NOT in recovery mode
-        if (!isPasswordRecovery) {
+        if (!isPasswordRecovery && !isInviteSetup) {
           setMode('setup');
           setEmail(session.user.email || '');
         }
@@ -35,7 +39,7 @@ export default function AuthPage() {
     });
 
     return () => subscription.unsubscribe();
-  }, [isPasswordRecovery]);
+  }, [isPasswordRecovery, isInviteSetup]);
 
   async function handleLogin(e) {
     e.preventDefault();
