@@ -63,7 +63,7 @@ export default function AuthPageMobile() {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const { data: invitation } = await supabase.from('invitations')
-          .select('role')
+          .select('role, title')
           .eq('email', user.email.toLowerCase())
           .is('accepted_at', null)
           .order('created_at', { ascending: false })
@@ -71,12 +71,14 @@ export default function AuthPageMobile() {
           .maybeSingle();
 
         const assignedRole = invitation?.role || 'member';
+        const assignedTitle = invitation?.title || null;
 
         await supabase.from('profiles').upsert({
           id: user.id,
           email: user.email,
           full_name: fullName.trim(),
           role: assignedRole,
+          title: assignedTitle,
           updated_at: new Date().toISOString(),
         });
 

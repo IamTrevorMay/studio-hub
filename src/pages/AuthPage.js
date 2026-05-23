@@ -65,43 +65,21 @@ export default function AuthPage() {
       });
       if (updateError) throw updateError;
 
-      // Update their profile
+      // Update their profile with the role from the invitation
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        // Determine the role for this user. Priority order:
-        // 1. user_metadata (set by inviteUserByEmail, but Supabase often resets it on confirm)
-        // 2. Existing profile (the handle_new_user trigger sets the correct role at invite time)
-        // 3. Invitations table (fallback, requires the new RLS policy)
-        // 4. Default to 'member'
-        const meta = user.user_metadata || {};
-        let assignedRole = meta.role || null;
-        let assignedTitle = meta.title || null;
+        // Look up the invitation — this is the only reliable source for the role.
+        // Supabase wipes user_metadata when the invite link is confirmed.
+        const { data: invitation } = await supabase.from('invitations')
+          .select('role, title')
+          .eq('email', user.email.toLowerCase())
+          .is('accepted_at', null)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
-        // Check if the trigger already created the profile with the correct role
-        if (!assignedRole) {
-          const { data: existingProfile } = await supabase
-            .from('profiles')
-            .select('role, title')
-            .eq('id', user.id)
-            .maybeSingle();
-          if (existingProfile?.role && existingProfile.role !== 'member') {
-            assignedRole = existingProfile.role;
-            assignedTitle = assignedTitle || existingProfile.title || null;
-          }
-        }
-
-        // Fall back to querying the invitations table
-        if (!assignedRole) {
-          const { data: invitation } = await supabase.from('invitations')
-            .select('role, title')
-            .eq('email', user.email.toLowerCase())
-            .is('accepted_at', null)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          assignedRole = invitation?.role || 'member';
-          assignedTitle = assignedTitle || invitation?.title || null;
-        }
+        const assignedRole = invitation?.role || 'member';
+        const assignedTitle = invitation?.title || null;
 
         await supabase.from('profiles').upsert({
           id: user.id,

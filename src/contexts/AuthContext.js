@@ -11,10 +11,12 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
+  const [isInviteSetup, setIsInviteSetup] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [unsignedDocCount, setUnsignedDocCount] = useState(0);
   const initDone = useRef(false);
   const visibilityInFlight = useRef(false);
+  const inviteSetupRef = useRef(false); // ref for closure access in listener
 
   // Nuclear option: wipe all auth state from the browser
   const nukeSession = useCallback(async () => {
@@ -95,6 +97,15 @@ export function AuthProvider({ children }) {
           setLoading(false);
           clearTimeout(timeout);
           return; // Don't auto-login, let AuthPage handle recovery
+        }
+
+        // Check if this is an invite setup flow — let AuthPage handle password creation
+        if (hash && (hash.includes('type=invite') || hash.includes('type=signup') || hash.includes('type=magiclink'))) {
+          inviteSetupRef.current = true;
+          setIsInviteSetup(true);
+          setLoading(false);
+          clearTimeout(timeout);
+          return; // Don't auto-login, let AuthPage handle setup
         }
 
         // First, try to get the existing session
@@ -191,7 +202,7 @@ export function AuthProvider({ children }) {
           return;
         }
 
-        if (isPasswordRecovery) return;
+        if (isPasswordRecovery || inviteSetupRef.current) return;
 
         if (session?.user) {
           if (event === 'SIGNED_IN') {
@@ -309,6 +320,13 @@ export function AuthProvider({ children }) {
   // Call after password reset completes to allow normal login flow
   function clearRecovery() {
     setIsPasswordRecovery(false);
+    window.location.hash = '';
+  }
+
+  // Call after invite setup completes to allow normal login flow
+  function clearInviteSetup() {
+    inviteSetupRef.current = false;
+    setIsInviteSetup(false);
     window.location.hash = '';
   }
 
@@ -578,6 +596,8 @@ export function AuthProvider({ children }) {
     authError,
     isPasswordRecovery,
     clearRecovery,
+    isInviteSetup,
+    clearInviteSetup,
     signIn,
     signUp,
     signOut,

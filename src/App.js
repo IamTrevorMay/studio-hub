@@ -12,7 +12,7 @@ const AuthPage = isMobileViewport()
   : React.lazy(() => import('./pages/AuthPage'));
 
 function AppContent() {
-  const { user, profile, loading, signOut, isPasswordRecovery } = useAuth();
+  const { user, profile, loading, signOut, isPasswordRecovery, isInviteSetup } = useAuth();
 
   if (loading) {
     return (
@@ -44,8 +44,8 @@ function AppContent() {
     );
   }
 
-  // During password recovery, always show AuthPage (reset form)
-  if (isPasswordRecovery) {
+  // During password recovery or invite setup, always show AuthPage
+  if (isPasswordRecovery || isInviteSetup) {
     return (
       <Suspense fallback={<LayoutFallback />}>
         <AuthPage />
