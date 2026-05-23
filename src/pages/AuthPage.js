@@ -85,14 +85,17 @@ export default function AuthPage() {
         const assignedRole = invitation?.role || 'member';
         const assignedTitle = invitation?.title || null;
 
-        await supabase.from('profiles').upsert({
-          id: user.id,
-          email: user.email,
-          full_name: fullName.trim(),
-          role: assignedRole,
-          title: assignedTitle,
-          updated_at: new Date().toISOString(),
-        });
+        // Update the profile that was already created by the handle_new_user trigger.
+        // Must use update (not upsert) — profiles has no INSERT RLS policy.
+        const { error: profileError } = await supabase.from('profiles')
+          .update({
+            full_name: fullName.trim(),
+            role: assignedRole,
+            title: assignedTitle,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', user.id);
+        if (profileError) throw profileError;
 
         // If freelancer, create their freelancer_profiles row
         if (assignedRole === 'freelancer') {

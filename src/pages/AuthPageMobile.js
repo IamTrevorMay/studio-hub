@@ -76,14 +76,15 @@ export default function AuthPageMobile() {
         const assignedRole = invitation?.role || 'member';
         const assignedTitle = invitation?.title || null;
 
-        await supabase.from('profiles').upsert({
-          id: user.id,
-          email: user.email,
-          full_name: fullName.trim(),
-          role: assignedRole,
-          title: assignedTitle,
-          updated_at: new Date().toISOString(),
-        });
+        const { error: profileError } = await supabase.from('profiles')
+          .update({
+            full_name: fullName.trim(),
+            role: assignedRole,
+            title: assignedTitle,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', user.id);
+        if (profileError) throw profileError;
 
         if (assignedRole === 'freelancer') {
           await supabase.from('freelancer_profiles').upsert({ id: user.id });
