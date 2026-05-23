@@ -87,7 +87,6 @@ export default function useNavConfig() {
         { type: 'item', key: 'fl_documents', label: 'Documents' },
         { type: 'item', key: 'channels', label: 'Channels' },
         { type: 'item', key: 'messages', label: 'Messages' },
-        { type: 'item', key: 'ideas', label: 'Ideas' },
         { type: 'item', key: 'fl_profile', label: 'Profile' },
         { type: 'item', key: 'fl_notifications', label: 'Notifications' },
       ];

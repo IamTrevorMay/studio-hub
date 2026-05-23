@@ -194,7 +194,7 @@ export default function AppLayout() {
 
   // Redirect freelancers to their dashboard if landing on a non-freelancer tab
   useEffect(() => {
-    if (isFreelancer && !activeTab.startsWith('fl_') && activeTab !== 'resources' && activeTab !== 'assets' && activeTab !== 'channels' && activeTab !== 'messages' && activeTab !== 'ideas') {
+    if (isFreelancer && !activeTab.startsWith('fl_') && activeTab !== 'resources' && activeTab !== 'assets' && activeTab !== 'channels' && activeTab !== 'messages') {
       setActiveTab('fl_dashboard');
     }
   }, [isFreelancer]); // eslint-disable-line
