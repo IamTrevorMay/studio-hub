@@ -61,6 +61,20 @@ export default function FreelancerDashboard({ onNavigate }) {
   const [newComment, setNewComment] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [loading, setLoading] = useState(true);
+  const [myPaymentType, setMyPaymentType] = useState(null);
+  const [hoursModalAssignment, setHoursModalAssignment] = useState(null);
+  const [hoursInput, setHoursInput] = useState('');
+  const [hoursSubmitting, setHoursSubmitting] = useState(false);
+  const [archivedIds, setArchivedIds] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('fl_archived_assignments') || '[]')); }
+    catch { return new Set(); }
+  });
+
+  // Notifications + announcements
+  const [notifications, setNotifications] = useState([]);
+  const [announcements, setAnnouncements] = useState([]);
+  const [dismissedAnnouncementIds, setDismissedAnnouncementIds] = useState(new Set());
+  const [notifsExpanded, setNotifsExpanded] = useState(true);
 
   // ── Data Fetching ──────────────────────────────────────────────
 
@@ -85,9 +99,44 @@ export default function FreelancerDashboard({ onNavigate }) {
     setComments(data || []);
   }, []);
 
+  const fetchNotifications = useCallback(async () => {
+    if (!profile?.id) return;
+    const { data } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_id', profile.id)
+      .order('created_at', { ascending: false })
+      .limit(20);
+    setNotifications(data || []);
+  }, [profile?.id]);
+
+  const fetchAnnouncements = useCallback(async () => {
+    if (!profile?.id) return;
+    const [{ data: anns }, { data: reads }] = await Promise.all([
+      supabase.from('announcements')
+        .select('*, author:profiles!created_by(full_name)')
+        .order('target_date', { ascending: false })
+        .limit(10),
+      supabase.from('announcement_reads')
+        .select('announcement_id')
+        .eq('user_id', profile.id),
+    ]);
+    const readIds = new Set((reads || []).map(r => r.announcement_id));
+    setDismissedAnnouncementIds(readIds);
+    setAnnouncements(anns || []);
+  }, [profile?.id]);
+
   useEffect(() => {
     fetchAssignments();
-  }, [fetchAssignments]);
+    fetchNotifications();
+    fetchAnnouncements();
+  }, [fetchAssignments, fetchNotifications, fetchAnnouncements]);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+    supabase.from('freelancer_profiles').select('payment_type').eq('id', profile.id).single()
+      .then(({ data }) => { if (data) setMyPaymentType(data.payment_type); });
+  }, [profile?.id]);
 
   useEffect(() => {
     if (selectedId) {
@@ -104,9 +153,11 @@ export default function FreelancerDashboard({ onNavigate }) {
     const channel = supabase.channel('fl-dashboard')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'freelancer_assignments', filter: `freelancer_id=eq.${profile.id}` }, () => fetchAssignments())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'freelancer_assignment_comments' }, () => { if (selectedId) fetchComments(selectedId); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${profile.id}` }, () => fetchNotifications())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements' }, () => fetchAnnouncements())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [profile?.id, fetchAssignments, fetchComments, selectedId]);
+  }, [profile?.id, fetchAssignments, fetchComments, fetchNotifications, fetchAnnouncements, selectedId]);
 
   // ── Handlers ───────────────────────────────────────────────────
 
@@ -126,6 +177,13 @@ export default function FreelancerDashboard({ onNavigate }) {
       });
     }
     fetchAssignments();
+  }
+
+  function handleArchiveAssignment(id) {
+    const next = new Set([...archivedIds, id]);
+    setArchivedIds(next);
+    localStorage.setItem('fl_archived_assignments', JSON.stringify([...next]));
+    setSelectedId(null);
   }
 
   async function handlePostComment() {
@@ -151,11 +209,78 @@ export default function FreelancerDashboard({ onNavigate }) {
     fetchComments(selectedId);
   }
 
+  async function handleCompleteWithHours() {
+    if (!hoursModalAssignment || !hoursInput) return;
+    setHoursSubmitting(true);
+    const hours = parseFloat(hoursInput);
+    const updates = {
+      status: 'completed',
+      completed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      hours_spent: hours,
+    };
+    await supabase.from('freelancer_assignments').update(updates).eq('id', hoursModalAssignment.id);
+
+    if (hoursModalAssignment.created_by) {
+      await supabase.from('notifications').insert({
+        user_id: hoursModalAssignment.created_by,
+        type: 'fl_assignment_completed',
+        title: 'Assignment Completed',
+        body: `${profile.full_name} completed "${hoursModalAssignment.title}" (${hours}h)`,
+        link_tab: 'freelancers',
+        link_target: hoursModalAssignment.id,
+      });
+    }
+    setHoursModalAssignment(null);
+    setHoursInput('');
+    setHoursSubmitting(false);
+    fetchAssignments();
+  }
+
+  async function handleMarkNotifRead(notifId) {
+    await supabase.from('notifications').update({ read: true }).eq('id', notifId);
+    fetchNotifications();
+  }
+
+  async function handleMarkAllNotifsRead() {
+    await supabase.from('notifications').update({ read: true }).eq('user_id', profile.id).is('read', false);
+    fetchNotifications();
+  }
+
+  async function handleDismissNotif(notifId) {
+    await supabase.from('notifications').delete().eq('id', notifId);
+    fetchNotifications();
+  }
+
+  async function handleClearAllNotifs() {
+    // Clear notifications
+    await supabase.from('notifications').delete().eq('user_id', profile.id);
+    // Dismiss all visible announcements
+    const undismissed = announcements.filter(a => !dismissedAnnouncementIds.has(a.id));
+    if (undismissed.length > 0) {
+      await supabase.from('announcement_reads').upsert(
+        undismissed.map(a => ({ user_id: profile.id, announcement_id: a.id })),
+        { onConflict: 'user_id,announcement_id' }
+      );
+    }
+    fetchNotifications();
+    fetchAnnouncements();
+  }
+
+  async function handleDismissAnnouncement(announcementId) {
+    await supabase.from('announcement_reads').upsert(
+      { user_id: profile.id, announcement_id: announcementId },
+      { onConflict: 'user_id,announcement_id' }
+    );
+    setDismissedAnnouncementIds(prev => new Set([...prev, announcementId]));
+  }
+
   // ── Derived ────────────────────────────────────────────────────
 
+  const visibleAssignments = assignments.filter(a => !archivedIds.has(a.id));
   const filteredAssignments = statusFilter === 'all'
-    ? assignments
-    : assignments.filter(a => a.status === statusFilter);
+    ? visibleAssignments
+    : visibleAssignments.filter(a => a.status === statusFilter);
 
   // ── Render ─────────────────────────────────────────────────────
 
@@ -167,13 +292,147 @@ export default function FreelancerDashboard({ onNavigate }) {
     );
   }
 
+  const unreadNotifs = notifications.filter(n => !n.read);
+  const visibleAnnouncements = announcements.filter(a => !dismissedAnnouncementIds.has(a.id));
+  const allUpdates = [
+    ...visibleAnnouncements.map(a => {
+      // Strip HTML tags from content for plain text display
+      const plainText = a.content ? a.content.replace(/<[^>]*>/g, '').trim() : '';
+      return {
+        id: `ann-${a.id}`,
+        annId: a.id,
+        type: 'announcement',
+        title: 'Announcement',
+        body: plainText || null,
+        time: a.target_date || a.created_at,
+        read: false,
+        author: a.author?.full_name,
+      };
+    }),
+    ...notifications.map(n => ({
+      id: n.id,
+      type: n.type || 'notification',
+      title: n.title,
+      body: n.body,
+      time: n.created_at,
+      read: n.read,
+      notifId: n.id,
+    })),
+  ].sort((a, b) => new Date(b.time) - new Date(a.time));
+
   return (
     <div style={styles.page}>
+      {/* Notifications & Announcements */}
+      {allUpdates.length > 0 && (
+        <div style={styles.notifsSection}>
+          <div
+            style={styles.notifsSectionHeader}
+            onClick={() => setNotifsExpanded(!notifsExpanded)}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 15, fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>
+                Notifications
+              </span>
+              {unreadNotifs.length > 0 && (
+                <span style={styles.notifsUnreadBadge}>{unreadNotifs.length}</span>
+              )}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {notifsExpanded && unreadNotifs.length > 0 && (
+                <button
+                  onClick={e => { e.stopPropagation(); handleMarkAllNotifsRead(); }}
+                  style={styles.markAllReadBtn}
+                >
+                  Mark All Read
+                </button>
+              )}
+              {notifsExpanded && notifications.length > 0 && (
+                <button
+                  onClick={e => { e.stopPropagation(); handleClearAllNotifs(); }}
+                  style={styles.clearAllBtn}
+                >
+                  Clear All
+                </button>
+              )}
+              <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>
+                {notifsExpanded ? '\u25B2' : '\u25BC'}
+              </span>
+            </div>
+          </div>
+          {notifsExpanded && (
+            <div style={styles.notifsList}>
+              {allUpdates.slice(0, 10).map(item => (
+                <div
+                  key={item.id}
+                  style={{
+                    ...styles.notifItem,
+                    ...(item.read ? {} : styles.notifItemUnread),
+                  }}
+                  onClick={() => {
+                    if (item.notifId && !item.read) handleMarkNotifRead(item.notifId);
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {item.type === 'announcement' && (
+                          <span style={styles.announcementTag}>Announcement</span>
+                        )}
+                        <span style={{
+                          fontSize: 13,
+                          fontWeight: item.read ? 500 : 600,
+                          color: item.read ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.9)',
+                        }}>
+                          {item.title}
+                        </span>
+                      </div>
+                      {item.body && (
+                        <p style={{
+                          fontSize: 12,
+                          color: item.read ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.55)',
+                          margin: '4px 0 0',
+                          lineHeight: 1.4,
+                        }}>
+                          {item.body}
+                        </p>
+                      )}
+                      {item.author && (
+                        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2, display: 'block' }}>
+                          — {item.author}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                      <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', whiteSpace: 'nowrap' }}>
+                        {formatRelativeTime(item.time)}
+                      </span>
+                      {(item.notifId || item.annId) && (
+                        <button
+                          onClick={e => {
+                            e.stopPropagation();
+                            if (item.notifId) handleDismissNotif(item.notifId);
+                            else if (item.annId) handleDismissAnnouncement(item.annId);
+                          }}
+                          style={styles.dismissBtn}
+                          title="Dismiss"
+                        >
+                          &times;
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Header */}
       <div style={styles.header}>
         <h1 style={styles.title}>My Assignments</h1>
         <p style={styles.subtitle}>
-          {assignments.length} total &middot; {assignments.filter(a => a.status === 'in_progress').length} in progress
+          {visibleAssignments.length} total &middot; {visibleAssignments.filter(a => a.status === 'in_progress').length} in progress
         </p>
       </div>
 
@@ -290,15 +549,31 @@ export default function FreelancerDashboard({ onNavigate }) {
                     {a.status === 'in_progress' && (
                       <button
                         style={{ ...styles.actionButton, ...styles.actionButtonComplete }}
-                        onClick={(e) => { e.stopPropagation(); handleStatusChange(a, 'completed'); }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (myPaymentType === 'hourly') {
+                            setHoursModalAssignment(a);
+                            setHoursInput('');
+                          } else {
+                            handleStatusChange(a, 'completed');
+                          }
+                        }}
                       >
                         Mark Complete
                       </button>
                     )}
                     {a.status === 'completed' && (
-                      <div style={styles.completedIndicator}>
-                        <span style={{ color: '#34d399', marginRight: 6 }}>&#10003;</span>
-                        Completed {a.completed_at ? formatRelativeTime(a.completed_at) : ''}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div style={styles.completedIndicator}>
+                          <span style={{ color: '#34d399', marginRight: 6 }}>&#10003;</span>
+                          Completed {a.completed_at ? formatRelativeTime(a.completed_at) : ''}
+                        </div>
+                        <button
+                          style={styles.archiveButton}
+                          onClick={(e) => { e.stopPropagation(); handleArchiveAssignment(a.id); }}
+                        >
+                          Archive
+                        </button>
                       </div>
                     )}
                   </div>
@@ -354,6 +629,38 @@ export default function FreelancerDashboard({ onNavigate }) {
           );
         })}
       </div>
+
+      {/* Hours Modal */}
+      {hoursModalAssignment && (
+        <div style={styles.modalOverlay} onClick={() => setHoursModalAssignment(null)}>
+          <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <h3 style={styles.modalTitle}>Report Hours</h3>
+            <p style={styles.modalSubtitle}>{hoursModalAssignment.title}</p>
+            <input
+              type="number"
+              step="0.25"
+              min="0"
+              placeholder="Hours spent"
+              value={hoursInput}
+              onChange={(e) => setHoursInput(e.target.value)}
+              style={styles.hoursInput}
+              autoFocus
+            />
+            <div style={styles.modalActions}>
+              <button style={styles.modalCancelBtn} onClick={() => setHoursModalAssignment(null)}>
+                Cancel
+              </button>
+              <button
+                style={styles.modalConfirmBtn}
+                disabled={!hoursInput || parseFloat(hoursInput) <= 0 || hoursSubmitting}
+                onClick={handleCompleteWithHours}
+              >
+                {hoursSubmitting ? 'Saving...' : 'Complete Assignment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -369,6 +676,85 @@ const styles = {
     color: 'rgba(255,255,255,0.9)',
     maxWidth: 800,
     margin: '0 auto',
+  },
+  notifsSection: {
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: 10,
+    marginBottom: 28,
+    overflow: 'hidden',
+  },
+  notifsSectionHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '14px 18px',
+    cursor: 'pointer',
+  },
+  notifsUnreadBadge: {
+    background: '#6366f1',
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: 700,
+    borderRadius: 10,
+    padding: '1px 7px',
+    minWidth: 18,
+    textAlign: 'center',
+  },
+  markAllReadBtn: {
+    background: 'rgba(255,255,255,0.06)',
+    color: 'rgba(255,255,255,0.6)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 6,
+    padding: '4px 10px',
+    fontSize: 11,
+    fontWeight: 500,
+    fontFamily: 'DM Sans, sans-serif',
+    cursor: 'pointer',
+  },
+  notifsList: {
+    borderTop: '1px solid rgba(255,255,255,0.06)',
+  },
+  notifItem: {
+    padding: '12px 18px',
+    borderBottom: '1px solid rgba(255,255,255,0.04)',
+    cursor: 'pointer',
+  },
+  notifItemUnread: {
+    background: 'rgba(99,102,241,0.06)',
+    borderLeft: '3px solid #6366f1',
+  },
+  clearAllBtn: {
+    background: 'rgba(239,68,68,0.08)',
+    color: 'rgba(248,113,113,0.8)',
+    border: '1px solid rgba(239,68,68,0.15)',
+    borderRadius: 6,
+    padding: '4px 10px',
+    fontSize: 11,
+    fontWeight: 500,
+    fontFamily: 'DM Sans, sans-serif',
+    cursor: 'pointer',
+  },
+  dismissBtn: {
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.25)',
+    fontSize: 16,
+    cursor: 'pointer',
+    padding: '0 2px',
+    lineHeight: 1,
+    fontFamily: 'DM Sans, sans-serif',
+  },
+  announcementTag: {
+    fontSize: 10,
+    fontWeight: 600,
+    color: '#fbbf24',
+    background: 'rgba(251,191,36,0.12)',
+    padding: '1px 6px',
+    borderRadius: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+    flexShrink: 0,
   },
   header: {
     marginBottom: 24,
@@ -546,6 +932,17 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
   },
+  archiveButton: {
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 6,
+    padding: '5px 12px',
+    fontSize: 12,
+    fontWeight: 500,
+    color: 'rgba(255,255,255,0.5)',
+    cursor: 'pointer',
+    fontFamily: 'DM Sans, sans-serif',
+  },
 
   // Comments
   commentSection: {
@@ -636,5 +1033,78 @@ const styles = {
     cursor: 'pointer',
     fontFamily: 'DM Sans, sans-serif',
     transition: 'opacity 0.15s',
+  },
+
+  // Hours modal
+  modalOverlay: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    background: 'rgba(0,0,0,0.7)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 9999,
+  },
+  modalContent: {
+    background: '#1a1a2e',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 16,
+    padding: '32px',
+    width: 360,
+    maxWidth: '90vw',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 700,
+    color: '#fff',
+    margin: '0 0 4px',
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.5)',
+    margin: '0 0 24px',
+  },
+  hoursInput: {
+    width: '100%',
+    padding: '12px 16px',
+    borderRadius: 10,
+    border: '1px solid rgba(255,255,255,0.15)',
+    background: 'rgba(255,255,255,0.05)',
+    color: '#fff',
+    fontSize: 16,
+    fontFamily: 'DM Sans, sans-serif',
+    outline: 'none',
+    boxSizing: 'border-box',
+  },
+  modalActions: {
+    display: 'flex',
+    gap: 10,
+    marginTop: 24,
+    justifyContent: 'flex-end',
+  },
+  modalCancelBtn: {
+    padding: '10px 20px',
+    borderRadius: 8,
+    border: '1px solid rgba(255,255,255,0.1)',
+    background: 'transparent',
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 14,
+    fontWeight: 500,
+    cursor: 'pointer',
+    fontFamily: 'DM Sans, sans-serif',
+  },
+  modalConfirmBtn: {
+    padding: '10px 20px',
+    borderRadius: 8,
+    border: 'none',
+    background: '#22c55e',
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'DM Sans, sans-serif',
   },
 };

@@ -18,6 +18,7 @@ import Research from './Research';
 import Goals from './Goals';
 import BusinessDev from './BusinessDev';
 import Invoicing from './Invoicing';
+import Payroll from './Payroll';
 import Production from './Production';
 import Write from './Write';
 import Screenwriter from './Screenwriter';
@@ -63,6 +64,7 @@ const NAV_ITEMS = [
   { key: 'calendar', label: 'Calendar', icon: CalendarIcon },
   { key: 'goals', label: 'Goals', icon: GoalsIcon },
   { key: 'business_dev', label: 'Business Dev', icon: BusinessDevIcon, adminOnly: true },
+  { key: 'payroll', label: 'Payroll', icon: PayrollIcon, adminOnly: true },
   { key: 'invoicing', label: 'Invoicing', icon: InvoicingIcon },
   { key: 'freelancers', label: 'Contractors', icon: FreelancersIcon, adminOnly: true },
   { key: 'channels', label: 'Channels', icon: ChannelsIcon },
@@ -120,6 +122,7 @@ const NAV_ICON_MAP = {
   calendar: CalendarIcon,
   goals: GoalsIcon,
   business_dev: BusinessDevIcon,
+  payroll: PayrollIcon,
   invoicing: InvoicingIcon,
   freelancers: FreelancersIcon,
   channels: ChannelsIcon,
@@ -135,7 +138,7 @@ const NAV_ICON_MAP = {
 };
 
 export default function AppLayout() {
-  const { profile, signOut, isAdmin, isAssistant, isPartner, isFreelancer, unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, refreshNotifications } = useAuth();
+  const { profile, signOut, isAdmin, isAssistant, isPartner, isFreelancer, unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, newAssignmentCount, refreshNotifications } = useAuth();
   const { getResolvedNav, saveConfig, saving } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => getTabFromPath() || localStorage.getItem('studio-hub-tab') || 'dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -465,28 +468,14 @@ export default function AppLayout() {
                       {entry.key === 'fl_documents' && unsignedDocCount > 0 && (
                         <span style={styles.navBadge}>{unsignedDocCount}</span>
                       )}
+                      {entry.key === 'fl_dashboard' && newAssignmentCount > 0 && (
+                        <span style={styles.navDot} />
+                      )}
                     </button>
                   );
                 });
               })()}
             </>
-          )}
-
-          {/* Admin button - always last */}
-          {isAdmin && (
-            <button
-              onClick={() => setActiveTab('admin')}
-              style={{
-                ...styles.navItem,
-                ...(activeTab === 'admin' ? styles.navItemActive : {}),
-                justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-                marginTop: '8px',
-              }}
-              title={sidebarCollapsed ? 'Admin' : undefined}
-            >
-              <AdminIcon active={activeTab === 'admin'} />
-              {!sidebarCollapsed && <span>Admin</span>}
-            </button>
           )}
 
           {/* Edit mode toggle - admin only, expanded sidebar only */}
@@ -525,6 +514,23 @@ export default function AppLayout() {
             )}
           </svg>
         </button>
+
+        {/* Admin Settings button - between collapse toggle and user area */}
+        {isAdmin && (
+          <button
+            onClick={() => setActiveTab('admin')}
+            style={{
+              ...styles.navItem,
+              ...(activeTab === 'admin' ? styles.navItemActive : {}),
+              justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+              marginTop: '8px',
+            }}
+            title={sidebarCollapsed ? 'Admin Settings' : undefined}
+          >
+            <AdminIcon active={activeTab === 'admin'} />
+            {!sidebarCollapsed && <span>Admin Settings</span>}
+          </button>
+        )}
 
         {/* User area */}
         <div style={{
@@ -626,6 +632,7 @@ export default function AppLayout() {
           {activeTab === 'reviews' && <Reviews />}
           {activeTab === 'goals' && <Goals />}
           {(isAdmin || isPartner) && activeTab === 'business_dev' && <BusinessDev />}
+          {isAdmin && activeTab === 'payroll' && <Payroll />}
           {(isAdmin || isAssistant) && activeTab === 'invoicing' && <Invoicing />}
 
           {activeTab === 'channels' && <Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} />}
@@ -966,6 +973,17 @@ function InvoicingIcon({ active }) {
       <rect x="4" y="2" width="12" height="16" rx="2" />
       <path d="M7 6h6M7 9h6M7 12h4" strokeLinecap="round" />
       <path d="M4 15h12" />
+    </svg>
+  );
+}
+
+function PayrollIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <rect x="3" y="3" width="14" height="14" rx="2" />
+      <path d="M3 8h14" />
+      <circle cx="10" cy="13" r="2" />
+      <path d="M10 11v0.5M10 14.5v0.5" strokeLinecap="round" />
     </svg>
   );
 }
