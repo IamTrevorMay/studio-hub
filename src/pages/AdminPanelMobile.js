@@ -8,7 +8,7 @@ import { mobileTokens } from '../utils/mobileTokens';
 
 const ROLE_LABELS = {
   admin: 'Admin', assistant: 'Assistant', member: 'Member',
-  partner: 'Partner', freelancer: 'Freelancer',
+  partner: 'Partner', freelancer: 'Contractor',
 };
 const ROLE_COLORS = {
   admin: '#a5b4fc', assistant: '#86efac', member: 'rgba(255,255,255,0.55)',

@@ -2,20 +2,21 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 
-const SPECIALTIES = ['Editor', 'Designer', 'Writer', 'Other'];
-
 export default function FreelancerProfile() {
   const { profile } = useAuth();
   const [form, setForm] = useState({
     full_name: '',
-    specialty: '',
-    hourly_rate: '',
     phone: '',
     payment_method: '',
     payment_details: '',
     bio: '',
   });
   const [email, setEmail] = useState('');
+  const [title, setTitle] = useState('');
+  const [paymentType, setPaymentType] = useState('');
+  const [rate, setRate] = useState('');
+  const [avatarUrl, setAvatarUrl] = useState('');
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [saving, setSaving] = useState(false);
@@ -27,19 +28,21 @@ export default function FreelancerProfile() {
     if (!profile?.id) return;
     setLoading(true);
     const [{ data: prof }, { data: flProf }] = await Promise.all([
-      supabase.from('profiles').select('full_name, email, avatar_url').eq('id', profile.id).single(),
+      supabase.from('profiles').select('full_name, email, avatar_url, title').eq('id', profile.id).single(),
       supabase.from('freelancer_profiles').select('*').eq('id', profile.id).single(),
     ]);
     setForm({
       full_name: prof?.full_name || '',
-      specialty: flProf?.specialty || '',
-      hourly_rate: flProf?.hourly_rate != null ? String(flProf.hourly_rate) : '',
       phone: flProf?.phone || '',
       payment_method: flProf?.payment_method || '',
       payment_details: flProf?.payment_details || '',
       bio: flProf?.bio || '',
     });
     setEmail(prof?.email || '');
+    setTitle(prof?.title || '');
+    setAvatarUrl(prof?.avatar_url || '');
+    setPaymentType(flProf?.payment_type || '');
+    setRate(flProf?.rate != null ? String(flProf.rate) : '');
     setLoading(false);
   }, [profile?.id]);
 
@@ -61,8 +64,6 @@ export default function FreelancerProfile() {
           updated_at: new Date().toISOString(),
         }).eq('id', profile.id),
         supabase.from('freelancer_profiles').update({
-          specialty: form.specialty || null,
-          hourly_rate: form.hourly_rate ? parseFloat(form.hourly_rate) : null,
           phone: form.phone || null,
           payment_method: form.payment_method || null,
           payment_details: form.payment_details || null,
@@ -76,6 +77,29 @@ export default function FreelancerProfile() {
       setError(err.message);
     }
     setSaving(false);
+  }
+
+  async function handleAvatarUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setAvatarUploading(true);
+    setError(null);
+    try {
+      const ext = file.name.split('.').pop();
+      const path = `${profile.id}/avatar.${ext}`;
+      const { error: uploadErr } = await supabase.storage
+        .from('avatars')
+        .upload(path, file, { upsert: true });
+      if (uploadErr) throw uploadErr;
+      const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path);
+      // Bust cache with timestamp
+      const url = `${publicUrl}?t=${Date.now()}`;
+      await supabase.from('profiles').update({ avatar_url: url }).eq('id', profile.id);
+      setAvatarUrl(url);
+    } catch (err) {
+      setError(err.message);
+    }
+    setAvatarUploading(false);
   }
 
   async function handlePasswordChange() {
@@ -119,6 +143,46 @@ export default function FreelancerProfile() {
       <div style={styles.section}>
         <h2 style={styles.sectionTitle}>Profile Info</h2>
 
+        {/* Avatar upload */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
+          <label style={{ cursor: 'pointer', position: 'relative' }}>
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt=""
+                style={{ width: 80, height: 80, borderRadius: '50%', objectFit: 'cover' }}
+              />
+            ) : (
+              <div style={{
+                width: 80, height: 80, borderRadius: '50%', background: '#6366f1',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: '#fff', fontSize: 28, fontWeight: 700,
+              }}>
+                {(form.full_name || '?')[0].toUpperCase()}
+              </div>
+            )}
+            {avatarUploading && (
+              <div style={{
+                position: 'absolute', inset: 0, borderRadius: '50%',
+                background: 'rgba(0,0,0,0.5)', display: 'flex',
+                alignItems: 'center', justifyContent: 'center',
+                color: '#fff', fontSize: 11,
+              }}>
+                ...
+              </div>
+            )}
+            <input
+              type="file"
+              accept="image/*"
+              style={{ display: 'none' }}
+              onChange={handleAvatarUpload}
+            />
+          </label>
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
+            Click to upload photo
+          </div>
+        </div>
+
         <div style={styles.fieldGroup}>
           <label style={styles.fieldLabel}>Full Name</label>
           <input
@@ -139,32 +203,41 @@ export default function FreelancerProfile() {
           />
         </div>
 
-        <div style={styles.fieldGroup}>
-          <label style={styles.fieldLabel}>Specialty</label>
-          <select
-            value={form.specialty}
-            onChange={e => updateField('specialty', e.target.value)}
-            style={styles.select}
-          >
-            <option value="">Select...</option>
-            {SPECIALTIES.map(s => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-        </div>
+        {title && (
+          <div style={styles.fieldGroup}>
+            <label style={styles.fieldLabel}>Title</label>
+            <input
+              type="text"
+              value={title}
+              disabled
+              style={{ ...styles.input, ...styles.inputDisabled }}
+            />
+          </div>
+        )}
 
-        <div style={styles.fieldGroup}>
-          <label style={styles.fieldLabel}>Hourly Rate ($)</label>
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            value={form.hourly_rate}
-            onChange={e => updateField('hourly_rate', e.target.value)}
-            placeholder="0.00"
-            style={styles.input}
-          />
-        </div>
+        {paymentType && (
+          <div style={styles.fieldGroup}>
+            <label style={styles.fieldLabel}>Payment Type</label>
+            <input
+              type="text"
+              value={paymentType === 'hourly' ? 'Hourly' : 'By Project'}
+              disabled
+              style={{ ...styles.input, ...styles.inputDisabled }}
+            />
+          </div>
+        )}
+
+        {rate && (
+          <div style={styles.fieldGroup}>
+            <label style={styles.fieldLabel}>{paymentType === 'hourly' ? 'Hourly Rate' : 'Project Rate'}</label>
+            <input
+              type="text"
+              value={`$${Number(rate).toFixed(2)}`}
+              disabled
+              style={{ ...styles.input, ...styles.inputDisabled }}
+            />
+          </div>
+        )}
 
         <div style={styles.fieldGroup}>
           <label style={styles.fieldLabel}>Phone</label>
