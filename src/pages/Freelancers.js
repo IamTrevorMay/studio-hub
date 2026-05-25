@@ -17,6 +17,11 @@ const TYPE_LABELS = { edit: 'Edit', design: 'Design', write: 'Write', other: 'Ot
 
 const SPECIALTY_LABELS = { editor: 'Editor', designer: 'Designer', writer: 'Writer', other: 'Other' };
 
+const FREELANCER_TITLES = [
+  'Long Form Editor', 'Short Form Editor', 'Podcast Editor',
+  'Graphic Designer', 'Developer', 'Writer', 'Producer', 'Production/Camera',
+];
+
 /* ─────────────────────────────────────────── */
 /*  Component                                  */
 /* ─────────────────────────────────────────── */
@@ -34,8 +39,16 @@ function Freelancers() {
   const [flHoursSummary, setFlHoursSummary] = useState([]);
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteTitle, setInviteTitle] = useState('');
+  const [invitePaymentType, setInvitePaymentType] = useState('hourly');
+  const [inviteRate, setInviteRate] = useState('');
+  const [inviteContractFile, setInviteContractFile] = useState(null);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteMsg, setInviteMsg] = useState(null);
+  const [cloudFolders, setCloudFolders] = useState([]);
+  const [cloudFoldersLoading, setCloudFoldersLoading] = useState(false);
+  const [cloudFoldersError, setCloudFoldersError] = useState(null);
+  const [blockedFolders, setBlockedFolders] = useState(new Set());
 
   /* ── Assignments state ── */
   const [assignments, setAssignments] = useState([]);
@@ -158,28 +171,83 @@ function Freelancers() {
     if (expandedAssignment) fetchComments(expandedAssignment);
   }, [expandedAssignment, fetchComments]);
 
+  // Fetch Cloud folders when invite form opens
+  useEffect(() => {
+    if (!showInviteForm) return;
+    let cancelled = false;
+    const fetchCloudFolders = async () => {
+      setCloudFoldersLoading(true);
+      setCloudFoldersError(null);
+      setBlockedFolders(new Set());
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const resp = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/cloud-folders`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!resp.ok) throw new Error('Failed to load folders');
+        const folders = await resp.json();
+        if (!cancelled) setCloudFolders(folders);
+      } catch (err) {
+        if (!cancelled) setCloudFoldersError(err.message);
+      } finally {
+        if (!cancelled) setCloudFoldersLoading(false);
+      }
+    };
+    fetchCloudFolders();
+    return () => { cancelled = true; };
+  }, [showInviteForm]);
+
   /* ─────────────────────────────────────────── */
   /*  Handlers                                   */
   /* ─────────────────────────────────────────── */
 
   const handleInvite = async () => {
-    if (!inviteEmail.trim()) return;
+    if (!inviteEmail.trim() || !inviteTitle || !inviteRate) return;
     setInviteLoading(true);
     setInviteMsg(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
+
+      // If a contract file was selected, upload it to a pending path keyed by email hash
+      let contractStoragePath = null;
+      let contractFileName = null;
+      if (inviteContractFile) {
+        const emailHash = btoa(inviteEmail.trim().toLowerCase()).replace(/[^a-zA-Z0-9]/g, '');
+        const safeName = inviteContractFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        contractStoragePath = `pending/${emailHash}/${safeName}`;
+        contractFileName = inviteContractFile.name;
+        const { error: uploadErr } = await supabase.storage
+          .from('freelancer-documents')
+          .upload(contractStoragePath, inviteContractFile, { upsert: true });
+        if (uploadErr) throw new Error('Failed to upload contract: ' + uploadErr.message);
+      }
+
       const res = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/invite-user`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ email: inviteEmail.trim(), role: 'freelancer' }),
+        body: JSON.stringify({
+          email: inviteEmail.trim(),
+          role: 'freelancer',
+          title: inviteTitle,
+          payment_type: invitePaymentType,
+          rate: parseFloat(inviteRate),
+          contract_storage_path: contractStoragePath,
+          contract_file_name: contractFileName,
+          blocked_folders: [...blockedFolders],
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to send invite');
       setInviteMsg({ type: 'success', text: `Invite sent to ${inviteEmail.trim()}` });
       setInviteEmail('');
+      setInviteTitle('');
+      setInvitePaymentType('hourly');
+      setInviteRate('');
+      setInviteContractFile(null);
+      setBlockedFolders(new Set());
       setShowInviteForm(false);
     } catch (err) {
       setInviteMsg({ type: 'error', text: err.message });
@@ -377,7 +445,7 @@ function Freelancers() {
 
   return (
     <div style={styles.page}>
-      <h1 style={styles.pageTitle}>Freelancers</h1>
+      <h1 style={styles.pageTitle}>Contractors</h1>
 
       {/* Tab bar */}
       <div style={styles.tabBar}>
@@ -404,32 +472,181 @@ function Freelancers() {
           <div style={{ marginBottom: 24 }}>
             {!showInviteForm ? (
               <button style={styles.primaryBtn} onClick={() => setShowInviteForm(true)}>
-                Invite Freelancer
+                Invite Contractor
               </button>
             ) : (
               <div style={styles.card}>
-                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                  <input
-                    type="email"
-                    placeholder="Email address"
-                    value={inviteEmail}
-                    onChange={e => setInviteEmail(e.target.value)}
-                    style={styles.input}
-                    onKeyDown={e => e.key === 'Enter' && handleInvite()}
-                  />
-                  <button
-                    style={styles.primaryBtn}
-                    onClick={handleInvite}
-                    disabled={inviteLoading}
-                  >
-                    {inviteLoading ? 'Sending...' : 'Send Invite'}
-                  </button>
-                  <button
-                    style={styles.secondaryBtn}
-                    onClick={() => { setShowInviteForm(false); setInviteEmail(''); setInviteMsg(null); }}
-                  >
-                    Cancel
-                  </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {/* Email */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <label style={styles.fieldLabel}>Email</label>
+                    <input
+                      type="email"
+                      placeholder="Email address"
+                      value={inviteEmail}
+                      onChange={e => setInviteEmail(e.target.value)}
+                      style={styles.input}
+                    />
+                  </div>
+
+                  {/* Title */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <label style={styles.fieldLabel}>Title</label>
+                    <select
+                      value={inviteTitle}
+                      onChange={e => setInviteTitle(e.target.value)}
+                      style={styles.select}
+                    >
+                      <option value="">Select title...</option>
+                      {FREELANCER_TITLES.map(t => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Payment Type */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <label style={styles.fieldLabel}>Payment Type</label>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      {['hourly', 'project'].map(pt => (
+                        <button
+                          key={pt}
+                          type="button"
+                          onClick={() => setInvitePaymentType(pt)}
+                          style={{
+                            padding: '6px 16px',
+                            borderRadius: 6,
+                            border: '1px solid',
+                            borderColor: invitePaymentType === pt ? '#6366f1' : 'rgba(255,255,255,0.12)',
+                            background: invitePaymentType === pt ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.04)',
+                            color: invitePaymentType === pt ? '#818cf8' : 'rgba(255,255,255,0.6)',
+                            fontSize: 13,
+                            fontWeight: 600,
+                            fontFamily: 'DM Sans, sans-serif',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {pt === 'hourly' ? 'Hourly' : 'By Project'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Rate */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <label style={styles.fieldLabel}>
+                      {invitePaymentType === 'hourly' ? 'Hourly Rate' : 'Project Rate'}
+                    </label>
+                    <div style={{ position: 'relative' }}>
+                      <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'rgba(255,255,255,0.4)', fontSize: 14, pointerEvents: 'none' }}>$</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="0.00"
+                        value={inviteRate}
+                        onChange={e => setInviteRate(e.target.value)}
+                        style={{ ...styles.input, paddingLeft: 24 }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Contract Upload */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <label style={styles.fieldLabel}>Contract (optional)</label>
+                    {inviteContractFile ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {inviteContractFile.name}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setInviteContractFile(null)}
+                          style={{ background: 'none', border: 'none', color: '#f87171', fontSize: 12, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ) : (
+                      <label style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                        padding: '10px 16px', borderRadius: 6, border: '1px dashed rgba(255,255,255,0.15)',
+                        background: 'rgba(255,255,255,0.02)', cursor: 'pointer', fontSize: 13,
+                        color: 'rgba(255,255,255,0.45)',
+                      }}>
+                        Upload PDF
+                        <input
+                          type="file"
+                          accept=".pdf"
+                          style={{ display: 'none' }}
+                          onChange={e => { if (e.target.files[0]) setInviteContractFile(e.target.files[0]); }}
+                        />
+                      </label>
+                    )}
+                  </div>
+
+                  {/* Mayday Cloud Access */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <label style={styles.fieldLabel}>Mayday Cloud Access</label>
+                    <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 4 }}>
+                      Uncheck folders this contractor should not access
+                    </span>
+                    {cloudFoldersLoading ? (
+                      <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)' }}>Loading folders...</span>
+                    ) : cloudFoldersError ? (
+                      <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)' }}>Could not load Cloud folders</span>
+                    ) : cloudFolders.length > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 160, overflowY: 'auto', padding: '8px 10px', borderRadius: 6, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                        {cloudFolders.map(folder => (
+                          <label key={folder.path} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'rgba(255,255,255,0.8)' }}>
+                            <input
+                              type="checkbox"
+                              checked={!blockedFolders.has(folder.path)}
+                              onChange={() => {
+                                setBlockedFolders(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(folder.path)) next.delete(folder.path);
+                                  else next.add(folder.path);
+                                  return next;
+                                });
+                              }}
+                              style={{ accentColor: '#6366f1' }}
+                            />
+                            {folder.name}
+                          </label>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {/* Actions */}
+                  <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+                    <button
+                      style={{
+                        ...styles.primaryBtn,
+                        opacity: (!inviteEmail.trim() || !inviteTitle || !inviteRate) ? 0.5 : 1,
+                      }}
+                      onClick={handleInvite}
+                      disabled={inviteLoading || !inviteEmail.trim() || !inviteTitle || !inviteRate}
+                    >
+                      {inviteLoading ? 'Sending...' : 'Send Invite'}
+                    </button>
+                    <button
+                      style={styles.secondaryBtn}
+                      onClick={() => {
+                        setShowInviteForm(false);
+                        setInviteEmail('');
+                        setInviteTitle('');
+                        setInvitePaymentType('hourly');
+                        setInviteRate('');
+                        setInviteContractFile(null);
+                        setBlockedFolders(new Set());
+                        setInviteMsg(null);
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -446,7 +663,7 @@ function Freelancers() {
 
           {/* Freelancer list */}
           {freelancers.length === 0 ? (
-            <p style={styles.emptyText}>No freelancers yet. Invite one above.</p>
+            <p style={styles.emptyText}>No contractors yet. Invite one above.</p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {freelancers.map(fl => {
@@ -467,9 +684,17 @@ function Freelancers() {
                       }}
                     >
                       {/* Avatar */}
-                      <div style={styles.avatar}>
-                        {avatarLetter(fl.full_name)}
-                      </div>
+                      {fl.avatar_url ? (
+                        <img
+                          src={fl.avatar_url}
+                          alt=""
+                          style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+                        />
+                      ) : (
+                        <div style={styles.avatar}>
+                          {avatarLetter(fl.full_name)}
+                        </div>
+                      )}
 
                       {/* Info */}
                       <div style={{ flex: 1, minWidth: 0 }}>
@@ -483,14 +708,14 @@ function Freelancers() {
 
                       {/* Badges */}
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
-                        {fp.specialty && (
+                        {fl.title && (
                           <span style={styles.badge}>
-                            {SPECIALTY_LABELS[fp.specialty] || fp.specialty}
+                            {fl.title}
                           </span>
                         )}
-                        {fp.hourly_rate && (
+                        {fp.rate && (
                           <span style={{ ...styles.badge, background: 'rgba(99,102,241,0.15)', color: '#818cf8' }}>
-                            ${Number(fp.hourly_rate).toFixed(0)}/hr
+                            ${Number(fp.rate).toFixed(0)}{fp.payment_type === 'hourly' ? '/hr' : '/proj'}
                           </span>
                         )}
                         <span style={{ ...styles.badge, background: activeCount > 0 ? 'rgba(251,191,36,0.15)' : 'rgba(255,255,255,0.06)', color: activeCount > 0 ? '#fbbf24' : 'rgba(255,255,255,0.4)' }}>
@@ -586,7 +811,7 @@ function Freelancers() {
               onChange={e => setFreelancerFilter(e.target.value)}
               style={styles.select}
             >
-              <option value="all">All Freelancers</option>
+              <option value="all">All Contractors</option>
               {freelancers.map(fl => (
                 <option key={fl.id} value={fl.id}>{fl.full_name || fl.email}</option>
               ))}
@@ -603,7 +828,7 @@ function Freelancers() {
               <h3 style={{ color: '#fff', fontSize: 15, fontWeight: 600, marginBottom: 14, marginTop: 0 }}>Create Assignment</h3>
               <div style={styles.formGrid}>
                 <div style={styles.formField}>
-                  <label style={styles.label}>Freelancer *</label>
+                  <label style={styles.label}>Contractor *</label>
                   <select
                     value={newAssign.freelancer_id}
                     onChange={e => setNewAssign(p => ({ ...p, freelancer_id: e.target.value }))}
@@ -894,7 +1119,7 @@ function Freelancers() {
               onChange={e => setHoursFreelancerFilter(e.target.value)}
               style={styles.select}
             >
-              <option value="all">All Freelancers</option>
+              <option value="all">All Contractors</option>
               {freelancers.map(fl => (
                 <option key={fl.id} value={fl.id}>{fl.full_name || fl.email}</option>
               ))}
@@ -970,7 +1195,7 @@ function Freelancers() {
               onChange={e => setDocsFreelancerFilter(e.target.value)}
               style={styles.select}
             >
-              <option value="all">All Freelancers</option>
+              <option value="all">All Contractors</option>
               {freelancers.map(fl => (
                 <option key={fl.id} value={fl.id}>{fl.full_name || fl.email}</option>
               ))}
@@ -1013,7 +1238,7 @@ function Freelancers() {
                   />
                 </div>
                 <div style={{ ...styles.formField, gridColumn: '1 / -1' }}>
-                  <label style={styles.label}>Freelancer(s)</label>
+                  <label style={styles.label}>Contractor(s)</label>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                     {freelancers.map(fl => {
                       const sel = uploadForm.freelancer_ids.includes(fl.id);
@@ -1275,6 +1500,13 @@ const styles = {
     fontSize: 12,
     fontWeight: 500,
     color: 'rgba(255,255,255,0.45)',
+  },
+  fieldLabel: {
+    fontSize: 12,
+    fontWeight: 500,
+    color: 'rgba(255,255,255,0.5)',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   input: {
     padding: '8px 12px',
