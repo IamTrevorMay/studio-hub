@@ -49,6 +49,9 @@ function Freelancers() {
   const [cloudFoldersLoading, setCloudFoldersLoading] = useState(false);
   const [cloudFoldersError, setCloudFoldersError] = useState(null);
   const [blockedFolders, setBlockedFolders] = useState(new Set());
+  const [driveFolders, setDriveFolders] = useState([]);
+  const [driveFoldersLoading, setDriveFoldersLoading] = useState(false);
+  const [selectedDriveFolder, setSelectedDriveFolder] = useState(null);
 
   /* ── Assignments state ── */
   const [assignments, setAssignments] = useState([]);
@@ -197,6 +200,32 @@ function Freelancers() {
     return () => { cancelled = true; };
   }, [showInviteForm]);
 
+  // Fetch Drive contractor folders when invite form opens
+  useEffect(() => {
+    if (!showInviteForm) return;
+    let cancelled = false;
+    const fetchDriveFolders = async () => {
+      setDriveFoldersLoading(true);
+      setSelectedDriveFolder(null);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const resp = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/drive-list-contractor-folders`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!resp.ok) throw new Error('Failed to load folders');
+        const json = await resp.json();
+        if (!cancelled) setDriveFolders(json.folders || []);
+      } catch (err) {
+        console.error('Failed to fetch drive folders:', err);
+        if (!cancelled) setDriveFolders([]);
+      } finally {
+        if (!cancelled) setDriveFoldersLoading(false);
+      }
+    };
+    fetchDriveFolders();
+    return () => { cancelled = true; };
+  }, [showInviteForm]);
+
   /* ─────────────────────────────────────────── */
   /*  Handlers                                   */
   /* ─────────────────────────────────────────── */
@@ -237,6 +266,8 @@ function Freelancers() {
           contract_storage_path: contractStoragePath,
           contract_file_name: contractFileName,
           blocked_folders: [...blockedFolders],
+          assigned_drive_folder_id: selectedDriveFolder?.id || null,
+          assigned_drive_folder_name: selectedDriveFolder?.name || null,
         }),
       });
       const json = await res.json();
@@ -248,6 +279,7 @@ function Freelancers() {
       setInviteRate('');
       setInviteContractFile(null);
       setBlockedFolders(new Set());
+      setSelectedDriveFolder(null);
       setShowInviteForm(false);
     } catch (err) {
       setInviteMsg({ type: 'error', text: err.message });
@@ -585,6 +617,30 @@ function Freelancers() {
                     )}
                   </div>
 
+                  {/* Assigned Drive Folder */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <label style={styles.fieldLabel}>Assigned Folder (optional)</label>
+                    {driveFoldersLoading ? (
+                      <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)' }}>Loading folders...</span>
+                    ) : driveFolders.length > 0 ? (
+                      <select
+                        value={selectedDriveFolder ? selectedDriveFolder.id : ''}
+                        onChange={e => {
+                          const folder = driveFolders.find(f => f.id === e.target.value);
+                          setSelectedDriveFolder(folder || null);
+                        }}
+                        style={styles.select}
+                      >
+                        <option value="">None</option>
+                        {driveFolders.map(f => (
+                          <option key={f.id} value={f.id}>{f.name}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)' }}>No folders available</span>
+                    )}
+                  </div>
+
                   {/* Mayday Cloud Access */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <label style={styles.fieldLabel}>Mayday Cloud Access</label>
@@ -641,6 +697,7 @@ function Freelancers() {
                         setInviteRate('');
                         setInviteContractFile(null);
                         setBlockedFolders(new Set());
+                        setSelectedDriveFolder(null);
                         setInviteMsg(null);
                       }}
                     >

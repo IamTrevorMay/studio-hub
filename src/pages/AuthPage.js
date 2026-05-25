@@ -75,7 +75,7 @@ export default function AuthPage() {
         // Look up the invitation — this is the only reliable source for the role.
         // Supabase wipes user_metadata when the invite link is confirmed.
         const { data: invitation } = await supabase.from('invitations')
-          .select('role, title')
+          .select('role, title, payment_type, rate, contract_storage_path, contract_file_name, invited_by, assigned_drive_folder_id, assigned_drive_folder_name')
           .eq('email', user.email.toLowerCase())
           .is('accepted_at', null)
           .order('created_at', { ascending: false })
@@ -92,16 +92,50 @@ export default function AuthPage() {
             full_name: fullName.trim(),
             role: assignedRole,
             title: assignedTitle,
+            assigned_drive_folder_id: invitation?.assigned_drive_folder_id || null,
+            assigned_drive_folder_name: invitation?.assigned_drive_folder_name || null,
             updated_at: new Date().toISOString(),
           })
           .eq('id', user.id);
         if (profileError) throw profileError;
 
-        // If freelancer, create their freelancer_profiles row
+        // If freelancer, create their freelancer_profiles row with payment info
         if (assignedRole === 'freelancer') {
           await supabase.from('freelancer_profiles').upsert({
             id: user.id,
+            payment_type: invitation?.payment_type || null,
+            rate: invitation?.rate != null ? Number(invitation.rate) : null,
           });
+
+          // If a contract was uploaded at invite time, move it to the user's folder
+          if (invitation?.contract_storage_path && invitation?.contract_file_name) {
+            try {
+              const { data: fileData } = await supabase.storage
+                .from('freelancer-documents')
+                .download(invitation.contract_storage_path);
+              if (fileData) {
+                const newPath = `${user.id}/${invitation.contract_file_name}`;
+                await supabase.storage
+                  .from('freelancer-documents')
+                  .upload(newPath, fileData, { upsert: true });
+                // Create the document record
+                await supabase.from('freelancer_documents').insert({
+                  freelancer_id: user.id,
+                  uploaded_by: invitation.invited_by,
+                  title: 'Contract',
+                  doc_type: 'signing',
+                  storage_path: newPath,
+                  file_name: invitation.contract_file_name,
+                });
+                // Clean up the pending file
+                await supabase.storage
+                  .from('freelancer-documents')
+                  .remove([invitation.contract_storage_path]);
+              }
+            } catch (contractErr) {
+              console.error('Failed to move contract:', contractErr);
+            }
+          }
         }
 
         // Mark invitation as accepted

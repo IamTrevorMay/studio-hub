@@ -52,7 +52,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // Parse the request body
-    const { email, role, title, payment_type, rate, contract_storage_path, contract_file_name, blocked_folders } = await req.json();
+    const { email, role, title, payment_type, rate, contract_storage_path, contract_file_name, blocked_folders, assigned_drive_folder_id, assigned_drive_folder_name } = await req.json();
     if (!email) {
       return new Response(JSON.stringify({ error: "Email is required" }), {
         status: 400,
@@ -97,6 +97,8 @@ Deno.serve(async (req: Request) => {
       rate: rate != null ? Number(rate) : null,
       contract_storage_path: contract_storage_path || null,
       contract_file_name: contract_file_name || null,
+      assigned_drive_folder_id: assigned_drive_folder_id || null,
+      assigned_drive_folder_name: assigned_drive_folder_name || null,
     });
     if (inviteLogError) {
       console.error("Failed to log invitation:", inviteLogError);

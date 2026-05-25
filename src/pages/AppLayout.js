@@ -52,7 +52,7 @@ const NAV_ITEMS = [
   { key: 'telestration', label: 'Telestrator', icon: ToolsIcon },
   { key: 'post_show', label: 'Clipping Tool', icon: ToolsIcon },
   { key: 'timeline', label: 'Timeline', icon: ToolsIcon },
-  { key: 'assets', label: 'Assets', icon: ResourcesIcon, external: { url: 'https://www.mayday.systems/' } },
+  { key: 'assets', label: 'Assets Library', icon: ResourcesIcon, external: { url: 'https://www.mayday.systems/' } },
   { key: 'reviews', label: 'Reviews', icon: ReviewsIcon },
   { key: 'organize', label: 'Organize', icon: ToolsIcon },
   { key: 'projects', label: 'Projects', icon: ProjectsIcon },
@@ -64,12 +64,12 @@ const NAV_ITEMS = [
   { key: 'goals', label: 'Goals', icon: GoalsIcon },
   { key: 'business_dev', label: 'Business Dev', icon: BusinessDevIcon, adminOnly: true },
   { key: 'invoicing', label: 'Invoicing', icon: InvoicingIcon },
-  { key: 'freelancers', label: 'Freelancers', icon: FreelancersIcon, adminOnly: true },
+  { key: 'freelancers', label: 'Contractors', icon: FreelancersIcon, adminOnly: true },
   { key: 'channels', label: 'Channels', icon: ChannelsIcon },
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
 ];
 
-const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_documents', 'ideas'));
+const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_documents', 'fl_assignments', 'fl_submit', 'ideas'));
 
 function getTabFromPath() {
   const path = window.location.pathname.replace(/^\/+/, '').split('/')[0];
@@ -129,6 +129,8 @@ const NAV_ICON_MAP = {
   fl_profile: ProfileIcon,
   fl_notifications: NotificationsIcon,
   fl_documents: DocumentsIcon,
+  fl_assignments: ResourcesIcon,
+  fl_submit: ResourcesIcon,
   ideas: IdeationIcon,
 };
 
@@ -149,13 +151,14 @@ export default function AppLayout() {
     JSON.parse(localStorage.getItem('nav-folder-state') || '{}')
   );
   const [showTour, setShowTour] = useState(false);
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
 
   // Persist folder collapse state
   useEffect(() => {
     localStorage.setItem('nav-folder-state', JSON.stringify(folderCollapseState));
   }, [folderCollapseState]);
 
-  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isFreelancer);
+  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isFreelancer, profile);
 
   function toggleFolder(folderId) {
     setFolderCollapseState(prev => ({ ...prev, [folderId]: !prev[folderId] }));
@@ -194,7 +197,7 @@ export default function AppLayout() {
 
   // Redirect freelancers to their dashboard if landing on a non-freelancer tab
   useEffect(() => {
-    if (isFreelancer && !activeTab.startsWith('fl_') && activeTab !== 'resources' && activeTab !== 'assets' && activeTab !== 'channels' && activeTab !== 'messages') {
+    if (isFreelancer && !activeTab.startsWith('fl_') && activeTab !== 'resources' && activeTab !== 'assets' && activeTab !== 'channels' && activeTab !== 'messages' && activeTab !== 'fl_assignments' && activeTab !== 'fl_submit') {
       setActiveTab('fl_dashboard');
     }
   }, [isFreelancer]); // eslint-disable-line
@@ -218,6 +221,14 @@ export default function AppLayout() {
   const dashboardNotifCount = unreadAnnouncementCount + (isAdmin ? newItineraryCount : 0);
 
   function handleNavClick(key) {
+    if (key === 'fl_assignments' && profile?.assigned_drive_folder_id) {
+      window.open(`https://drive.google.com/drive/folders/${profile.assigned_drive_folder_id}`, '_blank', 'noopener');
+      return;
+    }
+    if (key === 'fl_submit') {
+      setShowSubmitModal(true);
+      return;
+    }
     const item = NAV_ITEMS.find(i => i.key === key);
     if (item?.external?.url) {
       window.open(item.external.url, '_blank', 'noopener');
@@ -635,9 +646,186 @@ export default function AppLayout() {
           onNavigate={(key) => setActiveTab(key)}
         />
       )}
+      {showSubmitModal && (
+        <SubmitModal onClose={() => setShowSubmitModal(false)} />
+      )}
     </div>
   );
 }
+
+// --- Submit Modal ---
+const SUBMISSIONS_FOLDER_ID = '1r1dENUCjNSs57MjidYbE2rWrbMKXpLM0';
+
+function SubmitModal({ onClose }) {
+  const [file, setFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [result, setResult] = useState(null); // { type: 'success'|'error', text }
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = React.useRef(null);
+
+  async function handleUpload() {
+    if (!file) return;
+    setUploading(true);
+    setProgress(0);
+    setResult(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const initRes = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/drive-upload-init`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          parentFolderId: SUBMISSIONS_FOLDER_ID,
+          filename: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          sizeBytes: file.size,
+        }),
+      });
+      const initJson = await initRes.json();
+      if (!initRes.ok) throw new Error(initJson.error || 'Failed to init upload');
+
+      // Upload file bytes directly to Drive via XHR for progress tracking
+      await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', initJson.uploadUrl, true);
+        xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100));
+        };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else reject(new Error(`Upload failed (${xhr.status})`));
+        };
+        xhr.onerror = () => reject(new Error('Upload failed'));
+        xhr.send(file);
+      });
+
+      setResult({ type: 'success', text: `"${file.name}" uploaded successfully!` });
+      setFile(null);
+    } catch (err) {
+      setResult({ type: 'error', text: err.message });
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    setDragOver(false);
+    const dropped = e.dataTransfer.files[0];
+    if (dropped) { setFile(dropped); setResult(null); }
+  }
+
+  return (
+    <div style={submitStyles.overlay} onClick={onClose}>
+      <div style={submitStyles.modal} onClick={e => e.stopPropagation()}>
+        <div style={submitStyles.header}>
+          <span style={submitStyles.title}>Submit Deliverable</span>
+          <button onClick={onClose} style={submitStyles.closeBtn}>&times;</button>
+        </div>
+
+        <div
+          onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+          style={{
+            ...submitStyles.dropZone,
+            borderColor: dragOver ? '#6366f1' : 'rgba(255,255,255,0.15)',
+            background: dragOver ? 'rgba(99,102,241,0.08)' : 'rgba(255,255,255,0.02)',
+          }}
+        >
+          {file ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.85)', wordBreak: 'break-all', textAlign: 'center' }}>{file.name}</span>
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>{(file.size / (1024 * 1024)).toFixed(1)} MB</span>
+              <button onClick={() => { setFile(null); setResult(null); }} style={{ background: 'none', border: 'none', color: '#f87171', fontSize: 12, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', marginTop: 4 }}>Remove</button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" />
+              </svg>
+              <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>Drag & drop a file here</span>
+              <button onClick={() => fileInputRef.current?.click()} style={submitStyles.browseBtn}>Browse</button>
+              <input ref={fileInputRef} type="file" style={{ display: 'none' }} onChange={e => { if (e.target.files[0]) { setFile(e.target.files[0]); setResult(null); } }} />
+            </div>
+          )}
+        </div>
+
+        {uploading && (
+          <div style={submitStyles.progressContainer}>
+            <div style={{ ...submitStyles.progressBar, width: `${progress}%` }} />
+          </div>
+        )}
+
+        {result && (
+          <p style={{ fontSize: 13, color: result.type === 'success' ? '#34d399' : '#f87171', margin: '8px 0 0' }}>{result.text}</p>
+        )}
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+          <button
+            onClick={handleUpload}
+            disabled={!file || uploading}
+            style={{ ...submitStyles.uploadBtn, opacity: (!file || uploading) ? 0.5 : 1 }}
+          >
+            {uploading ? `Uploading... ${progress}%` : 'Upload'}
+          </button>
+          <button onClick={onClose} style={submitStyles.cancelBtn}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const submitStyles = {
+  overlay: {
+    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+    background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    zIndex: 9999, fontFamily: "'DM Sans', sans-serif",
+  },
+  modal: {
+    background: '#1a1a2e', borderRadius: 14, padding: 24, width: 420, maxWidth: '90vw',
+    border: '1px solid rgba(255,255,255,0.1)',
+  },
+  header: {
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16,
+  },
+  title: {
+    fontSize: 18, fontWeight: 600, color: '#fff',
+  },
+  closeBtn: {
+    background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: 22,
+    cursor: 'pointer', padding: '0 4px', lineHeight: 1,
+  },
+  dropZone: {
+    border: '2px dashed', borderRadius: 10, padding: '32px 20px',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    minHeight: 120, transition: 'border-color 0.15s, background 0.15s',
+  },
+  browseBtn: {
+    padding: '6px 16px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.15)',
+    background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)',
+    cursor: 'pointer', fontSize: 13, fontFamily: 'DM Sans, sans-serif',
+  },
+  progressContainer: {
+    height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.08)', marginTop: 12, overflow: 'hidden',
+  },
+  progressBar: {
+    height: '100%', borderRadius: 3, background: '#6366f1', transition: 'width 0.2s ease',
+  },
+  uploadBtn: {
+    padding: '8px 20px', borderRadius: 8, border: 'none', background: '#6366f1',
+    color: '#fff', cursor: 'pointer', fontSize: 14, fontWeight: 600, fontFamily: 'DM Sans, sans-serif',
+  },
+  cancelBtn: {
+    padding: '8px 16px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.15)',
+    background: 'transparent', color: 'rgba(255,255,255,0.7)', cursor: 'pointer',
+    fontSize: 14, fontFamily: 'DM Sans, sans-serif',
+  },
+};
 
 // --- Nav Icons ---
 function DashboardIcon({ active }) {

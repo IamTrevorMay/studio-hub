@@ -42,7 +42,7 @@ const NAV_ITEMS = [
   { key: 'broadcast', label: 'Broadcast', external: { url: 'https://www.tritonapex.io/broadcast' } },
   { key: 'telestration', label: 'Telestrator' },
   { key: 'post_show', label: 'Clipping Tool' },
-  { key: 'assets', label: 'Assets', external: { url: 'https://www.mayday.systems/' } },
+  { key: 'assets', label: 'Assets Library', external: { url: 'https://www.mayday.systems/' } },
   { key: 'reviews', label: 'Reviews' },
   { key: 'organize', label: 'Organize' },
   { key: 'projects', label: 'Projects' },
@@ -53,14 +53,14 @@ const NAV_ITEMS = [
   { key: 'goals', label: 'Goals' },
   { key: 'business_dev', label: 'Business Dev', adminOnly: true },
   { key: 'invoicing', label: 'Invoicing' },
-  { key: 'freelancers', label: 'Freelancers', adminOnly: true },
+  { key: 'freelancers', label: 'Contractors', adminOnly: true },
   { key: 'deliverables', label: 'Deliverables' },
   { key: 'ideas', label: 'Ideas' },
   { key: 'channels', label: 'Channels' },
   { key: 'messages', label: 'Messages' },
 ];
 
-const VALID_TAB_KEYS = new Set(NAV_ITEMS.map((i) => i.key).concat('admin', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications'));
+const VALID_TAB_KEYS = new Set(NAV_ITEMS.map((i) => i.key).concat('admin', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_assignments', 'fl_submit'));
 
 function getTabFromPath() {
   const path = window.location.pathname.replace(/^\/+/, '').split('/')[0];
@@ -74,6 +74,8 @@ const TAB_LABELS = NAV_ITEMS.reduce((acc, item) => { acc[item.key] = item.label;
   fl_hours: 'Hours',
   fl_profile: 'Profile',
   fl_notifications: 'Notifications',
+  fl_assignments: 'Assignments',
+  fl_submit: 'Submit',
 });
 
 export default function AppLayoutMobile() {
@@ -85,6 +87,7 @@ export default function AppLayoutMobile() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [notifLoading, setNotifLoading] = useState(false);
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
   const mainRef = React.useRef(null);
 
   // Persist active tab + URL, reset scroll on change
@@ -108,12 +111,12 @@ export default function AppLayoutMobile() {
 
   // Freelancer redirect (mirror desktop AppLayout)
   useEffect(() => {
-    if (isFreelancer && !activeTab.startsWith('fl_') && activeTab !== 'resources' && activeTab !== 'assets') {
+    if (isFreelancer && !activeTab.startsWith('fl_') && activeTab !== 'resources' && activeTab !== 'assets' && activeTab !== 'channels' && activeTab !== 'messages') {
       setActiveTab('fl_dashboard');
     }
   }, [isFreelancer]); // eslint-disable-line
 
-  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isFreelancer);
+  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isFreelancer, profile);
   const mobileNav = filterNavForMobile(resolvedNav);
 
   function navigateTo(tab, target) {
@@ -122,6 +125,14 @@ export default function AppLayoutMobile() {
   }
 
   function handleSelectTab(key) {
+    if (key === 'fl_assignments' && profile?.assigned_drive_folder_id) {
+      window.open(`https://drive.google.com/drive/folders/${profile.assigned_drive_folder_id}`, '_blank', 'noopener');
+      return;
+    }
+    if (key === 'fl_submit') {
+      setShowSubmitModal(true);
+      return;
+    }
     const item = NAV_ITEMS.find((i) => i.key === key);
     if (item?.external?.url) {
       window.open(item.external.url, '_blank', 'noopener');
@@ -227,6 +238,10 @@ export default function AppLayoutMobile() {
           onMarkAllRead={markAllNotificationsRead}
         />
       </BottomSheet>
+
+      {showSubmitModal && (
+        <SubmitModalMobile onClose={() => setShowSubmitModal(false)} />
+      )}
     </div>
   );
 }
@@ -320,6 +335,162 @@ function formatNotifTime(dateStr) {
   if (diffDays < 7) return `${diffDays}d ago`;
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
+
+// --- Submit Modal (mobile) ---
+const SUBMISSIONS_FOLDER_ID = '1r1dENUCjNSs57MjidYbE2rWrbMKXpLM0';
+
+function SubmitModalMobile({ onClose }) {
+  const [file, setFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [result, setResult] = useState(null);
+  const fileInputRef = React.useRef(null);
+
+  async function handleUpload() {
+    if (!file) return;
+    setUploading(true);
+    setProgress(0);
+    setResult(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const initRes = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/drive-upload-init`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          parentFolderId: SUBMISSIONS_FOLDER_ID,
+          filename: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          sizeBytes: file.size,
+        }),
+      });
+      const initJson = await initRes.json();
+      if (!initRes.ok) throw new Error(initJson.error || 'Failed to init upload');
+
+      await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', initJson.uploadUrl, true);
+        xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100));
+        };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else reject(new Error(`Upload failed (${xhr.status})`));
+        };
+        xhr.onerror = () => reject(new Error('Upload failed'));
+        xhr.send(file);
+      });
+
+      setResult({ type: 'success', text: `"${file.name}" uploaded successfully!` });
+      setFile(null);
+    } catch (err) {
+      setResult({ type: 'error', text: err.message });
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div style={submitStyles.overlay} onClick={onClose}>
+      <div style={submitStyles.modal} onClick={e => e.stopPropagation()}>
+        <div style={submitStyles.header}>
+          <span style={submitStyles.title}>Submit Deliverable</span>
+          <button onClick={onClose} style={submitStyles.closeBtn}>&times;</button>
+        </div>
+
+        <div style={submitStyles.dropZone}>
+          {file ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.85)', wordBreak: 'break-all', textAlign: 'center' }}>{file.name}</span>
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>{(file.size / (1024 * 1024)).toFixed(1)} MB</span>
+              <button onClick={() => { setFile(null); setResult(null); }} style={{ background: 'none', border: 'none', color: '#f87171', fontSize: 12, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', marginTop: 4 }}>Remove</button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" />
+              </svg>
+              <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>Select a file to upload</span>
+              <button onClick={() => fileInputRef.current?.click()} style={submitStyles.browseBtn}>Browse</button>
+              <input ref={fileInputRef} type="file" style={{ display: 'none' }} onChange={e => { if (e.target.files[0]) { setFile(e.target.files[0]); setResult(null); } }} />
+            </div>
+          )}
+        </div>
+
+        {uploading && (
+          <div style={submitStyles.progressContainer}>
+            <div style={{ ...submitStyles.progressBar, width: `${progress}%` }} />
+          </div>
+        )}
+
+        {result && (
+          <p style={{ fontSize: 13, color: result.type === 'success' ? '#34d399' : '#f87171', margin: '8px 0 0' }}>{result.text}</p>
+        )}
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+          <button
+            onClick={handleUpload}
+            disabled={!file || uploading}
+            style={{ ...submitStyles.uploadBtn, opacity: (!file || uploading) ? 0.5 : 1 }}
+          >
+            {uploading ? `Uploading... ${progress}%` : 'Upload'}
+          </button>
+          <button onClick={onClose} style={submitStyles.cancelBtn}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const submitStyles = {
+  overlay: {
+    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+    background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    zIndex: 9999, fontFamily: "'DM Sans', sans-serif",
+  },
+  modal: {
+    background: '#1a1a2e', borderRadius: 14, padding: 20, width: '90vw', maxWidth: 400,
+    border: '1px solid rgba(255,255,255,0.1)',
+  },
+  header: {
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16,
+  },
+  title: {
+    fontSize: 18, fontWeight: 600, color: '#fff',
+  },
+  closeBtn: {
+    background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: 22,
+    cursor: 'pointer', padding: '0 4px', lineHeight: 1,
+  },
+  dropZone: {
+    border: '2px dashed rgba(255,255,255,0.15)', borderRadius: 10, padding: '28px 16px',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    minHeight: 100, background: 'rgba(255,255,255,0.02)',
+  },
+  browseBtn: {
+    padding: '6px 16px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.15)',
+    background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)',
+    cursor: 'pointer', fontSize: 13, fontFamily: 'DM Sans, sans-serif',
+  },
+  progressContainer: {
+    height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.08)', marginTop: 12, overflow: 'hidden',
+  },
+  progressBar: {
+    height: '100%', borderRadius: 3, background: '#6366f1', transition: 'width 0.2s ease',
+  },
+  uploadBtn: {
+    padding: '8px 20px', borderRadius: 8, border: 'none', background: '#6366f1',
+    color: '#fff', cursor: 'pointer', fontSize: 14, fontWeight: 600, fontFamily: 'DM Sans, sans-serif',
+  },
+  cancelBtn: {
+    padding: '8px 16px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.15)',
+    background: 'transparent', color: 'rgba(255,255,255,0.7)', cursor: 'pointer',
+    fontSize: 14, fontFamily: 'DM Sans, sans-serif',
+  },
+};
 
 const styles = {
   layout: {

@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 const TOUR_STEPS = [
   { key: 'fl_dashboard', title: 'Dashboard', description: 'This is your home base. You\'ll see your active assignments and updates here.' },
   { key: 'fl_documents', title: 'Documents', description: 'Review and sign documents from your team. A badge appears when something needs your signature.' },
-  { key: 'assets', title: 'Upload/Download', description: 'Access shared files — download assets you need and upload your deliverables.' },
+  { key: 'assets', title: 'Assets Library', description: 'Access shared files — download assets you need and upload your deliverables.' },
   { key: 'resources', title: 'Resources', description: 'Reference materials, guides, and links your team has shared.' },
   { key: 'fl_profile', title: 'Profile', description: 'Set up your payment method, hourly rate, and contact info so you can get paid.' },
 ];

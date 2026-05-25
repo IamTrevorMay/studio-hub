@@ -77,19 +77,26 @@ export default function useNavConfig() {
    * - Items in config but not in code are skipped
    * - Items in code but not in config are appended at the end
    */
-  const getResolvedNav = useCallback((navItems, isAdmin, isPartner, isFreelancer) => {
+  const getResolvedNav = useCallback((navItems, isAdmin, isPartner, isFreelancer, profile) => {
     // Freelancers get a locked sidebar
     if (isFreelancer) {
-      return [
+      const items = [
         { type: 'item', key: 'fl_dashboard', label: 'Dashboard' },
+      ];
+      if (profile?.assigned_drive_folder_id) {
+        items.push({ type: 'item', key: 'fl_assignments', label: 'Assignments' });
+      }
+      items.push(
+        { type: 'item', key: 'fl_submit', label: 'Submit' },
         { type: 'item', key: 'resources', label: 'Resources' },
-        { type: 'item', key: 'assets', label: 'Upload/Download' },
+        { type: 'item', key: 'assets', label: 'Assets Library' },
         { type: 'item', key: 'fl_documents', label: 'Documents' },
         { type: 'item', key: 'channels', label: 'Channels' },
         { type: 'item', key: 'messages', label: 'Messages' },
         { type: 'item', key: 'fl_profile', label: 'Profile' },
         { type: 'item', key: 'fl_notifications', label: 'Notifications' },
-      ];
+      );
+      return items;
     }
 
     // Partners get a locked two-item sidebar
