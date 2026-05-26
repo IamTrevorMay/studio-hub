@@ -536,6 +536,11 @@ export default function YouTubeStudioAdvanced({ accounts }) {
     return m;
   }, [compareRows]);
 
+  // Range-wide totals (each metric aggregated across all dimension values).
+  // Chart-tab labels read from this so e.g. the Revenue tab shows revenue,
+  // not whatever the active chartMetric happens to be.
+  const totalsAgg = useMemo(() => aggregateRows(tableRows), [tableRows]);
+
   // ── CSV export ──
   function exportCsv() {
     const cols = [
@@ -730,10 +735,7 @@ export default function YouTubeStudioAdvanced({ accounts }) {
               style={{ ...S.chartTab, ...(chartMetric === m.key ? S.chartTabActive : {}) }}>
               <div style={S.chartTabLabel}>{m.label}</div>
               <div style={S.chartTabValue}>
-                {formatValue(
-                  chartSeries[0]?.points?.reduce((s, p) => s + (Number(p.value) || 0), 0) || 0,
-                  m.format
-                )}
+                {formatValue(totalsAgg[m.key], m.format)}
               </div>
             </button>
           ))}
