@@ -28,12 +28,9 @@ const COL_MAP: Record<string,string> = {
   likes:"likes", dislikes:"dislikes", comments:"comments", shares:"shares", viewerPercentage:"viewer_percentage",
 };
 
-// mode: 'compound' uses `day,DIM` for per-day rows. 'weekly' uses single-dim,
-// aggregated per week, stored at week-end date. YT Analytics restricts which
-// dims support compound day pivot.
-type DimSpec = { table: string; apiDim: string; apiFilter?: string; metrics: string[]; maxRows?: number; mode: 'compound' | 'weekly'; sort?: string };
+type DimSpec = { table: string; videoTable?: string; apiDim: string; apiFilter?: string; metrics: string[]; maxRows?: number; mode: 'compound' | 'weekly'; sort?: string };
 const DIMENSIONS: Record<string, DimSpec> = {
-  traffic_source:      { table:"yt_dim_traffic_source",      apiDim:"insightTrafficSourceType",  metrics: BASIC, mode: 'compound' },
+  traffic_source:      { table:"yt_dim_traffic_source",      videoTable:"yt_video_dim_traffic_source",      apiDim:"insightTrafficSourceType",  metrics: BASIC, mode: 'compound' },
   external:            { table:"yt_dim_external",            apiDim:"insightTrafficSourceDetail", apiFilter:"insightTrafficSourceType==EXT_URL",  metrics: MIN, maxRows: 25, mode: 'weekly', sort: '-views' },
   search_terms:        { table:"yt_dim_search_terms",        apiDim:"insightTrafficSourceDetail", apiFilter:"insightTrafficSourceType==YT_SEARCH", metrics: MIN, maxRows: 25, mode: 'weekly', sort: '-views' },
   geography:           { table:"yt_dim_geography",           apiDim:"country",                   metrics: BASIC, mode: 'weekly', sort: '-views' },
@@ -42,10 +39,17 @@ const DIMENSIONS: Record<string, DimSpec> = {
   device:              { table:"yt_dim_device",              apiDim:"deviceType",                metrics: BASIC, mode: 'compound' },
   os:                  { table:"yt_dim_os",                  apiDim:"operatingSystem",           metrics: BASIC, mode: 'compound' },
   sharing_service:     { table:"yt_dim_sharing_service",     apiDim:"sharingService",            metrics: ["shares"], mode: 'weekly', sort: '-shares' },
-  subscription_status: { table:"yt_dim_subscription_status", apiDim:"subscribedStatus",          metrics: BASIC, mode: 'compound' },
+  subscription_status: { table:"yt_dim_subscription_status", videoTable:"yt_video_dim_subscription_status", apiDim:"subscribedStatus",          metrics: BASIC, mode: 'compound' },
   viewer_type:         { table:"yt_dim_viewer_type",         apiDim:"youtubeProduct",            metrics: BASIC, mode: 'compound' },
   age:                 { table:"yt_dim_age",                 apiDim:"ageGroup",                  metrics: ["viewerPercentage"], mode: 'weekly' },
   gender:              { table:"yt_dim_gender",              apiDim:"gender",                    metrics: ["viewerPercentage"], mode: 'weekly' },
+};
+
+// Per-video lifetime aggregate dims (used by Content Health). One API call
+// per (video, dim) returns lifetime totals per dimension_value. Cheap.
+const VIDEO_DIMENSIONS: Record<string, { table: string; apiDim: string; apiFilter?: string; metrics: string[]; sort?: string; maxRows?: number }> = {
+  subscription_status: { table: "yt_video_dim_subscription_status", apiDim: "subscribedStatus",         metrics: BASIC },
+  traffic_source:      { table: "yt_video_dim_traffic_source",      apiDim: "insightTrafficSourceType", metrics: BASIC, sort: "-views" },
 };
 
 function mapCompoundRow(row: any[], metrics: string[]) {
@@ -134,7 +138,6 @@ async function backfillVideoDaily(supabase: ReturnType<typeof createClient>, acc
       const res = await fetchWithRetry(`${YT_ANALYTICS_API}?${params.toString()}`, { headers: { Authorization: `Bearer ${accessToken}` } });
       if (res.ok) {
         const data = await res.json();
-        // Aggregate per video for the month; store at chunkEnd date.
         const payload = dedupeByKey((data.rows || []).map((r: any[]) => {
           const out: Record<string, any> = { platform_account_id: account.id, date: eStr, video_id: String(r[0]), updated_at: new Date().toISOString() };
           for (let i = 0; i < BASIC.length; i++) { const col = COL_MAP[BASIC[i]]; if (col) out[col] = r[1 + i] ?? 0; }
@@ -156,6 +159,60 @@ async function backfillVideoDaily(supabase: ReturnType<typeof createClient>, acc
   return { rows: totalRows, chunks, ...(sampleErr ? { sample_err: sampleErr } : {}) };
 }
 
+// Per-video lifetime aggregate fetch. Single API call returns per-dim-value
+// totals for the video over its lifetime.
+async function backfillOneVideoDim(supabase: ReturnType<typeof createClient>, accessToken: string, account: any, videoId: string, dimKey: string): Promise<{ rows: number; ok: boolean }> {
+  const spec = VIDEO_DIMENSIONS[dimKey]; if (!spec) return { rows: 0, ok: false };
+  const startDate = "2010-01-01";
+  const endDate = new Date(Date.now() - 2 * 86400000).toISOString().split("T")[0];
+  const filter = spec.apiFilter ? `${spec.apiFilter};video==${videoId}` : `video==${videoId}`;
+  const params = new URLSearchParams({ ids: `channel==${account.external_id}`, startDate, endDate, metrics: spec.metrics.join(","), dimensions: spec.apiDim, maxResults: (spec.maxRows ?? 200).toString(), filters: filter });
+  if (spec.sort) params.set("sort", spec.sort);
+  const res = await fetchWithRetry(`${YT_ANALYTICS_API}?${params.toString()}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) { console.error(`video dim ${dimKey} ${videoId}: ${res.status} ${(await res.text()).slice(0,200)}`); return { rows: 0, ok: false }; }
+  const data = await res.json();
+  if (!data.rows || data.rows.length === 0) return { rows: 0, ok: true };
+  const payload = dedupeByKey((data.rows as any[]).map((r: any[]) => {
+    const out: Record<string, any> = { platform_account_id: account.id, video_id: videoId, date: endDate, dimension_value: String(r[0] ?? ""), updated_at: new Date().toISOString() };
+    for (let i = 0; i < spec.metrics.length; i++) { const col = COL_MAP[spec.metrics[i]]; if (col) out[col] = r[i + 1] ?? 0; }
+    return out;
+  }), (r: any) => `${r.platform_account_id}|${r.video_id}|${r.dimension_value}`);
+  const { error } = await supabase.from(spec.table).upsert(payload, { onConflict: "platform_account_id,video_id,date,dimension_value" });
+  if (error) console.error(`upsert ${spec.table} ${videoId}: ${error.message}`);
+  return { rows: payload.length, ok: true };
+}
+
+async function backfillVideoDimsForAccount(supabase: ReturnType<typeof createClient>, accessToken: string, account: any, maxOps: number): Promise<{ ops: number; rows: number }> {
+  // Paginate through yt_video_daily to collect ALL distinct video_ids — the
+  // default Supabase 1000-row cap would otherwise miss long-tail videos.
+  const videoIds: string[] = [];
+  const seen = new Set<string>();
+  let from = 0;
+  const PAGE = 1000;
+  while (true) {
+    const { data: page } = await supabase.from("yt_video_daily").select("video_id").eq("platform_account_id", account.id).order("video_id").range(from, from + PAGE - 1);
+    if (!page || page.length === 0) break;
+    for (const r of page) { if (!seen.has(r.video_id)) { seen.add(r.video_id); videoIds.push(r.video_id); } }
+    if (page.length < PAGE) break;
+    from += PAGE;
+  }
+  let ops = 0, rows = 0;
+  for (const videoId of videoIds) {
+    for (const dimKey of Object.keys(VIDEO_DIMENSIONS)) {
+      if (ops >= maxOps) return { ops, rows };
+      const { data: prog } = await supabase.from("yt_backfill_progress").select("id, status").eq("platform_account_id", account.id).eq("scope", "video").eq("dimension", dimKey).eq("video_id", videoId).maybeSingle();
+      if (prog && prog.status === "complete") continue;
+      const r = await backfillOneVideoDim(supabase, accessToken, account, videoId, dimKey);
+      rows += r.rows;
+      ops++;
+      if (prog) await supabase.from("yt_backfill_progress").update({ status: r.ok ? "complete" : "failed", updated_at: new Date().toISOString() }).eq("id", prog.id);
+      else await supabase.from("yt_backfill_progress").insert({ platform_account_id: account.id, scope: "video", dimension: dimKey, video_id: videoId, status: r.ok ? "complete" : "failed", updated_at: new Date().toISOString() });
+      await new Promise(res => setTimeout(res, 120));
+    }
+  }
+  return { ops, rows };
+}
+
 async function getChannelStart(accessToken: string, channelId: string): Promise<string> {
   const apiKey = Deno.env.get("YOUTUBE_API_KEY");
   if (!apiKey) return "2015-01-01";
@@ -173,8 +230,11 @@ serve(async (req) => {
     const dry = url.searchParams.get("dry") === "1";
     const reset = url.searchParams.get("reset") === "1";
     const resetPartial = url.searchParams.get("reset_partial") === "1";
+    const resetVideo = url.searchParams.get("reset_video") === "1";
     const onlyDim = url.searchParams.get("dimension");
     const maxChunks = parseInt(url.searchParams.get("max_chunks") || "120");
+    const scope = url.searchParams.get("scope");
+    const maxOps = parseInt(url.searchParams.get("max_ops") || "800");
     const testChunk = url.searchParams.get("test_chunk");
     const testStart = url.searchParams.get("test_start");
     const testEnd = url.searchParams.get("test_end");
@@ -194,15 +254,23 @@ serve(async (req) => {
       return jsonResponse({ test: testChunk, start: testStart, end: testEnd, results });
     }
 
-    if (reset) {
-      for (const a of accounts) await supabase.from("yt_backfill_progress").delete().eq("platform_account_id", a.id);
-      return jsonResponse({ reset: true, accounts: accounts.map((a:any)=>a.account_name) });
-    }
+    if (reset) { for (const a of accounts) await supabase.from("yt_backfill_progress").delete().eq("platform_account_id", a.id); return jsonResponse({ reset: true, accounts: accounts.map((a:any)=>a.account_name) }); }
+    if (resetPartial) { const partial = ['geography','city','age','gender','sharing_service','external','search_terms','video_daily']; for (const a of accounts) await supabase.from("yt_backfill_progress").delete().eq("platform_account_id", a.id).in("dimension", partial); return jsonResponse({ reset_partial: partial, accounts: accounts.map((a:any)=>a.account_name) }); }
+    if (resetVideo) { for (const a of accounts) await supabase.from("yt_backfill_progress").delete().eq("platform_account_id", a.id).eq("scope", "video"); return jsonResponse({ reset_video: true, accounts: accounts.map((a:any)=>a.account_name) }); }
 
-    if (resetPartial) {
-      const partial = ['geography','city','age','gender','sharing_service','external','search_terms','video_daily'];
-      for (const a of accounts) await supabase.from("yt_backfill_progress").delete().eq("platform_account_id", a.id).in("dimension", partial);
-      return jsonResponse({ reset_partial: partial, accounts: accounts.map((a:any)=>a.account_name) });
+    if (scope === "video") {
+      const results: any[] = [];
+      let opsUsed = 0;
+      for (const account of accounts) {
+        const accessToken = await getAccessToken(account.account_name);
+        if (!accessToken) { results.push({ account: account.account_name, error: "no_access_token" }); continue; }
+        const remaining = maxOps - opsUsed;
+        if (remaining <= 0) { results.push({ account: account.account_name, halted: "max_ops" }); break; }
+        const r = await backfillVideoDimsForAccount(supabase, accessToken, account, remaining);
+        opsUsed += r.ops;
+        results.push({ account: account.account_name, ops: r.ops, rows: r.rows, halted: r.ops >= remaining ? "max_ops" : undefined });
+      }
+      return jsonResponse({ success: true, scope: "video", ops_used: opsUsed, results });
     }
 
     const results: any[] = [];

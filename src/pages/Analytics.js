@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import YouTubeStudioAdvanced from './YouTubeStudioAdvanced';
+import ContentHealthDashboard from './ContentHealthDashboard';
 
 
 // ═══════════════════════════════════════════════
@@ -753,6 +754,7 @@ export default function Analytics() {
         <button onClick={() => setViewMode('dashboard')} style={viewMode === 'dashboard' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Dashboard</button>
         <button onClick={() => setViewMode('revenues')} style={viewMode === 'revenues' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Revenues</button>
         <button onClick={() => setViewMode('advanced')} style={viewMode === 'advanced' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Advanced</button>
+        <button onClick={() => setViewMode('health')} style={viewMode === 'health' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Content Health</button>
         <div ref={platformMenuRef} style={{ position: 'relative' }}>
           <button
             onClick={() => setPlatformMenuOpen(prev => !prev)}
@@ -791,6 +793,10 @@ export default function Analytics() {
 
       {viewMode === 'advanced' && (
         <YouTubeStudioAdvanced accounts={accounts} />
+      )}
+
+      {viewMode === 'health' && (
+        <ContentHealthDashboard accounts={accounts} />
       )}
 
       {viewMode === 'platform' && selectedPlatformAccountId && (
