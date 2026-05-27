@@ -278,11 +278,13 @@ export default function Calendar({ onNavigate }) {
       bufferStart.setDate(bufferStart.getDate() - 7);
       const bufferEnd = new Date(end);
       bufferEnd.setDate(bufferEnd.getDate() + 7);
+      // Fetch non-recurring events in the visible range, plus ALL recurring
+      // events (whose occurrences may extend into the visible range even though
+      // their original start/end dates don't overlap it).
       const { data, error } = await supabase
         .from('calendar_events')
         .select('*, creator:profiles!created_by(id, full_name)')
-        .gte('end_date', bufferStart.toISOString())
-        .lte('start_date', bufferEnd.toISOString())
+        .or(`and(end_date.gte.${bufferStart.toISOString()},start_date.lte.${bufferEnd.toISOString()}),recurrence_rule.neq.null`)
         .order('start_date', { ascending: true });
       if (error) throw error;
       setCalendarEvents(data || []);
