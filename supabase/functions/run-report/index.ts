@@ -48,7 +48,7 @@ async function runSectionPrompt(prompt: string): Promise<string> {
       },
       signal: controller.signal,
       body: JSON.stringify({
-        model: "claude-sonnet-4-6",
+        model: Deno.env.get("CLAUDE_MODEL") || "claude-sonnet-4-20250514",
         max_tokens: 4096,
         messages: [{
           role: "user",
@@ -273,7 +273,7 @@ async function sendReportEmail(
     .select("id, email, name")
     .eq("confirmed", true)
     .is("unsubscribed_at", null)
-    .or(`report_config_id.eq.${config.id},report_config_id.is.null`);
+    .or(`report_config_id.eq."${config.id}",report_config_id.is.null`);
 
   const emailSet = new Set<string>();
   const recipients: { email: string }[] = [];
@@ -330,7 +330,7 @@ async function legacyCallClaude(prompt: string): Promise<{ title: string; summar
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-6",
+      model: Deno.env.get("CLAUDE_MODEL") || "claude-sonnet-4-20250514",
       max_tokens: 4096,
       messages: [{
         role: "user",

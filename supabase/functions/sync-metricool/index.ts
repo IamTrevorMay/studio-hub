@@ -392,14 +392,21 @@ Deno.serve(async (req: Request) => {
         runningTotal -= (row.subscribers || 0);
       }
 
+      let ytAudUpserted = 0;
       for (let i = 0; i < audRows.length; i += 100) {
         const batch = audRows.slice(i, i + 100);
-        await supabase
+        const { error, data } = await supabase
           .from("audience_snapshots")
-          .upsert(batch, { onConflict: "platform_account_id,date" });
+          .upsert(batch, { onConflict: "platform_account_id,date" })
+          .select("id");
+        if (error) {
+          console.error(`YouTube aud_upsert error for ${yt.account_name}:`, error.message);
+        } else {
+          ytAudUpserted += data?.length || 0;
+        }
       }
 
-      results[`youtube_${yt.account_name}`] = { aud_upserted: audRows.length };
+      results[`youtube_${yt.account_name}`] = { aud_upserted: ytAudUpserted };
     }
   } catch (e) {
     results._youtube_aud_error = e.message;

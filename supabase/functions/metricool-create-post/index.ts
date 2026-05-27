@@ -104,6 +104,9 @@ serve(async (req) => {
       }
       const normalizeData = await normalizeRes.json();
       mediaId = normalizeData.mediaId || normalizeData.data?.mediaId || normalizeData.id || null;
+      if (!mediaId) {
+        console.warn("Image normalization returned no mediaId, post will be created without image");
+      }
     }
 
     const mcBody: Record<string, unknown> = {

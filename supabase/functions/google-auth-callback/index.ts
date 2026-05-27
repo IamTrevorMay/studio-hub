@@ -24,9 +24,15 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const state = JSON.parse(atob(stateParam));
+    let state: Record<string, unknown>;
+    try {
+      state = JSON.parse(atob(stateParam));
+    } catch {
+      throw new Error("Invalid state parameter");
+    }
+    if (!state || typeof state !== "object") throw new Error("Invalid state parameter");
     const userId = state.user_id;
-    if (!userId) throw new Error("No user_id in state");
+    if (!userId || typeof userId !== "string") throw new Error("No user_id in state");
 
     const clientId = Deno.env.get("GOOGLE_CLIENT_ID")!;
     const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")!;

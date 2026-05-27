@@ -168,7 +168,7 @@ Rules:
         },
         signal: controller.signal,
         body: JSON.stringify({
-          model: "claude-sonnet-4-6",
+          model: Deno.env.get("CLAUDE_MODEL") || "claude-sonnet-4-20250514",
           max_tokens: 4096,
           messages: [{ role: "user", content: prompt }],
         }),

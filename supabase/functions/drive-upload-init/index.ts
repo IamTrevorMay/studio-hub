@@ -83,6 +83,19 @@ Deno.serve(async (req: Request) => {
 
     const accessToken = await getDriveAccessToken();
 
+    // Forward the browser's Origin so Google associates it with the resumable
+    // upload URL and returns proper CORS headers on subsequent PUT requests.
+    const rawOrigin = req.headers.get("Origin") || req.headers.get("Referer") || "";
+    let clientOrigin = "*";
+    try {
+      if (rawOrigin) {
+        const parsed = new URL(rawOrigin);
+        clientOrigin = parsed.origin;
+      }
+    } catch {
+      // Invalid URL — fall back to wildcard
+    }
+
     // Initiate the resumable session. Drive returns the upload URL in the
     // Location header.
     const initRes = await fetch(
@@ -94,6 +107,7 @@ Deno.serve(async (req: Request) => {
           "Content-Type": "application/json; charset=UTF-8",
           ...(sizeBytes ? { "X-Upload-Content-Length": String(sizeBytes) } : {}),
           "X-Upload-Content-Type": mimeType,
+          Origin: clientOrigin,
         },
         body: JSON.stringify({
           name: filename,

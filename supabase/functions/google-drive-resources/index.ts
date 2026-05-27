@@ -88,6 +88,9 @@ Deno.serve(async (req: Request) => {
     if (req.method === "GET") {
       const folderId = url.searchParams.get("folderId") || rootId;
 
+      // Sanitize folderId before interpolating into Drive query string
+      if (!/^[\w\-]+$/.test(folderId)) throw new Error("Invalid folderId");
+
       if (folderId !== rootId) {
         const ok = await isDescendantOfRoot(accessToken, folderId, rootId);
         if (!ok) throw new Error("Folder is outside Resources root");

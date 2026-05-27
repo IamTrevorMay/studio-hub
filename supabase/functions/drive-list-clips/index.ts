@@ -88,10 +88,24 @@ Deno.serve(async (req: Request) => {
 
     const since = url.searchParams.get("since"); // optional ISO date
 
+    // Sanitize inputs before interpolating into Drive query string
+    if (!/^[\w\-]+$/.test(folderId)) {
+      return new Response(JSON.stringify({ error: "Invalid folderId" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (since && isNaN(Date.parse(since))) {
+      return new Response(JSON.stringify({ error: "Invalid since date" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // Build Drive query: videos in the target folder
     let query = `'${folderId}' in parents and trashed = false and mimeType contains 'video/'`;
     if (since) {
-      query += ` and createdTime >= '${since}'`;
+      query += ` and createdTime >= '${new Date(since).toISOString()}'`;
     }
 
     const accessToken = await getDriveAccessToken();

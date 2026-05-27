@@ -410,8 +410,9 @@ serve(async (req) => {
                 analyticsStart = createdDate.toISOString().split("T")[0];
               }
 
-              // Derive channel slug from account name for the channel column
-              const channelSlug = account.account_name === "More Mayday" ? "moremayday" : "trevormay";
+              // Derive channel slug from account name
+              const channelSlug = (account.account_name || "unknown")
+                .toLowerCase().replace(/[^a-z0-9]+/g, "");
 
               const startD = new Date(analyticsStart);
               const endD = new Date(endDate);

@@ -31,10 +31,11 @@ export async function completeIngestionLog(
   logId: string,
   stats: { records_processed?: number; records_created?: number; records_updated?: number }
 ) {
-  await supabase
+  const { error } = await supabase
     .from("ingestion_logs")
     .update({ status: "success", completed_at: new Date().toISOString(), ...stats })
     .eq("id", logId);
+  if (error) console.error(`Failed to complete ingestion log ${logId}:`, error.message);
 }
 
 export async function failIngestionLog(
@@ -43,7 +44,7 @@ export async function failIngestionLog(
   error: Error | string,
   details?: Record<string, unknown>
 ) {
-  await supabase
+  const { error: updateError } = await supabase
     .from("ingestion_logs")
     .update({
       status: "failed",
@@ -52,6 +53,7 @@ export async function failIngestionLog(
       error_details: details || {},
     })
     .eq("id", logId);
+  if (updateError) console.error(`Failed to update ingestion log ${logId} as failed:`, updateError.message);
 }
 
 export async function getActiveAccounts(
@@ -117,7 +119,7 @@ export async function upsertContentWithMetrics(
   const { error: metricsError } = await supabase
     .from("content_metrics")
     .insert({ content_item_id: contentItem.id, captured_at: new Date().toISOString(), ...metrics });
-  if (metricsError && !metricsError.message.includes("duplicate")) {
+  if (metricsError && metricsError.code !== "23505") {
     throw new Error(`Metrics insert failed: ${metricsError.message}`);
   }
   return { created: !contentError };
