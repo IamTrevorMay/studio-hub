@@ -132,6 +132,19 @@ export default function FreelancerDashboard({ onNavigate }) {
     fetchAnnouncements();
   }, [fetchAssignments, fetchNotifications, fetchAnnouncements]);
 
+  // Deep-link: ?assignment=<id> from notification emails auto-selects that assignment
+  useEffect(() => {
+    if (loading || assignments.length === 0) return;
+    const params = new URLSearchParams(window.location.search);
+    const target = params.get('assignment');
+    if (target && assignments.some(a => a.id === target)) {
+      setSelectedId(target);
+      params.delete('assignment');
+      const search = params.toString();
+      window.history.replaceState({}, '', window.location.pathname + (search ? `?${search}` : ''));
+    }
+  }, [loading, assignments]);
+
   useEffect(() => {
     if (!profile?.id) return;
     supabase.from('freelancer_profiles').select('payment_type').eq('id', profile.id).single()
