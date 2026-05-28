@@ -192,6 +192,27 @@ export default function FreelancerDashboard({ onNavigate }) {
     fetchAssignments();
   }
 
+  async function handleDeclineAssignment(assignment) {
+    if (!window.confirm(`Decline "${assignment.title}"? Your admin will be notified.`)) return;
+    await supabase
+      .from('freelancer_assignments')
+      .update({ declined_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq('id', assignment.id);
+
+    if (assignment.created_by) {
+      await supabase.from('notifications').insert({
+        user_id: assignment.created_by,
+        type: 'fl_assignment_declined',
+        title: 'Assignment Declined',
+        body: `${profile.full_name} declined "${assignment.title}"`,
+        link_tab: 'freelancers',
+        link_target: assignment.id,
+      });
+    }
+    if (selectedId === assignment.id) setSelectedId(null);
+    fetchAssignments();
+  }
+
   function handleArchiveAssignment(id) {
     const next = new Set([...archivedIds, id]);
     setArchivedIds(next);
@@ -290,7 +311,7 @@ export default function FreelancerDashboard({ onNavigate }) {
 
   // ── Derived ────────────────────────────────────────────────────
 
-  const visibleAssignments = assignments.filter(a => !archivedIds.has(a.id));
+  const visibleAssignments = assignments.filter(a => !archivedIds.has(a.id) && !a.declined_at);
   const filteredAssignments = statusFilter === 'all'
     ? visibleAssignments
     : visibleAssignments.filter(a => a.status === statusFilter);
@@ -584,12 +605,30 @@ export default function FreelancerDashboard({ onNavigate }) {
                   {/* Status action buttons */}
                   <div style={styles.actionRow}>
                     {a.status === 'assigned' && (
-                      <button
-                        style={styles.actionButton}
-                        onClick={(e) => { e.stopPropagation(); handleStatusChange(a, 'in_progress'); }}
-                      >
-                        Start Working
-                      </button>
+                      <>
+                        <button
+                          style={styles.actionButton}
+                          onClick={(e) => { e.stopPropagation(); handleStatusChange(a, 'in_progress'); }}
+                        >
+                          Start Working
+                        </button>
+                        <button
+                          style={{
+                            padding: '8px 16px',
+                            background: 'rgba(239,68,68,0.12)',
+                            color: '#fca5a5',
+                            border: '1px solid rgba(239,68,68,0.3)',
+                            borderRadius: 8,
+                            fontSize: 13,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            fontFamily: 'inherit',
+                          }}
+                          onClick={(e) => { e.stopPropagation(); handleDeclineAssignment(a); }}
+                        >
+                          Decline
+                        </button>
+                      </>
                     )}
                     {a.status === 'in_progress' && (
                       <button

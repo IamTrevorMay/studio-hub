@@ -808,9 +808,15 @@ function Freelancers() {
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                             {flAssignments.map(a => (
                               <div key={a.id} style={styles.miniRow}>
-                                <span style={{ ...styles.statusBadge, ...STATUS_BADGE_COLORS[a.status] }}>
-                                  {STATUS_LABELS[a.status]}
-                                </span>
+                                {a.declined_at ? (
+                                  <span style={{ ...styles.statusBadge, background: 'rgba(239,68,68,0.15)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.3)' }}>
+                                    Declined
+                                  </span>
+                                ) : (
+                                  <span style={{ ...styles.statusBadge, ...STATUS_BADGE_COLORS[a.status] }}>
+                                    {STATUS_LABELS[a.status]}
+                                  </span>
+                                )}
                                 <span style={{ color: '#fff', fontSize: 13, flex: 1 }}>{a.title}</span>
                                 {a.due_date && <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>Due {formatDate(a.due_date)}</span>}
                               </div>
@@ -1020,9 +1026,23 @@ function Freelancers() {
                             ${Number(a.pay_amount).toFixed(2)}
                           </span>
                         )}
-                        <span style={{ ...styles.statusBadge, ...STATUS_BADGE_COLORS[a.status] }}>
-                          {STATUS_LABELS[a.status]}
-                        </span>
+                        {a.declined_at ? (
+                          <span
+                            style={{
+                              ...styles.statusBadge,
+                              background: 'rgba(239,68,68,0.15)',
+                              color: '#fca5a5',
+                              border: '1px solid rgba(239,68,68,0.3)',
+                            }}
+                            title={`Declined ${formatTimestamp(a.declined_at)}`}
+                          >
+                            Declined
+                          </span>
+                        ) : (
+                          <span style={{ ...styles.statusBadge, ...STATUS_BADGE_COLORS[a.status] }}>
+                            {STATUS_LABELS[a.status]}
+                          </span>
+                        )}
                         <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>
                           {isExpanded ? '\u25B2' : '\u25BC'}
                         </span>
