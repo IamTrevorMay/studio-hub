@@ -334,6 +334,17 @@ function Freelancers() {
     fetchAssignments();
   };
 
+  const handleDeleteAssignment = async (assignment) => {
+    if (!assignment) return;
+    const who = assignment.freelancer?.full_name || 'this contractor';
+    if (!window.confirm(`Delete assignment "${assignment.title}" for ${who}? This cannot be undone.`)) return;
+    const { error } = await supabase.from('freelancer_assignments').delete().eq('id', assignment.id);
+    if (error) { console.error(error); window.alert(`Failed to delete: ${error.message}`); return; }
+    setEditingAssignment(null);
+    setExpandedAssignment(null);
+    fetchAssignments();
+  };
+
   const handlePostComment = async (assignment) => {
     if (!newComment.trim() || commentPosting) return;
     setCommentPosting(true);
@@ -1147,12 +1158,29 @@ function Freelancers() {
                                 </select>
                               </div>
                             </div>
-                            <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+                            <div style={{ display: 'flex', gap: 10, marginTop: 14, alignItems: 'center' }}>
                               <button style={styles.primaryBtn} onClick={handleUpdateAssignment}>
                                 Save
                               </button>
                               <button style={styles.secondaryBtn} onClick={() => setEditingAssignment(null)}>
                                 Cancel
+                              </button>
+                              <button
+                                style={{
+                                  marginLeft: 'auto',
+                                  padding: '8px 14px',
+                                  background: 'rgba(239,68,68,0.12)',
+                                  color: '#fca5a5',
+                                  border: '1px solid rgba(239,68,68,0.3)',
+                                  borderRadius: 8,
+                                  fontSize: 13,
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                  fontFamily: 'inherit',
+                                }}
+                                onClick={() => handleDeleteAssignment(a)}
+                              >
+                                Delete
                               </button>
                             </div>
                           </div>
