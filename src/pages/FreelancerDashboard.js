@@ -74,7 +74,7 @@ export default function FreelancerDashboard({ onNavigate }) {
   const [notifications, setNotifications] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
   const [dismissedAnnouncementIds, setDismissedAnnouncementIds] = useState(new Set());
-  const [notifsExpanded, setNotifsExpanded] = useState(true);
+  const [notifsExpanded, setNotifsExpanded] = useState(false);
 
   // ── Data Fetching ──────────────────────────────────────────────
 
@@ -306,7 +306,13 @@ export default function FreelancerDashboard({ onNavigate }) {
   }
 
   const unreadNotifs = notifications.filter(n => !n.read);
-  const visibleAnnouncements = announcements.filter(a => !dismissedAnnouncementIds.has(a.id));
+  const threeDaysAgo = Date.now() - 3 * 24 * 60 * 60 * 1000;
+  const visibleAnnouncements = announcements.filter(a => {
+    if (dismissedAnnouncementIds.has(a.id)) return false;
+    const when = a.target_date || a.created_at;
+    if (!when) return false;
+    return new Date(when).getTime() >= threeDaysAgo;
+  });
   const allUpdates = [
     ...visibleAnnouncements.map(a => {
       // Strip HTML tags from content for plain text display
@@ -532,6 +538,32 @@ export default function FreelancerDashboard({ onNavigate }) {
                   {/* Description */}
                   {a.description && (
                     <p style={styles.description}>{a.description}</p>
+                  )}
+
+                  {/* Asset link */}
+                  {a.asset_url && (
+                    <p style={{ margin: '0 0 12px' }}>
+                      <a
+                        href={a.asset_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '6px 12px',
+                          background: 'rgba(99,102,241,0.15)',
+                          color: '#a5b4fc',
+                          borderRadius: 8,
+                          fontSize: 13,
+                          fontWeight: 500,
+                          textDecoration: 'none',
+                          border: '1px solid rgba(99,102,241,0.3)',
+                        }}
+                      >
+                        Open asset link
+                      </a>
+                    </p>
                   )}
 
                   {/* Linked references */}

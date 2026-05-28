@@ -42,7 +42,7 @@ Deno.serve(async (req: Request) => {
 
     const { data: assignment, error: aErr } = await supabase
       .from("freelancer_assignments")
-      .select("id, title, freelancer_id, status")
+      .select("id, title, freelancer_id, status, asset_url")
       .eq("id", assignmentId)
       .single();
 
@@ -81,16 +81,27 @@ Deno.serve(async (req: Request) => {
     )}`;
 
     const firstName = (profile.full_name || "").split(" ")[0] || "there";
+    const assetUrl = (assignment.asset_url || "").trim();
     const subject = `New assignment: ${assignment.title}`;
-    const text = [
+    const textLines = [
       `Hi ${firstName},`,
       "",
       `You have a new assignment from Mayday Studio: "${assignment.title}".`,
       "",
       `View it here: ${deepLink}`,
-      "",
-      "— Mayday Studio",
-    ].join("\n");
+    ];
+    if (assetUrl) {
+      textLines.push("", `Asset: ${assetUrl}`);
+    }
+    textLines.push("", "— Mayday Studio");
+    const text = textLines.join("\n");
+
+    const assetHtml = assetUrl
+      ? `<p style="margin:0 0 20px;">
+      <a href="${assetUrl}" style="display:inline-block;background:rgba(99,102,241,0.12);color:#4f46e5;text-decoration:none;padding:8px 14px;border-radius:8px;font-weight:500;font-size:13px;border:1px solid rgba(99,102,241,0.3);">Open asset link</a>
+    </p>`
+      : "";
+
     const html = `
 <!doctype html>
 <html><body style="font-family:'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif;background:#f7f7f9;padding:24px;color:#111;">
@@ -98,9 +109,10 @@ Deno.serve(async (req: Request) => {
     <p style="font-size:15px;margin:0 0 12px;">Hi ${escapeHtml(firstName)},</p>
     <p style="font-size:15px;margin:0 0 16px;">You have a new assignment from Mayday Studio:</p>
     <p style="font-size:18px;font-weight:600;margin:0 0 20px;">${escapeHtml(assignment.title)}</p>
-    <p style="margin:0 0 24px;">
+    <p style="margin:0 0 16px;">
       <a href="${deepLink}" style="display:inline-block;background:#6366f1;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;font-size:14px;">View assignment</a>
     </p>
+    ${assetHtml}
     <p style="font-size:13px;color:#555;margin:0;">— Mayday Studio</p>
   </div>
 </body></html>`.trim();

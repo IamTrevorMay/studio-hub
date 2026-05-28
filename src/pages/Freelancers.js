@@ -66,7 +66,7 @@ function Freelancers() {
 
   // New assignment form
   const [newAssign, setNewAssign] = useState({
-    freelancer_id: '', title: '', description: '',
+    freelancer_id: '', title: '', description: '', asset_url: '',
     due_date: '', pay_amount: '',
   });
 
@@ -294,6 +294,7 @@ function Freelancers() {
       freelancer_id: newAssign.freelancer_id,
       title: newAssign.title.trim(),
       description: newAssign.description.trim() || null,
+      asset_url: newAssign.asset_url.trim() || null,
       due_date: newAssign.due_date || null,
       pay_amount: newAssign.pay_amount ? parseFloat(newAssign.pay_amount) : null,
       created_by: profile.id,
@@ -311,16 +312,17 @@ function Freelancers() {
       link_target: null,
     });
 
-    setNewAssign({ freelancer_id: '', title: '', description: '', due_date: '', pay_amount: '' });
+    setNewAssign({ freelancer_id: '', title: '', description: '', asset_url: '', due_date: '', pay_amount: '' });
     setShowNewAssignment(false);
     fetchAssignments();
   };
 
   const handleUpdateAssignment = async () => {
     if (!editingAssignment) return;
-    const { id, title, description, assignment_type, due_date, pay_amount, status } = editingAssignment;
+    const { id, title, description, asset_url, assignment_type, due_date, pay_amount, status } = editingAssignment;
     const updates = {
       title, description: description || null,
+      asset_url: (asset_url || '').trim() || null,
       assignment_type, due_date: due_date || null,
       pay_amount: pay_amount ? parseFloat(pay_amount) : null,
       status,
@@ -915,6 +917,15 @@ function Freelancers() {
                     placeholder="Optional description"
                   />
                 </div>
+                <div style={{ ...styles.formField, gridColumn: '1 / -1' }}>
+                  <label style={styles.label}>Asset Link</label>
+                  <input
+                    value={newAssign.asset_url}
+                    onChange={e => setNewAssign(p => ({ ...p, asset_url: e.target.value }))}
+                    style={styles.input}
+                    placeholder="Paste an Assets Library, Drive, or other URL"
+                  />
+                </div>
                 <div style={styles.formField}>
                   <label style={styles.label}>Due Date</label>
                   <input
@@ -1018,6 +1029,30 @@ function Freelancers() {
                                 {a.description}
                               </p>
                             )}
+                            {a.asset_url && (
+                              <p style={{ margin: '0 0 12px' }}>
+                                <a
+                                  href={a.asset_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    padding: '6px 12px',
+                                    background: 'rgba(99,102,241,0.15)',
+                                    color: '#a5b4fc',
+                                    borderRadius: 8,
+                                    fontSize: 13,
+                                    fontWeight: 500,
+                                    textDecoration: 'none',
+                                    border: '1px solid rgba(99,102,241,0.3)',
+                                  }}
+                                >
+                                  Open asset link
+                                </a>
+                              </p>
+                            )}
                             {a.created_by_profile && (
                               <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', margin: '0 0 12px' }}>
                                 Created by {a.created_by_profile.full_name} on {formatTimestamp(a.created_at)}
@@ -1029,6 +1064,7 @@ function Freelancers() {
                                 id: a.id,
                                 title: a.title,
                                 description: a.description || '',
+                                asset_url: a.asset_url || '',
                                 assignment_type: a.assignment_type,
                                 due_date: a.due_date || '',
                                 pay_amount: a.pay_amount || '',
@@ -1067,6 +1103,15 @@ function Freelancers() {
                                   value={editingAssignment.description}
                                   onChange={e => setEditingAssignment(p => ({ ...p, description: e.target.value }))}
                                   style={{ ...styles.input, minHeight: 60, resize: 'vertical' }}
+                                />
+                              </div>
+                              <div style={{ ...styles.formField, gridColumn: '1 / -1' }}>
+                                <label style={styles.label}>Asset Link</label>
+                                <input
+                                  value={editingAssignment.asset_url || ''}
+                                  onChange={e => setEditingAssignment(p => ({ ...p, asset_url: e.target.value }))}
+                                  style={styles.input}
+                                  placeholder="Paste an Assets Library, Drive, or other URL"
                                 />
                               </div>
                               <div style={styles.formField}>
