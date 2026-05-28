@@ -35,6 +35,7 @@ import FreelancerNotifications from './FreelancerNotifications';
 import FreelancerDocuments from './FreelancerDocuments';
 import Freelancers from './Freelancers';
 import Ideas from './Ideas';
+import MyTasks from './MyTasks';
 import Morty from '../components/Morty';
 import FreelancerTour from '../components/FreelancerTour';
 
@@ -44,6 +45,7 @@ import FreelancerTour from '../components/FreelancerTour';
 // keys stay stable to keep existing deep links working.
 const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard', icon: DashboardIcon },
+  { key: 'my_tasks', label: 'My Tasks', icon: GoalsIcon },
   { key: 'write', label: 'Write', icon: ResourcesIcon },
   { key: 'production', label: 'Beat Sheet', icon: ProductionIcon },
   { key: 'scene_builder', label: 'Custom Visuals', icon: ToolsIcon, external: { triton: '/design/scene-composer' } },
@@ -71,7 +73,7 @@ const NAV_ITEMS = [
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
 ];
 
-const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_documents', 'fl_assignments', 'fl_submit', 'ideas'));
+const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_documents', 'fl_assignments', 'fl_submit', 'ideas', 'my_tasks'));
 
 function getTabFromPath() {
   const path = window.location.pathname.replace(/^\/+/, '').split('/')[0];
@@ -138,7 +140,7 @@ const NAV_ICON_MAP = {
 };
 
 export default function AppLayout() {
-  const { profile, signOut, isAdmin, isAssistant, isPartner, isFreelancer, unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, newAssignmentCount, refreshNotifications } = useAuth();
+  const { profile, signOut, isAdmin, isAssistant, isPartner, isFreelancer, unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, newAssignmentCount, myTaskCount, refreshNotifications } = useAuth();
   const { getResolvedNav, saveConfig, saving } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => getTabFromPath() || localStorage.getItem('studio-hub-tab') || 'dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -380,6 +382,9 @@ export default function AppLayout() {
                             {child.key === 'dashboard' && dashboardNotifCount > 0 && (
                               <span style={styles.navBadge}>{dashboardNotifCount}</span>
                             )}
+                            {child.key === 'my_tasks' && myTaskCount > 0 && (
+                              <span style={styles.navBadge}>{myTaskCount}</span>
+                            )}
                             {child.key === 'channels' && unreadMentionChannelIds.length > 0 && (
                               <span style={styles.navBadge}>{unreadMentionChannelIds.length}</span>
                             )}
@@ -426,6 +431,9 @@ export default function AppLayout() {
                               {child.key === 'dashboard' && dashboardNotifCount > 0 && (
                                 <span style={styles.navBadge}>{dashboardNotifCount}</span>
                               )}
+                              {child.key === 'my_tasks' && myTaskCount > 0 && (
+                                <span style={styles.navBadge}>{myTaskCount}</span>
+                              )}
                               {child.key === 'channels' && unreadMentionChannelIds.length > 0 && (
                                 <span style={styles.navBadge}>{unreadMentionChannelIds.length}</span>
                               )}
@@ -458,6 +466,9 @@ export default function AppLayout() {
                       {!sidebarCollapsed && <span>{entry.label}</span>}
                       {entry.key === 'dashboard' && dashboardNotifCount > 0 && (
                         <span style={styles.navBadge}>{dashboardNotifCount}</span>
+                      )}
+                      {entry.key === 'my_tasks' && myTaskCount > 0 && (
+                        <span style={styles.navBadge}>{myTaskCount}</span>
                       )}
                       {entry.key === 'channels' && unreadMentionChannelIds.length > 0 && (
                         <span style={styles.navBadge}>{unreadMentionChannelIds.length}</span>
@@ -613,6 +624,7 @@ export default function AppLayout() {
         </div>
         <div ref={mainContentRef} style={styles.mainContent}>
           {activeTab === 'dashboard' && <Dashboard onNavigate={navigateTo} />}
+          {activeTab === 'my_tasks' && <MyTasks onNavigate={navigateTo} />}
           {activeTab === 'projects' && <Projects onNavigate={navigateTo} />}
           {activeTab === 'deliverables' && <Deliverables />}
           {activeTab === 'calendar' && <Calendar onNavigate={navigateTo} />}

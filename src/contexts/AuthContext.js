@@ -543,6 +543,21 @@ export function AuthProvider({ children }) {
     }
   }, [user, profile?.role]);
 
+  const [myTaskCount, setMyTaskCount] = useState(0);
+  const fetchMyTaskCount = useCallback(async () => {
+    if (!user) { setMyTaskCount(0); return; }
+    try {
+      const { count, error } = await supabase
+        .from('tasks')
+        .select('*', { count: 'exact', head: true })
+        .eq('assignee_id', user.id)
+        .in('status', ['active', 'on_hold']);
+      if (!error) setMyTaskCount(count || 0);
+    } catch (err) {
+      console.error('Error fetching my task count:', err);
+    }
+  }, [user]);
+
   const fetchNewAssignmentCount = useCallback(async () => {
     if (!user || profile?.role !== 'freelancer') { setNewAssignmentCount(0); return; }
     try {
@@ -550,8 +565,7 @@ export function AuthProvider({ children }) {
         .from('freelancer_assignments')
         .select('*', { count: 'exact', head: true })
         .eq('freelancer_id', user.id)
-        .eq('status', 'assigned')
-        .is('declined_at', null);
+        .eq('status', 'assigned');
       if (!error) setNewAssignmentCount(count || 0);
     } catch (err) {
       console.error('Error fetching new assignment count:', err);
@@ -566,7 +580,8 @@ export function AuthProvider({ children }) {
     fetchPendingProposalCount();
     fetchUnsignedDocCount();
     fetchNewAssignmentCount();
-  }, [fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions, fetchUnreadNotificationCount, fetchPendingProposalCount, fetchUnsignedDocCount, fetchNewAssignmentCount]);
+    fetchMyTaskCount();
+  }, [fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions, fetchUnreadNotificationCount, fetchPendingProposalCount, fetchUnsignedDocCount, fetchNewAssignmentCount, fetchMyTaskCount]);
 
   // Initial fetch + real-time subscriptions + 5-min fallback poll
   useEffect(() => {
@@ -598,6 +613,9 @@ export function AuthProvider({ children }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'freelancer_assignments' }, () => {
         fetchNewAssignmentCount();
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => {
+        fetchMyTaskCount();
+      })
       .subscribe();
 
     // 5-minute fallback poll as safety net for dropped connections
@@ -607,7 +625,7 @@ export function AuthProvider({ children }) {
       supabase.removeChannel(channel);
       clearInterval(interval);
     };
-  }, [user, refreshNotifications, fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions, fetchUnreadNotificationCount, fetchPendingProposalCount, fetchUnsignedDocCount, fetchNewAssignmentCount, refreshKey]);
+  }, [user, refreshNotifications, fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions, fetchUnreadNotificationCount, fetchPendingProposalCount, fetchUnsignedDocCount, fetchNewAssignmentCount, fetchMyTaskCount, refreshKey]);
 
   const value = {
     user,
@@ -638,6 +656,7 @@ export function AuthProvider({ children }) {
     pendingProposalCount,
     unsignedDocCount,
     newAssignmentCount,
+    myTaskCount,
     refreshKey,
   };
 
