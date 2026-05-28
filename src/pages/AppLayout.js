@@ -36,6 +36,7 @@ import FreelancerDocuments from './FreelancerDocuments';
 import Freelancers from './Freelancers';
 import Ideas from './Ideas';
 import MyTasks from './MyTasks';
+import Workflows from './Workflows';
 import Morty from '../components/Morty';
 import FreelancerTour from '../components/FreelancerTour';
 
@@ -45,7 +46,8 @@ import FreelancerTour from '../components/FreelancerTour';
 // keys stay stable to keep existing deep links working.
 const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard', icon: DashboardIcon },
-  { key: 'my_tasks', label: 'My Tasks', icon: GoalsIcon },
+  { key: 'my_tasks', label: 'My Tasks', icon: MyTasksIcon },
+  { key: 'projects', label: 'Projects', icon: ProjectsIcon },
   { key: 'write', label: 'Write', icon: ResourcesIcon },
   { key: 'production', label: 'Beat Sheet', icon: ProductionIcon },
   { key: 'scene_builder', label: 'Custom Visuals', icon: ToolsIcon, external: { triton: '/design/scene-composer' } },
@@ -58,7 +60,6 @@ const NAV_ITEMS = [
   { key: 'assets', label: 'Assets Library', icon: ResourcesIcon, external: { url: 'https://www.mayday.systems/' } },
   { key: 'reviews', label: 'Reviews', icon: ReviewsIcon },
   { key: 'organize', label: 'Organize', icon: ToolsIcon },
-  { key: 'projects', label: 'Projects', icon: ProjectsIcon },
   { key: 'deliverables', label: 'Deliverables', icon: DeliverablesIcon },
   { key: 'resources', label: 'Resources', icon: ResourcesIcon },
   { key: 'analytics', label: 'Analytics', icon: AnalyticsIcon, adminOnly: true },
@@ -69,11 +70,12 @@ const NAV_ITEMS = [
   { key: 'payroll', label: 'Payroll', icon: PayrollIcon, adminOnly: true },
   { key: 'invoicing', label: 'Invoicing', icon: InvoicingIcon },
   { key: 'freelancers', label: 'Contractors', icon: FreelancersIcon, adminOnly: true },
+  { key: 'workflows', label: 'Workflows', icon: WorkflowsIcon, adminOnly: true },
   { key: 'channels', label: 'Channels', icon: ChannelsIcon },
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
 ];
 
-const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_documents', 'fl_assignments', 'fl_submit', 'ideas', 'my_tasks'));
+const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_documents', 'fl_assignments', 'fl_submit', 'ideas'));
 
 function getTabFromPath() {
   const path = window.location.pathname.replace(/^\/+/, '').split('/')[0];
@@ -104,6 +106,7 @@ function openTritonTool(targetPath) {
 
 const NAV_ICON_MAP = {
   dashboard: DashboardIcon,
+  my_tasks: MyTasksIcon,
   write: ResourcesIcon,
   production: ProductionIcon,
   scene_builder: ToolsIcon,
@@ -127,6 +130,7 @@ const NAV_ICON_MAP = {
   payroll: PayrollIcon,
   invoicing: InvoicingIcon,
   freelancers: FreelancersIcon,
+  workflows: WorkflowsIcon,
   channels: ChannelsIcon,
   messages: MessagesIcon,
   fl_dashboard: DashboardIcon,
@@ -651,6 +655,7 @@ export default function AppLayout() {
           {activeTab === 'messages' && <Messages onNavigate={navigateTo} />}
           {isAdmin && activeTab === 'admin' && <AdminPanel initialTab={adminInitialTab} />}
           {isAdmin && activeTab === 'freelancers' && <Freelancers />}
+          {isAdmin && activeTab === 'workflows' && <Workflows />}
           {isFreelancer && activeTab === 'fl_dashboard' && <FreelancerDashboard onNavigate={navigateTo} />}
           {isFreelancer && activeTab === 'fl_hours' && <FreelancerHours />}
           {isFreelancer && activeTab === 'fl_profile' && <FreelancerProfile />}
@@ -948,6 +953,15 @@ function ProductionIcon({ active }) {
   );
 }
 
+function MyTasksIcon({ active }) {
+  const c = active ? '#a5b4fc' : '#6b7280';
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 10.5l4.5 4.5L16 5.5" />
+    </svg>
+  );
+}
+
 function GoalsIcon({ active }) {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
@@ -1021,6 +1035,18 @@ function ToolsIcon({ active }) {
   );
 }
 
+
+function WorkflowsIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <circle cx="10" cy="3" r="2" />
+      <circle cx="5" cy="10" r="2" />
+      <circle cx="15" cy="10" r="2" />
+      <circle cx="10" cy="17" r="2" />
+      <path d="M10 5v3M8 9l-1.5-1M12 9l1.5-1M7 11l1.5 4.5M13 11l-1.5 4.5" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 function AdminIcon({ active }) {
   return (

@@ -6,6 +6,7 @@ import {
   resolveTemplate,
   type WorkflowStep,
   type WorkflowDefinition,
+  type DynamicFanOutConfig,
 } from "./workflow-definitions.ts";
 
 // ─── Types ─────────────────────────────────────────────────────
@@ -84,7 +85,9 @@ export async function notifyUser(
   title: string,
   body: string,
   taskId: string,
+  testMode = false,
 ) {
+  if (testMode) return; // Skip notifications for simulator runs
   await admin.from("notifications").insert({
     user_id: userId,
     type: "task_assigned",
@@ -101,7 +104,9 @@ export async function notifyAdmins(
   title: string,
   body: string,
   taskId: string,
+  testMode = false,
 ) {
+  if (testMode) return; // Skip notifications for simulator runs
   const { data: admins } = await admin
     .from("profiles")
     .select("id")
@@ -146,6 +151,7 @@ export async function createTaskFromStep(
   position: number,
   actorId: string,
   dependsOnTaskIds: string[] = [],
+  testMode = false,
 ): Promise<TaskRow | null> {
   // Evaluate condition — skip if false
   if (step.condition && !step.condition(context)) {
@@ -201,10 +207,90 @@ export async function createTaskFromStep(
 
   // Notify assignee (only if task is immediately active)
   if (status === "active" && assigneeId) {
-    await notifyUser(admin, assigneeId, "New task assigned", title, task.id);
+    await notifyUser(admin, assigneeId, "New task assigned", title, task.id, testMode);
   }
 
   return task as TaskRow;
+}
+
+// ─── Dynamic fan-out task creator ────────────────────────────────
+// When a step has dynamicFanOut config, create N tasks — one per
+// element in the context array — all sharing the same step_key.
+
+export async function createDynamicFanOutTasks(
+  admin: SupabaseClient,
+  step: WorkflowStep,
+  instanceId: string,
+  context: Record<string, unknown>,
+  position: number,
+  actorId: string,
+  dependsOnTaskIds: string[] = [],
+  testMode = false,
+): Promise<string[]> {
+  const config = step.dynamicFanOut!;
+  const items = context[config.contextKey] as Array<Record<string, unknown>>;
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    console.error(`Dynamic fan-out: no items at context key "${config.contextKey}"`);
+    return [];
+  }
+
+  // Deduplicate: skip if any task with this step_key already exists
+  const { data: existing } = await admin
+    .from("tasks")
+    .select("id, related_entity_id")
+    .eq("workflow_instance_id", instanceId)
+    .eq("step_key", step.stepKey);
+  const existingEntityIds = new Set((existing || []).map((t) => t.related_entity_id));
+
+  const assigneeId = typeof step.assignee === "function"
+    ? step.assignee(context)
+    : step.assignee;
+
+  const status = dependsOnTaskIds.length > 0 ? "pending" : "active";
+  const createdIds: string[] = [];
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const entityId = String(item[config.relatedEntityIdKey] || "");
+    if (existingEntityIds.has(entityId)) continue; // already created
+
+    const title = resolveTemplate(config.titleTemplate, { ...context, ...item });
+    const description = config.descriptionTemplate
+      ? resolveTemplate(config.descriptionTemplate, { ...context, ...item })
+      : null;
+
+    const { data: task, error } = await admin
+      .from("tasks")
+      .insert({
+        workflow_instance_id: instanceId,
+        step_key: step.stepKey,
+        title,
+        description,
+        assignee_id: assigneeId,
+        status,
+        related_entity_type: config.relatedEntityType,
+        related_entity_id: entityId,
+        position: position + i,
+        depends_on: dependsOnTaskIds,
+      })
+      .select("*")
+      .single();
+
+    if (error) {
+      console.error(`Failed to create fan-out task for ${step.stepKey}[${i}]:`, error.message);
+      continue;
+    }
+
+    await logEvent(admin, task.id, "created", actorId, { fanOut: true });
+
+    if (status === "active" && assigneeId) {
+      await notifyUser(admin, assigneeId, "New task assigned", title, task.id, testMode);
+    }
+
+    createdIds.push(task.id);
+  }
+
+  return createdIds;
 }
 
 // ─── Fan-in checker ────────────────────────────────────────────
@@ -216,6 +302,7 @@ export async function checkFanIn(
   admin: SupabaseClient,
   instanceId: string,
   actorId: string,
+  testMode = false,
 ): Promise<string[]> {
   // Get all pending tasks with dependencies
   const { data: pendingTasks } = await admin
@@ -252,7 +339,7 @@ export async function checkFanIn(
       await logEvent(admin, task.id, "created", actorId, { reason: "fan_in_resolved" });
 
       if (task.assignee_id) {
-        await notifyUser(admin, task.assignee_id, "New task assigned", task.title, task.id);
+        await notifyUser(admin, task.assignee_id, "New task assigned", task.title, task.id, testMode);
       }
 
       activatedIds.push(task.id);
@@ -292,6 +379,7 @@ export async function advanceWorkflow(
   nextStepKeys: string | string[] | null,
   currentPosition: number,
   actorId: string,
+  testMode = false,
 ): Promise<string[]> {
   if (nextStepKeys === null) {
     // Workflow complete — check if all tasks are done
@@ -323,18 +411,31 @@ export async function advanceWorkflow(
 
       dependsOnTaskIds = (depTasks || []).map((t) => t.id);
 
-      // Check if a pending task for this step already exists (another fan-out branch
-      // may have already created it)
-      const { data: existing } = await admin
-        .from("tasks")
-        .select("id")
-        .eq("workflow_instance_id", instanceId)
-        .eq("step_key", stepKey);
+      // For dynamic fan-out steps with fan-in, don't deduplicate here —
+      // createDynamicFanOutTasks handles its own dedup per related_entity_id.
+      // For normal steps, check if a pending task already exists.
+      if (!step.dynamicFanOut) {
+        const { data: existing } = await admin
+          .from("tasks")
+          .select("id")
+          .eq("workflow_instance_id", instanceId)
+          .eq("step_key", stepKey);
 
-      if (existing && existing.length > 0) {
-        // Already exists — don't duplicate. Fan-in check will activate it.
-        continue;
+        if (existing && existing.length > 0) {
+          // Already exists — don't duplicate. Fan-in check will activate it.
+          continue;
+        }
       }
+    }
+
+    // Dynamic fan-out: create N tasks from context array
+    if (step.dynamicFanOut) {
+      const fanOutIds = await createDynamicFanOutTasks(
+        admin, step, instanceId, context,
+        currentPosition + 1 + i, actorId, dependsOnTaskIds, testMode,
+      );
+      createdTaskIds.push(...fanOutIds);
+      continue;
     }
 
     const task = await createTaskFromStep(
@@ -345,6 +446,7 @@ export async function advanceWorkflow(
       currentPosition + 1 + i,
       actorId,
       dependsOnTaskIds,
+      testMode,
     );
 
     if (task) {
@@ -354,7 +456,7 @@ export async function advanceWorkflow(
       console.error(`Failed to create task for step ${stepKey}`);
     } else {
       // Step was skipped due to condition — advance past it
-      const skipResult = step.onComplete(context, {});
+      const skipResult = await step.onComplete(context, {}, admin);
       if (skipResult.contextUpdates) {
         Object.assign(context, skipResult.contextUpdates);
         await admin
@@ -364,14 +466,14 @@ export async function advanceWorkflow(
       }
       const subIds = await advanceWorkflow(
         admin, definition, instanceId, context,
-        skipResult.next, currentPosition + 1 + i, actorId,
+        skipResult.next, currentPosition + 1 + i, actorId, testMode,
       );
       createdTaskIds.push(...subIds);
     }
   }
 
   // Run fan-in check in case newly created tasks unblocked something
-  const fanInActivated = await checkFanIn(admin, instanceId, actorId);
+  const fanInActivated = await checkFanIn(admin, instanceId, actorId, testMode);
   createdTaskIds.push(...fanInActivated);
 
   return createdTaskIds;
