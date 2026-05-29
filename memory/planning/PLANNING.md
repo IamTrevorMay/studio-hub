@@ -2,6 +2,17 @@
 
 ## Recently Completed
 
+### Contractor Assignment UX Enhancements (2026-05-29)
+Added three new capabilities to FreelancerDashboard.js for in-progress assignments:
+
+1. **In Progress indicator** — Yellow badge replaces the old "Mark Complete" button when assignment is `in_progress`.
+2. **Submit button** — Opens a Google Drive upload modal (reuses `drive-upload-init` edge function pattern). Uploads to contractor's `assigned_drive_folder_id` or falls back to shared `SUBMISSIONS_FOLDER_ID`. After successful upload, captures the Drive file ID from XHR response, constructs the view URL, saves it as `asset_url` on the assignment. Button turns green with checkmark; clicking green Submit auto-completes the assignment.
+3. **I'm Stuck button** — Opens an inline text input asking "What are you stuck on?" Posts the message as an assignment comment (prefixed with construction emoji) and sends `fl_stuck` notifications to all admins.
+
+New flow: `assigned → [Start Working] [Decline]` → `in_progress → [● In Progress] [Submit] [I'm Stuck]` → after upload → `[● In Progress] [✓ Submit (green)] [I'm Stuck]` → click green Submit → `completed`.
+
+Hourly contractors still get the hours modal on green Submit click before completion.
+
 ### Backend Audit (2026-05-27)
 Fixed 12 issues across 11 edge functions, all deployed:
 
@@ -28,8 +39,8 @@ Fixed `NO ACTION` FK constraints on `payroll_salaries` and other tables blocking
 ### YouTube Studio Advanced (2026-05-27)
 New pages: `ContentHealthDashboard.js`, `YouTubeStudioAdvanced.js`. New edge functions: `sync-youtube-dimensions`, `backfill-youtube-dimensions`. Migration: `20260527000000_yt_studio_advanced.sql`.
 
-### Contractor System (2026-05-25)
-Renamed Freelancer to Contractor in admin panel. Added document signing (`DocumentSigner.js`, `DrawingPad.js`), assigned Drive folders, and contract upload flow. Multiple migrations for freelancer tables, notifications RLS, invitation signing flag, and signature columns.
+### Contractor System (2026-05-25 → 2026-05-29)
+Renamed Freelancer to Contractor in admin panel. Added document signing (`DocumentSigner.js`, `DrawingPad.js`), assigned Drive folders, and contract upload flow. Multiple migrations for freelancer tables, notifications RLS, invitation signing flag, and signature columns. Later added edit/delete UI for assignments, and Submit/In Progress/I'm Stuck UX for contractor dashboard.
 
 ## Known Issues
 
@@ -80,8 +91,11 @@ Full spec written, not yet built. Four-level hierarchy: Phase > Workstream > Ini
 - **Styling**: all inline `style={{}}`, no Tailwind classes
 
 ### Key Files
-- `src/pages/AppLayout.js` — routing, sidebar, page mounting
+- `src/pages/AppLayout.js` — routing, sidebar, page mounting, SubmitModal (Google Drive upload)
 - `src/contexts/AuthContext.js` — auth, profile, notifications
 - `src/hooks/useVisibilityRefresh.js` — tab restore refresh
 - `src/hooks/useSupabaseQuery.js` — safe query wrapper with auth retry
+- `src/pages/FreelancerDashboard.js` — contractor-facing dashboard with assignments, Submit modal, I'm Stuck flow
+- `src/pages/Freelancers.js` — admin-facing contractor management
 - `supabase/functions/shared/utils.ts` — shared ingestion log, upsert, retry helpers
+- `supabase/functions/drive-upload-init/index.ts` — Google Drive resumable upload init (used by AppLayout + FreelancerDashboard)
