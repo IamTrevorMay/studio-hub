@@ -61,8 +61,10 @@ export default function Deliverables() {
   const [proposals, setProposals] = useState([]);
   const [proposalsLoading, setProposalsLoading] = useState(false);
   const [showProposalForm, setShowProposalForm] = useState(false);
-  const [proposalForm, setProposalForm] = useState({ sponsor_name: '', timeframe: '', num_videos_mayday: '', num_videos_tmb: '', pay_per_video_mayday: '', pay_per_video_tmb: '', description: '' });
+  const [proposalForm, setProposalForm] = useState({ sponsor_name: '', description: '' });
+  const [proposalItems, setProposalItems] = useState([]); // [{ id?, title, deliverable_type, channel, due_month, pay, accepted }]
   const [editingProposal, setEditingProposal] = useState(null);
+  const [draftProposalId, setDraftProposalId] = useState(null);
 
   // Read Slots state
   const [slotLimits, setSlotLimits] = useState([]);
@@ -121,10 +123,14 @@ export default function Deliverables() {
     try {
       const { data, error } = await supabase
         .from('ad_read_proposals')
-        .select('*, creator:profiles(id, full_name)')
+        .select('*, creator:profiles(id, full_name), items:ad_read_proposal_items(id, title, deliverable_type, channel, due_month, pay, position)')
         .order('created_at', { ascending: false });
       if (error) throw error;
-      setProposals(data || []);
+      const normalized = (data || []).map((p) => ({
+        ...p,
+        items: (p.items || []).sort((a, b) => (a.position || 0) - (b.position || 0)),
+      }));
+      setProposals(normalized);
     } catch (err) {
       console.error('Error fetching proposals:', err);
       setProposals([]);
@@ -184,31 +190,191 @@ export default function Deliverables() {
 
   useVisibilityRefresh(fetchSponsors);
 
+  // --- Proposal helpers ---
+  function blankItem() {
+    return { title: '', deliverable_type: 'long_form_read', channel: '', due_month: '', pay: '', accepted: false };
+  }
+
+  function formatMonthLabel(yyyymm) {
+    if (!yyyymm) return '';
+    const [y, m] = yyyymm.split('-').map(Number);
+    if (!y || !m) return yyyymm;
+    return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  }
+
+  function formatTimeframeFromItems(items) {
+    const months = (items || []).map((i) => i.due_month).filter(Boolean).sort();
+    if (months.length === 0) return null;
+    const start = formatMonthLabel(months[0]);
+    const end = formatMonthLabel(months[months.length - 1]);
+    return start === end ? start : `${start} – ${end}`;
+  }
+
+  function monthBounds(items) {
+    const months = (items || []).map((i) => i.due_month).filter(Boolean).sort();
+    if (months.length === 0) return { start: null, end: null };
+    const first = months[0] + '-01';
+    const last = months[months.length - 1];
+    const [ly, lm] = last.split('-').map(Number);
+    const endD = new Date(ly, lm, 0); // last day of last month
+    return { start: first, end: endD.toISOString().slice(0, 10) };
+  }
+
   // --- Proposal handlers ---
   function resetProposalForm() {
-    setProposalForm({ sponsor_name: '', timeframe: '', num_videos_mayday: '', num_videos_tmb: '', pay_per_video_mayday: '', pay_per_video_tmb: '', description: '' });
+    setProposalForm({ sponsor_name: '', description: '' });
+    setProposalItems([]);
     setEditingProposal(null);
+    setDraftProposalId(null);
     setShowProposalForm(false);
+  }
+
+  function openNewProposalForm() {
+    setProposalForm({ sponsor_name: '', description: '' });
+    setProposalItems([blankItem()]);
+    setEditingProposal(null);
+    setDraftProposalId(null);
+    setShowProposalForm(true);
+  }
+
+  async function cancelProposalForm() {
+    if (draftProposalId && !editingProposal) {
+      const ok = await confirm('Discard this draft proposal and any deliverables you added?');
+      if (!ok) return;
+      await supabase.from('ad_read_proposals').delete().eq('id', draftProposalId);
+    }
+    resetProposalForm();
+    fetchProposals();
+  }
+
+  function updateItem(idx, patch) {
+    setProposalItems((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
+  }
+
+  function addItem() {
+    setProposalItems((prev) => [...prev, blankItem()]);
+  }
+
+  async function removeItem(idx) {
+    const target = proposalItems[idx];
+    if (target?.id) {
+      const { error } = await supabase
+        .from('ad_read_proposal_items')
+        .delete()
+        .eq('id', target.id);
+      if (error) { alert('Error removing deliverable: ' + error.message); return; }
+    }
+    setProposalItems((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  // Ensure a backing proposal row exists (draft if new) and return its id.
+  async function ensureProposalRow() {
+    if (editingProposal) return editingProposal;
+    if (draftProposalId) {
+      // Keep draft fields in sync with the form (sponsor_name, description).
+      await supabase.from('ad_read_proposals').update({
+        sponsor_name: proposalForm.sponsor_name,
+        description: proposalForm.description || null,
+      }).eq('id', draftProposalId);
+      return draftProposalId;
+    }
+    if (!proposalForm.sponsor_name.trim()) {
+      alert('Sponsor name is required before accepting a deliverable.');
+      return null;
+    }
+    const { data, error } = await supabase
+      .from('ad_read_proposals')
+      .insert({
+        sponsor_name: proposalForm.sponsor_name,
+        description: proposalForm.description || null,
+        created_by: profile.id,
+        status: 'draft',
+      })
+      .select()
+      .single();
+    if (error) { alert('Error starting draft: ' + error.message); return null; }
+    setDraftProposalId(data.id);
+    return data.id;
+  }
+
+  async function acceptItem(idx) {
+    const it = proposalItems[idx];
+    if (!it.title.trim()) {
+      alert('Title is required.');
+      return;
+    }
+    const proposalId = await ensureProposalRow();
+    if (!proposalId) return;
+    const row = {
+      proposal_id: proposalId,
+      title: it.title.trim(),
+      deliverable_type: it.deliverable_type,
+      channel: it.channel || null,
+      due_month: it.due_month || null,
+      pay: it.pay !== '' ? parseFloat(it.pay) : null,
+      position: idx,
+    };
+    if (it.id) {
+      const { error } = await supabase
+        .from('ad_read_proposal_items')
+        .update(row)
+        .eq('id', it.id);
+      if (error) { alert('Error saving deliverable: ' + error.message); return; }
+      updateItem(idx, { accepted: true });
+    } else {
+      const { data, error } = await supabase
+        .from('ad_read_proposal_items')
+        .insert(row)
+        .select()
+        .single();
+      if (error) { alert('Error saving deliverable: ' + error.message); return; }
+      updateItem(idx, { id: data.id, accepted: true });
+    }
+  }
+
+  function editItem(idx) {
+    updateItem(idx, { accepted: false });
+  }
+
+  function allItemsAccepted() {
+    if (proposalItems.length === 0) return false;
+    return proposalItems.every((it) => it.accepted);
   }
 
   async function handleCreateProposal(e) {
     e.preventDefault();
-    const { error } = await supabase.from('ad_read_proposals').insert({
-      sponsor_name: proposalForm.sponsor_name,
-      timeframe: proposalForm.timeframe || null,
-      num_videos_mayday: proposalForm.num_videos_mayday ? parseInt(proposalForm.num_videos_mayday) : null,
-      num_videos_tmb: proposalForm.num_videos_tmb ? parseInt(proposalForm.num_videos_tmb) : null,
-      pay_per_video_mayday: proposalForm.pay_per_video_mayday ? parseFloat(proposalForm.pay_per_video_mayday) : null,
-      pay_per_video_tmb: proposalForm.pay_per_video_tmb ? parseFloat(proposalForm.pay_per_video_tmb) : null,
-      description: proposalForm.description || null,
-      created_by: profile.id,
-    });
+    if (!proposalForm.sponsor_name.trim()) {
+      alert('Sponsor name is required.');
+      return;
+    }
+    if (proposalItems.length === 0) {
+      alert('Add at least one deliverable.');
+      return;
+    }
+    if (!allItemsAccepted()) {
+      alert('Accept every deliverable before creating the proposal.');
+      return;
+    }
+    const proposalId = await ensureProposalRow();
+    if (!proposalId) return;
+    const { error } = await supabase
+      .from('ad_read_proposals')
+      .update({
+        sponsor_name: proposalForm.sponsor_name,
+        description: proposalForm.description || null,
+        status: 'pending',
+      })
+      .eq('id', proposalId);
     if (error) { alert('Error creating proposal: ' + error.message); return; }
     resetProposalForm();
     fetchProposals();
   }
 
   async function handleConfirmProposal(proposal) {
+    if (proposal.status === 'accepted') {
+      alert('This proposal has already been accepted.');
+      return;
+    }
     try {
       let sponsorId;
       const { data: existing } = await supabase
@@ -229,23 +395,38 @@ export default function Deliverables() {
         sponsorId = newSponsor.id;
       }
 
+      const items = (proposal.items || []).slice().sort((a, b) => (a.position || 0) - (b.position || 0));
+      const bounds = monthBounds(items);
       const campaignPayload = {
         sponsor_id: sponsorId,
         name: proposal.sponsor_name + ' Campaign',
         description: proposal.description || null,
         payment_status: 'unpaid',
       };
-      if (proposal.timeframe) {
-        const match = proposal.timeframe.match(/^(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})$/);
-        if (match) {
-          campaignPayload.start_date = match[1];
-          campaignPayload.end_date = match[2];
-        }
-      }
-      const { error: cErr } = await supabase
+      if (bounds.start) campaignPayload.start_date = bounds.start;
+      if (bounds.end) campaignPayload.end_date = bounds.end;
+      const { data: campaign, error: cErr } = await supabase
         .from('sponsor_campaigns')
-        .insert(campaignPayload);
+        .insert(campaignPayload)
+        .select()
+        .single();
       if (cErr) throw cErr;
+
+      if (items.length > 0) {
+        const delivRows = items.map((it) => ({
+          sponsor_id: sponsorId,
+          campaign_id: campaign.id,
+          title: it.title,
+          deliverable_type: it.deliverable_type,
+          channel: it.channel || null,
+          due_date: it.due_month ? it.due_month + '-01' : null,
+          pay: it.pay != null ? Number(it.pay) : null,
+          platforms: [],
+          needs_review: false,
+        }));
+        const { error: dErr } = await supabase.from('sponsor_deliverables').insert(delivRows);
+        if (dErr) throw dErr;
+      }
 
       await supabase.from('ad_read_proposals').update({ status: 'accepted' }).eq('id', proposal.id);
       fetchProposals();
@@ -262,31 +443,43 @@ export default function Deliverables() {
 
   function startEditProposal(p) {
     setEditingProposal(p.id);
+    setDraftProposalId(null);
     setProposalForm({
       sponsor_name: p.sponsor_name,
-      timeframe: p.timeframe || '',
-      num_videos_mayday: p.num_videos_mayday != null ? String(p.num_videos_mayday) : '',
-      num_videos_tmb: p.num_videos_tmb != null ? String(p.num_videos_tmb) : '',
-      pay_per_video_mayday: p.pay_per_video_mayday != null ? String(p.pay_per_video_mayday) : '',
-      pay_per_video_tmb: p.pay_per_video_tmb != null ? String(p.pay_per_video_tmb) : '',
       description: p.description || '',
     });
+    setProposalItems((p.items || []).map((it) => ({
+      id: it.id,
+      title: it.title || '',
+      deliverable_type: it.deliverable_type || 'long_form_read',
+      channel: it.channel || '',
+      due_month: it.due_month || '',
+      pay: it.pay != null ? String(it.pay) : '',
+      accepted: true,
+    })));
+    if (!p.items || p.items.length === 0) setProposalItems([blankItem()]);
     setShowProposalForm(true);
   }
 
   async function handleUpdateProposal(e) {
     e.preventDefault();
+    if (!proposalForm.sponsor_name.trim()) {
+      alert('Sponsor name is required.');
+      return;
+    }
+    if (proposalItems.length === 0) {
+      alert('Add at least one deliverable.');
+      return;
+    }
+    if (!allItemsAccepted()) {
+      alert('Accept every deliverable before saving.');
+      return;
+    }
     const { error } = await supabase.from('ad_read_proposals').update({
       sponsor_name: proposalForm.sponsor_name,
-      timeframe: proposalForm.timeframe || null,
-      num_videos_mayday: proposalForm.num_videos_mayday ? parseInt(proposalForm.num_videos_mayday) : null,
-      num_videos_tmb: proposalForm.num_videos_tmb ? parseInt(proposalForm.num_videos_tmb) : null,
-      pay_per_video_mayday: proposalForm.pay_per_video_mayday ? parseFloat(proposalForm.pay_per_video_mayday) : null,
-      pay_per_video_tmb: proposalForm.pay_per_video_tmb ? parseFloat(proposalForm.pay_per_video_tmb) : null,
       description: proposalForm.description || null,
     }).eq('id', editingProposal);
     if (error) { alert('Error updating proposal: ' + error.message); return; }
-    setEditingProposal(null);
     resetProposalForm();
     fetchProposals();
   }
@@ -633,7 +826,7 @@ export default function Deliverables() {
     (s.sponsor_deliverables || []).filter(d => !d.campaign_id).map(d => ({ ...d, sponsor_name: s.name, sponsor_id: s.id }))
   );
   const pendingProposals = proposals.filter(p => p.status === 'pending');
-  const resolvedProposals = proposals.filter(p => p.status !== 'pending');
+  const resolvedProposals = proposals.filter(p => p.status !== 'pending' && p.status !== 'draft');
 
   function renderDeliverableRow(d, sponsor) {
     return (
@@ -714,27 +907,141 @@ export default function Deliverables() {
 
           {/* Proposal form (create or edit) */}
           {showProposalForm && (
-            <form onSubmit={editingProposal ? handleUpdateProposal : handleCreateProposal} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '8px', padding: '16px', marginBottom: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <input value={proposalForm.sponsor_name} onChange={e => setProposalForm(f => ({ ...f, sponsor_name: e.target.value }))} placeholder="Brand Name *" required style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px' }} />
-                <input value={proposalForm.timeframe} onChange={e => setProposalForm(f => ({ ...f, timeframe: e.target.value }))} placeholder="Time Frame" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px' }} />
+            <form onSubmit={editingProposal ? handleUpdateProposal : handleCreateProposal} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '8px', padding: '16px', marginBottom: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <input
+                value={proposalForm.sponsor_name}
+                onChange={e => setProposalForm(f => ({ ...f, sponsor_name: e.target.value }))}
+                placeholder="Brand name *"
+                required
+                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px' }}
+              />
+
+              <textarea
+                value={proposalForm.description}
+                onChange={e => setProposalForm(f => ({ ...f, description: e.target.value }))}
+                placeholder="Description / notes (optional)"
+                rows={2}
+                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px', resize: 'vertical' }}
+              />
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase' }}>Deliverables</div>
+                {proposalItems.map((item, idx) => item.accepted ? (
+                  // Collapsed summary card
+                  <div key={item.id || idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: '8px', padding: '8px 10px' }}>
+                    <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>#{idx + 1}</span>
+                    <span style={{ fontSize: '14px' }}>{DELIVERABLE_TYPES[item.deliverable_type]?.icon || '\u{1F4CB}'}</span>
+                    <span style={{ flex: 1, color: '#fff', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</span>
+                    {item.channel && CHANNEL_COLORS[item.channel] && (
+                      <span style={{ fontSize: '9px', fontWeight: 700, padding: '2px 5px', borderRadius: '4px', background: CHANNEL_COLORS[item.channel].bg, color: CHANNEL_COLORS[item.channel].color }}>
+                        {CHANNEL_COLORS[item.channel].label}
+                      </span>
+                    )}
+                    {item.due_month && (
+                      <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', whiteSpace: 'nowrap' }}>{formatMonthLabel(item.due_month)}</span>
+                    )}
+                    {item.pay !== '' && item.pay != null && (
+                      <span style={{ fontSize: '12px', color: '#22c55e', fontWeight: 600 }}>${Number(item.pay).toLocaleString()}</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => editItem(idx)}
+                      style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '12px', padding: '2px 6px' }}
+                      title="Edit"
+                    >{'✎'}</button>
+                    <button
+                      type="button"
+                      onClick={() => removeItem(idx)}
+                      style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '14px', padding: '2px 6px' }}
+                      title="Remove"
+                    >{'✕'}</button>
+                  </div>
+                ) : (
+                  // Editable card
+                  <div key={item.id || idx} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>#{idx + 1}</span>
+                      <input
+                        value={item.title}
+                        onChange={e => updateItem(idx, { title: e.target.value })}
+                        placeholder="Title (e.g. June Long Form Read)"
+                        style={{ flex: 1, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '5px', padding: '6px 8px', color: '#fff', fontSize: '12px' }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeItem(idx)}
+                        style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '14px', padding: '2px 6px' }}
+                        title="Remove deliverable"
+                      >{'✕'}</button>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      <select
+                        value={item.deliverable_type}
+                        onChange={e => updateItem(idx, { deliverable_type: e.target.value })}
+                        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '5px', padding: '6px 8px', color: '#fff', fontSize: '12px' }}
+                      >
+                        {Object.entries(DELIVERABLE_TYPES).map(([k, v]) => (
+                          <option key={k} value={k}>{v.label}</option>
+                        ))}
+                      </select>
+                      <select
+                        value={item.channel}
+                        onChange={e => updateItem(idx, { channel: e.target.value })}
+                        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '5px', padding: '6px 8px', color: '#fff', fontSize: '12px' }}
+                      >
+                        <option value="">{'— Channel —'}</option>
+                        {Object.entries(CHANNEL_COLORS).map(([k, v]) => (
+                          <option key={k} value={k}>{v.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      <input
+                        type="month"
+                        value={item.due_month}
+                        onChange={e => updateItem(idx, { due_month: e.target.value })}
+                        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '5px', padding: '6px 8px', color: '#fff', fontSize: '12px' }}
+                      />
+                      <input
+                        type="number"
+                        value={item.pay}
+                        onChange={e => updateItem(idx, { pay: e.target.value })}
+                        placeholder="Pay ($)"
+                        min="0"
+                        step="any"
+                        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '5px', padding: '6px 8px', color: '#fff', fontSize: '12px' }}
+                      />
+                    </div>
+                    {item.due_month && (
+                      <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>
+                        Due {formatMonthLabel(item.due_month)}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => acceptItem(idx)}
+                      style={{ alignSelf: 'flex-end', background: '#22c55e', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 14px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      Accept Deliverable
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={addItem}
+                  style={{ alignSelf: 'flex-start', background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px dashed rgba(99,102,241,0.4)', borderRadius: '6px', padding: '6px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  + Deliverable
+                </button>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '10px' }}>
-                <input type="number" value={proposalForm.num_videos_mayday} onChange={e => setProposalForm(f => ({ ...f, num_videos_mayday: e.target.value }))} placeholder="# Mayday Vids" min="0" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px' }} />
-                <input type="number" value={proposalForm.pay_per_video_mayday} onChange={e => setProposalForm(f => ({ ...f, pay_per_video_mayday: e.target.value }))} placeholder="$/Mayday Vid" min="0" step="any" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px' }} />
-                <input type="number" value={proposalForm.num_videos_tmb} onChange={e => setProposalForm(f => ({ ...f, num_videos_tmb: e.target.value }))} placeholder="# TMB Vids" min="0" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px' }} />
-                <input type="number" value={proposalForm.pay_per_video_tmb} onChange={e => setProposalForm(f => ({ ...f, pay_per_video_tmb: e.target.value }))} placeholder="$/TMB Vid" min="0" step="any" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px' }} />
-              </div>
-              <textarea value={proposalForm.description} onChange={e => setProposalForm(f => ({ ...f, description: e.target.value }))} placeholder="Description / notes" rows={2} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px', resize: 'vertical' }} />
+
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button type="submit" style={{ background: '#6366f1', color: '#fff', border: 'none', borderRadius: '6px', padding: '8px 14px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}>
-                  {editingProposal ? 'Update Proposal' : 'Submit Proposal'}
+                  {editingProposal ? 'Save Proposal' : 'Create Proposal'}
                 </button>
-                {editingProposal && (
-                  <button type="button" onClick={resetProposalForm} style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)', border: 'none', borderRadius: '6px', padding: '8px 14px', fontSize: '13px', cursor: 'pointer' }}>
-                    Cancel
-                  </button>
-                )}
+                <button type="button" onClick={cancelProposalForm} style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)', border: 'none', borderRadius: '6px', padding: '8px 14px', fontSize: '13px', cursor: 'pointer' }}>
+                  Cancel
+                </button>
               </div>
             </form>
           )}
@@ -747,41 +1054,40 @@ export default function Deliverables() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '8px' }}>
               {pendingProposals.map(p => {
-                const maydayTotal = (p.num_videos_mayday || 0) * (p.pay_per_video_mayday || 0);
-                const tmbTotal = (p.num_videos_tmb || 0) * (p.pay_per_video_tmb || 0);
-                const totalPay = maydayTotal + tmbTotal;
+                const items = p.items || [];
+                const totalPay = items.reduce((sum, it) => sum + (Number(it.pay) || 0), 0);
+                const timeframe = formatTimeframeFromItems(items);
                 return (
                   <div key={p.id} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '8px', padding: '14px', borderLeft: '3px solid #f59e0b' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                       <div style={{ fontWeight: 600, fontSize: '14px', color: '#fff' }}>{p.sponsor_name}</div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        {p.timeframe && <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', padding: '2px 8px' }}>{p.timeframe}</span>}
-                        <button onClick={() => startEditProposal(p)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Edit">{'\u270E'}</button>
-                        <button onClick={() => handleDeleteProposal(p.id)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Delete">{'\u2715'}</button>
+                        {timeframe && <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', padding: '2px 8px' }}>{timeframe}</span>}
+                        <button onClick={() => startEditProposal(p)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Edit">{'✎'}</button>
+                        <button onClick={() => handleDeleteProposal(p.id)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Delete">{'✕'}</button>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '10px' }}>
-                      {(p.num_videos_mayday || p.pay_per_video_mayday) ? (
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.03)', borderRadius: '6px', padding: '8px 10px' }}>
-                          <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>Mayday</div>
-                          <div style={{ display: 'flex', gap: '12px', fontSize: '12px' }}>
-                            {p.num_videos_mayday != null && <span style={{ color: 'rgba(255,255,255,0.6)' }}>{p.num_videos_mayday} video{p.num_videos_mayday !== 1 ? 's' : ''}</span>}
-                            {p.pay_per_video_mayday != null && <span style={{ color: 'rgba(255,255,255,0.5)' }}>${Number(p.pay_per_video_mayday).toLocaleString()} / vid</span>}
-                            {maydayTotal > 0 && <span style={{ color: '#22c55e', fontWeight: 600 }}>${maydayTotal.toLocaleString()}</span>}
+                    {items.length > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '10px' }}>
+                        {items.map((it) => (
+                          <div key={it.id || it.position} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.03)', borderRadius: '6px', padding: '6px 10px', fontSize: '12px' }}>
+                            <span style={{ fontSize: '14px' }}>{DELIVERABLE_TYPES[it.deliverable_type]?.icon || '\u{1F4CB}'}</span>
+                            <span style={{ flex: 1, color: 'rgba(255,255,255,0.85)' }}>{it.title}</span>
+                            {it.channel && CHANNEL_COLORS[it.channel] && (
+                              <span style={{ fontSize: '9px', fontWeight: 700, padding: '2px 5px', borderRadius: '4px', background: CHANNEL_COLORS[it.channel].bg, color: CHANNEL_COLORS[it.channel].color }}>
+                                {CHANNEL_COLORS[it.channel].label}
+                              </span>
+                            )}
+                            {it.due_month && (
+                              <span style={{ color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap' }}>{formatMonthLabel(it.due_month)}</span>
+                            )}
+                            {it.pay != null && it.pay !== '' && (
+                              <span style={{ color: '#22c55e', fontWeight: 600 }}>${Number(it.pay).toLocaleString()}</span>
+                            )}
                           </div>
-                        </div>
-                      ) : null}
-                      {(p.num_videos_tmb || p.pay_per_video_tmb) ? (
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.03)', borderRadius: '6px', padding: '8px 10px' }}>
-                          <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>TM Baseball</div>
-                          <div style={{ display: 'flex', gap: '12px', fontSize: '12px' }}>
-                            {p.num_videos_tmb != null && <span style={{ color: 'rgba(255,255,255,0.6)' }}>{p.num_videos_tmb} video{p.num_videos_tmb !== 1 ? 's' : ''}</span>}
-                            {p.pay_per_video_tmb != null && <span style={{ color: 'rgba(255,255,255,0.5)' }}>${Number(p.pay_per_video_tmb).toLocaleString()} / vid</span>}
-                            {tmbTotal > 0 && <span style={{ color: '#22c55e', fontWeight: 600 }}>${tmbTotal.toLocaleString()}</span>}
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
+                        ))}
+                      </div>
+                    )}
                     {totalPay > 0 && (
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '8px', marginBottom: '8px' }}>
                         <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>Total</span>
@@ -810,7 +1116,7 @@ export default function Deliverables() {
               </summary>
               <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 {resolvedProposals.map(p => {
-                  const rTotal = ((p.num_videos_mayday || 0) * (p.pay_per_video_mayday || 0)) + ((p.num_videos_tmb || 0) * (p.pay_per_video_tmb || 0));
+                  const rTotal = (p.items || []).reduce((sum, it) => sum + (Number(it.pay) || 0), 0);
                   return (
                     <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'rgba(255,255,255,0.5)', padding: '4px 0' }}>
                       <span style={{ background: p.status === 'accepted' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)', color: p.status === 'accepted' ? '#22c55e' : '#ef4444', borderRadius: '4px', padding: '1px 6px', fontSize: '11px', fontWeight: 600 }}>{p.status}</span>
