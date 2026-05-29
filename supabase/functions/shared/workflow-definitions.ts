@@ -403,14 +403,12 @@ const testFanWorkflow: WorkflowDefinition = {
   },
 };
 
-// ─── Real workflows ────────────────────────────────────────────
-import { adReadWorkflow } from "./ad-read-workflow.ts";
-
 // ─── Registry ──────────────────────────────────────────────────
+// Code-sourced workflows only. Data-sourced workflows (Ad Read Pipeline, etc.)
+// are resolved from workflow_versions snapshots via resolveWorkflowDefinition.
 const WORKFLOW_REGISTRY: Record<string, WorkflowDefinition> = {
   test_workflow: testWorkflow,
   test_fan_workflow: testFanWorkflow,
-  ad_read_workflow: adReadWorkflow,
 };
 
 export function getWorkflowDefinition(slug: string): WorkflowDefinition | null {

@@ -603,6 +603,8 @@ export default function Workflows() {
   // ── Version state ──
   const [versions, setVersions] = useState([]);
   const [showVersions, setShowVersions] = useState(false);
+  const autoPublishTimerRef = useRef(null);
+  const autoPublishInFlightRef = useRef(false);
 
   // ── Simulator state ──
   const [showSimulator, setShowSimulator] = useState(false);
@@ -842,6 +844,7 @@ export default function Workflows() {
       if (error) throw error;
       await fetchWorkflows();
       showToast('Saved');
+      schedulePublish();
     } catch (err) {
       showToast(err.message, 'error');
     } finally {
@@ -879,6 +882,7 @@ export default function Workflows() {
       return null;
     }
     setSteps(prev => [...prev, data]);
+    schedulePublish();
     return data;
   };
 
@@ -893,6 +897,7 @@ export default function Workflows() {
       return;
     }
     setSteps(prev => prev.map(s => s.id === stepId ? { ...s, ...updates } : s));
+    schedulePublish();
   };
 
   const deleteStep = async (stepId) => {
@@ -913,6 +918,7 @@ export default function Workflows() {
     });
     setDeleteConfirmStepId(null);
     showToast('Step deleted');
+    schedulePublish();
   };
 
   // ─── Outcome CRUD ────────────────────────────────────────
@@ -943,6 +949,7 @@ export default function Workflows() {
       ...prev,
       [stepId]: [...(prev[stepId] || []), data],
     }));
+    schedulePublish();
     return data;
   };
 
@@ -965,6 +972,7 @@ export default function Workflows() {
       }
       return next;
     });
+    schedulePublish();
   };
 
   const deleteOutcome = async (outcomeId, stepId) => {
@@ -981,16 +989,27 @@ export default function Workflows() {
       ...prev,
       [stepId]: (prev[stepId] || []).filter(o => o.id !== outcomeId),
     }));
+    schedulePublish();
   };
 
   // ─── Version Publishing ───────────────────────────────────
 
-  const publishVersion = async () => {
+  const publishVersion = async (opts = {}) => {
+    const silent = !!opts.silent;
     if (!selectedId || !workflowForm) return;
-    setPublishing(true);
+    if (silent && autoPublishInFlightRef.current) return;
+    // Manual publish supersedes any pending auto-publish — cancel the timer
+    // so we don't end up with a duplicate version right after.
+    if (!silent && autoPublishTimerRef.current) {
+      clearTimeout(autoPublishTimerRef.current);
+      autoPublishTimerRef.current = null;
+    }
+    if (silent) autoPublishInFlightRef.current = true;
+    else setPublishing(true);
     try {
-      // First save the header
-      await saveWorkflowHeader();
+      // First save the header (skip toast when auto-publishing — the header
+      // save would fire its own "Saved" toast otherwise)
+      if (!silent) await saveWorkflowHeader();
 
       // Fetch latest steps + outcomes for snapshot
       const { data: snapSteps } = await supabase
@@ -1047,13 +1066,35 @@ export default function Workflows() {
 
       await fetchWorkflows();
       setVersions(prev => [versionRow, ...prev]);
-      showToast(`Published v${newVersionNum}`);
+      if (!silent) showToast(`Published v${newVersionNum}`);
     } catch (err) {
-      showToast('Publish failed: ' + err.message, 'error');
+      // Auto-publish errors surface as toasts too — silent failures would be worse
+      showToast((silent ? 'Auto-publish failed: ' : 'Publish failed: ') + err.message, 'error');
     } finally {
-      setPublishing(false);
+      if (silent) autoPublishInFlightRef.current = false;
+      else setPublishing(false);
     }
   };
+
+  // Debounced auto-publish: any builder change schedules a publish 800ms later.
+  // Subsequent changes reset the timer so we only publish once per burst of edits.
+  const schedulePublish = useCallback(() => {
+    if (autoPublishTimerRef.current) clearTimeout(autoPublishTimerRef.current);
+    autoPublishTimerRef.current = setTimeout(() => {
+      autoPublishTimerRef.current = null;
+      publishVersion({ silent: true });
+    }, 800);
+  }, [selectedId, workflowForm]); // eslint-disable-line
+
+  // Cancel any pending auto-publish when the selected workflow changes or unmount.
+  useEffect(() => {
+    return () => {
+      if (autoPublishTimerRef.current) {
+        clearTimeout(autoPublishTimerRef.current);
+        autoPublishTimerRef.current = null;
+      }
+    };
+  }, [selectedId]);
 
   const rollbackToVersion = async (version) => {
     try {

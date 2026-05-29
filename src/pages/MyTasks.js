@@ -72,6 +72,111 @@ async function callWorkflowFn(fnName, body) {
   return data;
 }
 
+// ─── Inline review for ad read proposal tasks ────────────────
+
+function ReviewProposalCard({ task }) {
+  const [proposal, setProposal] = useState(null);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const proposalId = task.workflow_instance?.context?.proposal_id;
+    if (!proposalId) { setError('Missing proposal_id in workflow context.'); setLoading(false); return; }
+    let cancelled = false;
+    (async () => {
+      const { data, error: err } = await supabase
+        .from('ad_read_proposals')
+        .select('*, creator:profiles(id, full_name), items:ad_read_proposal_items(id, title, deliverable_type, channel, due_month, pay, position)')
+        .eq('id', proposalId)
+        .single();
+      if (cancelled) return;
+      if (err) { setError(err.message); setLoading(false); return; }
+      const items = (data.items || []).slice().sort((a, b) => (a.position || 0) - (b.position || 0));
+      setProposal({ ...data, items });
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [task.workflow_instance?.context?.proposal_id]);
+
+  if (loading) return <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, margin: 0 }}>Loading proposal…</p>;
+  if (error) return <p style={{ color: '#fca5a5', fontSize: 13, margin: 0 }}>Error: {error}</p>;
+  if (!proposal) return null;
+
+  const totalPay = (proposal.items || []).reduce((sum, it) => sum + (Number(it.pay) || 0), 0);
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      {/* Sponsor + meta */}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+        <span style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{proposal.sponsor_name}</span>
+        {proposal.timeframe && (
+          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>{proposal.timeframe}</span>
+        )}
+        {proposal.creator?.full_name && (
+          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
+            Submitted by {proposal.creator.full_name}
+          </span>
+        )}
+      </div>
+
+      {proposal.description && (
+        <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', lineHeight: 1.5, margin: '0 0 12px' }}>
+          {proposal.description}
+        </p>
+      )}
+
+      {/* Items table */}
+      {proposal.items.length > 0 && (
+        <div style={{
+          background: 'rgba(255,255,255,0.03)',
+          border: '1px solid rgba(255,255,255,0.06)',
+          borderRadius: 8,
+          overflow: 'hidden',
+          marginBottom: 12,
+        }}>
+          {proposal.items.map((it, idx) => (
+            <div
+              key={it.id}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 110px 110px 110px 80px',
+                gap: 10,
+                padding: '10px 12px',
+                borderTop: idx === 0 ? 'none' : '1px solid rgba(255,255,255,0.05)',
+                fontSize: 13,
+                color: 'rgba(255,255,255,0.85)',
+                alignItems: 'center',
+              }}
+            >
+              <span style={{ fontWeight: 500 }}>{it.title}</span>
+              <span style={{ color: 'rgba(255,255,255,0.55)' }}>{it.deliverable_type || '—'}</span>
+              <span style={{ color: 'rgba(255,255,255,0.55)' }}>{it.channel || '—'}</span>
+              <span style={{ color: 'rgba(255,255,255,0.55)' }}>{it.due_month || '—'}</span>
+              <span style={{ color: '#34d399', textAlign: 'right', fontWeight: 600 }}>
+                {it.pay ? `$${Number(it.pay).toLocaleString()}` : '—'}
+              </span>
+            </div>
+          ))}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: 8,
+            padding: '8px 12px',
+            background: 'rgba(255,255,255,0.02)',
+            borderTop: '1px solid rgba(255,255,255,0.06)',
+            fontSize: 12,
+            color: 'rgba(255,255,255,0.5)',
+          }}>
+            <span>Total:</span>
+            <span style={{ color: '#34d399', fontWeight: 700 }}>${totalPay.toLocaleString()}</span>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────
 
 export default function MyTasks({ onNavigate }) {
@@ -319,6 +424,7 @@ export default function MyTasks({ onNavigate }) {
           const isFading = fadingIds.has(task.id);
           const isCompleting = completingIds.has(task.id);
           const isOnHold = task.status === 'on_hold';
+          const isReviewProposal = task.step_key === 'review_proposal';
 
           return (
             <div
@@ -341,15 +447,20 @@ export default function MyTasks({ onNavigate }) {
                 )}
               </div>
 
-              {/* Summary line */}
-              {task.related_entity_type && (
+              {/* Summary line (skip for review_proposal \u2014 inline card has its own header) */}
+              {!isReviewProposal && task.related_entity_type && (
                 <p style={styles.entitySummary}>
                   {task.related_entity_type}{task.related_entity_id ? ` \u2022 ${task.related_entity_id.slice(0, 8)}...` : ''}
                 </p>
               )}
 
-              {/* Expanded description */}
-              {isExpanded && task.description && (
+              {/* Inline proposal review */}
+              {isReviewProposal && !isOnHold && (
+                <ReviewProposalCard task={task} />
+              )}
+
+              {/* Expanded description (default tasks only) */}
+              {!isReviewProposal && isExpanded && task.description && (
                 <div style={styles.expandedSection}>
                   <p style={styles.description}>{task.description}</p>
                 </div>
@@ -364,19 +475,30 @@ export default function MyTasks({ onNavigate }) {
                   >
                     Resume
                   </button>
-                ) : (
-                  <button
-                    style={styles.primaryBtn}
-                    onClick={() => handlePrimaryAction(task)}
-                    disabled={isCompleting}
-                  >
-                    {isCompleting ? 'Working...' : action.label}
-                  </button>
+                ) : !isReviewProposal && (
+                  <>
+                    <button
+                      style={styles.primaryBtn}
+                      onClick={() => handlePrimaryAction(task)}
+                      disabled={isCompleting}
+                    >
+                      {isCompleting ? 'Working...' : action.label}
+                    </button>
+                    {action.type === 'navigate' && (
+                      <button
+                        style={styles.markDoneBtn}
+                        onClick={() => handleComplete(task)}
+                        disabled={isCompleting}
+                      >
+                        Mark Done
+                      </button>
+                    )}
+                  </>
                 )}
 
                 {!isOnHold && (
                   <button
-                    style={styles.secondaryBtn}
+                    style={styles.holdBtn}
                     onClick={() => setHoldModalTask(task)}
                   >
                     Hold
@@ -386,7 +508,7 @@ export default function MyTasks({ onNavigate }) {
                 {/* Snooze */}
                 <div style={styles.snoozeWrapper}>
                   <button
-                    style={styles.secondaryBtn}
+                    style={styles.snoozeBtn}
                     onClick={() => setSnoozeOpenId(snoozeOpenId === task.id ? null : task.id)}
                   >
                     Snooze
@@ -411,14 +533,34 @@ export default function MyTasks({ onNavigate }) {
                   )}
                 </div>
 
-                {/* Expand toggle */}
-                {task.description && (
+                {/* Expand toggle (skip for review_proposal — full proposal already inline) */}
+                {!isReviewProposal && task.description && (
                   <button
                     style={styles.expandBtn}
                     onClick={() => setExpandedId(isExpanded ? null : task.id)}
                   >
                     {isExpanded ? 'Less' : 'More'}
                   </button>
+                )}
+
+                {/* Accept / Decline pinned to the right for review_proposal */}
+                {isReviewProposal && !isOnHold && (
+                  <>
+                    <button
+                      style={{ ...styles.acceptBtn, marginLeft: 'auto', opacity: isCompleting ? 0.6 : 1 }}
+                      onClick={() => handleComplete(task, { outcome: 'accept' })}
+                      disabled={isCompleting}
+                    >
+                      Accept Proposal
+                    </button>
+                    <button
+                      style={{ ...styles.declineBtn, opacity: isCompleting ? 0.6 : 1 }}
+                      onClick={() => handleComplete(task, { outcome: 'deny' })}
+                      disabled={isCompleting}
+                    >
+                      Decline
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -682,6 +824,61 @@ const styles = {
     padding: '6px 12px',
     fontSize: 12,
     cursor: 'pointer',
+  },
+  holdBtn: {
+    background: 'rgba(249,115,22,0.15)',
+    color: '#fb923c',
+    border: '1px solid rgba(249,115,22,0.4)',
+    borderRadius: 8,
+    padding: '9px 18px',
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  snoozeBtn: {
+    background: 'rgba(234,179,8,0.15)',
+    color: '#facc15',
+    border: '1px solid rgba(234,179,8,0.4)',
+    borderRadius: 8,
+    padding: '9px 18px',
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  markDoneBtn: {
+    background: 'rgba(16,185,129,0.12)',
+    color: '#34d399',
+    border: '1px solid rgba(16,185,129,0.3)',
+    borderRadius: 8,
+    padding: '7px 14px',
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  acceptBtn: {
+    background: '#10b981',
+    color: '#fff',
+    border: 'none',
+    borderRadius: 8,
+    padding: '9px 18px',
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  declineBtn: {
+    background: 'rgba(239,68,68,0.12)',
+    color: '#fca5a5',
+    border: '1px solid rgba(239,68,68,0.3)',
+    borderRadius: 8,
+    padding: '9px 18px',
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
   },
   expandBtn: {
     background: 'transparent',

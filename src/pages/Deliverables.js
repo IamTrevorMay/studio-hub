@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+import { callWorkflowFn } from '../lib/workflowApi';
 
 const DELIVERABLE_TYPES = {
   long_form_read: { label: 'Long Form Read', icon: '\u{1F4D6}' },
@@ -366,6 +367,26 @@ export default function Deliverables() {
       })
       .eq('id', proposalId);
     if (error) { alert('Error creating proposal: ' + error.message); return; }
+
+    // Kick off the Ad Read Pipeline workflow — assigns a "Review proposal" task to the admin reviewer.
+    try {
+      const { instance_id } = await callWorkflowFn('workflow-start', {
+        slug: 'ad_read_workflow',
+        context: {
+          proposal_id: proposalId,
+          brand_name: proposalForm.sponsor_name,
+        },
+      });
+      if (instance_id) {
+        await supabase
+          .from('ad_read_proposals')
+          .update({ workflow_instance_id: instance_id })
+          .eq('id', proposalId);
+      }
+    } catch (wfErr) {
+      console.error('Failed to start ad read workflow:', wfErr);
+    }
+
     resetProposalForm();
     fetchProposals();
   }
