@@ -334,7 +334,13 @@ export default function PhaseOne({ session, onSessionChange, recipients, setting
 
       // Write the source into ffmpeg's virtual FS once for the whole batch
       setCutProgress({ done: 0, total: readyClips.length, current: 'Reading source…' });
-      const sourceBytes = await readFileAsUint8(session._sourceFile);
+      let sourceBytes;
+      try {
+        sourceBytes = await readFileAsUint8(session._sourceFile);
+      } catch (readErr) {
+        alert('The source file can no longer be read — the browser lost its handle.\n\nPlease re-select the file using the "Change File" button and try again.');
+        return;
+      }
       const ext = (session._sourceFile.name.split('.').pop() || 'mp4').toLowerCase();
       const inputName = `input.${ext}`;
       await ffmpeg.writeFile(inputName, sourceBytes);
