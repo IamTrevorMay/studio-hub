@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+
+const SUBMISSIONS_FOLDER_ID = '1r1dENUCjNSs57MjidYbE2rWrbMKXpLM0';
 
 const STATUS_LABELS = {
   assigned: 'Assigned',
@@ -69,6 +71,14 @@ export default function FreelancerDashboard({ onNavigate }) {
     try { return new Set(JSON.parse(localStorage.getItem('fl_archived_assignments') || '[]')); }
     catch { return new Set(); }
   });
+
+  // Submit / Stuck
+  const [submitModalAssignment, setSubmitModalAssignment] = useState(null);
+  const [uploadedFileUrls, setUploadedFileUrls] = useState({}); // { [assignmentId]: driveUrl }
+  const [stuckAssignment, setStuckAssignment] = useState(null);
+  const [stuckText, setStuckText] = useState('');
+  const [stuckSending, setStuckSending] = useState(false);
+  const [myDriveFolderId, setMyDriveFolderId] = useState(null);
 
   // Notifications + announcements
   const [notifications, setNotifications] = useState([]);
@@ -149,6 +159,12 @@ export default function FreelancerDashboard({ onNavigate }) {
     if (!profile?.id) return;
     supabase.from('freelancer_profiles').select('payment_type').eq('id', profile.id).single()
       .then(({ data }) => { if (data) setMyPaymentType(data.payment_type); });
+  }, [profile?.id]);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+    supabase.from('profiles').select('assigned_drive_folder_id').eq('id', profile.id).single()
+      .then(({ data }) => { if (data) setMyDriveFolderId(data.assigned_drive_folder_id); });
   }, [profile?.id]);
 
   useEffect(() => {
@@ -268,6 +284,50 @@ export default function FreelancerDashboard({ onNavigate }) {
     setHoursModalAssignment(null);
     setHoursInput('');
     setHoursSubmitting(false);
+    fetchAssignments();
+  }
+
+  async function handleStuck(assignment) {
+    if (!stuckText.trim() || stuckSending) return;
+    setStuckSending(true);
+    try {
+      await supabase.from('freelancer_assignment_comments').insert({
+        assignment_id: assignment.id,
+        author_id: profile.id,
+        body: `\u{1F6A7} Stuck: ${stuckText.trim()}`,
+      });
+
+      const { data: admins } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('role', 'admin');
+
+      if (admins?.length) {
+        await supabase.from('notifications').insert(
+          admins.map(admin => ({
+            user_id: admin.id,
+            type: 'fl_stuck',
+            title: 'Contractor Stuck',
+            body: `${profile.full_name} is stuck on "${assignment.title}": ${stuckText.trim()}`,
+            link_tab: 'freelancers',
+            link_target: assignment.id,
+          }))
+        );
+      }
+
+      setStuckText('');
+      setStuckAssignment(null);
+      fetchComments(assignment.id);
+    } finally {
+      setStuckSending(false);
+    }
+  }
+
+  async function handleUploadSuccess(assignment, driveFileUrl) {
+    setUploadedFileUrls(prev => ({ ...prev, [assignment.id]: driveFileUrl }));
+    await supabase.from('freelancer_assignments')
+      .update({ asset_url: driveFileUrl, updated_at: new Date().toISOString() })
+      .eq('id', assignment.id);
     fetchAssignments();
   }
 
@@ -631,20 +691,46 @@ export default function FreelancerDashboard({ onNavigate }) {
                       </>
                     )}
                     {a.status === 'in_progress' && (
-                      <button
-                        style={{ ...styles.actionButton, ...styles.actionButtonComplete }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (myPaymentType === 'hourly') {
-                            setHoursModalAssignment(a);
-                            setHoursInput('');
-                          } else {
-                            handleStatusChange(a, 'completed');
-                          }
-                        }}
-                      >
-                        Mark Complete
-                      </button>
+                      <>
+                        <span style={styles.inProgressIndicator}>
+                          ● In Progress
+                        </span>
+
+                        {uploadedFileUrls[a.id] ? (
+                          <button
+                            style={styles.submitButtonGreen}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (myPaymentType === 'hourly') {
+                                setHoursModalAssignment(a);
+                                setHoursInput('');
+                              } else {
+                                handleStatusChange(a, 'completed');
+                              }
+                            }}
+                          >
+                            &#10003; Submit
+                          </button>
+                        ) : (
+                          <button
+                            style={styles.actionButton}
+                            onClick={(e) => { e.stopPropagation(); setSubmitModalAssignment(a); }}
+                          >
+                            Submit
+                          </button>
+                        )}
+
+                        <button
+                          style={styles.stuckButton}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setStuckAssignment(stuckAssignment === a.id ? null : a.id);
+                            setStuckText('');
+                          }}
+                        >
+                          I'm Stuck
+                        </button>
+                      </>
                     )}
                     {a.status === 'completed' && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -661,6 +747,33 @@ export default function FreelancerDashboard({ onNavigate }) {
                       </div>
                     )}
                   </div>
+
+                  {/* I'm Stuck text input */}
+                  {stuckAssignment === a.id && (
+                    <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input
+                        style={{ ...styles.commentInput, flex: 1 }}
+                        placeholder="What are you stuck on?"
+                        value={stuckText}
+                        onChange={e => setStuckText(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') handleStuck(a); }}
+                        autoFocus
+                      />
+                      <button
+                        style={{ ...styles.actionButton, padding: '8px 16px' }}
+                        onClick={() => handleStuck(a)}
+                        disabled={stuckSending || !stuckText.trim()}
+                      >
+                        {stuckSending ? 'Sending...' : 'Send'}
+                      </button>
+                      <button
+                        style={{ ...styles.archiveButton }}
+                        onClick={() => { setStuckAssignment(null); setStuckText(''); }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
 
                   {/* Comment Thread */}
                   <div style={styles.commentSection}>
@@ -714,6 +827,19 @@ export default function FreelancerDashboard({ onNavigate }) {
         })}
       </div>
 
+      {/* Submit Modal */}
+      {submitModalAssignment && (
+        <AssignmentSubmitModal
+          assignment={submitModalAssignment}
+          folderId={myDriveFolderId || SUBMISSIONS_FOLDER_ID}
+          onUploadSuccess={(driveFileUrl) => {
+            handleUploadSuccess(submitModalAssignment, driveFileUrl);
+            setSubmitModalAssignment(null);
+          }}
+          onClose={() => setSubmitModalAssignment(null)}
+        />
+      )}
+
       {/* Hours Modal */}
       {hoursModalAssignment && (
         <div style={styles.modalOverlay} onClick={() => setHoursModalAssignment(null)}>
@@ -748,6 +874,193 @@ export default function FreelancerDashboard({ onNavigate }) {
     </div>
   );
 }
+
+// ── Submit Modal ──────────────────────────────────────────────
+
+function AssignmentSubmitModal({ assignment, folderId, onUploadSuccess, onClose }) {
+  const [file, setFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [result, setResult] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef(null);
+
+  async function handleUpload() {
+    if (!file) return;
+    setUploading(true);
+    setProgress(0);
+    setResult(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const initRes = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/drive-upload-init`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          parentFolderId: folderId,
+          filename: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          sizeBytes: file.size,
+        }),
+      });
+      const initJson = await initRes.json();
+      if (!initRes.ok) throw new Error(initJson.error || 'Failed to init upload');
+
+      const driveFileId = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', initJson.uploadUrl, true);
+        xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100));
+        };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              const resp = JSON.parse(xhr.responseText);
+              resolve(resp.id);
+            } catch {
+              resolve(null);
+            }
+          } else {
+            reject(new Error(`Upload failed (${xhr.status})`));
+          }
+        };
+        xhr.onerror = () => reject(new Error('Upload failed'));
+        xhr.send(file);
+      });
+
+      const driveUrl = driveFileId
+        ? `https://drive.google.com/file/d/${driveFileId}/view`
+        : null;
+
+      setResult({ type: 'success', text: `"${file.name}" uploaded successfully!` });
+      setFile(null);
+      if (driveUrl) {
+        onUploadSuccess(driveUrl);
+      }
+    } catch (err) {
+      setResult({ type: 'error', text: err.message });
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    setDragOver(false);
+    const dropped = e.dataTransfer.files[0];
+    if (dropped) { setFile(dropped); setResult(null); }
+  }
+
+  return (
+    <div style={submitStyles.overlay} onClick={onClose}>
+      <div style={submitStyles.modal} onClick={e => e.stopPropagation()}>
+        <div style={submitStyles.header}>
+          <span style={submitStyles.title}>Submit — {assignment.title}</span>
+          <button onClick={onClose} style={submitStyles.closeBtn}>&times;</button>
+        </div>
+
+        <div
+          onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+          style={{
+            ...submitStyles.dropZone,
+            borderColor: dragOver ? '#6366f1' : 'rgba(255,255,255,0.15)',
+            background: dragOver ? 'rgba(99,102,241,0.08)' : 'rgba(255,255,255,0.02)',
+          }}
+        >
+          {file ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.85)', wordBreak: 'break-all', textAlign: 'center' }}>{file.name}</span>
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>{(file.size / (1024 * 1024)).toFixed(1)} MB</span>
+              <button onClick={() => { setFile(null); setResult(null); }} style={{ background: 'none', border: 'none', color: '#f87171', fontSize: 12, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif', marginTop: 4 }}>Remove</button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" />
+              </svg>
+              <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>Drag & drop a file here</span>
+              <button onClick={() => fileInputRef.current?.click()} style={submitStyles.browseBtn}>Browse</button>
+              <input ref={fileInputRef} type="file" style={{ display: 'none' }} onChange={e => { if (e.target.files[0]) { setFile(e.target.files[0]); setResult(null); } }} />
+            </div>
+          )}
+        </div>
+
+        {uploading && (
+          <div style={submitStyles.progressContainer}>
+            <div style={{ ...submitStyles.progressBar, width: `${progress}%` }} />
+          </div>
+        )}
+
+        {result && (
+          <p style={{ fontSize: 13, color: result.type === 'success' ? '#34d399' : '#f87171', margin: '8px 0 0' }}>{result.text}</p>
+        )}
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+          <button
+            onClick={handleUpload}
+            disabled={!file || uploading}
+            style={{ ...submitStyles.uploadBtn, opacity: (!file || uploading) ? 0.5 : 1 }}
+          >
+            {uploading ? `Uploading... ${progress}%` : 'Upload'}
+          </button>
+          <button onClick={onClose} style={submitStyles.cancelBtn}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const submitStyles = {
+  overlay: {
+    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+    background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    zIndex: 9999, fontFamily: "'DM Sans', sans-serif",
+  },
+  modal: {
+    background: '#1a1a2e', borderRadius: 14, padding: 24, width: 420, maxWidth: '90vw',
+    border: '1px solid rgba(255,255,255,0.1)',
+  },
+  header: {
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16,
+  },
+  title: {
+    fontSize: 18, fontWeight: 600, color: '#fff',
+  },
+  closeBtn: {
+    background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: 22,
+    cursor: 'pointer', padding: '0 4px', lineHeight: 1,
+  },
+  dropZone: {
+    border: '2px dashed', borderRadius: 10, padding: '32px 20px',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    minHeight: 120, transition: 'border-color 0.15s, background 0.15s',
+  },
+  browseBtn: {
+    padding: '6px 16px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.15)',
+    background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)',
+    cursor: 'pointer', fontSize: 13, fontFamily: 'DM Sans, sans-serif',
+  },
+  progressContainer: {
+    height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.08)', marginTop: 12, overflow: 'hidden',
+  },
+  progressBar: {
+    height: '100%', borderRadius: 3, background: '#6366f1', transition: 'width 0.2s ease',
+  },
+  uploadBtn: {
+    padding: '8px 20px', borderRadius: 8, border: 'none', background: '#6366f1',
+    color: '#fff', cursor: 'pointer', fontSize: 14, fontWeight: 600, fontFamily: 'DM Sans, sans-serif',
+  },
+  cancelBtn: {
+    padding: '8px 16px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.15)',
+    background: 'transparent', color: 'rgba(255,255,255,0.7)', cursor: 'pointer',
+    fontSize: 14, fontFamily: 'DM Sans, sans-serif',
+  },
+};
 
 // ── Styles ─────────────────────────────────────────────────────
 
@@ -1009,6 +1322,38 @@ const styles = {
   },
   actionButtonComplete: {
     background: '#22c55e',
+  },
+  inProgressIndicator: {
+    padding: '8px 16px',
+    background: 'rgba(251,191,36,0.15)',
+    color: '#fbbf24',
+    border: '1px solid rgba(251,191,36,0.3)',
+    borderRadius: 8,
+    fontSize: 13,
+    fontWeight: 600,
+  },
+  submitButtonGreen: {
+    padding: '8px 20px',
+    borderRadius: 8,
+    border: 'none',
+    background: '#22c55e',
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'DM Sans, sans-serif',
+    transition: 'opacity 0.15s',
+  },
+  stuckButton: {
+    padding: '8px 16px',
+    borderRadius: 8,
+    border: '1px solid rgba(251,191,36,0.3)',
+    background: 'rgba(251,191,36,0.08)',
+    color: '#fbbf24',
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'DM Sans, sans-serif',
   },
   completedIndicator: {
     fontSize: 13,
