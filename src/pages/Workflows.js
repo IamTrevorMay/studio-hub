@@ -1029,11 +1029,15 @@ export default function Workflows() {
         snapOutcomes = oRows || [];
       }
 
-      // Determine version number
-      const maxVer = versions.length > 0
-        ? Math.max(...versions.map(v => v.version_number))
-        : 0;
-      const newVersionNum = maxVer + 1;
+      // Determine version number from DB (avoid stale local state)
+      const { data: latestVer } = await supabase
+        .from('workflow_versions')
+        .select('version_number')
+        .eq('workflow_id', selectedId)
+        .order('version_number', { ascending: false })
+        .limit(1)
+        .single();
+      const newVersionNum = (latestVer?.version_number || 0) + 1;
 
       // Create snapshot
       const snapshot = {

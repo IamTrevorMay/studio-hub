@@ -52,6 +52,10 @@ function Freelancers() {
   const [driveFolders, setDriveFolders] = useState([]);
   const [driveFoldersLoading, setDriveFoldersLoading] = useState(false);
   const [selectedDriveFolder, setSelectedDriveFolder] = useState(null);
+  const [editingContractor, setEditingContractor] = useState(null);
+  const [editForm, setEditForm] = useState({ full_name: '', title: '', payment_type: 'hourly', rate: '', assigned_drive_folder_id: '', assigned_drive_folder_name: '' });
+  const [editSaving, setEditSaving] = useState(false);
+  const [deleteConfirming, setDeleteConfirming] = useState(null);
 
   /* ── Assignments state ── */
   const [assignments, setAssignments] = useState([]);
@@ -89,7 +93,7 @@ function Freelancers() {
   const fetchTeam = useCallback(async () => {
     const { data: profiles } = await supabase
       .from('profiles')
-      .select('id, full_name, email, avatar_url, title')
+      .select('id, full_name, email, avatar_url, title, assigned_drive_folder_id, assigned_drive_folder_name')
       .eq('role', 'freelancer')
       .order('full_name');
     setFreelancers(profiles || []);
@@ -202,7 +206,7 @@ function Freelancers() {
 
   // Fetch Drive contractor folders when invite form opens
   useEffect(() => {
-    if (!showInviteForm) return;
+    if (!showInviteForm && !editingContractor) return;
     let cancelled = false;
     const fetchDriveFolders = async () => {
       setDriveFoldersLoading(true);
@@ -224,7 +228,7 @@ function Freelancers() {
     };
     fetchDriveFolders();
     return () => { cancelled = true; };
-  }, [showInviteForm]);
+  }, [showInviteForm, editingContractor]);
 
   /* ─────────────────────────────────────────── */
   /*  Handlers                                   */
@@ -332,6 +336,60 @@ function Freelancers() {
     await supabase.from('freelancer_assignments').update(updates).eq('id', id);
     setEditingAssignment(null);
     fetchAssignments();
+  };
+
+  const handleArchiveAssignment = async (id) => {
+    await supabase.from('freelancer_assignments').update({
+      status: 'completed',
+      completed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq('id', id);
+    setExpandedAssignment(null);
+    fetchAssignments();
+  };
+
+  const startEditContractor = (fl) => {
+    const fp = flProfiles[fl.id] || {};
+    setEditingContractor(fl.id);
+    setEditForm({
+      full_name: fl.full_name || '',
+      title: fl.title || '',
+      payment_type: fp.payment_type || 'hourly',
+      rate: fp.rate != null ? String(fp.rate) : '',
+      assigned_drive_folder_id: fl.assigned_drive_folder_id || '',
+      assigned_drive_folder_name: fl.assigned_drive_folder_name || '',
+    });
+  };
+
+  const handleSaveContractor = async (flId) => {
+    setEditSaving(true);
+    try {
+      await supabase.from('profiles').update({
+        full_name: editForm.full_name.trim(),
+        title: editForm.title,
+        assigned_drive_folder_id: editForm.assigned_drive_folder_id || null,
+        assigned_drive_folder_name: editForm.assigned_drive_folder_name || null,
+      }).eq('id', flId);
+
+      await supabase.from('freelancer_profiles').upsert({
+        id: flId,
+        payment_type: editForm.payment_type,
+        rate: editForm.rate ? parseFloat(editForm.rate) : null,
+      }, { onConflict: 'id' });
+
+      setEditingContractor(null);
+      fetchTeam();
+    } catch (err) {
+      console.error('Failed to save contractor:', err);
+    }
+    setEditSaving(false);
+  };
+
+  const handleDeleteContractor = async (flId) => {
+    await supabase.from('profiles').update({ role: 'deactivated' }).eq('id', flId);
+    setDeleteConfirming(null);
+    setExpandedFreelancer(null);
+    fetchTeam();
   };
 
   const handleDeleteAssignment = async (assignment) => {
@@ -845,6 +903,162 @@ function Freelancers() {
                                 )}
                               </div>
                             ))}
+                          </div>
+                        )}
+
+                        {/* Contractor details / edit */}
+                        <h4 style={{ ...styles.sectionLabel, marginTop: 16 }}>Details</h4>
+                        {editingContractor === fl.id ? (
+                          <div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 24px' }}>
+                              <div style={styles.formField}>
+                                <label style={styles.label}>Name</label>
+                                <input
+                                  value={editForm.full_name}
+                                  onChange={e => setEditForm(p => ({ ...p, full_name: e.target.value }))}
+                                  style={styles.input}
+                                />
+                              </div>
+                              <div style={styles.formField}>
+                                <label style={styles.label}>Title</label>
+                                <select
+                                  value={editForm.title}
+                                  onChange={e => setEditForm(p => ({ ...p, title: e.target.value }))}
+                                  style={styles.select}
+                                >
+                                  <option value="">Select title...</option>
+                                  {FREELANCER_TITLES.map(t => (
+                                    <option key={t} value={t}>{t}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div style={styles.formField}>
+                                <label style={styles.label}>Payment Type</label>
+                                <select
+                                  value={editForm.payment_type}
+                                  onChange={e => setEditForm(p => ({ ...p, payment_type: e.target.value }))}
+                                  style={styles.select}
+                                >
+                                  <option value="hourly">Hourly</option>
+                                  <option value="project">By Project</option>
+                                </select>
+                              </div>
+                              <div style={styles.formField}>
+                                <label style={styles.label}>Rate ($)</label>
+                                <input
+                                  type="number"
+                                  value={editForm.rate}
+                                  onChange={e => setEditForm(p => ({ ...p, rate: e.target.value }))}
+                                  style={styles.input}
+                                  min="0"
+                                  step="0.01"
+                                />
+                              </div>
+                              <div style={{ ...styles.formField, gridColumn: '1 / -1' }}>
+                                <label style={styles.label}>Assigned Drive Folder</label>
+                                {driveFoldersLoading ? (
+                                  <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>Loading folders...</span>
+                                ) : driveFolders.length > 0 ? (
+                                  <select
+                                    value={editForm.assigned_drive_folder_id}
+                                    onChange={e => {
+                                      const folder = driveFolders.find(f => f.id === e.target.value);
+                                      setEditForm(p => ({
+                                        ...p,
+                                        assigned_drive_folder_id: folder?.id || '',
+                                        assigned_drive_folder_name: folder?.name || '',
+                                      }));
+                                    }}
+                                    style={styles.select}
+                                  >
+                                    <option value="">None</option>
+                                    {driveFolders.map(f => (
+                                      <option key={f.id} value={f.id}>{f.name}</option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>No folders available</span>
+                                )}
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+                              <button
+                                style={styles.primaryBtn}
+                                onClick={() => handleSaveContractor(fl.id)}
+                                disabled={editSaving}
+                              >
+                                {editSaving ? 'Saving...' : 'Save'}
+                              </button>
+                              <button style={styles.secondaryBtn} onClick={() => setEditingContractor(null)}>
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 24px' }}>
+                              <div>
+                                <div style={styles.fieldLabel}>Email</div>
+                                <div style={{ color: '#fff', fontSize: 13, marginTop: 2 }}>{fl.email || '--'}</div>
+                              </div>
+                              <div>
+                                <div style={styles.fieldLabel}>Title</div>
+                                <div style={{ color: '#fff', fontSize: 13, marginTop: 2 }}>{fl.title || '--'}</div>
+                              </div>
+                              {fp.payment_type && (
+                                <div>
+                                  <div style={styles.fieldLabel}>Payment Type</div>
+                                  <div style={{ color: '#fff', fontSize: 13, marginTop: 2 }}>
+                                    {fp.payment_type === 'hourly' ? 'Hourly' : 'By Project'}
+                                  </div>
+                                </div>
+                              )}
+                              {fp.rate != null && (
+                                <div>
+                                  <div style={styles.fieldLabel}>Rate</div>
+                                  <div style={{ color: '#fff', fontSize: 13, marginTop: 2 }}>
+                                    ${Number(fp.rate).toFixed(2)}{fp.payment_type === 'hourly' ? '/hr' : '/proj'}
+                                  </div>
+                                </div>
+                              )}
+                              {fl.assigned_drive_folder_name && (
+                                <div style={{ gridColumn: '1 / -1' }}>
+                                  <div style={styles.fieldLabel}>Assigned Drive Folder</div>
+                                  <div style={{ color: '#fff', fontSize: 13, marginTop: 2 }}>
+                                    {fl.assigned_drive_folder_name}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+                              <button style={styles.secondaryBtn} onClick={() => startEditContractor(fl)}>
+                                Edit
+                              </button>
+                              {deleteConfirming === fl.id ? (
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                  <span style={{ fontSize: 13, color: '#f87171' }}>Remove contractor?</span>
+                                  <button
+                                    style={{ ...styles.primaryBtn, background: '#ef4444', fontSize: 12, padding: '6px 14px' }}
+                                    onClick={() => handleDeleteContractor(fl.id)}
+                                  >
+                                    Yes, Remove
+                                  </button>
+                                  <button
+                                    style={{ ...styles.secondaryBtn, fontSize: 12, padding: '6px 14px' }}
+                                    onClick={() => setDeleteConfirming(null)}
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  style={{ ...styles.secondaryBtn, borderColor: 'rgba(248,113,113,0.3)', color: '#f87171' }}
+                                  onClick={() => setDeleteConfirming(fl.id)}
+                                >
+                                  Remove
+                                </button>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
