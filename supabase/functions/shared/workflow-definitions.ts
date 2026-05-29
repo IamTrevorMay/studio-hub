@@ -303,8 +303,12 @@ export async function resolveWorkflowDefinition(
     return getWorkflowDefinition(workflowRow.slug);
   }
 
-  // Data-sourced: use version snapshot if pinned, otherwise live DB
-  const vidToUse = versionId || workflowRow.current_version_id;
+  // Data-sourced: use version snapshot only if explicitly requested.
+  // When versionId is explicitly null, skip snapshots and use live DB rows
+  // so that builder UI changes take effect immediately.
+  const vidToUse = versionId === undefined
+    ? workflowRow.current_version_id
+    : versionId;
   if (vidToUse) {
     const { data: version } = await admin
       .from("workflow_versions")

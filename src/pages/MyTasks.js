@@ -193,6 +193,8 @@ export default function MyTasks({ onNavigate }) {
   const [showCompleted, setShowCompleted] = useState(false);
   const [completedTasks, setCompletedTasks] = useState([]);
   const [openModal, setOpenModal] = useState(null); // { task, ModalComponent }
+  const [confirmTask, setConfirmTask] = useState(null); // task pending confirmation
+  const [deliverableMeta, setDeliverableMeta] = useState({}); // { [deliverable_id]: { title, due_date } }
   const channelRef = useRef(null);
 
   // ─── Fetch tasks ──────────────────────────────────────────
@@ -238,6 +240,25 @@ export default function MyTasks({ onNavigate }) {
     fetchTasks();
     fetchCompletedTasks();
   }, [fetchTasks, fetchCompletedTasks]);
+
+  // Fetch deliverable metadata for write_ad_read tasks
+  useEffect(() => {
+    const ids = tasks
+      .filter(t => t.step_key === 'write_ad_reads' && t.related_entity_id)
+      .map(t => t.related_entity_id);
+    if (ids.length === 0) return;
+    const unique = [...new Set(ids)];
+    supabase
+      .from('sponsor_deliverables')
+      .select('id, title, due_date')
+      .in('id', unique)
+      .then(({ data }) => {
+        if (!data) return;
+        const map = {};
+        for (const d of data) map[d.id] = d;
+        setDeliverableMeta(map);
+      });
+  }, [tasks]);
 
   useVisibilityRefresh(() => {
     fetchTasks();
@@ -359,8 +380,15 @@ export default function MyTasks({ onNavigate }) {
         if (entry?.component) {
           setOpenModal({ task, ModalComponent: entry.component });
         } else {
-          // Fallback: just complete with empty payload.
           handleComplete(task);
+        }
+        break;
+      }
+      case 'write_ad_read': {
+        // "Write It" button opens the editor modal (no auto-complete)
+        const entry = action.modalKey ? getWorkflowModal(action.modalKey) : null;
+        if (entry?.component) {
+          setOpenModal({ task, ModalComponent: entry.component, noAutoComplete: true });
         }
         break;
       }
@@ -369,11 +397,25 @@ export default function MyTasks({ onNavigate }) {
     }
   };
 
+  const handleCompleteWithConfirm = (task) => {
+    setConfirmTask(task);
+  };
+
+  const confirmAndComplete = async () => {
+    if (!confirmTask) return;
+    const t = confirmTask;
+    setConfirmTask(null);
+    await handleComplete(t);
+  };
+
   const handleModalSubmit = async (payload) => {
     if (!openModal) return;
     const t = openModal.task;
+    const noAutoComplete = openModal.noAutoComplete;
     setOpenModal(null);
-    await handleComplete(t, payload);
+    if (!noAutoComplete) {
+      await handleComplete(t, payload);
+    }
   };
 
   // ─── Partition tasks ──────────────────────────────────────
@@ -425,6 +467,7 @@ export default function MyTasks({ onNavigate }) {
           const isCompleting = completingIds.has(task.id);
           const isOnHold = task.status === 'on_hold';
           const isReviewProposal = task.step_key === 'review_proposal';
+          const isWriteAdRead = action.type === 'write_ad_read';
 
           return (
             <div
@@ -447,8 +490,20 @@ export default function MyTasks({ onNavigate }) {
                 )}
               </div>
 
-              {/* Summary line (skip for review_proposal \u2014 inline card has its own header) */}
-              {!isReviewProposal && task.related_entity_type && (
+              {/* Summary line */}
+              {isWriteAdRead && task.related_entity_id && (() => {
+                const meta = deliverableMeta[task.related_entity_id];
+                const dTitle = meta?.title || '';
+                const dMonth = meta?.due_date
+                  ? new Date(meta.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+                  : '';
+                return (
+                  <p style={styles.entitySummary}>
+                    {dTitle}{dMonth ? ` \u2022 ${dMonth}` : ''}
+                  </p>
+                );
+              })()}
+              {!isReviewProposal && !isWriteAdRead && task.related_entity_type && (
                 <p style={styles.entitySummary}>
                   {task.related_entity_type}{task.related_entity_id ? ` \u2022 ${task.related_entity_id.slice(0, 8)}...` : ''}
                 </p>
@@ -467,7 +522,7 @@ export default function MyTasks({ onNavigate }) {
               )}
 
               {/* Action row */}
-              <div style={styles.actionRow}>
+              <div style={{ ...styles.actionRow, ...(isWriteAdRead ? { flexWrap: 'wrap' } : {}) }}>
                 {isOnHold ? (
                   <button
                     style={styles.resumeBtn}
@@ -475,6 +530,23 @@ export default function MyTasks({ onNavigate }) {
                   >
                     Resume
                   </button>
+                ) : isWriteAdRead ? (
+                  <>
+                    <button
+                      style={styles.primaryBtn}
+                      onClick={() => handlePrimaryAction(task)}
+                      disabled={isCompleting}
+                    >
+                      Write It
+                    </button>
+                    <button
+                      style={styles.markDoneBtn}
+                      onClick={() => handleCompleteWithConfirm(task)}
+                      disabled={isCompleting}
+                    >
+                      {isCompleting ? 'Working...' : 'Complete'}
+                    </button>
+                  </>
                 ) : !isReviewProposal && (
                   <>
                     <button
@@ -561,6 +633,19 @@ export default function MyTasks({ onNavigate }) {
                       Decline
                     </button>
                   </>
+                )}
+
+                {/* Go to Deliverables — pinned right */}
+                {isWriteAdRead && !isOnHold && (
+                  <button
+                    style={styles.goToDeliverableLink}
+                    onClick={() => {
+                      const ctx = task.workflow_instance?.context || {};
+                      if (onNavigate) onNavigate('deliverables', ctx.campaign_id);
+                    }}
+                  >
+                    Go to Deliverables &rsaquo;
+                  </button>
                 )}
               </div>
             </div>
@@ -658,6 +743,33 @@ export default function MyTasks({ onNavigate }) {
           onSubmit={handleModalSubmit}
           onClose={() => setOpenModal(null)}
         />
+      )}
+
+      {/* Confirm complete dialog */}
+      {confirmTask && (
+        <div style={styles.modalOverlay} onClick={() => setConfirmTask(null)}>
+          <div style={styles.modal} onClick={e => e.stopPropagation()}>
+            <h3 style={styles.modalTitle}>Complete this task?</h3>
+            <p style={styles.modalSubtitle}>{confirmTask.title}</p>
+            <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', margin: '8px 0 0' }}>
+              This will mark the ad read as done and advance the workflow.
+            </p>
+            <div style={styles.modalActions}>
+              <button
+                style={styles.secondaryBtn}
+                onClick={() => setConfirmTask(null)}
+              >
+                Cancel
+              </button>
+              <button
+                style={styles.primaryBtn}
+                onClick={confirmAndComplete}
+              >
+                Complete
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -829,9 +941,9 @@ const styles = {
     background: 'rgba(249,115,22,0.15)',
     color: '#fb923c',
     border: '1px solid rgba(249,115,22,0.4)',
-    borderRadius: 8,
-    padding: '9px 18px',
-    fontSize: 13,
+    borderRadius: 6,
+    padding: '7px 14px',
+    fontSize: 12,
     fontWeight: 600,
     cursor: 'pointer',
     fontFamily: 'inherit',
@@ -840,9 +952,9 @@ const styles = {
     background: 'rgba(234,179,8,0.15)',
     color: '#facc15',
     border: '1px solid rgba(234,179,8,0.4)',
-    borderRadius: 8,
-    padding: '9px 18px',
-    fontSize: 13,
+    borderRadius: 6,
+    padding: '7px 14px',
+    fontSize: 12,
     fontWeight: 600,
     cursor: 'pointer',
     fontFamily: 'inherit',
@@ -851,9 +963,9 @@ const styles = {
     background: 'rgba(16,185,129,0.12)',
     color: '#34d399',
     border: '1px solid rgba(16,185,129,0.3)',
-    borderRadius: 8,
+    borderRadius: 6,
     padding: '7px 14px',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: 600,
     cursor: 'pointer',
     fontFamily: 'inherit',
@@ -888,6 +1000,16 @@ const styles = {
     fontSize: 12,
     cursor: 'pointer',
     marginLeft: 'auto',
+  },
+  goToDeliverableLink: {
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.3)',
+    fontSize: 11,
+    cursor: 'pointer',
+    padding: '4px 0',
+    marginLeft: 'auto',
+    fontFamily: 'inherit',
   },
   snoozeWrapper: {
     position: 'relative',

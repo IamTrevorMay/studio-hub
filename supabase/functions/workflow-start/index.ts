@@ -69,7 +69,8 @@ Deno.serve(async (req: Request) => {
   if (workflow.source === "code") {
     definition = getWorkflowDefinition(workflow.slug);
   } else {
-    definition = await resolveWorkflowDefinition(admin, workflow);
+    // Pass null to skip version snapshots — always use live DB rows
+    definition = await resolveWorkflowDefinition(admin, workflow, null);
   }
 
   if (!definition) {

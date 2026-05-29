@@ -630,7 +630,7 @@ export default function AppLayout() {
           {activeTab === 'dashboard' && <Dashboard onNavigate={navigateTo} />}
           {activeTab === 'my_tasks' && <MyTasks onNavigate={navigateTo} />}
           {activeTab === 'projects' && <Projects onNavigate={navigateTo} />}
-          {activeTab === 'deliverables' && <Deliverables />}
+          {activeTab === 'deliverables' && <Deliverables initialCampaignId={navTarget} onCampaignOpened={() => setNavTarget(null)} />}
           {activeTab === 'calendar' && <Calendar onNavigate={navigateTo} />}
           {activeTab === 'production' && <Production />}
           {activeTab === 'ideation' && <Ideation initialConceptId={navTarget} onConceptOpened={() => setNavTarget(null)} />}

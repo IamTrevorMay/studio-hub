@@ -17,8 +17,8 @@ const STEP_ACTIONS = {
 
   // ─── Ad Read Pipeline ────────────────────────────────────────
   review_proposal:  { type: 'custom', label: 'Review Proposal' },
-  collect_brief:    { type: 'navigate', label: 'Go to Deliverables', tab: 'deliverables' },
-  write_ad_reads:   { type: 'complete', label: 'Mark Complete' },
+  collect_brief:    { type: 'modal', label: 'Add Brief', modalKey: 'add_brief' },
+  write_ad_reads:   { type: 'write_ad_read', label: 'Write It', modalKey: 'write_ad_read', navigateTab: 'deliverables' },
   connect_to_video: { type: 'modal', label: 'Connect Video', modalKey: 'pick_video_event' },
 };
 

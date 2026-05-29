@@ -19,7 +19,7 @@ const CHANNEL_COLORS = {
   socials: { bg: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)', label: 'SOC' },
 };
 
-export default function Deliverables() {
+export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
   const { profile, isAdmin, refreshKey } = useAuth();
   const confirm = useConfirm();
 
@@ -52,6 +52,10 @@ export default function Deliverables() {
   const [briefMode, setBriefMode] = useState('upload');
   const [briefLinkUrl, setBriefLinkUrl] = useState('');
   const [briefLinkLabel, setBriefLinkLabel] = useState('');
+  const [briefModalCampaign, setBriefModalCampaign] = useState(null);
+  const [briefModalUrl, setBriefModalUrl] = useState('');
+  const [briefModalLabel, setBriefModalLabel] = useState('');
+  const [briefModalSaving, setBriefModalSaving] = useState(false);
 
   const [allDeliverables, setAllDeliverables] = useState([]);
   const [expandedUpcomingId, setExpandedUpcomingId] = useState(null);
@@ -78,6 +82,14 @@ export default function Deliverables() {
 
   // Money section month filter
   const [moneyMonth, setMoneyMonth] = useState('all');
+
+  // Auto-expand a campaign when navigated to from another page
+  useEffect(() => {
+    if (initialCampaignId) {
+      setExpandedCampaignId(initialCampaignId);
+      if (onCampaignOpened) onCampaignOpened();
+    }
+  }, [initialCampaignId, onCampaignOpened]);
 
   // --- Data fetching ---
   const fetchSponsors = useCallback(async () => {
@@ -829,6 +841,27 @@ export default function Deliverables() {
     fetchSponsors();
   }
 
+  function openBriefModal(campaign) {
+    setBriefModalCampaign(campaign);
+    setBriefModalUrl(campaign.brief_url || '');
+    setBriefModalLabel(campaign.brief_name || '');
+  }
+
+  async function saveBriefModal() {
+    if (!briefModalCampaign) return;
+    const url = briefModalUrl.trim();
+    if (!url) { alert('Please enter a URL'); return; }
+    setBriefModalSaving(true);
+    let label = briefModalLabel.trim();
+    if (!label) {
+      try { label = new URL(url).hostname.replace(/^www\./, ''); } catch { label = 'Brief'; }
+    }
+    await supabase.from('sponsor_campaigns').update({ brief_url: url, brief_name: label }).eq('id', briefModalCampaign.id);
+    fetchSponsors();
+    setBriefModalCampaign(null);
+    setBriefModalSaving(false);
+  }
+
   async function handleDeleteCampaign(campaignId) {
     if (!(await confirm('Delete this campaign and all its deliverables?'))) return;
     const campaignDeliverables = allDeliverables.filter(d => d.campaign_id === campaignId);
@@ -997,72 +1030,59 @@ export default function Deliverables() {
                   </div>
                 ) : (
                   // Editable card
-                  <div key={item.id || idx} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>#{idx + 1}</span>
-                      <input
-                        value={item.title}
-                        onChange={e => updateItem(idx, { title: e.target.value })}
-                        placeholder="Title (e.g. June Long Form Read)"
-                        style={{ flex: 1, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '5px', padding: '6px 8px', color: '#fff', fontSize: '12px' }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeItem(idx)}
-                        style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '14px', padding: '2px 6px' }}
-                        title="Remove deliverable"
-                      >{'✕'}</button>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                      <select
-                        value={item.deliverable_type}
-                        onChange={e => updateItem(idx, { deliverable_type: e.target.value })}
-                        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '5px', padding: '6px 8px', color: '#fff', fontSize: '12px' }}
-                      >
-                        {Object.entries(DELIVERABLE_TYPES).map(([k, v]) => (
-                          <option key={k} value={k}>{v.label}</option>
-                        ))}
-                      </select>
-                      <select
-                        value={item.channel}
-                        onChange={e => updateItem(idx, { channel: e.target.value })}
-                        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '5px', padding: '6px 8px', color: '#fff', fontSize: '12px' }}
-                      >
-                        <option value="">{'— Channel —'}</option>
-                        {Object.entries(CHANNEL_COLORS).map(([k, v]) => (
-                          <option key={k} value={k}>{v.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                      <input
-                        type="month"
-                        value={item.due_month}
-                        onChange={e => updateItem(idx, { due_month: e.target.value })}
-                        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '5px', padding: '6px 8px', color: '#fff', fontSize: '12px' }}
-                      />
-                      <input
-                        type="number"
-                        value={item.pay}
-                        onChange={e => updateItem(idx, { pay: e.target.value })}
-                        placeholder="Pay ($)"
-                        min="0"
-                        step="any"
-                        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '5px', padding: '6px 8px', color: '#fff', fontSize: '12px' }}
-                      />
-                    </div>
-                    {item.due_month && (
-                      <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>
-                        Due {formatMonthLabel(item.due_month)}
-                      </div>
-                    )}
+                  <div key={item.id || idx} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '8px 10px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>#{idx + 1}</span>
+                    <input
+                      value={item.title}
+                      onChange={e => updateItem(idx, { title: e.target.value })}
+                      placeholder="Title"
+                      style={{ flex: '1 1 120px', minWidth: '100px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '5px', padding: '6px 8px', color: '#fff', fontSize: '12px' }}
+                    />
+                    <select
+                      value={item.deliverable_type}
+                      onChange={e => updateItem(idx, { deliverable_type: e.target.value })}
+                      style={{ flex: '0 0 auto', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '5px', padding: '6px 8px', color: '#fff', fontSize: '12px' }}
+                    >
+                      {Object.entries(DELIVERABLE_TYPES).map(([k, v]) => (
+                        <option key={k} value={k}>{v.label}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={item.channel}
+                      onChange={e => updateItem(idx, { channel: e.target.value })}
+                      style={{ flex: '0 0 auto', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '5px', padding: '6px 8px', color: '#fff', fontSize: '12px' }}
+                    >
+                      <option value="">{'— Channel —'}</option>
+                      {Object.entries(CHANNEL_COLORS).map(([k, v]) => (
+                        <option key={k} value={k}>{v.label}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="month"
+                      value={item.due_month}
+                      onChange={e => updateItem(idx, { due_month: e.target.value })}
+                      style={{ flex: '0 0 auto', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '5px', padding: '6px 8px', color: '#fff', fontSize: '12px' }}
+                    />
+                    <input
+                      type="number"
+                      value={item.pay}
+                      onChange={e => updateItem(idx, { pay: e.target.value })}
+                      placeholder="Pay ($)"
+                      min="0"
+                      step="any"
+                      style={{ flex: '0 0 80px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '5px', padding: '6px 8px', color: '#fff', fontSize: '12px' }}
+                    />
                     <button
                       type="button"
                       onClick={() => acceptItem(idx)}
-                      style={{ alignSelf: 'flex-end', background: '#22c55e', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 14px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
-                    >
-                      Accept Deliverable
-                    </button>
+                      style={{ flex: '0 0 auto', background: '#22c55e', color: '#fff', border: 'none', borderRadius: '5px', padding: '6px 10px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                    >{'✓'}</button>
+                    <button
+                      type="button"
+                      onClick={() => removeItem(idx)}
+                      style={{ flex: '0 0 auto', background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '14px', padding: '2px 4px' }}
+                      title="Remove"
+                    >{'✕'}</button>
                   </div>
                 ))}
                 <button
@@ -1453,8 +1473,11 @@ export default function Deliverables() {
                         </span>
                       )}
                       {!campaign.brief_url && (
-                        <span style={{ ...styles.statusTag, background: 'rgba(245,158,11,0.12)', color: '#f59e0b', fontSize: '10px', fontWeight: 600 }}>
-                          Needs Brief
+                        <span
+                          onClick={(e) => { e.stopPropagation(); openBriefModal(campaign); }}
+                          style={{ ...styles.statusTag, background: 'rgba(245,158,11,0.12)', color: '#f59e0b', fontSize: '10px', fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          + Add Brief
                         </span>
                       )}
                       <span style={{ ...styles.statusTag, background: isActive ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.06)', color: isActive ? '#10b981' : 'rgba(255,255,255,0.4)' }}>
@@ -1863,6 +1886,44 @@ export default function Deliverables() {
           </div>
         );
       })()}
+
+      {/* ====== ADD BRIEF MODAL ====== */}
+      {briefModalCampaign && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }} onClick={() => setBriefModalCampaign(null)}>
+          <div style={{ background: '#1a1a2e', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '440px', border: '1px solid rgba(255,255,255,0.1)' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 4px', fontSize: '16px', fontWeight: 600, color: '#fff' }}>Add Brief</h3>
+            <p style={{ margin: '0 0 16px', fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>{briefModalCampaign.name}</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '4px', fontWeight: 600 }}>URL</label>
+                <input
+                  value={briefModalUrl}
+                  onChange={e => setBriefModalUrl(e.target.value)}
+                  placeholder="https://docs.google.com/..."
+                  style={{ width: '100%', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px', boxSizing: 'border-box' }}
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '4px', fontWeight: 600 }}>Label (optional)</label>
+                <input
+                  value={briefModalLabel}
+                  onChange={e => setBriefModalLabel(e.target.value)}
+                  placeholder="e.g. AG1 Brief"
+                  style={{ width: '100%', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px', boxSizing: 'border-box' }}
+                  onKeyDown={e => { if (e.key === 'Enter') saveBriefModal(); }}
+                />
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '18px' }}>
+              <button onClick={() => setBriefModalCampaign(null)} style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)', border: 'none', borderRadius: '6px', padding: '8px 16px', fontSize: '13px', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={saveBriefModal} disabled={briefModalSaving} style={{ background: '#6366f1', color: '#fff', border: 'none', borderRadius: '6px', padding: '8px 16px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', opacity: briefModalSaving ? 0.5 : 1 }}>
+                {briefModalSaving ? 'Saving...' : 'Save Brief'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
