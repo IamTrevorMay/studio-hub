@@ -1,7 +1,23 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { callWorkflowFn } from '../lib/workflowApi';
+import {
+  TRIGGER_ENTITIES,
+  TRIGGER_EVENTS,
+  ACTION_TYPES_FRIENDLY,
+  NAVIGATE_TARGETS,
+  OUTCOME_STYLES_FRIENDLY,
+  COMMON_CONTEXT_KEYS,
+  buildContextKeyOptions,
+  parseConditionExpression,
+  buildConditionExpression,
+  CONDITION_OPS,
+  lookupActionType,
+  lookupEntity,
+  lookupEvent,
+} from '../lib/workflowCatalog';
+import ShortcutsCanvas from './workflows/ShortcutsCanvas';
 
 // ─── Constants ───────────────────────────────────────────────
 
@@ -51,6 +67,519 @@ function formatDate(dateStr) {
   });
 }
 
+// ─── Helper sub-components ───────────────────────────────────
+
+function ProfilePicker({ value, profiles, placeholder = 'Select a person…', onChange, disabled }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const ref = useRef(null);
+  const current = profiles.find((p) => p.id === value);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const filtered = useMemo(() => {
+    const s = search.trim().toLowerCase();
+    if (!s) return profiles;
+    return profiles.filter((p) =>
+      p.name.toLowerCase().includes(s) || (p.role || '').toLowerCase().includes(s)
+    );
+  }, [profiles, search]);
+
+  return (
+    <div ref={ref} style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((v) => !v)}
+        style={pickerStyles.trigger}
+      >
+        {current ? (
+          <>
+            <span style={pickerStyles.name}>{current.name}</span>
+            <span style={pickerStyles.roleBadge}>{current.role}</span>
+          </>
+        ) : (
+          <span style={pickerStyles.placeholder}>{placeholder}</span>
+        )}
+        <span style={pickerStyles.chevron}>{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div style={pickerStyles.menu}>
+          <input
+            autoFocus
+            placeholder="Search by name or role…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={pickerStyles.searchInput}
+          />
+          <div style={pickerStyles.optionList}>
+            {filtered.length === 0 ? (
+              <div style={pickerStyles.emptyOption}>No matches</div>
+            ) : filtered.map((p) => (
+              <div
+                key={p.id}
+                onClick={() => { onChange(p.id); setOpen(false); setSearch(''); }}
+                style={{
+                  ...pickerStyles.option,
+                  ...(p.id === value ? pickerStyles.optionActive : {}),
+                }}
+              >
+                <span style={pickerStyles.name}>{p.name}</span>
+                <span style={pickerStyles.roleBadge}>{p.role}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ContextKeyPicker({ value, contextKeys, onChange, disabled, placeholder = 'Pick a variable…' }) {
+  return (
+    <select
+      disabled={disabled}
+      value={value || ''}
+      onChange={(e) => onChange(e.target.value)}
+      style={pickerStyles.contextSelect}
+    >
+      <option value="">{placeholder}</option>
+      {contextKeys.map((k) => (
+        <option key={k.key} value={k.key}>{k.label} ({`{{${k.key}}}`})</option>
+      ))}
+    </select>
+  );
+}
+
+function VariableChip({ contextKeys, onInsert }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        style={pickerStyles.varChip}
+        onClick={() => setOpen((v) => !v)}
+        title="Insert a variable"
+      >
+        {'{ }'} Insert
+      </button>
+      {open && (
+        <div style={{ ...pickerStyles.menu, right: 0, left: 'auto', minWidth: 260 }}>
+          <div style={pickerStyles.varHeader}>Available variables</div>
+          <div style={pickerStyles.optionList}>
+            {contextKeys.length === 0 ? (
+              <div style={pickerStyles.emptyOption}>No known variables yet</div>
+            ) : contextKeys.map((k) => (
+              <div
+                key={k.key}
+                onClick={() => { onInsert(`{{${k.key}}}`); setOpen(false); }}
+                style={pickerStyles.option}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                  <span style={pickerStyles.varLabel}>{k.label}</span>
+                  <span style={pickerStyles.varScope}>
+                    {`{{${k.key}}}`}{k.scope ? ` • ${k.scope}` : ''}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TriggerBuilder({ mode, config, onChange, disabled }) {
+  const showSentence = mode === 'auto' || mode === 'both';
+  const entity = config?.entity || '';
+  const event = config?.event || '';
+
+  if (!showSentence) {
+    return (
+      <div style={pickerStyles.triggerSentence}>
+        <span style={pickerStyles.triggerWord}>Started manually by an admin.</span>
+      </div>
+    );
+  }
+
+  const entityLabel = lookupEntity(entity)?.label;
+  const eventLabel = lookupEvent(event)?.label;
+
+  return (
+    <div>
+      <div style={pickerStyles.triggerSentence}>
+        <span style={pickerStyles.triggerWord}>Run when</span>
+        <select
+          disabled={disabled}
+          value={entity}
+          onChange={(e) => onChange({ ...config, entity: e.target.value })}
+          style={pickerStyles.inlineSelect}
+        >
+          <option value="">— pick a record —</option>
+          {TRIGGER_ENTITIES.map((t) => (
+            <option key={t.value} value={t.value}>{t.label}</option>
+          ))}
+        </select>
+        <select
+          disabled={disabled}
+          value={event}
+          onChange={(e) => onChange({ ...config, event: e.target.value })}
+          style={pickerStyles.inlineSelect}
+        >
+          <option value="">— pick an event —</option>
+          {TRIGGER_EVENTS.map((t) => (
+            <option key={t.value} value={t.value}>{t.label}</option>
+          ))}
+        </select>
+      </div>
+      {entityLabel && eventLabel && (
+        <div style={pickerStyles.triggerPreview}>
+          Reads as: <em>"Run when {entityLabel} {eventLabel}."</em>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ActionEditor({ step, onUpdate, actionHandlers, disabled }) {
+  const friendly = lookupActionType(step.action_type) || ACTION_TYPES_FRIENDLY[0];
+  const config = step.action_config || {};
+
+  return (
+    <div>
+      <div style={pickerStyles.actionTypeRow}>
+        {ACTION_TYPES_FRIENDLY.map((t) => (
+          <button
+            key={t.value}
+            type="button"
+            disabled={disabled}
+            onClick={() => onUpdate({ action_type: t.value, action_config: {} })}
+            style={{
+              ...pickerStyles.actionTypeBtn,
+              ...(step.action_type === t.value ? pickerStyles.actionTypeBtnActive : {}),
+            }}
+            title={t.description}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div style={pickerStyles.actionTypeDesc}>{friendly.description}</div>
+
+      <div style={pickerStyles.actionSubRow}>
+        <label style={pickerStyles.actionSubLabel}>Button label</label>
+        <input
+          disabled={disabled}
+          style={pickerStyles.actionInput}
+          value={step.action_label || ''}
+          onChange={(e) => onUpdate({ action_label: e.target.value })}
+          placeholder="e.g. Mark Complete"
+        />
+      </div>
+
+      {step.action_type === 'navigate' && (
+        <div style={pickerStyles.actionSubRow}>
+          <label style={pickerStyles.actionSubLabel}>Go to</label>
+          <select
+            disabled={disabled}
+            style={pickerStyles.actionInput}
+            value={config.tab || ''}
+            onChange={(e) => onUpdate({ action_config: { ...config, tab: e.target.value } })}
+          >
+            <option value="">— pick a page —</option>
+            {NAVIGATE_TARGETS.map((t) => (
+              <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {step.action_type === 'modal' && (
+        <div style={pickerStyles.actionSubRow}>
+          <label style={pickerStyles.actionSubLabel}>Form name</label>
+          <input
+            disabled={disabled}
+            style={pickerStyles.actionInput}
+            value={config.modalKey || ''}
+            onChange={(e) => onUpdate({ action_config: { ...config, modalKey: e.target.value } })}
+            placeholder="e.g. assign_editor"
+          />
+        </div>
+      )}
+
+      {step.action_type === 'custom' && (
+        <div style={pickerStyles.actionSubRow}>
+          <label style={pickerStyles.actionSubLabel}>Custom logic</label>
+          <select
+            disabled={disabled}
+            style={pickerStyles.actionInput}
+            value={step.on_complete_handler || ''}
+            onChange={(e) => onUpdate({ on_complete_handler: e.target.value || null })}
+          >
+            <option value="">— pick a handler —</option>
+            {actionHandlers.map((h) => (
+              <option key={h.slug} value={h.slug}>{h.slug}</option>
+            ))}
+          </select>
+        </div>
+      )}
+      {step.action_type === 'custom' && step.on_complete_handler && (
+        <div style={pickerStyles.handlerHint}>
+          {actionHandlers.find((h) => h.slug === step.on_complete_handler)?.description || 'No description available.'}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FanOutEditor({ step, onUpdate, contextKeys, disabled }) {
+  const hasFanOut = step.fan_out_context_key !== null && step.fan_out_context_key !== undefined;
+  const arrayKeys = contextKeys.filter((k) => k.isArray || k.scope === 'root');
+  const previewLabel = (() => {
+    const meta = contextKeys.find((k) => k.key === step.fan_out_context_key);
+    if (!meta) return null;
+    return meta.label.toLowerCase();
+  })();
+
+  return (
+    <div>
+      <label style={pickerStyles.checkboxRow}>
+        <input
+          type="checkbox"
+          checked={hasFanOut}
+          disabled={disabled}
+          onChange={(e) => {
+            if (e.target.checked) {
+              onUpdate({
+                fan_out_context_key: '',
+                fan_out_title_template: step.title_template || '',
+                fan_out_entity_type: '',
+                fan_out_entity_id_key: 'id',
+              });
+            } else {
+              onUpdate({
+                fan_out_context_key: null,
+                fan_out_title_template: null,
+                fan_out_entity_type: null,
+                fan_out_entity_id_key: null,
+              });
+            }
+          }}
+        />
+        <span style={pickerStyles.checkboxLabel}>Repeat this step for each item in a list</span>
+      </label>
+
+      {hasFanOut && (
+        <div style={pickerStyles.fanOutInner}>
+          <div style={pickerStyles.actionSubRow}>
+            <label style={pickerStyles.actionSubLabel}>Pick the list</label>
+            <select
+              disabled={disabled}
+              style={pickerStyles.actionInput}
+              value={step.fan_out_context_key || ''}
+              onChange={(e) => onUpdate({ fan_out_context_key: e.target.value })}
+            >
+              <option value="">— pick a list variable —</option>
+              {arrayKeys.map((k) => (
+                <option key={k.key} value={k.key}>{k.label} ({`{{${k.key}}}`})</option>
+              ))}
+            </select>
+          </div>
+          <div style={pickerStyles.actionSubRow}>
+            <label style={pickerStyles.actionSubLabel}>What to call each one</label>
+            <input
+              disabled={disabled}
+              style={pickerStyles.actionInput}
+              value={step.fan_out_entity_type || ''}
+              onChange={(e) => onUpdate({ fan_out_entity_type: e.target.value })}
+              placeholder="e.g. deliverable"
+            />
+          </div>
+          <div style={pickerStyles.actionSubRow}>
+            <label style={pickerStyles.actionSubLabel}>Per-item title</label>
+            <input
+              disabled={disabled}
+              style={pickerStyles.actionInput}
+              value={step.fan_out_title_template || ''}
+              onChange={(e) => onUpdate({ fan_out_title_template: e.target.value })}
+              placeholder="e.g. Write ad read: {{title}}"
+            />
+          </div>
+          <div style={pickerStyles.actionSubRow}>
+            <label style={pickerStyles.actionSubLabel}>ID field on each item</label>
+            <input
+              disabled={disabled}
+              style={pickerStyles.actionInput}
+              value={step.fan_out_entity_id_key || 'id'}
+              onChange={(e) => onUpdate({ fan_out_entity_id_key: e.target.value })}
+              placeholder="id"
+            />
+          </div>
+          {previewLabel && (
+            <div style={pickerStyles.fanOutPreview}>
+              Creates one task per <strong>{step.fan_out_entity_type || 'item'}</strong> in <strong>{previewLabel}</strong>.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DependsOnEditor({ step, allSteps, onUpdate, disabled }) {
+  const others = allSteps.filter((s) => s.step_key !== step.step_key && s.position < step.position);
+  const selected = new Set(step.depends_on_step_keys || []);
+
+  if (others.length === 0) {
+    return <div style={pickerStyles.depsEmpty}>No earlier steps to wait on.</div>;
+  }
+
+  return (
+    <div style={pickerStyles.depsList}>
+      {others.map((s) => {
+        const checked = selected.has(s.step_key);
+        return (
+          <label key={s.id} style={pickerStyles.depsRow}>
+            <input
+              type="checkbox"
+              checked={checked}
+              disabled={disabled}
+              onChange={(e) => {
+                const next = new Set(selected);
+                if (e.target.checked) next.add(s.step_key);
+                else next.delete(s.step_key);
+                onUpdate({ depends_on_step_keys: Array.from(next) });
+              }}
+            />
+            <span style={pickerStyles.depsKey}>{s.step_key}</span>
+            <span style={pickerStyles.depsTitle}>{s.title_template || '(no title)'}</span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+function ConditionBuilder({ step, contextKeys, onUpdate, disabled }) {
+  const parsed = parseConditionExpression(step.condition_expression);
+  const update = (next) => {
+    const merged = { ...parsed, ...next };
+    onUpdate({ condition_expression: buildConditionExpression(merged) });
+  };
+
+  return (
+    <div style={pickerStyles.conditionRow}>
+      <select
+        disabled={disabled}
+        style={pickerStyles.conditionSelect}
+        value={parsed.op}
+        onChange={(e) => update({ op: e.target.value })}
+      >
+        {CONDITION_OPS.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+      {parsed.op !== 'always' && (
+        <select
+          disabled={disabled}
+          style={pickerStyles.conditionSelect}
+          value={parsed.key}
+          onChange={(e) => update({ key: e.target.value })}
+        >
+          <option value="">— pick a variable —</option>
+          {contextKeys.map((k) => (
+            <option key={k.key} value={k.key}>{k.label}</option>
+          ))}
+        </select>
+      )}
+      {parsed.op === 'eq' && (
+        <input
+          disabled={disabled}
+          style={pickerStyles.conditionInput}
+          value={parsed.value}
+          onChange={(e) => update({ value: e.target.value })}
+          placeholder="value"
+        />
+      )}
+    </div>
+  );
+}
+
+const TemplateInput = React.forwardRef(function TemplateInput(
+  { value, onChange, placeholder, contextKeys, disabled, multiline = false },
+  forwardedRef,
+) {
+  const localRef = useRef(null);
+  const setRef = (el) => {
+    localRef.current = el;
+    if (typeof forwardedRef === 'function') forwardedRef(el);
+    else if (forwardedRef) forwardedRef.current = el;
+  };
+  const insert = (text) => {
+    const el = localRef.current;
+    if (!el) {
+      onChange((value || '') + text);
+      return;
+    }
+    const start = el.selectionStart ?? (value || '').length;
+    const end = el.selectionEnd ?? (value || '').length;
+    const next = (value || '').slice(0, start) + text + (value || '').slice(end);
+    onChange(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      const cursor = start + text.length;
+      el.setSelectionRange(cursor, cursor);
+    });
+  };
+
+  return (
+    <div style={pickerStyles.templateWrap}>
+      {multiline ? (
+        <textarea
+          ref={setRef}
+          disabled={disabled}
+          value={value || ''}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          rows={2}
+          style={pickerStyles.templateTextarea}
+        />
+      ) : (
+        <input
+          ref={setRef}
+          disabled={disabled}
+          value={value || ''}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          style={pickerStyles.templateInput}
+        />
+      )}
+      {!disabled && (
+        <VariableChip contextKeys={contextKeys} onInsert={insert} />
+      )}
+    </div>
+  );
+});
+
 // ─── Component ───────────────────────────────────────────────
 
 export default function Workflows() {
@@ -93,6 +622,10 @@ export default function Workflows() {
   const [newName, setNewName] = useState('');
   const [newSlug, setNewSlug] = useState('');
 
+  // ── Profile + action-handler catalogs (for friendly pickers) ──
+  const [profiles, setProfiles] = useState([]);
+  const [actionHandlers, setActionHandlers] = useState([]);
+
   const toastTimerRef = useRef(null);
 
   // ─── Toast helper ──────────────────────────────────────────
@@ -123,6 +656,49 @@ export default function Workflows() {
   useEffect(() => {
     if (isAdmin) fetchWorkflows();
   }, [isAdmin, fetchWorkflows]);
+
+  // ─── Fetch profiles for assignee picker ────────────────────
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, role, status')
+        .order('full_name', { ascending: true, nullsFirst: false });
+      if (cancelled) return;
+      if (error) {
+        console.error('Failed to load profiles:', error);
+        return;
+      }
+      setProfiles((data || [])
+        .filter((p) => p.status !== 'archived')
+        .map((p) => ({
+          id: p.id,
+          name: p.full_name || p.email || 'Unknown',
+          role: p.role || 'member',
+        })));
+    })();
+    return () => { cancelled = true; };
+  }, [isAdmin]);
+
+  // ─── Fetch action handler registry ─────────────────────────
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await callWorkflowFn('workflow-list-actions', {});
+        if (cancelled) return;
+        setActionHandlers(res.actions || []);
+      } catch (err) {
+        console.error('Failed to load action handlers:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isAdmin]);
 
   // ─── Select workflow and load builder ─────────────────────
 
@@ -275,32 +851,35 @@ export default function Workflows() {
 
   // ─── Step CRUD ────────────────────────────────────────────
 
-  const addStep = async () => {
-    if (!selectedId) return;
+  const addStep = async (preset = {}) => {
+    if (!selectedId) return null;
     const newPosition = steps.length;
     const stepKey = `step_${Date.now()}`;
+    const insertRow = {
+      workflow_id: selectedId,
+      step_key: stepKey,
+      title_template: '',
+      assignee_type: 'static',
+      assignee_value: '',
+      action_type: 'complete',
+      action_label: 'Mark Complete',
+      action_config: {},
+      depends_on_step_keys: [],
+      position: newPosition,
+      ...preset,
+    };
     const { data, error } = await supabase
       .from('workflow_steps')
-      .insert({
-        workflow_id: selectedId,
-        step_key: stepKey,
-        title_template: '',
-        assignee_type: 'static',
-        assignee_value: '',
-        action_type: 'complete',
-        action_label: 'Mark Complete',
-        action_config: {},
-        depends_on_step_keys: [],
-        position: newPosition,
-      })
+      .insert(insertRow)
       .select()
       .single();
 
     if (error) {
       showToast('Failed to add step: ' + error.message, 'error');
-      return;
+      return null;
     }
     setSteps(prev => [...prev, data]);
+    return data;
   };
 
   const updateStep = async (stepId, updates) => {
@@ -338,33 +917,38 @@ export default function Workflows() {
 
   // ─── Outcome CRUD ────────────────────────────────────────
 
-  const addOutcome = async (stepId) => {
+  const addOutcome = async (stepId, overrides = {}) => {
     const existing = outcomes[stepId] || [];
     const pos = existing.length;
+    const row = {
+      step_id: stepId,
+      outcome_key: `outcome_${Date.now()}`,
+      label: '',
+      next_step_key: null,
+      style: 'default',
+      position: pos,
+      ...overrides,
+    };
     const { data, error } = await supabase
       .from('workflow_step_outcomes')
-      .insert({
-        step_id: stepId,
-        outcome_key: `outcome_${Date.now()}`,
-        label: '',
-        next_step_key: null,
-        style: 'default',
-        position: pos,
-      })
+      .insert(row)
       .select()
       .single();
 
     if (error) {
       showToast('Failed to add outcome: ' + error.message, 'error');
-      return;
+      return null;
     }
     setOutcomes(prev => ({
       ...prev,
       [stepId]: [...(prev[stepId] || []), data],
     }));
+    return data;
   };
 
-  const updateOutcome = async (outcomeId, stepId, updates) => {
+  const updateOutcome = async (outcomeId, stepIdOrUpdates, maybeUpdates) => {
+    // Backward-compat: (id, stepId, updates) OR (id, updates).
+    const updates = maybeUpdates !== undefined ? maybeUpdates : stepIdOrUpdates;
     const { error } = await supabase
       .from('workflow_step_outcomes')
       .update(updates)
@@ -374,12 +958,13 @@ export default function Workflows() {
       showToast('Failed to update outcome: ' + error.message, 'error');
       return;
     }
-    setOutcomes(prev => ({
-      ...prev,
-      [stepId]: (prev[stepId] || []).map(o =>
-        o.id === outcomeId ? { ...o, ...updates } : o
-      ),
-    }));
+    setOutcomes(prev => {
+      const next = { ...prev };
+      for (const sid of Object.keys(next)) {
+        next[sid] = next[sid].map((o) => (o.id === outcomeId ? { ...o, ...updates } : o));
+      }
+      return next;
+    });
   };
 
   const deleteOutcome = async (outcomeId, stepId) => {
@@ -615,6 +1200,7 @@ export default function Workflows() {
 
   // ─── Determine if builder is editable ──────────────────────
   const isEditable = workflowForm?.source === 'data';
+  const contextKeyOptions = useMemo(() => buildContextKeyOptions(steps), [steps]);
 
   // ─── Render ─────────────────────────────────────────────────
 
@@ -722,69 +1308,6 @@ export default function Workflows() {
                     <span style={styles.readonlyValue}>{workflowForm.slug}</span>
                   </div>
 
-                  <div style={styles.fieldGroup}>
-                    <label style={styles.fieldLabel}>Trigger</label>
-                    {isEditable ? (
-                      <select
-                        style={styles.headerSelect}
-                        value={workflowForm.trigger_mode}
-                        onChange={e => setWorkflowForm(prev => ({ ...prev, trigger_mode: e.target.value }))}
-                      >
-                        {TRIGGER_MODES.map(m => (
-                          <option key={m} value={m}>{m}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span style={styles.readonlyValue}>{workflowForm.trigger_mode}</span>
-                    )}
-                  </div>
-
-                  {(workflowForm.trigger_mode === 'auto' || workflowForm.trigger_mode === 'both') && isEditable && (
-                    <>
-                      <div style={styles.fieldGroup}>
-                        <label style={styles.fieldLabel}>Entity type</label>
-                        <input
-                          style={styles.headerInput}
-                          value={workflowForm.trigger_config?.entity_type || ''}
-                          onChange={e => setWorkflowForm(prev => ({
-                            ...prev,
-                            trigger_config: { ...prev.trigger_config, entity_type: e.target.value },
-                          }))}
-                          placeholder="e.g. ad_read_proposals"
-                        />
-                      </div>
-                      <div style={styles.fieldGroup}>
-                        <label style={styles.fieldLabel}>Field condition</label>
-                        <input
-                          style={styles.headerInput}
-                          value={workflowForm.trigger_config?.field_condition || ''}
-                          onChange={e => setWorkflowForm(prev => ({
-                            ...prev,
-                            trigger_config: { ...prev.trigger_config, field_condition: e.target.value },
-                          }))}
-                          placeholder="e.g. status=pending"
-                        />
-                      </div>
-                    </>
-                  )}
-
-                  <div style={styles.fieldGroup}>
-                    <label style={styles.fieldLabel}>First step key</label>
-                    {isEditable ? (
-                      <select
-                        style={styles.headerSelect}
-                        value={workflowForm.first_step_key || ''}
-                        onChange={e => setWorkflowForm(prev => ({ ...prev, first_step_key: e.target.value }))}
-                      >
-                        <option value="">-- select --</option>
-                        {steps.map(s => (
-                          <option key={s.id} value={s.step_key}>{s.step_key}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span style={styles.readonlyValue}>{workflowForm.first_step_key || '(none)'}</span>
-                    )}
-                  </div>
                 </div>
 
                 <div style={styles.headerActions}>
@@ -815,445 +1338,23 @@ export default function Workflows() {
                 </div>
               )}
 
-              {/* ── Step List ── */}
-              <div style={styles.stepList}>
-                {steps.map((step, idx) => {
-                  const stepOutcomes = outcomes[step.id] || [];
-                  const isConfirmingDelete = deleteConfirmStepId === step.id;
-                  const hasFanOut = !!step.fan_out_context_key;
-
-                  return (
-                    <React.Fragment key={step.id}>
-                      {/* Connector line */}
-                      {idx > 0 && (
-                        <div style={styles.connectorContainer}>
-                          <div style={styles.connectorLine} />
-                          {/* Show outcome labels from previous step */}
-                          {(() => {
-                            const prevStep = steps[idx - 1];
-                            const prevOutcomes = outcomes[prevStep.id] || [];
-                            const pointingHere = prevOutcomes.filter(o => o.next_step_key === step.step_key);
-                            if (pointingHere.length === 0) return null;
-                            return pointingHere.map(o => (
-                              <span
-                                key={o.id}
-                                style={{
-                                  ...styles.connectorLabel,
-                                  color: OUTCOME_STYLE_COLORS[o.style || 'default']?.text,
-                                  background: OUTCOME_STYLE_COLORS[o.style || 'default']?.bg,
-                                  border: `1px solid ${OUTCOME_STYLE_COLORS[o.style || 'default']?.border}`,
-                                }}
-                              >
-                                {o.label || o.outcome_key}
-                              </span>
-                            ));
-                          })()}
-                        </div>
-                      )}
-
-                      {/* Step card */}
-                      <div style={{
-                        ...styles.stepCard,
-                        ...(workflowForm.first_step_key === step.step_key ? styles.stepCardFirst : {}),
-                      }}>
-                        <div style={styles.stepCardHeader}>
-                          <span style={styles.stepIndex}>#{idx + 1}</span>
-                          {workflowForm.first_step_key === step.step_key && (
-                            <span style={styles.firstBadge}>START</span>
-                          )}
-                          {hasFanOut && (
-                            <span style={styles.fanOutBadge}>FAN-OUT</span>
-                          )}
-                          {step.depends_on_step_keys && step.depends_on_step_keys.length > 0 && (
-                            <span style={styles.fanInBadge}>FAN-IN</span>
-                          )}
-                        </div>
-
-                        {/* Step key */}
-                        <div style={styles.stepFieldRow}>
-                          <label style={styles.stepFieldLabel}>Step key</label>
-                          {isEditable ? (
-                            <input
-                              style={styles.stepInput}
-                              value={step.step_key}
-                              onChange={e => updateStep(step.id, { step_key: e.target.value })}
-                              placeholder="unique_step_key"
-                            />
-                          ) : (
-                            <span style={styles.stepReadonly}>{step.step_key}</span>
-                          )}
-                        </div>
-
-                        {/* Title template */}
-                        <div style={styles.stepFieldRow}>
-                          <label style={styles.stepFieldLabel}>Title template</label>
-                          {isEditable ? (
-                            <input
-                              style={styles.stepInput}
-                              value={step.title_template}
-                              onChange={e => updateStep(step.id, { title_template: e.target.value })}
-                              placeholder="e.g. Review proposal: {{brand_name}}"
-                            />
-                          ) : (
-                            <span style={styles.stepReadonly}>{step.title_template}</span>
-                          )}
-                        </div>
-
-                        {/* Description template */}
-                        <div style={styles.stepFieldRow}>
-                          <label style={styles.stepFieldLabel}>Description</label>
-                          {isEditable ? (
-                            <input
-                              style={styles.stepInput}
-                              value={step.description_template || ''}
-                              onChange={e => updateStep(step.id, { description_template: e.target.value || null })}
-                              placeholder="Optional description template"
-                            />
-                          ) : (
-                            <span style={styles.stepReadonly}>{step.description_template || '--'}</span>
-                          )}
-                        </div>
-
-                        {/* Assignee */}
-                        <div style={styles.stepFieldRow}>
-                          <label style={styles.stepFieldLabel}>Assignee</label>
-                          {isEditable ? (
-                            <div style={styles.assigneeRow}>
-                              <select
-                                style={styles.stepSelectSmall}
-                                value={step.assignee_type}
-                                onChange={e => updateStep(step.id, { assignee_type: e.target.value })}
-                              >
-                                {ASSIGNEE_TYPES.map(t => (
-                                  <option key={t} value={t}>{t === 'static' ? 'Static user' : 'From context'}</option>
-                                ))}
-                              </select>
-                              <input
-                                style={styles.stepInputFlex}
-                                value={step.assignee_value || ''}
-                                onChange={e => updateStep(step.id, { assignee_value: e.target.value })}
-                                placeholder={step.assignee_type === 'static' ? 'User UUID' : 'Context key name'}
-                              />
-                            </div>
-                          ) : (
-                            <span style={styles.stepReadonly}>
-                              {step.assignee_type}: {step.assignee_value || '(none)'}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Action */}
-                        <div style={styles.stepFieldRow}>
-                          <label style={styles.stepFieldLabel}>Action</label>
-                          {isEditable ? (
-                            <div style={styles.actionRow}>
-                              <select
-                                style={styles.stepSelectSmall}
-                                value={step.action_type}
-                                onChange={e => updateStep(step.id, { action_type: e.target.value })}
-                              >
-                                {ACTION_TYPES.map(t => (
-                                  <option key={t} value={t}>{t}</option>
-                                ))}
-                              </select>
-                              <input
-                                style={styles.stepInputFlex}
-                                value={step.action_label}
-                                onChange={e => updateStep(step.id, { action_label: e.target.value })}
-                                placeholder="Button label"
-                              />
-                            </div>
-                          ) : (
-                            <span style={styles.stepReadonly}>
-                              {step.action_type}: {step.action_label}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Action config (for navigate/modal/custom) */}
-                        {(step.action_type === 'navigate' || step.action_type === 'modal' || step.action_type === 'custom') && (
-                          <div style={styles.stepFieldRow}>
-                            <label style={styles.stepFieldLabel}>Action config</label>
-                            {isEditable ? (
-                              <textarea
-                                style={styles.stepTextarea}
-                                value={JSON.stringify(step.action_config || {}, null, 2)}
-                                onChange={e => {
-                                  try {
-                                    const parsed = JSON.parse(e.target.value);
-                                    updateStep(step.id, { action_config: parsed });
-                                  } catch {
-                                    // Let user continue typing; don't save invalid JSON
-                                  }
-                                }}
-                                rows={3}
-                                placeholder='{"tab": "deliverables"}'
-                              />
-                            ) : (
-                              <pre style={styles.stepPre}>{JSON.stringify(step.action_config || {}, null, 2)}</pre>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Fan-out toggle */}
-                        {isEditable && (
-                          <div style={styles.stepFieldRow}>
-                            <label style={styles.stepFieldLabel}>Fan-out</label>
-                            <div style={styles.checkboxRow}>
-                              <input
-                                type="checkbox"
-                                checked={hasFanOut}
-                                onChange={e => {
-                                  if (e.target.checked) {
-                                    updateStep(step.id, {
-                                      fan_out_context_key: '',
-                                      fan_out_title_template: '',
-                                      fan_out_entity_type: '',
-                                      fan_out_entity_id_key: 'id',
-                                    });
-                                  } else {
-                                    updateStep(step.id, {
-                                      fan_out_context_key: null,
-                                      fan_out_title_template: null,
-                                      fan_out_entity_type: null,
-                                      fan_out_entity_id_key: null,
-                                    });
-                                  }
-                                }}
-                              />
-                              <span style={styles.checkboxLabel}>Enable dynamic fan-out</span>
-                            </div>
-                          </div>
-                        )}
-
-                        {hasFanOut && (
-                          <div style={styles.fanOutFields}>
-                            <div style={styles.stepFieldRow}>
-                              <label style={styles.stepFieldLabel}>Context key</label>
-                              {isEditable ? (
-                                <input
-                                  style={styles.stepInput}
-                                  value={step.fan_out_context_key || ''}
-                                  onChange={e => updateStep(step.id, { fan_out_context_key: e.target.value })}
-                                  placeholder="Array key in context"
-                                />
-                              ) : (
-                                <span style={styles.stepReadonly}>{step.fan_out_context_key}</span>
-                              )}
-                            </div>
-                            <div style={styles.stepFieldRow}>
-                              <label style={styles.stepFieldLabel}>Title template</label>
-                              {isEditable ? (
-                                <input
-                                  style={styles.stepInput}
-                                  value={step.fan_out_title_template || ''}
-                                  onChange={e => updateStep(step.id, { fan_out_title_template: e.target.value })}
-                                  placeholder="Per-item title"
-                                />
-                              ) : (
-                                <span style={styles.stepReadonly}>{step.fan_out_title_template}</span>
-                              )}
-                            </div>
-                            <div style={styles.stepFieldRow}>
-                              <label style={styles.stepFieldLabel}>Entity type</label>
-                              {isEditable ? (
-                                <input
-                                  style={styles.stepInput}
-                                  value={step.fan_out_entity_type || ''}
-                                  onChange={e => updateStep(step.id, { fan_out_entity_type: e.target.value })}
-                                  placeholder="e.g. deliverable"
-                                />
-                              ) : (
-                                <span style={styles.stepReadonly}>{step.fan_out_entity_type}</span>
-                              )}
-                            </div>
-                            <div style={styles.stepFieldRow}>
-                              <label style={styles.stepFieldLabel}>Entity ID key</label>
-                              {isEditable ? (
-                                <input
-                                  style={styles.stepInput}
-                                  value={step.fan_out_entity_id_key || ''}
-                                  onChange={e => updateStep(step.id, { fan_out_entity_id_key: e.target.value })}
-                                  placeholder="id"
-                                />
-                              ) : (
-                                <span style={styles.stepReadonly}>{step.fan_out_entity_id_key}</span>
-                              )}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Dependencies */}
-                        <div style={styles.stepFieldRow}>
-                          <label style={styles.stepFieldLabel}>Dependencies</label>
-                          {isEditable ? (
-                            <input
-                              style={styles.stepInput}
-                              value={(step.depends_on_step_keys || []).join(', ')}
-                              onChange={e => {
-                                const keys = e.target.value
-                                  .split(',')
-                                  .map(k => k.trim())
-                                  .filter(Boolean);
-                                updateStep(step.id, { depends_on_step_keys: keys });
-                              }}
-                              placeholder="Comma-separated step keys"
-                            />
-                          ) : (
-                            <span style={styles.stepReadonly}>
-                              {(step.depends_on_step_keys || []).join(', ') || '--'}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Condition expression */}
-                        <div style={styles.stepFieldRow}>
-                          <label style={styles.stepFieldLabel}>Condition</label>
-                          {isEditable ? (
-                            <input
-                              style={styles.stepInput}
-                              value={step.condition_expression || ''}
-                              onChange={e => updateStep(step.id, { condition_expression: e.target.value || null })}
-                              placeholder="e.g. has:campaign_id or eq:status:approved"
-                            />
-                          ) : (
-                            <span style={styles.stepReadonly}>{step.condition_expression || '--'}</span>
-                          )}
-                        </div>
-
-                        {/* On-complete handler */}
-                        <div style={styles.stepFieldRow}>
-                          <label style={styles.stepFieldLabel}>On-complete handler</label>
-                          {isEditable ? (
-                            <input
-                              style={styles.stepInput}
-                              value={step.on_complete_handler || ''}
-                              onChange={e => updateStep(step.id, { on_complete_handler: e.target.value || null })}
-                              placeholder="Action registry slug"
-                            />
-                          ) : (
-                            <span style={styles.stepReadonly}>{step.on_complete_handler || '--'}</span>
-                          )}
-                        </div>
-
-                        {/* Outcomes */}
-                        <div style={styles.outcomesSection}>
-                          <div style={styles.outcomesSectionHeader}>
-                            <label style={styles.stepFieldLabel}>Outcomes</label>
-                            {isEditable && (
-                              <button style={styles.addOutcomeBtn} onClick={() => addOutcome(step.id)}>
-                                + Add
-                              </button>
-                            )}
-                          </div>
-
-                          {stepOutcomes.length === 0 && (
-                            <p style={styles.noOutcomes}>
-                              No outcomes defined (step will end the workflow branch on completion)
-                            </p>
-                          )}
-
-                          {stepOutcomes.map((oc, oi) => (
-                            <div key={oc.id} style={styles.outcomeRow}>
-                              <div style={styles.outcomeFields}>
-                                {isEditable ? (
-                                  <>
-                                    <input
-                                      style={styles.outcomeInput}
-                                      value={oc.outcome_key}
-                                      onChange={e => updateOutcome(oc.id, step.id, { outcome_key: e.target.value })}
-                                      placeholder="outcome_key"
-                                    />
-                                    <input
-                                      style={styles.outcomeInput}
-                                      value={oc.label}
-                                      onChange={e => updateOutcome(oc.id, step.id, { label: e.target.value })}
-                                      placeholder="Label"
-                                    />
-                                    <input
-                                      style={styles.outcomeInput}
-                                      value={oc.next_step_key || ''}
-                                      onChange={e => updateOutcome(oc.id, step.id, { next_step_key: e.target.value || null })}
-                                      placeholder="Next step key"
-                                    />
-                                    <select
-                                      style={styles.outcomeSelect}
-                                      value={oc.style || 'default'}
-                                      onChange={e => updateOutcome(oc.id, step.id, { style: e.target.value })}
-                                    >
-                                      {OUTCOME_STYLES.map(s => (
-                                        <option key={s} value={s}>{s}</option>
-                                      ))}
-                                    </select>
-                                    <button
-                                      style={styles.outcomeDeleteBtn}
-                                      onClick={() => deleteOutcome(oc.id, step.id)}
-                                      title="Remove outcome"
-                                    >
-                                      x
-                                    </button>
-                                  </>
-                                ) : (
-                                  <div style={styles.outcomeReadonly}>
-                                    <span style={{
-                                      ...styles.outcomeKeyBadge,
-                                      background: OUTCOME_STYLE_COLORS[oc.style || 'default']?.bg,
-                                      color: OUTCOME_STYLE_COLORS[oc.style || 'default']?.text,
-                                    }}>
-                                      {oc.outcome_key}
-                                    </span>
-                                    <span style={styles.outcomeLabel}>{oc.label}</span>
-                                    <span style={styles.outcomeArrow}>
-                                      {oc.next_step_key ? `-> ${oc.next_step_key}` : '-> (end)'}
-                                    </span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-
-                        {/* Delete step */}
-                        {isEditable && (
-                          <div style={styles.stepDeleteRow}>
-                            {isConfirmingDelete ? (
-                              <div style={styles.deleteConfirm}>
-                                <span style={styles.deleteConfirmText}>Delete this step?</span>
-                                <button
-                                  style={styles.deleteConfirmYes}
-                                  onClick={() => deleteStep(step.id)}
-                                >
-                                  Yes, delete
-                                </button>
-                                <button
-                                  style={styles.deleteConfirmNo}
-                                  onClick={() => setDeleteConfirmStepId(null)}
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                style={styles.deleteStepBtn}
-                                onClick={() => setDeleteConfirmStepId(step.id)}
-                              >
-                                Delete step
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </React.Fragment>
-                  );
-                })}
-
-                {/* Add step button */}
-                {isEditable && (
-                  <button style={styles.addStepBtn} onClick={addStep}>
-                    + Add Step
-                  </button>
-                )}
-              </div>
+              {/* ── Shortcuts-style canvas ── */}
+              <ShortcutsCanvas
+                workflowForm={workflowForm}
+                setWorkflowForm={setWorkflowForm}
+                steps={steps}
+                outcomes={outcomes}
+                profiles={profiles}
+                actionHandlers={actionHandlers}
+                contextKeys={contextKeyOptions}
+                isEditable={isEditable}
+                onUpdateStep={updateStep}
+                onAddStep={addStep}
+                onDeleteStep={deleteStep}
+                onAddOutcome={addOutcome}
+                onUpdateOutcome={updateOutcome}
+                onDeleteOutcome={deleteOutcome}
+              />
 
               {/* ── Version History ── */}
               <div style={styles.sectionContainer}>
@@ -2494,5 +2595,438 @@ const styles = {
     fontSize: 13,
     fontWeight: 600,
     cursor: 'pointer',
+  },
+};
+
+// ─── Picker / friendly-UX styles ─────────────────────────────
+
+const pickerStyles = {
+  // Profile picker dropdown
+  trigger: {
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '8px 10px',
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 6,
+    color: '#fff',
+    fontSize: 13,
+    cursor: 'pointer',
+    textAlign: 'left',
+  },
+  name: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: 500,
+    flex: 1,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  roleBadge: {
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    padding: '2px 6px',
+    borderRadius: 3,
+    background: 'rgba(99,102,241,0.18)',
+    color: '#a5b4fc',
+  },
+  placeholder: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 13,
+    flex: 1,
+  },
+  chevron: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 9,
+  },
+  menu: {
+    position: 'absolute',
+    top: 'calc(100% + 4px)',
+    left: 0,
+    right: 0,
+    background: '#1a1a2a',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: 8,
+    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+    zIndex: 100,
+    overflow: 'hidden',
+    minWidth: 240,
+  },
+  searchInput: {
+    width: '100%',
+    boxSizing: 'border-box',
+    padding: '8px 10px',
+    background: 'rgba(255,255,255,0.04)',
+    border: 'none',
+    borderBottom: '1px solid rgba(255,255,255,0.08)',
+    color: '#fff',
+    fontSize: 13,
+    outline: 'none',
+  },
+  optionList: {
+    maxHeight: 260,
+    overflowY: 'auto',
+  },
+  option: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '8px 10px',
+    cursor: 'pointer',
+    fontSize: 13,
+    color: '#fff',
+  },
+  optionActive: {
+    background: 'rgba(99,102,241,0.15)',
+  },
+  emptyOption: {
+    padding: '12px 10px',
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 12,
+    textAlign: 'center',
+  },
+
+  // Context key dropdown
+  contextSelect: {
+    flex: 1,
+    padding: '8px 10px',
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 6,
+    color: '#fff',
+    fontSize: 13,
+  },
+
+  // Variable insert chip
+  varChip: {
+    padding: '4px 8px',
+    background: 'rgba(99,102,241,0.12)',
+    border: '1px solid rgba(99,102,241,0.3)',
+    borderRadius: 4,
+    color: '#a5b4fc',
+    fontSize: 11,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'monospace',
+    whiteSpace: 'nowrap',
+  },
+  varHeader: {
+    padding: '8px 10px',
+    fontSize: 10,
+    fontWeight: 700,
+    color: 'rgba(255,255,255,0.5)',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    borderBottom: '1px solid rgba(255,255,255,0.06)',
+  },
+  varLabel: {
+    fontSize: 13,
+    color: '#fff',
+  },
+  varScope: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.4)',
+    fontFamily: 'monospace',
+  },
+
+  // Trigger mode + sentence
+  triggerModeRow: {
+    display: 'flex',
+    gap: 6,
+    marginBottom: 10,
+  },
+  triggerModeBtn: {
+    padding: '6px 12px',
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 6,
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 12,
+    fontWeight: 500,
+    cursor: 'pointer',
+  },
+  triggerModeBtnActive: {
+    background: 'rgba(99,102,241,0.18)',
+    borderColor: 'rgba(99,102,241,0.5)',
+    color: '#a5b4fc',
+  },
+  triggerSentence: {
+    display: 'flex',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    padding: '10px 12px',
+    background: 'rgba(255,255,255,0.02)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: 6,
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.85)',
+  },
+  triggerWord: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.7)',
+  },
+  inlineSelect: {
+    padding: '4px 8px',
+    background: 'rgba(99,102,241,0.1)',
+    border: '1px solid rgba(99,102,241,0.3)',
+    borderRadius: 5,
+    color: '#fff',
+    fontSize: 13,
+  },
+  triggerPreview: {
+    marginTop: 6,
+    padding: '6px 10px',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.45)',
+    fontStyle: 'italic',
+  },
+
+  // Action editor
+  actionTypeRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 6,
+  },
+  actionTypeBtn: {
+    padding: '6px 10px',
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 6,
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 12,
+    fontWeight: 500,
+    cursor: 'pointer',
+  },
+  actionTypeBtnActive: {
+    background: 'rgba(99,102,241,0.18)',
+    borderColor: 'rgba(99,102,241,0.5)',
+    color: '#a5b4fc',
+  },
+  actionTypeDesc: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.5)',
+    marginBottom: 10,
+    fontStyle: 'italic',
+  },
+  actionSubRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 6,
+  },
+  actionSubLabel: {
+    minWidth: 100,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.5)',
+  },
+  actionInput: {
+    flex: 1,
+    padding: '6px 10px',
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 5,
+    color: '#fff',
+    fontSize: 12,
+  },
+  handlerHint: {
+    marginTop: 6,
+    padding: '6px 10px',
+    background: 'rgba(34,197,94,0.06)',
+    border: '1px solid rgba(34,197,94,0.15)',
+    borderRadius: 5,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.7)',
+    fontStyle: 'italic',
+  },
+
+  // Fan-out
+  checkboxRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    cursor: 'pointer',
+  },
+  checkboxLabel: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.8)',
+  },
+  fanOutInner: {
+    marginTop: 10,
+    paddingLeft: 24,
+    borderLeft: '2px solid rgba(99,102,241,0.3)',
+  },
+  fanOutPreview: {
+    marginTop: 8,
+    padding: '8px 10px',
+    background: 'rgba(99,102,241,0.08)',
+    borderRadius: 6,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.75)',
+  },
+
+  // Deps
+  depsList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
+  },
+  depsRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '6px 8px',
+    background: 'rgba(255,255,255,0.02)',
+    borderRadius: 5,
+    cursor: 'pointer',
+    fontSize: 12,
+  },
+  depsKey: {
+    color: 'rgba(255,255,255,0.5)',
+    fontFamily: 'monospace',
+    fontSize: 11,
+  },
+  depsTitle: {
+    color: '#fff',
+    flex: 1,
+  },
+  depsEmpty: {
+    padding: '8px 10px',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.35)',
+    fontStyle: 'italic',
+  },
+
+  // Condition
+  conditionRow: {
+    display: 'flex',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  conditionSelect: {
+    flex: 1,
+    minWidth: 140,
+    padding: '6px 10px',
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 5,
+    color: '#fff',
+    fontSize: 12,
+  },
+  conditionInput: {
+    flex: 1,
+    minWidth: 100,
+    padding: '6px 10px',
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 5,
+    color: '#fff',
+    fontSize: 12,
+  },
+
+  // Template input + chip wrapper
+  templateWrap: {
+    display: 'flex',
+    gap: 6,
+    alignItems: 'stretch',
+    width: '100%',
+  },
+  templateInput: {
+    flex: 1,
+    padding: '8px 10px',
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 6,
+    color: '#fff',
+    fontSize: 13,
+    minWidth: 0,
+  },
+  templateTextarea: {
+    flex: 1,
+    padding: '8px 10px',
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 6,
+    color: '#fff',
+    fontSize: 13,
+    fontFamily: 'inherit',
+    resize: 'vertical',
+    minWidth: 0,
+  },
+
+  // Advanced collapsible
+  advancedBlock: {
+    marginTop: 8,
+    padding: '6px 10px',
+    background: 'rgba(255,255,255,0.02)',
+    borderRadius: 5,
+  },
+  advancedSummary: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.4)',
+    cursor: 'pointer',
+    userSelect: 'none',
+  },
+
+  // Outcome card
+  outcomeCard: {
+    padding: 10,
+    background: 'rgba(255,255,255,0.02)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  outcomeTopRow: {
+    display: 'flex',
+    gap: 8,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  outcomeLabelInput: {
+    flex: 1,
+    padding: '6px 10px',
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 5,
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: 500,
+  },
+  outcomeStylePills: {
+    display: 'flex',
+    gap: 6,
+    marginBottom: 8,
+  },
+  stylePill: {
+    padding: '4px 10px',
+    border: '1px solid',
+    borderRadius: 12,
+    fontSize: 11,
+    fontWeight: 600,
+    cursor: 'pointer',
+  },
+  outcomeNextRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+  },
+  outcomeNextLabel: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.5)',
+  },
+  outcomeNextSelect: {
+    flex: 1,
+    padding: '6px 10px',
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 5,
+    color: '#fff',
+    fontSize: 12,
   },
 };

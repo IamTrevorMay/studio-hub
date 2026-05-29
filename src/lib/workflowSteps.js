@@ -19,7 +19,7 @@ const STEP_ACTIONS = {
   review_proposal:  { type: 'custom', label: 'Review Proposal' },
   collect_brief:    { type: 'navigate', label: 'Go to Deliverables', tab: 'deliverables' },
   write_ad_reads:   { type: 'complete', label: 'Mark Complete' },
-  connect_to_video: { type: 'custom', label: 'Connect Video' },
+  connect_to_video: { type: 'modal', label: 'Connect Video', modalKey: 'pick_video_event' },
 };
 
 // Default action if step_key isn't found

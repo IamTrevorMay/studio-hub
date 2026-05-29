@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { getStepAction } from '../lib/workflowSteps';
+import { getWorkflowModal } from '../lib/workflowModals';
 
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL || '';
 
@@ -86,6 +87,7 @@ export default function MyTasks({ onNavigate }) {
   const [showSnoozed, setShowSnoozed] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
   const [completedTasks, setCompletedTasks] = useState([]);
+  const [openModal, setOpenModal] = useState(null); // { task, ModalComponent }
   const channelRef = useRef(null);
 
   // ─── Fetch tasks ──────────────────────────────────────────
@@ -242,20 +244,31 @@ export default function MyTasks({ onNavigate }) {
         break;
       case 'navigate':
         if (onNavigate && action.tab) {
-          // Resolve target from context if needed
           const ctx = task.workflow_instance?.context || {};
           const target = action.target ? ctx[action.target] : undefined;
           onNavigate(action.tab, target);
         }
         break;
-      case 'modal':
-        // Phase 2: open the appropriate modal
-        // For now, fall back to simple complete
-        handleComplete(task);
+      case 'modal': {
+        const entry = action.modalKey ? getWorkflowModal(action.modalKey) : null;
+        if (entry?.component) {
+          setOpenModal({ task, ModalComponent: entry.component });
+        } else {
+          // Fallback: just complete with empty payload.
+          handleComplete(task);
+        }
         break;
+      }
       default:
         handleComplete(task);
     }
+  };
+
+  const handleModalSubmit = async (payload) => {
+    if (!openModal) return;
+    const t = openModal.task;
+    setOpenModal(null);
+    await handleComplete(t, payload);
   };
 
   // ─── Partition tasks ──────────────────────────────────────
@@ -495,6 +508,14 @@ export default function MyTasks({ onNavigate }) {
             </div>
           </div>
         </div>
+      )}
+
+      {openModal && (
+        <openModal.ModalComponent
+          task={openModal.task}
+          onSubmit={handleModalSubmit}
+          onClose={() => setOpenModal(null)}
+        />
       )}
     </div>
   );
