@@ -1190,12 +1190,16 @@ export default function Deliverables() {
               return row ? row.slot_limit : null;
             };
 
+            const getUnassignedCount = (month, channel) => allDeliverables.filter(d => d.channel === channel && d.due_date && d.due_date.slice(0, 7) === month && !d.delivered && !d.video_event_id).length;
+
             const renderMonthCard = (month) => {
               const maydayCount = getCount(month, 'mayday');
               const tmbCount = getCount(month, 'tmb');
               const maydayLimit = getLimit(month, 'mayday');
               const tmbLimit = getLimit(month, 'tmb');
               const isEditing = editingSlots === month;
+              const maydayUnassigned = getUnassignedCount(month, 'mayday');
+              const tmbUnassigned = getUnassignedCount(month, 'tmb');
 
               return (
                 <div key={month} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '8px', padding: '14px', marginBottom: '8px' }}>
@@ -1210,6 +1214,25 @@ export default function Deliverables() {
                       </button>
                     )}
                   </div>
+
+                  {(maydayUnassigned > 0 || tmbUnassigned > 0) && (
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '6px' }}>
+                      <div style={{ flex: 1, textAlign: 'center' }}>
+                        {maydayUnassigned > 0 && (
+                          <span style={{ fontSize: '10px', fontWeight: 600, padding: '2px 6px', borderRadius: '5px', background: 'rgba(245,158,11,0.12)', color: '#f59e0b' }}>
+                            {maydayUnassigned} unscheduled
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ flex: 1, textAlign: 'center' }}>
+                        {tmbUnassigned > 0 && (
+                          <span style={{ fontSize: '10px', fontWeight: 600, padding: '2px 6px', borderRadius: '5px', background: 'rgba(245,158,11,0.12)', color: '#f59e0b' }}>
+                            {tmbUnassigned} unscheduled
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   <div style={{ display: 'flex', gap: '8px' }}>
                     {/* Mayday card */}
@@ -1427,6 +1450,11 @@ export default function Deliverables() {
                       {isAdmin && (
                         <span style={{ ...styles.statusTag, background: `${PAYMENT_STATUS_COLORS[campaign.payment_status]}15`, color: PAYMENT_STATUS_COLORS[campaign.payment_status] }}>
                           {campaign.payment_status}
+                        </span>
+                      )}
+                      {!campaign.brief_url && (
+                        <span style={{ ...styles.statusTag, background: 'rgba(245,158,11,0.12)', color: '#f59e0b', fontSize: '10px', fontWeight: 600 }}>
+                          Needs Brief
                         </span>
                       )}
                       <span style={{ ...styles.statusTag, background: isActive ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.06)', color: isActive ? '#10b981' : 'rgba(255,255,255,0.4)' }}>
