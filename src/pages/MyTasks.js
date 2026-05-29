@@ -241,16 +241,16 @@ export default function MyTasks({ onNavigate }) {
     fetchCompletedTasks();
   }, [fetchTasks, fetchCompletedTasks]);
 
-  // Fetch deliverable metadata for write_ad_read tasks
+  // Fetch deliverable metadata for tasks linked to deliverables
   useEffect(() => {
     const ids = tasks
-      .filter(t => t.step_key === 'write_ad_reads' && t.related_entity_id)
+      .filter(t => t.related_entity_type === 'deliverable' && t.related_entity_id)
       .map(t => t.related_entity_id);
     if (ids.length === 0) return;
     const unique = [...new Set(ids)];
     supabase
       .from('sponsor_deliverables')
-      .select('id, title, due_date')
+      .select('id, title, due_date, channel')
       .in('id', unique)
       .then(({ data }) => {
         if (!data) return;
@@ -491,19 +491,21 @@ export default function MyTasks({ onNavigate }) {
               </div>
 
               {/* Summary line */}
-              {isWriteAdRead && task.related_entity_id && (() => {
+              {!isReviewProposal && task.related_entity_type === 'deliverable' && task.related_entity_id && (() => {
                 const meta = deliverableMeta[task.related_entity_id];
                 const dTitle = meta?.title || '';
                 const dMonth = meta?.due_date
                   ? new Date(meta.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
                   : '';
+                const channelLabels = { mayday: 'MD', tmb: 'TMB', socials: 'SOC' };
+                const dChannel = meta?.channel ? channelLabels[meta.channel] || meta.channel : '';
                 return (
                   <p style={styles.entitySummary}>
-                    {dTitle}{dMonth ? ` \u2022 ${dMonth}` : ''}
+                    {dTitle}{dChannel ? ` \u2022 ${dChannel}` : ''}{dMonth ? ` \u2022 ${dMonth}` : ''}
                   </p>
                 );
               })()}
-              {!isReviewProposal && !isWriteAdRead && task.related_entity_type && (
+              {!isReviewProposal && task.related_entity_type && task.related_entity_type !== 'deliverable' && (
                 <p style={styles.entitySummary}>
                   {task.related_entity_type}{task.related_entity_id ? ` \u2022 ${task.related_entity_id.slice(0, 8)}...` : ''}
                 </p>

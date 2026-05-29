@@ -193,6 +193,30 @@ const ACTION_REGISTRY: Record<string, ActionRegistryEntry> = {
     },
   },
 
+  "ad_read:refresh_deliverables": {
+    description:
+      "Refresh the deliverables list from DB so fan-out picks up any added after proposal acceptance",
+    handler: async (ctx, _payload, admin) => {
+      const campaignId = ctx.campaign_id as string;
+      if (!campaignId) return {};
+      const { data: delivs } = await admin
+        .from("sponsor_deliverables")
+        .select("id, title")
+        .eq("campaign_id", campaignId);
+      if (delivs && delivs.length > 0) {
+        return {
+          contextUpdates: {
+            deliverables: delivs.map((d) => ({
+              deliverable_id: d.id,
+              title: d.title,
+            })),
+          },
+        };
+      }
+      return {};
+    },
+  },
+
   "ad_read:set_video_event": {
     description:
       "Link a deliverable to a video event on the calendar",
