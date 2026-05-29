@@ -666,6 +666,17 @@ export default function Deliverables() {
     fetchSponsors();
   }
 
+  async function handleDeleteUncampaigned() {
+    if (!(await confirm(`Delete all ${uncampaignedDeliverables.length} uncampaigned deliverables? This cannot be undone.`))) return;
+    for (const d of uncampaignedDeliverables) {
+      if (d.calendar_event_id) {
+        await supabase.from('calendar_events').delete().eq('id', d.calendar_event_id);
+      }
+      await supabase.from('sponsor_deliverables').delete().eq('id', d.id);
+    }
+    fetchSponsors();
+  }
+
   async function handleDeleteDeliverable(deliverable) {
     if (deliverable.calendar_event_id) {
       await supabase.from('calendar_events').delete().eq('id', deliverable.calendar_event_id);
@@ -819,7 +830,14 @@ export default function Deliverables() {
   }
 
   async function handleDeleteCampaign(campaignId) {
-    if (!(await confirm('Delete this campaign? Deliverables will be uncampaigned.'))) return;
+    if (!(await confirm('Delete this campaign and all its deliverables?'))) return;
+    const campaignDeliverables = allDeliverables.filter(d => d.campaign_id === campaignId);
+    for (const d of campaignDeliverables) {
+      if (d.calendar_event_id) {
+        await supabase.from('calendar_events').delete().eq('id', d.calendar_event_id);
+      }
+    }
+    await supabase.from('sponsor_deliverables').delete().eq('campaign_id', campaignId);
     await supabase.from('sponsor_campaigns').delete().eq('id', campaignId);
     fetchSponsors();
   }
@@ -1559,6 +1577,11 @@ export default function Deliverables() {
             {uncampaignedDeliverables.length} uncampaigned deliverable{uncampaignedDeliverables.length !== 1 ? 's' : ''}
           </summary>
           <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            {isAdmin && (
+              <button onClick={handleDeleteUncampaigned} style={{ alignSelf: 'flex-start', background: 'rgba(239,68,68,0.1)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '6px', padding: '4px 10px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', marginBottom: '4px' }}>
+                Delete All Uncampaigned
+              </button>
+            )}
             {uncampaignedDeliverables.map(d => renderDeliverableRow(d, sponsors.find(s => s.id === d.sponsor_id)))}
           </div>
         </details>
@@ -1641,6 +1664,9 @@ export default function Deliverables() {
                           if (ev) return (
                             <span style={{ fontSize: '10px', fontWeight: 600, padding: '2px 6px', borderRadius: '5px', whiteSpace: 'nowrap', background: 'rgba(168,85,247,0.12)', color: '#c084fc' }}>
                               {'\uD83D\uDCF9'} {ev.title?.length > 16 ? ev.title.slice(0, 16) + '\u2026' : ev.title}
+                              {ev.start_date && <span style={{ opacity: 0.7, marginLeft: '4px' }}>
+                                {new Date(ev.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                              </span>}
                             </span>
                           );
                           return null;

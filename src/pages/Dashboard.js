@@ -293,11 +293,16 @@ export default function Dashboard({ onNavigate }) {
     if (!profile?.id) return;
     setAnnouncementsLoading(true);
     try {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const cutoff = thirtyDaysAgo.toISOString().slice(0, 10);
+
       const [announcementsResult, readsResult] = await Promise.all([
         supabase
           .from('announcements')
           .select('*, creator:profiles!created_by(full_name)')
-          .eq('target_date', todayStr)
+          .gte('target_date', cutoff)
+          .order('target_date', { ascending: false })
           .order('created_at', { ascending: false }),
         supabase
           .from('announcement_reads')
@@ -309,7 +314,11 @@ export default function Dashboard({ onNavigate }) {
       const data = announcementsResult.data || [];
       const readIds = new Set((readsResult.data || []).map(r => r.announcement_id));
 
-      setAnnouncements(data.map(a => ({ ...a, isRead: readIds.has(a.id) })));
+      const visible = data
+        .map(a => ({ ...a, isRead: readIds.has(a.id) }))
+        .filter(a => a.target_date === todayStr || !a.isRead);
+
+      setAnnouncements(visible);
     } catch (err) {
       console.error('Error fetching announcements:', err);
       setAnnouncements([]);
@@ -1564,7 +1573,7 @@ export default function Dashboard({ onNavigate }) {
           announcementsLoading ? (
             <p style={styles.emptyText}>Loading...</p>
           ) : announcements.length === 0 ? (
-            <p style={{ ...styles.emptyText, marginTop: '8px' }}>No announcements today</p>
+            <p style={{ ...styles.emptyText, marginTop: '8px' }}>No announcements</p>
           ) : (
             <div style={styles.announcementList}>
               {announcements.map(a => (
