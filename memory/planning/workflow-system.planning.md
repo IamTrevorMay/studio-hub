@@ -1,10 +1,19 @@
-# Workflow System — Phase 1 Spec
+# Workflow System — Planning Doc
 
 ## Overview
 
 A task delegation engine for Mayday Studio. Every multi-step process is modeled as a chain of dependent tasks. Each person sees only what's currently theirs. Completing a step advances the workflow and assigns the next task automatically.
 
-This phase builds the engine and UI surface. No specific workflows yet (Phase 2).
+---
+
+## Implementation Status
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| Phase 1: Engine + UI | **Complete** | Schema, edge functions, My Tasks page, notifications |
+| Phase 2: Ad Read Pipeline | **Complete** | First real workflow wired end-to-end with auto-publish |
+| Phase 3A: Data-Driven Builder | **Schema ready** | Builder tables deployed, UI pending |
+| Phase 3B: Additional Workflows | Not started | |
 
 ---
 
@@ -20,8 +29,6 @@ This phase builds the engine and UI surface. No specific workflows yet (Phase 2)
 | slug | text UNIQUE NOT NULL | Code key, e.g. `ad_read_workflow` |
 | is_active | boolean DEFAULT true | Soft-disable without deleting |
 | created_at | timestamptz DEFAULT now() | |
-
-Seeded in code via migration, not user-created in Phase 1.
 
 ### 1.2 `workflow_instances`
 
@@ -56,9 +63,10 @@ Seeded in code via migration, not user-created in Phase 1.
 | created_at | timestamptz DEFAULT now() | |
 | completed_at | timestamptz | |
 
-**Constraints:**
-- Index on `(assignee_id, status)` for the My Tasks query.
-- Index on `(workflow_instance_id, status)` for engine lookups.
+**Indexes:**
+- `idx_tasks_assignee_status` on `(assignee_id, status)` — My Tasks query
+- `idx_tasks_instance_status` on `(workflow_instance_id, status)` — engine lookups
+- `idx_tasks_snoozed` on `(snoozed_until)` WHERE snoozed_until IS NOT NULL
 
 **Fan-out/fan-in:**
 - Fan-out: a step's completion handler creates multiple tasks with `status = 'active'`.
@@ -77,12 +85,24 @@ Seeded in code via migration, not user-created in Phase 1.
 
 Index on `(task_id, created_at)`.
 
-### 1.5 RLS Policies
+### 1.5 Builder Tables (Phase 3A)
 
-All four tables:
+Added by `20260529100000_workflow_builder_schema.sql`:
+
+- `workflow_steps` — data-driven step definitions (title template, assignee, action config, outcomes)
+- `workflow_step_outcomes` — outcome edges between steps (next step, context updates)
+- `workflow_versions` — version snapshots for in-flight instance pinning
+
+Extended columns on `workflows`: builder metadata.
+Extended columns on `workflow_instances`: `workflow_version_id` for version pinning.
+
+### 1.6 RLS Policies
+
+All tables:
 - Service role: full access (edge functions use service role internally after JWT verification).
 - Authenticated users: read own tasks (`assignee_id = auth.uid()`), read workflow_instances they participate in, read task_events for their tasks.
 - Admin role: read all rows across all tables.
+- Builder tables (`workflow_steps`, `workflow_step_outcomes`, `workflow_versions`): admin-only read/write.
 - Write operations go through edge functions only (no direct client writes).
 
 ---
@@ -91,15 +111,21 @@ All four tables:
 
 ### 2.1 Architecture
 
-Workflow definitions live in a shared module: `supabase/functions/shared/workflow-definitions.ts`. Each definition is a plain object — no DB round-trip needed to resolve steps.
+Workflow definitions support two modes:
+1. **Code-sourced:** definitions in `supabase/functions/shared/workflow-definitions.ts` (WORKFLOW_REGISTRY). Used for test workflows and the ad read pipeline.
+2. **Data-sourced:** definitions built from `workflow_steps` + `workflow_step_outcomes` DB rows via `buildDefinitionFromDB()`. Used by the visual builder (Phase 3A).
 
-Three edge functions handle all mutations:
+Resolution order: `resolveWorkflowDefinition()` checks code registry first, then DB.
 
-| Function | Endpoint | Auth |
-|----------|----------|------|
-| `workflow-start` | POST | User JWT |
-| `workflow-complete-task` | POST | User JWT |
-| `workflow-update-task` | POST | User JWT |
+Five edge functions:
+
+| Function | Purpose | Auth |
+|----------|---------|------|
+| `workflow-start` | Start a workflow instance | User JWT |
+| `workflow-complete-task` | Complete a task + advance | User JWT |
+| `workflow-update-task` | Hold / resume / snooze / reassign / skip | User JWT |
+| `workflow-list-actions` | List registered action handler slugs (for builder) | Admin JWT |
+| `workflow-cleanup-test` | Delete test_mode instances (simulator cleanup) | Admin JWT |
 
 ### 2.2 Workflow Definition Shape
 
@@ -110,90 +136,50 @@ interface WorkflowStep {
   descriptionTemplate?: string;
   assignee: string | AssigneeResolver; // Static user ID or (context) => userId
   relatedEntity?: {
-    type: string;                     // "campaign", "deliverable", etc.
-    resolver: (context) => string;    // Returns entity ID from context
+    type: string;
+    resolver: (context) => string;
   };
-  action: TaskAction;                 // See 2.5
+  action: TaskAction;
   condition?: (context) => boolean;   // If false, step is skipped
+  dynamicFanOut?: DynamicFanOutConfig; // Per-item fan-out (e.g. one task per deliverable)
   onComplete: (context, payload) => NextStepResult;
   // NextStepResult = { next: string | string[] | null, contextUpdates?: object }
-  // string   = single next stepKey
-  // string[] = fan-out to multiple stepKeys
-  // null     = workflow complete
 }
 
 interface WorkflowDefinition {
   slug: string;
   name: string;
   description: string;
-  steps: Record<string, WorkflowStep>;  // Keyed by stepKey
-  firstStep: string;                     // Starting stepKey
+  steps: Record<string, WorkflowStep>;
+  firstStep: string;
 }
 ```
 
-### 2.3 `workflow-start`
+### 2.3 Shared Engine (`workflow-engine.ts`)
 
-**Input:** `{ slug: string, context: object }`
+Key functions:
+- `createTaskFromStep()` — resolves assignee/title/condition, creates task + event + notification
+- `createDynamicFanOutTasks()` — per-item fan-out with deduplication
+- `checkFanIn()` — activates pending tasks when all `depends_on` complete
+- `checkInstanceCompletion()` — marks instance complete when no active/pending/on_hold tasks remain
+- `advanceWorkflow()` — creates next step(s): single, multi (fan-out), or null (terminate)
+- `notifyUser()` / `notifyAdmins()` — notification helpers
+- `logEvent()` — task_events audit trail
+- `getUserFromJwt()` — JWT auth with admin role lookup
 
-**Logic:**
-1. Validate JWT, get `user.id`.
-2. Look up workflow definition by slug.
-3. Create `workflow_instances` row (status=active, context=input context, started_by=user.id).
-4. Resolve the first step: evaluate condition, resolve assignee, resolve title template.
-5. If condition is false, skip to the step's `onComplete` with no payload, repeat for next step.
-6. Create `tasks` row (status=active, position=0).
-7. Create `task_events` row (event_type=created).
-8. Insert into `notifications` table for the assignee (`type='task_assigned'`, `link_tab='my_tasks'`, `link_target=task.id`).
-9. Return `{ instance_id, task_id }`.
-
-### 2.4 `workflow-complete-task`
-
-**Input:** `{ task_id: string, payload?: object }`
-
-**Logic:**
-1. Validate JWT, get `user.id`.
-2. Fetch task, verify `assignee_id = user.id` and `status = 'active'`.
-3. Update task: `status='complete'`, `completion_payload=payload`, `completed_at=now()`.
-4. Create `task_events` row (event_type=completed, payload).
-5. Look up the workflow definition and the current step.
-6. Call `step.onComplete(instanceContext, payload)` to get `NextStepResult`.
-7. Apply `contextUpdates` to the instance's `context` jsonb.
-8. **If `next` is null:** mark instance as complete.
-9. **If `next` is a string:** create one task for that step (same flow as start: resolve assignee/title/condition, create task + event + notification).
-10. **If `next` is a string[]:** fan-out — create a task for each step key. All get `status='active'`.
-11. **Fan-in check:** after completing any task, query all tasks in this instance with `status='pending'`. For each, check if every ID in `depends_on` has `status='complete'`. If yes, flip to `active`, create notification.
-12. Return `{ next_task_ids: [...] }`.
-
-### 2.5 `workflow-update-task`
-
-**Input:** `{ task_id: string, action: string, ...params }`
-
-**Actions:**
-
-| Action | Params | Logic |
-|--------|--------|-------|
-| `hold` | `reason: string` | Set status=on_hold, hold_reason. Create event. Notify Trevor (hardcode admin user ID or query profiles where role=admin). |
-| `resume` | — | Set status=active, clear hold_reason. Create event. |
-| `snooze` | `until: ISO string` | Set snoozed_until. Create event. Task stays active but UI filters it. |
-| `unsnooze` | — | Clear snoozed_until. Create event. |
-| `reassign` | `assignee_id: string` | Update assignee_id. Create event. Notify new assignee. |
-| `skip` | — | Set status=skipped. Create event. Run fan-in check (same as complete). |
-
-All actions require JWT. `hold`, `resume`, `snooze`, `unsnooze` require `assignee_id = user.id` OR admin role. `reassign` and `skip` require admin role.
-
-### 2.6 Task Action Types
-
-Each step declares how its primary button behaves:
+### 2.4 Action Types
 
 ```typescript
 type TaskAction =
   | { type: 'complete', label: string }
-  // Simple: click button -> completeTask(taskId, {})
   | { type: 'modal', label: string, modalKey: string }
-  // Opens a modal (identified by modalKey). Modal submit calls completeTask(taskId, modalPayload).
   | { type: 'navigate', label: string, tab: string, target?: string }
-  // Navigates to a page. That page has a button wired to completeTask.
+  | { type: 'custom' }  // Handled inline by the UI (e.g. ReviewProposalCard)
 ```
+
+### 2.5 Action Registry
+
+`supabase/functions/shared/action-registry.ts` maps handler slugs to TypeScript functions for data-driven workflows. Current handlers: `accept_proposal`, `decline_proposal`, `review_proposal`, `set_video_event`.
 
 ---
 
@@ -201,26 +187,18 @@ type TaskAction =
 
 ### 3.1 Placement
 
-New page: `src/pages/MyTasks.js`
+Page: `src/pages/MyTasks.js` (~991 lines)
 
-Added to sidebar nav below Dashboard. Nav key: `my_tasks`. Visible to all roles.
-
-Badge count in sidebar (next to label) showing number of active + on_hold tasks for the current user.
+Sidebar nav item below Dashboard. Nav key: `my_tasks`. Visible to all roles.
+Badge count in sidebar showing active + on_hold tasks for the current user (via `myTaskCount` in AuthContext).
 
 ### 3.2 Data Fetching
 
-```javascript
-// Active tasks (not snoozed)
-supabase
-  .from('tasks')
-  .select('*, workflow_instance:workflow_instances(id, workflow_id, context, status)')
-  .eq('assignee_id', user.id)
-  .in('status', ['active', 'on_hold'])
-  .or('snoozed_until.is.null,snoozed_until.lte.' + new Date().toISOString())
-  .order('created_at', { ascending: true });
-```
-
-Realtime subscription on `tasks` table filtered by `assignee_id = user.id` for live updates.
+- Main query: `tasks` table, `assignee_id = user.id`, `status IN ['active', 'on_hold']`, joined with `workflow_instances` for context.
+- Completed tasks query: `status = 'complete'`, `completed_at >= 24h ago`.
+- Snoozed tasks partitioned client-side from the active set.
+- Realtime subscription on `tasks` table filtered by `assignee_id`.
+- `useVisibilityRefresh` hook for tab re-focus.
 
 ### 3.3 Component Tree
 
@@ -228,59 +206,47 @@ Realtime subscription on `tasks` table filtered by `assignee_id = user.id` for l
 MyTasks
   TaskList
     TaskCard (one per task)
-      TaskCardHeader (title, status badge, snooze indicator)
-      TaskCardSummary (one-line related entity summary, collapsed by default)
-      TaskCardExpanded (full description, entity link — toggled by expand button)
+      TaskCardHeader (title, status badge, age)
+      ReviewProposalCard (inline for review_proposal step — shows sponsor, items, pay)
+      TaskCardExpanded (description toggle)
       TaskCardActions
-        PrimaryActionButton (label + behavior from step definition)
-        HoldButton -> HoldModal (text input: "What's the question?")
-        SnoozeButton -> SnoozeDropdown (1h / 4h / tomorrow / next week)
-  SnoozedSection (collapsed, shows snoozed tasks with "wake" time)
+        PrimaryActionButton (from step action config)
+        HoldButton → HoldModal
+        SnoozeButton → SnoozeDropdown
+  SnoozedSection (collapsed, shows snoozed tasks with wake time)
   CompletedTodaySection (collapsed, shows tasks completed in last 24h)
+  HoldModal (overlay with reason input)
 ```
 
 ### 3.4 Task Card Design
 
-Follows existing app styling: inline `style={{}}`, dark theme (#0f0f1a base, #6366f1 accent).
-
 - Default card: `background: rgba(255,255,255,0.03)`, `border: 1px solid rgba(255,255,255,0.06)`, `borderRadius: 10`.
-- On-hold card: `borderLeft: 3px solid #eab308` (yellow), hold reason shown as a muted yellow line below the title.
+- On-hold card: `borderLeft: 3px solid #eab308` (yellow), hold reason shown as muted yellow line.
 - Snoozed card: `opacity: 0.5`, snooze time shown.
-- Complete animation: card fades out + slides up over 300ms, then removed from list.
+- Complete animation: fade + slide-up over 300ms.
 
-### 3.5 Primary Action Button
+### 3.5 Client-Side Step Actions
 
-The button label and behavior come from the workflow step definition. The My Tasks page needs to know which step each task belongs to, so it can look up the action config.
+`src/lib/workflowSteps.js` exports `STEP_ACTIONS` lookup and `getStepAction(stepKey)`.
 
-**Approach:** The step definitions are shared code (imported from `shared/workflow-definitions.ts`). We'll create a client-side mirror: `src/lib/workflowSteps.js` that exports a lookup map of `stepKey -> { action }`. This avoids duplicating templates/assignees (which are server-only concerns) while giving the UI the action config it needs.
+Current actions:
+- `review_proposal`: type 'custom' (inline ReviewProposalCard with accept/decline)
+- `collect_brief`: type 'navigate' to 'deliverables' tab
+- `write_ad_reads`: type 'complete'
+- `connect_to_video`: type 'modal', modalKey 'pick_video_event'
+- Test workflow steps: type 'complete'
 
-```javascript
-// src/lib/workflowSteps.js
-export const STEP_ACTIONS = {
-  review_proposal: { type: 'navigate', label: 'Review Proposal', tab: 'deliverables', target: 'context.proposal_id' },
-  assign_editor:   { type: 'modal', label: 'Assign to Editor', modalKey: 'assign_editor' },
-  mark_ad_reads:   { type: 'complete', label: 'Mark Ad Reads Complete' },
-  // ... added per workflow in Phase 2
-};
-```
+Falls back to `DEFAULT_ACTION` for unknown step keys.
 
-### 3.6 Hold Modal
+### 3.6 Modals
 
-Small modal overlay:
-- Title: "Put task on hold"
-- Text input: "What's blocking this?" (required)
-- Submit: calls `workflow-update-task` with action=hold
-- Result: task card gets yellow border, hold reason visible
+- **HoldModal** — "What's blocking this?" text input, calls `workflow-update-task` action=hold
+- **PickVideoEventModal** (`src/lib/workflowModals.js`) — connects deliverables to calendar video events
 
 ### 3.7 Snooze Dropdown
 
-Popover from snooze button with preset options:
-- 1 hour
-- 4 hours
-- Tomorrow 9am
-- Next Monday 9am
-
-Calls `workflow-update-task` with action=snooze, `until` = computed ISO timestamp. Snoozed tasks move to a collapsed "Snoozed" section at the bottom.
+Presets: 1h, 4h, tomorrow 9am, next Monday 9am.
+Calls `workflow-update-task` action=snooze. Snoozed tasks filtered to collapsed section.
 
 ---
 
@@ -288,78 +254,67 @@ Calls `workflow-update-task` with action=snooze, `until` = computed ISO timestam
 
 Uses the existing `notifications` table.
 
-| Trigger | Notification type | Recipient | link_tab | link_target |
-|---------|-------------------|-----------|----------|-------------|
-| Task assigned | `task_assigned` | assignee | `my_tasks` | task.id |
-| Task held | `task_held` | all admins | `my_tasks` | task.id |
-| Task resumed | `task_resumed` | assignee | `my_tasks` | task.id |
-| Task reassigned | `task_reassigned` | new assignee | `my_tasks` | task.id |
+| Trigger | Type | Recipient |
+|---------|------|-----------|
+| Task assigned | `task_assigned` | assignee |
+| Task held | `task_held` | all admins |
+| Task resumed | `task_resumed` | assignee |
+| Task reassigned | `task_reassigned` | new assignee |
 
-AuthContext already fetches `unreadNotificationCount` from the `notifications` table. No changes needed to the bell icon — new notifications will show up automatically.
-
-For the My Tasks nav badge (separate from bell), we add a `fetchMyTaskCount` callback to AuthContext following the existing pattern (e.g. `fetchNewAssignmentCount`).
+AuthContext `myTaskCount` state + Realtime subscription drives the sidebar badge.
+Bell icon uses existing `unreadNotificationCount` — workflow notifications appear automatically.
 
 ---
 
-## 5. Files to Create
+## 5. Files
+
+### Created
 
 | File | Purpose |
 |------|---------|
-| `supabase/migrations/YYYYMMDD_workflow_tables.sql` | Schema: 4 tables + indexes + RLS |
+| `supabase/migrations/20260528000000_workflow_system.sql` | Phase 1 schema: 4 tables + indexes + RLS |
+| `supabase/migrations/20260529100000_workflow_builder_schema.sql` | Phase 3A schema: builder tables + version pinning |
 | `supabase/functions/workflow-start/index.ts` | Start a workflow instance |
 | `supabase/functions/workflow-complete-task/index.ts` | Complete a task + advance |
 | `supabase/functions/workflow-update-task/index.ts` | Hold / resume / snooze / reassign / skip |
-| `supabase/functions/shared/workflow-definitions.ts` | Workflow step definitions (server-side) |
-| `supabase/functions/shared/workflow-engine.ts` | Shared engine logic (template resolution, fan-in check) |
+| `supabase/functions/workflow-list-actions/index.ts` | List action handler slugs for builder |
+| `supabase/functions/workflow-cleanup-test/index.ts` | Delete test_mode instances |
+| `supabase/functions/shared/workflow-definitions.ts` | Workflow definitions (code + data-sourced) |
+| `supabase/functions/shared/workflow-engine.ts` | Shared engine logic |
+| `supabase/functions/shared/action-registry.ts` | Handler slug → function map for data-driven workflows |
 | `src/pages/MyTasks.js` | My Tasks page |
 | `src/lib/workflowSteps.js` | Client-side step action lookup |
+| `src/lib/workflowModals.js` | Modal registry (PickVideoEventModal) |
 
-## 6. Files to Modify
+### Modified
 
 | File | Change |
 |------|--------|
-| `src/pages/AppLayout.js` | Import MyTasks, add nav item, add render condition |
-| `src/hooks/useNavConfig.js` | Add `my_tasks` to NAV_ITEMS array |
-| `src/contexts/AuthContext.js` | Add `myTaskCount` state + `fetchMyTaskCount` callback + Realtime subscription on `tasks` |
+| `src/pages/AppLayout.js` | Import MyTasks, add nav item + sidebar badge, add render condition |
+| `src/contexts/AuthContext.js` | `myTaskCount` state + `fetchMyTaskCount` + Realtime subscription on `tasks` |
 
 ---
 
-## 7. Build Order
+## 6. Resolved Questions
 
-### Checkpoint 1: Schema
-1. Write and push migration for all 4 tables + indexes + RLS policies.
-2. Verify with `supabase migration list`.
-
-### Checkpoint 2: Engine
-3. Create `shared/workflow-definitions.ts` with one placeholder workflow (for testing).
-4. Create `shared/workflow-engine.ts` with template resolver, fan-in checker, notification helper.
-5. Create `workflow-start/index.ts`.
-6. Create `workflow-complete-task/index.ts`.
-7. Create `workflow-update-task/index.ts`.
-8. Deploy all three functions.
-9. Test via curl: start workflow -> complete task -> verify fan-in -> verify notifications.
-
-### Checkpoint 3: My Tasks page
-10. Create `src/lib/workflowSteps.js` with action lookup.
-11. Create `src/pages/MyTasks.js` with full component tree.
-12. Modify `AppLayout.js` + `useNavConfig.js` to add nav item.
-13. Modify `AuthContext.js` to add task count + Realtime subscription.
-14. Test: start a workflow via curl, verify task appears on My Tasks page, complete it, verify it advances.
-
-### Checkpoint 4: Polish
-15. Complete animation on task cards.
-16. Hold modal + snooze dropdown.
-17. Snoozed section + completed-today section.
-18. End-to-end test of full lifecycle.
+1. **Admin user ID for hold notifications:** Resolved — `notifyAdmins()` queries `profiles` where `role = 'admin'`. Future-proof.
+2. **Workflow definitions versioning:** Resolved — Phase 3A adds `workflow_versions` table. Data-sourced workflows pin version at instance start. Code-sourced workflows always use current definition.
+3. **Task card entity summaries:** Resolved — snapshots stored in task `title` and `description` at creation time. ReviewProposalCard fetches live data for the proposal step specifically.
+4. **Snoozed task wake-up:** Resolved — client-side filtering on page load. No server cron needed.
 
 ---
 
-## 8. Open Questions
+## 7. What's Next
 
-1. **Admin user ID for hold notifications:** Hardcode Trevor's profile UUID, or query `profiles` where `role = 'admin'` on each hold? Querying is more future-proof but adds a DB call.
+### Phase 3A: Visual Workflow Builder
+- Schema deployed (workflow_steps, workflow_step_outcomes, workflow_versions)
+- `workflow-list-actions` edge function ready
+- `buildDefinitionFromDB` / `buildDefinitionFromSnapshot` functions ready
+- **Remaining:** Builder UI page (Apple Shortcuts-style canvas, already started per recent commits)
 
-2. **Workflow definitions versioning:** If a workflow definition changes after instances are in-flight, should in-flight instances use the old definition or the new one? Simplest approach: always use current definition (steps are keyed by `step_key`, so as long as keys are stable, in-flight instances work). Flag for Phase 3.
-
-3. **Task card entity summaries:** The one-line summary for a related entity (campaign name, deliverable title, etc.) requires a lookup. Should the task store a snapshot of the entity title at creation time (in `description` or a `metadata` jsonb), or should the UI fetch it live? Snapshot is simpler and avoids N+1 queries.
-
-4. **Snoozed task wake-up:** With user JWT only (no cron), snoozed tasks rely on the client checking `snoozed_until <= now()` on page load. There's no server-side process to "wake" them. This is fine for Phase 1 since the My Tasks query already filters for it.
+### Future Phases
+- Comments / discussion threads on tasks
+- File attachments on tasks
+- Recurring workflows (scheduled triggers)
+- Workflow analytics (avg completion time, bottleneck detection)
+- Non-admin task assignees with scoped visibility

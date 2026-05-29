@@ -102,6 +102,7 @@ Deno.serve(async (req: Request) => {
         .eq("id", taskId);
 
       await logEvent(admin, taskId, "resumed", auth.userId);
+      await notifyUser(admin, task.assignee_id, "Task resumed", task.title, taskId);
 
       return jsonResp({ ok: true, status: "active" });
     }
