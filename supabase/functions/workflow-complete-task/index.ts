@@ -101,11 +101,11 @@ Deno.serve(async (req: Request) => {
   if (workflow.source === "code") {
     definition = getWorkflowDefinition(workflow.slug);
   } else {
-    // Use the instance's pinned version if available
+    // Always use live DB rows so builder changes take effect immediately
     definition = await resolveWorkflowDefinition(
       admin,
       workflow,
-      instance.version_id,
+      null,
     );
   }
 

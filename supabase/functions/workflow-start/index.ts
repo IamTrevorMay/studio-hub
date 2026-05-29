@@ -89,10 +89,8 @@ Deno.serve(async (req: Request) => {
     test_mode: !!testMode,
   };
 
-  // Pin to current version for data-driven workflows
-  if (workflow.source === "data" && workflow.current_version_id) {
-    instancePayload.version_id = workflow.current_version_id;
-  }
+  // No version pinning — always use live DB rows so builder changes
+  // take effect immediately, even for in-flight instances.
 
   const { data: instance, error: instErr } = await admin
     .from("workflow_instances")
