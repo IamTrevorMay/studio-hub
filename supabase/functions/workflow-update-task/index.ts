@@ -193,6 +193,37 @@ Deno.serve(async (req: Request) => {
       return jsonResp({ ok: true, status: "skipped", activated_task_ids: activated });
     }
 
+    // ─── Set context (merge keys into workflow_instances.context) ───
+    case "set_context": {
+      if (!isOwner && !isAdmin) {
+        return jsonResp({ error: "Not authorized" }, 403);
+      }
+      const patch = (body.context as Record<string, unknown>) || null;
+      if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+        return jsonResp({ error: "context object is required" }, 400);
+      }
+
+      const { data: inst, error: instErr } = await admin
+        .from("workflow_instances")
+        .select("context")
+        .eq("id", task.workflow_instance_id)
+        .single();
+      if (instErr || !inst) {
+        return jsonResp({ error: "Workflow instance not found" }, 404);
+      }
+
+      const merged = { ...(inst.context || {}), ...patch };
+      const { error: updErr } = await admin
+        .from("workflow_instances")
+        .update({ context: merged })
+        .eq("id", task.workflow_instance_id);
+      if (updErr) {
+        return jsonResp({ error: updErr.message }, 500);
+      }
+
+      return jsonResp({ ok: true, context: merged });
+    }
+
     default:
       return jsonResp({ error: `Unknown action: ${action}` }, 400);
   }

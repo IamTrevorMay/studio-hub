@@ -20,6 +20,13 @@ const STEP_ACTIONS = {
   collect_brief:    { type: 'modal', label: 'Add Brief', modalKey: 'add_brief' },
   write_ad_reads:   { type: 'write_ad_read', label: 'Write It', modalKey: 'write_ad_read', navigateTab: 'deliverables' },
   connect_to_video: { type: 'modal', label: 'Connect Video', modalKey: 'pick_video_event' },
+
+  // ─── Mayday Video Workflow ──────────────────────────────────
+  pre_production:      { type: 'complete', label: 'Complete', confirm: true },
+  filming_prep:        { type: 'complete', label: 'Complete', confirm: true },
+  film_send_to_editor: { type: 'editor_picker', label: 'Waiting for assignment', context_key: 'editor_id' },
+  wait_on_edit:        { type: 'auto', label: 'Waiting on editor' },
+  thumbnail_schedule:  { type: 'complete', label: 'Complete', confirm: true },
 };
 
 // Default action if step_key isn't found

@@ -195,7 +195,28 @@ export default function MyTasks({ onNavigate }) {
   const [openModal, setOpenModal] = useState(null); // { task, ModalComponent }
   const [confirmTask, setConfirmTask] = useState(null); // task pending confirmation
   const [deliverableMeta, setDeliverableMeta] = useState({}); // { [deliverable_id]: { title, due_date } }
+  const [activeProfiles, setActiveProfiles] = useState([]); // for inline editor pickers
   const channelRef = useRef(null);
+
+  // Load active profiles for any task that needs an inline person picker.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, role, status')
+        .order('full_name', { ascending: true, nullsFirst: false });
+      if (cancelled || error) return;
+      setActiveProfiles((data || [])
+        .filter((p) => p.status !== 'archived')
+        .map((p) => ({
+          id: p.id,
+          name: p.full_name || p.email || 'Unknown',
+          role: p.role || 'member',
+        })));
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // ─── Fetch tasks ──────────────────────────────────────────
 
@@ -366,7 +387,11 @@ export default function MyTasks({ onNavigate }) {
     const action = getStepAction(task.step_key);
     switch (action.type) {
       case 'complete':
-        handleComplete(task);
+        if (action.confirm) {
+          handleCompleteWithConfirm(task);
+        } else {
+          handleComplete(task);
+        }
         break;
       case 'navigate':
         if (onNavigate && action.tab) {
@@ -392,8 +417,34 @@ export default function MyTasks({ onNavigate }) {
         }
         break;
       }
+      case 'editor_picker':
+      case 'auto':
+        // Inline picker or trigger-driven completion — no primary action.
+        break;
       default:
         handleComplete(task);
+    }
+  };
+
+  // Inline editor picker (for steps with action.type === 'editor_picker')
+  const setEditorOnTask = async (task, editorId) => {
+    const action = getStepAction(task.step_key);
+    const key = action.context_key || 'editor_id';
+    try {
+      await callWorkflowFn('workflow-update-task', {
+        task_id: task.id,
+        action: 'set_context',
+        context: { [key]: editorId },
+      });
+      // Optimistic local update so the picker shows the new value immediately.
+      setTasks(prev => prev.map(t => {
+        if (t.id !== task.id) return t;
+        const ctx = { ...(t.workflow_instance?.context || {}), [key]: editorId };
+        return { ...t, workflow_instance: { ...(t.workflow_instance || {}), context: ctx } };
+      }));
+    } catch (err) {
+      console.error('Set editor failed:', err);
+      alert(err.message);
     }
   };
 
@@ -549,6 +600,35 @@ export default function MyTasks({ onNavigate }) {
                       {isCompleting ? 'Working...' : 'Complete'}
                     </button>
                   </>
+                ) : action.type === 'editor_picker' ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                    <label style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', whiteSpace: 'nowrap' }}>Assign an editor</label>
+                    <select
+                      value={task.workflow_instance?.context?.[action.context_key || 'editor_id'] || ''}
+                      onChange={(e) => setEditorOnTask(task, e.target.value)}
+                      style={{
+                        flex: 1,
+                        background: 'rgba(255,255,255,0.06)',
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        borderRadius: 6,
+                        padding: '6px 10px',
+                        color: '#fff',
+                        fontSize: 13,
+                      }}
+                    >
+                      <option value="">— Pick someone —</option>
+                      {activeProfiles.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name} ({p.role})</option>
+                      ))}
+                    </select>
+                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', fontStyle: 'italic', whiteSpace: 'nowrap' }}>
+                      {action.label}
+                    </span>
+                  </div>
+                ) : action.type === 'auto' ? (
+                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', fontStyle: 'italic' }}>
+                    {action.label}
+                  </span>
                 ) : !isReviewProposal && (
                   <>
                     <button
