@@ -178,6 +178,20 @@ function Freelancers() {
     if (expandedAssignment) fetchComments(expandedAssignment);
   }, [expandedAssignment, fetchComments]);
 
+  // Mark fl_stuck notifications for this assignment as read when expanded.
+  useEffect(() => {
+    if (!expandedAssignment || !profile?.id) return;
+    (async () => {
+      await supabase
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('user_id', profile.id)
+        .eq('type', 'fl_stuck')
+        .eq('link_target', expandedAssignment)
+        .eq('is_read', false);
+    })();
+  }, [expandedAssignment, profile?.id]);
+
   // Fetch Cloud folders when invite form opens
   useEffect(() => {
     if (!showInviteForm) return;

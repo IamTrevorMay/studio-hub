@@ -543,6 +543,22 @@ export function AuthProvider({ children }) {
     }
   }, [user, profile?.role]);
 
+  const [stuckCommentCount, setStuckCommentCount] = useState(0);
+  const fetchStuckCommentCount = useCallback(async () => {
+    if (!user || profile?.role !== 'admin') { setStuckCommentCount(0); return; }
+    try {
+      const { count, error } = await supabase
+        .from('notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('type', 'fl_stuck')
+        .eq('is_read', false);
+      if (!error) setStuckCommentCount(count || 0);
+    } catch (err) {
+      console.error('Error fetching stuck comment count:', err);
+    }
+  }, [user, profile?.role]);
+
   const [myTaskCount, setMyTaskCount] = useState(0);
   const fetchMyTaskCount = useCallback(async () => {
     if (!user) { setMyTaskCount(0); return; }
@@ -581,7 +597,8 @@ export function AuthProvider({ children }) {
     fetchUnsignedDocCount();
     fetchNewAssignmentCount();
     fetchMyTaskCount();
-  }, [fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions, fetchUnreadNotificationCount, fetchPendingProposalCount, fetchUnsignedDocCount, fetchNewAssignmentCount, fetchMyTaskCount]);
+    fetchStuckCommentCount();
+  }, [fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions, fetchUnreadNotificationCount, fetchPendingProposalCount, fetchUnsignedDocCount, fetchNewAssignmentCount, fetchMyTaskCount, fetchStuckCommentCount]);
 
   // Initial fetch + real-time subscriptions + 5-min fallback poll
   useEffect(() => {
@@ -603,6 +620,7 @@ export function AuthProvider({ children }) {
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => {
         fetchUnreadNotificationCount();
+        fetchStuckCommentCount();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'ad_read_proposals' }, () => {
         fetchPendingProposalCount();
@@ -625,7 +643,7 @@ export function AuthProvider({ children }) {
       supabase.removeChannel(channel);
       clearInterval(interval);
     };
-  }, [user, refreshNotifications, fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions, fetchUnreadNotificationCount, fetchPendingProposalCount, fetchUnsignedDocCount, fetchNewAssignmentCount, fetchMyTaskCount, refreshKey]);
+  }, [user, refreshNotifications, fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions, fetchUnreadNotificationCount, fetchPendingProposalCount, fetchUnsignedDocCount, fetchNewAssignmentCount, fetchMyTaskCount, fetchStuckCommentCount, refreshKey]);
 
   const value = {
     user,
@@ -657,6 +675,7 @@ export function AuthProvider({ children }) {
     unsignedDocCount,
     newAssignmentCount,
     myTaskCount,
+    stuckCommentCount,
     refreshKey,
   };
 

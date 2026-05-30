@@ -144,7 +144,7 @@ const NAV_ICON_MAP = {
 };
 
 export default function AppLayout() {
-  const { profile, signOut, isAdmin, isAssistant, isPartner, isFreelancer, unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, newAssignmentCount, myTaskCount, refreshNotifications } = useAuth();
+  const { profile, signOut, isAdmin, isAssistant, isPartner, isFreelancer, unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, newAssignmentCount, myTaskCount, stuckCommentCount, refreshNotifications } = useAuth();
   const { getResolvedNav, saveConfig, saving } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => getTabFromPath() || localStorage.getItem('studio-hub-tab') || 'dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -485,6 +485,9 @@ export default function AppLayout() {
                       )}
                       {entry.key === 'fl_dashboard' && newAssignmentCount > 0 && (
                         <span style={styles.navDot} />
+                      )}
+                      {entry.key === 'freelancers' && stuckCommentCount > 0 && (
+                        <span style={styles.navBadge}>{stuckCommentCount}</span>
                       )}
                     </button>
                   );
