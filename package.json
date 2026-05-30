@@ -64,6 +64,7 @@
     "test:edge": "deno test supabase/functions/ --allow-env --allow-net --allow-read --no-check",
     "test:db": "cat supabase/tests/run-db-checks.sql | npx supabase db query --linked",
     "test:all": "npm run test:frontend && npm run test:edge && npm run test:db",
+    "lint:styles": "node scripts/lint-styles.js",
     "eject": "react-scripts eject"
   },
   "browserslist": {
