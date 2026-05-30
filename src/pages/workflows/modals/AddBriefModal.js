@@ -8,7 +8,10 @@ export default function AddBriefModal({ task, onSubmit, onClose }) {
   const [label, setLabel] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const campaignId = task.workflow_instance?.context?.campaign_id;
+  // Workflow tasks carry the campaign in context; one-off (direct) tasks carry
+  // it as the related entity.
+  const campaignId = task.workflow_instance?.context?.campaign_id
+    || (task.related_entity_type === 'campaign' ? task.related_entity_id : null);
   const brandName = task.workflow_instance?.context?.brand_name || '';
 
   const canSubmit = mode === 'upload' ? !!file : !!url.trim();

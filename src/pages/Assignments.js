@@ -40,6 +40,14 @@ const PAGES = [
   { key: 'messages', label: 'Messages' },
 ];
 
+// One-off templates that reuse a workflow block's action/modal. Each acts on a
+// specific record the assigner picks.
+const TASK_TEMPLATES = [
+  { key: 'write_ad_reads', label: 'Write Ad Read', entity: 'deliverable', titlePrefix: 'Write ad read' },
+  { key: 'collect_brief', label: 'Add Brief', entity: 'campaign', titlePrefix: 'Add brief' },
+  { key: 'connect_to_video', label: 'Connect to Video', entity: 'deliverable', titlePrefix: 'Connect to video' },
+];
+
 function fmtDate(d) {
   if (!d) return '';
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -67,6 +75,12 @@ export default function Assignments() {
   const [link, setLink] = useState('');
   const [navTarget, setNavTarget] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // Template + the record it acts on
+  const [template, setTemplate] = useState('');
+  const [recordId, setRecordId] = useState('');
+  const [recordSearch, setRecordSearch] = useState('');
+  const [deliverables, setDeliverables] = useState([]);
+  const [campaigns, setCampaigns] = useState([]);
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type });
@@ -76,7 +90,7 @@ export default function Assignments() {
   const fetchData = useCallback(async () => {
     try {
       const sevenDaysAgo = new Date(Date.now() - SEVEN_DAYS_MS).toISOString();
-      const [profRes, pendRes, doneRes, declRes] = await Promise.all([
+      const [profRes, pendRes, doneRes, declRes, delivRes, campRes] = await Promise.all([
         supabase
           .from('profiles')
           .select('id, full_name, email, role')
@@ -97,11 +111,36 @@ export default function Assignments() {
           .eq('status', 'declined')
           .gte('completed_at', sevenDaysAgo)
           .order('completed_at', { ascending: false }),
+        supabase
+          .from('sponsor_deliverables')
+          .select('id, title, due_date, channel, delivered, status')
+          .order('due_date', { ascending: true }),
+        supabase
+          .from('sponsor_campaigns')
+          .select('id, name, end_date')
+          .order('name', { ascending: true }),
       ]);
       setProfiles((profRes.data || []).filter(p => p.role && p.role !== 'deactivated'));
       setPending(pendRes.data || []);
       setDone(doneRes.data || []);
       setDeclined(declRes.data || []);
+
+      // Active records for the template pickers
+      const today = new Date().toISOString().slice(0, 10);
+      const monthOf = (d) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short' }) : '';
+      setDeliverables(
+        (delivRes.data || [])
+          .filter(d => d.delivered !== true && (d.status || '').toLowerCase() !== 'archived')
+          .map(d => ({
+            id: d.id,
+            label: `${d.title || 'Untitled'}${d.channel ? ` · ${d.channel}` : ''}${d.due_date ? ` (${monthOf(d.due_date)})` : ''}`,
+          })),
+      );
+      setCampaigns(
+        (campRes.data || [])
+          .filter(c => !c.end_date || c.end_date >= today)
+          .map(c => ({ id: c.id, label: c.name || 'Untitled campaign' })),
+      );
     } catch (err) {
       console.error('Assignments fetch error:', err);
       showToast('Failed to load assignments', 'error');
@@ -150,8 +189,28 @@ export default function Assignments() {
     setAssignees(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
 
+  const activeTemplate = TASK_TEMPLATES.find(t => t.key === template) || null;
+  const recordOptions = useMemo(() => {
+    if (!activeTemplate) return [];
+    const list = activeTemplate.entity === 'campaign' ? campaigns : deliverables;
+    const q = recordSearch.trim().toLowerCase();
+    return q ? list.filter(r => r.label.toLowerCase().includes(q)) : list;
+  }, [activeTemplate, campaigns, deliverables, recordSearch]);
+
+  const onPickTemplate = (key) => {
+    setTemplate(key);
+    setRecordId('');
+    setRecordSearch('');
+  };
+  const onPickRecord = (rec) => {
+    setRecordId(rec.id);
+    setRecordSearch(rec.label);
+    if (activeTemplate) setTitle(`${activeTemplate.titlePrefix}: ${rec.label}`);
+  };
+
   const handleAssign = async () => {
     if (!title.trim() || assignees.length === 0) return;
+    if (activeTemplate && !recordId) return;
     setSubmitting(true);
     try {
       const { data, error } = await supabase.functions.invoke('assign-task', {
@@ -163,12 +222,18 @@ export default function Assignments() {
           notes: notes.trim() || null,
           link_url: link.trim() || null,
           nav_target: navTarget || null,
+          ...(activeTemplate ? {
+            step_key: activeTemplate.key,
+            related_entity_type: activeTemplate.entity,
+            related_entity_id: recordId,
+          } : {}),
         },
       });
       if (error || data?.error) throw new Error(error?.message || data?.error);
       const n = (data?.created_task_ids || []).length;
       showToast(`Assigned to ${n} ${n === 1 ? 'person' : 'people'}`);
       setTitle(''); setAssignees([]); setDueDate(''); setNotes(''); setLink(''); setNavTarget('');
+      setTemplate(''); setRecordId(''); setRecordSearch('');
       await fetchData();
     } catch (err) {
       showToast('Assign failed: ' + err.message, 'error');
@@ -190,7 +255,7 @@ export default function Assignments() {
     }
   };
 
-  const canAssign = title.trim() && assignees.length > 0 && !submitting;
+  const canAssign = title.trim() && assignees.length > 0 && (!activeTemplate || recordId) && !submitting;
 
   return (
     <div style={styles.page}>
@@ -218,7 +283,45 @@ export default function Assignments() {
           placeholder="What needs doing? (e.g. Send me your June availability)"
         />
 
-        <div style={styles.fieldLabel}>Assign to {assignees.length > 0 && <span style={styles.countPill}>{assignees.length}</span>}</div>
+        <div style={styles.fieldLabel}>Template (optional)</div>
+        <select style={styles.input} value={template} onChange={e => onPickTemplate(e.target.value)}>
+          <option value="">— Plain task —</option>
+          {TASK_TEMPLATES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+        </select>
+
+        {activeTemplate && (
+          <div style={{ marginTop: 10 }}>
+            <div style={styles.fieldLabel}>
+              {activeTemplate.entity === 'campaign' ? 'Campaign' : 'Deliverable'}
+              {!recordId && <span style={{ color: '#f87171', marginLeft: 6 }}>required</span>}
+            </div>
+            <input
+              style={styles.input}
+              value={recordSearch}
+              onChange={e => { setRecordSearch(e.target.value); setRecordId(''); }}
+              placeholder={`Search ${activeTemplate.entity}s…`}
+            />
+            {!recordId && (
+              <div style={styles.recordList}>
+                {recordOptions.length === 0 ? (
+                  <div style={styles.recordEmpty}>No active {activeTemplate.entity}s found</div>
+                ) : recordOptions.slice(0, 50).map(rec => (
+                  <div key={rec.id} style={styles.recordRow} onClick={() => onPickRecord(rec)}>
+                    {rec.label}
+                  </div>
+                ))}
+              </div>
+            )}
+            {recordId && (
+              <div style={styles.recordPicked}>
+                ✓ {recordSearch}
+                <button style={styles.recordClear} onClick={() => { setRecordId(''); setRecordSearch(''); }}>change</button>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={{ ...styles.fieldLabel, marginTop: 12 }}>Assign to {assignees.length > 0 && <span style={styles.countPill}>{assignees.length}</span>}</div>
         <PeopleChips label="Team" people={team} selected={assignees} onToggle={toggleAssignee} tasks={byAssignee} />
         <PeopleChips label="Contractors" people={contractors} selected={assignees} onToggle={toggleAssignee} tasks={byAssignee} />
 
@@ -422,6 +525,25 @@ const styles = {
   assignBtn: {
     background: '#6366f1', border: 'none', color: '#fff', borderRadius: 9,
     padding: '9px 20px', fontSize: 13, fontWeight: 700,
+  },
+  recordList: {
+    marginTop: 6, maxHeight: 180, overflowY: 'auto',
+    border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8,
+    background: 'rgba(0,0,0,0.25)',
+  },
+  recordRow: {
+    padding: '8px 10px', fontSize: 13, color: 'rgba(255,255,255,0.8)',
+    cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)',
+  },
+  recordEmpty: { padding: '10px', fontSize: 12, color: 'rgba(255,255,255,0.35)', fontStyle: 'italic' },
+  recordPicked: {
+    marginTop: 6, padding: '7px 10px', borderRadius: 8, fontSize: 13,
+    background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.4)',
+    color: '#c7d2fe', display: 'flex', alignItems: 'center', gap: 8,
+  },
+  recordClear: {
+    marginLeft: 'auto', background: 'none', border: 'none', color: '#a5b4fc',
+    fontSize: 11, cursor: 'pointer', textDecoration: 'underline',
   },
 
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 },

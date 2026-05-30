@@ -53,6 +53,14 @@ export default function PickVideoEventModal({ task, onSubmit, onClose }) {
     if (!selectedId) return;
     setSubmitting(true);
     try {
+      // Self-write the link so this works for one-off tasks too (workflow tasks
+      // also run the set_video_event handler — the repeat write is harmless).
+      if (task.related_entity_id) {
+        await supabase
+          .from('sponsor_deliverables')
+          .update({ video_event_id: selectedId })
+          .eq('id', task.related_entity_id);
+      }
       await onSubmit({
         video_event_id: selectedId,
         deliverable_id: task.related_entity_id,

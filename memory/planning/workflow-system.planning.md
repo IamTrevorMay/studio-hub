@@ -12,8 +12,10 @@ A task delegation engine for Mayday Studio. Every multi-step process is modeled 
 |-------|--------|-------|
 | Phase 1: Engine + UI | **Complete** | Schema, edge functions, My Tasks page, notifications |
 | Phase 2: Ad Read Pipeline | **Complete** | First real workflow wired end-to-end with auto-publish |
-| Phase 3A: Data-Driven Builder | **Schema ready** | Builder tables deployed, UI pending |
-| Phase 3B: Additional Workflows | Not started | |
+| Phase 3A: Data-Driven Builder | **Complete** | Shortcuts canvas, two-tier versioning, step names, plain-language summaries |
+| Phase 3B: Additional Workflows | **Mayday Video live** | Trigger-driven, editor handoff. See `mayday-video-workflow-test-plan.md` |
+| Phase 4: Direct Tasks + Assignments | **Complete** | One-off tasks, decline, "Do it" deep-links, templates, people grid |
+| Admin Mode | **Complete** | Modes system — admin pages split out of the default Work View |
 
 ---
 
@@ -318,3 +320,70 @@ Bell icon uses existing `unreadNotificationCount` — workflow notifications app
 - Recurring workflows (scheduled triggers)
 - Workflow analytics (avg completion time, bottleneck detection)
 - Non-admin task assignees with scoped visibility
+
+---
+
+## 8. Builder versioning, step names, summaries (shipped 2026-05-30)
+
+- **Two-tier versioning.** `workflow_versions.version_number` is now `numeric`.
+  Manual **Publish** (confirm modal) advances the **major** version (`floor(max)+1`)
+  and is the ONLY thing that moves `workflows.current_version_id`. Auto-save (debounced
+  800ms after any edit) writes silent **micro** versions under the active major
+  (`N.001`, `N.002`). Helpers in `Workflows.js`: `formatVersion`, `isMajorVersion`,
+  `publishVersion({mode:'major'|'micro'})`. Version History lists majors (bold,
+  "published") vs micros (indented, "auto-save") with an ACTIVE badge.
+- **Trigger-driven workflows run off LIVE rows**, not the pinned version
+  (`workflow-internal` / `workflow-complete-task` pass `versionId = null` →
+  `buildDefinitionFromDB`). So edits take effect immediately; the version trail is
+  history/rollback only.
+- **Step names.** `workflow_steps.name` (migration `20260530220000`). Editable field at
+  the top of each block in `ShortcutsCanvas.js`; also used by the plain-language
+  **"When/if … then …"** summary (`describeStep`).
+- **Mayday handoff fix.** `mayday:film_send_handoff` handler added to
+  `action-registry.ts` — copies `editor_assignment_id` into instance context so
+  `wait_on_edit` can auto-complete. Without it the workflow stalled at step 4.
+
+## 9. Direct tasks + Assignments page (shipped 2026-05-30)
+
+Admin-only **Assignments** page (`src/pages/Assignments.js`, top-level nav).
+
+- **Direct task = a `tasks` row with `workflow_instance_id IS NULL`.** Migration
+  `20260530230000` made that column nullable and added `due_date`, `link_url`,
+  `created_by`. Direct tasks land in the assignee's My Tasks and reuse
+  complete/hold/snooze. `step_key = 'direct_task'` → `workflowSteps.js` maps it to a
+  plain `complete` action.
+- **`assign-task` edge function** (admin JWT): `create` (one row per assignee + notify)
+  and `cancel` (delete, direct-only). Accepts a whitelisted template `step_key` +
+  `related_entity_type`/`related_entity_id`.
+- **`workflow-complete-task`** short-circuits instance-less tasks (mark complete, no
+  advance).
+- **People grid:** Team (admin/assistant/member/partner) + Contractors (freelancer)
+  sections; each card shows pending / done-7d / declined-7d across workflow + direct
+  tasks. Live via a `tasks` Realtime subscription + `useVisibilityRefresh`.
+- **Decline** (migration `20260530240000`: `'declined'` added to tasks status +
+  task_event type). New `decline` action in `workflow-update-task`: marks declined,
+  saves reason, notifies admins, does NOT advance the workflow. My Tasks has a Decline
+  button + modal.
+- **"Do it" button** (`tasks.nav_target`, a page/tab key). My Tasks renders a "Do it →"
+  button that deep-links to that page; assign form has a page dropdown.
+- **One-off templates** reuse workflow blocks as direct tasks. `TASK_TEMPLATES` in
+  `Assignments.js`: `write_ad_reads` (deliverable), `collect_brief` (campaign),
+  `connect_to_video` (deliverable). Picker is active-only + searchable. The modals were
+  made instance-independent: `AddBriefModal` falls back to `related_entity_id` for the
+  campaign; `PickVideoEventModal` self-writes the deliverable→event link (workflow path
+  also runs `set_video_event` — idempotent). `WriteAdReadModal` already used
+  `related_entity_id`.
+
+## 10. Modes — Admin Mode (shipped 2026-05-30)
+
+`AppLayout.js` `mode` state (`'work' | 'admin'`, persisted in `localStorage`, admin-only).
+The bottom sidebar button toggles **"Admin Mode" ⇄ "Exit Admin Mode"** (replaced the old
+Admin Settings button).
+
+- **Work View** (default, all users): admin pages removed — `ADMIN_PAGE_KEYS =
+  ['assignments','payroll','analytics','business_dev','freelancers','workflows']` plus
+  Admin Settings. `buildWorkNav()` strips them, retires the "Core Team" folder (promotes
+  Invoicing to top level), and drops empty folders.
+- **Admin Mode:** `ADMIN_MODE_NAV` = essentials (Dashboard, My Tasks, Messages) → divider
+  → admin pages + Admin Settings. Switching reconciles `activeTab`; nav editor hidden.
+- Built to extend into more modes later.

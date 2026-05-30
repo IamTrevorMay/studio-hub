@@ -53,14 +53,25 @@ Deno.serve(async (req: Request) => {
     const linkUrl = ((body.link_url as string) || "").trim() || null;
     const navTarget = ((body.nav_target as string) || "").trim() || null;
 
+    // Optional template: reuse a workflow block's action/modal as a one-off.
+    // Whitelisted so a client can't set an arbitrary step_key.
+    const TEMPLATE_KEYS = ["write_ad_reads", "collect_brief", "connect_to_video"];
+    const reqStepKey = (body.step_key as string) || "direct_task";
+    const stepKey = TEMPLATE_KEYS.includes(reqStepKey) ? reqStepKey : "direct_task";
+    const relType = stepKey === "direct_task" ? null : ((body.related_entity_type as string) || null);
+    const relId = stepKey === "direct_task" ? null : ((body.related_entity_id as string) || null);
+
     if (!title) return jsonResp({ error: "title is required" }, 400);
     if (assigneeIds.length === 0) {
       return jsonResp({ error: "at least one assignee is required" }, 400);
     }
+    if (stepKey !== "direct_task" && !relId) {
+      return jsonResp({ error: "a record must be selected for this template" }, 400);
+    }
 
     const rows = assigneeIds.map((uid) => ({
       workflow_instance_id: null,
-      step_key: "direct_task",
+      step_key: stepKey,
       title,
       description: notes,
       assignee_id: uid,
@@ -68,6 +79,8 @@ Deno.serve(async (req: Request) => {
       due_date: dueDate,
       link_url: linkUrl,
       nav_target: navTarget,
+      related_entity_type: relType,
+      related_entity_id: relId,
       created_by: auth.userId,
       position: 0,
     }));
