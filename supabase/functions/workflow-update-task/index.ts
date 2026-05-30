@@ -107,6 +107,41 @@ Deno.serve(async (req: Request) => {
       return jsonResp({ ok: true, status: "active" });
     }
 
+    // ─── Decline ─────────────────────────────────────────────
+    case "decline": {
+      if (!isOwner && !isAdmin) {
+        return jsonResp({ error: "Not authorized" }, 403);
+      }
+      if (task.status !== "active" && task.status !== "on_hold") {
+        return jsonResp({ error: `Cannot decline a ${task.status} task` }, 400);
+      }
+      const declineReason = (body.reason as string) || "";
+
+      await admin
+        .from("tasks")
+        .update({
+          status: "declined",
+          hold_reason: declineReason.trim() || null,
+          completed_at: new Date().toISOString(),
+        })
+        .eq("id", taskId);
+
+      await logEvent(admin, taskId, "declined", auth.userId, {
+        reason: declineReason.trim() || null,
+      });
+
+      // Let the admins know — they decide whether to reassign or drop it.
+      // (We deliberately do NOT advance/complete the workflow on a decline.)
+      await notifyAdmins(
+        admin,
+        "Task declined",
+        `"${task.title}"${declineReason.trim() ? ` — ${declineReason.trim()}` : ""}`,
+        taskId,
+      );
+
+      return jsonResp({ ok: true, status: "declined" });
+    }
+
     // ─── Snooze ──────────────────────────────────────────────
     case "snooze": {
       if (!isOwner && !isAdmin) {

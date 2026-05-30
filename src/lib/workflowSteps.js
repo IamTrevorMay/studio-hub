@@ -21,6 +21,9 @@ const STEP_ACTIONS = {
   write_ad_reads:   { type: 'write_ad_read', label: 'Write It', modalKey: 'write_ad_read', navigateTab: 'deliverables' },
   connect_to_video: { type: 'modal', label: 'Connect Video', modalKey: 'pick_video_event' },
 
+  // ─── Direct (one-off) assignment ────────────────────────────
+  direct_task: { type: 'complete', label: 'Mark Done' },
+
   // ─── Mayday Video Workflow ──────────────────────────────────
   pre_production:      { type: 'complete', label: 'Complete', confirm: true },
   filming_prep:        { type: 'complete', label: 'Complete', confirm: true },

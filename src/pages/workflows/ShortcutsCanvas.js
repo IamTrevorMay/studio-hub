@@ -96,6 +96,7 @@ function conditionText(step) {
 function stepTitleLabel(stepKey, allSteps) {
   const s = (allSteps || []).find((x) => x.step_key === stepKey);
   if (!s) return `the ${stepKey} step`;
+  if (s.name && s.name.trim()) return `“${s.name.trim()}”`;
   const t = (s.title_template || '').replace(/\{\{(\w+)\}\}/g, '…').trim();
   return t ? `“${t}”` : `the ${stepKey} step`;
 }
@@ -829,6 +830,26 @@ function StepCard({
           )}
         </div>
       </div>
+
+      {/* Editable step name */}
+      <input
+        type="text"
+        value={step.name || ''}
+        disabled={disabled}
+        onChange={(e) => onUpdate({ name: e.target.value })}
+        placeholder="Name this step…"
+        style={{
+          width: '100%',
+          background: 'transparent',
+          border: 'none',
+          borderBottom: '1px solid rgba(255,255,255,0.08)',
+          color: '#fff',
+          fontSize: 16,
+          fontWeight: 700,
+          padding: '2px 0 6px',
+          outline: 'none',
+        }}
+      />
 
       {/* Plain-language summary */}
       <div style={{

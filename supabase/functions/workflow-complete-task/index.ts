@@ -81,6 +81,23 @@ Deno.serve(async (req: Request) => {
     return jsonResp({ error: `Task is ${task.status}, not active` }, 400);
   }
 
+  // Direct (one-off) task: no workflow to advance — just mark it complete.
+  if (!task.workflow_instance_id) {
+    const { error: dErr } = await admin
+      .from("tasks")
+      .update({
+        status: "complete",
+        completion_payload: payload || {},
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", task_id);
+    if (dErr) {
+      return jsonResp({ error: `Failed to complete task: ${dErr.message}` }, 500);
+    }
+    await logEvent(admin, task_id, "completed", auth.userId, payload || {});
+    return jsonResp({ completed: task_id, next_task_ids: [] });
+  }
+
   if (!instance || instance.status !== "active") {
     return jsonResp({ error: "Workflow instance is not active" }, 400);
   }

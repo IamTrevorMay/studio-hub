@@ -36,6 +36,7 @@ import FreelancerDocuments from './FreelancerDocuments';
 import Freelancers from './Freelancers';
 import Ideas from './Ideas';
 import MyTasks from './MyTasks';
+import Assignments from './Assignments';
 import Workflows from './Workflows';
 import Morty from '../components/Morty';
 import FreelancerTour from '../components/FreelancerTour';
@@ -47,6 +48,7 @@ import FreelancerTour from '../components/FreelancerTour';
 const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard', icon: DashboardIcon },
   { key: 'my_tasks', label: 'My Tasks', icon: MyTasksIcon },
+  { key: 'assignments', label: 'Assignments', icon: AssignmentsIcon, adminOnly: true },
   { key: 'projects', label: 'Projects', icon: ProjectsIcon },
   { key: 'write', label: 'Write', icon: ResourcesIcon },
   { key: 'production', label: 'Beat Sheet', icon: ProductionIcon },
@@ -107,6 +109,7 @@ function openTritonTool(targetPath) {
 const NAV_ICON_MAP = {
   dashboard: DashboardIcon,
   my_tasks: MyTasksIcon,
+  assignments: AssignmentsIcon,
   write: ResourcesIcon,
   production: ProductionIcon,
   scene_builder: ToolsIcon,
@@ -632,6 +635,7 @@ export default function AppLayout() {
         <div ref={mainContentRef} style={styles.mainContent}>
           {activeTab === 'dashboard' && <Dashboard onNavigate={navigateTo} />}
           {activeTab === 'my_tasks' && <MyTasks onNavigate={navigateTo} />}
+          {isAdmin && activeTab === 'assignments' && <Assignments />}
           {activeTab === 'projects' && <Projects onNavigate={navigateTo} />}
           {activeTab === 'deliverables' && <Deliverables initialCampaignId={navTarget} onCampaignOpened={() => setNavTarget(null)} />}
           {activeTab === 'calendar' && <Calendar onNavigate={navigateTo} />}
@@ -1047,6 +1051,16 @@ function WorkflowsIcon({ active }) {
       <circle cx="15" cy="10" r="2" />
       <circle cx="10" cy="17" r="2" />
       <path d="M10 5v3M8 9l-1.5-1M12 9l1.5-1M7 11l1.5 4.5M13 11l-1.5 4.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function AssignmentsIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <rect x="4" y="3" width="12" height="14" rx="2" />
+      <path d="M7.5 3.5h5v2h-5z" fill={active ? '#a5b4fc' : '#6b7280'} stroke="none" />
+      <path d="M7 9.5l1.3 1.3L11 8.2M7 13.5h4" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

@@ -185,6 +185,8 @@ export default function MyTasks({ onNavigate }) {
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState(null);
   const [holdModalTask, setHoldModalTask] = useState(null);
+  const [declineModalTask, setDeclineModalTask] = useState(null);
+  const [declineReason, setDeclineReason] = useState('');
   const [holdReason, setHoldReason] = useState('');
   const [snoozeOpenId, setSnoozeOpenId] = useState(null);
   const [completingIds, setCompletingIds] = useState(new Set());
@@ -343,6 +345,29 @@ export default function MyTasks({ onNavigate }) {
       refreshNotifications();
     } catch (err) {
       console.error('Hold failed:', err);
+      alert(err.message);
+    }
+  };
+
+  const handleDeclineSubmit = async () => {
+    if (!declineModalTask) return;
+    const task = declineModalTask;
+    try {
+      await callWorkflowFn('workflow-update-task', {
+        task_id: task.id,
+        action: 'decline',
+        reason: declineReason.trim(),
+      });
+      setDeclineModalTask(null);
+      setDeclineReason('');
+      setFadingIds(prev => new Set(prev).add(task.id));
+      setTimeout(() => {
+        setTasks(prev => prev.filter(t => t.id !== task.id));
+        setFadingIds(prev => { const s = new Set(prev); s.delete(task.id); return s; });
+      }, 300);
+      refreshNotifications();
+    } catch (err) {
+      console.error('Decline failed:', err);
       alert(err.message);
     }
   };
@@ -541,6 +566,23 @@ export default function MyTasks({ onNavigate }) {
                 )}
               </div>
 
+              {/* Direct-task due date + link */}
+              {(task.due_date || task.link_url) && (
+                <div style={styles.directMeta}>
+                  {task.due_date && (
+                    <span style={{ ...styles.duePill, ...(new Date(task.due_date) < new Date() ? styles.duePillOverdue : {}) }}>
+                      {new Date(task.due_date) < new Date() ? 'Overdue · ' : 'Due '}
+                      {new Date(task.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </span>
+                  )}
+                  {task.link_url && (
+                    <a href={task.link_url} target="_blank" rel="noopener noreferrer" style={styles.linkBtn}>
+                      {'🔗'} Open link
+                    </a>
+                  )}
+                </div>
+              )}
+
               {/* Summary line */}
               {!isReviewProposal && task.related_entity_type === 'deliverable' && task.related_entity_id && (() => {
                 const meta = deliverableMeta[task.related_entity_id];
@@ -633,12 +675,12 @@ export default function MyTasks({ onNavigate }) {
                   <>
                     <button
                       style={styles.primaryBtn}
-                      onClick={() => handlePrimaryAction(task)}
+                      onClick={() => task.nav_target && onNavigate ? onNavigate(task.nav_target) : handlePrimaryAction(task)}
                       disabled={isCompleting}
                     >
-                      {isCompleting ? 'Working...' : action.label}
+                      {isCompleting ? 'Working...' : (task.nav_target ? 'Do it →' : action.label)}
                     </button>
-                    {action.type === 'navigate' && (
+                    {(action.type === 'navigate' || task.nav_target) && (
                       <button
                         style={styles.markDoneBtn}
                         onClick={() => handleComplete(task)}
@@ -686,6 +728,16 @@ export default function MyTasks({ onNavigate }) {
                     </div>
                   )}
                 </div>
+
+                {/* Decline */}
+                {!isReviewProposal && action.type !== 'auto' && (
+                  <button
+                    style={styles.declineBtn}
+                    onClick={() => setDeclineModalTask(task)}
+                  >
+                    Decline
+                  </button>
+                )}
 
                 {/* Expand toggle (skip for review_proposal — full proposal already inline) */}
                 {!isReviewProposal && task.description && (
@@ -813,6 +865,38 @@ export default function MyTasks({ onNavigate }) {
                 disabled={!holdReason.trim()}
               >
                 Put on Hold
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Decline modal */}
+      {declineModalTask && (
+        <div style={styles.modalOverlay} onClick={() => { setDeclineModalTask(null); setDeclineReason(''); }}>
+          <div style={styles.modal} onClick={e => e.stopPropagation()}>
+            <h3 style={styles.modalTitle}>Decline this task?</h3>
+            <p style={styles.modalSubtitle}>{declineModalTask.title}</p>
+            <textarea
+              style={styles.holdInput}
+              placeholder="Reason (optional) — sent to the admins"
+              value={declineReason}
+              onChange={e => setDeclineReason(e.target.value)}
+              autoFocus
+              rows={3}
+            />
+            <div style={styles.modalActions}>
+              <button
+                style={styles.secondaryBtn}
+                onClick={() => { setDeclineModalTask(null); setDeclineReason(''); }}
+              >
+                Cancel
+              </button>
+              <button
+                style={{ ...styles.primaryBtn, background: '#ef4444' }}
+                onClick={handleDeclineSubmit}
+              >
+                Decline Task
               </button>
             </div>
           </div>
@@ -972,6 +1056,35 @@ const styles = {
     margin: '0 0 8px',
     textTransform: 'capitalize',
   },
+  directMeta: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    margin: '0 0 8px',
+    flexWrap: 'wrap',
+  },
+  duePill: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: 'rgba(255,255,255,0.6)',
+    background: 'rgba(255,255,255,0.06)',
+    borderRadius: 5,
+    padding: '2px 8px',
+  },
+  duePillOverdue: {
+    color: '#fca5a5',
+    background: 'rgba(239,68,68,0.14)',
+  },
+  linkBtn: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: '#a5b4fc',
+    background: 'rgba(99,102,241,0.12)',
+    border: '1px solid rgba(99,102,241,0.25)',
+    borderRadius: 5,
+    padding: '2px 8px',
+    textDecoration: 'none',
+  },
   expandedSection: {
     padding: '8px 0',
     borderTop: '1px solid rgba(255,255,255,0.04)',
@@ -1023,6 +1136,17 @@ const styles = {
     background: 'rgba(249,115,22,0.15)',
     color: '#fb923c',
     border: '1px solid rgba(249,115,22,0.4)',
+    borderRadius: 6,
+    padding: '7px 14px',
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  declineBtn: {
+    background: 'rgba(239,68,68,0.12)',
+    color: '#f87171',
+    border: '1px solid rgba(239,68,68,0.35)',
     borderRadius: 6,
     padding: '7px 14px',
     fontSize: 12,
