@@ -79,6 +79,42 @@ const NAV_ITEMS = [
 
 const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_documents', 'fl_assignments', 'fl_submit', 'ideas'));
 
+// ─── Modes ──────────────────────────────────────────────────
+// Admin-only pages that live in Admin Mode and are hidden from the Work View.
+const ADMIN_PAGE_KEYS = ['assignments', 'payroll', 'analytics', 'business_dev', 'freelancers', 'workflows'];
+// Everyday anchors kept at the top of the Admin Mode sidebar.
+const ADMIN_ESSENTIAL_KEYS = ['dashboard', 'my_tasks', 'messages'];
+// Admin Mode sidebar: essentials, a divider, then the admin pages + settings.
+const ADMIN_MODE_NAV = [
+  { type: 'item', key: 'dashboard', label: 'Dashboard' },
+  { type: 'item', key: 'my_tasks', label: 'My Tasks' },
+  { type: 'item', key: 'messages', label: 'Messages' },
+  { type: 'divider' },
+  { type: 'item', key: 'assignments', label: 'Assignments' },
+  { type: 'item', key: 'payroll', label: 'Payroll' },
+  { type: 'item', key: 'analytics', label: 'Analytics' },
+  { type: 'item', key: 'business_dev', label: 'Business Dev' },
+  { type: 'item', key: 'freelancers', label: 'Contractors' },
+  { type: 'item', key: 'workflows', label: 'Workflows' },
+  { type: 'item', key: 'admin', label: 'Admin Settings' },
+];
+const ADMIN_MODE_KEYS = new Set([...ADMIN_ESSENTIAL_KEYS, ...ADMIN_PAGE_KEYS, 'admin']);
+
+// Work View nav: strip the admin pages, retire the (now-empty) "Core Team"
+// folder by promoting its remaining items to top level, and drop empty folders.
+function buildWorkNav(nav) {
+  let items = nav.filter(e => !(e.type === 'item' && ADMIN_PAGE_KEYS.includes(e.key)));
+  const coreTeamIds = new Set(
+    items.filter(e => e.type === 'folder' && /core team/i.test(e.label || '')).map(e => e.id),
+  );
+  items = items
+    .filter(e => !(e.type === 'folder' && coreTeamIds.has(e.id)))
+    .map(e => (e.type === 'item' && e.folderId && coreTeamIds.has(e.folderId)) ? { ...e, folderId: null } : e);
+  const childCount = {};
+  items.forEach(e => { if (e.type === 'item' && e.folderId) childCount[e.folderId] = (childCount[e.folderId] || 0) + 1; });
+  return items.filter(e => !(e.type === 'folder' && !childCount[e.id]));
+}
+
 function getTabFromPath() {
   const path = window.location.pathname.replace(/^\/+/, '').split('/')[0];
   if (path && VALID_TAB_KEYS.has(path)) return path;
@@ -136,6 +172,7 @@ const NAV_ICON_MAP = {
   workflows: WorkflowsIcon,
   channels: ChannelsIcon,
   messages: MessagesIcon,
+  admin: AdminIcon,
   fl_dashboard: DashboardIcon,
   fl_hours: HoursIcon,
   fl_profile: ProfileIcon,
@@ -150,6 +187,7 @@ export default function AppLayout() {
   const { profile, signOut, isAdmin, isAssistant, isPartner, isFreelancer, unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, newAssignmentCount, myTaskCount, stuckCommentCount, refreshNotifications } = useAuth();
   const { getResolvedNav, saveConfig, saving } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => getTabFromPath() || localStorage.getItem('studio-hub-tab') || 'dashboard');
+  const [mode, setMode] = useState(() => localStorage.getItem('studio-hub-mode') === 'admin' ? 'admin' : 'work');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [navTarget, setNavTarget] = useState(null);
   const [adminInitialTab, setAdminInitialTab] = useState(null);
@@ -170,7 +208,40 @@ export default function AppLayout() {
     localStorage.setItem('nav-folder-state', JSON.stringify(folderCollapseState));
   }, [folderCollapseState]);
 
+  // Non-admins can never be in Admin Mode; keep them pinned to Work View.
+  useEffect(() => {
+    if (!isAdmin && mode !== 'work') setMode('work');
+  }, [isAdmin, mode]);
+
+  useEffect(() => {
+    localStorage.setItem('studio-hub-mode', mode);
+  }, [mode]);
+
+  // On load (and when mode flips), keep the open page consistent with the mode.
+  useEffect(() => {
+    if (mode === 'admin' && isAdmin) {
+      if (!ADMIN_MODE_KEYS.has(activeTab)) setActiveTab('assignments');
+    } else if (ADMIN_PAGE_KEYS.includes(activeTab)) {
+      setActiveTab('dashboard');
+    }
+    // eslint-disable-next-line
+  }, [mode, isAdmin]);
+
   const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isFreelancer, profile);
+
+  // Mode-filtered nav. Admin-only pages live in Admin Mode and disappear from
+  // the default Work View; flipping the bottom button swaps the sidebar.
+  const displayNav = (mode === 'admin' && isAdmin) ? ADMIN_MODE_NAV : buildWorkNav(resolvedNav);
+
+  function toggleMode() {
+    if (mode === 'work') {
+      setMode('admin');
+      if (!ADMIN_MODE_KEYS.has(activeTab)) setActiveTab('assignments');
+    } else {
+      setMode('work');
+      if (ADMIN_PAGE_KEYS.includes(activeTab)) setActiveTab('dashboard');
+    }
+  }
 
   function toggleFolder(folderId) {
     setFolderCollapseState(prev => ({ ...prev, [folderId]: !prev[folderId] }));
@@ -352,11 +423,11 @@ export default function AppLayout() {
               {(() => {
                 // Build folder structure for rendering
                 const folders = {};
-                resolvedNav.filter(e => e.type === 'folder').forEach(f => {
+                displayNav.filter(e => e.type === 'folder').forEach(f => {
                   folders[f.id] = { ...f, children: [] };
                 });
                 const topLevel = [];
-                resolvedNav.forEach(entry => {
+                displayNav.forEach(entry => {
                   if (entry.type === 'folder') {
                     topLevel.push({ ...entry, children: folders[entry.id].children });
                   } else if (entry.folderId && folders[entry.folderId]) {
@@ -366,7 +437,12 @@ export default function AppLayout() {
                   }
                 });
 
-                return topLevel.map(entry => {
+                return topLevel.map((entry, entryIdx) => {
+                  if (entry.type === 'divider') {
+                    return sidebarCollapsed
+                      ? <div key={`div-${entryIdx}`} style={styles.navDividerCollapsed} />
+                      : <div key={`div-${entryIdx}`} style={styles.navDivider}>Admin</div>;
+                  }
                   if (entry.type === 'folder') {
                     // When sidebar collapsed, render children as top-level icons
                     if (sidebarCollapsed) {
@@ -499,8 +575,8 @@ export default function AppLayout() {
             </>
           )}
 
-          {/* Edit mode toggle - admin only, expanded sidebar only */}
-          {isAdmin && !sidebarCollapsed && !editMode && (
+          {/* Edit mode toggle - admin only, Work View, expanded sidebar only */}
+          {isAdmin && mode === 'work' && !sidebarCollapsed && !editMode && (
             <button
               onClick={() => setEditMode(true)}
               style={{
@@ -536,20 +612,20 @@ export default function AppLayout() {
           </svg>
         </button>
 
-        {/* Admin Settings button - between collapse toggle and user area */}
+        {/* Admin Mode toggle - between collapse toggle and user area */}
         {isAdmin && (
           <button
-            onClick={() => setActiveTab('admin')}
+            onClick={toggleMode}
             style={{
               ...styles.navItem,
-              ...(activeTab === 'admin' ? styles.navItemActive : {}),
+              ...(mode === 'admin' ? styles.navItemActive : {}),
               justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
               marginTop: '8px',
             }}
-            title={sidebarCollapsed ? 'Admin Settings' : undefined}
+            title={sidebarCollapsed ? (mode === 'admin' ? 'Exit Admin Mode' : 'Admin Mode') : undefined}
           >
-            <AdminIcon active={activeTab === 'admin'} />
-            {!sidebarCollapsed && <span>Admin Settings</span>}
+            <AdminIcon active={mode === 'admin'} />
+            {!sidebarCollapsed && <span>{mode === 'admin' ? 'Exit Admin Mode' : 'Admin Mode'}</span>}
           </button>
         )}
 
@@ -1241,6 +1317,21 @@ const styles = {
   navItemActive: {
     background: 'rgba(99,102,241,0.12)',
     color: '#a5b4fc',
+  },
+  navDivider: {
+    fontSize: '10px',
+    fontWeight: 700,
+    letterSpacing: '0.6px',
+    textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.3)',
+    padding: '12px 12px 4px',
+    borderTop: '1px solid rgba(255,255,255,0.07)',
+    marginTop: '6px',
+  },
+  navDividerCollapsed: {
+    height: '1px',
+    background: 'rgba(255,255,255,0.07)',
+    margin: '8px 8px',
   },
   navBadge: {
     position: 'absolute',
