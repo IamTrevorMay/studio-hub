@@ -217,6 +217,18 @@ const ACTION_REGISTRY: Record<string, ActionRegistryEntry> = {
     },
   },
 
+  "mayday:film_send_handoff": {
+    description:
+      "Mayday video — when the editor's Contractors assignment is created, stash its id into context so the wait_on_edit step can match the assignment's completion",
+    handler: async (_ctx, payload, _admin) => {
+      const assignmentId = payload.editor_assignment_id as string | undefined;
+      if (assignmentId) {
+        return { contextUpdates: { editor_assignment_id: assignmentId } };
+      }
+      return {};
+    },
+  },
+
   "ad_read:set_video_event": {
     description:
       "Link a deliverable to a video event on the calendar",

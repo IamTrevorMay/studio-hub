@@ -67,6 +67,25 @@ function formatDate(dateStr) {
   });
 }
 
+// Versions are stored as numeric: integer part = major (advanced on manual
+// Publish), three-decimal part = micro (auto-save trail). Display majors as
+// "v2" and micro-saves as "v2.001".
+function parseVersionNum(raw) {
+  const n = parseFloat(raw);
+  return Number.isNaN(n) ? null : n;
+}
+function isMajorVersion(raw) {
+  const n = parseVersionNum(raw);
+  return n != null && Math.round((n - Math.floor(n)) * 1000) === 0;
+}
+function formatVersion(raw) {
+  const n = parseVersionNum(raw);
+  if (n == null) return `v${raw}`;
+  const major = Math.floor(n);
+  const micro = Math.round((n - major) * 1000);
+  return micro === 0 ? `v${major}` : `v${major}.${String(micro).padStart(3, '0')}`;
+}
+
 // ─── Helper sub-components ───────────────────────────────────
 
 function ProfilePicker({ value, profiles, placeholder = 'Select a person…', onChange, disabled }) {
@@ -603,6 +622,7 @@ export default function Workflows() {
   // ── Version state ──
   const [versions, setVersions] = useState([]);
   const [showVersions, setShowVersions] = useState(false);
+  const [confirmPublish, setConfirmPublish] = useState(false);
   const autoPublishTimerRef = useRef(null);
   const autoPublishInFlightRef = useRef(false);
 
@@ -993,13 +1013,19 @@ export default function Workflows() {
   };
 
   // ─── Version Publishing ───────────────────────────────────
+  // Two tiers:
+  //   • mode 'micro' (auto-save): silent snapshot under the current major as
+  //     N.001, N.002, … Does NOT advance the active version pointer.
+  //   • mode 'major' (manual Publish, confirmed): snapshots as floor(max)+1
+  //     and advances workflows.current_version_id to it.
 
   const publishVersion = async (opts = {}) => {
-    const silent = !!opts.silent;
+    const mode = opts.mode === 'major' ? 'major' : 'micro';
+    const silent = mode === 'micro';
     if (!selectedId || !workflowForm) return;
     if (silent && autoPublishInFlightRef.current) return;
-    // Manual publish supersedes any pending auto-publish — cancel the timer
-    // so we don't end up with a duplicate version right after.
+    // Manual publish supersedes any pending auto-save — cancel the timer
+    // so we don't stack a micro-version right on top of the new major.
     if (!silent && autoPublishTimerRef.current) {
       clearTimeout(autoPublishTimerRef.current);
       autoPublishTimerRef.current = null;
@@ -1007,11 +1033,11 @@ export default function Workflows() {
     if (silent) autoPublishInFlightRef.current = true;
     else setPublishing(true);
     try {
-      // First save the header (skip toast when auto-publishing — the header
-      // save would fire its own "Saved" toast otherwise)
+      // Manual publish saves the header first (auto-save skips the header so it
+      // doesn't fire its own "Saved" toast on every keystroke).
       if (!silent) await saveWorkflowHeader();
 
-      // Fetch latest steps + outcomes for snapshot
+      // Fetch latest steps + outcomes for the snapshot
       const { data: snapSteps } = await supabase
         .from('workflow_steps')
         .select('*')
@@ -1029,24 +1055,35 @@ export default function Workflows() {
         snapOutcomes = oRows || [];
       }
 
-      // Determine version number from DB (avoid stale local state)
-      const { data: latestVer } = await supabase
+      // Pull all existing version numbers + the active one from the DB so we
+      // never compute off stale local state.
+      const { data: verRows } = await supabase
         .from('workflow_versions')
-        .select('version_number')
-        .eq('workflow_id', selectedId)
-        .order('version_number', { ascending: false })
-        .limit(1)
-        .single();
-      const newVersionNum = (latestVer?.version_number || 0) + 1;
+        .select('id, version_number')
+        .eq('workflow_id', selectedId);
+      const nums = (verRows || []).map(r => ({ id: r.id, n: parseVersionNum(r.version_number) }))
+        .filter(x => x.n != null);
+      const maxNum = nums.length ? Math.max(...nums.map(x => x.n)) : 0;
 
-      // Create snapshot
+      let newVersionNum;
+      if (mode === 'major') {
+        // Next whole number above everything that exists.
+        newVersionNum = Math.floor(maxNum) + 1;
+      } else {
+        // Micro-save under the currently-active major.
+        const activeNum = nums.find(x => x.id === selectedWorkflow?.current_version_id)?.n;
+        const activeMajor = activeNum != null ? Math.floor(activeNum) : (Math.floor(maxNum) || 1);
+        const underMajor = nums.filter(x => Math.floor(x.n) === activeMajor).map(x => x.n);
+        const microBase = underMajor.length ? Math.max(...underMajor) : activeMajor;
+        newVersionNum = Math.round((microBase + 0.001) * 1000) / 1000;
+      }
+
       const snapshot = {
         steps: snapSteps || [],
         outcomes: snapOutcomes,
         firstStep: workflowForm.first_step_key,
       };
 
-      // Insert version
       const { data: versionRow, error: vErr } = await supabase
         .from('workflow_versions')
         .insert({
@@ -1060,33 +1097,34 @@ export default function Workflows() {
 
       if (vErr) throw vErr;
 
-      // Update workflows.current_version_id
-      const { error: wErr } = await supabase
-        .from('workflows')
-        .update({ current_version_id: versionRow.id })
-        .eq('id', selectedId);
+      // Only a manual Publish advances the active version pointer.
+      if (mode === 'major') {
+        const { error: wErr } = await supabase
+          .from('workflows')
+          .update({ current_version_id: versionRow.id })
+          .eq('id', selectedId);
+        if (wErr) throw wErr;
+        await fetchWorkflows();
+      }
 
-      if (wErr) throw wErr;
-
-      await fetchWorkflows();
       setVersions(prev => [versionRow, ...prev]);
-      if (!silent) showToast(`Published v${newVersionNum}`);
+      if (!silent) showToast(`Published ${formatVersion(newVersionNum)}`);
     } catch (err) {
-      // Auto-publish errors surface as toasts too — silent failures would be worse
-      showToast((silent ? 'Auto-publish failed: ' : 'Publish failed: ') + err.message, 'error');
+      // Auto-save errors surface as toasts too — silent failures would be worse
+      showToast((silent ? 'Auto-save failed: ' : 'Publish failed: ') + err.message, 'error');
     } finally {
       if (silent) autoPublishInFlightRef.current = false;
       else setPublishing(false);
     }
   };
 
-  // Debounced auto-publish: any builder change schedules a publish 800ms later.
-  // Subsequent changes reset the timer so we only publish once per burst of edits.
+  // Debounced auto-save: any builder change schedules a micro-version 800ms
+  // later. Subsequent changes reset the timer so we only save once per burst.
   const schedulePublish = useCallback(() => {
     if (autoPublishTimerRef.current) clearTimeout(autoPublishTimerRef.current);
     autoPublishTimerRef.current = setTimeout(() => {
       autoPublishTimerRef.current = null;
-      publishVersion({ silent: true });
+      publishVersion({ mode: 'micro' });
     }, 800);
   }, [selectedId, workflowForm]); // eslint-disable-line
 
@@ -1367,7 +1405,7 @@ export default function Workflows() {
                       </button>
                       <button
                         style={styles.publishBtn}
-                        onClick={publishVersion}
+                        onClick={() => setConfirmPublish(true)}
                         disabled={publishing || steps.length === 0}
                       >
                         {publishing ? 'Publishing...' : 'Publish'}
@@ -1415,16 +1453,25 @@ export default function Workflows() {
                   <div style={styles.versionList}>
                     {versions.length === 0 ? (
                       <p style={styles.noVersions}>No published versions yet</p>
-                    ) : versions.map(v => {
+                    ) : [...versions]
+                      .sort((a, b) => (parseVersionNum(b.version_number) || 0) - (parseVersionNum(a.version_number) || 0))
+                      .map(v => {
                       const isCurrent = selectedWorkflow?.current_version_id === v.id;
+                      const major = isMajorVersion(v.version_number);
                       return (
                         <div key={v.id} style={{
                           ...styles.versionRow,
+                          ...(major ? {} : { paddingLeft: 18, opacity: 0.62 }),
                           ...(isCurrent ? styles.versionRowCurrent : {}),
                         }}>
                           <div style={styles.versionInfo}>
-                            <span style={styles.versionNum}>v{v.version_number}</span>
-                            {isCurrent && <span style={styles.currentBadge}>CURRENT</span>}
+                            <span style={{ ...styles.versionNum, fontWeight: major ? 700 : 500 }}>
+                              {formatVersion(v.version_number)}
+                            </span>
+                            {major
+                              ? <span style={styles.publishedTag}>published</span>
+                              : <span style={styles.autosaveTag}>auto-save</span>}
+                            {isCurrent && <span style={styles.currentBadge}>ACTIVE</span>}
                             <span style={styles.versionDate}>{formatDate(v.published_at)}</span>
                           </div>
                           {!isCurrent && (
@@ -1432,7 +1479,7 @@ export default function Workflows() {
                               style={styles.rollbackBtn}
                               onClick={() => rollbackToVersion(v)}
                             >
-                              Rollback
+                              {major ? 'Make active' : 'Restore'}
                             </button>
                           )}
                         </div>
@@ -1664,6 +1711,40 @@ export default function Workflows() {
           </div>
         </div>
       )}
+
+      {/* ── Confirm Publish (advance major version) ── */}
+      {confirmPublish && (() => {
+        const allNums = versions.map(v => parseVersionNum(v.version_number) || 0);
+        const nextMajorLabel = `v${Math.floor(allNums.length ? Math.max(...allNums) : 0) + 1}`;
+        const activeRow = versions.find(v => v.id === selectedWorkflow?.current_version_id);
+        const activeLabel = activeRow ? formatVersion(activeRow.version_number) : 'none yet';
+        const doPublish = async () => {
+          setConfirmPublish(false);
+          await publishVersion({ mode: 'major' });
+        };
+        return (
+          <div style={styles.modalOverlay} onClick={() => setConfirmPublish(false)}>
+            <div style={styles.modal} onClick={e => e.stopPropagation()}>
+              <h3 style={styles.modalTitle}>Advance to {nextMajorLabel}?</h3>
+              <p style={styles.modalHint}>
+                Publishing snapshots the current draft as <strong>{nextMajorLabel}</strong> and makes
+                it the active version that new workflow runs use. Currently active: <strong>{activeLabel}</strong>.
+              </p>
+              <p style={styles.modalHint}>
+                Auto-saved micro-versions stay in history — only a manual publish moves the version forward.
+              </p>
+              <div style={styles.modalActions}>
+                <button style={styles.cancelBtn} onClick={() => setConfirmPublish(false)}>
+                  Cancel
+                </button>
+                <button style={styles.createBtn} onClick={doPublish} disabled={publishing}>
+                  {publishing ? 'Publishing...' : `Publish ${nextMajorLabel}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -2323,6 +2404,26 @@ const styles = {
     padding: '2px 6px',
     borderRadius: 3,
     letterSpacing: 0.5,
+  },
+  publishedTag: {
+    fontSize: 9,
+    fontWeight: 700,
+    color: '#22c55e',
+    background: 'rgba(34,197,94,0.14)',
+    padding: '2px 6px',
+    borderRadius: 3,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  autosaveTag: {
+    fontSize: 9,
+    fontWeight: 700,
+    color: 'rgba(255,255,255,0.4)',
+    background: 'rgba(255,255,255,0.05)',
+    padding: '2px 6px',
+    borderRadius: 3,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
   },
   versionDate: {
     fontSize: 11,

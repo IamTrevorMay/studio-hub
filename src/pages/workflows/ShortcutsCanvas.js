@@ -47,6 +47,85 @@ function categoryForStep(step) {
   }
 }
 
+// ─── Plain-language block summary ("When/if … then …") ──────
+// Read-only sentence derived from the block's own config: who it's for, any
+// condition gating it, what they do, and where the flow goes next.
+
+function humanizeKey(key) {
+  return (key || '').replace(/_id$/, '').replace(/_/g, ' ').trim();
+}
+
+function assigneePhrase(step, profiles) {
+  if (step.assignee_type === 'context') {
+    const k = humanizeKey(step.assignee_value) || 'someone';
+    return `the ${k}`;
+  }
+  const p = (profiles || []).find((x) => x.id === step.assignee_value);
+  return p ? (p.full_name || 'the assignee') : 'the assignee';
+}
+
+function actionPhrase(step) {
+  const cfg = step.action_config || {};
+  switch (step.action_type) {
+    case 'navigate': {
+      const t = NAVIGATE_TARGETS.find((x) => x.value === cfg.tab);
+      return `does the work on ${t ? t.label : 'a page'}`;
+    }
+    case 'modal':
+      return 'fills out a form';
+    case 'custom':
+      if (cfg.inline_editor_picker) return 'picks an editor (auto-completes once their assignment is created)';
+      if (cfg.auto_complete_on_assignment_done) return 'waits — auto-completes when the editor finishes their assignment';
+      return step.action_label ? `runs “${step.action_label}”` : 'runs custom logic';
+    case 'complete':
+    default:
+      return 'completes it';
+  }
+}
+
+function conditionText(step) {
+  const c = parseConditionExpression(step.condition_expression);
+  if (!c || c.op === 'always') return '';
+  const key = humanizeKey(c.key);
+  if (!key) return '';
+  if (c.op === 'has') return `${key} exists`;
+  if (c.op === 'eq') return `${key} is “${c.value}”`;
+  return `${key} is set`;
+}
+
+function stepTitleLabel(stepKey, allSteps) {
+  const s = (allSteps || []).find((x) => x.step_key === stepKey);
+  if (!s) return `the ${stepKey} step`;
+  const t = (s.title_template || '').replace(/\{\{(\w+)\}\}/g, '…').trim();
+  return t ? `“${t}”` : `the ${stepKey} step`;
+}
+
+function nextPhrase(outcomes, allSteps) {
+  const outs = (outcomes || []).filter(Boolean);
+  const linked = outs.filter((o) => o.next_step_key);
+  if (linked.length === 0) return 'the workflow ends';
+  if (outs.length <= 1) return `go to ${stepTitleLabel(linked[0].next_step_key, allSteps)}`;
+  const parts = outs.map((o) => {
+    const dest = o.next_step_key ? stepTitleLabel(o.next_step_key, allSteps) : 'end';
+    return `${o.label || o.outcome_key} → ${dest}`;
+  });
+  return `branch — ${parts.join('; ')}`;
+}
+
+function describeStep(step, outcomes, allSteps, profiles, isFirst) {
+  const who = assigneePhrase(step, profiles);
+  const act = actionPhrase(step);
+  const next = nextPhrase(outcomes, allSteps);
+  const cond = conditionText(step);
+  if (cond) {
+    return `If ${cond}, ${who} ${act}, then ${next}.`;
+  }
+  if (isFirst) {
+    return `When this workflow is triggered, ${who} ${act}, then ${next}.`;
+  }
+  return `When ${who} ${act}, then ${next}.`;
+}
+
 // ─── Tree builder ───────────────────────────────────────────
 
 function buildTree(steps, outcomesByStepId, firstStepKey) {
@@ -688,6 +767,7 @@ function StepCard({
   contextKeys,
   actionHandlers,
   allSteps,
+  stepOutcomes,
   disabled,
   onUpdate,
   onDelete,
@@ -695,6 +775,7 @@ function StepCard({
   isFirst,
 }) {
   const category = categoryForStep(step);
+  const summary = describeStep(step, stepOutcomes, allSteps, profiles, isFirst);
   const visual = CATEGORY[category];
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
@@ -747,6 +828,20 @@ function StepCard({
             </div>
           )}
         </div>
+      </div>
+
+      {/* Plain-language summary */}
+      <div style={{
+        fontSize: 12.5,
+        lineHeight: 1.5,
+        color: 'rgba(255,255,255,0.62)',
+        fontStyle: 'italic',
+        background: 'rgba(0,0,0,0.14)',
+        border: '1px solid rgba(255,255,255,0.05)',
+        borderRadius: 8,
+        padding: '7px 10px',
+      }}>
+        {summary}
       </div>
 
       {/* Sentence */}
@@ -1207,6 +1302,7 @@ export default function ShortcutsCanvas({
         contextKeys={contextKeys}
         actionHandlers={actionHandlers}
         allSteps={steps}
+        stepOutcomes={node.outcomes}
         disabled={!isEditable}
         onUpdate={updateStep}
         onDelete={() => onDeleteStep(node.step.id)}
