@@ -113,7 +113,7 @@ export default function Assignments() {
           .order('completed_at', { ascending: false }),
         supabase
           .from('sponsor_deliverables')
-          .select('id, title, due_date, channel, delivered, status')
+          .select('id, title, due_date, channel, delivered, status, notes, campaign:sponsor_campaigns(name, brief_url)')
           .order('due_date', { ascending: true }),
         supabase
           .from('sponsor_campaigns')
@@ -128,12 +128,19 @@ export default function Assignments() {
       // Active records for the template pickers
       const today = new Date().toISOString().slice(0, 10);
       const monthOf = (d) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short' }) : '';
+      // Write Ad Read picker: only deliverables that are ready to write — a
+      // brief is connected on the campaign and the Ad Copy (notes) is empty.
       setDeliverables(
         (delivRes.data || [])
-          .filter(d => d.delivered !== true && (d.status || '').toLowerCase() !== 'archived')
+          .filter(d =>
+            d.delivered !== true
+            && (d.status || '').toLowerCase() !== 'archived'
+            && !(d.notes && d.notes.trim())     // Ad Copy empty → ready to write
+            && !!(d.campaign && d.campaign.brief_url) // brief connected on the campaign
+          )
           .map(d => ({
             id: d.id,
-            label: `${d.title || 'Untitled'}${d.channel ? ` · ${d.channel}` : ''}${d.due_date ? ` (${monthOf(d.due_date)})` : ''}`,
+            label: `${d.campaign?.name ? `${d.campaign.name}: ` : ''}${d.title || 'Untitled'}${d.channel ? ` · ${d.channel}` : ''}${d.due_date ? ` (${monthOf(d.due_date)})` : ''}`,
           })),
       );
       setCampaigns(
