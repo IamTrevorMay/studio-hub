@@ -1,20 +1,14 @@
 // supabase/functions/drive-watch-register/index.ts
-// Registers a Drive `files.watch` channel on a folder so Google pushes
-// change notifications to drive-watch-webhook whenever something inside
-// that folder is added, modified, or trashed.
+// Registers a polling watch on a Drive folder. drive-watch-poll picks it up
+// on its next minutely cron tick and starts emitting drive_events rows for
+// every file whose modifiedTime advances past the watch's last_seen_time.
+//
+// No Drive API call is needed here — the folder just has to be readable by
+// the service account associated with GOOGLE_DRIVE_REFRESH_TOKEN. We do a
+// lightweight `files.get` to fail loudly if access is misconfigured.
 //
 // Auth: admin Supabase JWT.
-// Drive credentials: shared service-account refresh token (same pattern
-// as drive-list-clips and drive-upload-init).
-//
 // POST { folderId: string, label: string } -> { watch: row }
-//
-// Prereqs (one-time per project):
-//   1. Verify the Supabase Functions domain in Google Search Console under
-//      the GCP project that issued GOOGLE_CLIENT_ID. Drive rejects watches
-//      that target unverified webhook domains.
-//   2. Share the folder with the service account associated with
-//      GOOGLE_DRIVE_REFRESH_TOKEN, otherwise files.watch returns 404.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -26,29 +20,19 @@ const corsHeaders = {
 };
 
 async function getDriveAccessToken(): Promise<string> {
-  const clientId = Deno.env.get("GOOGLE_CLIENT_ID")!;
-  const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")!;
-  const refreshToken = Deno.env.get("GOOGLE_DRIVE_REFRESH_TOKEN")!;
-
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: clientSecret,
-      refresh_token: refreshToken,
+      client_id: Deno.env.get("GOOGLE_CLIENT_ID")!,
+      client_secret: Deno.env.get("GOOGLE_CLIENT_SECRET")!,
+      refresh_token: Deno.env.get("GOOGLE_DRIVE_REFRESH_TOKEN")!,
       grant_type: "refresh_token",
     }),
   });
   const tokens = await res.json();
   if (!res.ok) throw new Error(tokens.error_description || "Token refresh failed");
   return tokens.access_token;
-}
-
-function randomToken(): string {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 Deno.serve(async (req: Request) => {
@@ -104,7 +88,6 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Block duplicate active watches on the same folder.
     const { data: existing } = await admin
       .from("drive_watches")
       .select("id")
@@ -118,49 +101,38 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // Verify the service account can actually see the folder. Cheap and gives
+    // the admin a clear "share the folder first" error instead of letting the
+    // poller silently 404 every minute.
     const accessToken = await getDriveAccessToken();
-    const channelId = crypto.randomUUID();
-    const token = randomToken();
-    const webhookUrl = `${supabaseUrl}/functions/v1/drive-watch-webhook`;
-
-    // Google accepts a max channel lifetime of ~7 days for files.watch.
-    const ttlMs = 7 * 24 * 60 * 60 * 1000;
-    const expiration = Date.now() + ttlMs;
-
-    const watchRes = await fetch(
-      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}/watch?supportsAllDrives=true`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          id: channelId,
-          type: "web_hook",
-          address: webhookUrl,
-          token,
-          expiration: String(expiration),
-        }),
-      },
+    const probeRes = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}?fields=id,name,mimeType&supportsAllDrives=true`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
     );
-    const watchBody = await watchRes.json();
-    if (!watchRes.ok) {
-      throw new Error(`Drive watch failed: ${watchRes.status} ${JSON.stringify(watchBody)}`);
+    if (!probeRes.ok) {
+      const errText = await probeRes.text();
+      return new Response(
+        JSON.stringify({
+          error: `Service account cannot access folder (${probeRes.status}). Share the folder with the service-account email and retry.`,
+          detail: errText,
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
-
-    const resourceId = watchBody.resourceId as string;
-    const grantedExpiration = watchBody.expiration ? new Date(Number(watchBody.expiration)) : new Date(expiration);
+    const probe = await probeRes.json();
+    if (probe.mimeType !== "application/vnd.google-apps.folder") {
+      return new Response(JSON.stringify({ error: "folderId is not a folder" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     const { data: row, error: insertError } = await admin
       .from("drive_watches")
       .insert({
         folder_id: folderId,
         label,
-        channel_id: channelId,
-        resource_id: resourceId,
-        webhook_token: token,
-        expiration: grantedExpiration.toISOString(),
+        mode: "poll",
         last_seen_time: new Date().toISOString(),
         created_by: user.id,
       })
@@ -168,7 +140,7 @@ Deno.serve(async (req: Request) => {
       .single();
     if (insertError) throw new Error(insertError.message);
 
-    return new Response(JSON.stringify({ watch: row }), {
+    return new Response(JSON.stringify({ watch: row, folder_name: probe.name }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {

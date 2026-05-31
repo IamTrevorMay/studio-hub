@@ -1,6 +1,13 @@
 -- Reusable Google Drive folder watch primitive.
---   drive_watches — active push-notification channels (files.watch)
+--   drive_watches — one row per actively-monitored folder
 --   drive_events  — every detected file event in a watched folder
+--
+-- v1 runs in 'poll' mode: a pg_cron job calls drive-watch-poll every minute,
+-- which lists each folder for files with modifiedTime > last_seen_time and
+-- inserts events. Schema also supports 'watch' mode (Drive files.watch push
+-- notifications) for future use once the webhook domain is verified — the
+-- channel_id / resource_id / webhook_token / expiration columns sit unused
+-- in poll mode.
 --
 -- Consumer features (workflow tasks, ingest pipelines, etc.) subscribe to
 -- drive_events via Realtime or poll where processed_at is null.
@@ -10,10 +17,11 @@ CREATE TABLE IF NOT EXISTS public.drive_watches (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   folder_id       text NOT NULL,
   label           text NOT NULL,
-  channel_id      uuid NOT NULL,
-  resource_id     text NOT NULL,
-  webhook_token   text NOT NULL,
-  expiration      timestamptz NOT NULL,
+  mode            text NOT NULL DEFAULT 'poll' CHECK (mode IN ('poll','watch')),
+  channel_id      uuid,
+  resource_id     text,
+  webhook_token   text,
+  expiration      timestamptz,
   last_seen_time  timestamptz NOT NULL DEFAULT now(),
   stopped_at      timestamptz,
   created_by      uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
@@ -24,6 +32,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_drive_watches_active_folder
   ON public.drive_watches (folder_id) WHERE stopped_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_drive_watches_channel ON public.drive_watches (channel_id);
 CREATE INDEX IF NOT EXISTS idx_drive_watches_expiration ON public.drive_watches (expiration) WHERE stopped_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_drive_watches_active_poll
+  ON public.drive_watches (last_seen_time) WHERE stopped_at IS NULL AND mode = 'poll';
 
 CREATE TABLE IF NOT EXISTS public.drive_events (
   id                       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -63,5 +73,5 @@ CREATE POLICY drive_events_admin_all ON public.drive_events
   USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'))
   WITH CHECK (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'));
 
--- Edge functions (drive-watch-register, drive-watch-webhook, drive-watch-renew,
--- drive-watch-stop) use the service role to bypass RLS for inserts/updates.
+-- Edge functions (drive-watch-register, drive-watch-poll, drive-watch-stop)
+-- use the service role to bypass RLS for inserts/updates.

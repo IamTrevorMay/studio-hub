@@ -1,6 +1,6 @@
 // supabase/functions/drive-watch-stop/index.ts
-// Stops a Drive `files.watch` channel and soft-deletes the drive_watches row.
-// Drive_events rows are kept so downstream features still have history.
+// Soft-deletes a drive_watches row so the poller skips it on the next tick.
+// drive_events rows are kept so downstream features still have history.
 //
 // Auth: admin Supabase JWT.
 // POST { watchId: uuid } -> { stopped: true }
@@ -13,22 +13,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
-
-async function getDriveAccessToken(): Promise<string> {
-  const res = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: Deno.env.get("GOOGLE_CLIENT_ID")!,
-      client_secret: Deno.env.get("GOOGLE_CLIENT_SECRET")!,
-      refresh_token: Deno.env.get("GOOGLE_DRIVE_REFRESH_TOKEN")!,
-      grant_type: "refresh_token",
-    }),
-  });
-  const tokens = await res.json();
-  if (!res.ok) throw new Error(tokens.error_description || "Token refresh failed");
-  return tokens.access_token;
-}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -79,7 +63,7 @@ Deno.serve(async (req: Request) => {
 
     const { data: watch, error: lookupErr } = await admin
       .from("drive_watches")
-      .select("*")
+      .select("id, stopped_at")
       .eq("id", watchId)
       .maybeSingle();
     if (lookupErr) throw new Error(lookupErr.message);
@@ -93,19 +77,6 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ stopped: true, already: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
-    }
-
-    const accessToken = await getDriveAccessToken();
-    const stopRes = await fetch("https://www.googleapis.com/drive/v3/channels/stop", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ id: watch.channel_id, resourceId: watch.resource_id }),
-    });
-    // Google returns 204 on success and 404 if the channel was already gone;
-    // both are fine — we still want to mark the row stopped on our side.
-    if (!stopRes.ok && stopRes.status !== 404) {
-      const errText = await stopRes.text();
-      throw new Error(`channels.stop failed: ${stopRes.status} ${errText}`);
     }
 
     const { error: updateErr } = await admin
