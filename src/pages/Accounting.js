@@ -53,6 +53,29 @@ const TABS = [
   { key: 'expenses', label: 'Expenses' },
 ];
 
+// The two businesses synced from their own Tiller sheets. Rows predating the
+// multi-business split default to mayday_media (see the migration).
+const BUSINESSES = {
+  mayday_media:        { label: 'Mayday Media',        color: '#6366f1' },
+  neptune_performance: { label: 'Neptune Performance', color: '#06b6d4' },
+};
+const isMayday  = (t) => (t.business || 'mayday_media') === 'mayday_media';
+const isNeptune = (t) => t.business === 'neptune_performance';
+
+const EXPENSE_SUBTABS = [
+  { key: 'overview',            label: 'Overview' },
+  { key: 'mayday_media',        label: 'Mayday Media' },
+  { key: 'neptune_performance', label: 'Neptune Performance' },
+];
+
+// Color cycle for businesses without a fixed category meta map (Neptune's
+// categories come straight from its sheet, so we color them on the fly).
+const DYNAMIC_PALETTE = [
+  '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7',
+  '#d946ef', '#ec4899', '#f43f5e', '#f97316', '#f59e0b', '#eab308',
+  '#84cc16', '#22c55e', '#10b981', '#14b8a6',
+];
+
 function getRange(rangeKey) {
   const today = new Date();
   const end = today.toISOString().slice(0, 10);
@@ -69,8 +92,13 @@ function formatMoney(cents) {
   });
 }
 
-function monthKey(dateStr) {
-  return dateStr?.slice(0, 7) || '';
+// Step a YYYY-MM-DD string forward by n days (local-time safe).
+function addDays(dateStr, n) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m - 1, d + n);
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getDate()).padStart(2, '0');
+  return `${dt.getFullYear()}-${mm}-${dd}`;
 }
 
 function pctDelta(curr, prev) {
@@ -99,16 +127,16 @@ export default function Accounting() {
 
     const [revCur, revOld, expCur, expOld] = await Promise.all([
       supabase.from('revenue_transactions')
-        .select('date, description, category, amount_cents, account')
+        .select('date, description, category, amount_cents, account, business')
         .gte('date', start).lte('date', end).order('date', { ascending: false }),
       supabase.from('revenue_transactions')
-        .select('date, category, amount_cents')
+        .select('date, category, amount_cents, business')
         .gte('date', prevStart).lt('date', start),
       supabase.from('expense_transactions')
-        .select('date, description, category, amount_cents, account')
+        .select('date, description, category, amount_cents, account, business')
         .gte('date', start).lte('date', end).order('date', { ascending: false }),
       supabase.from('expense_transactions')
-        .select('date, category, amount_cents')
+        .select('date, category, amount_cents, business')
         .gte('date', prevStart).lt('date', start),
     ]);
 
@@ -144,6 +172,13 @@ export default function Accounting() {
       setRefreshing(false);
     }
   }, [load]);
+
+  // Top-level Overview & Revenue tabs stay scoped to Mayday Media (their
+  // historical meaning). The business split lives in the Expenses tab.
+  const maydayRevenue     = useMemo(() => revenue.filter(isMayday), [revenue]);
+  const maydayRevenuePrev = useMemo(() => revenuePrev.filter(isMayday), [revenuePrev]);
+  const maydayExpenses    = useMemo(() => expenses.filter(isMayday), [expenses]);
+  const maydayExpensesPrev = useMemo(() => expensesPrev.filter(isMayday), [expensesPrev]);
 
   if (!isAdmin) {
     return (
@@ -215,25 +250,19 @@ export default function Accounting() {
         <p style={styles.emptyText}>Loading…</p>
       ) : tab === 'overview' ? (
         <OverviewTab
-          revenue={revenue} revenuePrev={revenuePrev}
-          expenses={expenses} expensesPrev={expensesPrev}
+          revenue={maydayRevenue} revenuePrev={maydayRevenuePrev}
+          expenses={maydayExpenses} expensesPrev={maydayExpensesPrev}
         />
       ) : tab === 'revenue' ? (
         <LedgerTab
           mode="revenue"
-          data={revenue} prevData={revenuePrev}
+          data={maydayRevenue} prevData={maydayRevenuePrev}
           meta={REVENUE_CATEGORY_META}
           accentColor="#22c55e"
           headlineLabel="Total revenue"
         />
       ) : (
-        <LedgerTab
-          mode="expense"
-          data={expenses} prevData={expensesPrev}
-          meta={EXPENSE_CATEGORY_META}
-          accentColor="#ef4444"
-          headlineLabel="Total expenses"
-        />
+        <ExpensesView data={expenses} prevData={expensesPrev} />
       )}
     </div>
   );
@@ -242,6 +271,7 @@ export default function Accounting() {
 // ── Overview Tab ────────────────────────────────────────────────────────────
 function OverviewTab({ revenue, revenuePrev, expenses, expensesPrev }) {
   const [ledgerOpen, setLedgerOpen] = useState(false);
+  const [trendMode, setTrendMode] = useState('daily');
 
   const revTotal     = useMemo(() => revenue.reduce((s, t) => s + t.amount_cents, 0), [revenue]);
   const revPrevTotal = useMemo(() => revenuePrev.reduce((s, t) => s + t.amount_cents, 0), [revenuePrev]);
@@ -255,7 +285,11 @@ function OverviewTab({ revenue, revenuePrev, expenses, expensesPrev }) {
   const revByCat = useMemo(() => groupByCategory(revenue, REVENUE_CATEGORY_META), [revenue]);
   const expByCat = useMemo(() => groupByCategory(expenses, EXPENSE_CATEGORY_META), [expenses]);
 
-  const monthly = useMemo(() => buildMonthlyDualSeries(revenue, expenses), [revenue, expenses]);
+  const daily = useMemo(() => buildDailyDualSeries(revenue, expenses), [revenue, expenses]);
+  const trendData = useMemo(
+    () => (trendMode === 'cumulative' ? toCumulative(daily, ['revenue', 'expenses', 'net']) : daily),
+    [daily, trendMode],
+  );
 
   const ledger = useMemo(() => buildLedger(revenue, expenses).slice(0, 200), [revenue, expenses]);
 
@@ -295,12 +329,12 @@ function OverviewTab({ revenue, revenuePrev, expenses, expensesPrev }) {
       </div>
 
       <div style={styles.chartCard}>
-        <div style={styles.chartTitle}>Monthly Trend</div>
-        {monthly.length === 0 ? (
+        <TrendModeSelect value={trendMode} onChange={setTrendMode} />
+        {trendData.length === 0 ? (
           <p style={styles.emptyText}>Not enough data.</p>
         ) : (
           <TrendChart
-            data={monthly}
+            data={trendData}
             metrics={[
               { key: 'revenue',  label: 'Revenue',  color: '#22c55e', getValue: r => r.revenue / 100,  formatValue: v => '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) },
               { key: 'expenses', label: 'Expenses', color: '#ef4444', getValue: r => r.expenses / 100, formatValue: v => '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) },
@@ -409,13 +443,18 @@ function LedgerTab({ mode, data, prevData, meta, accentColor, headlineLabel }) {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [sortBy, setSortBy] = useState('date_desc');
   const [tableOpen, setTableOpen] = useState(false);
+  const [trendMode, setTrendMode] = useState('daily');
 
   const total     = useMemo(() => data.reduce((s, t) => s + t.amount_cents, 0), [data]);
   const prevTotal = useMemo(() => prevData.reduce((s, t) => s + t.amount_cents, 0), [prevData]);
   const delta = pctDelta(total, prevTotal);
 
   const byCategory = useMemo(() => groupByCategory(data, meta), [data, meta]);
-  const byMonth    = useMemo(() => buildMonthly(data), [data]);
+  const byDay      = useMemo(() => buildDaily(data), [data]);
+  const trendData  = useMemo(
+    () => (trendMode === 'cumulative' ? toCumulative(byDay, ['total']) : byDay),
+    [byDay, trendMode],
+  );
   const topCategory = byCategory[0] || null;
 
   const filteredRows = useMemo(() => {
@@ -481,12 +520,12 @@ function LedgerTab({ mode, data, prevData, meta, accentColor, headlineLabel }) {
           <CategoryDonut data={byCategory} total={total} />
         </div>
         <div style={styles.chartCard}>
-          <div style={styles.chartTitle}>Monthly Trend</div>
-          {byMonth.length === 0 ? (
+          <TrendModeSelect value={trendMode} onChange={setTrendMode} />
+          {trendData.length === 0 ? (
             <p style={styles.emptyText}>Not enough data.</p>
           ) : (
             <TrendChart
-              data={byMonth}
+              data={trendData}
               metrics={[{
                 key: mode, label: headlineLabel, color: accentColor,
                 getValue: r => r.total / 100,
@@ -582,7 +621,198 @@ function LedgerTab({ mode, data, prevData, meta, accentColor, headlineLabel }) {
   );
 }
 
+// ── Expenses Tab (per-business) ───────────────────────────────────────────────
+function ExpensesView({ data, prevData }) {
+  const [subTab, setSubTab] = useState('overview');
+
+  const mayday      = useMemo(() => data.filter(isMayday), [data]);
+  const maydayPrev  = useMemo(() => prevData.filter(isMayday), [prevData]);
+  const neptune     = useMemo(() => data.filter(isNeptune), [data]);
+  const neptunePrev = useMemo(() => prevData.filter(isNeptune), [prevData]);
+  const neptuneMeta = useMemo(() => buildDynamicMeta(neptune), [neptune]);
+
+  return (
+    <>
+      <div style={styles.subTabBar}>
+        {EXPENSE_SUBTABS.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setSubTab(t.key)}
+            style={{ ...styles.subTab, ...(subTab === t.key ? styles.subTabActive : {}) }}
+          >
+            {BUSINESSES[t.key] && (
+              <span style={{ ...styles.subTabDot, background: BUSINESSES[t.key].color }} />
+            )}
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {subTab === 'overview' ? (
+        <ExpensesComparison mayday={mayday} neptune={neptune} neptuneMeta={neptuneMeta} />
+      ) : subTab === 'mayday_media' ? (
+        <LedgerTab
+          mode="expense"
+          data={mayday} prevData={maydayPrev}
+          meta={EXPENSE_CATEGORY_META}
+          accentColor={BUSINESSES.mayday_media.color}
+          headlineLabel="Mayday Media expenses"
+        />
+      ) : (
+        <LedgerTab
+          mode="expense"
+          data={neptune} prevData={neptunePrev}
+          meta={neptuneMeta}
+          accentColor={BUSINESSES.neptune_performance.color}
+          headlineLabel="Neptune Performance expenses"
+        />
+      )}
+    </>
+  );
+}
+
+function ComparisonToggle({ view, setView }) {
+  return (
+    <div style={styles.segmented}>
+      {[['comparison', 'Comparison'], ['combined', 'Combined']].map(([k, l]) => (
+        <button
+          key={k}
+          onClick={() => setView(k)}
+          style={{ ...styles.segBtn, ...(view === k ? styles.segBtnActive : {}) }}
+        >
+          {l}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ExpensesComparison({ mayday, neptune, neptuneMeta }) {
+  const [view, setView] = useState('comparison');
+  const [trendMode, setTrendMode] = useState('daily');
+
+  const maydayTotal  = useMemo(() => mayday.reduce((s, t) => s + t.amount_cents, 0), [mayday]);
+  const neptuneTotal = useMemo(() => neptune.reduce((s, t) => s + t.amount_cents, 0), [neptune]);
+  const combined = maydayTotal + neptuneTotal;
+
+  const maydayByCat  = useMemo(() => groupByCategory(mayday, EXPENSE_CATEGORY_META), [mayday]);
+  const neptuneByCat = useMemo(() => groupByCategory(neptune, neptuneMeta), [neptune, neptuneMeta]);
+
+  const dailyRaw = useMemo(() => buildDailyByBusiness(mayday, neptune), [mayday, neptune]);
+  const trendData = useMemo(
+    () => (trendMode === 'cumulative' ? toCumulative(dailyRaw, ['mayday', 'neptune']) : dailyRaw),
+    [dailyRaw, trendMode],
+  );
+
+  if (mayday.length === 0 && neptune.length === 0) {
+    return (
+      <>
+        <ComparisonToggle view={view} setView={setView} />
+        <p style={styles.emptyText}>No expenses in this range.</p>
+      </>
+    );
+  }
+
+  if (view === 'combined') {
+    const mergedMeta = { ...EXPENSE_CATEGORY_META, ...neptuneMeta };
+    const all = [...mayday, ...neptune];
+    return (
+      <>
+        <ComparisonToggle view={view} setView={setView} />
+        <LedgerTab
+          mode="expense"
+          data={all} prevData={[]}
+          meta={mergedMeta}
+          accentColor="#ef4444"
+          headlineLabel="All expenses"
+        />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <ComparisonToggle view={view} setView={setView} />
+      <div style={styles.kpiRow}>
+        <KpiCard label="Mayday Media" value={formatMoney(maydayTotal)}
+          sub={pctOfTotal(maydayTotal, combined)} accent={BUSINESSES.mayday_media.color} />
+        <KpiCard label="Neptune Performance" value={formatMoney(neptuneTotal)}
+          sub={pctOfTotal(neptuneTotal, combined)} accent={BUSINESSES.neptune_performance.color} />
+        <KpiCard label="Combined" value={formatMoney(combined)} accent="#ef4444" />
+        <KpiCard label="Transactions" value={(mayday.length + neptune.length).toLocaleString()} accent="#3b82f6" />
+      </div>
+
+      <div style={styles.chartCard}>
+        <TrendModeSelect value={trendMode} onChange={setTrendMode} />
+        {trendData.length === 0 ? (
+          <p style={styles.emptyText}>Not enough data.</p>
+        ) : (
+          <TrendChart
+            data={trendData}
+            metrics={[
+              { key: 'mayday',  label: 'Mayday Media',        color: BUSINESSES.mayday_media.color,        getValue: r => r.mayday / 100,  formatValue: fmtDollars },
+              { key: 'neptune', label: 'Neptune Performance', color: BUSINESSES.neptune_performance.color, getValue: r => r.neptune / 100, formatValue: fmtDollars },
+            ]}
+            height={260}
+            sharedScale
+          />
+        )}
+      </div>
+
+      <div style={styles.chartsRow}>
+        <div style={styles.chartCard}>
+          <div style={{ ...styles.chartTitle, color: BUSINESSES.mayday_media.color }}>Mayday Media by Category</div>
+          {maydayByCat.length === 0 ? (
+            <p style={styles.emptyText}>No expenses in this range.</p>
+          ) : (
+            <CategoryDonut data={maydayByCat} total={maydayTotal} />
+          )}
+        </div>
+        <div style={styles.chartCard}>
+          <div style={{ ...styles.chartTitle, color: BUSINESSES.neptune_performance.color }}>Neptune Performance by Category</div>
+          {neptuneByCat.length === 0 ? (
+            <p style={styles.emptyText}>No Neptune expenses yet.</p>
+          ) : (
+            <CategoryDonut data={neptuneByCat} total={neptuneTotal} />
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
+const fmtDollars = (v) => '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function pctOfTotal(part, total) {
+  if (!total) return '';
+  return `${Math.round((part / total) * 100)}% of total`;
+}
+
+// Build a category→{label,color} map for a business whose categories aren't in
+// a fixed meta map (Neptune). Colors are assigned by sorted category name so
+// they stay stable across renders.
+function buildDynamicMeta(rows) {
+  const cats = Array.from(new Set(rows.map(t => t.category || 'Uncategorized'))).sort();
+  const meta = {};
+  cats.forEach((c, i) => { meta[c] = { label: c, color: DYNAMIC_PALETTE[i % DYNAMIC_PALETTE.length] }; });
+  return meta;
+}
+
+// Daily series with one value per business, zero-filled across the combined
+// date span. Powers the Mayday-vs-Neptune comparison trend.
+function buildDailyByBusiness(mayday, neptune) {
+  const m = {}, n = {};
+  let min = null, max = null;
+  const track = (d) => { if (!min || d < min) min = d; if (!max || d > max) max = d; };
+  for (const t of mayday)  { const d = t.date?.slice(0, 10); if (!d) continue; m[d] = (m[d] || 0) + t.amount_cents; track(d); }
+  for (const t of neptune) { const d = t.date?.slice(0, 10); if (!d) continue; n[d] = (n[d] || 0) + t.amount_cents; track(d); }
+  if (!min) return [];
+  const out = [];
+  for (let d = min; d <= max; d = addDays(d, 1)) out.push({ date: d, mayday: m[d] || 0, neptune: n[d] || 0 });
+  return out;
+}
+
 function groupByCategory(rows, meta) {
   const map = {};
   for (const tx of rows) {
@@ -596,29 +826,56 @@ function groupByCategory(rows, meta) {
   return Object.values(map).sort((a, b) => b.total - a.total);
 }
 
-function buildMonthly(rows) {
+// Daily series, one point per calendar day from the first to the last
+// transaction in the set. Days with no transactions are zero-filled so the
+// line is spaced by real elapsed time, not by transaction count.
+function buildDaily(rows) {
   const map = {};
+  let min = null, max = null;
   for (const tx of rows) {
-    const m = monthKey(tx.date);
-    if (!m) continue;
-    map[m] = (map[m] || 0) + tx.amount_cents;
+    const day = tx.date?.slice(0, 10);
+    if (!day) continue;
+    map[day] = (map[day] || 0) + tx.amount_cents;
+    if (!min || day < min) min = day;
+    if (!max || day > max) max = day;
   }
-  return Object.entries(map).sort(([a], [b]) => a.localeCompare(b))
-    .map(([month, total]) => ({ month, date: `${month}-01`, total }));
+  if (!min) return [];
+  const out = [];
+  for (let day = min; day <= max; day = addDays(day, 1)) {
+    out.push({ date: day, total: map[day] || 0 });
+  }
+  return out;
 }
 
-function buildMonthlyDualSeries(revenue, expenses) {
-  const months = new Set();
+// Turn a daily series into a running-total series: each point holds the sum of
+// every prior day plus itself ("the total with that day included"). Produces
+// the smooth, climbing stock-chart line. `series` must be date-ascending.
+function toCumulative(series, keys) {
+  const acc = {};
+  for (const k of keys) acc[k] = 0;
+  return series.map(pt => {
+    const next = { date: pt.date };
+    for (const k of keys) { acc[k] += (pt[k] || 0); next[k] = acc[k]; }
+    return next;
+  });
+}
+
+function buildDailyDualSeries(revenue, expenses) {
   const rev = {}, exp = {};
-  for (const tx of revenue)  { const m = monthKey(tx.date); months.add(m); rev[m] = (rev[m] || 0) + tx.amount_cents; }
-  for (const tx of expenses) { const m = monthKey(tx.date); months.add(m); exp[m] = (exp[m] || 0) + tx.amount_cents; }
-  return Array.from(months).filter(Boolean).sort().map(m => ({
-    month: m,
-    date: `${m}-01`,
-    revenue: rev[m] || 0,
-    expenses: exp[m] || 0,
-    net: (rev[m] || 0) - (exp[m] || 0),
-  }));
+  let min = null, max = null;
+  const track = (day) => {
+    if (!min || day < min) min = day;
+    if (!max || day > max) max = day;
+  };
+  for (const tx of revenue)  { const day = tx.date?.slice(0, 10); if (!day) continue; rev[day] = (rev[day] || 0) + tx.amount_cents; track(day); }
+  for (const tx of expenses) { const day = tx.date?.slice(0, 10); if (!day) continue; exp[day] = (exp[day] || 0) + tx.amount_cents; track(day); }
+  if (!min) return [];
+  const out = [];
+  for (let day = min; day <= max; day = addDays(day, 1)) {
+    const r = rev[day] || 0, e = exp[day] || 0;
+    out.push({ date: day, revenue: r, expenses: e, net: r - e });
+  }
+  return out;
 }
 
 function buildLedger(revenue, expenses) {
@@ -649,6 +906,20 @@ function KpiCard({ label, value, sub, delta, deltaUnit, accent, valueColor, delt
           {delta > 0 ? '▲' : delta < 0 ? '▼' : '•'} {Math.abs(delta).toFixed(1)}{deltaUnit || '%'} vs prior period
         </div>
       )}
+    </div>
+  );
+}
+
+// Dropdown that doubles as the chart's section title. Switches a trend chart
+// between per-day totals and the cumulative running total.
+function TrendModeSelect({ value, onChange }) {
+  return (
+    <div style={styles.trendModeWrap}>
+      <select value={value} onChange={(e) => onChange(e.target.value)} style={styles.trendModeSelect}>
+        <option value="daily">Daily Trend</option>
+        <option value="cumulative">Cumulative Trend</option>
+      </select>
+      <span style={styles.trendModeCaret}>▾</span>
     </div>
   );
 }
@@ -745,6 +1016,30 @@ const styles = {
     borderBottomColor: '#6366f1',
   },
 
+  subTabBar: { display: 'flex', gap: 6, marginBottom: 18, flexWrap: 'wrap' },
+  subTab: {
+    display: 'flex', alignItems: 'center', gap: 7,
+    padding: '7px 14px', fontSize: 12.5, borderRadius: 8,
+    background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.6)',
+    border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', fontFamily: 'inherit',
+  },
+  subTabActive: {
+    background: 'rgba(99,102,241,0.16)', color: '#fff', borderColor: 'rgba(99,102,241,0.5)',
+  },
+  subTabDot: { width: 8, height: 8, borderRadius: '50%', display: 'inline-block', flexShrink: 0 },
+
+  segmented: {
+    display: 'inline-flex', gap: 2, marginBottom: 16, padding: 3,
+    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: 8,
+  },
+  segBtn: {
+    padding: '5px 14px', fontSize: 12, borderRadius: 6,
+    background: 'transparent', color: 'rgba(255,255,255,0.55)',
+    border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+  },
+  segBtnActive: { background: 'rgba(99,102,241,0.25)', color: '#fff' },
+
   emptyText: { color: 'rgba(255,255,255,0.4)', fontSize: 14 },
 
   kpiRow: {
@@ -778,6 +1073,18 @@ const styles = {
   chartTitle: {
     fontSize: 13, fontWeight: 600,
     color: 'rgba(255,255,255,0.85)', marginBottom: 12,
+  },
+  trendModeWrap: { position: 'relative', display: 'inline-block', marginBottom: 12 },
+  trendModeSelect: {
+    appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none',
+    background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.85)',
+    border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6,
+    padding: '5px 26px 5px 10px', fontSize: 13, fontWeight: 600,
+    fontFamily: 'inherit', cursor: 'pointer',
+  },
+  trendModeCaret: {
+    position: 'absolute', right: 9, top: '50%', transform: 'translateY(-50%)',
+    fontSize: 10, color: 'rgba(255,255,255,0.5)', pointerEvents: 'none',
   },
 
   donutRow: { display: 'flex', alignItems: 'flex-start', gap: 20, flexWrap: 'wrap' },
