@@ -62,8 +62,9 @@ const BUSINESSES = {
 const isMayday  = (t) => (t.business || 'mayday_media') === 'mayday_media';
 const isNeptune = (t) => t.business === 'neptune_performance';
 
-const EXPENSE_SUBTABS = [
-  { key: 'overview',            label: 'Overview' },
+// Sub-tabs shared by the Overview, Revenue, and Expenses top-level tabs.
+const BUSINESS_SUBTABS = [
+  { key: 'all',                 label: 'Overall' },
   { key: 'mayday_media',        label: 'Mayday Media' },
   { key: 'neptune_performance', label: 'Neptune Performance' },
 ];
@@ -173,13 +174,6 @@ export default function Accounting() {
     }
   }, [load]);
 
-  // Top-level Overview & Revenue tabs stay scoped to Mayday Media (their
-  // historical meaning). The business split lives in the Expenses tab.
-  const maydayRevenue     = useMemo(() => revenue.filter(isMayday), [revenue]);
-  const maydayRevenuePrev = useMemo(() => revenuePrev.filter(isMayday), [revenuePrev]);
-  const maydayExpenses    = useMemo(() => expenses.filter(isMayday), [expenses]);
-  const maydayExpensesPrev = useMemo(() => expensesPrev.filter(isMayday), [expensesPrev]);
-
   if (!isAdmin) {
     return (
       <div style={styles.page}>
@@ -249,20 +243,24 @@ export default function Accounting() {
       {loading ? (
         <p style={styles.emptyText}>Loading…</p>
       ) : tab === 'overview' ? (
-        <OverviewTab
-          revenue={maydayRevenue} revenuePrev={maydayRevenuePrev}
-          expenses={maydayExpenses} expensesPrev={maydayExpensesPrev}
+        <OverviewView
+          revenue={revenue} revenuePrev={revenuePrev}
+          expenses={expenses} expensesPrev={expensesPrev}
         />
       ) : tab === 'revenue' ? (
-        <LedgerTab
+        <BusinessTabbedView
           mode="revenue"
-          data={maydayRevenue} prevData={maydayRevenuePrev}
-          meta={REVENUE_CATEGORY_META}
+          data={revenue} prevData={revenuePrev}
+          maydayMeta={REVENUE_CATEGORY_META}
           accentColor="#22c55e"
-          headlineLabel="Total revenue"
         />
       ) : (
-        <ExpensesView data={expenses} prevData={expensesPrev} />
+        <BusinessTabbedView
+          mode="expense"
+          data={expenses} prevData={expensesPrev}
+          maydayMeta={EXPENSE_CATEGORY_META}
+          accentColor="#ef4444"
+        />
       )}
     </div>
   );
@@ -622,8 +620,30 @@ function LedgerTab({ mode, data, prevData, meta, accentColor, headlineLabel }) {
 }
 
 // ── Expenses Tab (per-business) ───────────────────────────────────────────────
-function ExpensesView({ data, prevData }) {
-  const [subTab, setSubTab] = useState('overview');
+// Pill bar shared by every top-level tab: Overall / Mayday Media / Neptune.
+function BusinessSubTabs({ subTab, setSubTab }) {
+  return (
+    <div style={styles.subTabBar}>
+      {BUSINESS_SUBTABS.map(t => (
+        <button
+          key={t.key}
+          onClick={() => setSubTab(t.key)}
+          style={{ ...styles.subTab, ...(subTab === t.key ? styles.subTabActive : {}) }}
+        >
+          {BUSINESSES[t.key] && (
+            <span style={{ ...styles.subTabDot, background: BUSINESSES[t.key].color }} />
+          )}
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Revenue / Expenses tab: Overall (comparison or combined) + a per-business
+// ledger for each company. `mode` is 'revenue' or 'expense'.
+function BusinessTabbedView({ mode, data, prevData, maydayMeta, accentColor }) {
+  const [subTab, setSubTab] = useState('all');
 
   const mayday      = useMemo(() => data.filter(isMayday), [data]);
   const maydayPrev  = useMemo(() => prevData.filter(isMayday), [prevData]);
@@ -631,40 +651,32 @@ function ExpensesView({ data, prevData }) {
   const neptunePrev = useMemo(() => prevData.filter(isNeptune), [prevData]);
   const neptuneMeta = useMemo(() => buildDynamicMeta(neptune), [neptune]);
 
+  const noun = mode === 'revenue' ? 'revenue' : 'expenses';
+
   return (
     <>
-      <div style={styles.subTabBar}>
-        {EXPENSE_SUBTABS.map(t => (
-          <button
-            key={t.key}
-            onClick={() => setSubTab(t.key)}
-            style={{ ...styles.subTab, ...(subTab === t.key ? styles.subTabActive : {}) }}
-          >
-            {BUSINESSES[t.key] && (
-              <span style={{ ...styles.subTabDot, background: BUSINESSES[t.key].color }} />
-            )}
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <BusinessSubTabs subTab={subTab} setSubTab={setSubTab} />
 
-      {subTab === 'overview' ? (
-        <ExpensesComparison mayday={mayday} neptune={neptune} neptuneMeta={neptuneMeta} />
+      {subTab === 'all' ? (
+        <BusinessComparison
+          mode={mode} mayday={mayday} neptune={neptune}
+          maydayMeta={maydayMeta} neptuneMeta={neptuneMeta} accentColor={accentColor}
+        />
       ) : subTab === 'mayday_media' ? (
         <LedgerTab
-          mode="expense"
+          mode={mode}
           data={mayday} prevData={maydayPrev}
-          meta={EXPENSE_CATEGORY_META}
+          meta={maydayMeta}
           accentColor={BUSINESSES.mayday_media.color}
-          headlineLabel="Mayday Media expenses"
+          headlineLabel={`Mayday Media ${noun}`}
         />
       ) : (
         <LedgerTab
-          mode="expense"
+          mode={mode}
           data={neptune} prevData={neptunePrev}
           meta={neptuneMeta}
           accentColor={BUSINESSES.neptune_performance.color}
-          headlineLabel="Neptune Performance expenses"
+          headlineLabel={`Neptune Performance ${noun}`}
         />
       )}
     </>
@@ -687,7 +699,9 @@ function ComparisonToggle({ view, setView }) {
   );
 }
 
-function ExpensesComparison({ mayday, neptune, neptuneMeta }) {
+// The "Overall" sub-tab for Revenue / Expenses: toggle between a Mayday-vs-
+// Neptune comparison and one combined company-wide ledger.
+function BusinessComparison({ mode, mayday, neptune, maydayMeta, neptuneMeta, accentColor }) {
   const [view, setView] = useState('comparison');
   const [trendMode, setTrendMode] = useState('daily');
 
@@ -695,7 +709,7 @@ function ExpensesComparison({ mayday, neptune, neptuneMeta }) {
   const neptuneTotal = useMemo(() => neptune.reduce((s, t) => s + t.amount_cents, 0), [neptune]);
   const combined = maydayTotal + neptuneTotal;
 
-  const maydayByCat  = useMemo(() => groupByCategory(mayday, EXPENSE_CATEGORY_META), [mayday]);
+  const maydayByCat  = useMemo(() => groupByCategory(mayday, maydayMeta), [mayday, maydayMeta]);
   const neptuneByCat = useMemo(() => groupByCategory(neptune, neptuneMeta), [neptune, neptuneMeta]);
 
   const dailyRaw = useMemo(() => buildDailyByBusiness(mayday, neptune), [mayday, neptune]);
@@ -704,27 +718,30 @@ function ExpensesComparison({ mayday, neptune, neptuneMeta }) {
     [dailyRaw, trendMode],
   );
 
+  const noun = mode === 'revenue' ? 'revenue' : 'expenses';
+  const breakdown = mode === 'revenue' ? 'Source' : 'Category';
+
   if (mayday.length === 0 && neptune.length === 0) {
     return (
       <>
         <ComparisonToggle view={view} setView={setView} />
-        <p style={styles.emptyText}>No expenses in this range.</p>
+        <p style={styles.emptyText}>No {noun} in this range.</p>
       </>
     );
   }
 
   if (view === 'combined') {
-    const mergedMeta = { ...EXPENSE_CATEGORY_META, ...neptuneMeta };
+    const mergedMeta = { ...maydayMeta, ...neptuneMeta };
     const all = [...mayday, ...neptune];
     return (
       <>
         <ComparisonToggle view={view} setView={setView} />
         <LedgerTab
-          mode="expense"
+          mode={mode}
           data={all} prevData={[]}
           meta={mergedMeta}
-          accentColor="#ef4444"
-          headlineLabel="All expenses"
+          accentColor={accentColor}
+          headlineLabel={`All ${noun}`}
         />
       </>
     );
@@ -738,7 +755,7 @@ function ExpensesComparison({ mayday, neptune, neptuneMeta }) {
           sub={pctOfTotal(maydayTotal, combined)} accent={BUSINESSES.mayday_media.color} />
         <KpiCard label="Neptune Performance" value={formatMoney(neptuneTotal)}
           sub={pctOfTotal(neptuneTotal, combined)} accent={BUSINESSES.neptune_performance.color} />
-        <KpiCard label="Combined" value={formatMoney(combined)} accent="#ef4444" />
+        <KpiCard label="Combined" value={formatMoney(combined)} accent={accentColor} />
         <KpiCard label="Transactions" value={(mayday.length + neptune.length).toLocaleString()} accent="#3b82f6" />
       </div>
 
@@ -761,22 +778,41 @@ function ExpensesComparison({ mayday, neptune, neptuneMeta }) {
 
       <div style={styles.chartsRow}>
         <div style={styles.chartCard}>
-          <div style={{ ...styles.chartTitle, color: BUSINESSES.mayday_media.color }}>Mayday Media by Category</div>
+          <div style={{ ...styles.chartTitle, color: BUSINESSES.mayday_media.color }}>Mayday Media by {breakdown}</div>
           {maydayByCat.length === 0 ? (
-            <p style={styles.emptyText}>No expenses in this range.</p>
+            <p style={styles.emptyText}>No {noun} in this range.</p>
           ) : (
             <CategoryDonut data={maydayByCat} total={maydayTotal} />
           )}
         </div>
         <div style={styles.chartCard}>
-          <div style={{ ...styles.chartTitle, color: BUSINESSES.neptune_performance.color }}>Neptune Performance by Category</div>
+          <div style={{ ...styles.chartTitle, color: BUSINESSES.neptune_performance.color }}>Neptune Performance by {breakdown}</div>
           {neptuneByCat.length === 0 ? (
-            <p style={styles.emptyText}>No Neptune expenses yet.</p>
+            <p style={styles.emptyText}>No Neptune {noun} yet.</p>
           ) : (
             <CategoryDonut data={neptuneByCat} total={neptuneTotal} />
           )}
         </div>
       </div>
+    </>
+  );
+}
+
+// Overview tab: the same three sub-views, each rendering the full Overview
+// dashboard scoped to that business ("Overall" = both businesses combined).
+function OverviewView({ revenue, revenuePrev, expenses, expensesPrev }) {
+  const [subTab, setSubTab] = useState('all');
+
+  const scope = (rows) => (subTab === 'all' ? rows : rows.filter(t => (t.business || 'mayday_media') === subTab));
+  const rev     = useMemo(() => scope(revenue), [revenue, subTab]);
+  const revPrev = useMemo(() => scope(revenuePrev), [revenuePrev, subTab]);
+  const exp     = useMemo(() => scope(expenses), [expenses, subTab]);
+  const expPrev = useMemo(() => scope(expensesPrev), [expensesPrev, subTab]);
+
+  return (
+    <>
+      <BusinessSubTabs subTab={subTab} setSubTab={setSubTab} />
+      <OverviewTab revenue={rev} revenuePrev={revPrev} expenses={exp} expensesPrev={expPrev} />
     </>
   );
 }
