@@ -27,6 +27,8 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
   const [sponsors, setSponsors] = useState([]);
   const [sponsorLoading, setSponsorLoading] = useState(false);
   const [expandedCampaignId, setExpandedCampaignId] = useState(null);
+  const [campaignActiveOpen, setCampaignActiveOpen] = useState(true);
+  const [campaignInactiveOpen, setCampaignInactiveOpen] = useState(false);
   const [showDeliverableForm, setShowDeliverableForm] = useState(null);
   const [editingDeliverable, setEditingDeliverable] = useState(null);
   const [deliverableTitle, setDeliverableTitle] = useState('');
@@ -58,9 +60,6 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
   const [briefModalSaving, setBriefModalSaving] = useState(false);
 
   const [allDeliverables, setAllDeliverables] = useState([]);
-  const [expandedUpcomingId, setExpandedUpcomingId] = useState(null);
-  const [editingAdCopy, setEditingAdCopy] = useState({});
-  const [editingDueDate, setEditingDueDate] = useState({});
 
   // Proposals state
   const [proposals, setProposals] = useState([]);
@@ -75,7 +74,6 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
   const [slotLimits, setSlotLimits] = useState([]);
   const [editingSlots, setEditingSlots] = useState(null);
   const [slotDraft, setSlotDraft] = useState({ mayday: '', tmb: '' });
-  const [showSlotHistory, setShowSlotHistory] = useState(false);
 
   // Beat sheets for deliverable linking
   const [beatSheets, setBeatSheets] = useState([]);
@@ -950,13 +948,184 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
     );
   }
 
+  // Deliverable as a card (used in the campaign stack). Turns green when delivered.
+  function renderDeliverableCard(d) {
+    const delivered = d.delivered;
+    const ev = d.video_event_id ? videoEvents.find(e => e.id === d.video_event_id) : null;
+    return (
+      <div key={d.id} style={{ ...styles.delivCard, ...(delivered ? styles.delivCardDone : {}) }}>
+        <div style={styles.delivCardTop}>
+          <span style={{ fontSize: '15px', flexShrink: 0 }}>{DELIVERABLE_TYPES[d.deliverable_type]?.icon || '\u{1F4CB}'}</span>
+          <span style={{ ...styles.delivCardTitle, ...(delivered ? { textDecoration: 'line-through', color: 'rgba(255,255,255,0.55)' } : {}) }}>{d.title}</span>
+          <button onClick={(e) => { e.stopPropagation(); startEditDeliverable(d); }} style={styles.delivIconBtn} title="Edit">{'\u270e'}</button>
+          <button onClick={(e) => { e.stopPropagation(); handleDeleteDeliverable(d); }} style={styles.delivIconBtn} title="Delete">{'\u2715'}</button>
+        </div>
+        <div style={styles.delivChips}>
+          {d.channel && CHANNEL_COLORS[d.channel] && (
+            <span style={{ ...styles.chip, background: CHANNEL_COLORS[d.channel].bg, color: CHANNEL_COLORS[d.channel].color }}>{CHANNEL_COLORS[d.channel].label}</span>
+          )}
+          {(d.platforms || []).map(p => (
+            <span key={p} style={{ ...styles.chip, fontWeight: 600, background: 'rgba(99,102,241,0.12)', color: '#a5b4fc' }}>{p}</span>
+          ))}
+          {d.needs_review && <span style={{ ...styles.chip, background: 'rgba(236,72,153,0.15)', color: '#f9a8d4' }}>REVIEW</span>}
+          {ev && (
+            <span style={{ ...styles.chip, fontWeight: 600, background: 'rgba(168,85,247,0.12)', color: '#c084fc' }}>
+              {'\ud83d\udcf9'} {new Date(ev.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            </span>
+          )}
+          {d.due_date && (
+            <span style={{ ...styles.chip, fontWeight: 600, background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)' }}>
+              {new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+            </span>
+          )}
+        </div>
+        <button
+          onClick={(e) => { e.stopPropagation(); handleToggleDelivered(d.id, d.delivered); }}
+          style={{ ...styles.delivToggle, ...(delivered ? styles.delivToggleDone : {}) }}
+        >
+          {delivered ? '\u2713 Delivered' : 'Mark Delivered'}
+        </button>
+      </div>
+    );
+  }
+
+  // Deliverable card for the Upcoming grid \u2014 adds sponsor/campaign, brief, pay,
+  // and beat-sheet assignment to the same card style.
+  function renderUpcomingCard(d) {
+    const linkedSheet = beatSheets.find(bs => bs.id === d.beat_sheet_id);
+    const ev = d.video_event_id ? videoEvents.find(e => e.id === d.video_event_id) : null;
+    return (
+      <div key={d.id} style={{ ...styles.delivCard, flexDirection: 'row', alignItems: 'stretch', gap: '10px', position: 'relative', paddingBottom: '16px' }}>
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={styles.delivCardTop}>
+            <span style={{ fontSize: '15px', flexShrink: 0 }}>{DELIVERABLE_TYPES[d.deliverable_type]?.icon || '\u{1F4CB}'}</span>
+            <span style={{ ...styles.delivCardTitle, flex: '0 1 auto' }}>{d.title}</span>
+            {d.pay != null && <span style={{ fontSize: '12px', fontWeight: 700, color: '#22c55e', flexShrink: 0 }}>${parseFloat(d.pay).toLocaleString()}</span>}
+          </div>
+          <div style={styles.delivCardSub}>
+            <span>{d.sponsor_name}</span>
+            {d.campaign_name && <><span style={{ opacity: 0.4 }}>/</span><span>{d.campaign_name}</span></>}
+            {d.brief_url && (
+              <a href={d.brief_url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ color: '#a5b4fc', textDecoration: 'none' }}>
+                {'\u{1F4C4}'} {d.brief_name || 'Brief'}
+              </a>
+            )}
+          </div>
+          <div style={styles.delivChips}>
+            {d.channel && CHANNEL_COLORS[d.channel] && (
+              <span style={{ ...styles.chip, background: CHANNEL_COLORS[d.channel].bg, color: CHANNEL_COLORS[d.channel].color }}>{CHANNEL_COLORS[d.channel].label}</span>
+            )}
+            {(d.platforms || []).map(p => (
+              <span key={p} style={{ ...styles.chip, fontWeight: 600, background: 'rgba(99,102,241,0.12)', color: '#a5b4fc' }}>{p}</span>
+            ))}
+            {d.needs_review && <span style={{ ...styles.chip, background: 'rgba(236,72,153,0.15)', color: '#f9a8d4' }}>REVIEW</span>}
+            {ev && (
+              <span style={{ ...styles.chip, fontWeight: 600, background: 'rgba(168,85,247,0.12)', color: '#c084fc' }}>
+                {'\ud83d\udcf9'} {new Date(ev.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              </span>
+            )}
+            <span style={{ ...styles.chip, fontWeight: 600, background: linkedSheet ? 'rgba(99,102,241,0.1)' : 'rgba(239,68,68,0.1)', color: linkedSheet ? '#a5b4fc' : '#fca5a5' }}>
+              {linkedSheet ? linkedSheet.title : 'Unassigned'}
+            </span>
+          </div>
+        </div>
+        {/* Mark Delivered \u2014 vertically centered on the right (equal top/bottom) */}
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignSelf: 'stretch', flexShrink: 0 }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); handleToggleDelivered(d.id, d.delivered); }}
+            style={{ ...styles.delivToggle, padding: '9px 15px', fontSize: '11px', lineHeight: 1.2 }}
+          >
+            Mark<br />Delivered
+          </button>
+        </div>
+        {/* Edit \u2014 bottom-right corner */}
+        <button
+          onClick={(e) => { e.stopPropagation(); if (d.campaign_id) setExpandedCampaignId(d.campaign_id); startEditDeliverable(d); }}
+          style={{ ...styles.delivIconBtn, position: 'absolute', bottom: '4px', right: '6px' }}
+          title="Edit"
+        >{'\u270e'}</button>
+      </div>
+    );
+  }
+
+  // Single read-slot month card (Mayday / TM Baseball counts vs limits).
+  function renderReadSlotCard(month) {
+    const count = (ch) => allDeliverables.filter(d => d.channel === ch && d.due_date && d.due_date.slice(0, 7) === month).length;
+    const limitOf = (ch) => { const r = slotLimits.find(s => s.month === month && s.channel === ch); return r ? r.slot_limit : null; };
+    const unassigned = (ch) => allDeliverables.filter(d => d.channel === ch && d.due_date && d.due_date.slice(0, 7) === month && !d.delivered && !d.video_event_id).length;
+    const maydayCount = count('mayday'), tmbCount = count('tmb');
+    const maydayLimit = limitOf('mayday'), tmbLimit = limitOf('tmb');
+    const maydayUnassigned = unassigned('mayday'), tmbUnassigned = unassigned('tmb');
+    const isEditing = editingSlots === month;
+    const monthLabel = (() => { const [y, mo] = month.split('-'); return new Date(+y, +mo - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }); })();
+    return (
+      <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '10px', padding: '10px', width: '100%', height: '100%', boxSizing: 'border-box' }}>
+        <div style={{ fontWeight: 600, fontSize: '12px', color: 'rgba(255,255,255,0.9)', marginBottom: '6px', textAlign: 'center' }}>{monthLabel}</div>
+        {(() => {
+          const chip = (n) => ({ fontSize: '9px', fontWeight: 600, padding: '2px 4px', borderRadius: '5px',
+            ...(n > 0 ? { background: 'rgba(245,158,11,0.12)', color: '#f59e0b' } : { background: 'rgba(34,197,94,0.12)', color: '#4ade80' }) });
+          return (
+          <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
+            <div style={{ flex: 1, textAlign: 'center', minWidth: 0 }}>
+              <span style={chip(maydayUnassigned)}>{maydayUnassigned > 0 ? `${maydayUnassigned} open` : 'All set'}</span>
+            </div>
+            <div style={{ flex: 1, textAlign: 'center', minWidth: 0 }}>
+              <span style={chip(tmbUnassigned)}>{tmbUnassigned > 0 ? `${tmbUnassigned} open` : 'All set'}</span>
+            </div>
+          </div>
+          );
+        })()}
+        <div style={{ display: 'flex', gap: '6px' }}>
+          <div style={{ flex: 1, minWidth: 0, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: '6px', padding: '7px 4px', textAlign: 'center' }}>
+            <div style={{ fontSize: '10px', fontWeight: 600, color: '#a5b4fc', marginBottom: '3px' }}>Mayday</div>
+            <div style={{ fontSize: '15px', fontWeight: 700, color: '#fff' }}>
+              {maydayCount}{maydayLimit != null ? <span style={{ color: 'rgba(255,255,255,0.35)' }}>/{maydayLimit}</span> : null}
+            </div>
+            {maydayLimit != null && (
+              <div style={{ marginTop: '6px', height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                <div style={{ height: '100%', borderRadius: '2px', background: maydayCount >= maydayLimit ? '#22c55e' : '#6366f1', width: `${Math.min(100, maydayLimit > 0 ? (maydayCount / maydayLimit) * 100 : 0)}%`, transition: 'width 0.3s' }} />
+              </div>
+            )}
+          </div>
+          <div style={{ flex: 1, minWidth: 0, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.15)', borderRadius: '6px', padding: '7px 4px', textAlign: 'center' }}>
+            <div style={{ fontSize: '10px', fontWeight: 600, color: '#fca5a5', marginBottom: '3px' }}>TMB</div>
+            <div style={{ fontSize: '15px', fontWeight: 700, color: '#fff' }}>
+              {tmbCount}{tmbLimit != null ? <span style={{ color: 'rgba(255,255,255,0.35)' }}>/{tmbLimit}</span> : null}
+            </div>
+            {tmbLimit != null && (
+              <div style={{ marginTop: '6px', height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                <div style={{ height: '100%', borderRadius: '2px', background: tmbCount >= tmbLimit ? '#22c55e' : '#ef4444', width: `${Math.min(100, tmbLimit > 0 ? (tmbCount / tmbLimit) * 100 : 0)}%`, transition: 'width 0.3s' }} />
+              </div>
+            )}
+          </div>
+        </div>
+        {isAdmin && (
+          isEditing ? (
+            <div style={{ marginTop: '10px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input type="number" value={slotDraft.mayday} onChange={e => setSlotDraft(d => ({ ...d, mayday: e.target.value }))} placeholder="Mayday" min="0" style={{ flex: 1, minWidth: 0, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '6px 8px', color: '#fff', fontSize: '12px' }} />
+              <input type="number" value={slotDraft.tmb} onChange={e => setSlotDraft(d => ({ ...d, tmb: e.target.value }))} placeholder="TMB" min="0" style={{ flex: 1, minWidth: 0, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '6px 8px', color: '#fff', fontSize: '12px' }} />
+              <button onClick={() => handleSaveSlotLimits(month)} style={{ background: '#6366f1', color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 10px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>Save</button>
+              <button onClick={() => setEditingSlots(null)} style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)', border: 'none', borderRadius: '5px', padding: '5px 8px', fontSize: '12px', cursor: 'pointer' }}>{'✕'}</button>
+            </div>
+          ) : (
+            <button
+              onClick={() => { setEditingSlots(month); setSlotDraft({ mayday: maydayLimit != null ? String(maydayLimit) : '', tmb: tmbLimit != null ? String(tmbLimit) : '' }); }}
+              style={{ marginTop: '10px', background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', fontSize: '11px', cursor: 'pointer', padding: '2px 0' }}
+            >
+              Set Limits
+            </button>
+          )
+        )}
+      </div>
+    );
+  }
+
   return (
     <div style={styles.page}>
-      {/* ── Proposals + Read Slots side-by-side ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', padding: '0 24px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', marginBottom: '16px', alignItems: 'flex-start' }}>
-
-        {/* ── Proposals column ── */}
-        <div>
+      {/* ── Proposals (left, 1/4) + Campaigns (right) ── */}
+      <div style={{ display: 'flex', gap: '20px', alignItems: 'stretch', marginBottom: '28px' }}>
+        {/* ── Proposals + Read Slots column (1/3 width) ── */}
+        <div style={{ width: '33%', flexShrink: 0, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>Proposals</h2>
@@ -976,7 +1145,8 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
 
           {/* Proposal form (create or edit) */}
           {showProposalForm && (
-            <form onSubmit={editingProposal ? handleUpdateProposal : handleCreateProposal} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '8px', padding: '16px', marginBottom: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <Modal title={editingProposal ? 'Edit Proposal' : 'New Proposal'} onClose={cancelProposalForm} maxWidth={620}>
+            <form onSubmit={editingProposal ? handleUpdateProposal : handleCreateProposal} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <input
                 value={proposalForm.sponsor_name}
                 onChange={e => setProposalForm(f => ({ ...f, sponsor_name: e.target.value }))}
@@ -1100,14 +1270,13 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                 </button>
               </div>
             </form>
+            </Modal>
           )}
 
           {/* Pending proposals */}
           {proposalsLoading && pendingProposals.length === 0 ? (
             <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px' }}>Loading...</p>
-          ) : pendingProposals.length === 0 ? (
-            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px', margin: '4px 0' }}>No pending proposals</p>
-          ) : (
+          ) : pendingProposals.length === 0 ? null : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '8px' }}>
               {pendingProposals.map(p => {
                 const items = p.items || [];
@@ -1185,157 +1354,21 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
               </div>
             </details>
           )}
+
+          {/* Read Slots — pinned to the bottom of the column, just above Upcoming */}
+          <div style={{ marginTop: 'auto', paddingTop: '24px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+            {[0, 1, 2].map(off => {
+              const d = new Date();
+              d.setDate(1);
+              d.setMonth(d.getMonth() + off);
+              const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+              return <div key={m} style={{ display: 'flex' }}>{renderReadSlotCard(m)}</div>;
+            })}
+          </div>
         </div>
 
-        {/* ── Read Slots column ── */}
-        <div>
-          <h2 style={{ margin: '0 0 12px', fontSize: '16px', fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>Read Slots</h2>
-          {(() => {
-            const now = new Date();
-            const buildMonth = (offset) => {
-              const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
-              return d.toISOString().slice(0, 7);
-            };
-            const months = [buildMonth(0), buildMonth(1), buildMonth(2)];
-            const formatMonth = (m) => {
-              const [y, mo] = m.split('-');
-              return new Date(parseInt(y), parseInt(mo) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-            };
-            const getCount = (month, channel) => allDeliverables.filter(d => d.channel === channel && d.due_date && d.due_date.slice(0, 7) === month).length;
-            const getLimit = (month, channel) => {
-              const row = slotLimits.find(s => s.month === month && s.channel === channel);
-              return row ? row.slot_limit : null;
-            };
-
-            const getUnassignedCount = (month, channel) => allDeliverables.filter(d => d.channel === channel && d.due_date && d.due_date.slice(0, 7) === month && !d.delivered && !d.video_event_id).length;
-
-            const renderMonthCard = (month) => {
-              const maydayCount = getCount(month, 'mayday');
-              const tmbCount = getCount(month, 'tmb');
-              const maydayLimit = getLimit(month, 'mayday');
-              const tmbLimit = getLimit(month, 'tmb');
-              const isEditing = editingSlots === month;
-              const maydayUnassigned = getUnassignedCount(month, 'mayday');
-              const tmbUnassigned = getUnassignedCount(month, 'tmb');
-
-              return (
-                <div key={month} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '8px', padding: '14px', marginBottom: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                    <div style={{ fontWeight: 600, fontSize: '13px', color: 'rgba(255,255,255,0.9)' }}>{formatMonth(month)}</div>
-                    {isAdmin && !isEditing && (
-                      <button
-                        onClick={() => { setEditingSlots(month); setSlotDraft({ mayday: maydayLimit != null ? String(maydayLimit) : '', tmb: tmbLimit != null ? String(tmbLimit) : '' }); }}
-                        style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', fontSize: '11px', cursor: 'pointer', padding: '2px 6px' }}
-                      >
-                        Set Limits
-                      </button>
-                    )}
-                  </div>
-
-                  {(maydayUnassigned > 0 || tmbUnassigned > 0) && (
-                    <div style={{ display: 'flex', gap: '8px', marginBottom: '6px' }}>
-                      <div style={{ flex: 1, textAlign: 'center' }}>
-                        {maydayUnassigned > 0 && (
-                          <span style={{ fontSize: '10px', fontWeight: 600, padding: '2px 6px', borderRadius: '5px', background: 'rgba(245,158,11,0.12)', color: '#f59e0b' }}>
-                            {maydayUnassigned} unscheduled
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ flex: 1, textAlign: 'center' }}>
-                        {tmbUnassigned > 0 && (
-                          <span style={{ fontSize: '10px', fontWeight: 600, padding: '2px 6px', borderRadius: '5px', background: 'rgba(245,158,11,0.12)', color: '#f59e0b' }}>
-                            {tmbUnassigned} unscheduled
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    {/* Mayday card */}
-                    <div style={{ flex: 1, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: '6px', padding: '10px 12px', textAlign: 'center' }}>
-                      <div style={{ fontSize: '11px', fontWeight: 600, color: '#a5b4fc', marginBottom: '6px' }}>Mayday</div>
-                      <div style={{ fontSize: '20px', fontWeight: 700, color: '#fff' }}>
-                        {maydayCount}{maydayLimit != null ? <span style={{ color: 'rgba(255,255,255,0.35)' }}>/{maydayLimit}</span> : null}
-                      </div>
-                      {maydayLimit != null && (
-                        <div style={{ marginTop: '6px', height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
-                          <div style={{ height: '100%', borderRadius: '2px', background: maydayCount >= maydayLimit ? '#22c55e' : '#6366f1', width: `${Math.min(100, maydayLimit > 0 ? (maydayCount / maydayLimit) * 100 : 0)}%`, transition: 'width 0.3s' }} />
-                        </div>
-                      )}
-                    </div>
-
-                    {/* TMB card */}
-                    <div style={{ flex: 1, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.15)', borderRadius: '6px', padding: '10px 12px', textAlign: 'center' }}>
-                      <div style={{ fontSize: '11px', fontWeight: 600, color: '#fca5a5', marginBottom: '6px' }}>TM Baseball</div>
-                      <div style={{ fontSize: '20px', fontWeight: 700, color: '#fff' }}>
-                        {tmbCount}{tmbLimit != null ? <span style={{ color: 'rgba(255,255,255,0.35)' }}>/{tmbLimit}</span> : null}
-                      </div>
-                      {tmbLimit != null && (
-                        <div style={{ marginTop: '6px', height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
-                          <div style={{ height: '100%', borderRadius: '2px', background: tmbCount >= tmbLimit ? '#22c55e' : '#ef4444', width: `${Math.min(100, tmbLimit > 0 ? (tmbCount / tmbLimit) * 100 : 0)}%`, transition: 'width 0.3s' }} />
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Inline edit for limits */}
-                  {isEditing && (
-                    <div style={{ marginTop: '10px', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <input type="number" value={slotDraft.mayday} onChange={e => setSlotDraft(d => ({ ...d, mayday: e.target.value }))} placeholder="Mayday limit" min="0" style={{ flex: 1, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '6px 8px', color: '#fff', fontSize: '12px' }} />
-                      <input type="number" value={slotDraft.tmb} onChange={e => setSlotDraft(d => ({ ...d, tmb: e.target.value }))} placeholder="TMB limit" min="0" style={{ flex: 1, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '6px 8px', color: '#fff', fontSize: '12px' }} />
-                      <button onClick={() => handleSaveSlotLimits(month)} style={{ background: '#6366f1', color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 10px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>Save</button>
-                      <button onClick={() => setEditingSlots(null)} style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)', border: 'none', borderRadius: '5px', padding: '5px 8px', fontSize: '12px', cursor: 'pointer' }}>{'\u2715'}</button>
-                    </div>
-                  )}
-                </div>
-              );
-            };
-
-            // Past months for history
-            const pastMonths = [];
-            for (let i = 1; i <= 12; i++) {
-              const pm = buildMonth(-i);
-              const hasMayday = getCount(pm, 'mayday') > 0 || getLimit(pm, 'mayday') != null;
-              const hasTmb = getCount(pm, 'tmb') > 0 || getLimit(pm, 'tmb') != null;
-              if (hasMayday || hasTmb) pastMonths.push(pm);
-            }
-
-            return (
-              <>
-                {months.map(renderMonthCard)}
-                {pastMonths.length > 0 && (
-                  <div style={{ marginTop: '4px' }}>
-                    <button onClick={() => setShowSlotHistory(v => !v)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', fontSize: '12px', cursor: 'pointer', padding: '4px 0' }}>
-                      {showSlotHistory ? 'Hide History' : 'History'}
-                    </button>
-                    {showSlotHistory && (
-                      <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        {pastMonths.map(pm => {
-                          const mc = getCount(pm, 'mayday');
-                          const tc = getCount(pm, 'tmb');
-                          const ml = getLimit(pm, 'mayday');
-                          const tl = getLimit(pm, 'tmb');
-                          return (
-                            <div key={pm} style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '12px', color: 'rgba(255,255,255,0.5)', padding: '6px 10px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px' }}>
-                              <span style={{ fontWeight: 500, color: 'rgba(255,255,255,0.7)', minWidth: '120px' }}>{formatMonth(pm)}</span>
-                              <span style={{ color: '#a5b4fc' }}>MD: {mc}{ml != null ? `/${ml}` : ''}</span>
-                              <span style={{ color: '#fca5a5' }}>TMB: {tc}{tl != null ? `/${tl}` : ''}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </>
-            );
-          })()}
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', alignItems: 'flex-start' }}>
-        <div style={{ minWidth: 0 }}>
+        {/* ── Campaigns (right, fills remaining width) ── */}
+        <div style={{ flex: 1, minWidth: 0 }}>
       <div style={styles.topBar}>
         <div>
           <h1 style={styles.pageTitle}>Campaigns</h1>
@@ -1348,9 +1381,10 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
         </button>
       </div>
 
-      {/* Campaign Form (top-level) */}
+      {/* Campaign Form (modal) */}
       {showCampaignForm && (
-        <form onSubmit={handleSaveCampaign} style={styles.formCard}>
+        <Modal title={editingCampaign ? 'Edit Campaign' : 'New Campaign'} onClose={() => { resetCampaignForm(); setShowCampaignForm(false); }} maxWidth={680}>
+        <form onSubmit={handleSaveCampaign}>
           <div style={styles.formGrid}>
             <div style={styles.field}>
               <label style={styles.label}>Brand *</label>
@@ -1431,6 +1465,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
           </div>
           <button type="submit" style={styles.submitBtn}>{editingCampaign ? 'Update Campaign' : 'Create Campaign'}</button>
         </form>
+        </Modal>
       )}
 
       {/* Campaign List */}
@@ -1441,24 +1476,28 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
           <p style={styles.emptyText}>No campaigns yet. Add one to get started.</p>
         </div>
       ) : (
-        <div style={styles.projectList}>
-          {sortedCampaigns.map(campaign => {
+        (() => {
+          const renderCampaignCard = (campaign) => {
               const isExpanded = expandedCampaignId === campaign.id;
               const campaignDels = campaign.deliverables;
-              const allDeliveredCamp = campaignDels.length > 0 && campaignDels.every(d => d.delivered);
-              const isActive = campaignDels.length === 0 || campaignDels.some(d => !d.delivered);
               const campDeliveredCount = campaignDels.filter(d => d.delivered).length;
               const campTotalPay = campaignDels.reduce((sum, d) => sum + (parseFloat(d.pay) || 0), 0);
               return (
                 <div key={campaign.id} style={styles.sponsorCard}>
                   <div style={styles.sponsorCardHeader} onClick={() => setExpandedCampaignId(isExpanded ? null : campaign.id)}>
-                    <div style={styles.projectRowLeft}>
-                      <div>
+                    {/* Title / subtitle row */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                      <div style={{ minWidth: 0 }}>
                         <div style={styles.projectRowName}>{campaign.name}</div>
                         <div style={styles.projectRowMeta}>{campaign.brand}</div>
                       </div>
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="rgba(255,255,255,0.3)"
+                        style={{ flexShrink: 0, marginTop: '3px', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>
+                        <path d="M4 6l4 4 4-4" />
+                      </svg>
                     </div>
-                    <div style={styles.projectRowRight}>
+                    {/* Chips row */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px' }}>
                       {campaign.start_date && campaign.end_date && (
                         <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)' }}>
                           {new Date(campaign.start_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – {new Date(campaign.end_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
@@ -1477,16 +1516,9 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                           + Add Brief
                         </span>
                       )}
-                      <span style={{ ...styles.statusTag, background: isActive ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.06)', color: isActive ? '#10b981' : 'rgba(255,255,255,0.4)' }}>
-                        {isActive ? 'Active' : 'Inactive'}
-                      </span>
                       {campaignDels.length > 0 && (
                         <span style={styles.checklistBadge}>{campDeliveredCount}/{campaignDels.length}</span>
                       )}
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="rgba(255,255,255,0.3)"
-                        style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>
-                        <path d="M4 6l4 4 4-4" />
-                      </svg>
                     </div>
                   </div>
 
@@ -1517,20 +1549,23 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                         <p style={{ margin: '0 0 8px', fontSize: '13px', color: 'rgba(255,255,255,0.5)', whiteSpace: 'pre-wrap' }}>{campaign.description}</p>
                       )}
 
-                      {/* Deliverables */}
-                      {campaignDels.length > 0 && <div style={{ marginBottom: '8px' }}>{campaignDels.map(d => renderDeliverableRow(d, sponsors.find(s => s.id === campaign.sponsor_id)))}</div>}
+                      {/* Deliverables (stacked cards) */}
+                      {campaignDels.length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '10px' }}>
+                          {campaignDels.map(d => renderDeliverableCard(d))}
+                        </div>
+                      )}
 
                       {/* Add Deliverable */}
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); resetDeliverableForm(); setDeliverableCampaignId(campaign.id); setShowDeliverableForm(showDeliverableForm === campaign.id ? null : campaign.id); }}
-                          style={{ background: 'none', border: 'none', color: '#a5b4fc', fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}
-                        >
-                          {showDeliverableForm === campaign.id && !editingDeliverable ? '\u2715 Cancel' : '+ Add Deliverable'}
-                        </button>
-                      </div>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); resetDeliverableForm(); setDeliverableCampaignId(campaign.id); setShowDeliverableForm(campaign.id); }}
+                        style={styles.addDeliverableBtn}
+                      >
+                        + Add Deliverable
+                      </button>
                       {showDeliverableForm === campaign.id && (
-                        <form onSubmit={(e) => handleSaveDeliverable(e, campaign.sponsor_id, campaign.id)} style={{ ...styles.formCard, marginTop: '8px' }}>
+                        <Modal title={editingDeliverable ? 'Edit Deliverable' : 'Add Deliverable'} subtitle={campaign.name} onClose={() => { resetDeliverableForm(); setShowDeliverableForm(null); }} maxWidth={680}>
+                        <form onSubmit={(e) => handleSaveDeliverable(e, campaign.sponsor_id, campaign.id)}>
                           <div style={styles.formGrid}>
                             <div style={styles.field}>
                               <label style={styles.label}>Title *</label>
@@ -1603,6 +1638,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                           </div>
                           <button type="submit" style={styles.submitBtn}>{editingDeliverable ? 'Update Deliverable' : 'Add Deliverable'}</button>
                         </form>
+                        </Modal>
                       )}
 
                       {/* Campaign Actions */}
@@ -1614,8 +1650,29 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                   )}
                 </div>
               );
-            })}
-          </div>
+            };
+            const isAct = (c) => c.deliverables.length === 0 || c.deliverables.some(d => !d.delivered);
+            const activeC = sortedCampaigns.filter(isAct);
+            const inactiveC = sortedCampaigns.filter(c => !isAct(c));
+            const section = (title, list, open, setOpen) => (
+              <div style={{ marginBottom: '16px' }}>
+                <button onClick={() => setOpen(v => !v)} style={styles.campaignSectionHeader}>
+                  <span style={{ width: '12px', display: 'inline-block' }}>{open ? '▾' : '▸'}</span>
+                  {title}
+                  <span style={styles.checklistBadge}>{list.length}</span>
+                </button>
+                {open && (list.length > 0
+                  ? <div style={{ ...styles.campaignGrid, marginTop: '12px' }}>{list.map(renderCampaignCard)}</div>
+                  : <p style={{ ...styles.emptyText, marginTop: '8px' }}>No {title.toLowerCase()} campaigns.</p>)}
+              </div>
+            );
+            return (
+              <>
+                {section('Active', activeC, campaignActiveOpen, setCampaignActiveOpen)}
+                {section('Inactive', inactiveC, campaignInactiveOpen, setCampaignInactiveOpen)}
+              </>
+            );
+          })()
       )}
 
       {/* Uncampaigned Deliverables (legacy) */}
@@ -1635,6 +1692,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
         </details>
       )}
         </div>
+      </div>
 
       {/* ====== UPCOMING AD READS SECTION ====== */}
       {(() => {
@@ -1664,114 +1722,37 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                 <p style={styles.emptyText}>No upcoming deliverables. Add deliverables to sponsors above.</p>
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                {upcomingReads.map(d => {
-                  const linkedSheet = beatSheets.find(bs => bs.id === d.beat_sheet_id);
-                  const isExpanded = expandedUpcomingId === d.id;
-                  return (
-                    <div key={d.id} style={{ borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', minWidth: 0, overflow: 'hidden' }}>
-                      {/* Collapsed header row */}
-                      <div
-                        onClick={() => {
-                          if (isExpanded) {
-                            setExpandedUpcomingId(null);
-                          } else {
-                            setExpandedUpcomingId(d.id);
-                            setEditingAdCopy(prev => ({ ...prev, [d.id]: d.notes || '' }));
-                            setEditingDueDate(prev => ({ ...prev, [d.id]: d.due_date ? d.due_date.slice(0, 7) : '' }));
-                          }
-                        }}
-                        style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', cursor: 'pointer', minWidth: 0 }}
-                      >
-                        <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', transition: 'transform 0.15s', transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)', flexShrink: 0 }}>&#9654;</span>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: '14px', fontWeight: 600, color: '#fff', marginBottom: '2px' }}>{d.title}</div>
-                          <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
-                            <span>{d.sponsor_name}</span>
-                            {d.campaign_name && <><span style={{ opacity: 0.4 }}>/</span><span>{d.campaign_name}</span></>}
-                            {d.due_date && <><span style={{ opacity: 0.4 }}>/</span><span>{new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span></>}
-                            {d.brief_url && (
-                              <a href={d.brief_url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: '11px', color: '#a5b4fc', textDecoration: 'none' }}>
-                                {'\u{1F4C4}'} {d.brief_name || 'Campaign Brief'}
-                              </a>
-                            )}
-                          </div>
-                        </div>
-                        {d.pay != null && (
-                          <span style={{ fontSize: '13px', fontWeight: 600, color: '#22c55e', whiteSpace: 'nowrap' }}>
-                            ${parseFloat(d.pay).toLocaleString()}
-                          </span>
-                        )}
-                        {d.channel && CHANNEL_COLORS[d.channel] && (
-                          <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '5px', whiteSpace: 'nowrap', background: CHANNEL_COLORS[d.channel].bg, color: CHANNEL_COLORS[d.channel].color }}>
-                            {CHANNEL_COLORS[d.channel].label}
-                          </span>
-                        )}
-                        {(() => {
-                          const ev = d.video_event_id ? videoEvents.find(e => e.id === d.video_event_id) : null;
-                          if (ev) return (
-                            <span style={{ fontSize: '10px', fontWeight: 600, padding: '2px 6px', borderRadius: '5px', whiteSpace: 'nowrap', background: 'rgba(168,85,247,0.12)', color: '#c084fc' }}>
-                              {'\uD83D\uDCF9'} {ev.title?.length > 16 ? ev.title.slice(0, 16) + '\u2026' : ev.title}
-                              {ev.start_date && <span style={{ opacity: 0.7, marginLeft: '4px' }}>
-                                {new Date(ev.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                              </span>}
-                            </span>
-                          );
-                          return null;
-                        })()}
-                        <span style={{
-                          fontSize: '11px', fontWeight: 600, padding: '3px 8px', borderRadius: '6px', whiteSpace: 'nowrap',
-                          background: linkedSheet ? 'rgba(99,102,241,0.1)' : 'rgba(239,68,68,0.1)',
-                          color: linkedSheet ? '#a5b4fc' : '#fca5a5',
-                        }}>
-                          {linkedSheet ? linkedSheet.title : 'Unassigned'}
-                        </span>
-                      </div>
-
-                      {/* Expanded detail panel */}
-                      {isExpanded && (
-                        <div style={{ padding: '0 14px 12px 36px', display: 'flex', flexDirection: 'column', gap: '10px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                          <div style={{ paddingTop: '10px' }}>
-                            <label style={{ fontSize: '11px', fontWeight: 600, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Ad Copy</label>
-                            <textarea
-                              value={editingAdCopy[d.id] ?? ''}
-                              onChange={e => setEditingAdCopy(prev => ({ ...prev, [d.id]: e.target.value }))}
-                              onBlur={async () => {
-                                const newVal = (editingAdCopy[d.id] ?? '').trim() || null;
-                                if (newVal === (d.notes || null)) return;
-                                await supabase.from('sponsor_deliverables').update({ notes: newVal, updated_at: new Date().toISOString() }).eq('id', d.id);
-                                fetchSponsors();
-                              }}
-                              placeholder="Ad copy, talking points, key messaging..."
-                              rows={3}
-                              style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '8px 10px', color: '#fff', fontSize: '13px', fontFamily: 'inherit', resize: 'vertical', outline: 'none', boxSizing: 'border-box' }}
-                            />
-                          </div>
-                          <div>
-                            <label style={{ fontSize: '11px', fontWeight: 600, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Due Month</label>
-                            <input
-                              type="month"
-                              value={editingDueDate[d.id] ?? ''}
-                              onChange={async (e) => {
-                                const newDate = e.target.value ? e.target.value + '-01' : null;
-                                setEditingDueDate(prev => ({ ...prev, [d.id]: e.target.value }));
-                                await supabase.from('sponsor_deliverables').update({ due_date: newDate, updated_at: new Date().toISOString() }).eq('id', d.id);
-                                fetchSponsors();
-                              }}
-                              style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '6px 10px', color: '#fff', fontSize: '13px', fontFamily: 'inherit', outline: 'none', colorScheme: 'dark' }}
-                            />
-                          </div>
-                        </div>
-                      )}
+              (() => {
+                // Group by due month (already sorted ascending; undated last).
+                const groups = [];
+                const byKey = {};
+                for (const d of upcomingReads) {
+                  const key = d.due_date ? d.due_date.slice(0, 7) : 'none';
+                  if (!byKey[key]) {
+                    byKey[key] = {
+                      key,
+                      label: d.due_date
+                        ? new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+                        : 'No due date',
+                      items: [],
+                    };
+                    groups.push(byKey[key]);
+                  }
+                  byKey[key].items.push(d);
+                }
+                return groups.map(g => (
+                  <div key={g.key}>
+                    <div style={styles.monthGroupTitle}>{g.label}</div>
+                    <div style={styles.upcomingGrid}>
+                      {g.items.map(d => renderUpcomingCard(d))}
                     </div>
-                  );
-                })}
-              </div>
+                  </div>
+                ));
+              })()
             )}
           </div>
         );
       })()}
-      </div>
 
       {/* Money section migrated to the Accounting page (Revenue → Mayday Media). */}
 
@@ -1812,6 +1793,23 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function Modal({ title, subtitle, onClose, maxWidth = 640, children }) {
+  return (
+    <div style={styles.modalOverlay} onClick={onClose}>
+      <div style={{ ...styles.modalBox, maxWidth }} onClick={e => e.stopPropagation()}>
+        <div style={styles.modalHeader}>
+          <div>
+            <h3 style={styles.modalTitle}>{title}</h3>
+            {subtitle && <p style={styles.modalSubtitle}>{subtitle}</p>}
+          </div>
+          <button onClick={onClose} style={styles.modalClose} aria-label="Close">{'✕'}</button>
+        </div>
+        {children}
+      </div>
     </div>
   );
 }
@@ -1890,11 +1888,10 @@ const styles = {
   },
   sponsorCardHeader: {
     display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: 'column',
     padding: '14px 16px',
     cursor: 'pointer',
-    gap: '12px',
+    gap: '10px',
   },
   projectRowLeft: { display: 'flex', alignItems: 'center', gap: '14px' },
   projectRowName: { fontSize: '15px', fontWeight: 600, color: '#e2e8f0' },
@@ -1949,5 +1946,99 @@ const styles = {
     color: 'rgba(255,255,255,0.3)',
     fontSize: '14px',
     margin: 0,
+  },
+
+  // ── Campaign card grid (2 per row) ──
+  campaignGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    gap: '14px',
+    alignItems: 'start',
+  },
+  campaignSectionHeader: {
+    display: 'flex', alignItems: 'center', gap: '8px', width: '100%',
+    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '8px', padding: '8px 12px', cursor: 'pointer',
+    color: 'rgba(255,255,255,0.85)', fontSize: '14px', fontWeight: 600, fontFamily: 'inherit',
+  },
+
+  // ── Deliverable cards (stacked inside a campaign / Upcoming grid) ──
+  delivCard: {
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.07)',
+    borderRadius: '10px',
+    padding: '10px 12px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  },
+  delivCardDone: {
+    background: 'rgba(34,197,94,0.10)',
+    border: '1px solid rgba(34,197,94,0.45)',
+  },
+  delivCardTop: { display: 'flex', alignItems: 'center', gap: '8px' },
+  delivCardTitle: {
+    flex: 1, minWidth: 0, fontSize: '13px', fontWeight: 600, color: 'rgba(255,255,255,0.9)',
+    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+  },
+  delivCardSub: {
+    fontSize: '11px', color: 'rgba(255,255,255,0.4)',
+    display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center',
+  },
+  delivChips: { display: 'flex', flexWrap: 'wrap', gap: '5px', alignItems: 'center' },
+  chip: {
+    fontSize: '9px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px',
+    whiteSpace: 'nowrap', letterSpacing: '0.2px',
+  },
+  delivIconBtn: {
+    background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)',
+    cursor: 'pointer', fontSize: '12px', padding: '2px 4px', flexShrink: 0,
+  },
+  delivToggle: {
+    alignSelf: 'flex-start',
+    padding: '4px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer',
+    fontSize: '11px', fontWeight: 700, fontFamily: 'inherit',
+    background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)',
+  },
+  delivToggleDone: { background: 'rgba(34,197,94,0.2)', color: '#86efac' },
+  addDeliverableBtn: {
+    width: '100%', padding: '8px', borderRadius: '8px',
+    background: 'rgba(99,102,241,0.1)', color: '#a5b4fc',
+    border: '1px dashed rgba(99,102,241,0.35)', cursor: 'pointer',
+    fontSize: '12px', fontWeight: 600, fontFamily: 'inherit',
+  },
+
+  // ── Upcoming: month groups ──
+  monthGroupTitle: {
+    fontSize: '12px', fontWeight: 700, color: 'rgba(255,255,255,0.55)',
+    textTransform: 'uppercase', letterSpacing: '0.5px',
+    margin: '14px 0 8px',
+  },
+  upcomingGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+    gap: '10px',
+  },
+
+  // ── Modal ──
+  modalOverlay: {
+    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+    display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+    padding: '48px 16px', overflowY: 'auto', zIndex: 9999,
+  },
+  modalBox: {
+    background: '#1a1a2e', borderRadius: '14px', padding: '24px',
+    width: '100%', border: '1px solid rgba(255,255,255,0.1)',
+    boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+  },
+  modalHeader: {
+    display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
+    gap: '12px', marginBottom: '16px',
+  },
+  modalTitle: { margin: 0, fontSize: '17px', fontWeight: 700, color: '#fff' },
+  modalSubtitle: { margin: '2px 0 0', fontSize: '12px', color: 'rgba(255,255,255,0.4)' },
+  modalClose: {
+    background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)',
+    cursor: 'pointer', fontSize: '18px', lineHeight: 1, padding: '2px 6px',
   },
 };
