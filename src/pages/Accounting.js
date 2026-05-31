@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { DonutChart, TrendChart, formatCompact } from '../lib/charts';
@@ -89,40 +89,61 @@ export default function Accounting() {
   const [expenses, setExpenses]     = useState([]);
   const [expensesPrev, setExpensesPrev] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState(null);
+
+  const load = useCallback(async ({ signal } = {}) => {
+    const { start, end } = getRange(rangeKey);
+    const daysDiff = Math.max(1, Math.ceil((new Date(end) - new Date(start)) / 86400000));
+    const prevStart = new Date(new Date(start).getTime() - daysDiff * 86400000).toISOString().slice(0, 10);
+
+    const [revCur, revOld, expCur, expOld] = await Promise.all([
+      supabase.from('revenue_transactions')
+        .select('date, description, category, amount_cents, account')
+        .gte('date', start).lte('date', end).order('date', { ascending: false }),
+      supabase.from('revenue_transactions')
+        .select('date, category, amount_cents')
+        .gte('date', prevStart).lt('date', start),
+      supabase.from('expense_transactions')
+        .select('date, description, category, amount_cents, account')
+        .gte('date', start).lte('date', end).order('date', { ascending: false }),
+      supabase.from('expense_transactions')
+        .select('date, category, amount_cents')
+        .gte('date', prevStart).lt('date', start),
+    ]);
+
+    if (signal?.aborted) return;
+    setRevenue(revCur.data || []);
+    setRevenuePrev(revOld.data || []);
+    setExpenses(expCur.data || []);
+    setExpensesPrev(expOld.data || []);
+  }, [rangeKey]);
 
   useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoading(true);
-      const { start, end } = getRange(rangeKey);
-      const daysDiff = Math.max(1, Math.ceil((new Date(end) - new Date(start)) / 86400000));
-      const prevStart = new Date(new Date(start).getTime() - daysDiff * 86400000).toISOString().slice(0, 10);
+    const controller = new AbortController();
+    setLoading(true);
+    load({ signal: controller.signal }).finally(() => {
+      if (!controller.signal.aborted) setLoading(false);
+    });
+    return () => controller.abort();
+  }, [load]);
 
-      const [revCur, revOld, expCur, expOld] = await Promise.all([
-        supabase.from('revenue_transactions')
-          .select('date, description, category, amount_cents, account')
-          .gte('date', start).lte('date', end).order('date', { ascending: false }),
-        supabase.from('revenue_transactions')
-          .select('date, category, amount_cents')
-          .gte('date', prevStart).lt('date', start),
-        supabase.from('expense_transactions')
-          .select('date, description, category, amount_cents, account')
-          .gte('date', start).lte('date', end).order('date', { ascending: false }),
-        supabase.from('expense_transactions')
-          .select('date, category, amount_cents')
-          .gte('date', prevStart).lt('date', start),
-      ]);
-
-      if (cancelled) return;
-      setRevenue(revCur.data || []);
-      setRevenuePrev(revOld.data || []);
-      setExpenses(expCur.data || []);
-      setExpensesPrev(expOld.data || []);
-      setLoading(false);
+  // Trigger the Tiller sync edge function to pull fresh transactions from the
+  // Google Sheet into revenue_transactions / expense_transactions, then re-read
+  // the tables for the current range.
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    setRefreshError(null);
+    try {
+      const { error } = await supabase.functions.invoke('sync-tiller', { body: {} });
+      if (error) throw error;
+      await load();
+    } catch (err) {
+      setRefreshError(err?.message || 'Sync failed. Please try again.');
+    } finally {
+      setRefreshing(false);
     }
-    load();
-    return () => { cancelled = true; };
-  }, [rangeKey]);
+  }, [load]);
 
   if (!isAdmin) {
     return (
@@ -137,21 +158,43 @@ export default function Accounting() {
     <div style={styles.page}>
       <div style={styles.header}>
         <h1 style={styles.title}>Accounting</h1>
-        <div style={styles.rangeBar}>
-          {DATE_RANGES.map(r => (
-            <button
-              key={r.key}
-              onClick={() => setRangeKey(r.key)}
-              style={{
-                ...styles.rangePill,
-                ...(rangeKey === r.key ? styles.rangePillActive : {}),
-              }}
-            >
-              {r.label}
-            </button>
-          ))}
+        <div style={styles.headerControls}>
+          <div style={styles.rangeBar}>
+            {DATE_RANGES.map(r => (
+              <button
+                key={r.key}
+                onClick={() => setRangeKey(r.key)}
+                style={{
+                  ...styles.rangePill,
+                  ...(rangeKey === r.key ? styles.rangePillActive : {}),
+                }}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={refreshing || loading}
+            style={{
+              ...styles.refreshBtn,
+              ...(refreshing || loading ? styles.refreshBtnDisabled : {}),
+            }}
+            title="Sync transactions from Tiller"
+          >
+            <span style={{
+              ...styles.refreshIcon,
+              ...(refreshing ? styles.refreshIconSpin : {}),
+            }}>↻</span>
+            {refreshing ? 'Syncing…' : 'Sync Tiller'}
+          </button>
         </div>
       </div>
+
+      {refreshError && (
+        <div style={styles.errorBanner}>{refreshError}</div>
+      )}
 
       <div style={styles.tabBar}>
         {TABS.map(t => (
@@ -654,7 +697,22 @@ const styles = {
     gap: 12,
   },
   title: { fontSize: 26, fontWeight: 700, margin: 0, letterSpacing: -0.5 },
+  headerControls: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
   rangeBar: { display: 'flex', gap: 6 },
+  refreshBtn: {
+    display: 'flex', alignItems: 'center', gap: 6,
+    padding: '6px 12px', fontSize: 12, borderRadius: 6,
+    background: 'rgba(99,102,241,0.18)', color: '#fff',
+    border: '1px solid rgba(99,102,241,0.5)', cursor: 'pointer', fontFamily: 'inherit',
+  },
+  refreshBtnDisabled: { opacity: 0.6, cursor: 'default' },
+  refreshIcon: { fontSize: 14, display: 'inline-block', lineHeight: 1 },
+  refreshIconSpin: { animation: 'spin 0.8s linear infinite' },
+  errorBanner: {
+    background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.4)',
+    color: '#fca5a5', borderRadius: 8, padding: '10px 14px',
+    fontSize: 13, marginBottom: 16,
+  },
   rangePill: {
     padding: '6px 12px', fontSize: 12, borderRadius: 6,
     background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.6)',
