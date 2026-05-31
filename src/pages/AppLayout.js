@@ -37,6 +37,7 @@ import Freelancers from './Freelancers';
 import Ideas from './Ideas';
 import MyTasks from './MyTasks';
 import Assignments from './Assignments';
+import Jobs from './Jobs';
 import Workflows from './Workflows';
 import Morty from '../components/Morty';
 import FreelancerTour from '../components/FreelancerTour';
@@ -73,6 +74,7 @@ const NAV_ITEMS = [
   { key: 'invoicing', label: 'Invoicing', icon: InvoicingIcon },
   { key: 'freelancers', label: 'Contractors', icon: FreelancersIcon, adminOnly: true },
   { key: 'workflows', label: 'Workflows', icon: WorkflowsIcon, adminOnly: true },
+  { key: 'jobs', label: 'Jobs', icon: JobsIcon, adminOnly: true },
   { key: 'channels', label: 'Channels', icon: ChannelsIcon },
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
 ];
@@ -81,7 +83,7 @@ const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', '
 
 // ─── Modes ──────────────────────────────────────────────────
 // Admin-only pages that live in Admin Mode and are hidden from the Work View.
-const ADMIN_PAGE_KEYS = ['assignments', 'payroll', 'analytics', 'business_dev', 'freelancers', 'workflows'];
+const ADMIN_PAGE_KEYS = ['assignments', 'payroll', 'analytics', 'business_dev', 'freelancers', 'workflows', 'jobs'];
 // Everyday anchors kept at the top of the Admin Mode sidebar.
 const ADMIN_ESSENTIAL_KEYS = ['dashboard', 'my_tasks', 'messages'];
 // Admin Mode sidebar: essentials, a divider, then the admin pages + settings.
@@ -96,6 +98,7 @@ const ADMIN_MODE_NAV = [
   { type: 'item', key: 'business_dev', label: 'Business Dev' },
   { type: 'item', key: 'freelancers', label: 'Contractors' },
   { type: 'item', key: 'workflows', label: 'Workflows' },
+  { type: 'item', key: 'jobs', label: 'Jobs' },
   { type: 'item', key: 'admin', label: 'Admin Settings' },
 ];
 const ADMIN_MODE_KEYS = new Set([...ADMIN_ESSENTIAL_KEYS, ...ADMIN_PAGE_KEYS, 'admin']);
@@ -170,6 +173,7 @@ const NAV_ICON_MAP = {
   invoicing: InvoicingIcon,
   freelancers: FreelancersIcon,
   workflows: WorkflowsIcon,
+  jobs: JobsIcon,
   channels: ChannelsIcon,
   messages: MessagesIcon,
   admin: AdminIcon,
@@ -739,6 +743,7 @@ export default function AppLayout() {
           {isAdmin && activeTab === 'admin' && <AdminPanel initialTab={adminInitialTab} />}
           {isAdmin && activeTab === 'freelancers' && <Freelancers />}
           {isAdmin && activeTab === 'workflows' && <Workflows />}
+          {isAdmin && activeTab === 'jobs' && <Jobs />}
           {isFreelancer && activeTab === 'fl_dashboard' && <FreelancerDashboard onNavigate={navigateTo} />}
           {isFreelancer && activeTab === 'fl_hours' && <FreelancerHours />}
           {isFreelancer && activeTab === 'fl_profile' && <FreelancerProfile />}
@@ -1137,6 +1142,16 @@ function AssignmentsIcon({ active }) {
       <rect x="4" y="3" width="12" height="14" rx="2" />
       <path d="M7.5 3.5h5v2h-5z" fill={active ? '#a5b4fc' : '#6b7280'} stroke="none" />
       <path d="M7 9.5l1.3 1.3L11 8.2M7 13.5h4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function JobsIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <rect x="3" y="6" width="14" height="10" rx="2" />
+      <path d="M7 6V4.5a1 1 0 011-1h4a1 1 0 011 1V6" strokeLinecap="round" />
+      <path d="M3 10h14" strokeLinecap="round" />
     </svg>
   );
 }
