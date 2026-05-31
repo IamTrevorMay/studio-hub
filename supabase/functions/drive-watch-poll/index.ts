@@ -93,13 +93,19 @@ Deno.serve(async (req: Request) => {
     for (const watch of watches) {
       try {
         const lastSeen = watch.last_seen_time as string;
-        const q = `'${watch.folder_id}' in parents and modifiedTime > '${new Date(lastSeen).toISOString()}'`;
+        const lastSeenIso = new Date(lastSeen).toISOString();
+        // Drive uploads often preserve the file's original mtime, so a brand
+        // new file can have modifiedTime older than the watch. We OR with
+        // createdTime to catch those, and advance the cursor to request-start
+        // time so the next tick picks up anything that landed after this one.
+        const requestStart = new Date().toISOString();
+        const q = `'${watch.folder_id}' in parents and (createdTime > '${lastSeenIso}' or modifiedTime > '${lastSeenIso}')`;
 
         const driveRes = await fetch(
           "https://www.googleapis.com/drive/v3/files?" + new URLSearchParams({
             q,
             fields: "files(id,name,mimeType,webViewLink,createdTime,modifiedTime,trashed,parents,lastModifyingUser(emailAddress,displayName,permissionId))",
-            orderBy: "modifiedTime",
+            orderBy: "createdTime",
             pageSize: "200",
             supportsAllDrives: "true",
             includeItemsFromAllDrives: "true",
@@ -112,12 +118,8 @@ Deno.serve(async (req: Request) => {
         }
 
         const files: DriveFile[] = driveBody.files || [];
-        let maxModified = new Date(lastSeen).getTime();
 
         for (const f of files) {
-          const modifiedMs = f.modifiedTime ? Date.parse(f.modifiedTime) : 0;
-          if (modifiedMs > maxModified) maxModified = modifiedMs;
-
           const eventType: "added" | "modified" | "trashed" =
             f.trashed ? "trashed"
             : (f.createdTime && Date.parse(f.createdTime) > Date.parse(lastSeen)) ? "added"
@@ -147,7 +149,7 @@ Deno.serve(async (req: Request) => {
         await admin
           .from("drive_watches")
           .update({
-            last_seen_time: new Date(maxModified).toISOString(),
+            last_seen_time: requestStart,
             updated_at: new Date().toISOString(),
           })
           .eq("id", watch.id);
