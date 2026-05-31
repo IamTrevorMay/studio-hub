@@ -77,6 +77,38 @@ const DYNAMIC_PALETTE = [
   '#84cc16', '#22c55e', '#10b981', '#14b8a6',
 ];
 
+// Sponsor-campaign revenue pipeline (migrated from the Deliverables page).
+// Feeds Mayday Media's "Incoming Revenue" cards. Other sources can be folded
+// into these buckets later.
+const AGENCY_FEE = 0.20;      // standard agency cut on sponsor payouts
+const OUTSTANDING_DAYS = 45;  // payment due window after a campaign is delivered
+
+// Bucket unpaid sponsor campaigns into expected / outstanding / late (in cents,
+// net of the agency fee where it applies). Paid campaigns are excluded — that
+// money is realized and already shows up in the Tiller revenue total.
+function computeSponsorPipeline(campaigns, deliverables) {
+  const grossCentsByCampaign = new Map();
+  for (const d of deliverables) {
+    const cents = Math.round((parseFloat(d.pay) || 0) * 100);
+    grossCentsByCampaign.set(d.campaign_id, (grossCentsByCampaign.get(d.campaign_id) || 0) + cents);
+  }
+  const now = Date.now();
+  let expected = 0, outstanding = 0, late = 0;
+  for (const c of campaigns) {
+    if (c.payment_status === 'paid') continue;
+    const gross = grossCentsByCampaign.get(c.id) || 0;
+    const net = c.apply_agency_fee === false ? gross : Math.round(gross * (1 - AGENCY_FEE));
+    if (c.fully_delivered_at) {
+      const days = (now - new Date(c.fully_delivered_at).getTime()) / 86400000;
+      if (days > OUTSTANDING_DAYS) late += net;
+      else outstanding += net;
+    } else {
+      expected += net;
+    }
+  }
+  return { expected, outstanding, late, incoming: expected + outstanding + late };
+}
+
 function getRange(rangeKey) {
   const today = new Date();
   const end = today.toISOString().slice(0, 10);
@@ -120,13 +152,14 @@ export default function Accounting() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState(null);
+  const [sponsorPipeline, setSponsorPipeline] = useState({ expected: 0, outstanding: 0, late: 0, incoming: 0 });
 
   const load = useCallback(async ({ signal } = {}) => {
     const { start, end } = getRange(rangeKey);
     const daysDiff = Math.max(1, Math.ceil((new Date(end) - new Date(start)) / 86400000));
     const prevStart = new Date(new Date(start).getTime() - daysDiff * 86400000).toISOString().slice(0, 10);
 
-    const [revCur, revOld, expCur, expOld] = await Promise.all([
+    const [revCur, revOld, expCur, expOld, campaigns, deliverables] = await Promise.all([
       supabase.from('revenue_transactions')
         .select('date, description, category, amount_cents, account, business')
         .gte('date', start).lte('date', end).order('date', { ascending: false }),
@@ -139,6 +172,9 @@ export default function Accounting() {
       supabase.from('expense_transactions')
         .select('date, category, amount_cents, business')
         .gte('date', prevStart).lt('date', start),
+      // Sponsor revenue pipeline (range-independent current snapshot).
+      supabase.from('sponsor_campaigns').select('id, payment_status, apply_agency_fee, fully_delivered_at'),
+      supabase.from('sponsor_deliverables').select('campaign_id, pay'),
     ]);
 
     if (signal?.aborted) return;
@@ -146,6 +182,7 @@ export default function Accounting() {
     setRevenuePrev(revOld.data || []);
     setExpenses(expCur.data || []);
     setExpensesPrev(expOld.data || []);
+    setSponsorPipeline(computeSponsorPipeline(campaigns.data || [], deliverables.data || []));
   }, [rangeKey]);
 
   useEffect(() => {
@@ -253,6 +290,7 @@ export default function Accounting() {
           data={revenue} prevData={revenuePrev}
           maydayMeta={REVENUE_CATEGORY_META}
           accentColor="#22c55e"
+          sponsorPipeline={sponsorPipeline}
         />
       ) : (
         <BusinessTabbedView
@@ -436,7 +474,7 @@ function OverviewTab({ revenue, revenuePrev, expenses, expensesPrev }) {
 }
 
 // ── Revenue / Expenses Tab ──────────────────────────────────────────────────
-function LedgerTab({ mode, data, prevData, meta, accentColor, headlineLabel }) {
+function LedgerTab({ mode, data, prevData, meta, accentColor, headlineLabel, headerNode }) {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [sortBy, setSortBy] = useState('date_desc');
@@ -481,36 +519,43 @@ function LedgerTab({ mode, data, prevData, meta, accentColor, headlineLabel }) {
   }, [data, search, categoryFilter, sortBy]);
 
   if (data.length === 0) {
-    return <p style={styles.emptyText}>No {mode === 'revenue' ? 'revenue' : 'expenses'} in this range.</p>;
+    return (
+      <>
+        {headerNode}
+        <p style={styles.emptyText}>No {mode === 'revenue' ? 'revenue' : 'expenses'} in this range.</p>
+      </>
+    );
   }
 
   return (
     <>
-      <div style={styles.kpiRow}>
-        <KpiCard
-          label={headlineLabel}
-          value={formatMoney(total)}
-          delta={delta}
-          accent={accentColor}
-          deltaInvert={mode === 'expense'}
-        />
-        <KpiCard
-          label="Transactions"
-          value={data.length.toLocaleString()}
-          accent="#3b82f6"
-        />
-        <KpiCard
-          label="Top category"
-          value={topCategory ? topCategory.label : '—'}
-          sub={topCategory ? formatMoney(topCategory.total) : ''}
-          accent={topCategory?.color || '#71717a'}
-        />
-        <KpiCard
-          label="Avg per transaction"
-          value={formatMoney(data.length ? Math.round(total / data.length) : 0)}
-          accent="#a855f7"
-        />
-      </div>
+      {headerNode || (
+        <div style={styles.kpiRow}>
+          <KpiCard
+            label={headlineLabel}
+            value={formatMoney(total)}
+            delta={delta}
+            accent={accentColor}
+            deltaInvert={mode === 'expense'}
+          />
+          <KpiCard
+            label="Transactions"
+            value={data.length.toLocaleString()}
+            accent="#3b82f6"
+          />
+          <KpiCard
+            label="Top category"
+            value={topCategory ? topCategory.label : '—'}
+            sub={topCategory ? formatMoney(topCategory.total) : ''}
+            accent={topCategory?.color || '#71717a'}
+          />
+          <KpiCard
+            label="Avg per transaction"
+            value={formatMoney(data.length ? Math.round(total / data.length) : 0)}
+            accent="#a855f7"
+          />
+        </div>
+      )}
 
       <div style={styles.chartsRow}>
         <div style={styles.chartCard}>
@@ -640,9 +685,41 @@ function BusinessSubTabs({ subTab, setSubTab }) {
   );
 }
 
+// Custom KPI header for Mayday Media revenue: Realized (Tiller) + Incoming
+// (sponsor pipeline) + Projected (the sum), with a collapsible breakdown of the
+// incoming buckets.
+function RevenuePipelineHeader({ realizedCents, pipeline }) {
+  const [breakdownOpen, setBreakdownOpen] = useState(false);
+  const incoming = pipeline.incoming;
+  const projected = realizedCents + incoming;
+  return (
+    <>
+      <div style={styles.kpiRow}>
+        <KpiCard label="Realized Revenue"  value={formatMoney(realizedCents)} accent="#22c55e" />
+        <KpiCard label="Incoming Revenue"  value={formatMoney(incoming)}      accent="#3b82f6" />
+        <KpiCard label="Projected Revenue" value={formatMoney(projected)}     accent="#6366f1" />
+      </div>
+
+      <div style={styles.tableCard}>
+        <button type="button" onClick={() => setBreakdownOpen(v => !v)} style={styles.tableToggle}>
+          <span style={styles.tableToggleCaret}>{breakdownOpen ? '▾' : '▸'}</span>
+          <span style={styles.tableTitle}>Incoming Breakdown</span>
+        </button>
+        {breakdownOpen && (
+          <div style={{ ...styles.kpiRow, marginTop: 12, marginBottom: 0 }}>
+            <KpiCard label="Expected"    value={formatMoney(pipeline.expected)}    accent="#3b82f6" />
+            <KpiCard label="Outstanding" value={formatMoney(pipeline.outstanding)} accent="#f59e0b" />
+            <KpiCard label="Late"        value={formatMoney(pipeline.late)}        accent={pipeline.late > 0 ? '#ef4444' : '#22c55e'} />
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 // Revenue / Expenses tab: Overall (comparison or combined) + a per-business
 // ledger for each company. `mode` is 'revenue' or 'expense'.
-function BusinessTabbedView({ mode, data, prevData, maydayMeta, accentColor }) {
+function BusinessTabbedView({ mode, data, prevData, maydayMeta, accentColor, sponsorPipeline }) {
   const [subTab, setSubTab] = useState('all');
 
   const mayday      = useMemo(() => data.filter(isMayday), [data]);
@@ -652,6 +729,11 @@ function BusinessTabbedView({ mode, data, prevData, maydayMeta, accentColor }) {
   const neptuneMeta = useMemo(() => buildDynamicMeta(neptune), [neptune]);
 
   const noun = mode === 'revenue' ? 'revenue' : 'expenses';
+
+  // Mayday Media revenue gets the Realized/Incoming/Projected header.
+  const maydayHeader = (mode === 'revenue' && sponsorPipeline)
+    ? <RevenuePipelineHeader realizedCents={mayday.reduce((s, t) => s + t.amount_cents, 0)} pipeline={sponsorPipeline} />
+    : null;
 
   return (
     <>
@@ -669,6 +751,7 @@ function BusinessTabbedView({ mode, data, prevData, maydayMeta, accentColor }) {
           meta={maydayMeta}
           accentColor={BUSINESSES.mayday_media.color}
           headlineLabel={`Mayday Media ${noun}`}
+          headerNode={maydayHeader}
         />
       ) : (
         <LedgerTab

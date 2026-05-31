@@ -80,9 +80,6 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
   // Beat sheets for deliverable linking
   const [beatSheets, setBeatSheets] = useState([]);
 
-  // Money section month filter
-  const [moneyMonth, setMoneyMonth] = useState('all');
-
   // Auto-expand a campaign when navigated to from another page
   useEffect(() => {
     if (initialCampaignId) {
@@ -1776,116 +1773,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
       })()}
       </div>
 
-      {/* ====== MONEY SECTION ====== */}
-      {(() => {
-        const allCampaigns = sponsors.flatMap(s => s.sponsor_campaigns || []);
-
-        // Build sorted list of unique months from deliverable due_dates
-        const monthSet = new Set();
-        allDeliverables.forEach(d => {
-          if (d.due_date) monthSet.add(d.due_date.slice(0, 7)); // YYYY-MM
-        });
-        const months = Array.from(monthSet).sort();
-
-        // Filter deliverables + campaigns by selected month
-        const filteredDeliverables = moneyMonth === 'all'
-          ? allDeliverables
-          : allDeliverables.filter(d => d.due_date && d.due_date.startsWith(moneyMonth));
-
-        // Campaign IDs that have at least one deliverable in the filtered set
-        const filteredCampaignIds = new Set(filteredDeliverables.map(d => d.campaign_id));
-        const filteredCampaigns = moneyMonth === 'all'
-          ? allCampaigns
-          : allCampaigns.filter(c => filteredCampaignIds.has(c.id));
-
-        const campaignTotals = new Map(
-          filteredCampaigns.map(c => [
-            c.id,
-            filteredDeliverables
-              .filter(d => d.campaign_id === c.id)
-              .reduce((sum, d) => sum + (parseFloat(d.pay) || 0), 0),
-          ])
-        );
-        const totalDeal = Array.from(campaignTotals.values()).reduce((sum, v) => sum + v, 0);
-        const totalPaid = filteredCampaigns
-          .filter(c => c.payment_status === 'paid')
-          .reduce((sum, c) => sum + (campaignTotals.get(c.id) || 0), 0);
-        const totalOwed = totalDeal - totalPaid;
-        const upcomingValue = filteredDeliverables
-          .filter(d => !d.delivered)
-          .reduce((sum, d) => sum + (parseFloat(d.pay) || 0), 0);
-        const lateCampaigns = filteredCampaigns.filter(campaign => {
-          // Always check ALL deliverables for late status, not just the filtered month
-          const campaignDels = allDeliverables.filter(d => d.campaign_id === campaign.id);
-          const allDel = campaignDels.length > 0 && campaignDels.every(d => d.delivered);
-          return allDel && campaign.payment_status !== 'paid';
-        });
-        const lateValue = lateCampaigns.reduce((sum, c) => sum + (campaignTotals.get(c.id) || 0), 0);
-
-        // Check if there's any money data at all (unfiltered)
-        const anyDeal = allDeliverables.reduce((sum, d) => sum + (parseFloat(d.pay) || 0), 0);
-        if (anyDeal === 0) return null;
-
-        const formatMonth = (ym) => {
-          const [y, m] = ym.split('-');
-          return new Date(y, parseInt(m, 10) - 1).toLocaleString(undefined, { month: 'short', year: 'numeric' });
-        };
-
-        return (
-          <div style={{ marginTop: '40px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '24px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '16px', flexWrap: 'wrap' }}>
-              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#fff' }}>Money</h2>
-              {months.length > 0 && (
-                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                  <button
-                    onClick={() => setMoneyMonth('all')}
-                    style={{
-                      padding: '4px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', border: 'none',
-                      background: moneyMonth === 'all' ? '#6366f1' : 'rgba(255,255,255,0.06)',
-                      color: moneyMonth === 'all' ? '#fff' : 'rgba(255,255,255,0.5)',
-                    }}
-                  >
-                    All
-                  </button>
-                  {months.map(m => (
-                    <button
-                      key={m}
-                      onClick={() => setMoneyMonth(m)}
-                      style={{
-                        padding: '4px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', border: 'none',
-                        background: moneyMonth === m ? '#6366f1' : 'rgba(255,255,255,0.06)',
-                        color: moneyMonth === m ? '#fff' : 'rgba(255,255,255,0.5)',
-                      }}
-                    >
-                      {formatMonth(m)}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px' }}>
-              {[
-                { label: 'Total Deal Value', value: totalDeal, color: '#6366f1' },
-                { label: 'Total Paid', value: totalPaid, color: '#22c55e' },
-                { label: 'Total Owed', value: totalOwed, color: totalOwed > 0 ? '#f59e0b' : '#22c55e' },
-                { label: 'Upcoming', value: upcomingValue, color: '#6366f1' },
-                { label: 'Late', value: lateValue, color: lateValue > 0 ? '#ef4444' : '#22c55e' },
-              ].map(card => (
-                <div key={card.label} style={{
-                  background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
-                  borderRadius: '14px', padding: '20px 24px', position: 'relative', overflow: 'hidden',
-                }}>
-                  <div style={{ position: 'absolute', top: 0, left: 0, width: '3px', height: '100%', background: card.color }} />
-                  <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>{card.label}</div>
-                  <div style={{ fontSize: '28px', fontWeight: 700, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>
-                    ${card.value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })()}
+      {/* Money section migrated to the Accounting page (Revenue → Mayday Media). */}
 
       {/* ====== ADD BRIEF MODAL ====== */}
       {briefModalCampaign && (

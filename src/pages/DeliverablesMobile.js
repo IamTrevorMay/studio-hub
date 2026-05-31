@@ -99,17 +99,7 @@ export default function DeliverablesMobile() {
       return a.due_date.localeCompare(b.due_date);
     });
 
-  const allCampaigns = sponsors.flatMap(s => s.sponsor_campaigns || []);
-  const campaignTotals = new Map(
-    allCampaigns.map(c => [
-      c.id,
-      allDeliverables.filter(d => d.campaign_id === c.id).reduce((sum, d) => sum + (parseFloat(d.pay) || 0), 0),
-    ])
-  );
-  const totalDeal = Array.from(campaignTotals.values()).reduce((sum, v) => sum + v, 0);
-  const totalPaid = allCampaigns.filter(c => c.payment_status === 'paid').reduce((sum, c) => sum + (campaignTotals.get(c.id) || 0), 0);
-  const totalOwed = totalDeal - totalPaid;
-  const upcomingValue = allDeliverables.filter(d => !d.delivered).reduce((sum, d) => sum + (parseFloat(d.pay) || 0), 0);
+  // Money summary migrated to the Accounting page (Revenue → Mayday Media).
 
   // Read slots helpers
   function buildMonth(offset) {
@@ -138,23 +128,6 @@ export default function DeliverablesMobile() {
 
   return (
     <div style={styles.page}>
-      {/* Money Summary */}
-      {totalDeal > 0 && (
-        <div style={styles.moneyRow}>
-          {[
-            { label: 'Deal', value: totalDeal, color: '#6366f1' },
-            { label: 'Paid', value: totalPaid, color: '#22c55e' },
-            { label: 'Owed', value: totalOwed, color: totalOwed > 0 ? '#f59e0b' : '#22c55e' },
-            { label: 'Upcoming', value: upcomingValue, color: '#6366f1' },
-          ].map(card => (
-            <div key={card.label} style={styles.moneyCard}>
-              <div style={{ ...styles.moneyBar, background: card.color }} />
-              <div style={styles.moneyLabel}>{card.label}</div>
-              <div style={styles.moneyValue}>${card.value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* Read Slots */}
       <div style={styles.section}>
