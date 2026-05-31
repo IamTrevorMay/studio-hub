@@ -31,18 +31,6 @@ const REVENUE_CATEGORIES = {
   other:        { label: 'Other',          color: '#6b7280' },
 };
 
-// Tiller revenue category mapping for Analytics display
-const TILLER_CATEGORY_META = {
-  'YouTube Income':     { label: 'YouTube',      color: '#FF0000' },
-  'TikTok Income':      { label: 'TikTok',       color: '#00F2EA' },
-  'Twitch Income':      { label: 'Twitch',       color: '#9146FF' },
-  'Substack Income':    { label: 'Substack',     color: '#FF6719' },
-  'Sponsorship Income': { label: 'Sponsorships', color: '#10b981' },
-  'Merch Income':       { label: 'Merch',        color: '#f97316' },
-  'Facebook Income':    { label: 'Facebook',     color: '#1877F2' },
-  'Services':           { label: 'Appearances',  color: '#f59e0b' },
-};
-
 const DATE_RANGES = [
   { key: '7d',  label: '7 days',  days: 7 },
   { key: '30d', label: '30 days', days: 30 },
@@ -237,7 +225,6 @@ export default function Analytics() {
   const [kpi, setKpi] = useState(null);
   const [timeSeries, setTimeSeries] = useState([]);
   const [contentItems, setContentItems] = useState([]);
-  const [revenueData, setRevenueData] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Content table sort
@@ -277,7 +264,6 @@ export default function Analytics() {
   const timeSeriesGenRef = useRef(0);
   const contentGenRef = useRef(0);
   const analysisGenRef = useRef(0);
-  const revenueGenRef = useRef(0);
 
   // Clear any pending syncStatus timer on unmount
   useEffect(() => () => {
@@ -323,7 +309,6 @@ export default function Analytics() {
         fetchTimeSeries(),
         fetchContentPerformance(),
         fetchAnalysisData(),
-        fetchRevenue(),
       ]);
     } catch (err) {
       console.error('Error fetching analytics:', err);
@@ -418,20 +403,6 @@ export default function Analytics() {
     });
   }
 
-  async function fetchRevenue() {
-    const gen = ++revenueGenRef.current;
-    const { start, end } = getDateRange(dateRange, customStart, customEnd, filterMonth, filterYear);
-    const { data, error } = await supabase
-      .from('revenue_transactions')
-      .select('date, category, amount_cents')
-      .gte('date', start)
-      .lte('date', end)
-      .order('date', { ascending: false });
-    if (error) console.error('Revenue fetch error:', error);
-    if (gen !== revenueGenRef.current) return;
-    setRevenueData(data || []);
-  }
-
   // Fetch all rows from a query, paginating past Supabase's 1000-row default limit
   async function fetchAllRows(query) {
     const PAGE = 1000;
@@ -471,19 +442,6 @@ export default function Analytics() {
     if (activeAccountIds.length > 0) pq = pq.in('platform_account_id', activeAccountIds);
     const prevRollups = await fetchAllRows(pq);
 
-    // Revenue (from Tiller)
-    const { data: revenue } = await supabase
-      .from('revenue_transactions')
-      .select('amount_cents')
-      .gte('date', start)
-      .lte('date', end);
-
-    const { data: prevRevenue } = await supabase
-      .from('revenue_transactions')
-      .select('amount_cents')
-      .gte('date', prevStart)
-      .lt('date', start);
-
     // Audience — get the latest snapshot for each active account
     const { data: latestAudience } = await supabase
       .from('audience_snapshots')
@@ -492,8 +450,6 @@ export default function Analytics() {
 
     const totalViews = rollups.reduce((s, r) => s + Number(r.total_views), 0);
     const prevViews = prevRollups.reduce((s, r) => s + Number(r.total_views), 0);
-    const totalRev = (revenue || []).reduce((s, r) => s + r.amount_cents, 0);
-    const prevRev = (prevRevenue || []).reduce((s, r) => s + r.amount_cents, 0);
     const totalFollowers = (latestAudience || []).reduce((s, a) => s + Number(a.followers_total), 0);
     const followersGained = (latestAudience || []).reduce((s, a) => s + Number(a.followers_gained), 0);
 
@@ -503,11 +459,9 @@ export default function Analytics() {
     if (gen !== kpiGenRef.current) return;
     setKpi({
       totalViews,
-      totalRevenue: totalRev,
       totalFollowers,
       totalEngagement,
       viewsChange: pctChange(totalViews, prevViews),
-      revenueChange: pctChange(totalRev, prevRev),
       followersChange: followersGained,
       engagementChange: pctChange(totalEngagement, prevEngagement),
     });
@@ -752,7 +706,6 @@ export default function Analytics() {
       {/* ── View Mode Toggle ── */}
       <div style={styles.viewToggleBar}>
         <button onClick={() => setViewMode('dashboard')} style={viewMode === 'dashboard' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Dashboard</button>
-        <button onClick={() => setViewMode('revenues')} style={viewMode === 'revenues' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Revenues</button>
         <button onClick={() => setViewMode('advanced')} style={viewMode === 'advanced' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Advanced</button>
         <button onClick={() => setViewMode('health')} style={viewMode === 'health' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Content Health</button>
         <div ref={platformMenuRef} style={{ position: 'relative' }}>
@@ -787,10 +740,6 @@ export default function Analytics() {
         </div>
       </div>
 
-      {viewMode === 'revenues' && (
-        <RevenuesView accounts={accounts} start={start} end={end} />
-      )}
-
       {viewMode === 'advanced' && (
         <YouTubeStudioAdvanced accounts={accounts} />
       )}
@@ -810,7 +759,6 @@ export default function Analytics() {
           {kpi && (
             <div style={styles.kpiGrid}>
               <KPICard label="Total Views" value={Number(kpi.totalViews).toLocaleString()} change={kpi.viewsChange} color="#6366f1" />
-              <KPICard label="Total Revenue" value={formatCurrency(kpi.totalRevenue)} change={kpi.revenueChange} color="#f59e0b" />
               <KPICard label="Total Engagement" value={formatCompact(kpi.totalEngagement)} change={kpi.engagementChange} color="#22c55e" />
               <KPICard label="Net Followers" value={Number(kpi.totalFollowers).toLocaleString()}
                 change={kpi.followersChange} changeLabel={`${kpi.followersChange >= 0 ? '+' : ''}${Number(kpi.followersChange).toLocaleString()} this period`} color="#ec4899" />
@@ -862,45 +810,6 @@ export default function Analytics() {
                   </div>
                 </div>
               )}
-              {/* Revenue by Source (Tiller) */}
-              {revenueData.length > 0 && (() => {
-                const byCat = {};
-                for (const tx of revenueData) {
-                  const meta = TILLER_CATEGORY_META[tx.category];
-                  if (!meta) continue;
-                  if (!byCat[tx.category]) byCat[tx.category] = { label: meta.label, color: meta.color, total: 0 };
-                  byCat[tx.category].total += tx.amount_cents;
-                }
-                const sorted = Object.values(byCat).sort((a, b) => b.total - a.total);
-                const grandTotal = sorted.reduce((s, c) => s + c.total, 0);
-                if (grandTotal === 0) return null;
-                return (
-                  <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px', borderLeft: '3px solid #22c55e' }}>
-                    <span style={{ ...styles.chartTitle, color: '#22c55e' }}>Revenue by Source</span>
-                    <div style={{ fontSize: '24px', fontWeight: 700, color: '#fff', margin: '10px 0 14px' }}>
-                      ${(grandTotal / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '24px', flexWrap: 'wrap' }}>
-                      <DonutChart data={sorted.map(c => ({ label: c.label, revenue: c.total, color: c.color }))} valueKey="revenue" centerLabel="total"
-                        formatValue={v => '$' + formatCompact(v / 100)} />
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        {sorted.map(c => (
-                          <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: c.color, flexShrink: 0 }} />
-                            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', minWidth: '90px' }}>{c.label}</span>
-                            <span style={{ fontSize: '12px', fontWeight: 600, color: '#fff' }}>
-                              ${(c.total / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </span>
-                            <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>
-                              ({(grandTotal > 0 ? (c.total / grandTotal) * 100 : 0).toFixed(1)}%)
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
               {/* Engagement */}
               {platformBreakdown.some(p => p.engagement > 0) && (
                 <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px', borderLeft: '3px solid #22c55e' }}>
@@ -1095,242 +1004,6 @@ export default function Analytics() {
       .limit(50);
     if (data) setIngestionLogs(data);
   }
-}
-
-// ═══════════════════════════════════════════════
-// Revenues View
-// ═══════════════════════════════════════════════
-function RevenuesView({ accounts, start, end }) {
-  const [transactions, setTransactions] = useState([]);
-  const [prevTransactions, setPrevTransactions] = useState([]);
-  const [revLoading, setRevLoading] = useState(true);
-  const [catFilter, setCatFilter] = useState('all');
-  const [sortCol, setSortCol] = useState('date');
-  const [sortDir, setSortDir] = useState('desc');
-
-  // Compute previous period for comparison
-  const daySpan = Math.max(1, Math.ceil((new Date(end) - new Date(start)) / 86400000));
-  const prevStart = daysAgoStr(daySpan * 2 + Math.ceil((new Date() - new Date(end)) / 86400000));
-  const prevEnd = start;
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setRevLoading(true);
-      const [currentRes, prevRes] = await Promise.all([
-        supabase.from('revenue_transactions').select('*').gte('date', start).lte('date', end).order('date', { ascending: false }),
-        supabase.from('revenue_transactions').select('date, category, amount_cents').gte('date', prevStart).lt('date', prevEnd),
-      ]);
-      if (cancelled) return;
-      setTransactions(currentRes.data || []);
-      setPrevTransactions(prevRes.data || []);
-      setRevLoading(false);
-    }
-    load();
-    return () => { cancelled = true; };
-  }, [start, end]);
-
-  function handleSort(col) {
-    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortCol(col); setSortDir('desc'); }
-  }
-
-  // Aggregate by category
-  const byCategory = {};
-  for (const tx of transactions) {
-    const cat = tx.category;
-    byCategory[cat] = (byCategory[cat] || 0) + tx.amount_cents;
-  }
-  const prevByCategory = {};
-  for (const tx of prevTransactions) {
-    prevByCategory[tx.category] = (prevByCategory[tx.category] || 0) + tx.amount_cents;
-  }
-
-  // KPI cards — one per category that has data
-  const categoryEntries = Object.entries(TILLER_CATEGORY_META)
-    .filter(([key]) => byCategory[key] > 0 || prevByCategory[key] > 0)
-    .sort((a, b) => (byCategory[b[0]] || 0) - (byCategory[a[0]] || 0));
-
-  const grandTotal = Object.values(byCategory).reduce((s, v) => s + v, 0);
-  const prevGrandTotal = Object.values(prevByCategory).reduce((s, v) => s + v, 0);
-
-  // Donut data
-  const donutData = Object.entries(byCategory)
-    .filter(([, v]) => v > 0)
-    .map(([cat, amount]) => ({
-      label: TILLER_CATEGORY_META[cat]?.label || cat,
-      color: TILLER_CATEGORY_META[cat]?.color || '#6b7280',
-      amount: amount / 100,
-    }))
-    .sort((a, b) => b.amount - a.amount);
-
-  // Trend data: daily totals per category
-  const dailyMap = {};
-  for (const tx of transactions) {
-    const day = tx.date;
-    const cat = tx.category;
-    if (!dailyMap[day]) dailyMap[day] = { date: day };
-    dailyMap[day][cat] = (dailyMap[day][cat] || 0) + tx.amount_cents;
-  }
-  const trendData = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
-  const activeCategories = Object.keys(byCategory).filter(k => byCategory[k] > 0);
-  const trendMetrics = activeCategories.map(cat => ({
-    key: cat,
-    label: TILLER_CATEGORY_META[cat]?.label || cat,
-    color: TILLER_CATEGORY_META[cat]?.color || '#6b7280',
-    getValue: r => ((r[cat] || 0) / 100),
-    formatValue: v => '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-  }));
-
-  // Filter and sort transactions for table
-  const filteredTransactions = useMemo(() => {
-    let rows = transactions;
-    if (catFilter !== 'all') rows = rows.filter(r => r.category === catFilter);
-    return [...rows].sort((a, b) => {
-      let va, vb;
-      if (sortCol === 'date') { va = a.date || ''; vb = b.date || ''; }
-      else if (sortCol === 'amount_cents') { va = a.amount_cents || 0; vb = b.amount_cents || 0; }
-      else if (sortCol === 'category') { va = a.category || ''; vb = b.category || ''; }
-      else { va = a[sortCol] || ''; vb = b[sortCol] || ''; }
-      if (typeof va === 'string') return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
-      return sortDir === 'asc' ? va - vb : vb - va;
-    });
-  }, [transactions, catFilter, sortCol, sortDir]);
-
-  const allCategories = useMemo(() => [...new Set(transactions.map(r => r.category))].sort(), [transactions]);
-
-  if (revLoading) return <p style={styles.loadingText}>Loading revenue data...</p>;
-
-  return (
-    <>
-      {/* Total KPI */}
-      <div style={styles.kpiGrid}>
-        <KPICard label="Total Income" value={'$' + (grandTotal / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} change={pctChange(grandTotal, prevGrandTotal)} color="#22c55e" />
-        {categoryEntries.map(([cat, meta]) => (
-          <KPICard
-            key={cat}
-            label={meta.label}
-            value={'$' + ((byCategory[cat] || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            change={pctChange(byCategory[cat] || 0, prevByCategory[cat] || 0)}
-            color={meta.color}
-          />
-        ))}
-      </div>
-
-      {/* Revenue by Source Donut */}
-      <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
-        {donutData.length > 0 && (
-          <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px', borderLeft: '3px solid #22c55e' }}>
-            <span style={{ ...styles.chartTitle, color: '#22c55e' }}>Revenue by Source</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '24px', marginTop: '16px', flexWrap: 'wrap' }}>
-              <DonutChart data={donutData} valueKey="amount" centerLabel="total revenue"
-                formatValue={v => '$' + formatCompact(v)} />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                {donutData.map(p => {
-                  const total = donutData.reduce((s, x) => s + x.amount, 0);
-                  return (
-                    <div key={p.label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: p.color, flexShrink: 0 }} />
-                      <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', minWidth: '100px' }}>{p.label}</span>
-                      <span style={{ fontSize: '12px', fontWeight: 600, color: '#fff' }}>${p.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                      <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>({(total > 0 ? (p.amount / total) * 100 : 0).toFixed(1)}%)</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Revenue Over Time */}
-      {trendData.length > 0 && trendMetrics.length > 0 && (
-        <div style={styles.chartSection}>
-          <div style={styles.chartHeader}>
-            <span style={styles.chartTitle}>Revenue Over Time</span>
-            <div style={{ display: 'flex', gap: '14px', alignItems: 'center', flexWrap: 'wrap' }}>
-              {trendMetrics.map(m => (
-                <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: m.color, flexShrink: 0 }} />
-                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>{m.label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-          <TrendChart data={trendData} metrics={trendMetrics} />
-        </div>
-      )}
-
-      {/* Transactions Table */}
-      <div style={styles.chartSection}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-          <span style={styles.chartTitle}>Transactions</span>
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-            <select value={catFilter} onChange={e => setCatFilter(e.target.value)} style={styles.select}>
-              <option value="all">All Categories</option>
-              {allCategories.map(cat => (
-                <option key={cat} value={cat}>{TILLER_CATEGORY_META[cat]?.label || cat}</option>
-              ))}
-            </select>
-            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>
-              {filteredTransactions.length} transaction{filteredTransactions.length !== 1 ? 's' : ''}
-            </span>
-          </div>
-        </div>
-
-        {filteredTransactions.length > 0 ? (
-          <div style={styles.tableWrap}>
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th style={{ ...styles.th, cursor: 'pointer' }} onClick={() => handleSort('date')}>
-                    Date {sortCol === 'date' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
-                  </th>
-                  <th style={{ ...styles.th, cursor: 'pointer' }} onClick={() => handleSort('category')}>
-                    Category {sortCol === 'category' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
-                  </th>
-                  <th style={{ ...styles.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => handleSort('amount_cents')}>
-                    Amount {sortCol === 'amount_cents' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
-                  </th>
-                  <th style={styles.th}>Description</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredTransactions.map((tx, i) => {
-                  const meta = TILLER_CATEGORY_META[tx.category] || { label: tx.category, color: '#6b7280' };
-                  return (
-                    <tr key={tx.id} style={i % 2 === 0 ? styles.trEven : {}}>
-                      <td style={styles.td}>
-                        {new Date(tx.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </td>
-                      <td style={styles.td}>
-                        <span style={{
-                          display: 'inline-block', padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600,
-                          background: meta.color + '22', color: meta.color,
-                        }}>
-                          {meta.label}
-                        </span>
-                      </td>
-                      <td style={{ ...styles.td, ...styles.tdValue, textAlign: 'right' }}>
-                        ${(tx.amount_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </td>
-                      <td style={{ ...styles.td, maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {tx.description || '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div style={styles.emptyCard}>
-            <p style={styles.emptyText}>No income transactions found for this period.</p>
-          </div>
-        )}
-      </div>
-    </>
-  );
 }
 
 // ═══════════════════════════════════════════════
