@@ -123,7 +123,9 @@ export default function Payroll() {
   const [assignments, setAssignments] = useState([]);
   const [salariedMembers, setSalariedMembers] = useState([]);
   const [salaries, setSalaries] = useState([]);
+  const [oneOffs, setOneOffs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Expand state
   const [expandedContractors, setExpandedContractors] = useState(new Set());
@@ -133,9 +135,14 @@ export default function Payroll() {
   const [salaryForm, setSalaryForm] = useState({ salary_type: 'yearly', amount: '' });
   const [savingSalary, setSavingSalary] = useState(false);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    const [contractorsRes, fpRes, assignmentsRes, membersRes, salariesRes] = await Promise.all([
+  // One-off item form (scoped to the current pay period)
+  const [addingOneOff, setAddingOneOff] = useState(false);
+  const [oneOffForm, setOneOffForm] = useState({ label: '', payee: '', amount: '' });
+  const [savingOneOff, setSavingOneOff] = useState(false);
+
+  const fetchData = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true); else setLoading(true);
+    const [contractorsRes, fpRes, assignmentsRes, membersRes, salariesRes, oneOffsRes] = await Promise.all([
       supabase.from('profiles').select('id, full_name, avatar_url').eq('role', 'freelancer'),
       supabase.from('freelancer_profiles').select('id, payment_type, rate, title'),
       supabase.from('freelancer_assignments')
@@ -145,13 +152,16 @@ export default function Payroll() {
         .lte('completed_at', selectedPeriod.end + 'T23:59:59'),
       supabase.from('profiles').select('id, full_name, role, avatar_url').in('role', ['admin', 'assistant', 'member']),
       supabase.from('payroll_salaries').select('*').is('ended_at', null),
+      supabase.from('payroll_one_offs').select('*').eq('period_start', selectedPeriod.start).order('created_at'),
     ]);
     setContractors(contractorsRes.data || []);
     setFreelancerProfiles(fpRes.data || []);
     setAssignments(assignmentsRes.data || []);
     setSalariedMembers(membersRes.data || []);
     setSalaries(salariesRes.data || []);
+    setOneOffs(oneOffsRes.data || []);
     setLoading(false);
+    setRefreshing(false);
   }, [selectedPeriod]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -202,7 +212,8 @@ export default function Payroll() {
 
   const contractorTotal = contractorPayroll.reduce((sum, c) => sum + c.total, 0);
   const salariedTotal = memberPayroll.reduce((sum, m) => sum + m.periodPay, 0);
-  const grandTotal = contractorTotal + salariedTotal;
+  const oneOffTotal = oneOffs.reduce((sum, o) => sum + (o.amount_cents || 0), 0);
+  const grandTotal = contractorTotal + salariedTotal + oneOffTotal;
 
   // ── Salary CRUD ─────────────────────────────────────────────────
 
@@ -241,6 +252,30 @@ export default function Payroll() {
     fetchData();
   }
 
+  // ── One-off items (current period only) ─────────────────────────
+
+  async function handleAddOneOff() {
+    const amountCents = Math.round(parseFloat(oneOffForm.amount) * 100);
+    if (isNaN(amountCents) || amountCents <= 0 || !oneOffForm.label.trim()) return;
+    setSavingOneOff(true);
+    await supabase.from('payroll_one_offs').insert({
+      period_start: selectedPeriod.start,
+      label: oneOffForm.label.trim(),
+      payee: oneOffForm.payee.trim() || null,
+      amount_cents: amountCents,
+      created_by: profile.id,
+    });
+    setOneOffForm({ label: '', payee: '', amount: '' });
+    setAddingOneOff(false);
+    setSavingOneOff(false);
+    fetchData(true);
+  }
+
+  async function handleRemoveOneOff(id) {
+    await supabase.from('payroll_one_offs').delete().eq('id', id);
+    fetchData(true);
+  }
+
   function toggleContractor(id) {
     setExpandedContractors(prev => {
       const next = new Set(prev);
@@ -260,6 +295,16 @@ export default function Payroll() {
       {/* Header */}
       <div style={styles.header}>
         <h1 style={styles.title}>Payroll</h1>
+        <button
+          type="button"
+          onClick={() => fetchData(true)}
+          disabled={refreshing || loading}
+          style={{ ...styles.refreshBtn, ...(refreshing || loading ? styles.refreshBtnDisabled : {}) }}
+          title="Refresh payroll"
+        >
+          <span style={{ ...styles.refreshIcon, ...(refreshing ? styles.refreshIconSpin : {}) }}>↻</span>
+          {refreshing ? 'Refreshing…' : 'Refresh'}
+        </button>
       </div>
 
       {/* Period bar */}
@@ -458,6 +503,83 @@ export default function Payroll() {
             );
           })}
 
+          {/* ONE-OFF ITEMS */}
+          <div style={{ ...styles.sectionHeader, marginTop: 36 }}>
+            <span style={styles.sectionTitle}>ONE-OFF ITEMS</span>
+            <span style={styles.sectionTotal}>{formatCents(oneOffTotal)}</span>
+          </div>
+
+          {oneOffs.length === 0 && !addingOneOff && (
+            <p style={styles.emptyText}>No one-off items this period.</p>
+          )}
+
+          {oneOffs.map(o => (
+            <div key={o.id} style={styles.card}>
+              <div style={styles.cardHeader}>
+                <div style={styles.cardLeft}>
+                  <div>
+                    <span style={styles.cardName}>{o.label}</span>
+                    {o.payee && <span style={styles.cardRole}>{o.payee}</span>}
+                  </div>
+                </div>
+                <div style={styles.cardRight}>
+                  <span style={styles.cardTotal}>{formatCents(o.amount_cents)}</span>
+                  <button style={styles.removeBtn} onClick={() => handleRemoveOneOff(o.id)}>Remove</button>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {isCurrentPeriod && (
+            addingOneOff ? (
+              <div style={styles.oneOffForm}>
+                <input
+                  type="text"
+                  placeholder="Label (e.g. Bonus, Reimbursement)"
+                  value={oneOffForm.label}
+                  onChange={(e) => setOneOffForm(f => ({ ...f, label: e.target.value }))}
+                  style={styles.oneOffInput}
+                  autoFocus
+                />
+                <input
+                  type="text"
+                  placeholder="Payee (optional)"
+                  value={oneOffForm.payee}
+                  onChange={(e) => setOneOffForm(f => ({ ...f, payee: e.target.value }))}
+                  style={styles.oneOffInput}
+                />
+                <div style={styles.salaryInputWrap}>
+                  <span style={styles.dollarSign}>$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="Amount"
+                    value={oneOffForm.amount}
+                    onChange={(e) => setOneOffForm(f => ({ ...f, amount: e.target.value }))}
+                    style={styles.salaryInput}
+                  />
+                </div>
+                <button
+                  style={styles.saveBtn}
+                  disabled={savingOneOff || !oneOffForm.label.trim() || !oneOffForm.amount}
+                  onClick={handleAddOneOff}
+                >
+                  Add
+                </button>
+                <button
+                  style={styles.cancelBtn}
+                  onClick={() => { setAddingOneOff(false); setOneOffForm({ label: '', payee: '', amount: '' }); }}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button style={styles.addOneOffBtn} onClick={() => setAddingOneOff(true)}>
+                + Add one-off item
+              </button>
+            )
+          )}
+
           {/* Period total bar */}
           <div style={styles.totalBar}>
             <span style={styles.totalLabel}>Period Total</span>
@@ -483,12 +605,42 @@ const styles = {
   },
   header: {
     marginBottom: 24,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
   },
   title: {
     fontSize: 28,
     fontWeight: 700,
     color: '#fff',
     margin: 0,
+  },
+  refreshBtn: {
+    display: 'flex', alignItems: 'center', gap: 6,
+    padding: '7px 14px', fontSize: 13, borderRadius: 8,
+    background: 'rgba(99,102,241,0.18)', color: '#fff',
+    border: '1px solid rgba(99,102,241,0.5)', cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  refreshBtnDisabled: { opacity: 0.6, cursor: 'default' },
+  refreshIcon: { fontSize: 15, display: 'inline-block', lineHeight: 1 },
+  refreshIconSpin: { animation: 'spin 0.8s linear infinite' },
+  oneOffForm: {
+    display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8,
+    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: 12, padding: '12px 16px', marginBottom: 8,
+  },
+  oneOffInput: {
+    flex: 1, minWidth: 140,
+    background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: 8, padding: '8px 10px', color: '#fff', fontSize: 13, fontFamily: 'inherit',
+  },
+  addOneOffBtn: {
+    background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.7)',
+    border: '1px dashed rgba(255,255,255,0.18)', borderRadius: 10,
+    padding: '10px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+    fontFamily: 'inherit', width: '100%',
   },
 
   // Period bar
