@@ -27,6 +27,32 @@ const INCOME_CATEGORIES = new Set([
   "Services",
 ]);
 
+// Operating expense categories. Excludes financing (Funding, Loan Repayment),
+// offsets (Reimbursement), and net-positive bookkeeping (Interest) so the
+// Expenses page reflects actual outflows. New Tiller categories that should
+// be tracked need to be added here AND in the EXPENSE_CATEGORY_META map in
+// src/pages/Expenses.js.
+const EXPENSE_CATEGORIES = new Set([
+  "Employees",
+  "Rent & Utilities",
+  "Equipment",
+  "Equipment - Neptune",
+  "R&D/Production",
+  "Travel",
+  "Admin Subscriptions",
+  "Creative Subscriptions",
+  "Insurance",
+  "Freelancers",
+  "Misc Expense",
+  "Administration",
+  "Supplies",
+  "Entertainment/Fun",
+  "Medical",
+  "Food",
+  "Bank Fees",
+  "Taxes",
+]);
+
 async function getAccessToken(): Promise<string> {
   const clientId = Deno.env.get("GOOGLE_CLIENT_ID")!;
   const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")!;
@@ -101,65 +127,89 @@ Deno.serve(async (req: Request) => {
     }
 
     // Skip header row, parse transactions
-    const transactions: Array<{
+    type Tx = {
       transaction_id: string;
       date: string;
       description: string;
       category: string;
       amount_cents: number;
       account: string;
-    }> = [];
+    };
+    const incomeTxs: Tx[] = [];
+    const expenseTxs: Tx[] = [];
 
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       // Columns: 0=(empty), 1=Date, 2=Description, 3=Category, 4=Amount, 5=Account
       const category = (row[3] || "").trim();
-      if (!INCOME_CATEGORIES.has(category)) continue;
+      const isIncome = INCOME_CATEGORIES.has(category);
+      const isExpense = EXPENSE_CATEGORIES.has(category);
+      if (!isIncome && !isExpense) continue;
 
       const dateStr = parseDate((row[1] || "").trim());
       if (!dateStr) continue;
 
       const amountCents = parseAmount(row[4] || "0");
-      if (amountCents <= 0) continue; // skip negative/zero amounts
+      // Income: only positive amounts. Expense: only outflows (negative),
+      // stored as positive cents so the Expenses page can sum and chart
+      // without flipping signs on every render.
+      if (isIncome && amountCents <= 0) continue;
+      if (isExpense && amountCents >= 0) continue;
 
       const description = (row[2] || "").trim();
       const account = (row[5] || "").trim();
+      // Stable per-row ID. Includes account and a 1-based sheet row number so
+      // recurring identical-looking transactions (e.g. weekly payroll where
+      // description + amount + date all match across employees) don't collide
+      // and silently dedupe down to one row.
+      const sheetRow = i + 1;
+      const descSlug = description.replace(/\W+/g, "_");
+      const accountSlug = account.replace(/\W+/g, "_");
+      const txId = `tiller_${dateStr}_${amountCents}_${accountSlug}_${descSlug}_r${sheetRow}`;
+      const storeAmount = isExpense ? -amountCents : amountCents;
 
-      // Create a stable transaction ID from date + description + amount
-      // This prevents duplicates on re-sync
-      const txId = `tiller_${dateStr}_${amountCents}_${description.substring(0, 50).replace(/\W/g, "_")}`;
-
-      transactions.push({
+      const tx: Tx = {
         transaction_id: txId,
         date: dateStr,
         description,
         category,
-        amount_cents: amountCents,
+        amount_cents: storeAmount,
         account,
-      });
+      };
+      if (isIncome) incomeTxs.push(tx);
+      else expenseTxs.push(tx);
     }
 
-    // Upsert in batches
-    let upserted = 0;
-    for (let i = 0; i < transactions.length; i += 200) {
-      const batch = transactions.slice(i, i + 200);
-      const { error, data: result } = await supabase
-        .from("revenue_transactions")
-        .upsert(batch, { onConflict: "transaction_id" })
-        .select("id");
-      if (error) {
-        console.error("Upsert error:", error.message);
-      } else {
-        upserted += result?.length || 0;
+    async function upsertBatched(table: string, txs: Tx[]): Promise<number> {
+      let upserted = 0;
+      for (let i = 0; i < txs.length; i += 200) {
+        const batch = txs.slice(i, i + 200);
+        const { error, data: result } = await supabase
+          .from(table)
+          .upsert(batch, { onConflict: "transaction_id" })
+          .select("id");
+        if (error) {
+          console.error(`${table} upsert error:`, error.message);
+        } else {
+          upserted += result?.length || 0;
+        }
       }
+      return upserted;
     }
 
-    console.log(`Tiller sync complete: ${transactions.length} income transactions found, ${upserted} upserted`);
+    const incomeUpserted = await upsertBatched("revenue_transactions", incomeTxs);
+    const expenseUpserted = await upsertBatched("expense_transactions", expenseTxs);
+
+    console.log(
+      `Tiller sync complete: ${incomeTxs.length} income (${incomeUpserted} upserted), ${expenseTxs.length} expense (${expenseUpserted} upserted)`,
+    );
 
     return new Response(JSON.stringify({
       total_rows_read: rows.length - 1,
-      income_transactions: transactions.length,
-      upserted,
+      income_transactions: incomeTxs.length,
+      income_upserted: incomeUpserted,
+      expense_transactions: expenseTxs.length,
+      expense_upserted: expenseUpserted,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

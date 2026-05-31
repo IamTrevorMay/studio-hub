@@ -15,6 +15,7 @@ import Ideation from './Ideation';
 import Reviews from './Reviews';
 import Resources from './Resources';
 import Analytics from './Analytics';
+import Expenses from './Expenses';
 import Research from './Research';
 import Goals from './Goals';
 import BusinessDev from './BusinessDev';
@@ -67,6 +68,7 @@ const NAV_ITEMS = [
   { key: 'deliverables', label: 'Deliverables', icon: DeliverablesIcon },
   { key: 'resources', label: 'Resources', icon: ResourcesIcon },
   { key: 'analytics', label: 'Analytics', icon: AnalyticsIcon, adminOnly: true },
+  { key: 'expenses', label: 'Expenses', icon: ExpensesIcon, adminOnly: true },
   { key: 'research', label: 'Research', icon: ResearchIcon },
   { key: 'calendar', label: 'Calendar', icon: CalendarIcon },
   { key: 'goals', label: 'Goals', icon: GoalsIcon },
@@ -84,7 +86,7 @@ const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', '
 
 // ─── Modes ──────────────────────────────────────────────────
 // Admin-only pages that live in Admin Mode and are hidden from the Work View.
-const ADMIN_PAGE_KEYS = ['assignments', 'payroll', 'analytics', 'business_dev', 'freelancers', 'workflows', 'jobs'];
+const ADMIN_PAGE_KEYS = ['assignments', 'payroll', 'analytics', 'expenses', 'business_dev', 'freelancers', 'workflows', 'jobs'];
 // Everyday anchors kept at the top of the Admin Mode sidebar.
 const ADMIN_ESSENTIAL_KEYS = ['dashboard', 'my_tasks', 'messages'];
 // Admin Mode sidebar: essentials, a divider, then the admin pages + settings.
@@ -96,6 +98,7 @@ const ADMIN_MODE_NAV = [
   { type: 'item', key: 'assignments', label: 'Assignments' },
   { type: 'item', key: 'payroll', label: 'Payroll' },
   { type: 'item', key: 'analytics', label: 'Analytics' },
+  { type: 'item', key: 'expenses', label: 'Expenses' },
   { type: 'item', key: 'business_dev', label: 'Business Dev' },
   { type: 'item', key: 'freelancers', label: 'Contractors' },
   { type: 'item', key: 'workflows', label: 'Workflows' },
@@ -166,6 +169,7 @@ const NAV_ICON_MAP = {
   deliverables: DeliverablesIcon,
   resources: ResourcesIcon,
   analytics: AnalyticsIcon,
+  expenses: ExpensesIcon,
   research: ResearchIcon,
   calendar: CalendarIcon,
   goals: GoalsIcon,
@@ -732,6 +736,7 @@ export default function AppLayout() {
           {activeTab === 'timeline' && <Timeline />}
           {activeTab === 'organize' && <Organize onBack={() => setActiveTab('dashboard')} />}
           {isAdmin && activeTab === 'analytics' && <Analytics />}
+          {isAdmin && activeTab === 'expenses' && <Expenses />}
           {activeTab === 'research' && <Research />}
           {activeTab === 'reviews' && <Reviews />}
           {activeTab === 'goals' && <Goals />}
@@ -1099,6 +1104,16 @@ function PayrollIcon({ active }) {
       <path d="M3 8h14" />
       <circle cx="10" cy="13" r="2" />
       <path d="M10 11v0.5M10 14.5v0.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ExpensesIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <path d="M3 6h14l-1 11H4z" />
+      <path d="M7 6V4a3 3 0 0 1 6 0v2" />
+      <path d="M8 11h4" strokeLinecap="round" />
     </svg>
   );
 }
