@@ -353,6 +353,11 @@ export default function Payroll() {
                     {c.assignments.map(a => (
                       <div key={a.id} style={styles.assignmentRow}>
                         <span style={styles.assignmentTitle}>{a.title}</span>
+                        {a.completed_at && (
+                          <span style={styles.assignmentDate}>
+                            {new Date(a.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          </span>
+                        )}
                         {c.fp.payment_type === 'hourly' && a.hours_spent && (
                           <span style={styles.assignmentHours}>{a.hours_spent}h</span>
                         )}
@@ -700,6 +705,11 @@ const styles = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+  },
+  assignmentDate: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.4)',
+    flexShrink: 0,
   },
   assignmentHours: {
     fontSize: 12,
