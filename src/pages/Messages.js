@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+import { getDisplayName, getDisplayInitial } from '../lib/displayName';
 
 
 export default function Messages({ onNavigate }) {
@@ -45,7 +46,7 @@ export default function Messages({ onNavigate }) {
       const enriched = await Promise.all((convos || []).map(async (convo) => {
         const { data: participants } = await supabase
           .from('conversation_participants')
-          .select('user_id, profile:profiles(id, full_name, title)')
+          .select('user_id, profile:profiles(id, full_name, nickname, title)')
           .eq('conversation_id', convo.id);
 
         // Get last message
@@ -80,7 +81,7 @@ export default function Messages({ onNavigate }) {
   const fetchTeamMembers = useCallback(async () => {
     if (!profile?.id) return;
     try {
-      const { data } = await supabase.from('profiles').select('id, full_name, title')
+      const { data } = await supabase.from('profiles').select('id, full_name, nickname, title')
         .neq('id', profile.id);
       setTeamMembers(data || []);
     } catch (err) {
@@ -102,7 +103,7 @@ export default function Messages({ onNavigate }) {
     try {
       const { data, error } = await supabase
         .from('direct_messages')
-        .select('*, profile:profiles(id, full_name, title)')
+        .select('*, profile:profiles(id, full_name, nickname, title)')
         .eq('conversation_id', conversationId)
         .order('created_at', { ascending: true })
         .limit(100);
@@ -131,7 +132,7 @@ export default function Messages({ onNavigate }) {
       }, async (payload) => {
         const { data } = await supabase
           .from('direct_messages')
-          .select('*, profile:profiles(id, full_name, title)')
+          .select('*, profile:profiles(id, full_name, nickname, title)')
           .eq('id', payload.new.id)
           .single();
         if (data) setMessages(prev => [...prev, data]);
@@ -210,7 +211,7 @@ export default function Messages({ onNavigate }) {
     if (convo.name) return convo.name;
     const others = convo.participants
       ?.filter(p => p.user_id !== profile.id)
-      .map(p => p.profile?.full_name || 'Unknown');
+      .map(p => getDisplayName(p.profile) || 'Unknown');
     return others?.join(', ') || 'Conversation';
   }
 
@@ -236,7 +237,8 @@ export default function Messages({ onNavigate }) {
   }
 
   const filteredTeam = teamMembers.filter(m =>
-    m.full_name.toLowerCase().includes(searchUsers.toLowerCase())
+    (m.nickname || '').toLowerCase().includes(searchUsers.toLowerCase())
+    || (m.full_name || '').toLowerCase().includes(searchUsers.toLowerCase())
   );
 
   function formatMessageContent(content) {
@@ -295,9 +297,9 @@ export default function Messages({ onNavigate }) {
                     ...(selectedUsers.includes(m.id) ? styles.userItemSelected : {}),
                   }}
                 >
-                  <div style={styles.userAvatar}>{m.full_name.charAt(0)}</div>
+                  <div style={styles.userAvatar}>{getDisplayInitial(m)}</div>
                   <div style={{ flex: 1 }}>
-                    <div style={styles.userItemName}>{m.full_name}</div>
+                    <div style={styles.userItemName}>{getDisplayName(m)}</div>
                     <div style={styles.userItemTitle}>{m.title || 'Team Member'}</div>
                   </div>
                   {selectedUsers.includes(m.id) && <span style={styles.checkMark}>✓</span>}
@@ -382,7 +384,7 @@ export default function Messages({ onNavigate }) {
                       justifyContent: isOwn ? 'flex-end' : 'flex-start',
                     }}>
                       {!isOwn && showAvatar && (
-                        <div style={styles.msgAvatar}>{msg.profile?.full_name?.charAt(0)}</div>
+                        <div style={styles.msgAvatar}>{getDisplayInitial(msg.profile)}</div>
                       )}
                       {!isOwn && !showAvatar && <div style={{ width: '32px' }} />}
                       <div style={{
@@ -391,7 +393,7 @@ export default function Messages({ onNavigate }) {
                         borderColor: isOwn ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.06)',
                       }}>
                         {showAvatar && !isOwn && (
-                          <div style={styles.msgSender}>{msg.profile?.full_name}</div>
+                          <div style={styles.msgSender}>{getDisplayName(msg.profile)}</div>
                         )}
                         <div style={styles.msgContent}>{formatMessageContent(msg.content)}</div>
                         <div style={styles.msgTime}>{formatTime(msg.created_at)}</div>

@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import FullScreenSheet from '../components/mobile/FullScreenSheet';
 import BottomSheet from '../components/mobile/BottomSheet';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
+import { getDisplayName, getDisplayInitial } from '../lib/displayName';
 
 export default function MessagesMobile({ onNavigate }) {
   const { profile, refreshKey } = useAuth();
@@ -38,7 +39,7 @@ export default function MessagesMobile({ onNavigate }) {
       const enriched = await Promise.all((convos || []).map(async (convo) => {
         const { data: participants } = await supabase
           .from('conversation_participants')
-          .select('user_id, profile:profiles(id, full_name, title)')
+          .select('user_id, profile:profiles(id, full_name, nickname, title)')
           .eq('conversation_id', convo.id);
         const { data: lastMsg } = await supabase
           .from('direct_messages')
@@ -62,7 +63,7 @@ export default function MessagesMobile({ onNavigate }) {
 
   const fetchTeamMembers = useCallback(async () => {
     if (!profile?.id) return;
-    const { data } = await supabase.from('profiles').select('id, full_name, title').neq('id', profile.id);
+    const { data } = await supabase.from('profiles').select('id, full_name, nickname, title').neq('id', profile.id);
     setTeamMembers(data || []);
   }, [profile?.id]);
 
@@ -74,7 +75,7 @@ export default function MessagesMobile({ onNavigate }) {
   function convoName(convo) {
     if (!convo) return '';
     if (convo.name) return convo.name;
-    const others = convo.participants?.filter((p) => p.user_id !== profile.id).map((p) => p.profile?.full_name || 'Unknown');
+    const others = convo.participants?.filter((p) => p.user_id !== profile.id).map((p) => getDisplayName(p.profile) || 'Unknown');
     return others?.join(', ') || 'Conversation';
   }
 
@@ -94,7 +95,7 @@ export default function MessagesMobile({ onNavigate }) {
           // Need to enrich participants for activeConvo's display name
           const { data: parts } = await supabase
             .from('conversation_participants')
-            .select('user_id, profile:profiles(id, full_name, title)')
+            .select('user_id, profile:profiles(id, full_name, nickname, title)')
             .eq('conversation_id', convo.id);
           setActiveConvo({ ...convo, participants: parts || [] });
         }
@@ -110,7 +111,7 @@ export default function MessagesMobile({ onNavigate }) {
         await fetchConversations();
         const { data: parts } = await supabase
           .from('conversation_participants')
-          .select('user_id, profile:profiles(id, full_name, title)')
+          .select('user_id, profile:profiles(id, full_name, nickname, title)')
           .eq('conversation_id', convo.id);
         setActiveConvo({ ...convo, participants: parts || [] });
       }
@@ -123,7 +124,10 @@ export default function MessagesMobile({ onNavigate }) {
     }
   }
 
-  const filteredTeam = teamMembers.filter((m) => (m.full_name || '').toLowerCase().includes(searchUsers.toLowerCase()));
+  const filteredTeam = teamMembers.filter((m) => {
+    const needle = searchUsers.toLowerCase();
+    return (m.nickname || '').toLowerCase().includes(needle) || (m.full_name || '').toLowerCase().includes(needle);
+  });
 
   return (
     <div style={styles.root}>
@@ -207,9 +211,9 @@ export default function MessagesMobile({ onNavigate }) {
                   onClick={() => setSelectedUsers((prev) => (checked ? prev.filter((x) => x !== m.id) : [...prev, m.id]))}
                   style={{ ...styles.userRow, background: checked ? 'rgba(99,102,241,0.12)' : 'transparent' }}
                 >
-                  <div style={styles.userAvatar}>{(m.full_name || '?').charAt(0).toUpperCase()}</div>
+                  <div style={styles.userAvatar}>{getDisplayInitial(m)}</div>
                   <div style={styles.userBody}>
-                    <div style={styles.userName}>{m.full_name}</div>
+                    <div style={styles.userName}>{getDisplayName(m)}</div>
                     {m.title && <div style={styles.userTitle}>{m.title}</div>}
                   </div>
                   <div style={{ ...styles.checkSlot, color: checked ? '#a5b4fc' : 'transparent' }}>
@@ -245,7 +249,7 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
     async function load() {
       const { data } = await supabase
         .from('direct_messages')
-        .select('*, profile:profiles(id, full_name, title)')
+        .select('*, profile:profiles(id, full_name, nickname, title)')
         .eq('conversation_id', conversation.id)
         .order('created_at', { ascending: true })
         .limit(100);
@@ -267,7 +271,7 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
       }, async (payload) => {
         const { data } = await supabase
           .from('direct_messages')
-          .select('*, profile:profiles(id, full_name, title)')
+          .select('*, profile:profiles(id, full_name, nickname, title)')
           .eq('id', payload.new.id)
           .single();
         if (data) setMessages((prev) => [...prev, data]);
@@ -324,7 +328,7 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
                   borderBottomRightRadius: mine ? 4 : mobileTokens.radius.lg,
                   borderBottomLeftRadius: mine ? mobileTokens.radius.lg : 4,
                 }}>
-                  {!mine && <div style={convoStyles.bubbleSender}>{m.profile?.full_name || 'Unknown'}</div>}
+                  {!mine && <div style={convoStyles.bubbleSender}>{getDisplayName(m.profile) || 'Unknown'}</div>}
                   <div>{renderContent(m.content)}</div>
                   <div style={{ ...convoStyles.bubbleTime, color: mine ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.4)' }}>
                     {formatTime(m.created_at)}

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { mobileTokens, mobileTapButton } from '../../utils/mobileTokens';
+import { getDisplayName, getDisplayInitial } from '../../lib/displayName';
 
 // Slide-in drawer with the full nav (already filtered for mobile by the caller),
 // plus user info + sign out at the bottom.
@@ -129,9 +130,9 @@ export default function MobileDrawer({
         </nav>
 
         <div style={{ ...styles.userArea, paddingBottom: `calc(${mobileTokens.space.md}px + ${mobileTokens.safeBottom})` }}>
-          <div style={styles.avatar}>{profile?.full_name?.charAt(0)?.toUpperCase() || '?'}</div>
+          <div style={styles.avatar}>{getDisplayInitial(profile)}</div>
           <div style={styles.userInfo}>
-            <div style={styles.userName}>{profile?.full_name || 'User'}</div>
+            <div style={styles.userName}>{getDisplayName(profile) || 'User'}</div>
             <div style={styles.userTitle}>{profile?.title || 'Team Member'}</div>
           </div>
           <button onClick={onSignOut} style={{ ...mobileTapButton, ...styles.signOutBtn }} aria-label="Sign out">

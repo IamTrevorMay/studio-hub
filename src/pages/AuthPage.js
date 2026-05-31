@@ -14,6 +14,7 @@ export default function AuthPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
+  const [nickname, setNickname] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState('');
@@ -60,12 +61,13 @@ export default function AuthPage() {
     setLoading(true);
     try {
       if (!fullName.trim()) throw new Error('Please enter your full name.');
+      if (!nickname.trim()) throw new Error('Please enter the nickname you go by.');
       if (password.length < 6) throw new Error('Password must be at least 6 characters.');
 
       // Update the user's password (they arrived via magic link)
       const { error: updateError } = await supabase.auth.updateUser({
         password,
-        data: { full_name: fullName.trim() },
+        data: { full_name: fullName.trim(), nickname: nickname.trim() },
       });
       if (updateError) throw updateError;
 
@@ -90,6 +92,7 @@ export default function AuthPage() {
         const { error: profileError } = await supabase.from('profiles')
           .update({
             full_name: fullName.trim(),
+            nickname: nickname.trim(),
             role: assignedRole,
             title: assignedTitle,
             assigned_drive_folder_id: invitation?.assigned_drive_folder_id || null,
@@ -320,6 +323,17 @@ export default function AuthPage() {
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="Jane Smith"
+                required
+                style={styles.input}
+              />
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Nickname</label>
+              <input
+                type="text"
+                value={nickname}
+                onChange={(e) => setNickname(e.target.value)}
+                placeholder="What should the team call you?"
                 required
                 style={styles.input}
               />

@@ -14,6 +14,7 @@ export default function AuthPageMobile() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
+  const [nickname, setNickname] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState('');
@@ -55,11 +56,12 @@ export default function AuthPageMobile() {
     setLoading(true);
     try {
       if (!fullName.trim()) throw new Error('Please enter your full name.');
+      if (!nickname.trim()) throw new Error('Please enter the nickname you go by.');
       if (password.length < 6) throw new Error('Password must be at least 6 characters.');
 
       const { error: updateError } = await supabase.auth.updateUser({
         password,
-        data: { full_name: fullName.trim() },
+        data: { full_name: fullName.trim(), nickname: nickname.trim() },
       });
       if (updateError) throw updateError;
 
@@ -79,6 +81,7 @@ export default function AuthPageMobile() {
         const { error: profileError } = await supabase.from('profiles')
           .update({
             full_name: fullName.trim(),
+            nickname: nickname.trim(),
             role: assignedRole,
             title: assignedTitle,
             assigned_drive_folder_id: invitation?.assigned_drive_folder_id || null,
@@ -248,6 +251,9 @@ export default function AuthPageMobile() {
             <div style={styles.banner}>🎉 You've been invited! Set up your account below.</div>
             <Field label="Full name">
               <input type="text" autoComplete="name" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Jane Smith" required style={styles.input} />
+            </Field>
+            <Field label="Nickname">
+              <input type="text" value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="What should the team call you?" required style={styles.input} />
             </Field>
             <Field label="Create password">
               <input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 6 characters" required minLength={6} style={styles.input} />

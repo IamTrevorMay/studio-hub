@@ -4,6 +4,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+import { getDisplayName } from '../lib/displayName';
 
 import Whiteboard from './editors/Whiteboard';
 import StickyBoard from './editors/StickyBoard';
@@ -76,7 +77,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
     setLoading(true);
     try {
       const { data, error } = await supabase.from('concepts')
-        .select('*, creator:profiles!concepts_profile_fk(full_name)')
+        .select('*, creator:profiles!concepts_profile_fk(full_name, nickname)')
         .order('sort_order', { ascending: true });
       if (error) throw error;
       setConcepts(data || []);
@@ -299,13 +300,13 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
         .single();
       if (!review || review.status !== 'awaiting_writer') { setPendingReview(null); return; }
       const { data: reviewer } = await supabase.from('profiles')
-        .select('full_name')
+        .select('full_name, nickname')
         .eq('id', review.created_by)
         .single();
       setPendingReview({
         review,
         feedbackVersion,
-        reviewer: reviewer?.full_name || 'Reviewer',
+        reviewer: getDisplayName(reviewer) || 'Reviewer',
       });
     } catch (err) {
       console.error('Error fetching pending review:', err);
@@ -396,7 +397,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
       await supabase.from('notifications').insert({
         user_id: pendingReview.review.created_by,
         type: 'script_revision',
-        title: `✍️ ${profile.full_name} submitted a revision`,
+        title: `✍️ ${getDisplayName(profile)} submitted a revision`,
         body: `v${nextNum} of "${pendingReview.review.title}" is ready for review`,
         link_tab: 'reviews',
         link_target: pendingReview.review.id,
@@ -487,7 +488,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
 
     if (activeConcept?.id === sourceId) {
       const { data } = await supabase.from('concepts')
-        .select('*, creator:profiles!concepts_profile_fk(full_name)')
+        .select('*, creator:profiles!concepts_profile_fk(full_name, nickname)')
         .eq('id', targetId).single();
       if (data) setActiveConcept(data);
     }
@@ -1003,7 +1004,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
                           )}
                           <div style={styles.conceptCardFooter}>
                             <span style={styles.conceptCardMeta}>
-                              {concept.creator?.full_name} · {new Date(concept.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                              {getDisplayName(concept.creator)} · {new Date(concept.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                             </span>
                           </div>
                         </div>

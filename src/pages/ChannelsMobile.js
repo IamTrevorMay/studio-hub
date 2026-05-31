@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import FullScreenSheet from '../components/mobile/FullScreenSheet';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
+import { getDisplayName } from '../lib/displayName';
 
 // Note: "Channels" here is the Slack-style team-chat channel list, not platform
 // analytics channels. Mobile mirrors the desktop chat UX, slimmed: list of channels
@@ -44,7 +45,7 @@ export default function ChannelsMobile({ initialChannelName, onChannelOpened }) 
   }, []);
 
   const fetchTeam = useCallback(async () => {
-    const { data } = await supabase.from('profiles').select('id, full_name, title');
+    const { data } = await supabase.from('profiles').select('id, full_name, nickname, title');
     setTeamMembers(data || []);
   }, []);
 
@@ -130,7 +131,7 @@ function ChannelView({ channel, profileId, teamMembers, refreshKey }) {
     async function load() {
       const { data } = await supabase
         .from('channel_messages')
-        .select('*, profile:profiles(id, full_name, title)')
+        .select('*, profile:profiles(id, full_name, nickname, title)')
         .eq('channel_id', channel.id)
         .order('created_at', { ascending: true })
         .limit(100);
@@ -152,7 +153,7 @@ function ChannelView({ channel, profileId, teamMembers, refreshKey }) {
       }, async (payload) => {
         const { data } = await supabase
           .from('channel_messages')
-          .select('*, profile:profiles(id, full_name, title)')
+          .select('*, profile:profiles(id, full_name, nickname, title)')
           .eq('id', payload.new.id)
           .single();
         if (data) setMessages((prev) => [...prev, data]);
@@ -173,7 +174,10 @@ function ChannelView({ channel, profileId, teamMembers, refreshKey }) {
     const mentions = [];
     let match;
     while ((match = mentionRegex.exec(content)) !== null) {
-      const member = teamMembers.find((m) => m.full_name?.toLowerCase().includes(match[1].toLowerCase()));
+      const needle = match[1].toLowerCase();
+      const member = teamMembers.find((m) =>
+        (m.nickname || '').toLowerCase().includes(needle) || (m.full_name || '').toLowerCase().includes(needle)
+      );
       if (member) mentions.push(member.id);
     }
     await supabase.from('channel_messages').insert({
@@ -203,7 +207,7 @@ function ChannelView({ channel, profileId, teamMembers, refreshKey }) {
                   borderBottomRightRadius: mine ? 4 : mobileTokens.radius.lg,
                   borderBottomLeftRadius: mine ? mobileTokens.radius.lg : 4,
                 }}>
-                  {!mine && <div style={chatStyles.sender}>{m.profile?.full_name || 'Unknown'}</div>}
+                  {!mine && <div style={chatStyles.sender}>{getDisplayName(m.profile) || 'Unknown'}</div>}
                   <div>{m.content}</div>
                   <div style={{ ...chatStyles.time, color: mine ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.4)' }}>
                     {formatTime(m.created_at)}

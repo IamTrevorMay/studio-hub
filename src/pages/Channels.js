@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+import { getDisplayName, getDisplayInitial } from '../lib/displayName';
 
 
 function applyFormatMarker(textareaRef, text, marker, setter) {
@@ -63,7 +64,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
 
   const fetchTeamMembers = useCallback(async () => {
     try {
-      const { data } = await supabase.from('profiles').select('id, full_name, title');
+      const { data } = await supabase.from('profiles').select('id, full_name, nickname, title');
       setTeamMembers(data || []);
     } catch (err) {
       console.error('Error fetching team:', err);
@@ -94,7 +95,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
     try {
       const { data, error } = await supabase
         .from('channel_messages')
-        .select('*, profile:profiles(id, full_name, title, avatar_url)')
+        .select('*, profile:profiles(id, full_name, nickname, title, avatar_url)')
         .eq('channel_id', channelId)
         .order('created_at', { ascending: true })
         .limit(100);
@@ -112,7 +113,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
     try {
       const { data } = await supabase
         .from('channel_messages')
-        .select('*, profile:profiles(id, full_name, title)')
+        .select('*, profile:profiles(id, full_name, nickname, title)')
         .eq('channel_id', channelId)
         .eq('is_pinned', true)
         .order('created_at', { ascending: false });
@@ -139,7 +140,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
       }, async (payload) => {
         const { data } = await supabase
           .from('channel_messages')
-          .select('*, profile:profiles(id, full_name, title, avatar_url)')
+          .select('*, profile:profiles(id, full_name, nickname, title, avatar_url)')
           .eq('id', payload.new.id)
           .single();
         if (data && mounted) setMessages(prev => [...prev, data]);
@@ -223,8 +224,10 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
     const mentions = [];
     let match;
     while ((match = mentionRegex.exec(newMessage)) !== null) {
+      const needle = match[1].toLowerCase();
       const mentioned = teamMembers.find(m =>
-        m.full_name.toLowerCase().includes(match[1].toLowerCase())
+        (m.nickname || '').toLowerCase().includes(needle)
+        || (m.full_name || '').toLowerCase().includes(needle)
       );
       if (mentioned) mentions.push(mentioned.id);
     }
@@ -242,7 +245,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
         .map(uid => ({
           user_id: uid,
           type: 'mention',
-          title: `${profile.full_name} mentioned you in #${activeChannel.name}`,
+          title: `${getDisplayName(profile)} mentioned you in #${activeChannel.name}`,
           body: newMessage.trim().substring(0, 100),
           link_tab: 'channels',
           link_target: activeChannel.name,
@@ -288,7 +291,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   function handleMentionSelect(member) {
     const lastAtIndex = newMessage.lastIndexOf('@');
     const before = newMessage.substring(0, lastAtIndex);
-    setNewMessage(`${before}@${member.full_name} `);
+    setNewMessage(`${before}@${getDisplayName(member)} `);
     setShowMentions(false);
     inputRef.current?.focus();
   }
@@ -309,7 +312,8 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   }
 
   const filteredMentions = teamMembers.filter(m =>
-    m.full_name.toLowerCase().includes(mentionFilter)
+    (m.nickname || '').toLowerCase().includes(mentionFilter)
+    || (m.full_name || '').toLowerCase().includes(mentionFilter)
   );
 
   function formatInline(text) {
@@ -468,7 +472,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
                 {pinnedMessages.map(msg => (
                   <div key={msg.id} style={styles.pinnedItem}>
                     <div style={styles.pinnedItemHeader}>
-                      <span style={styles.pinnedItemAuthor}>{msg.profile?.full_name}</span>
+                      <span style={styles.pinnedItemAuthor}>{getDisplayName(msg.profile)}</span>
                       <span style={styles.pinnedItemTime}>
                         {new Date(msg.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                         {' '}
@@ -499,11 +503,11 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
                 messageGroups.map((group, gi) => (
                   <div key={gi} style={msgStyles.group}>
                     <div style={msgStyles.avatar}>
-                      {group.user?.full_name?.charAt(0)?.toUpperCase() || '?'}
+                      {getDisplayInitial(group.user)}
                     </div>
                     <div style={msgStyles.content}>
                       <div style={msgStyles.header}>
-                        <span style={msgStyles.userName}>{group.user?.full_name || 'Unknown'}</span>
+                        <span style={msgStyles.userName}>{getDisplayName(group.user) || 'Unknown'}</span>
                         <span style={msgStyles.time}>{formatTime(group.messages[0].created_at)}</span>
                       </div>
                       {group.messages.map(msg => (
@@ -535,9 +539,9 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
                       onClick={() => handleMentionSelect(m)}
                       style={styles.mentionItem}
                     >
-                      <div style={styles.mentionAvatar}>{m.full_name.charAt(0)}</div>
+                      <div style={styles.mentionAvatar}>{getDisplayInitial(m)}</div>
                       <div>
-                        <div style={styles.mentionName}>{m.full_name}</div>
+                        <div style={styles.mentionName}>{getDisplayName(m)}</div>
                         <div style={styles.mentionTitle}>{m.title || 'Team Member'}</div>
                       </div>
                     </button>

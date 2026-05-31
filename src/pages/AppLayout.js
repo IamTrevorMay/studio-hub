@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import useNavConfig from '../hooks/useNavConfig';
+import { getDisplayName, getDisplayInitial } from '../lib/displayName';
 import SidebarEditMode from '../components/SidebarEditMode';
 import Dashboard from './Dashboard';
 import Projects from './Projects';
@@ -639,11 +640,11 @@ export default function AppLayout() {
           justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
         }}>
           <div style={styles.avatar}>
-            {profile?.full_name?.charAt(0)?.toUpperCase() || '?'}
+            {getDisplayInitial(profile)}
           </div>
           {!sidebarCollapsed && (
             <div style={styles.userInfo}>
-              <div style={styles.userName}>{profile?.full_name}</div>
+              <div style={styles.userName}>{getDisplayName(profile)}</div>
               <div style={styles.userTitle}>{profile?.title || 'Team Member'}</div>
             </div>
           )}

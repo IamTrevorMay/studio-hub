@@ -243,7 +243,7 @@ export function AuthProvider({ children }) {
     return data;
   }
 
-  async function signUp(email, password, fullName, inviteToken) {
+  async function signUp(email, password, fullName, inviteToken, nickname) {
     // Verify invite token first
     const { data: invite, error: inviteError } = await supabase
       .from('invitations')
@@ -265,7 +265,11 @@ export function AuthProvider({ children }) {
       email,
       password,
       options: {
-        data: { full_name: fullName, role: invite.role || 'member' },
+        data: {
+          full_name: fullName,
+          nickname: nickname || null,
+          role: invite.role || 'member',
+        },
       },
     });
 

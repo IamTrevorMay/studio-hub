@@ -29,7 +29,7 @@ export default function IdeationMobile({ initialConceptId, onConceptOpened }) {
     try {
       const { data } = await supabase
         .from('concepts')
-        .select('*, creator:profiles!concepts_profile_fk(full_name)')
+        .select('*, creator:profiles!concepts_profile_fk(full_name, nickname)')
         .order('sort_order', { ascending: true });
       setConcepts(data || []);
     } catch (err) {
