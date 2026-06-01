@@ -644,6 +644,19 @@ export default function Workflows() {
   const [newName, setNewName] = useState('');
   const [newSlug, setNewSlug] = useState('');
 
+  // ── Automations view ──
+  const [view, setView] = useState('workflows'); // 'workflows' | 'automations'
+  const [automations, setAutomations] = useState([]);
+  const [automationsLoading, setAutomationsLoading] = useState(false);
+  const [selectedAutoId, setSelectedAutoId] = useState(null);
+  const [autoForm, setAutoForm] = useState(null);
+  const [autoRuns, setAutoRuns] = useState([]);
+  const [showRunsExpanded, setShowRunsExpanded] = useState(false);
+  const [autoSaving, setAutoSaving] = useState(false);
+  const [showNewAutoModal, setShowNewAutoModal] = useState(false);
+  const [newAutoName, setNewAutoName] = useState('');
+  const [newAutoTriggerType, setNewAutoTriggerType] = useState('schedule');
+
   // ── Profile + action-handler catalogs (for friendly pickers) ──
   const [profiles, setProfiles] = useState([]);
   const [actionHandlers, setActionHandlers] = useState([]);
@@ -678,6 +691,153 @@ export default function Workflows() {
   useEffect(() => {
     if (isAdmin) fetchWorkflows();
   }, [isAdmin, fetchWorkflows]);
+
+  // ─── Fetch automations ─────────────────────────────────────
+
+  const fetchAutomations = useCallback(async () => {
+    setAutomationsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('automations')
+        .select('*')
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      setAutomations(data || []);
+    } catch (err) {
+      console.error('Error fetching automations:', err);
+    } finally {
+      setAutomationsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isAdmin && view === 'automations') fetchAutomations();
+  }, [isAdmin, view, fetchAutomations]);
+
+  // Load automation detail when selected
+  useEffect(() => {
+    if (!selectedAutoId) { setAutoForm(null); setAutoRuns([]); return; }
+    const auto = automations.find(a => a.id === selectedAutoId);
+    if (auto) {
+      setAutoForm({
+        name: auto.name || '',
+        description: auto.description || '',
+        is_enabled: auto.is_enabled,
+        trigger_type: auto.trigger_type,
+        trigger_config: auto.trigger_config || {},
+        actions: auto.actions || [],
+        dedup_key: auto.dedup_key || '',
+      });
+      // Fetch recent runs
+      (async () => {
+        const { data } = await supabase
+          .from('automation_runs')
+          .select('*')
+          .eq('automation_id', selectedAutoId)
+          .order('created_at', { ascending: false })
+          .limit(10);
+        setAutoRuns(data || []);
+      })();
+    }
+  }, [selectedAutoId, automations]);
+
+  const toggleAutoEnabled = async (auto) => {
+    const newVal = !auto.is_enabled;
+    const { error } = await supabase
+      .from('automations')
+      .update({ is_enabled: newVal })
+      .eq('id', auto.id);
+    if (error) { showToast('Failed to toggle', 'error'); return; }
+    setAutomations(prev => prev.map(a => a.id === auto.id ? { ...a, is_enabled: newVal } : a));
+    if (autoForm && selectedAutoId === auto.id) setAutoForm(prev => ({ ...prev, is_enabled: newVal }));
+    showToast(newVal ? 'Enabled' : 'Disabled');
+  };
+
+  const handleCreateAutomation = async () => {
+    if (!newAutoName.trim()) return;
+    const { data, error } = await supabase
+      .from('automations')
+      .insert({
+        name: newAutoName.trim(),
+        trigger_type: newAutoTriggerType,
+        trigger_config: newAutoTriggerType === 'schedule'
+          ? { type: 'days_of_month', days: [], time_utc: '15:00' }
+          : { event: '', source: '' },
+        actions: [],
+        is_enabled: false,
+        created_by: profile?.id || null,
+      })
+      .select()
+      .single();
+    if (error) { showToast(error.message, 'error'); return; }
+    setShowNewAutoModal(false);
+    setNewAutoName('');
+    await fetchAutomations();
+    setSelectedAutoId(data.id);
+    showToast('Automation created');
+  };
+
+  const saveAutomation = async () => {
+    if (!selectedAutoId || !autoForm) return;
+    setAutoSaving(true);
+    try {
+      const { error } = await supabase
+        .from('automations')
+        .update({
+          name: autoForm.name,
+          description: autoForm.description,
+          is_enabled: autoForm.is_enabled,
+          trigger_type: autoForm.trigger_type,
+          trigger_config: autoForm.trigger_config,
+          actions: autoForm.actions,
+          dedup_key: autoForm.dedup_key || null,
+        })
+        .eq('id', selectedAutoId);
+      if (error) throw error;
+      await fetchAutomations();
+      showToast('Saved');
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setAutoSaving(false);
+    }
+  };
+
+  const deleteAutomation = async () => {
+    if (!selectedAutoId) return;
+    if (!window.confirm('Delete this automation? This cannot be undone.')) return;
+    const { error } = await supabase
+      .from('automations')
+      .delete()
+      .eq('id', selectedAutoId);
+    if (error) { showToast(error.message, 'error'); return; }
+    setSelectedAutoId(null);
+    setAutoForm(null);
+    await fetchAutomations();
+    showToast('Deleted');
+  };
+
+  // Helper: update a nested field in autoForm
+  const updateAutoForm = (key, value) => setAutoForm(prev => ({ ...prev, [key]: value }));
+  const updateTriggerConfig = (key, value) => setAutoForm(prev => ({
+    ...prev, trigger_config: { ...prev.trigger_config, [key]: value },
+  }));
+  const updateAction = (index, field, value) => setAutoForm(prev => {
+    const actions = [...prev.actions];
+    actions[index] = { ...actions[index], config: { ...actions[index].config, [field]: value } };
+    return { ...prev, actions };
+  });
+  const updateActionType = (index, type) => setAutoForm(prev => {
+    const actions = [...prev.actions];
+    actions[index] = { type, config: {} };
+    return { ...prev, actions };
+  });
+  const addAction = () => setAutoForm(prev => ({
+    ...prev, actions: [...prev.actions, { type: 'create_task', config: { title: '', assignee_type: 'all_admins', step_key: 'automation' } }],
+  }));
+  const removeAction = (index) => setAutoForm(prev => ({
+    ...prev, actions: prev.actions.filter((_, i) => i !== index),
+  }));
 
   // ─── Fetch profiles for assignee picker ────────────────────
 
@@ -1300,66 +1460,527 @@ export default function Workflows() {
       )}
 
       <div style={styles.layout}>
-        {/* ── Left Panel: Workflow List ── */}
+        {/* ── Left Panel ── */}
         <div style={styles.leftPanel}>
-          <div style={styles.listHeader}>
-            <h2 style={styles.listTitle}>Workflows</h2>
-            <button style={styles.newBtn} onClick={() => {
-              setShowNewModal(true);
-              setNewName('');
-              setNewSlug('');
-            }}>
-              + New
+          {/* Tab switcher */}
+          <div style={styles.viewTabs}>
+            <button
+              style={{ ...styles.viewTab, ...(view === 'workflows' ? styles.viewTabActive : {}) }}
+              onClick={() => { setView('workflows'); setSelectedAutoId(null); }}
+            >
+              Workflows
+            </button>
+            <button
+              style={{ ...styles.viewTab, ...(view === 'automations' ? styles.viewTabActive : {}) }}
+              onClick={() => { setView('automations'); setSelectedId(null); }}
+            >
+              Automations
             </button>
           </div>
 
-          {listLoading ? (
-            <div style={styles.listLoading}>
-              <div style={styles.spinner} />
-            </div>
-          ) : workflows.length === 0 ? (
-            <p style={styles.listEmpty}>No workflows yet</p>
-          ) : (
-            <div style={styles.listItems}>
-              {workflows.map(wf => (
-                <div
-                  key={wf.id}
-                  style={{
-                    ...styles.listItem,
-                    ...(selectedId === wf.id ? styles.listItemSelected : {}),
-                  }}
-                  onClick={() => setSelectedId(wf.id)}
-                >
-                  <div style={styles.listItemTop}>
-                    <span style={styles.listItemName}>{wf.name}</span>
-                    <button
-                      style={{
-                        ...styles.activeDot,
-                        background: wf.is_active ? '#22c55e' : 'rgba(255,255,255,0.2)',
-                      }}
-                      onClick={(e) => { e.stopPropagation(); toggleActive(wf); }}
-                      title={wf.is_active ? 'Active - click to deactivate' : 'Inactive - click to activate'}
-                    />
-                  </div>
-                  <div style={styles.listItemBottom}>
-                    <span style={{
-                      ...styles.sourceBadge,
-                      background: SOURCE_COLORS[wf.source]?.bg,
-                      color: SOURCE_COLORS[wf.source]?.text,
-                    }}>
-                      {wf.source}
-                    </span>
-                    <span style={styles.slugText}>{wf.slug}</span>
-                  </div>
+          {view === 'workflows' ? (
+            <>
+              <div style={styles.listHeader}>
+                <h2 style={styles.listTitle}>Workflows</h2>
+                <button style={styles.newBtn} onClick={() => {
+                  setShowNewModal(true);
+                  setNewName('');
+                  setNewSlug('');
+                }}>
+                  + New
+                </button>
+              </div>
+
+              {listLoading ? (
+                <div style={styles.listLoading}>
+                  <div style={styles.spinner} />
                 </div>
-              ))}
-            </div>
+              ) : workflows.length === 0 ? (
+                <p style={styles.listEmpty}>No workflows yet</p>
+              ) : (
+                <div style={styles.listItems}>
+                  {workflows.map(wf => (
+                    <div
+                      key={wf.id}
+                      style={{
+                        ...styles.listItem,
+                        ...(selectedId === wf.id ? styles.listItemSelected : {}),
+                      }}
+                      onClick={() => setSelectedId(wf.id)}
+                    >
+                      <div style={styles.listItemTop}>
+                        <span style={styles.listItemName}>{wf.name}</span>
+                        <button
+                          style={{
+                            ...styles.activeDot,
+                            background: wf.is_active ? '#22c55e' : 'rgba(255,255,255,0.2)',
+                          }}
+                          onClick={(e) => { e.stopPropagation(); toggleActive(wf); }}
+                          title={wf.is_active ? 'Active - click to deactivate' : 'Inactive - click to activate'}
+                        />
+                      </div>
+                      <div style={styles.listItemBottom}>
+                        <span style={{
+                          ...styles.sourceBadge,
+                          background: SOURCE_COLORS[wf.source]?.bg,
+                          color: SOURCE_COLORS[wf.source]?.text,
+                        }}>
+                          {wf.source}
+                        </span>
+                        <span style={styles.slugText}>{wf.slug}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div style={styles.listHeader}>
+                <h2 style={styles.listTitle}>Automations</h2>
+                <button style={styles.newBtn} onClick={() => {
+                  setShowNewAutoModal(true);
+                  setNewAutoName('');
+                  setNewAutoTriggerType('schedule');
+                }}>
+                  + New
+                </button>
+              </div>
+
+              {automationsLoading ? (
+                <div style={styles.listLoading}>
+                  <div style={styles.spinner} />
+                </div>
+              ) : automations.length === 0 ? (
+                <p style={styles.listEmpty}>No automations yet</p>
+              ) : (
+                <div style={styles.listItems}>
+                  {automations.map(auto => (
+                    <div
+                      key={auto.id}
+                      style={{
+                        ...styles.listItem,
+                        ...(selectedAutoId === auto.id ? styles.listItemSelected : {}),
+                      }}
+                      onClick={() => setSelectedAutoId(auto.id)}
+                    >
+                      <div style={styles.listItemTop}>
+                        <span style={styles.listItemName}>{auto.name}</span>
+                        <button
+                          style={{
+                            ...styles.activeDot,
+                            background: auto.is_enabled ? '#22c55e' : 'rgba(255,255,255,0.2)',
+                          }}
+                          onClick={(e) => { e.stopPropagation(); toggleAutoEnabled(auto); }}
+                          title={auto.is_enabled ? 'Enabled - click to disable' : 'Disabled - click to enable'}
+                        />
+                      </div>
+                      <div style={styles.listItemBottom}>
+                        <span style={{
+                          ...styles.sourceBadge,
+                          background: auto.trigger_type === 'schedule'
+                            ? 'rgba(234,179,8,0.15)' : 'rgba(59,130,246,0.15)',
+                          color: auto.trigger_type === 'schedule'
+                            ? '#facc15' : '#60a5fa',
+                        }}>
+                          {auto.trigger_type}
+                        </span>
+                        {auto.run_count > 0 && (
+                          <span style={styles.slugText}>{auto.run_count} runs</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
 
-        {/* ── Right Panel: Builder Canvas ── */}
+        {/* ── Right Panel ── */}
         <div style={styles.rightPanel}>
-          {!selectedId ? (
+          {view === 'automations' ? (
+            /* ── Automation Detail Editor ── */
+            !selectedAutoId ? (
+              <div style={styles.emptyCanvas}>
+                <p style={styles.emptyCanvasText}>Select an automation to view or edit</p>
+              </div>
+            ) : !autoForm ? (
+              <div style={styles.canvasLoading}><div style={styles.spinner} /></div>
+            ) : (
+              <div style={styles.autoEditorWrap}>
+                {/* Header */}
+                <div style={styles.canvasHeader}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
+                    <input
+                      style={{ ...styles.headerInput, flex: 1 }}
+                      value={autoForm.name}
+                      onChange={e => updateAutoForm('name', e.target.value)}
+                      placeholder="Automation name"
+                    />
+                    <button
+                      style={{
+                        ...styles.activeDot,
+                        width: 14, height: 14,
+                        background: autoForm.is_enabled ? '#22c55e' : 'rgba(255,255,255,0.2)',
+                      }}
+                      onClick={() => {
+                        const auto = automations.find(a => a.id === selectedAutoId);
+                        if (auto) toggleAutoEnabled(auto);
+                      }}
+                      title={autoForm.is_enabled ? 'Enabled' : 'Disabled'}
+                    />
+                  </div>
+                </div>
+
+                {/* Delete row */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                  <button
+                    style={{ ...styles.cancelBtn, color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)', fontSize: 12, padding: '4px 12px' }}
+                    onClick={deleteAutomation}
+                  >
+                    Delete Automation
+                  </button>
+                </div>
+
+                {/* Description */}
+                <div style={styles.autoSection}>
+                  <label style={styles.fieldLabel}>Description</label>
+                  <textarea
+                    style={{ ...styles.modalInput, minHeight: 48, resize: 'vertical', fontFamily: 'inherit' }}
+                    value={autoForm.description}
+                    onChange={e => updateAutoForm('description', e.target.value)}
+                    placeholder="Optional description"
+                  />
+                </div>
+
+                {/* Trigger Section */}
+                <div style={styles.autoSection}>
+                  <label style={styles.autoSectionTitle}>Trigger</label>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                    <button
+                      style={{
+                        ...styles.viewTab,
+                        ...(autoForm.trigger_type === 'schedule' ? styles.viewTabActive : {}),
+                        fontSize: 12,
+                      }}
+                      onClick={() => {
+                        updateAutoForm('trigger_type', 'schedule');
+                        updateAutoForm('trigger_config', { type: 'days_of_month', days: [], time_utc: '15:00' });
+                      }}
+                    >
+                      Schedule
+                    </button>
+                    <button
+                      style={{
+                        ...styles.viewTab,
+                        ...(autoForm.trigger_type === 'event' ? styles.viewTabActive : {}),
+                        fontSize: 12,
+                      }}
+                      onClick={() => {
+                        updateAutoForm('trigger_type', 'event');
+                        updateAutoForm('trigger_config', { event: '', source: '' });
+                      }}
+                    >
+                      Event
+                    </button>
+                  </div>
+
+                  {autoForm.trigger_type === 'schedule' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <div>
+                        <label style={styles.fieldLabel}>Schedule type</label>
+                        <select
+                          style={styles.modalInput}
+                          value={autoForm.trigger_config.type || 'days_of_month'}
+                          onChange={e => updateTriggerConfig('type', e.target.value)}
+                        >
+                          <option value="days_of_month">Specific days of month</option>
+                          <option value="daily">Daily</option>
+                          <option value="weekly">Weekly</option>
+                        </select>
+                      </div>
+                      {autoForm.trigger_config.type === 'days_of_month' && (
+                        <div>
+                          <label style={styles.fieldLabel}>Days (comma-separated)</label>
+                          <input
+                            style={styles.modalInput}
+                            value={(autoForm.trigger_config.days || []).join(', ')}
+                            onChange={e => {
+                              const days = e.target.value.split(',').map(d => parseInt(d.trim())).filter(d => !isNaN(d) && d >= 1 && d <= 31);
+                              updateTriggerConfig('days', days);
+                            }}
+                            placeholder="1, 15"
+                          />
+                        </div>
+                      )}
+                      {autoForm.trigger_config.type === 'weekly' && (
+                        <div>
+                          <label style={styles.fieldLabel}>Day of week</label>
+                          <select
+                            style={styles.modalInput}
+                            value={autoForm.trigger_config.day_of_week ?? 1}
+                            onChange={e => updateTriggerConfig('day_of_week', parseInt(e.target.value))}
+                          >
+                            {['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].map((d, i) => (
+                              <option key={i} value={i}>{d}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                      <div>
+                        <label style={styles.fieldLabel}>Time (PT, HH:MM)</label>
+                        <input
+                          style={styles.modalInput}
+                          value={(() => {
+                            const utc = autoForm.trigger_config.time_utc || '00:00';
+                            const [h, m] = utc.split(':').map(Number);
+                            const pt = ((h - 7) % 24 + 24) % 24;
+                            return `${String(pt).padStart(2, '0')}:${String(m || 0).padStart(2, '0')}`;
+                          })()}
+                          onChange={e => {
+                            const parts = e.target.value.split(':').map(Number);
+                            if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+                              const utcH = ((parts[0] + 7) % 24 + 24) % 24;
+                              updateTriggerConfig('time_utc', `${String(utcH).padStart(2, '0')}:${String(parts[1]).padStart(2, '0')}`);
+                            }
+                          }}
+                          placeholder="08:00"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {autoForm.trigger_type === 'event' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <div>
+                        <label style={styles.fieldLabel}>Event name</label>
+                        <input
+                          style={styles.modalInput}
+                          value={autoForm.trigger_config.event || ''}
+                          onChange={e => updateTriggerConfig('event', e.target.value)}
+                          placeholder="new_video"
+                        />
+                      </div>
+                      <div>
+                        <label style={styles.fieldLabel}>Source filter (optional)</label>
+                        <input
+                          style={styles.modalInput}
+                          value={autoForm.trigger_config.source || ''}
+                          onChange={e => updateTriggerConfig('source', e.target.value)}
+                          placeholder="More Mayday"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Actions Section */}
+                <div style={styles.autoSection}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <label style={styles.autoSectionTitle}>Actions</label>
+                    <button style={{ ...styles.newBtn, fontSize: 11, padding: '4px 10px' }} onClick={addAction}>
+                      + Add Action
+                    </button>
+                  </div>
+
+                  {autoForm.actions.length === 0 && (
+                    <p style={styles.listEmpty}>No actions configured</p>
+                  )}
+
+                  {autoForm.actions.map((action, idx) => (
+                    <div key={idx} style={styles.autoActionCard}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <select
+                          style={{ ...styles.modalInput, width: 'auto', flex: 1 }}
+                          value={action.type}
+                          onChange={e => updateActionType(idx, e.target.value)}
+                        >
+                          <option value="create_task">Create Task</option>
+                          <option value="send_notification">Send Notification</option>
+                        </select>
+                        <button
+                          style={{ ...styles.cancelBtn, marginLeft: 8, fontSize: 11, padding: '4px 8px' }}
+                          onClick={() => removeAction(idx)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+
+                      {action.type === 'create_task' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          <div>
+                            <label style={styles.fieldLabel}>Title</label>
+                            <input
+                              style={styles.modalInput}
+                              value={action.config?.title || ''}
+                              onChange={e => updateAction(idx, 'title', e.target.value)}
+                              placeholder="Run Payroll"
+                            />
+                          </div>
+                          <div>
+                            <label style={styles.fieldLabel}>Description (optional)</label>
+                            <input
+                              style={styles.modalInput}
+                              value={action.config?.description || ''}
+                              onChange={e => updateAction(idx, 'description', e.target.value)}
+                              placeholder="{{video_title}}"
+                            />
+                          </div>
+                          <div>
+                            <label style={styles.fieldLabel}>Assignee</label>
+                            <select
+                              style={styles.modalInput}
+                              value={action.config?.assignee_type || 'all_admins'}
+                              onChange={e => updateAction(idx, 'assignee_type', e.target.value)}
+                            >
+                              <option value="all_admins">All Admins</option>
+                              <option value="specific">Specific Person</option>
+                            </select>
+                          </div>
+                          {action.config?.assignee_type === 'specific' && (
+                            <div>
+                              <label style={styles.fieldLabel}>Person</label>
+                              <select
+                                style={styles.modalInput}
+                                value={action.config?.assignee_id || ''}
+                                onChange={e => updateAction(idx, 'assignee_id', e.target.value)}
+                              >
+                                <option value="">Select...</option>
+                                {profiles.map(p => (
+                                  <option key={p.id} value={p.id}>{p.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                          <div>
+                            <label style={styles.fieldLabel}>Link URL (optional, supports {'{{variables}}'})</label>
+                            <input
+                              style={styles.modalInput}
+                              value={action.config?.link_url || ''}
+                              onChange={e => updateAction(idx, 'link_url', e.target.value)}
+                              placeholder="{{video_url}}"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {action.type === 'send_notification' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          <div>
+                            <label style={styles.fieldLabel}>Title</label>
+                            <input
+                              style={styles.modalInput}
+                              value={action.config?.title || ''}
+                              onChange={e => updateAction(idx, 'title', e.target.value)}
+                              placeholder="Notification title"
+                            />
+                          </div>
+                          <div>
+                            <label style={styles.fieldLabel}>Body (optional)</label>
+                            <input
+                              style={styles.modalInput}
+                              value={action.config?.body || ''}
+                              onChange={e => updateAction(idx, 'body', e.target.value)}
+                              placeholder="Notification body"
+                            />
+                          </div>
+                          <div>
+                            <label style={styles.fieldLabel}>Recipients</label>
+                            <select
+                              style={styles.modalInput}
+                              value={action.config?.recipient_type || 'all_admins'}
+                              onChange={e => updateAction(idx, 'recipient_type', e.target.value)}
+                            >
+                              <option value="all_admins">All Admins</option>
+                              <option value="specific">Specific Person</option>
+                            </select>
+                          </div>
+                        </div>
+                      )}
+
+                      {autoForm.trigger_type === 'event' && (
+                        <p style={styles.autoHelperText}>
+                          Available variables: {'{{'}{autoForm.trigger_config.event === 'new_video' ? 'video_id}}, {{video_title}}, {{video_url' : '...'}}{'}}'}
+                        </p>
+                      )}
+                      {autoForm.trigger_type === 'schedule' && (
+                        <p style={styles.autoHelperText}>
+                          Available variables: {'{{today}}, {{day_of_month}}, {{day_of_week}}'}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Dedup Key */}
+                <div style={styles.autoSection}>
+                  <label style={styles.fieldLabel}>Dedup Key (optional)</label>
+                  <input
+                    style={styles.modalInput}
+                    value={autoForm.dedup_key}
+                    onChange={e => updateAutoForm('dedup_key', e.target.value)}
+                    placeholder="payroll_{{today}}"
+                  />
+                  <p style={styles.autoHelperText}>
+                    Prevents duplicate tasks. Template is resolved at runtime.
+                  </p>
+                </div>
+
+                {/* History Section */}
+                <div style={styles.autoSection}>
+                  <button
+                    style={{ ...styles.autoSectionTitle, background: 'none', border: 'none', cursor: 'pointer', padding: 0, textAlign: 'left', width: '100%' }}
+                    onClick={() => setShowRunsExpanded(!showRunsExpanded)}
+                  >
+                    History {showRunsExpanded ? '▾' : '▸'} ({autoRuns.length})
+                  </button>
+                  {showRunsExpanded && (
+                    <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {autoRuns.length === 0 ? (
+                        <p style={styles.listEmpty}>No runs yet</p>
+                      ) : autoRuns.map(run => (
+                        <div key={run.id} style={styles.autoRunRow}>
+                          <span style={{
+                            ...styles.sourceBadge,
+                            background: run.status === 'success' ? 'rgba(34,197,94,0.15)'
+                              : run.status === 'skipped' ? 'rgba(234,179,8,0.15)'
+                              : 'rgba(239,68,68,0.15)',
+                            color: run.status === 'success' ? '#22c55e'
+                              : run.status === 'skipped' ? '#facc15'
+                              : '#ef4444',
+                          }}>
+                            {run.status}
+                          </span>
+                          <span style={styles.slugText}>
+                            {new Date(run.created_at).toLocaleString()}
+                          </span>
+                          {run.error_message && (
+                            <span style={{ fontSize: 11, color: '#ef4444', marginLeft: 4 }}>
+                              {run.error_message}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Save Button */}
+                <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    style={styles.createBtn}
+                    onClick={saveAutomation}
+                    disabled={autoSaving}
+                  >
+                    {autoSaving ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            )
+          ) : (
+          /* ── Workflow Builder Canvas ── */
+          !selectedId ? (
             <div style={styles.emptyCanvas}>
               <p style={styles.emptyCanvasText}>Select a workflow to view or edit</p>
             </div>
@@ -1664,9 +2285,52 @@ export default function Workflows() {
                 )}
               </div>
             </div>
-          ) : null}
+          ) : null
+          )}
         </div>
       </div>
+
+      {/* ── New Automation Modal ── */}
+      {showNewAutoModal && (
+        <div style={styles.modalOverlay} onClick={() => setShowNewAutoModal(false)}>
+          <div style={styles.modal} onClick={e => e.stopPropagation()}>
+            <h3 style={styles.modalTitle}>New Automation</h3>
+            <div style={styles.modalField}>
+              <label style={styles.fieldLabel}>Name</label>
+              <input
+                style={styles.modalInput}
+                value={newAutoName}
+                onChange={e => setNewAutoName(e.target.value)}
+                placeholder="Payroll Reminder"
+                autoFocus
+              />
+            </div>
+            <div style={styles.modalField}>
+              <label style={styles.fieldLabel}>Trigger Type</label>
+              <select
+                style={styles.modalInput}
+                value={newAutoTriggerType}
+                onChange={e => setNewAutoTriggerType(e.target.value)}
+              >
+                <option value="schedule">Schedule (time-based)</option>
+                <option value="event">Event (triggered by system events)</option>
+              </select>
+            </div>
+            <div style={styles.modalActions}>
+              <button style={styles.cancelBtn} onClick={() => setShowNewAutoModal(false)}>
+                Cancel
+              </button>
+              <button
+                style={styles.createBtn}
+                onClick={handleCreateAutomation}
+                disabled={!newAutoName.trim()}
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── New Workflow Modal ── */}
       {showNewModal && (
@@ -2741,6 +3405,69 @@ const styles = {
     fontSize: 13,
     fontWeight: 600,
     cursor: 'pointer',
+  },
+
+  // Automations view
+  viewTabs: {
+    display: 'flex',
+    gap: 4,
+    marginBottom: 16,
+    background: 'rgba(255,255,255,0.03)',
+    borderRadius: 8,
+    padding: 3,
+  },
+  viewTab: {
+    flex: 1,
+    padding: '6px 12px',
+    border: 'none',
+    borderRadius: 6,
+    background: 'transparent',
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: 'pointer',
+    transition: 'background 0.15s, color 0.15s',
+  },
+  viewTabActive: {
+    background: 'rgba(99,102,241,0.15)',
+    color: '#818cf8',
+  },
+  autoSection: {
+    marginTop: 20,
+    paddingTop: 16,
+    borderTop: '1px solid rgba(255,255,255,0.06)',
+  },
+  autoSectionTitle: {
+    fontSize: 14,
+    fontWeight: 700,
+    color: '#fff',
+    marginBottom: 8,
+    display: 'block',
+  },
+  autoEditorWrap: {
+    maxWidth: '50%',
+    margin: '0 auto',
+    padding: 20,
+  },
+  autoActionCard: {
+    padding: 12,
+    background: 'rgba(255,255,255,0.02)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  autoHelperText: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.3)',
+    marginTop: 6,
+    fontStyle: 'italic',
+  },
+  autoRunRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '6px 0',
+    borderBottom: '1px solid rgba(255,255,255,0.03)',
   },
 };
 

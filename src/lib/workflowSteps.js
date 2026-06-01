@@ -30,6 +30,9 @@ const STEP_ACTIONS = {
   film_send_to_editor: { type: 'editor_picker', label: 'Waiting for assignment', context_key: 'editor_id' },
   wait_on_edit:        { type: 'auto', label: 'Waiting on editor' },
   thumbnail_schedule:  { type: 'complete', label: 'Complete', confirm: true },
+
+  // ─── Automations ──────────────────────────────────────────────
+  automation: { type: 'complete', label: 'Mark Complete' },
 };
 
 // Default action if step_key isn't found

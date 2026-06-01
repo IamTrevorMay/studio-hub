@@ -230,6 +230,16 @@ serve(async (req) => {
           const videoIds = await fetchAllVideoIds(uploadsPlaylistId, apiKey);
           console.log(`Total videos for ${account.account_name}: ${videoIds.length}`);
 
+          // Snapshot existing external_ids so we can detect new videos after upsert
+          const { data: existingItems } = await supabase
+            .from("content_items")
+            .select("external_id")
+            .eq("platform_account_id", account.id);
+          const existingExtIds = new Set((existingItems || []).map((r: any) => r.external_id));
+
+          // Collect new non-short videos for clip task creation
+          const newFullVideos: { videoId: string; title: string; url: string }[] = [];
+
           const batchSize = 50;
           for (let i = 0; i < videoIds.length; i += batchSize) {
             const batch = videoIds.slice(i, i + batchSize);
@@ -273,6 +283,15 @@ serve(async (req) => {
               });
               videoMeta.push({ videoId: video.id, views, likes, comments, engagementRate,
                 favoriteCount: parseInt(stats.favoriteCount || "0") });
+
+              // Track new non-short videos for clip tasks
+              if (!isShort && !existingExtIds.has(video.id)) {
+                newFullVideos.push({
+                  videoId: video.id,
+                  title: (snippet.title || "Untitled").substring(0, 500),
+                  url: `https://www.youtube.com/watch?v=${video.id}`,
+                });
+              }
             }
 
             if (contentBatch.length > 0) {
@@ -321,6 +340,40 @@ serve(async (req) => {
             }
 
             console.log(`Batch ${Math.floor(i / batchSize) + 1} for ${account.account_name}: ${processed} ok, ${failed} failed`);
+          }
+
+          // === FIRE AUTOMATION EVENTS for new non-short videos ===
+          if (newFullVideos.length > 0) {
+            const supabaseUrl = Deno.env.get("SUPABASE_URL");
+            const cronSecret = Deno.env.get("CRON_SECRET");
+
+            for (const nv of newFullVideos) {
+              try {
+                const resp = await fetch(
+                  `${supabaseUrl}/functions/v1/run-automations?secret=${cronSecret}`,
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      event: "new_video",
+                      source: account.account_name,
+                      payload: {
+                        video_id: nv.videoId,
+                        video_title: nv.title,
+                        video_url: nv.url,
+                      },
+                    }),
+                  },
+                );
+                if (resp.ok) {
+                  console.log(`Fired new_video event for: ${nv.title}`);
+                } else {
+                  console.error(`run-automations returned ${resp.status} for ${nv.videoId}`);
+                }
+              } catch (err) {
+                console.error(`Failed to fire automation event for ${nv.videoId}:`, err);
+              }
+            }
           }
         }
 

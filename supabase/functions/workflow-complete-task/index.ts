@@ -81,7 +81,7 @@ Deno.serve(async (req: Request) => {
     return jsonResp({ error: `Task is ${task.status}, not active` }, 400);
   }
 
-  // Direct (one-off) task: no workflow to advance — just mark it complete.
+  // Direct / automation task: no workflow to advance — just mark it complete.
   if (!task.workflow_instance_id) {
     const { error: dErr } = await admin
       .from("tasks")

@@ -410,6 +410,7 @@ const testFanWorkflow: WorkflowDefinition = {
 // ─── Registry ──────────────────────────────────────────────────
 // Code-sourced workflows only. Data-sourced workflows (Ad Read Pipeline, etc.)
 // are resolved from workflow_versions snapshots via resolveWorkflowDefinition.
+// NOTE: payroll and clip_video have been migrated to the Automations system.
 const WORKFLOW_REGISTRY: Record<string, WorkflowDefinition> = {
   test_workflow: testWorkflow,
   test_fan_workflow: testFanWorkflow,

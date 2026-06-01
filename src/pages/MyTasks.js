@@ -183,12 +183,13 @@ export default function MyTasks({ onNavigate }) {
   const { profile, refreshNotifications } = useAuth();
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [expandedId, setExpandedId] = useState(null);
+  const [collapsedIds, setCollapsedIds] = useState(new Set());
   const [holdModalTask, setHoldModalTask] = useState(null);
   const [declineModalTask, setDeclineModalTask] = useState(null);
   const [declineReason, setDeclineReason] = useState('');
   const [holdReason, setHoldReason] = useState('');
   const [snoozeOpenId, setSnoozeOpenId] = useState(null);
+  const [snoozeDropUp, setSnoozeDropUp] = useState(true);
   const [completingIds, setCompletingIds] = useState(new Set());
   const [fadingIds, setFadingIds] = useState(new Set());
   const [showSnoozed, setShowSnoozed] = useState(false);
@@ -199,6 +200,19 @@ export default function MyTasks({ onNavigate }) {
   const [deliverableMeta, setDeliverableMeta] = useState({}); // { [deliverable_id]: { title, due_date } }
   const [activeProfiles, setActiveProfiles] = useState([]); // for inline editor pickers
   const channelRef = useRef(null);
+  const snoozeRef = useRef(null);
+
+  // Close snooze dropdown on outside click
+  useEffect(() => {
+    if (!snoozeOpenId) return;
+    const handler = (e) => {
+      if (snoozeRef.current && !snoozeRef.current.contains(e.target)) {
+        setSnoozeOpenId(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [snoozeOpenId]);
 
   // Load active profiles for any task that needs an inline person picker.
   useEffect(() => {
@@ -446,6 +460,12 @@ export default function MyTasks({ onNavigate }) {
       case 'auto':
         // Inline picker or trigger-driven completion — no primary action.
         break;
+      case 'external_link': {
+        const ctx = task.workflow_instance?.context || {};
+        const url = action.contextKey ? ctx[action.contextKey] : task.link_url;
+        if (url) window.open(url, '_blank', 'noopener');
+        break;
+      }
       default:
         handleComplete(task);
     }
@@ -538,7 +558,7 @@ export default function MyTasks({ onNavigate }) {
       <div style={styles.taskList}>
         {activeTasks.map(task => {
           const action = getStepAction(task.step_key);
-          const isExpanded = expandedId === task.id;
+          const isExpanded = !collapsedIds.has(task.id);
           const isFading = fadingIds.has(task.id);
           const isCompleting = completingIds.has(task.id);
           const isOnHold = task.status === 'on_hold';
@@ -671,6 +691,26 @@ export default function MyTasks({ onNavigate }) {
                   <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', fontStyle: 'italic' }}>
                     {action.label}
                   </span>
+                ) : (action.type === 'external_link' || task.link_url) ? (
+                  <>
+                    <button
+                      style={styles.primaryBtn}
+                      onClick={() => {
+                        const url = task.link_url || (task.workflow_instance?.context || {})[action.contextKey];
+                        if (url) window.open(url, '_blank', 'noopener');
+                      }}
+                      disabled={isCompleting}
+                    >
+                      {task.link_url ? 'Go To Work' : action.label}
+                    </button>
+                    <button
+                      style={styles.markDoneBtn}
+                      onClick={() => handleCompleteWithConfirm(task)}
+                      disabled={isCompleting}
+                    >
+                      {isCompleting ? 'Working...' : 'Mark Complete'}
+                    </button>
+                  </>
                 ) : !isReviewProposal && (
                   <>
                     <button
@@ -702,15 +742,23 @@ export default function MyTasks({ onNavigate }) {
                 )}
 
                 {/* Snooze */}
-                <div style={styles.snoozeWrapper}>
+                <div style={styles.snoozeWrapper} ref={snoozeOpenId === task.id ? snoozeRef : undefined}>
                   <button
                     style={styles.snoozeBtn}
-                    onClick={() => setSnoozeOpenId(snoozeOpenId === task.id ? null : task.id)}
+                    onClick={(e) => {
+                      if (snoozeOpenId === task.id) {
+                        setSnoozeOpenId(null);
+                      } else {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setSnoozeDropUp(rect.top > 200);
+                        setSnoozeOpenId(task.id);
+                      }
+                    }}
                   >
                     Snooze
                   </button>
                   {snoozeOpenId === task.id && (
-                    <div style={styles.snoozeDropdown}>
+                    <div style={snoozeDropUp ? styles.snoozeDropdown : styles.snoozeDropdownBelow}>
                       {[
                         { key: '1h', label: '1 hour' },
                         { key: '4h', label: '4 hours' },
@@ -743,7 +791,12 @@ export default function MyTasks({ onNavigate }) {
                 {!isReviewProposal && task.description && (
                   <button
                     style={styles.expandBtn}
-                    onClick={() => setExpandedId(isExpanded ? null : task.id)}
+                    onClick={() => setCollapsedIds(prev => {
+                      const next = new Set(prev);
+                      if (isExpanded) next.add(task.id);
+                      else next.delete(task.id);
+                      return next;
+                    })}
                   >
                     {isExpanded ? 'Less' : 'More'}
                   </button>
@@ -1225,6 +1278,19 @@ const styles = {
     bottom: '100%',
     left: 0,
     marginBottom: 4,
+    background: '#1a1a2e',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 8,
+    padding: 4,
+    zIndex: 10,
+    minWidth: 160,
+    boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+  },
+  snoozeDropdownBelow: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    marginTop: 4,
     background: '#1a1a2e',
     border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: 8,
