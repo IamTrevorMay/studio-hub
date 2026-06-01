@@ -124,6 +124,7 @@ export default function Payroll() {
   const [salariedMembers, setSalariedMembers] = useState([]);
   const [salaries, setSalaries] = useState([]);
   const [oneOffs, setOneOffs] = useState([]);
+  const [paidMap, setPaidMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -135,6 +136,10 @@ export default function Payroll() {
   const [salaryForm, setSalaryForm] = useState({ salary_type: 'yearly', amount: '' });
   const [savingSalary, setSavingSalary] = useState(false);
 
+  // Pay method edit
+  const [payMethodEditing, setPayMethodEditing] = useState(null); // profile_id
+  const [payMethodForm, setPayMethodForm] = useState({ method: '', detail: '' });
+
   // One-off item form (scoped to the current pay period)
   const [addingOneOff, setAddingOneOff] = useState(false);
   const [oneOffForm, setOneOffForm] = useState({ label: '', payee: '', amount: '' });
@@ -142,17 +147,18 @@ export default function Payroll() {
 
   const fetchData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
-    const [contractorsRes, fpRes, assignmentsRes, membersRes, salariesRes, oneOffsRes] = await Promise.all([
-      supabase.from('profiles').select('id, full_name, avatar_url').eq('role', 'freelancer'),
-      supabase.from('freelancer_profiles').select('id, payment_type, rate, title'),
+    const [contractorsRes, fpRes, assignmentsRes, membersRes, salariesRes, oneOffsRes, paidRes] = await Promise.all([
+      supabase.from('profiles').select('id, full_name, avatar_url, title, pay_method, pay_method_detail').eq('role', 'freelancer'),
+      supabase.from('freelancer_profiles').select('id, payment_type, rate'),
       supabase.from('freelancer_assignments')
         .select('id, freelancer_id, title, pay_amount, hours_spent, completed_at, status')
         .eq('status', 'completed')
         .gte('completed_at', selectedPeriod.start + 'T00:00:00')
         .lte('completed_at', selectedPeriod.end + 'T23:59:59'),
-      supabase.from('profiles').select('id, full_name, role, avatar_url').in('role', ['admin', 'assistant', 'member']),
+      supabase.from('profiles').select('id, full_name, role, avatar_url, pay_method, pay_method_detail').in('role', ['admin', 'assistant', 'member']),
       supabase.from('payroll_salaries').select('*').is('ended_at', null),
       supabase.from('payroll_one_offs').select('*').eq('period_start', selectedPeriod.start).order('created_at'),
+      supabase.from('payroll_paid').select('profile_id').eq('period_start', selectedPeriod.start),
     ]);
     setContractors(contractorsRes.data || []);
     setFreelancerProfiles(fpRes.data || []);
@@ -160,6 +166,10 @@ export default function Payroll() {
     setSalariedMembers(membersRes.data || []);
     setSalaries(salariesRes.data || []);
     setOneOffs(oneOffsRes.data || []);
+    // Build paid map
+    const pm = {};
+    (paidRes.data || []).forEach(r => { pm[r.profile_id] = true; });
+    setPaidMap(pm);
     setLoading(false);
     setRefreshing(false);
   }, [selectedPeriod]);
@@ -252,6 +262,39 @@ export default function Payroll() {
     fetchData();
   }
 
+  // ── Pay method CRUD ───────────────────────────────────────────────
+
+  async function handleSavePayMethod(profileId) {
+    await supabase.from('profiles')
+      .update({
+        pay_method: payMethodForm.method || null,
+        pay_method_detail: payMethodForm.detail.trim() || null,
+      })
+      .eq('id', profileId);
+    setPayMethodEditing(null);
+    setPayMethodForm({ method: '', detail: '' });
+    fetchData(true);
+  }
+
+  // ── Paid toggle ───────────────────────────────────────────────────
+
+  async function handleTogglePaid(profileId) {
+    if (paidMap[profileId]) {
+      await supabase.from('payroll_paid')
+        .delete()
+        .eq('profile_id', profileId)
+        .eq('period_start', selectedPeriod.start);
+      setPaidMap(prev => { const next = { ...prev }; delete next[profileId]; return next; });
+    } else {
+      await supabase.from('payroll_paid').insert({
+        profile_id: profileId,
+        period_start: selectedPeriod.start,
+        paid_by: profile.id,
+      });
+      setPaidMap(prev => ({ ...prev, [profileId]: true }));
+    }
+  }
+
   // ── One-off items (current period only) ─────────────────────────
 
   async function handleAddOneOff() {
@@ -283,6 +326,97 @@ export default function Payroll() {
       else next.add(id);
       return next;
     });
+  }
+
+  // ── Pay method / paid rendering helpers ──────────────────────────
+
+  function renderPayControls(person) {
+    const isPaid = !!paidMap[person.id];
+    const method = person.pay_method;
+    const detail = person.pay_method_detail;
+
+    return (
+      <>
+        {/* Pay method badge */}
+        <span
+          style={{
+            ...styles.payMethodBadge,
+            ...(method === 'auto' ? styles.payMethodAuto : {}),
+            ...(method === 'venmo' || method === 'paypal' ? styles.payMethodBlue : {}),
+            ...(!method ? styles.payMethodNone : {}),
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            setPayMethodEditing(person.id);
+            setPayMethodForm({ method: method || '', detail: detail || '' });
+          }}
+        >
+          {method === 'auto' ? 'Auto' : method === 'venmo' ? 'Venmo' : method === 'paypal' ? 'PayPal' : 'Set Pay'}
+        </span>
+
+        {/* Pay button */}
+        {method === 'auto' ? (
+          <span style={styles.payAutoLabel}>Auto</span>
+        ) : method === 'venmo' ? (
+          <button
+            style={styles.payBtn}
+            onClick={(e) => { e.stopPropagation(); window.open(detail || 'https://venmo.com', '_blank'); }}
+          >
+            Pay
+          </button>
+        ) : method === 'paypal' ? (
+          <button
+            style={styles.payBtn}
+            onClick={(e) => { e.stopPropagation(); window.open('https://www.paypal.com', '_blank'); }}
+          >
+            Pay
+          </button>
+        ) : (
+          <button style={styles.payBtnDisabled} disabled>Pay</button>
+        )}
+
+        {/* Paid toggle */}
+        <button
+          style={isPaid ? styles.paidBtnActive : styles.paidBtn}
+          onClick={(e) => { e.stopPropagation(); handleTogglePaid(person.id); }}
+        >
+          Paid
+        </button>
+      </>
+    );
+  }
+
+  function renderPayMethodEditRow(personId) {
+    if (payMethodEditing !== personId) return null;
+    return (
+      <div style={styles.payMethodFormRow}>
+        <select
+          style={styles.salarySelect}
+          value={payMethodForm.method}
+          onChange={(e) => setPayMethodForm(f => ({ ...f, method: e.target.value }))}
+        >
+          <option value="">None</option>
+          <option value="auto">Auto</option>
+          <option value="venmo">Venmo</option>
+          <option value="paypal">PayPal</option>
+        </select>
+        {payMethodForm.method === 'venmo' && (
+          <input
+            type="text"
+            placeholder="Venmo profile URL"
+            value={payMethodForm.detail}
+            onChange={(e) => setPayMethodForm(f => ({ ...f, detail: e.target.value }))}
+            style={styles.oneOffInput}
+          />
+        )}
+        <button style={styles.saveBtn} onClick={(e) => { e.stopPropagation(); handleSavePayMethod(personId); }}>
+          Save
+        </button>
+        <button style={styles.cancelBtn} onClick={(e) => { e.stopPropagation(); setPayMethodEditing(null); }}>
+          Cancel
+        </button>
+      </div>
+    );
   }
 
   // ── Render ──────────────────────────────────────────────────────
@@ -368,8 +502,12 @@ export default function Payroll() {
 
           {contractorPayroll.map(c => {
             const isExpanded = expandedContractors.has(c.id);
+            const isPaid = !!paidMap[c.id];
             return (
-              <div key={c.id} style={styles.card}>
+              <div key={c.id} style={{
+                ...styles.card,
+                ...(isPaid ? styles.cardPaid : {}),
+              }}>
                 <div style={styles.cardHeader} onClick={() => toggleContractor(c.id)}>
                   <div style={styles.cardLeft}>
                     <div style={styles.avatar}>
@@ -377,7 +515,7 @@ export default function Payroll() {
                     </div>
                     <div>
                       <span style={styles.cardName}>{c.full_name}</span>
-                      {c.fp.title && <span style={styles.cardRole}>{c.fp.title}</span>}
+                      {c.title && <span style={styles.cardRole}>{c.title}</span>}
                     </div>
                     <span style={{
                       ...styles.typeBadge,
@@ -387,11 +525,14 @@ export default function Payroll() {
                     </span>
                   </div>
                   <div style={styles.cardRight}>
+                    {renderPayControls(c)}
                     <span style={styles.cardCount}>{c.assignments.length} completed</span>
                     <span style={styles.cardTotal}>{formatCents(c.total)}</span>
                     <span style={styles.expandArrow}>{isExpanded ? '▾' : '▸'}</span>
                   </div>
                 </div>
+
+                {renderPayMethodEditRow(c.id)}
 
                 {isExpanded && (
                   <div style={styles.cardExpanded}>
@@ -423,8 +564,12 @@ export default function Payroll() {
 
           {memberPayroll.map(m => {
             const isEditing = editingSalary === m.id;
+            const isPaid = !!paidMap[m.id];
             return (
-              <div key={m.id} style={styles.card}>
+              <div key={m.id} style={{
+                ...styles.card,
+                ...(isPaid ? styles.cardPaid : {}),
+              }}>
                 <div style={styles.cardHeader}>
                   <div style={styles.cardLeft}>
                     <div style={styles.avatar}>
@@ -443,6 +588,7 @@ export default function Payroll() {
                     )}
                   </div>
                   <div style={styles.cardRight}>
+                    {renderPayControls(m)}
                     <span style={styles.cardTotal}>{formatCents(m.periodPay)}</span>
                     {!isEditing && (
                       <button
@@ -460,6 +606,8 @@ export default function Payroll() {
                     )}
                   </div>
                 </div>
+
+                {renderPayMethodEditRow(m.id)}
 
                 {isEditing && (
                   <div style={styles.salaryFormRow}>
@@ -759,6 +907,10 @@ const styles = {
     marginBottom: 8,
     overflow: 'hidden',
   },
+  cardPaid: {
+    background: 'rgba(34,197,94,0.06)',
+    border: '1px solid rgba(34,197,94,0.25)',
+  },
   cardHeader: {
     display: 'flex',
     alignItems: 'center',
@@ -965,6 +1117,90 @@ const styles = {
     fontWeight: 500,
     cursor: 'pointer',
     fontFamily: 'DM Sans, sans-serif',
+  },
+
+  // Pay method & paid controls
+  payMethodBadge: {
+    fontSize: 11,
+    fontWeight: 600,
+    padding: '3px 10px',
+    borderRadius: 10,
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
+  payMethodAuto: {
+    color: '#22c55e',
+    background: 'rgba(34,197,94,0.12)',
+  },
+  payMethodBlue: {
+    color: '#60a5fa',
+    background: 'rgba(96,165,250,0.12)',
+  },
+  payMethodNone: {
+    color: 'rgba(255,255,255,0.35)',
+    background: 'rgba(255,255,255,0.06)',
+  },
+  payAutoLabel: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: '#22c55e',
+    flexShrink: 0,
+  },
+  payBtn: {
+    padding: '4px 12px',
+    borderRadius: 6,
+    border: '1px solid rgba(96,165,250,0.3)',
+    background: 'rgba(96,165,250,0.12)',
+    color: '#60a5fa',
+    fontSize: 11,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'DM Sans, sans-serif',
+    flexShrink: 0,
+  },
+  payBtnDisabled: {
+    padding: '4px 12px',
+    borderRadius: 6,
+    border: '1px solid rgba(255,255,255,0.08)',
+    background: 'rgba(255,255,255,0.04)',
+    color: 'rgba(255,255,255,0.25)',
+    fontSize: 11,
+    fontWeight: 600,
+    cursor: 'default',
+    fontFamily: 'DM Sans, sans-serif',
+    flexShrink: 0,
+  },
+  paidBtn: {
+    padding: '4px 12px',
+    borderRadius: 6,
+    border: '1px solid rgba(255,255,255,0.15)',
+    background: 'transparent',
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 11,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'DM Sans, sans-serif',
+    flexShrink: 0,
+  },
+  paidBtnActive: {
+    padding: '4px 12px',
+    borderRadius: 6,
+    border: '1px solid rgba(34,197,94,0.4)',
+    background: 'rgba(34,197,94,0.2)',
+    color: '#22c55e',
+    fontSize: 11,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'DM Sans, sans-serif',
+    flexShrink: 0,
+  },
+  payMethodFormRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    padding: '12px 18px',
+    borderTop: '1px solid rgba(255,255,255,0.06)',
+    flexWrap: 'wrap',
   },
 
   // Total bar
