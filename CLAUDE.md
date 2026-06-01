@@ -137,3 +137,71 @@ Phase-chip filters live at the top of Timeline/Calendar/My Stuff (multi-select, 
 - Non-admin owners and visibility
 - MyBoard / personal_tasks integration
 - Email reminders
+
+## Automations System
+
+Replaces single-step "code" workflows (payroll reminders, clip video) with admin-configurable trigger→action rules. Lives as a second tab inside `src/pages/Workflows.js`.
+
+### Architecture
+- **`automations` table**: id, name, trigger_type (`schedule`|`event`), trigger_config (jsonb), actions (jsonb array), dedup_key template, is_enabled, run_count, last_run_at
+- **`automation_runs` table**: audit log of each execution (status, error, actions_taken)
+- **`tasks.automation_id`**: nullable FK linking tasks created by automations
+- **`tasks.link_url`**: optional URL for "Go To Work" button on task cards
+- **Edge function**: `run-automations` — handles both schedule mode (hourly cron) and event mode (HTTP POST with `{ event, source, payload }`)
+- **Dedup**: template-based (`payroll_{{today}}`, `clip_{{video_id}}`) resolved at runtime to prevent duplicate tasks
+- **Template resolution**: `{{variable}}` replacement from trigger payload context
+
+### Seeded Automations
+- **Payroll Reminder**: schedule trigger, days 1+15, creates task for all admins
+- **Clip Video**: event trigger (`new_video` from `More Mayday`), creates task for David Korn with link_url
+
+### Key Files
+- `supabase/functions/run-automations/index.ts` — automation engine
+- `supabase/functions/workflow-complete-task/index.ts` — handles both workflow tasks and standalone tasks (null guard for `workflow_instance_id`)
+- `src/pages/Workflows.js` — Workflows | Automations tab switcher, automation list + detail editor
+- `src/lib/workflowSteps.js` — includes `automation` step_key for standalone tasks
+
+## Contractor Portal
+
+Freelancer-facing portal with locked sidebar nav. Accessible when `profile.role === 'freelancer'`.
+
+### Pages
+- `fl_dashboard` → `FreelancerDashboard.js` — assignments, status updates, hours logging, blockers
+- `fl_assignments` → opens assigned Google Drive folder (external link)
+- `fl_submit` → file upload modal (drag-drop to shared Drive folder via `drive-upload-init`)
+- `fl_documents` → `FreelancerDocuments.js` — document signing and reference docs
+- `fl_hours` → `FreelancerHours.js` — bi-weekly hour tracking (1st–15th, 16th–end of month)
+- `fl_profile` → `FreelancerProfile.js` — payment method, contact info, avatar, Morty toggle
+- `fl_notifications` → `FreelancerNotifications.js` — alerts with type icons
+- Also: `resources`, `assets` (external), `channels`, `messages`
+
+### Onboarding
+- `FreelancerTour` component auto-triggers when `freelancer_profiles.tour_completed_at` is null
+- 7-step tour: Dashboard, Assignments, Submit, Documents, Hours, Assets, Profile
+- `AppLayout.js` auto-creates `freelancer_profiles` row if missing during tour check
+
+### Invite Flow
+- Admin invites via `Freelancers.js` Team tab → calls `invite-user` edge function
+- Invitation stores role, title, payment_type, rate, contract, drive folder, cloud folder restrictions
+- On acceptance (`AuthPage.js` setup mode): reads invitation, creates profile + `freelancer_profiles` row with payment data
+- **RLS**: `freelancer_profiles` has INSERT policy so freelancers can create their own row during setup
+
+### Key Integration Points
+- **Cloud folders**: `cloud-folders` edge function → `CLOUD_API_URL` (`https://assets.maydaystudio.net`) + `CLOUD_API_KEY`
+- **Drive folders**: `drive-list-contractor-folders` edge function → lists root + one level of nested subfolders
+- **Mascot toggle**: Morty on/off via `profiles.mascot_enabled`, toggle on FreelancerProfile avatar row
+
+## Admin Mode / Work Mode
+
+Two sidebar modes toggled via button at bottom of sidebar (`AppLayout.js`).
+- **Work Mode** (default): everyday pages (Dashboard, My Tasks, Messages, Projects, etc.)
+- **Admin Mode**: admin-only pages — Assignments, Payroll, Analytics, Accounting, Business Dev, Contractors, Workflows, Jobs
+- Non-admins are pinned to Work Mode
+- `ADMIN_PAGE_KEYS` array controls which pages appear only in Admin Mode
+- `ADMIN_ESSENTIAL_KEYS` (Dashboard, My Tasks, Messages) appear at top of Admin Mode sidebar too
+
+## Auth Pages
+- `AuthPage.js` (desktop) + `AuthPageMobile.js` (mobile)
+- Branding: `/logo.png`, "Mayday Studio" title, "by Mayday Media" subtitle
+- Modes: login, setup (new account), forgot password, reset password
+- Setup flow reads `invitations` table to get role, title, payment info, drive folder assignment
