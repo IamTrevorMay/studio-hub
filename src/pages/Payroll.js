@@ -160,10 +160,12 @@ export default function Payroll() {
       supabase.from('payroll_one_offs').select('*').eq('period_start', selectedPeriod.start).order('created_at'),
       supabase.from('payroll_paid').select('profile_id').eq('period_start', selectedPeriod.start),
     ]);
-    setContractors(contractorsRes.data || []);
+    const HIDDEN = ['Test1', 'Test2'];
+    const notHidden = p => !HIDDEN.includes(p.full_name);
+    setContractors((contractorsRes.data || []).filter(notHidden));
     setFreelancerProfiles(fpRes.data || []);
     setAssignments(assignmentsRes.data || []);
-    setSalariedMembers(membersRes.data || []);
+    setSalariedMembers((membersRes.data || []).filter(notHidden));
     setSalaries(salariesRes.data || []);
     setOneOffs(oneOffsRes.data || []);
     // Build paid map
