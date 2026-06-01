@@ -206,15 +206,10 @@ export default function AuthPage() {
       <div style={styles.card}>
         <div style={styles.logoSection}>
           <div style={styles.logoIcon}>
-            <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-              <rect x="2" y="6" width="12" height="8" rx="2" fill="#6366f1" />
-              <rect x="18" y="6" width="12" height="8" rx="2" fill="#818cf8" />
-              <rect x="2" y="18" width="12" height="8" rx="2" fill="#818cf8" />
-              <rect x="18" y="18" width="12" height="8" rx="2" fill="#6366f1" />
-            </svg>
+            <img src="/logo.png" alt="Mayday Studio" width="36" height="36" />
           </div>
-          <h1 style={styles.title}>Mayday Media</h1>
-          <p style={styles.titleSub}>Creative</p>
+          <h1 style={styles.title}>Mayday Studio</h1>
+          <p style={styles.titleSub}>by Mayday Media</p>
           <p style={styles.subtitle}>
             {mode === 'setup' ? 'Set up your account to get started'
               : mode === 'forgot' ? 'Enter your email to reset your password'
@@ -404,10 +399,6 @@ const styles = {
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    width: '56px',
-    height: '56px',
-    borderRadius: '14px',
-    background: 'rgba(99,102,241,0.15)',
     marginBottom: '16px',
   },
   title: {

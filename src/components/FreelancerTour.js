@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
 const TOUR_STEPS = [
-  { key: 'fl_dashboard', title: 'Dashboard', description: 'This is your home base. You\'ll see your active assignments and updates here.' },
+  { key: 'fl_dashboard', title: 'Dashboard', description: 'Your home base. View active assignments, update your status, log hours, and report blockers.' },
+  { key: 'fl_assignments', title: 'Assignments', description: 'Your shared work. Download assets you need and find project files here.' },
+  { key: 'fl_submit', title: 'Submit', description: 'Upload finished deliverables here. Drag and drop your files to send them to the team.' },
   { key: 'fl_documents', title: 'Documents', description: 'Review and sign documents from your team. A badge appears when something needs your signature.' },
-  { key: 'assets', title: 'Assets Library', description: 'Access shared files — download assets you need and upload your deliverables.' },
-  { key: 'resources', title: 'Resources', description: 'Reference materials, guides, and links your team has shared.' },
-  { key: 'fl_profile', title: 'Profile', description: 'Set up your payment method, hourly rate, and contact info so you can get paid.' },
+  { key: 'fl_hours', title: 'Hours', description: 'If you\'re paid hourly, log your work hours for each pay period. Hours are reviewed bi-weekly (1st\u201315th and 16th\u2013end of month).' },
+  { key: 'assets', title: 'Assets Library', description: 'Where you can find any assets to use in your edits.' },
+  { key: 'fl_profile', title: 'Profile', description: 'Set up your payment method and contact info so you can get paid.' },
 ];
 
 export default function FreelancerTour({ onComplete, onNavigate }) {

@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function FreelancerProfile() {
-  const { profile } = useAuth();
+  const { profile, updateProfile } = useAuth();
   const [form, setForm] = useState({
     full_name: '',
     phone: '',
@@ -143,7 +143,7 @@ export default function FreelancerProfile() {
       <div style={styles.section}>
         <h2 style={styles.sectionTitle}>Profile Info</h2>
 
-        {/* Avatar upload */}
+        {/* Avatar upload + Morty toggle */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
           <label style={{ cursor: 'pointer', position: 'relative' }}>
             {avatarUrl ? (
@@ -180,6 +180,36 @@ export default function FreelancerProfile() {
           </label>
           <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
             Click to upload photo
+          </div>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)' }}>Morty</span>
+            <button
+              onClick={() => updateProfile({ mascot_enabled: profile?.mascot_enabled === false ? true : false })}
+              style={{
+                position: 'relative',
+                width: 40,
+                height: 22,
+                borderRadius: 11,
+                border: 'none',
+                background: profile?.mascot_enabled !== false ? '#22c55e' : 'rgba(255,255,255,0.15)',
+                cursor: 'pointer',
+                transition: 'background 0.2s',
+                padding: 0,
+                flexShrink: 0,
+              }}
+            >
+              <div style={{
+                position: 'absolute',
+                top: 2,
+                left: profile?.mascot_enabled !== false ? 20 : 2,
+                width: 18,
+                height: 18,
+                borderRadius: '50%',
+                background: '#fff',
+                transition: 'left 0.2s',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+              }} />
+            </button>
           </div>
         </div>
 

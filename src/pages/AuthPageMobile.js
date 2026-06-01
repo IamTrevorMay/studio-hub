@@ -181,15 +181,10 @@ export default function AuthPageMobile() {
       <div style={{ ...styles.scroll, paddingTop: `calc(${mobileTokens.space.xxl}px + ${mobileTokens.safeTop})`, paddingBottom: `calc(${mobileTokens.space.xxl}px + ${mobileTokens.safeBottom})` }}>
         <div style={styles.logoSection}>
           <div style={styles.logoIcon}>
-            <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-              <rect x="2" y="6" width="12" height="8" rx="2" fill="#6366f1" />
-              <rect x="18" y="6" width="12" height="8" rx="2" fill="#818cf8" />
-              <rect x="2" y="18" width="12" height="8" rx="2" fill="#818cf8" />
-              <rect x="18" y="18" width="12" height="8" rx="2" fill="#6366f1" />
-            </svg>
+            <img src="/logo.png" alt="Mayday Studio" width="36" height="36" />
           </div>
-          <h1 style={styles.title}>Mayday Media</h1>
-          <p style={styles.titleSub}>Creative</p>
+          <h1 style={styles.title}>Mayday Studio</h1>
+          <p style={styles.titleSub}>by Mayday Media</p>
           <p style={styles.subtitle}>{subtitle}</p>
         </div>
 
@@ -312,10 +307,6 @@ const styles = {
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    width: 64,
-    height: 64,
-    borderRadius: mobileTokens.radius.lg,
-    background: 'rgba(99,102,241,0.15)',
     marginBottom: mobileTokens.space.lg,
   },
   title: {

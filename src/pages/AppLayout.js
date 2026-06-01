@@ -298,8 +298,14 @@ export default function AppLayout() {
   useEffect(() => {
     if (!isFreelancer || !profile?.id) return;
     supabase.from('freelancer_profiles').select('tour_completed_at').eq('id', profile.id).single()
-      .then(({ data }) => {
-        if (data && !data.tour_completed_at) setShowTour(true);
+      .then(async ({ data, error }) => {
+        if (error || !data) {
+          // Row missing — create it so the tour can run
+          await supabase.from('freelancer_profiles').upsert({ id: profile.id });
+          setShowTour(true);
+        } else if (!data.tour_completed_at) {
+          setShowTour(true);
+        }
       });
   }, [isFreelancer, profile?.id]);
 

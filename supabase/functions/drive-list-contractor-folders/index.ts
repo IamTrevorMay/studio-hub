@@ -72,25 +72,49 @@ Deno.serve(async (req: Request) => {
     }
 
     const accessToken = await getDriveAccessToken();
-    const query = `'${ROOT_ID}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+    const driveHeaders = { Authorization: `Bearer ${accessToken}` };
+    const driveParams = {
+      fields: "files(id,name)",
+      orderBy: "name",
+      pageSize: "200",
+      supportsAllDrives: "true",
+      includeItemsFromAllDrives: "true",
+    };
 
-    const driveRes = await fetch(
+    // Fetch top-level folders
+    const topQuery = `'${ROOT_ID}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+    const topRes = await fetch(
       `https://www.googleapis.com/drive/v3/files?` +
-      new URLSearchParams({
-        q: query,
-        fields: "files(id,name)",
-        orderBy: "name",
-        pageSize: "200",
-        supportsAllDrives: "true",
-        includeItemsFromAllDrives: "true",
-      }),
-      { headers: { Authorization: `Bearer ${accessToken}` } }
+      new URLSearchParams({ q: topQuery, ...driveParams }),
+      { headers: driveHeaders }
     );
+    const topData = await topRes.json();
+    if (!topRes.ok) throw new Error(topData.error?.message || "Drive API error");
 
-    const data = await driveRes.json();
-    if (!driveRes.ok) throw new Error(data.error?.message || "Drive API error");
+    const topFolders: { id: string; name: string }[] = topData.files || [];
+    const allFolders: { id: string; name: string }[] = [...topFolders];
 
-    return new Response(JSON.stringify({ folders: data.files || [] }), {
+    // Fetch one level of subfolders for each top-level folder (in parallel)
+    const subRequests = topFolders.map(async (parent) => {
+      const subQuery = `'${parent.id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+      const subRes = await fetch(
+        `https://www.googleapis.com/drive/v3/files?` +
+        new URLSearchParams({ q: subQuery, ...driveParams }),
+        { headers: driveHeaders }
+      );
+      const subData = await subRes.json();
+      if (subRes.ok && subData.files) {
+        for (const child of subData.files) {
+          allFolders.push({ id: child.id, name: `${parent.name} / ${child.name}` });
+        }
+      }
+    });
+    await Promise.all(subRequests);
+
+    // Sort alphabetically by display name
+    allFolders.sort((a, b) => a.name.localeCompare(b.name));
+
+    return new Response(JSON.stringify({ folders: allFolders }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
