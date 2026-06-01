@@ -553,7 +553,7 @@ const styles = {
     fontSize: 11, cursor: 'pointer', textDecoration: 'underline',
   },
 
-  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 },
+  grid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 },
   card: {
     background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
     borderRadius: 12, padding: 14,

@@ -60,7 +60,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const resp = await fetch(`${cloudApiUrl}/api/nas/list?path=/`, {
+    const resp = await fetch(`${cloudApiUrl}/api/nas/list?path=`, {
       headers: { Authorization: `Bearer ${cloudApiKey}` },
     });
 

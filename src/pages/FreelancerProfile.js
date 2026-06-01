@@ -215,29 +215,25 @@ export default function FreelancerProfile() {
           </div>
         )}
 
-        {paymentType && (
-          <div style={styles.fieldGroup}>
-            <label style={styles.fieldLabel}>Payment Type</label>
-            <input
-              type="text"
-              value={paymentType === 'hourly' ? 'Hourly' : 'By Project'}
-              disabled
-              style={{ ...styles.input, ...styles.inputDisabled }}
-            />
-          </div>
-        )}
+        <div style={styles.fieldGroup}>
+          <label style={styles.fieldLabel}>Payment Type</label>
+          <input
+            type="text"
+            value={paymentType ? (paymentType === 'hourly' ? 'Hourly' : 'By Project') : 'Not set'}
+            disabled
+            style={{ ...styles.input, ...styles.inputDisabled }}
+          />
+        </div>
 
-        {rate && (
-          <div style={styles.fieldGroup}>
-            <label style={styles.fieldLabel}>{paymentType === 'hourly' ? 'Hourly Rate' : 'Project Rate'}</label>
-            <input
-              type="text"
-              value={`$${Number(rate).toFixed(2)}`}
-              disabled
-              style={{ ...styles.input, ...styles.inputDisabled }}
-            />
-          </div>
-        )}
+        <div style={styles.fieldGroup}>
+          <label style={styles.fieldLabel}>{paymentType === 'hourly' ? 'Hourly Rate' : 'Project Rate'}</label>
+          <input
+            type="text"
+            value={rate ? `$${Number(rate).toFixed(2)}` : 'Not set'}
+            disabled
+            style={{ ...styles.input, ...styles.inputDisabled }}
+          />
+        </div>
 
         <div style={styles.fieldGroup}>
           <label style={styles.fieldLabel}>Phone</label>
