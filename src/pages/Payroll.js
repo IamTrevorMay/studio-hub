@@ -204,7 +204,7 @@ export default function Payroll() {
       return { ...a, amount };
     });
     return { ...c, fp, assignments: rows, total };
-  }).filter(c => c.assignments.length > 0 || expandedContractors.has(c.id));
+  });
 
   // Salaried member payroll
   const memberPayroll = salariedMembers.map(m => {
