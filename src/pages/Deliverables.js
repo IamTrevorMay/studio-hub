@@ -65,6 +65,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
   const [proposals, setProposals] = useState([]);
   const [proposalsLoading, setProposalsLoading] = useState(false);
   const [showProposalForm, setShowProposalForm] = useState(false);
+  const [proposalsDrawerOpen, setProposalsDrawerOpen] = useState(false);
   const [proposalForm, setProposalForm] = useState({ sponsor_name: '', description: '' });
   const [proposalItems, setProposalItems] = useState([]); // [{ id?, title, deliverable_type, channel, due_month, pay, accepted }]
   const [editingProposal, setEditingProposal] = useState(null);
@@ -1122,10 +1123,25 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
 
   return (
     <div style={styles.page}>
-      {/* ── Proposals (left, 1/4) + Campaigns (right) ── */}
-      <div style={{ display: 'flex', gap: '20px', alignItems: 'stretch', marginBottom: '28px' }}>
-        {/* ── Proposals + Read Slots column (1/3 width) ── */}
-        <div style={{ width: '33%', flexShrink: 0, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+      {/* Page header — Proposals drawer trigger */}
+      <div style={styles.pageHeaderBar}>
+        <button onClick={() => setProposalsDrawerOpen(true)} style={styles.proposalsBtn}>
+          {'▤'} Proposals
+          {pendingProposals.length > 0 && <span style={styles.proposalsBtnBadge}>{pendingProposals.length}</span>}
+        </button>
+      </div>
+
+      {/* ── Campaigns (left) + Slots/Upcoming (right) ── */}
+      <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start', marginBottom: '28px' }}>
+        {/* ── LEFT PANEL: Campaigns (40%) ── */}
+        <div style={{ ...styles.columnPanel, width: '40%', flexShrink: 0, minWidth: 0 }}>
+          {/* ── Proposals drawer (slides in from the right) ── */}
+          {proposalsDrawerOpen && (
+            <div style={styles.drawerOverlay} onClick={() => setProposalsDrawerOpen(false)}>
+              <div style={styles.drawerPanel} onClick={e => e.stopPropagation()}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '4px' }}>
+                  <button onClick={() => setProposalsDrawerOpen(false)} style={styles.drawerClose}>{'✕'}</button>
+                </div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>Proposals</h2>
@@ -1354,21 +1370,10 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
               </div>
             </details>
           )}
+              </div>
+            </div>
+          )}
 
-          {/* Read Slots — pinned to the bottom of the column, just above Upcoming */}
-          <div style={{ marginTop: 'auto', paddingTop: '24px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-            {[0, 1, 2].map(off => {
-              const d = new Date();
-              d.setDate(1);
-              d.setMonth(d.getMonth() + off);
-              const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-              return <div key={m} style={{ display: 'flex' }}>{renderReadSlotCard(m)}</div>;
-            })}
-          </div>
-        </div>
-
-        {/* ── Campaigns (right, fills remaining width) ── */}
-        <div style={{ flex: 1, minWidth: 0 }}>
       <div style={styles.topBar}>
         <div>
           <h1 style={styles.pageTitle}>Campaigns</h1>
@@ -1692,8 +1697,9 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
         </details>
       )}
         </div>
-      </div>
 
+        {/* ── RIGHT PANEL: Slots + Upcoming (60%) ── */}
+        <div style={{ ...styles.columnPanel, flex: 1, minWidth: 0 }}>
       {/* ====== UPCOMING AD READS SECTION ====== */}
       {(() => {
         const upcomingReads = allDeliverables
@@ -1716,6 +1722,18 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                 </p>
               </div>
             </div>
+
+            {/* Read Slots — below the title, above the deliverables list */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+              {[0, 1, 2].map(off => {
+                const d = new Date();
+                d.setDate(1);
+                d.setMonth(d.getMonth() + off);
+                const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                return <div key={m} style={{ display: 'flex' }}>{renderReadSlotCard(m)}</div>;
+              })}
+            </div>
+            <div style={styles.columnDivider} />
 
             {upcomingReads.length === 0 ? (
               <div style={styles.emptyCard}>
@@ -1753,6 +1771,8 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
           </div>
         );
       })()}
+        </div>
+      </div>
 
       {/* Money section migrated to the Accounting page (Revenue → Mayday Media). */}
 
@@ -1949,9 +1969,51 @@ const styles = {
   },
 
   // ── Campaign card grid (2 per row) ──
+  columnPanel: {
+    background: 'rgba(255,255,255,0.02)',
+    border: '1px solid rgba(255,255,255,0.07)',
+    borderRadius: '14px',
+    padding: '20px',
+  },
+  pageHeaderBar: {
+    display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+    gap: '10px', marginBottom: '16px',
+  },
+  proposalsBtn: {
+    display: 'flex', alignItems: 'center', gap: '8px',
+    background: 'rgba(99,102,241,0.15)', color: '#c7d2fe',
+    border: '1px solid rgba(99,102,241,0.4)', borderRadius: '10px',
+    padding: '9px 16px', fontSize: '13px', fontWeight: 600,
+    cursor: 'pointer', fontFamily: 'inherit',
+  },
+  proposalsBtnBadge: {
+    background: '#ef4444', color: '#fff', borderRadius: '10px',
+    padding: '0 7px', fontSize: '12px', fontWeight: 700, lineHeight: '18px',
+  },
+  drawerOverlay: {
+    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+    display: 'flex', justifyContent: 'flex-end', zIndex: 9998,
+  },
+  drawerPanel: {
+    width: 'min(520px, 92vw)', height: '100%', background: '#13131f',
+    borderLeft: '1px solid rgba(255,255,255,0.1)',
+    boxShadow: '-12px 0 40px rgba(0,0,0,0.45)',
+    padding: '20px 22px', overflowY: 'auto',
+    animation: 'none',
+  },
+  drawerClose: {
+    background: 'rgba(255,255,255,0.06)', border: 'none', color: 'rgba(255,255,255,0.6)',
+    cursor: 'pointer', fontSize: '15px', lineHeight: 1, borderRadius: '8px',
+    width: '30px', height: '30px', flexShrink: 0,
+  },
+  columnDivider: {
+    height: '1px',
+    background: 'rgba(255,255,255,0.08)',
+    margin: '18px 0',
+  },
   campaignGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
     gap: '14px',
     alignItems: 'start',
   },
@@ -2016,7 +2078,7 @@ const styles = {
   },
   upcomingGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
     gap: '10px',
   },
 
