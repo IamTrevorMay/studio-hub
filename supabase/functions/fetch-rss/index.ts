@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { parseRssItems } from "./parse.ts";
+import { isSafeExternalUrl } from "../shared/url-validation.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -57,9 +58,14 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Fetch all RSS feeds in parallel
+    // Fetch all RSS feeds in parallel. SSRF guard: feed.url is admin-set but
+    // a compromised or sloppy entry could point at internal services
+    // (metadata, localhost, RFC1918) which the edge runtime can reach.
     const feedResults = await Promise.allSettled(
       (feeds || []).map(async (feed) => {
+        if (!isSafeExternalUrl(feed.url)) {
+          return { feed, items: [] };
+        }
         try {
           const res = await fetch(feed.url, {
             headers: { "User-Agent": "StudioHub-RSS/1.0" },

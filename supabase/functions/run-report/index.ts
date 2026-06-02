@@ -499,7 +499,11 @@ Deno.serve(async (req: Request) => {
         { global: { headers: { Authorization: authHeader } } },
       );
       const { data: { user } } = await userClient.auth.getUser();
-      if (user) authenticated = true;
+      if (user) {
+        const { data: profile } = await userClient
+          .from("profiles").select("role").eq("id", user.id).single();
+        if (profile?.role === "admin") authenticated = true;
+      }
     } catch {}
   }
 

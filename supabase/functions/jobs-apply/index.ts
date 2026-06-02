@@ -69,6 +69,29 @@ Deno.serve(async (req: Request) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
+  // Rate limit: 5 submissions / hour per IP, 3 / 24h per email. Stops bot
+  // floods (honeypot only catches the laziest scrapers) and Resend/storage
+  // cost abuse.
+  const ip = (req.headers.get("x-forwarded-for") || "").split(",")[0].trim()
+    || req.headers.get("cf-connecting-ip")
+    || "unknown";
+  const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { count: ipCount } = await admin
+    .from("public_rate_limits")
+    .select("id", { count: "exact", head: true })
+    .eq("bucket", "jobs_apply_ip").eq("key", ip).gte("created_at", hourAgo);
+  if ((ipCount || 0) >= 5) {
+    return json({ error: "Too many submissions from this network. Please try again later." }, 429);
+  }
+  const { count: emailCount } = await admin
+    .from("public_rate_limits")
+    .select("id", { count: "exact", head: true })
+    .eq("bucket", "jobs_apply_email").eq("key", email).gte("created_at", dayAgo);
+  if ((emailCount || 0) >= 3) {
+    return json({ error: "Too many submissions for this email. Please try again later." }, 429);
+  }
+
   // Resolve listing (must be open to accept applications)
   let listingTitle = "the role";
   if (listingId) {
@@ -124,6 +147,13 @@ Deno.serve(async (req: Request) => {
   if (insErr || !application) {
     return json({ error: `Could not submit application: ${insErr?.message}` }, 500);
   }
+
+  // Record rate-limit entries only on successful submission so failed/empty
+  // attempts don't lock the legitimate user out.
+  await admin.from("public_rate_limits").insert([
+    { bucket: "jobs_apply_ip", key: ip },
+    { bucket: "jobs_apply_email", key: email },
+  ]);
 
   // Notify admins in-app
   const { data: admins } = await admin.from("profiles").select("id").eq("role", "admin");

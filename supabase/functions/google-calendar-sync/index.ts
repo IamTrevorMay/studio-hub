@@ -164,18 +164,22 @@ Deno.serve(async (req: Request) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    const { data: connections } = await adminClient
+    // Use the caller's own Google connection — never an arbitrary first row.
+    // Picking connections[0] previously meant any admin's sync ran through
+    // whichever admin happened to have connected first.
+    const { data: conn } = await adminClient
       .from("google_calendar_connections")
       .select("user_id")
-      .limit(1);
+      .eq("user_id", user.id)
+      .maybeSingle();
 
-    if (!connections || connections.length === 0) {
+    if (!conn) {
       return new Response(JSON.stringify({ synced: false, reason: "no_connection" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const connUserId = connections[0].user_id;
+    const connUserId = conn.user_id;
 
     const { data: ev, error: evError } = await adminClient
       .from("calendar_events")

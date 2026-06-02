@@ -144,6 +144,9 @@ Deno.serve(async (req: Request) => {
     );
     const { data: { user } } = await userClient.auth.getUser();
     if (!user) return jsonResp({ error: "Unauthorized" }, 401);
+    const { data: profile } = await userClient
+      .from("profiles").select("role").eq("id", user.id).single();
+    if (profile?.role !== "admin") return jsonResp({ error: "Admin access required" }, 403);
   } catch {
     return jsonResp({ error: "Unauthorized" }, 401);
   }

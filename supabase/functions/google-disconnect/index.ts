@@ -71,14 +71,10 @@ Deno.serve(async (req: Request) => {
       .delete()
       .eq("user_id", user.id);
 
-    await adminClient
-      .from("calendar_events")
-      .update({
-        google_event_id: null,
-        google_calendar_id: null,
-        google_synced_at: null,
-      })
-      .not("google_event_id", "is", null);
+    // Previously this update wiped google_event_id on EVERY calendar_events
+    // row (no user filter). One admin disconnecting would nuke everyone's
+    // sync state. The stale ids on the caller's events will fail on next
+    // sync and self-repair; nothing to wipe here.
 
     return new Response(JSON.stringify({ success: true }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

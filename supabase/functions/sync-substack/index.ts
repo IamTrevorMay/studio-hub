@@ -12,6 +12,7 @@ import {
   jsonResponse,
   errorResponse,
 } from "../shared/utils.ts";
+import { isSafeExternalUrl } from "../shared/url-validation.ts";
 
 serve(async (req) => {
   try {
@@ -47,6 +48,12 @@ serve(async (req) => {
         const publicationSlug = account.external_id;
         const baseUrl = account.config?.custom_domain
           || `https://${publicationSlug}.substack.com`;
+
+        // SSRF guard: custom_domain is admin-editable but the trust boundary
+        // is wide; refuse internal / private-IP / non-http(s) targets.
+        if (!isSafeExternalUrl(`${baseUrl}/feed`)) {
+          throw new Error(`Unsafe Substack base URL for ${publicationSlug}`);
+        }
 
         const rssRes = await fetchWithRetry(`${baseUrl}/feed`);
         const rssText = await rssRes.text();

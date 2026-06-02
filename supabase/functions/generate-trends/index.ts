@@ -37,6 +37,14 @@ Deno.serve(async (req: Request) => {
           { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
+      const { data: profile } = await userClient
+        .from("profiles").select("role").eq("id", user.id).single();
+      if (profile?.role !== "admin") {
+        return new Response(
+          JSON.stringify({ error: "Admin access required" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
       userId = user.id;
     } else {
       return new Response(

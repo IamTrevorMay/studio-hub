@@ -79,7 +79,7 @@ async function executeAutomation(
   admin: ReturnType<typeof createClient>,
   automation: Record<string, unknown>,
   triggerPayload: Record<string, unknown>,
-): Promise<{ status: string; actions_taken: unknown[]; error_message?: string }> {
+): Promise<{ status: string; actions_taken: unknown[]; error_message?: string; dedupResolved?: string | null }> {
   const actions = automation.actions as Array<Record<string, unknown>>;
   const dedupTemplate = automation.dedup_key as string | null;
   const automationId = automation.id as string;
@@ -91,17 +91,16 @@ async function executeAutomation(
     dedupResolved = resolveTemplate(dedupTemplate, triggerPayload);
   }
 
-  // Check dedup: skip if active task with same automation_id + matching dedup exists
+  // Check dedup: skip if any active task with same automation_id + dedup_key exists
   if (dedupResolved) {
     const { data: existing } = await admin
       .from("tasks")
       .select("id")
       .eq("automation_id", automationId)
       .eq("status", "active")
-      .ilike("title", `%${dedupResolved}%`)
+      .eq("dedup_key", dedupResolved)
       .limit(1);
 
-    // Also check by dedup in description
     if (existing && existing.length > 0) {
       return { status: "skipped", actions_taken: [], error_message: `Dedup: active task exists for "${dedupResolved}"` };
     }
@@ -113,7 +112,7 @@ async function executeAutomation(
 
     try {
       if (actionType === "create_task") {
-        await executeCreateTask(admin, automationId, config, triggerPayload);
+        await executeCreateTask(admin, automationId, config, triggerPayload, dedupResolved);
         actionsTaken.push({ type: "create_task", title: config.title });
       } else if (actionType === "send_notification") {
         await executeSendNotification(admin, config, triggerPayload);
@@ -137,6 +136,7 @@ async function executeCreateTask(
   automationId: string,
   config: Record<string, unknown>,
   triggerPayload: Record<string, unknown>,
+  dedupKey: string | null,
 ) {
   const title = resolveTemplate(
     (config.title as string) || "Automation Task",
@@ -188,6 +188,7 @@ async function executeCreateTask(
     if (linkUrl) insertData.link_url = linkUrl;
     if (dueDate) insertData.due_date = dueDate;
     if (navTarget) insertData.nav_target = navTarget;
+    if (dedupKey) insertData.dedup_key = dedupKey;
 
     const { error } = await admin.from("tasks").insert(insertData);
     if (error) {

@@ -64,7 +64,7 @@ Deno.serve(async (req: Request) => {
       .from("platform_accounts")
       .select("external_id")
       .eq("platform", "instagram")
-      .eq("active", true)
+      .eq("is_active", true)
       .limit(1)
       .single();
 

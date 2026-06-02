@@ -62,6 +62,13 @@ Deno.serve(async (req: Request) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+    if (profile?.role !== "admin") {
+      return new Response(JSON.stringify({ error: "Admin access required" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     const { folderId, title, beats } = await req.json();
     if (!folderId) throw new Error("folderId is required");
