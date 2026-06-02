@@ -1,4 +1,4 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useRef, useState, useEffect } from 'react';
 import { PLAYBACK_SPEEDS } from './telestrationConstants';
 
 function formatTime(seconds) {
@@ -9,7 +9,7 @@ function formatTime(seconds) {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}:${String(f).padStart(2, '0')}`;
 }
 
-export default function Timeline({ videoController, annotations, onSelectAnnotation, onUpdateAnnotation, isYouTube }) {
+export default function Timeline({ videoController, annotations, onSelectAnnotation, onUpdateAnnotation, onRemoveAnnotation, isYouTube }) {
   const {
     isPlaying,
     currentTime,
@@ -23,6 +23,24 @@ export default function Timeline({ videoController, annotations, onSelectAnnotat
   } = videoController;
 
   const scrubberRef = useRef(null);
+  const [contextMenu, setContextMenu] = useState(null);
+  const [draggingBarId, setDraggingBarId] = useState(null);
+  const [hoveredBarId, setHoveredBarId] = useState(null);
+
+  // Close context menu on Escape or click outside
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handleKey = (e) => {
+      if (e.key === 'Escape') setContextMenu(null);
+    };
+    const handleClick = () => setContextMenu(null);
+    window.addEventListener('keydown', handleKey);
+    window.addEventListener('mousedown', handleClick);
+    return () => {
+      window.removeEventListener('keydown', handleKey);
+      window.removeEventListener('mousedown', handleClick);
+    };
+  }, [contextMenu]);
 
   const handleScrub = useCallback((e) => {
     const bar = scrubberRef.current;
@@ -66,6 +84,65 @@ export default function Timeline({ videoController, annotations, onSelectAnnotat
     window.addEventListener('mouseup', onUp);
   }, [duration, onUpdateAnnotation]);
 
+  // Drag whole annotation bar to move it along the timeline
+  const handleAnnotationDrag = useCallback((e, annId) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const bar = scrubberRef.current;
+    if (!bar || !duration || !onUpdateAnnotation) return;
+
+    const ann = annotations.find(a => a.id === annId);
+    if (!ann) return;
+
+    const rect = bar.getBoundingClientRect();
+    const startMouseX = e.clientX;
+    const origStart = ann.startTime;
+    const origEnd = ann.endTime;
+    const annDuration = origEnd - origStart;
+
+    setDraggingBarId(annId);
+
+    const onMove = (ev) => {
+      const deltaPx = ev.clientX - startMouseX;
+      const deltaSec = (deltaPx / rect.width) * duration;
+      let newStart = origStart + deltaSec;
+      let newEnd = origEnd + deltaSec;
+
+      // Clamp to [0, duration]
+      if (newStart < 0) {
+        newStart = 0;
+        newEnd = annDuration;
+      }
+      if (newEnd > duration) {
+        newEnd = duration;
+        newStart = duration - annDuration;
+      }
+
+      onUpdateAnnotation(annId, { startTime: newStart, endTime: newEnd });
+    };
+    const onUp = () => {
+      setDraggingBarId(null);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [duration, onUpdateAnnotation, annotations]);
+
+  // Right-click context menu on annotation bars
+  const handleContextMenu = useCallback((e, annId) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY, annId });
+  }, []);
+
+  const handleDeleteFromMenu = useCallback(() => {
+    if (contextMenu && onRemoveAnnotation) {
+      onRemoveAnnotation(contextMenu.annId);
+    }
+    setContextMenu(null);
+  }, [contextMenu, onRemoveAnnotation]);
+
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
   const hasAnnotations = annotations && annotations.length > 0;
 
@@ -89,6 +166,8 @@ export default function Timeline({ videoController, annotations, onSelectAnnotat
             const left = (ann.startTime / duration) * 100;
             const width = ((ann.endTime - ann.startTime) / duration) * 100;
             const isActive = currentTime >= ann.startTime && currentTime <= ann.endTime;
+            const isHovered = hoveredBarId === ann.id;
+            const isDragging = draggingBarId === ann.id;
             return (
               <div
                 key={ann.id}
@@ -98,26 +177,61 @@ export default function Timeline({ videoController, annotations, onSelectAnnotat
                   width: `${Math.max(0.3, width)}%`,
                   background: ann.color,
                   opacity: isActive ? 0.9 : 0.4,
+                  cursor: isDragging ? 'grabbing' : 'grab',
+                }}
+                onMouseDown={(e) => {
+                  // Only drag on primary button, not on edge handles
+                  if (e.button === 0) handleAnnotationDrag(e, ann.id);
                 }}
                 onClick={() => {
                   if (onSelectAnnotation) onSelectAnnotation(ann.id);
                   seek(ann.startTime);
                 }}
+                onContextMenu={(e) => handleContextMenu(e, ann.id)}
+                onMouseEnter={() => setHoveredBarId(ann.id)}
+                onMouseLeave={() => setHoveredBarId(null)}
                 title={`${ann.type} (${formatTime(ann.startTime)} – ${formatTime(ann.endTime)})`}
               >
                 {/* Left edge handle */}
                 <div
-                  style={styles.edgeHandle}
+                  style={{
+                    ...styles.edgeHandle,
+                    background: isHovered ? 'rgba(255,255,255,0.6)' : 'transparent',
+                  }}
                   onMouseDown={(e) => handleAnnotationEdgeDrag(e, ann.id, 'startTime')}
                 />
                 {/* Right edge handle */}
                 <div
-                  style={{ ...styles.edgeHandle, left: 'auto', right: '-3px' }}
+                  style={{
+                    ...styles.edgeHandle,
+                    left: 'auto',
+                    right: '-4px',
+                    background: isHovered ? 'rgba(255,255,255,0.6)' : 'transparent',
+                  }}
                   onMouseDown={(e) => handleAnnotationEdgeDrag(e, ann.id, 'endTime')}
                 />
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Context menu */}
+      {contextMenu && (
+        <div
+          style={{
+            ...styles.contextMenu,
+            left: contextMenu.x,
+            top: contextMenu.y,
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <button
+            style={styles.contextMenuItem}
+            onClick={handleDeleteFromMenu}
+          >
+            Delete
+          </button>
         </div>
       )}
 
@@ -230,19 +344,40 @@ const styles = {
     top: '1px',
     height: '8px',
     borderRadius: '3px',
-    cursor: 'pointer',
     transition: 'opacity 0.12s',
     minWidth: '3px',
   },
   edgeHandle: {
     position: 'absolute',
     top: '-2px',
-    left: '-3px',
-    width: '6px',
+    left: '-4px',
+    width: '8px',
     height: '12px',
     cursor: 'ew-resize',
     borderRadius: '2px',
-    background: 'transparent',
+    transition: 'background 0.15s',
+  },
+  contextMenu: {
+    position: 'fixed',
+    zIndex: 9999,
+    background: '#1e1e2e',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: '6px',
+    padding: '4px 0',
+    boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+    minWidth: '100px',
+  },
+  contextMenuItem: {
+    display: 'block',
+    width: '100%',
+    padding: '8px 16px',
+    background: 'none',
+    border: 'none',
+    color: '#ff6b6b',
+    fontSize: '13px',
+    fontFamily: 'inherit',
+    cursor: 'pointer',
+    textAlign: 'left',
   },
   controls: {
     display: 'flex',

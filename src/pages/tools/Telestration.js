@@ -531,6 +531,7 @@ export default function Telestration({ onBack }) {
           annotations={annotationStore.annotations}
           onSelectAnnotation={handleSelectAnnotation}
           onUpdateAnnotation={annotationStore.updateAnnotation}
+          onRemoveAnnotation={annotationStore.removeAnnotation}
           isYouTube={videoController.isYouTube}
         />
       )}
