@@ -125,6 +125,27 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Auth: CRON_SECRET (header or query) or admin JWT required
+  {
+    const _expected = Deno.env.get("CRON_SECRET");
+    const _provided = req.headers.get("x-cron-secret")
+      ?? new URL(req.url).searchParams.get("secret");
+    const _isCron = !!_expected && _provided === _expected;
+    if (!_isCron) {
+      const _auth = req.headers.get("Authorization");
+      if (!_auth?.startsWith("Bearer ")) return jsonResponse({ error: "Unauthorized" }, 401);
+      const _adminClient = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      );
+      const { data: { user: _u } } = await _adminClient.auth.getUser(_auth.slice(7));
+      if (!_u) return jsonResponse({ error: "Unauthorized" }, 401);
+      const { data: _profile } = await _adminClient
+        .from("profiles").select("role").eq("id", _u.id).single();
+      if (_profile?.role !== "admin") return jsonResponse({ error: "Forbidden" }, 403);
+    }
+  }
+
   const clientId = Deno.env.get("TWITCH_CLIENT_ID");
   const clientSecret = Deno.env.get("TWITCH_CLIENT_SECRET");
   if (!clientId || !clientSecret) {

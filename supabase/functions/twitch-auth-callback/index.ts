@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { verifyState } from "../shared/oauth-state.ts";
 
 Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
@@ -28,9 +29,9 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const state = JSON.parse(atob(stateParam));
+    const state = await verifyState(stateParam);
     const userId = state.user_id;
-    if (!userId) throw new Error("No user_id in state");
+    if (!userId || typeof userId !== "string") throw new Error("No user_id in state");
 
     const clientId = Deno.env.get("TWITCH_CLIENT_ID")!;
     const clientSecret = Deno.env.get("TWITCH_CLIENT_SECRET")!;

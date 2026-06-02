@@ -142,6 +142,24 @@ async function fetchAllVideoIds(uploadsPlaylistId: string, apiKey: string): Prom
 
 serve(async (req) => {
   try {
+    // Auth: CRON_SECRET (header or query) or admin JWT required
+    {
+      const _expected = Deno.env.get("CRON_SECRET");
+      const _provided = req.headers.get("x-cron-secret")
+        ?? new URL(req.url).searchParams.get("secret");
+      const _isCron = !!_expected && _provided === _expected;
+      if (!_isCron) {
+        const _auth = req.headers.get("Authorization");
+        if (!_auth?.startsWith("Bearer ")) return errorResponse("Unauthorized", 401);
+        const _adminClient = getSupabaseAdmin();
+        const { data: { user: _u } } = await _adminClient.auth.getUser(_auth.slice(7));
+        if (!_u) return errorResponse("Unauthorized", 401);
+        const { data: _profile } = await _adminClient
+          .from("profiles").select("role").eq("id", _u.id).single();
+        if (_profile?.role !== "admin") return errorResponse("Forbidden", 403);
+      }
+    }
+
     const supabase = getSupabaseAdmin();
     const apiKey = Deno.env.get("YOUTUBE_API_KEY");
     if (!apiKey) return errorResponse("Missing YOUTUBE_API_KEY", 500);

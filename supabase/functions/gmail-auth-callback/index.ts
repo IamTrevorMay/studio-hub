@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { verifyState } from "../shared/oauth-state.ts";
 
 Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
@@ -9,16 +10,16 @@ Deno.serve(async (req: Request) => {
 
   const siteUrl = Deno.env.get("SITE_URL") || "https://www.mmcreate.io";
 
-  // Parse return_url from state early so all redirects can use it
+  // Verify + parse signed state early so all redirects can use return_url
   let returnUrl: string | undefined;
   let userId: string | undefined;
   if (stateParam) {
     try {
-      const state = JSON.parse(atob(stateParam));
-      userId = state.user_id;
-      returnUrl = state.return_url;
+      const state = await verifyState(stateParam);
+      userId = typeof state.user_id === "string" ? state.user_id : undefined;
+      returnUrl = typeof state.return_url === "string" ? state.return_url : undefined;
     } catch {
-      // Invalid state — will be handled below
+      // Invalid/expired state — falls through to error redirect below
     }
   }
 

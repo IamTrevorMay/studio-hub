@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { verifyState } from "../shared/oauth-state.ts";
 
 Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
@@ -24,13 +25,7 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    let state: Record<string, unknown>;
-    try {
-      state = JSON.parse(atob(stateParam));
-    } catch {
-      throw new Error("Invalid state parameter");
-    }
-    if (!state || typeof state !== "object") throw new Error("Invalid state parameter");
+    const state = await verifyState(stateParam);
     const userId = state.user_id;
     if (!userId || typeof userId !== "string") throw new Error("No user_id in state");
 

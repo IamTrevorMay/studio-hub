@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { signState } from "../shared/oauth-state.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -71,7 +72,7 @@ Deno.serve(async (req: Request) => {
 
     const redirectUri = `${Deno.env.get("SUPABASE_URL")}/functions/v1/twitch-auth-callback`;
     const scopes = "moderator:read:followers channel:read:subscriptions";
-    const state = btoa(JSON.stringify({ user_id: user.id }));
+    const state = await signState({ user_id: user.id });
 
     const params = new URLSearchParams({
       client_id: clientId,

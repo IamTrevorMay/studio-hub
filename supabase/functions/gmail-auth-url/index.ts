@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { signState } from "../shared/oauth-state.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -57,7 +58,7 @@ Deno.serve(async (req: Request) => {
       // No body or invalid JSON — that's fine
     }
 
-    const state = btoa(JSON.stringify({ user_id: user.id, ...(returnUrl && { return_url: returnUrl }) }));
+    const state = await signState({ user_id: user.id, ...(returnUrl && { return_url: returnUrl }) });
 
     const params = new URLSearchParams({
       client_id: clientId,

@@ -31,6 +31,24 @@ Deno.serve(async (req) => {
     const signature = req.headers.get("stripe-signature");
     const isWebhook = !!signature;
 
+    // Auth (non-webhook path only): CRON_SECRET or admin JWT required.
+    // Webhook path is authenticated by Stripe signature verification inside handleWebhook.
+    if (!isWebhook) {
+      const _expected = Deno.env.get("CRON_SECRET");
+      const _provided = req.headers.get("x-cron-secret")
+        ?? new URL(req.url).searchParams.get("secret");
+      const _isCron = !!_expected && _provided === _expected;
+      if (!_isCron) {
+        const _auth = req.headers.get("Authorization");
+        if (!_auth?.startsWith("Bearer ")) return errorResponse("Unauthorized", 401);
+        const { data: { user: _u } } = await supabase.auth.getUser(_auth.slice(7));
+        if (!_u) return errorResponse("Unauthorized", 401);
+        const { data: _profile } = await supabase
+          .from("profiles").select("role").eq("id", _u.id).single();
+        if (_profile?.role !== "admin") return errorResponse("Forbidden", 403);
+      }
+    }
+
     if (isWebhook) {
       return await handleWebhook(req, supabase, stripeKey);
     } else {
