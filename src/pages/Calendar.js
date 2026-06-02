@@ -1624,7 +1624,7 @@ export default function Calendar({ onNavigate }) {
                             unassignedDeliverables.map(d => (
                               <div
                                 key={d.id}
-                                onClick={() => { handleAttachDeliverable(d.id, selectedEvent.id); setShowDeliverableDropdown(false); }}
+                                onClick={() => { handleAttachDeliverable(d.id, selectedEvent._parentId || selectedEvent.id); setShowDeliverableDropdown(false); }}
                                 style={{ padding: '6px 12px', fontSize: '12px', color: 'rgba(255,255,255,0.8)', cursor: 'pointer' }}
                                 onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
                                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
