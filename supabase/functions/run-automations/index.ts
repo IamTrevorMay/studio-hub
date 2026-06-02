@@ -250,29 +250,24 @@ async function logRun(
     error_message: result.error_message || null,
   });
 
-  // Update automation metadata
   const updates: Record<string, unknown> = {
     last_run_at: new Date().toISOString(),
-    run_count: admin.rpc ? undefined : undefined, // handled below
+    last_error: result.status === "error" ? result.error_message : null,
   };
-  if (result.status === "error") {
-    updates.last_error = result.error_message;
-  } else {
-    updates.last_error = null;
-  }
 
   await admin
     .from("automations")
     .update(updates)
     .eq("id", automationId);
 
-  // Increment run_count via raw SQL to avoid race conditions
-  await admin.rpc("increment_automation_run_count", {
+  // Atomic run_count bump via RPC. Surface failures instead of swallowing —
+  // a missing/broken RPC silently zero-counts every run.
+  const { error: rpcErr } = await admin.rpc("increment_automation_run_count", {
     automation_uuid: automationId,
-  }).catch(() => {
-    // Fallback: just update with a non-atomic increment
-    // The RPC may not exist yet; this is fine
   });
+  if (rpcErr) {
+    console.error(`increment_automation_run_count failed for ${automationId}: ${rpcErr.message}`);
+  }
 }
 
 Deno.serve(async (req: Request) => {

@@ -98,7 +98,7 @@ Deno.serve(async (req: Request) => {
 
     const assetHtml = assetUrl
       ? `<p style="margin:0 0 20px;">
-      <a href="${assetUrl}" style="display:inline-block;background:rgba(99,102,241,0.12);color:#4f46e5;text-decoration:none;padding:8px 14px;border-radius:8px;font-weight:500;font-size:13px;border:1px solid rgba(99,102,241,0.3);">Open asset link</a>
+      <a href="${escapeHtml(assetUrl)}" style="display:inline-block;background:rgba(99,102,241,0.12);color:#4f46e5;text-decoration:none;padding:8px 14px;border-radius:8px;font-weight:500;font-size:13px;border:1px solid rgba(99,102,241,0.3);">Open asset link</a>
     </p>`
       : "";
 

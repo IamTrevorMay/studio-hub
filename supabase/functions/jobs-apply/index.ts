@@ -23,6 +23,15 @@ function json(data: unknown, status = 200) {
   });
 }
 
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 async function sendEmail(to: string, subject: string, html: string) {
   const key = Deno.env.get("RESEND_API_KEY");
   const from = Deno.env.get("RESEND_FROM_EMAIL");
@@ -172,11 +181,13 @@ Deno.serve(async (req: Request) => {
   }
 
   // Confirmation email to the applicant
+  const firstName = escapeHtml(name.split(" ")[0] || "there");
+  const safeTitle = escapeHtml(listingTitle);
   await sendEmail(
     email,
     `We received your application — ${listingTitle}`,
-    `<p>Hi ${name.split(" ")[0] || "there"},</p>
-     <p>Thanks for applying for <strong>${listingTitle}</strong>. We've received your application and our team will review it. If it's a fit, we'll be in touch.</p>
+    `<p>Hi ${firstName},</p>
+     <p>Thanks for applying for <strong>${safeTitle}</strong>. We've received your application and our team will review it. If it's a fit, we'll be in touch.</p>
      <p>— The Mayday Team</p>`,
   );
 

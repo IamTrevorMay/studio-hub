@@ -49,6 +49,16 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // Cap audio payload to bound OpenAI Whisper cost ($/min). 10MB ≈ several
+    // minutes of typical webm/opus voice memo. Whisper's hard limit is 25MB.
+    const MAX_AUDIO_BASE64_CHARS = 13_900_000; // ~10.4 MB decoded
+    if (typeof audio !== "string" || audio.length > MAX_AUDIO_BASE64_CHARS) {
+      return new Response(JSON.stringify({ error: "Audio too large (10MB max)" }), {
+        status: 413,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const openaiKey = Deno.env.get("OPENAI_API_KEY");
     if (!openaiKey) {
       return new Response(JSON.stringify({ error: "OpenAI API not configured" }), {

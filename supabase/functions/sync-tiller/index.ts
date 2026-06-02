@@ -285,14 +285,27 @@ Deno.serve(async (req: Request) => {
       return { upserted, errors };
     }
 
-    // Delete rows for this business not stamped in this run. Guarded by the
-    // SOURCE's total parsed count (not the table's): if the sheet read/parse
-    // produced nothing a bad pull can't wipe data, but a table that legitimately
-    // went to zero (e.g. all income reclassified out) still gets pruned. Also
-    // skips if an upsert batch errored.
+    // Delete rows for this business not stamped in this run. Guarded by:
+    //   - sourceParsed===0 → skip (a bad pull can't wipe data)
+    //   - any upsert error → skip
+    //   - >20% drop vs prior row count → skip (truncated Sheets response,
+    //     partial network read, etc. would otherwise blow away real rows).
+    //     Cold-start (existing <= 5) is exempt; the threshold is for stable
+    //     tables with meaningful history.
     async function reconcile(table: string, business: string, sourceParsed: number, errors: number): Promise<number> {
       if (sourceParsed === 0 || errors > 0) {
         console.log(`${table}/${business} reconcile skipped (sourceParsed=${sourceParsed}, errors=${errors})`);
+        return 0;
+      }
+      const { count: existing } = await supabase
+        .from(table)
+        .select("id", { count: "exact", head: true })
+        .eq("business", business);
+      if ((existing || 0) > 5 && sourceParsed < (existing || 0) * 0.8) {
+        console.warn(
+          `${table}/${business} reconcile BAILED: sourceParsed=${sourceParsed} vs existing=${existing} (>20% drop). ` +
+          `Likely truncated Tiller pull; refusing to delete.`,
+        );
         return 0;
       }
       const { error, count } = await supabase

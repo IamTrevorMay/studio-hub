@@ -23,6 +23,15 @@ function json(data: unknown, status = 200) {
   });
 }
 
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 async function sendEmail(to: string, subject: string, html: string) {
   const key = Deno.env.get("RESEND_API_KEY");
   const from = Deno.env.get("RESEND_FROM_EMAIL");
@@ -105,11 +114,13 @@ Deno.serve(async (req: Request) => {
       .eq("id", id);
     if (app?.applicant_email) {
       const role = (app as { listing?: { title?: string } }).listing?.title || "the role";
+      const safeFirst = escapeHtml(String(app.applicant_name || "").split(" ")[0] || "there");
+      const safeRole = escapeHtml(role);
       await sendEmail(
         app.applicant_email,
         `Update on your application — ${role}`,
-        `<p>Hi ${String(app.applicant_name || "").split(" ")[0] || "there"},</p>
-         <p>Thank you for your interest in <strong>${role}</strong> and for taking the time to apply. After careful review, we've decided not to move forward at this time.</p>
+        `<p>Hi ${safeFirst},</p>
+         <p>Thank you for your interest in <strong>${safeRole}</strong> and for taking the time to apply. After careful review, we've decided not to move forward at this time.</p>
          <p>We genuinely appreciate it and encourage you to apply for future roles that fit.</p>
          <p>— The Mayday Team</p>`,
       );

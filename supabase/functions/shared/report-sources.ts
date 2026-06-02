@@ -122,11 +122,19 @@ export async function fetchSupabaseSource(
   let query = adminClient.from(config.table).select(config.select || "*");
 
   if (config.filters) {
+    // Whitelist PostgREST operators. Without this, an attacker who controls
+    // report_configs.filters could pass any operator string and hit obscure
+    // server-side behavior.
+    const ALLOWED_OPS = new Set([
+      "eq", "neq", "gt", "gte", "lt", "lte",
+      "like", "ilike", "is", "in",
+      "cs", "cd", "ov", "fts", "plfts", "phfts", "wfts",
+    ]);
     try {
       const filters = JSON.parse(config.filters);
       for (const f of Array.isArray(filters) ? filters : []) {
         const { column, op, value } = f;
-        if (column && op) {
+        if (column && op && ALLOWED_OPS.has(String(op))) {
           (query as any) = query.filter(column, op, value);
         }
       }

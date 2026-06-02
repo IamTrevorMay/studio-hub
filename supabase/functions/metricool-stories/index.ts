@@ -4,6 +4,7 @@
 // Uses the scheduler/posts endpoint and filters for instagramType=STORY
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -22,6 +23,23 @@ function jsonResponse(data: unknown, status = 200) {
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
+  }
+
+  // Auth: admin JWT required (publicly exposed analytics for the dashboard
+  // refresh-every-30s widget needs to be authenticated to avoid PII leak +
+  // free hammering of upstream Metricool quota).
+  {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) return jsonResponse({ error: "Unauthorized" }, 401);
+    const userClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } },
+    );
+    const { data: { user } } = await userClient.auth.getUser();
+    if (!user) return jsonResponse({ error: "Unauthorized" }, 401);
+    const { data: profile } = await userClient.from("profiles").select("role").eq("id", user.id).single();
+    if (profile?.role !== "admin") return jsonResponse({ error: "Admin access required" }, 403);
   }
 
   const mcToken = Deno.env.get("METRICOOL_TOKEN");
