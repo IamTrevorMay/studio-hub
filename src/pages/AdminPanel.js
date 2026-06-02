@@ -364,6 +364,8 @@ export default function AdminPanel({ initialTab }) {
                   <option value="assistant">Assistant</option>
                   <option value="partner">Partner</option>
                   <option value="freelancer">Contractor</option>
+                  <option value="director_creative">Director of Creative</option>
+                  <option value="director_comms">Director of Communications</option>
                   <option value="admin">Admin</option>
                 </select>
                 {inviteRole === 'freelancer' && (
@@ -465,6 +467,8 @@ export default function AdminPanel({ initialTab }) {
                   <option value="assistant">Assistant</option>
                   <option value="partner">Partner</option>
                   <option value="freelancer">Contractor</option>
+                  <option value="director_creative">Director of Creative</option>
+                  <option value="director_comms">Director of Communications</option>
                   <option value="admin">Admin</option>
                 </select>
                 {titlePickerFor === member.id && (

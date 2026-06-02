@@ -193,7 +193,7 @@ const NAV_ICON_MAP = {
 };
 
 export default function AppLayout() {
-  const { profile, signOut, isAdmin, isAssistant, isPartner, isFreelancer, unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, newAssignmentCount, myTaskCount, stuckCommentCount, refreshNotifications } = useAuth();
+  const { profile, signOut, isAdmin, isAssistant, isPartner, isFreelancer, restrictedNavKeys, unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, newAssignmentCount, myTaskCount, stuckCommentCount, refreshNotifications } = useAuth();
   const { getResolvedNav, saveConfig, saving } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => getTabFromPath() || localStorage.getItem('studio-hub-tab') || 'dashboard');
   const [mode, setMode] = useState(() => localStorage.getItem('studio-hub-mode') === 'admin' ? 'admin' : 'work');
@@ -236,11 +236,23 @@ export default function AppLayout() {
     // eslint-disable-next-line
   }, [mode, isAdmin]);
 
-  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isFreelancer, profile);
+  // Role-based route guard: if the role doesn't have access to the current
+  // tab (e.g. director_creative on /payroll), redirect to dashboard.
+  useEffect(() => {
+    if (restrictedNavKeys?.has(activeTab)) {
+      setActiveTab('dashboard');
+    }
+    // eslint-disable-next-line
+  }, [activeTab, restrictedNavKeys]);
+
+  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isFreelancer, profile, restrictedNavKeys);
 
   // Mode-filtered nav. Admin-only pages live in Admin Mode and disappear from
   // the default Work View; flipping the bottom button swaps the sidebar.
-  const displayNav = (mode === 'admin' && isAdmin) ? ADMIN_MODE_NAV : buildWorkNav(resolvedNav);
+  const filteredAdminModeNav = ADMIN_MODE_NAV.filter(
+    (e) => e.type !== 'item' || !restrictedNavKeys?.has(e.key),
+  );
+  const displayNav = (mode === 'admin' && isAdmin) ? filteredAdminModeNav : buildWorkNav(resolvedNav);
 
   function toggleMode() {
     if (mode === 'work') {

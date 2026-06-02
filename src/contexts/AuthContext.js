@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { supabase, reconnectRealtime } from '../supabaseClient';
+import { isAdminTier, getRestrictedNavKeys } from '../lib/rolePermissions';
 
 const AuthContext = createContext({});
 
@@ -663,11 +664,13 @@ export function AuthProvider({ children }) {
     signOut,
     updateProfile,
     ensureSession,
-    isAdmin: profile?.role === 'admin',
+    isAdmin: isAdminTier(profile?.role),
+    isStrictAdmin: profile?.role === 'admin',
     isAssistant: profile?.role === 'assistant',
     isPartner: profile?.role === 'partner',
     isFreelancer: profile?.role === 'freelancer',
     canPost: profile?.role === 'admin' || profile?.posting_allowed === true,
+    restrictedNavKeys: getRestrictedNavKeys(profile?.role),
     unreadAnnouncementCount,
     newItineraryCount,
     markDashboardSeen,

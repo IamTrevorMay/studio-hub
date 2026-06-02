@@ -77,7 +77,9 @@ export default function useNavConfig() {
    * - Items in config but not in code are skipped
    * - Items in code but not in config are appended at the end
    */
-  const getResolvedNav = useCallback((navItems, isAdmin, isPartner, isFreelancer, profile) => {
+  const getResolvedNav = useCallback((navItems, isAdmin, isPartner, isFreelancer, profile, restrictedNavKeys) => {
+    const restricted = restrictedNavKeys instanceof Set ? restrictedNavKeys : new Set();
+    const isRestricted = (key) => restricted.has(key);
     // Freelancers get a locked sidebar
     if (isFreelancer) {
       const items = [
@@ -111,6 +113,7 @@ export default function useNavConfig() {
     if (!config || !config.items || config.items.length === 0) {
       return navItems
         .filter(item => !item.adminOnly || isAdmin)
+        .filter(item => !isRestricted(item.key))
         .map(item => ({ type: 'item', key: item.key, label: item.label, adminOnly: item.adminOnly }));
     }
 
@@ -133,6 +136,7 @@ export default function useNavConfig() {
         const codeItem = codeMap[entry.key];
         if (!codeItem) continue; // item removed from code
         if (codeItem.adminOnly && !isAdmin) continue;
+        if (isRestricted(entry.key)) continue;
         usedKeys.add(entry.key);
         result.push({
           type: 'item',
@@ -148,6 +152,7 @@ export default function useNavConfig() {
     for (const item of navItems) {
       if (!usedKeys.has(item.key)) {
         if (item.adminOnly && !isAdmin) continue;
+        if (isRestricted(item.key)) continue;
         result.push({ type: 'item', key: item.key, label: item.label, folderId: null, adminOnly: item.adminOnly });
       }
     }
