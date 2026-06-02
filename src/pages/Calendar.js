@@ -334,13 +334,53 @@ export default function Calendar({ onNavigate }) {
     }
   }, []);
 
-  const handleAttachDeliverable = useCallback(async (deliverableId, eventId) => {
+  const handleAttachDeliverable = useCallback(async (deliverableId, event) => {
+    let targetEventId = event.id;
+
+    // If this is a recurring instance, materialize it as a standalone event
+    if (event._isRecurrenceInstance) {
+      const parentId = event._parentId;
+      const parent = calendarEvents.find(e => e.id === parentId);
+
+      // Create standalone copy of this occurrence
+      const { data: newEvent, error: insertErr } = await supabase.from('calendar_events')
+        .insert({
+          title: parent?.title || event.title,
+          description: parent?.description || event.description || null,
+          event_type: event.event_type,
+          start_date: event.start_date,
+          end_date: event.end_date,
+          all_day: event.all_day || false,
+          location: parent?.location || event.location || null,
+          guests: parent?.guests || event.guests || [],
+          created_by: profile.id,
+        })
+        .select('id')
+        .single();
+      if (insertErr || !newEvent) {
+        console.error('Error materializing recurring instance:', insertErr);
+        return;
+      }
+      targetEventId = newEvent.id;
+
+      // Exclude this date from the parent's recurrence
+      if (parent?.recurrence_rule) {
+        const dateKey = new Date(event.start_date).toISOString().split('T')[0];
+        const rule = { ...parent.recurrence_rule };
+        rule.excludedDates = [...(rule.excludedDates || []), dateKey];
+        await supabase.from('calendar_events')
+          .update({ recurrence_rule: rule })
+          .eq('id', parentId);
+      }
+    }
+
     await supabase.from('sponsor_deliverables')
-      .update({ video_event_id: eventId })
+      .update({ video_event_id: targetEventId })
       .eq('id', deliverableId);
+    fetchCalendarEvents();
     fetchVideoDeliverables();
     fetchUnassignedDeliverables();
-  }, [fetchVideoDeliverables, fetchUnassignedDeliverables]);
+  }, [calendarEvents, profile.id, fetchCalendarEvents, fetchVideoDeliverables, fetchUnassignedDeliverables]);
 
   const handleDetachDeliverable = useCallback(async (deliverableId) => {
     await supabase.from('sponsor_deliverables')
@@ -909,9 +949,9 @@ export default function Calendar({ onNavigate }) {
         </span>
         {isRecurring && <span style={{ fontSize: '8px', flexShrink: 0, opacity: 0.6 }}>{'\uD83D\uDD01'}</span>}
         {ev.google_synced_at && <span style={{ fontSize: '8px', flexShrink: 0, opacity: 0.5 }} title="Synced to Google Calendar">{'\u2713'}</span>}
-        {ev.event_type === 'video_post' && (deliverablesByEventId[ev._parentId || ev.id] || []).length > 0 && (
-          <span style={{ fontSize: '8px', flexShrink: 0, background: 'rgba(16,185,129,0.2)', color: '#6ee7b7', padding: '0 3px', borderRadius: '3px', fontWeight: 700 }} title={(deliverablesByEventId[ev._parentId || ev.id] || []).map(d => d.sponsor?.name || 'Sponsor').join(', ')}>
-            {'\uD83E\uDD1D'} {(deliverablesByEventId[ev._parentId || ev.id] || []).length}
+        {ev.event_type === 'video_post' && (deliverablesByEventId[ev.id] || []).length > 0 && (
+          <span style={{ fontSize: '8px', flexShrink: 0, background: 'rgba(16,185,129,0.2)', color: '#6ee7b7', padding: '0 3px', borderRadius: '3px', fontWeight: 700 }} title={(deliverablesByEventId[ev.id] || []).map(d => d.sponsor?.name || 'Sponsor').join(', ')}>
+            {'\uD83E\uDD1D'} {(deliverablesByEventId[ev.id] || []).length}
           </span>
         )}
       </div>
@@ -1586,8 +1626,8 @@ export default function Calendar({ onNavigate }) {
               <div style={styles.eventDetailRow}>
                 <span style={styles.eventDetailLabel}>Sponsor Reads</span>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  {(deliverablesByEventId[selectedEvent._parentId || selectedEvent.id] || []).length > 0 ? (
-                    (deliverablesByEventId[selectedEvent._parentId || selectedEvent.id] || []).map(d => (
+                  {(deliverablesByEventId[selectedEvent.id] || []).length > 0 ? (
+                    (deliverablesByEventId[selectedEvent.id] || []).map(d => (
                       <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <span style={{ flex: 1, fontSize: '13px', color: '#6ee7b7', background: 'rgba(16,185,129,0.1)', padding: '3px 8px', borderRadius: '4px' }}>
                           {'\uD83E\uDD1D'} {d.sponsor?.name || 'Sponsor'}{d.title ? ` — ${d.title}` : ''}{d.campaign?.name ? ` (${d.campaign.name})` : ''}{d.pay != null ? ` · $${parseFloat(d.pay).toLocaleString()}` : ''}
@@ -1624,7 +1664,7 @@ export default function Calendar({ onNavigate }) {
                             unassignedDeliverables.map(d => (
                               <div
                                 key={d.id}
-                                onClick={() => { handleAttachDeliverable(d.id, selectedEvent._parentId || selectedEvent.id); setShowDeliverableDropdown(false); }}
+                                onClick={() => { handleAttachDeliverable(d.id, selectedEvent); setShowDeliverableDropdown(false); }}
                                 style={{ padding: '6px 12px', fontSize: '12px', color: 'rgba(255,255,255,0.8)', cursor: 'pointer' }}
                                 onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
                                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
