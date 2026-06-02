@@ -909,9 +909,9 @@ export default function Calendar({ onNavigate }) {
         </span>
         {isRecurring && <span style={{ fontSize: '8px', flexShrink: 0, opacity: 0.6 }}>{'\uD83D\uDD01'}</span>}
         {ev.google_synced_at && <span style={{ fontSize: '8px', flexShrink: 0, opacity: 0.5 }} title="Synced to Google Calendar">{'\u2713'}</span>}
-        {ev.event_type === 'video_post' && (deliverablesByEventId[ev.id] || []).length > 0 && (
-          <span style={{ fontSize: '8px', flexShrink: 0, background: 'rgba(16,185,129,0.2)', color: '#6ee7b7', padding: '0 3px', borderRadius: '3px', fontWeight: 700 }} title={(deliverablesByEventId[ev.id] || []).map(d => d.sponsor?.name || 'Sponsor').join(', ')}>
-            {'\uD83E\uDD1D'} {(deliverablesByEventId[ev.id] || []).length}
+        {ev.event_type === 'video_post' && (deliverablesByEventId[ev._parentId || ev.id] || []).length > 0 && (
+          <span style={{ fontSize: '8px', flexShrink: 0, background: 'rgba(16,185,129,0.2)', color: '#6ee7b7', padding: '0 3px', borderRadius: '3px', fontWeight: 700 }} title={(deliverablesByEventId[ev._parentId || ev.id] || []).map(d => d.sponsor?.name || 'Sponsor').join(', ')}>
+            {'\uD83E\uDD1D'} {(deliverablesByEventId[ev._parentId || ev.id] || []).length}
           </span>
         )}
       </div>
@@ -1586,8 +1586,8 @@ export default function Calendar({ onNavigate }) {
               <div style={styles.eventDetailRow}>
                 <span style={styles.eventDetailLabel}>Sponsor Reads</span>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  {(deliverablesByEventId[selectedEvent.id] || []).length > 0 ? (
-                    (deliverablesByEventId[selectedEvent.id] || []).map(d => (
+                  {(deliverablesByEventId[selectedEvent._parentId || selectedEvent.id] || []).length > 0 ? (
+                    (deliverablesByEventId[selectedEvent._parentId || selectedEvent.id] || []).map(d => (
                       <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <span style={{ flex: 1, fontSize: '13px', color: '#6ee7b7', background: 'rgba(16,185,129,0.1)', padding: '3px 8px', borderRadius: '4px' }}>
                           {'\uD83E\uDD1D'} {d.sponsor?.name || 'Sponsor'}{d.title ? ` — ${d.title}` : ''}{d.campaign?.name ? ` (${d.campaign.name})` : ''}{d.pay != null ? ` · $${parseFloat(d.pay).toLocaleString()}` : ''}
