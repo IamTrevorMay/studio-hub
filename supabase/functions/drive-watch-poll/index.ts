@@ -99,7 +99,14 @@ Deno.serve(async (req: Request) => {
         // createdTime to catch those, and advance the cursor to request-start
         // time so the next tick picks up anything that landed after this one.
         const requestStart = new Date().toISOString();
-        const q = `'${watch.folder_id}' in parents and (createdTime > '${lastSeenIso}' or modifiedTime > '${lastSeenIso}')`;
+        // Belt-and-suspenders: folder_id is validated at register time, but
+        // refuse anything containing a single quote so a future bad row can't
+        // smuggle into the Drive query.
+        const folderId = String(watch.folder_id);
+        if (!/^[\w\-]+$/.test(folderId)) {
+          throw new Error(`Invalid folder_id stored on watch ${watch.id}`);
+        }
+        const q = `'${folderId}' in parents and (createdTime > '${lastSeenIso}' or modifiedTime > '${lastSeenIso}')`;
 
         const driveRes = await fetch(
           "https://www.googleapis.com/drive/v3/files?" + new URLSearchParams({

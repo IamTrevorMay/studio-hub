@@ -44,7 +44,9 @@ async function getAccessToken(accountName?: string): Promise<string | null> {
     }),
   });
   if (!res.ok) {
-    console.error(`OAuth token refresh failed for ${accountName}:`, await res.text());
+    // Don't log the raw body — Google occasionally echoes parts of the
+    // refresh_token in error payloads on misformed requests.
+    console.error(`OAuth token refresh failed for ${accountName}: HTTP ${res.status}`);
     return null;
   }
   const data = await res.json();

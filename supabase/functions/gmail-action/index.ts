@@ -95,6 +95,14 @@ Deno.serve(async (req: Request) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    // Gmail message IDs are hex/alphanumeric. Reject anything that could
+    // path-traverse the URL constructed below.
+    if (typeof messageId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(messageId)) {
+      return new Response(JSON.stringify({ error: "Invalid messageId" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     const adminClient = createClient(
       Deno.env.get("SUPABASE_URL")!,

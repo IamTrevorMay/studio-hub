@@ -87,6 +87,13 @@ Deno.serve(async (req: Request) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    const trimmedLabel = String(label).trim().slice(0, 200);
+    if (!trimmedLabel) {
+      return new Response(JSON.stringify({ error: "label cannot be empty" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     const { data: existing } = await admin
       .from("drive_watches")
@@ -131,7 +138,7 @@ Deno.serve(async (req: Request) => {
       .from("drive_watches")
       .insert({
         folder_id: folderId,
-        label,
+        label: trimmedLabel,
         mode: "poll",
         last_seen_time: new Date().toISOString(),
         created_by: user.id,

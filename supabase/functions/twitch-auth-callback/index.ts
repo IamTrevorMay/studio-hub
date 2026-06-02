@@ -109,7 +109,7 @@ Deno.serve(async (req: Request) => {
     return new Response(null, {
       status: 302,
       headers: {
-        Location: `${siteUrl}?twitch_error=${encodeURIComponent((err as Error).message)}`,
+        Location: `${siteUrl}?twitch_error=oauth_failed`,
       },
     });
   }

@@ -184,6 +184,7 @@ Deno.serve(async (req: Request) => {
       if (action === "rename") {
         const { id, name } = body;
         if (!id || !name?.trim()) throw new Error("id and name are required");
+        if (!/^[\w\-]+$/.test(id)) throw new Error("Invalid id");
         const ok = await isDescendantOfRoot(accessToken, id, rootId);
         if (!ok) throw new Error("Item is outside Resources root");
 
@@ -208,6 +209,7 @@ Deno.serve(async (req: Request) => {
       if (action === "delete") {
         const { id } = body;
         if (!id) throw new Error("id is required");
+        if (!/^[\w\-]+$/.test(id)) throw new Error("Invalid id");
         const ok = await isDescendantOfRoot(accessToken, id, rootId);
         if (!ok) throw new Error("Item is outside Resources root");
 
@@ -232,6 +234,7 @@ Deno.serve(async (req: Request) => {
       if (action === "move") {
         const { id, newParentId } = body;
         if (!id || !newParentId) throw new Error("id and newParentId are required");
+        if (!/^[\w\-]+$/.test(id) || !/^[\w\-]+$/.test(newParentId)) throw new Error("Invalid id");
         const okItem = await isDescendantOfRoot(accessToken, id, rootId);
         const okParent = newParentId === rootId || await isDescendantOfRoot(accessToken, newParentId, rootId);
         if (!okItem || !okParent) throw new Error("Item or target is outside Resources root");

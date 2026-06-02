@@ -13,7 +13,10 @@ async function getAccessToken(accountName?: string): Promise<string | null> {
   const refreshToken = Deno.env.get(envVar);
   if (!refreshToken) return null;
   const res = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: "refresh_token" }) });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    console.error(`YT OAuth refresh failed: HTTP ${res.status}`);
+    return null;
+  }
   const data = await res.json();
   return data.access_token;
 }

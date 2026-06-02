@@ -83,10 +83,13 @@ Deno.serve(async (req: Request) => {
       headers: { Location: `${siteUrl}?gcal_connected=true` },
     });
   } catch (err) {
+    // Don't echo upstream / internal error text into the URL fragment —
+    // it leaks Google API messages and DB error strings to whoever can see
+    // the browser address bar. Log server-side, send a generic code only.
     console.error("Google auth callback error:", err);
     return new Response(null, {
       status: 302,
-      headers: { Location: `${siteUrl}?gcal_error=${encodeURIComponent(err.message)}` },
+      headers: { Location: `${siteUrl}?gcal_error=oauth_failed` },
     });
   }
 });

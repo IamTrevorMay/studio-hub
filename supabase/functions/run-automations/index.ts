@@ -339,6 +339,14 @@ Deno.serve(async (req: Request) => {
 
   if (event) {
     // ─── Event mode ───────────────────────────────────────────
+    // Only allow event-mode invocations from cron (or service-role internal
+    // callers that present the CRON_SECRET). Admin JWTs hitting this path
+    // could otherwise hand-fire arbitrary events like 'new_video' and
+    // synthesize tasks that look like they came from real triggers.
+    if (!isCron) {
+      return jsonResp({ error: "Event mode requires CRON_SECRET" }, 403);
+    }
+
     const { data: automations, error } = await admin
       .from("automations")
       .select("*")

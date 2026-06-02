@@ -273,7 +273,7 @@ async function sendReportEmail(
     .select("id, email, name")
     .eq("confirmed", true)
     .is("unsubscribed_at", null)
-    .or(`report_config_id.eq."${config.id}",report_config_id.is.null`);
+    .or(`report_config_id.eq.${String(config.id).replace(/[^0-9a-fA-F-]/g, "")},report_config_id.is.null`);
 
   const emailSet = new Set<string>();
   const recipients: { email: string }[] = [];

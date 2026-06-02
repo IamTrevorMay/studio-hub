@@ -149,7 +149,8 @@ Only return valid JSON, no markdown code fences or extra text.`;
 
       if (!resp.ok) {
         const errText = await resp.text();
-        return jsonResp({ error: `Claude API ${resp.status}: ${errText.slice(0, 300)}` }, 502);
+        console.error(`Claude API ${resp.status} preview-report:`, errText.slice(0, 500));
+        return jsonResp({ error: `Claude API error (${resp.status})` }, 502);
       }
 
       const data = await resp.json();

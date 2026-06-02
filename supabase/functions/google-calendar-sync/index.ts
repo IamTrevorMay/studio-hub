@@ -158,6 +158,12 @@ Deno.serve(async (req: Request) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    if (typeof event_id !== "string" || !/^[0-9a-fA-F-]{36}$/.test(event_id)) {
+      return new Response(JSON.stringify({ error: "Invalid event_id" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     const adminClient = createClient(
       Deno.env.get("SUPABASE_URL")!,

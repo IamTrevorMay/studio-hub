@@ -97,7 +97,7 @@ Deno.serve(async (req: Request) => {
     console.error("Gmail auth callback error:", err);
     return new Response(null, {
       status: 302,
-      headers: { Location: `${redirectBase}?gmail_error=${encodeURIComponent(err.message)}` },
+      headers: { Location: `${redirectBase}?gmail_error=oauth_failed` },
     });
   }
 });
