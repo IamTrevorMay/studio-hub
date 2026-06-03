@@ -1,33 +1,42 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { colors, spacing, radii, fontSizes, fontWeights, fontFamily } from '../../../lib/styleTokens';
 import WidgetList from './WidgetList';
 import HistoryPane from './HistoryPane';
 import FilterBar from './FilterBar';
 import PreviewPane from './PreviewPane';
+import { IMAGINE_WIDGETS } from './registry/registry';
 
-// Mock widget catalog for 2B. Replaced in 2C with the real registry ported
-// from Triton's lib/imagine/registry.ts.
-const MOCK_WIDGETS = [
-  { id: 'topFiveLeaderboard', name: 'Top 5 Leaderboard', category: 'Comparisons' },
-  { id: 'playerStats',        name: 'Player Stats',       category: 'Players' },
-  { id: 'teamStats',          name: 'Team Stats',         category: 'Teams' },
-  { id: 'heatMaps',           name: 'Heat Maps',          category: 'Charts' },
-  { id: 'heatMapOverlays',    name: 'Heat Map Overlays',  category: 'Charts' },
-];
+// Categories are inferred from widget id so WidgetList can group. Widgets
+// themselves don't carry a category in the Triton schema.
+const CATEGORY_BY_ID = {
+  topFiveLeaderboard:    'Comparisons',
+  playerStats:           'Players',
+  teamStats:             'Teams',
+  'heat-maps':           'Charts',
+  'heat-map-overlays':   'Charts',
+};
 
 const DEFAULT_SIZE = { width: 1080, height: 1080, label: '1:1 Square' };
 
 export default function Layout({ onBack }) {
+  const widgets = useMemo(
+    () => IMAGINE_WIDGETS.map((w) => ({
+      ...w,
+      category: CATEGORY_BY_ID[w.id] || 'Other',
+    })),
+    [],
+  );
   const [selectedWidgetId, setSelectedWidgetId] = useState(null);
   const [filters, setFilters] = useState({});
   const [size, setSize] = useState(DEFAULT_SIZE);
   const [history, setHistory] = useState([]);  // 2D will populate from edge fn
 
-  const selectedWidget = MOCK_WIDGETS.find((w) => w.id === selectedWidgetId) || null;
+  const selectedWidget = widgets.find((w) => w.id === selectedWidgetId) || null;
 
   function pickWidget(widget) {
     setSelectedWidgetId(widget.id);
-    setFilters({});  // 2C will seed from widget.defaultFilters
+    setFilters(widget.defaultFilters || {});
+    if (widget.defaultSize) setSize(widget.defaultSize);
   }
 
   return (
@@ -39,13 +48,13 @@ export default function Layout({ onBack }) {
           </svg>
         </button>
         <span style={styles.headerTitle}>Graphics</span>
-        <span style={styles.headerBadge}>Phase 2 — UI skeleton</span>
+        <span style={styles.headerBadge}>Phase 2C — widget registry wired</span>
       </header>
 
       <div style={styles.body}>
         <aside style={styles.leftRail}>
           <WidgetList
-            widgets={MOCK_WIDGETS}
+            widgets={widgets}
             selectedId={selectedWidgetId}
             onPick={pickWidget}
           />
