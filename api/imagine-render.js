@@ -234,7 +234,7 @@ module.exports = async (req, res) => {
   res.status(200);
   res.setHeader('Content-Type', 'image/png');
   res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('x-imagine-renderer', 'napi-2f5');
+  res.setHeader('x-imagine-renderer', 'napi-2f6');
   res.setHeader('x-imagine-widget', widget_id);
   res.end(pngBytes);
 };

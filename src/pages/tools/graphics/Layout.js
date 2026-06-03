@@ -77,10 +77,35 @@ export default function Layout({ onBack }) {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) throw new Error('Not authenticated');
-        // Renderer is a Vercel Node serverless fn (api/imagine-render.js).
-        // Same-origin in production; on `npm start` it'll 404 since CRA's
-        // dev server doesn't run Vercel functions — use `vercel dev` or
-        // test against a preview deploy.
+
+        // 2F.6: run the widget's fetchData + buildScene in the browser so
+        // the Vercel renderer fn stays a pure Scene → PNG translator.
+        // Widget fetchData targets Triton's Next routes (scene-stats /
+        // league-baseline / heatmap-data) — those are the system of record
+        // for player stats; we proxy at the data layer rather than copy
+        // the schemas. The renderer fn ignores widget_id when a `scene`
+        // is present in the body and just renders it.
+        const tritonOrigin = process.env.REACT_APP_TRITON_ORIGIN
+          || 'https://www.tritonapex.io';
+        let scene = null;
+        if (typeof selectedWidget.fetchData === 'function'
+          && typeof selectedWidget.buildScene === 'function') {
+          let data;
+          try {
+            data = await selectedWidget.fetchData(filters, tritonOrigin);
+          } catch (err) {
+            throw new Error(`Widget data fetch failed: ${err.message || err}`);
+          }
+          if (cancelled) return;
+          try {
+            scene = selectedWidget.buildScene(filters, data, size);
+          } catch (err) {
+            throw new Error(`Widget buildScene failed: ${err.message || err}`);
+          }
+        }
+        // If buildScene didn't run (widget shape doesn't match), the renderer
+        // will fall back to its built-in demo scene so the UI still shows
+        // something.
         const res = await fetch('/api/imagine-render', {
           method: 'POST',
           headers: {
@@ -91,6 +116,7 @@ export default function Layout({ onBack }) {
             widget_id: selectedWidget.id,
             filters,
             size,
+            scene,
           }),
         });
         if (!res.ok) {
@@ -145,7 +171,7 @@ export default function Layout({ onBack }) {
           </svg>
         </button>
         <span style={styles.headerTitle}>Graphics</span>
-        <span style={styles.headerBadge}>Phase 2F.5 — heatmap + zone + movement</span>
+        <span style={styles.headerBadge}>Phase 2F.6 — widget data flow wired</span>
       </header>
 
       <div style={styles.body}>
