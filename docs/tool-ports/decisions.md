@@ -130,6 +130,22 @@ Deferred:
 - **Emails**: dual-run with Triton for 30 days so in-flight tracking
   pixels and Resend webhook hits continue to land somewhere. Hard cutover
   of new outbound sends to Mayday on deploy day.
+  - Triton-side: leave the existing newsletter scheduled-send cron + the
+    `/api/emails/track`, `/api/emails/webhook`, `/api/emails/unsubscribe`
+    routes online (read-only-ish — they still record events, but no new
+    sends originate). After 30 days, decommission them in one PR.
+  - Mayday-side: enable the new `mailer-drain-scheduled-sends` pg_cron
+    (`supabase/migrations/20260603200100_cron_mailer_drain.sql`) only
+    after swapping `<MAYDAY_VERCEL_HOST>` + `<CRON_SECRET>` placeholders,
+    point Resend webhook URL to the Mayday handler, and run a manual
+    Triton subscriber pull into a Mayday audience (CSV export from
+    Triton dashboard, then bulk-import in the Audiences panel — or set
+    `TRITON_SUPABASE_URL/KEY` env + use the Mailer's "Pull from Triton"
+    button).
+  - Verification before disabling Triton: send one campaign each from
+    both systems to a small internal audience, confirm both sides record
+    open/click events, then schedule the Triton decommission for
+    2026-07-03 (30 days post-cutover).
 - **Broadcast**: no live shows in next 2 weeks — free cutover window.
 - **Report Cards / Imagine**: no live cutover risk.
 
