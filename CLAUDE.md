@@ -71,6 +71,11 @@ supabase/
 ### Dashboard Widgets
 - "Do this more" widget (admin-only): tracks daily IG story posting goals via `metricool-stories` edge function + `admin_goals` table. Refreshes every 30s. Shows 7-day progress bars with green checkmarks when goal is met.
 
+## Known Issues
+- **sync-youtube is broken for More Mayday channel.** Runs successfully (status "success", processes 167 records) but hasn't picked up any new videos since May 5, 2026. The YouTube uploads playlist fetch appears stale — returning the same 167 video IDs every run with 0 new records created. All content_items counts for More Mayday after May 5 are wrong/missing, cascading to incorrect Goals page monthly results. Needs investigation in `supabase/functions/sync-youtube/index.ts` — likely the uploads playlist ID is cached or the API key/quota is exhausted.
+- **"Total Short Form Posts" monthly goal misconfigured.** Only has TikTok account ID (which has a placeholder external_id). Needs YouTube + Instagram account IDs added to its `platform_account_ids`.
+- **Goals page fixes staged but not deployed:** (1) added `'reel'` to short-form content_type filter in `fetchMonthlyProgress`, (2) added missing auth header to `metricool-posts` fetch (was always 401), (3) added channel names to Monthly Results section.
+
 ## Important Notes
 - Pages are large single-file components (100-200KB) — read specific line ranges, not whole files
 - `node_modules/` changes in git status are normal (local package drift) — do not commit them

@@ -391,8 +391,10 @@ export default function Goals() {
       try {
         const startStr = `${year}-01-01T00:00:00`;
         const endStr = `${year}-12-31T23:59:59`;
+        const { data: { session: mcSession } } = await supabase.auth.getSession();
         const res = await fetch(
-          `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/metricool-posts?start=${startStr}&end=${endStr}`
+          `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/metricool-posts?start=${startStr}&end=${endStr}`,
+          { headers: { Authorization: `Bearer ${mcSession?.access_token}`, apikey: process.env.REACT_APP_SUPABASE_ANON_KEY } }
         );
         if (res.ok) {
           const { posts } = await res.json();
@@ -420,7 +422,7 @@ export default function Goals() {
         if (mg.content_type_filter === 'video') {
           return item.content_type === 'video' && (item.duration_seconds || 0) > LONGFORM_THRESHOLD;
         }
-        return item.content_type === 'short' || (item.content_type === 'video' && (item.duration_seconds || 0) <= LONGFORM_THRESHOLD);
+        return item.content_type === 'short' || item.content_type === 'reel' || (item.content_type === 'video' && (item.duration_seconds || 0) <= LONGFORM_THRESHOLD);
       });
       const byMonth = {};
       for (const item of filtered) {
@@ -1169,6 +1171,10 @@ export default function Goals() {
                 const createdYear = createdDate.getFullYear();
                 const progress = monthlyProgress[mg.id] || {};
                 const contentLabel = mg.content_type_filter === 'video' ? 'Video' : 'Short';
+                const acctNames = (mg.platform_account_ids || []).map(id => {
+                  const acct = accounts.find(a => a.id === id);
+                  return acct ? acct.account_name : null;
+                }).filter(Boolean);
                 const months = [];
                 for (let m = 0; m < currentMonthIdx; m++) {
                   if (createdYear === year && m < createdMonthIdx) continue;
@@ -1188,7 +1194,7 @@ export default function Goals() {
                   <div key={mg.id} style={styles.resultsRow}>
                     <div style={styles.resultsLabel}>
                       <span style={styles.resultsGoalTitle}>{mg.title}</span>
-                      <span style={styles.resultsGoalMeta}>{contentLabel} · {mg.target_value}/mo</span>
+                      <span style={styles.resultsGoalMeta}>{contentLabel} · {mg.target_value}/mo{acctNames.length > 0 ? ` · ${acctNames.join(', ')}` : ''}</span>
                     </div>
                     <div style={styles.resultsMonths}>
                       {months.map(m => (
