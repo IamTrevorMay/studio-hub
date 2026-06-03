@@ -28,7 +28,32 @@ export const ROLE_RESTRICTED_NAV_KEYS = {
     'accounting',
     'admin',
   ]),
+  // Producer: member-tier visibility + Broadcast access only. Mirrors
+  // freelancer-style restriction but keeps the broadcast nav row visible.
+  producer: new Set([
+    'payroll',
+    'business_dev',
+    'workflows',
+    'accounting',
+    'admin',
+    'contractors',
+    'jobs',
+    'analytics',
+  ]),
 };
+
+// Roles that can access Broadcast (the per-project ACL is enforced at
+// the DB layer; this is just the gate that opens the nav row).
+export const BROADCAST_TIER_ROLES = new Set([
+  'admin',
+  'director_creative',
+  'director_comms',
+  'producer',
+]);
+
+export function canAccessBroadcast(role) {
+  return BROADCAST_TIER_ROLES.has(role);
+}
 
 export function getRestrictedNavKeys(role) {
   return ROLE_RESTRICTED_NAV_KEYS[role] || new Set();

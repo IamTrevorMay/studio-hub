@@ -1,0 +1,67 @@
+{
+  "SDKVersion": 2,
+  "Author": "Mayday Studio",
+  "CodePath": "bin/plugin.js",
+  "Description": "Control Mayday Broadcast overlays from your Stream Deck. One key per asset; press toggles show/hide via the broadcast trigger API.",
+  "Name": "Mayday Broadcast",
+  "Icon": "images/plugin-icon",
+  "URL": "https://github.com/IamTrevorMay/studio-hub",
+  "Version": "1.0.0",
+  "OS": [
+    { "Platform": "mac", "MinimumVersion": "10.15" },
+    { "Platform": "windows", "MinimumVersion": "10" }
+  ],
+  "Software": {
+    "MinimumVersion": "6.0"
+  },
+  "Category": "Mayday Broadcast",
+  "CategoryIcon": "images/category-icon",
+  "Actions": [
+    {
+      "Icon": "images/toggle-asset",
+      "Name": "Toggle Asset",
+      "States": [
+        { "Image": "images/asset-off", "TitleAlignment": "bottom", "FontSize": "10" },
+        { "Image": "images/asset-on",  "TitleAlignment": "bottom", "FontSize": "10" }
+      ],
+      "Tooltip": "Show/hide a broadcast asset",
+      "UUID": "com.mayday.broadcast.toggle-asset",
+      "PropertyInspectorPath": "ui/property-inspector.html",
+      "SupportedInMultiActions": true
+    },
+    {
+      "Icon": "images/play-video",
+      "Name": "Play Video",
+      "States": [
+        { "Image": "images/video-off", "TitleAlignment": "bottom", "FontSize": "10" },
+        { "Image": "images/video-on",  "TitleAlignment": "bottom", "FontSize": "10" }
+      ],
+      "Tooltip": "Toggle visibility of a video asset",
+      "UUID": "com.mayday.broadcast.play-video",
+      "PropertyInspectorPath": "ui/property-inspector.html",
+      "SupportedInMultiActions": true
+    },
+    {
+      "Icon": "images/slideshow-next",
+      "Name": "Slideshow Next",
+      "States": [
+        { "Image": "images/slideshow-next", "TitleAlignment": "bottom", "FontSize": "10" }
+      ],
+      "Tooltip": "Advance the currently-visible slideshow to the next slide",
+      "UUID": "com.mayday.broadcast.slideshow-next",
+      "PropertyInspectorPath": "ui/property-inspector.html",
+      "SupportedInMultiActions": true
+    },
+    {
+      "Icon": "images/slideshow-prev",
+      "Name": "Slideshow Prev",
+      "States": [
+        { "Image": "images/slideshow-prev", "TitleAlignment": "bottom", "FontSize": "10" }
+      ],
+      "Tooltip": "Rewind the currently-visible slideshow to the previous slide",
+      "UUID": "com.mayday.broadcast.slideshow-prev",
+      "PropertyInspectorPath": "ui/property-inspector.html",
+      "SupportedInMultiActions": true
+    }
+  ]
+}
