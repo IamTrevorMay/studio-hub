@@ -140,6 +140,7 @@ export default function Dashboard({ onNavigate }) {
   const [oooEndDate, setOooEndDate] = useState('');
   const [oooSubmitting, setOooSubmitting] = useState(false);
   const [pendingOooRequests, setPendingOooRequests] = useState([]);
+  const [oooProcessingId, setOooProcessingId] = useState(null);
   const [approvedOooToday, setApprovedOooToday] = useState([]);
 
   // Stage tasks state
@@ -919,7 +920,8 @@ export default function Dashboard({ onNavigate }) {
   }
 
   async function handleOooDecision(request, decision) {
-    if (!profile?.id) return;
+    if (!profile?.id || oooProcessingId) return;
+    setOooProcessingId(request.id);
     try {
       if (decision === 'approved') {
         // Create calendar event for the OOO period
@@ -967,6 +969,8 @@ export default function Dashboard({ onNavigate }) {
       fetchOooRequests();
     } catch (err) {
       console.error('Error handling OOO decision:', err);
+    } finally {
+      setOooProcessingId(null);
     }
   }
 
@@ -1724,28 +1728,35 @@ export default function Dashboard({ onNavigate }) {
                     <div style={{ fontSize: '13px', fontWeight: 600, color: '#e2e8f0' }}>
                       {req.requester?.full_name || 'Unknown'}
                     </div>
+                    <div style={{ fontSize: '11px', color: '#f97316', fontWeight: 600, marginTop: '2px' }}>
+                      Out of Office
+                    </div>
                     <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)' }}>
                       {startFmt} {'\u2013'} {endFmt}
                     </div>
                   </div>
                   <button
                     onClick={() => handleOooDecision(req, 'approved')}
+                    disabled={!!oooProcessingId}
                     style={{
                       padding: '5px 12px', borderRadius: '6px',
                       border: '1px solid rgba(34,197,94,0.3)',
                       background: 'rgba(34,197,94,0.1)', color: '#22c55e',
-                      fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                      fontSize: '11px', fontWeight: 600, cursor: oooProcessingId ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
+                      opacity: oooProcessingId ? 0.5 : 1,
                     }}
                   >
-                    Approve
+                    {oooProcessingId === req.id ? 'Approving...' : 'Approve'}
                   </button>
                   <button
                     onClick={() => handleOooDecision(req, 'rejected')}
+                    disabled={!!oooProcessingId}
                     style={{
                       padding: '5px 12px', borderRadius: '6px',
                       border: '1px solid rgba(239,68,68,0.3)',
                       background: 'rgba(239,68,68,0.1)', color: '#ef4444',
-                      fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                      fontSize: '11px', fontWeight: 600, cursor: oooProcessingId ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
+                      opacity: oooProcessingId ? 0.5 : 1,
                     }}
                   >
                     Decline
