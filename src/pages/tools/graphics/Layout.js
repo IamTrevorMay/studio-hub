@@ -145,7 +145,7 @@ export default function Layout({ onBack }) {
           </svg>
         </button>
         <span style={styles.headerTitle}>Graphics</span>
-        <span style={styles.headerBadge}>Phase 2F.2 — text + shape renderer</span>
+        <span style={styles.headerBadge}>Phase 2F.3 — stat-card + rc-stat-box + player-image</span>
       </header>
 
       <div style={styles.body}>

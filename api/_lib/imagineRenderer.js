@@ -6,8 +6,11 @@
 //
 // 2F.2 covers: scene loop wrapper, font registration, drawUniversalBg
 // (shape element), drawUniversalBorder, text element with word-wrap and
-// auto-shrink-to-fit. Other element types render as a universal-bg
-// fallback for now; their per-type drawX fns land in 2F.3..2F.5.
+// auto-shrink-to-fit.
+// 2F.3 adds: player-image (with headshot fetch + cover-fit clip), stat-card,
+// rc-stat-box. Other element types render as a universal-bg fallback until
+// 2F.4 (rc-table, rc-bar-chart, rc-donut-chart, rc-statline) and 2F.5
+// (rc-heatmap, rc-zone-plot, rc-movement-plot).
 //
 // Underscore prefix on the dir name (_lib) tells Vercel "this is a helper,
 // not an endpoint" so it doesn't get exposed as /api/_lib/imagineRenderer.
@@ -180,16 +183,171 @@ function drawText(ctx, el) {
   }
 }
 
-// ── Per-element dispatch (2F.3..2F.5 will replace the default fallback
-// with real drawX fns for stat-card, rc-stat-box, player-image, charts,
-// heatmaps, etc.) ────────────────────────────────────────────────────────
-async function drawElement(ctx, el) {
+// ── Image helper (used by player-image) ─────────────────────────────────
+async function fetchImage(url, loadImage) {
+  try {
+    const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!resp.ok) return null;
+    const buf = Buffer.from(await resp.arrayBuffer());
+    return await loadImage(buf);
+  } catch {
+    return null;
+  }
+}
+
+// ── player-image (headshot + optional name label) ───────────────────────
+async function drawPlayerImage(ctx, el, loadImage) {
+  const p = el.props || {};
+  const { x, y, width: w, height: h } = el;
+  const imgH = p.showLabel && p.playerName ? h - 28 : h;
+  const radius = p.borderRadius != null ? p.borderRadius : 12;
+
+  ctx.save();
+
+  if (p.borderWidth > 0) {
+    ctx.strokeStyle = p.borderColor || '#ffffff';
+    ctx.lineWidth = p.borderWidth;
+    roundRect(ctx, x, y, w, imgH, radius);
+    ctx.stroke();
+  }
+
+  if (p.customImageUrl || p.playerId) {
+    const imgUrl = p.customImageUrl
+      || `https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_213,q_auto:best/v1/people/${p.playerId}/headshot/67/current`;
+    const img = await fetchImage(imgUrl, loadImage);
+    if (img) {
+      ctx.save();
+      roundRect(ctx, x + 1, y + 1, w - 2, imgH - 2, Math.max(0, radius - 1));
+      ctx.clip();
+      // Cover fit: crop source so aspect matches box, then drawImage stretched.
+      const imgRatio = img.width / img.height;
+      const boxRatio = w / imgH;
+      let sx = 0, sy = 0, sw = img.width, sh = img.height;
+      if (imgRatio > boxRatio) {
+        sw = img.height * boxRatio;
+        sx = (img.width - sw) / 2;
+      } else {
+        sh = img.width / boxRatio;
+        sy = (img.height - sh) / 2;
+      }
+      ctx.drawImage(img, sx, sy, sw, sh, x, y, w, imgH);
+      ctx.restore();
+    } else {
+      // Fetch failed — render a neutral fill so the slot doesn't go blank.
+      ctx.fillStyle = '#27272a';
+      roundRect(ctx, x + 1, y + 1, w - 2, imgH - 2, Math.max(0, radius - 1));
+      ctx.fill();
+    }
+  }
+
+  if (p.showLabel && p.playerName) {
+    ctx.font = `500 13px ${FONT()}`;
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(p.playerName, x + w / 2, y + imgH + 14);
+  }
+
+  ctx.restore();
+}
+
+// ── rc-stat-box (Report Card stat box) ──────────────────────────────────
+function drawRCStatBox(ctx, el) {
+  const p = el.props || {};
+  const { x, y, width: w, height: h } = el;
+  const radius = p.borderRadius != null ? p.borderRadius : 12;
+  const color = p.color || '#06b6d4';
+  const pad = 16;
+
+  ctx.save();
+  ctx.fillStyle = p.bgColor || 'rgba(255,255,255,0.04)';
+  roundRect(ctx, x, y, w, h, radius);
+  ctx.fill();
+
+  // Accent bar
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y + 10, 3, h - 20);
+
+  const labelSize = Math.max(10, (p.fontSize || 44) * 0.28);
+  ctx.font = `600 ${labelSize}px ${FONT()}`;
+  ctx.fillStyle = '#a1a1aa';
+  ctx.textBaseline = 'top';
+  ctx.textAlign = 'left';
+  ctx.fillText((p.label || 'Stat').toUpperCase(), x + pad, y + pad);
+
+  ctx.font = `bold ${p.fontSize || 44}px ${FONT()}`;
+  ctx.fillStyle = color;
+  ctx.fillText(String(p.value != null ? p.value : '--'), x + pad, y + pad + labelSize + 4);
+  ctx.restore();
+}
+
+// ── stat-card (Scene Composer variant: transparent-by-default + sublabel) ─
+function drawStatCard(ctx, el) {
+  const p = el.props || {};
+  const { x, y, width: w, height: h } = el;
+  const radius = p.borderRadius != null ? p.borderRadius : 12;
+  const color = p.color || '#06b6d4';
+  const bg = p.bgColor || 'transparent';
+  const pad = 14;
+
+  ctx.save();
+  if (bg && bg !== 'transparent') {
+    ctx.fillStyle = bg;
+    roundRect(ctx, x, y, w, h, radius);
+    ctx.fill();
+  }
+  if (p.borderWidth > 0) {
+    ctx.strokeStyle = p.borderColor || color;
+    ctx.lineWidth = p.borderWidth;
+    roundRect(ctx, x, y, w, h, radius);
+    ctx.stroke();
+  }
+
+  const valueSize = p.fontSize || 44;
+  const labelSize = Math.max(10, valueSize * 0.28);
+  const sublabelSize = Math.max(10, valueSize * 0.24);
+  const hasSublabel = !!p.sublabel;
+  const valueText = String(p.value != null ? p.value : '--');
+  const labelText = (p.label || '').toUpperCase();
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+
+  ctx.font = `600 ${labelSize}px ${FONT()}`;
+  ctx.fillStyle = '#a1a1aa';
+  ctx.fillText(labelText, x + pad, y + pad);
+
+  ctx.font = `bold ${valueSize}px ${FONT()}`;
+  ctx.fillStyle = color;
+  ctx.fillText(valueText, x + pad, y + pad + labelSize + 4);
+
+  if (hasSublabel) {
+    ctx.font = `400 ${sublabelSize}px ${FONT()}`;
+    ctx.fillStyle = '#71717a';
+    ctx.fillText(String(p.sublabel), x + pad, y + pad + labelSize + 4 + valueSize + 4);
+  }
+
+  ctx.restore();
+}
+
+// ── Per-element dispatch (2F.4..2F.5 will add the remaining drawX fns
+// for tables, charts, heatmaps). ────────────────────────────────────────
+async function drawElement(ctx, el, deps) {
   switch (el.type) {
     case 'shape':
       drawUniversalBg(ctx, el);
       return;
     case 'text':
       drawText(ctx, el);
+      return;
+    case 'player-image':
+      await drawPlayerImage(ctx, el, deps.loadImage);
+      return;
+    case 'rc-stat-box':
+      drawRCStatBox(ctx, el);
+      return;
+    case 'stat-card':
+      drawStatCard(ctx, el);
       return;
     default:
       // Until the per-element fns land, render anything else as a generic
@@ -200,7 +358,7 @@ async function drawElement(ctx, el) {
 }
 
 // ── Scene loop ──────────────────────────────────────────────────────────
-async function renderSceneToPNG(scene, { createCanvas, GlobalFonts }) {
+async function renderSceneToPNG(scene, { createCanvas, GlobalFonts, loadImage }) {
   await ensureFont(GlobalFonts);
 
   const canvas = createCanvas(scene.width, scene.height);
@@ -235,7 +393,7 @@ async function renderSceneToPNG(scene, { createCanvas, GlobalFonts }) {
       ctx.shadowOffsetY = p.shadowOffsetY || 0;
     }
 
-    await drawElement(ctx, el);
+    await drawElement(ctx, el, { loadImage });
 
     // Reset shadow so the border below isn't shadowed.
     ctx.shadowColor = 'transparent';
@@ -252,12 +410,16 @@ async function renderSceneToPNG(scene, { createCanvas, GlobalFonts }) {
 
 module.exports = {
   renderSceneToPNG,
-  // exported for 2F.3+ sub-modules to reuse
+  // exported for 2F.4+ sub-modules to reuse
   roundRect,
   applyBgFillStyle,
   drawUniversalBg,
   drawUniversalBorder,
   drawText,
+  drawPlayerImage,
+  drawRCStatBox,
+  drawStatCard,
+  fetchImage,
   FONT,
   ensureFont,
 };

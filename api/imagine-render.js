@@ -17,7 +17,7 @@
 //   { widget_id, filters, size: {width, height, label}, scene?: Scene }
 // Output (200): image/png bytes. Headers expose x-imagine-renderer.
 
-const { createCanvas, GlobalFonts } = require('@napi-rs/canvas');
+const { createCanvas, GlobalFonts, loadImage } = require('@napi-rs/canvas');
 const { createClient } = require('@supabase/supabase-js');
 const { renderSceneToPNG } = require('./_lib/imagineRenderer');
 
@@ -27,6 +27,15 @@ function json(res, status, body) {
 }
 
 function buildDemoScene(widgetId, width, height) {
+  // 2F.3 demo: exercises shape + text (from 2F.2) plus the three new
+  // element types — rc-stat-box and stat-card. player-image is left off
+  // by default to keep the demo fast (it fetches a real MLB headshot);
+  // set Pose a sample `player-image` element from a test scene to verify
+  // that path.
+  const cardW = (width - 96) / 2;
+  const cardH = height * 0.18;
+  const cardY = height * 0.7;
+
   return {
     id: 'demo',
     name: `${widgetId} demo`,
@@ -54,13 +63,13 @@ function buildDemoScene(widgetId, width, height) {
         id: 'title',
         type: 'text',
         x: 48,
-        y: height * 0.32,
+        y: height * 0.18,
         width: width - 96,
-        height: height * 0.18,
+        height: height * 0.16,
         zIndex: 2,
         props: {
           text: widgetId,
-          fontSize: Math.round(height * 0.12),
+          fontSize: Math.round(height * 0.11),
           fontWeight: 700,
           color: '#ffffff',
           textAlign: 'center',
@@ -72,13 +81,13 @@ function buildDemoScene(widgetId, width, height) {
         id: 'subtitle',
         type: 'text',
         x: 48,
-        y: height * 0.52,
+        y: height * 0.36,
         width: width - 96,
-        height: height * 0.08,
+        height: height * 0.07,
         zIndex: 3,
         props: {
-          text: `${width} × ${height} · 2F.2 demo scene`,
-          fontSize: Math.round(height * 0.035),
+          text: `${width} × ${height} · 2F.3 demo scene`,
+          fontSize: Math.round(height * 0.032),
           fontWeight: 400,
           color: 'rgba(255,255,255,0.6)',
           textAlign: 'center',
@@ -88,17 +97,54 @@ function buildDemoScene(widgetId, width, height) {
         id: 'body',
         type: 'text',
         x: 64,
-        y: height * 0.66,
+        y: height * 0.46,
         width: width - 128,
-        height: height * 0.2,
+        height: height * 0.18,
         zIndex: 4,
         props: {
-          text: 'Scene loop, shape, and text rendering live. Widget data + buildScene wiring lands in 2F.6; chart and player-image renderers in 2F.3 through 2F.5.',
-          fontSize: Math.round(height * 0.025),
+          text: 'Scene loop + shape + text from 2F.2. New in 2F.3: rc-stat-box and stat-card below, plus player-image (off by default — needs a real player id).',
+          fontSize: Math.round(height * 0.022),
           fontWeight: 400,
-          color: 'rgba(255,255,255,0.72)',
+          color: 'rgba(255,255,255,0.7)',
           textAlign: 'center',
           lineHeight: 1.5,
+        },
+      },
+      {
+        id: 'rc-box',
+        type: 'rc-stat-box',
+        x: 48,
+        y: cardY,
+        width: cardW,
+        height: cardH,
+        zIndex: 5,
+        props: {
+          label: 'rc-stat-box',
+          value: '2.41',
+          fontSize: Math.round(cardH * 0.42),
+          color: '#06b6d4',
+          bgColor: 'rgba(255,255,255,0.04)',
+          borderRadius: 16,
+        },
+      },
+      {
+        id: 'stat-card',
+        type: 'stat-card',
+        x: width / 2 + 24,
+        y: cardY,
+        width: cardW,
+        height: cardH,
+        zIndex: 5,
+        props: {
+          label: 'stat-card',
+          value: '+1.7%',
+          sublabel: 'vs league avg',
+          fontSize: Math.round(cardH * 0.4),
+          color: '#a5b4fc',
+          bgColor: 'rgba(99,102,241,0.08)',
+          borderColor: 'rgba(99,102,241,0.4)',
+          borderWidth: 1,
+          borderRadius: 16,
         },
       },
     ],
@@ -145,7 +191,7 @@ module.exports = async (req, res) => {
 
   let pngBytes;
   try {
-    pngBytes = await renderSceneToPNG(scene, { createCanvas, GlobalFonts });
+    pngBytes = await renderSceneToPNG(scene, { createCanvas, GlobalFonts, loadImage });
   } catch (err) {
     console.error('renderSceneToPNG failed:', err);
     json(res, 500, { error: `Render failed: ${err.message}` });
@@ -155,7 +201,7 @@ module.exports = async (req, res) => {
   res.status(200);
   res.setHeader('Content-Type', 'image/png');
   res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('x-imagine-renderer', 'napi-2f2');
+  res.setHeader('x-imagine-renderer', 'napi-2f3');
   res.setHeader('x-imagine-widget', widget_id);
   res.end(pngBytes);
 };
