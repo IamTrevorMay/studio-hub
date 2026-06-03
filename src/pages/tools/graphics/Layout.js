@@ -18,6 +18,68 @@ const CATEGORY_BY_ID = {
 };
 
 const DEFAULT_SIZE = { width: 1080, height: 1080, label: '1:1 Square' };
+function slugify(s) {
+  return (s || 'graphics')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 80) || 'graphics';
+}
+
+// Try the File System Access API first (Chromium); fall back to a
+// classic anchor-click download in browsers without it (Safari/Firefox)
+// or when the user denies the prompt.
+async function savePngToDisk(blob, filename) {
+  if (typeof window !== 'undefined' && typeof window.showSaveFilePicker === 'function') {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{ description: 'PNG image', accept: { 'image/png': ['.png'] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return;
+    } catch (err) {
+      if (err && err.name === 'AbortError') return; // user dismissed
+      // any other failure: fall through to anchor download
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+// Downscale the full-res blob into a small thumbnail data URL that the
+// imagine-history edge fn will upload to the imagine-thumbnails bucket.
+async function makeThumbnailDataUrl(blob, maxDim) {
+  const objUrl = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error('thumbnail image load failed'));
+      i.src = objUrl;
+    });
+    const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+    const w = Math.max(1, Math.round(img.width * scale));
+    const h = Math.max(1, Math.round(img.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, w, h);
+    return canvas.toDataURL('image/png');
+  } finally {
+    URL.revokeObjectURL(objUrl);
+  }
+}
+
 const DEFAULT_SIZE_PRESETS = [
   { width: 1080, height: 1080, label: '1:1 Square' },
   { width: 1080, height: 1920, label: '9:16 Story' },
@@ -42,6 +104,7 @@ export default function Layout({ onBack }) {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState(null);
   const [previewIsStub, setPreviewIsStub] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const selectedWidget = widgets.find((w) => w.id === selectedWidgetId) || null;
 
@@ -168,6 +231,45 @@ export default function Layout({ onBack }) {
     };
   }, [selectedWidget, filters, size]);
 
+  // ── Export flow (2I) ─────────────────────────────────────────────
+  // 1. Pull the full-res PNG out of the current previewUrl blob.
+  // 2. Save to disk via showSaveFilePicker (Chromium) or anchor-download.
+  // 3. Downscale to a ~400-px thumbnail data URL.
+  // 4. POST { widget_id, title, filters, size, thumbnail_data_url } to
+  //    imagine-history; refresh the history list on success.
+  async function handleExport() {
+    if (!selectedWidget || !previewUrl || previewLoading || exporting) return;
+    setExporting(true);
+    setPreviewError(null);
+    try {
+      const title = (typeof selectedWidget.autoTitle === 'function'
+        ? selectedWidget.autoTitle(filters) : null) || selectedWidget.name;
+      const stem = (typeof selectedWidget.autoFilename === 'function'
+        ? selectedWidget.autoFilename(filters) : null) || slugify(title);
+
+      const blob = await fetch(previewUrl).then((r) => r.blob());
+      await savePngToDisk(blob, `${stem}.png`);
+      const thumbDataUrl = await makeThumbnailDataUrl(blob, 400);
+
+      const { error } = await supabase.functions.invoke('imagine-history', {
+        method: 'POST',
+        body: {
+          widget_id: selectedWidget.id,
+          title,
+          filters,
+          size,
+          thumbnail_data_url: thumbDataUrl,
+        },
+      });
+      if (error) throw new Error(error.message || 'History save failed');
+      await refreshHistory();
+    } catch (err) {
+      setPreviewError(err.message || String(err));
+    } finally {
+      setExporting(false);
+    }
+  }
+
   async function deleteHistoryRow(row) {
     setHistory((h) => h.filter((r) => r.id !== row.id));  // optimistic
     const { error } = await supabase.functions.invoke(
@@ -189,7 +291,7 @@ export default function Layout({ onBack }) {
           </svg>
         </button>
         <span style={styles.headerTitle}>Graphics</span>
-        <span style={styles.headerBadge}>Phase 2G — heatmap data proxies</span>
+        <span style={styles.headerBadge}>Phase 2I — export + history</span>
       </header>
 
       <div style={styles.body}>
@@ -232,13 +334,9 @@ export default function Layout({ onBack }) {
             size={size}
             onSizeChange={setSize}
             sizePresets={(selectedWidget && selectedWidget.sizePresets) || DEFAULT_SIZE_PRESETS}
-            onExport={() => {
-              // 2I wires this to imagine-history POST + thumbnail upload +
-              // showSaveFilePicker. Stub today.
-              window.alert('Export — lands in step 2I.');
-            }}
-            exportDisabled={!previewUrl || previewLoading}
-            exporting={false}
+            onExport={handleExport}
+            exportDisabled={!previewUrl || previewLoading || exporting}
+            exporting={exporting}
           />
         </aside>
       </div>
