@@ -69,7 +69,7 @@ const NAV_ITEMS = [
   { key: 'telestration', label: 'Telestrator', icon: ToolsIcon },
   { key: 'post_show', label: 'Clipping Tool', icon: ToolsIcon },
   { key: 'timeline', label: 'Timeline', icon: ToolsIcon },
-  { key: 'report_cards', label: 'Report Cards', icon: ToolsIcon, adminOnly: true },
+  { key: 'report_cards', label: 'Report Cards', icon: ToolsIcon },
   { key: 'mailer', label: 'Mailer', icon: ToolsIcon, adminOnly: true },
   { key: 'graphics', label: 'Graphics', icon: ToolsIcon },
   { key: 'asset_designer', label: 'Asset Designer', icon: ToolsIcon, adminOnly: true },
