@@ -1,0 +1,190 @@
+{
+  "header": {
+    "type": "header",
+    "label": "Header",
+    "category": "content",
+    "icon": "PanelTop",
+    "description": "Email header with banner/logo/text",
+    "defaultConfig": {
+      "style": "text",
+      "bannerUrl": "",
+      "logoUrl": "",
+      "title": "",
+      "subtitle": "",
+      "showDate": true
+    },
+    "supportsBinding": false
+  },
+  "footer": {
+    "type": "footer",
+    "label": "Footer",
+    "category": "content",
+    "icon": "PanelBottom",
+    "description": "Unsubscribe link + branding footer",
+    "defaultConfig": {
+      "text": "",
+      "showUnsubscribe": true,
+      "showBranding": true
+    },
+    "supportsBinding": false
+  },
+  "rich-text": {
+    "type": "rich-text",
+    "label": "Rich Text",
+    "category": "content",
+    "icon": "Type",
+    "description": "HTML content block",
+    "defaultConfig": {
+      "html": "<p style=\"color:#e5e7eb;font-size:14px;margin:0;\">Enter text here...</p>"
+    },
+    "supportsBinding": false
+  },
+  "image": {
+    "type": "image",
+    "label": "Image",
+    "category": "content",
+    "icon": "Image",
+    "description": "Full-width or constrained image",
+    "defaultConfig": {
+      "src": "",
+      "alt": "",
+      "width": "100%",
+      "linkUrl": "",
+      "borderRadius": 8
+    },
+    "supportsBinding": false
+  },
+  "button": {
+    "type": "button",
+    "label": "Button",
+    "category": "content",
+    "icon": "MousePointerClick",
+    "description": "Call-to-action button",
+    "defaultConfig": {
+      "text": "Click here",
+      "url": "",
+      "bgColor": "#6366f1",
+      "textColor": "#ffffff",
+      "align": "center",
+      "borderRadius": 6,
+      "fullWidth": false
+    },
+    "supportsBinding": false
+  },
+  "divider": {
+    "type": "divider",
+    "label": "Divider",
+    "category": "content",
+    "icon": "Minus",
+    "description": "Horizontal line separator",
+    "defaultConfig": {
+      "color": "#1f1f33",
+      "thickness": 1,
+      "style": "solid"
+    },
+    "supportsBinding": false
+  },
+  "spacer": {
+    "type": "spacer",
+    "label": "Spacer",
+    "category": "content",
+    "icon": "Space",
+    "description": "Vertical spacing",
+    "defaultConfig": { "height": 24 },
+    "supportsBinding": false
+  },
+  "social-links": {
+    "type": "social-links",
+    "label": "Social Links",
+    "category": "content",
+    "icon": "Share2",
+    "description": "Social media text links",
+    "defaultConfig": {
+      "align": "center",
+      "iconSize": 24,
+      "links": [
+        { "platform": "twitter", "url": "" },
+        { "platform": "instagram", "url": "" },
+        { "platform": "youtube", "url": "" }
+      ]
+    },
+    "supportsBinding": false
+  },
+  "custom-html": {
+    "type": "custom-html",
+    "label": "Custom HTML",
+    "category": "content",
+    "icon": "Code",
+    "description": "Raw HTML for advanced customization",
+    "defaultConfig": { "html": "" },
+    "supportsBinding": false
+  },
+  "rss-card": {
+    "type": "rss-card",
+    "label": "RSS Card",
+    "category": "data",
+    "icon": "Rss",
+    "description": "Latest post from any RSS feed",
+    "defaultConfig": {
+      "showImage": true,
+      "showAuthor": true,
+      "showDescription": true,
+      "ctaText": "Read more →"
+    },
+    "defaultBinding": { "source": "rss", "rssUrl": "" },
+    "supportsBinding": true
+  },
+  "poll": {
+    "type": "poll",
+    "label": "Poll",
+    "category": "interactive",
+    "icon": "BarChart3",
+    "description": "Link-based poll options",
+    "defaultConfig": {
+      "question": "What do you think?",
+      "options": [
+        { "label": "Option A", "url": "" },
+        { "label": "Option B", "url": "" }
+      ]
+    },
+    "supportsBinding": false
+  },
+  "countdown": {
+    "type": "countdown",
+    "label": "Countdown",
+    "category": "interactive",
+    "icon": "Clock",
+    "description": "Countdown timer with target date",
+    "defaultConfig": { "targetDate": "", "label": "Time remaining", "style": "dark" },
+    "supportsBinding": false
+  },
+  "personalization": {
+    "type": "personalization",
+    "label": "Personalization",
+    "category": "interactive",
+    "icon": "UserCheck",
+    "description": "Dynamic text from subscriber fields",
+    "defaultConfig": { "field": "name", "fallback": "there", "template": "Hey {{name}}," },
+    "supportsBinding": false
+  },
+  "columns": {
+    "type": "columns",
+    "label": "Columns",
+    "category": "layout",
+    "icon": "Columns",
+    "description": "2 or 3 column layout with nested blocks",
+    "defaultConfig": { "columnCount": 2, "gap": 16 },
+    "supportsBinding": false,
+    "supportsChildren": true
+  },
+  "section": {
+    "type": "section",
+    "label": "Section",
+    "category": "layout",
+    "icon": "SquareDashedBottom",
+    "description": "Grouped section with optional title",
+    "defaultConfig": { "title": "", "showTitle": true, "background": "" },
+    "supportsBinding": false,
+    "supportsChildren": true
+  }
+}
