@@ -91,14 +91,26 @@ export default function Layout({ onBack }) {
         // for player stats; we proxy at the data layer rather than copy
         // the schemas. The renderer fn ignores widget_id when a `scene`
         // is present in the body and just renders it.
+        //
+        // 2G: for heatmap widgets we route through Mayday's same-origin
+        // Vercel proxies (api/imagine/heatmap-data + api/league-baseline)
+        // because the Triton route uses a long-running RPC against the
+        // `pitches` table that we deliberately don't replicate. For
+        // scene-stats based widgets we still call Triton directly; if
+        // that hits CORS we'll add a scene-stats proxy too.
         const tritonOrigin = process.env.REACT_APP_TRITON_ORIGIN
           || 'https://www.tritonapex.io';
+        const useMaydayProxy = selectedWidget.id === 'heat-maps'
+          || selectedWidget.id === 'heat-map-overlays';
+        const widgetOrigin = useMaydayProxy
+          ? window.location.origin
+          : tritonOrigin;
         let scene = null;
         if (typeof selectedWidget.fetchData === 'function'
           && typeof selectedWidget.buildScene === 'function') {
           let data;
           try {
-            data = await selectedWidget.fetchData(filters, tritonOrigin);
+            data = await selectedWidget.fetchData(filters, widgetOrigin);
           } catch (err) {
             throw new Error(`Widget data fetch failed: ${err.message || err}`);
           }
@@ -177,7 +189,7 @@ export default function Layout({ onBack }) {
           </svg>
         </button>
         <span style={styles.headerTitle}>Graphics</span>
-        <span style={styles.headerBadge}>Phase 2H — player search + heatmap panels</span>
+        <span style={styles.headerBadge}>Phase 2G — heatmap data proxies</span>
       </header>
 
       <div style={styles.body}>
