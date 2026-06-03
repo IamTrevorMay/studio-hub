@@ -103,7 +103,7 @@ const styles = {
   btnRow: { display: 'flex', gap: spacing.xs },
   btn: {
     flex: 1, padding: `${spacing.xs}px ${spacing.sm}px`,
-    color: '#fff', border: 'none', borderRadius: radii.sm,
+    color: colors.text, border: 'none', borderRadius: radii.sm,
     fontSize: fontSizes.xxs, fontWeight: fontWeights.medium, cursor: 'pointer', fontFamily: 'inherit',
   },
   error: { padding: spacing.xs, background: colors.danger.bg, color: colors.danger.fg, borderRadius: radii.sm, fontSize: fontSizes.xxs },

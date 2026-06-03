@@ -5,18 +5,17 @@
 -- status='scheduled' AND scheduled_at <= now() (and stalled status='sending'
 -- rows from a previous run).
 --
--- ── Manual swap required before this becomes active ─────────────────
--- Replace the two placeholders below with the live values, then run
--- this migration via Supabase SQL editor:
---   <MAYDAY_VERCEL_HOST>  → e.g. studio-hub.vercel.app  (no scheme)
---   <CRON_SECRET>          → matches the rotated app secret currently
---                            stored in Vercel env CRON_SECRET
--- ────────────────────────────────────────────────────────────────────
+-- Secret comes from the Supabase Vault (key 'cron_secret') — same
+-- pattern as the other sync-* and run-* crons. Host is hardcoded to
+-- the default Vercel deployment; swap the URL string below if you've
+-- bound a custom domain to the studio-hub project.
+--
+-- Re-running this migration is safe: the schedule is unscheduled first,
+-- then re-created.
 
 create extension if not exists pg_cron with schema pg_catalog;
 create extension if not exists pg_net with schema extensions;
 
--- Idempotent: unschedule previous job if rerun.
 do $$
 begin
   perform cron.unschedule('mailer-drain-scheduled-sends');
@@ -29,10 +28,11 @@ select cron.schedule(
   '* * * * *',
   $cron$
     select net.http_post(
-      url := 'https://<MAYDAY_VERCEL_HOST>/api/emails/cron',
+      url := 'https://studio-hub.vercel.app/api/emails/cron',
       headers := jsonb_build_object(
         'Content-Type',  'application/json',
-        'Authorization', 'Bearer <CRON_SECRET>'
+        'Authorization', 'Bearer ' ||
+          (select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret')
       ),
       body := '{}'::jsonb
     )

@@ -169,7 +169,7 @@ const styles = {
   slug: { fontSize: fontSizes.xs, color: colors.textSubtle, fontFamily: 'monospace' },
   livePill: {
     padding: `${spacing.xs}px ${spacing.sm}px`, fontSize: fontSizes.xxs,
-    color: '#fff', background: colors.danger.fg, borderRadius: radii.pill,
+    color: colors.text, background: colors.danger.fg, borderRadius: radii.pill,
     fontWeight: fontWeights.bold, letterSpacing: '0.06em',
   },
   headerActions: { marginLeft: 'auto', display: 'flex', gap: spacing.xs },
@@ -180,7 +180,7 @@ const styles = {
   },
   endBtn: {
     padding: `${spacing.xs}px ${spacing.md}px`, background: colors.danger.fg,
-    color: '#fff', border: 'none', borderRadius: radii.sm, cursor: 'pointer',
+    color: colors.text, border: 'none', borderRadius: radii.sm, cursor: 'pointer',
     fontSize: fontSizes.xs, fontWeight: fontWeights.semibold, fontFamily: 'inherit',
   },
   errorBar: { padding: spacing.sm, background: colors.danger.bg, color: colors.danger.fg, fontSize: fontSizes.xs, textAlign: 'center' },

@@ -125,7 +125,7 @@ const styles = {
   actions: { display: 'flex', justifyContent: 'flex-end', gap: spacing.sm },
   connect: {
     padding: `${spacing.sm}px ${spacing.lg}px`, background: colors.accent,
-    color: '#fff', border: 'none', borderRadius: radii.sm, cursor: 'pointer',
+    color: colors.text, border: 'none', borderRadius: radii.sm, cursor: 'pointer',
     fontSize: fontSizes.sm, fontWeight: fontWeights.medium, fontFamily: 'inherit',
   },
   disconnect: {
@@ -150,7 +150,7 @@ const styles = {
   streamState: { fontSize: fontSizes.xs, color: colors.text, padding: `${spacing.xs}px ${spacing.sm}px`, background: colors.bgInput, borderRadius: radii.sm, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: fontWeights.bold },
   streamBtn: {
     padding: `${spacing.xs}px ${spacing.md}px`, background: colors.danger.fg,
-    color: '#fff', border: 'none', borderRadius: radii.sm, cursor: 'pointer',
+    color: colors.text, border: 'none', borderRadius: radii.sm, cursor: 'pointer',
     fontSize: fontSizes.xs, fontFamily: 'inherit',
   },
 };

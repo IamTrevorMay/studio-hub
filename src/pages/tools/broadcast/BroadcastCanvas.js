@@ -40,7 +40,7 @@ export default function BroadcastCanvas({ assets, visibleAssetIds, sceneAssets, 
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: '#fff',
+                color: colors.text,
                 fontSize: 12,
                 overflow: 'hidden',
               }}

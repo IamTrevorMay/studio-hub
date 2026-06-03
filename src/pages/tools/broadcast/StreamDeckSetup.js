@@ -66,7 +66,7 @@ const styles = {
   error: { padding: spacing.sm, background: colors.danger.bg, color: colors.danger.fg, border: `1px solid ${colors.danger.border}`, borderRadius: radii.sm, fontSize: fontSizes.xs },
   note: { fontSize: fontSizes.xs, color: colors.textSubtle, lineHeight: 1.5 },
   actions: { display: 'flex', gap: spacing.sm, justifyContent: 'flex-end' },
-  primary: { padding: `${spacing.sm}px ${spacing.lg}px`, background: colors.accent, color: '#fff', border: 'none', borderRadius: radii.sm, cursor: 'pointer', fontSize: fontSizes.sm, fontWeight: fontWeights.medium, fontFamily: 'inherit' },
+  primary: { padding: `${spacing.sm}px ${spacing.lg}px`, background: colors.accent, color: colors.text, border: 'none', borderRadius: radii.sm, cursor: 'pointer', fontSize: fontSizes.sm, fontWeight: fontWeights.medium, fontFamily: 'inherit' },
   disconnect: { padding: `${spacing.sm}px ${spacing.lg}px`, background: 'transparent', border: `1px solid ${colors.danger.border}`, borderRadius: radii.sm, color: colors.danger.fg, cursor: 'pointer', fontSize: fontSizes.sm, fontFamily: 'inherit' },
   cancel: { padding: `${spacing.sm}px ${spacing.lg}px`, background: 'transparent', border: `1px solid ${colors.border}`, borderRadius: radii.sm, color: colors.textMuted, cursor: 'pointer', fontSize: fontSizes.sm, fontFamily: 'inherit' },
 };

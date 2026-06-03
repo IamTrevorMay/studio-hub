@@ -116,7 +116,7 @@ const styles = {
   },
   primaryBtn: {
     padding: `${spacing.sm}px ${spacing.lg}px`, background: colors.accent,
-    color: '#fff', border: 'none', borderRadius: radii.sm, cursor: 'pointer',
+    color: colors.text, border: 'none', borderRadius: radii.sm, cursor: 'pointer',
     fontSize: fontSizes.sm, fontWeight: fontWeights.medium, fontFamily: 'inherit',
     alignSelf: 'flex-start',
   },

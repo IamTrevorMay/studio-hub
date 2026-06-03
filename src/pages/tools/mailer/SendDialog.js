@@ -156,6 +156,6 @@ const styles = {
   send: {
     padding: `${spacing.sm}px ${spacing.lg}px`, background: colors.accent,
     border: 'none', borderRadius: radii.sm,
-    color: '#fff', cursor: 'pointer', fontSize: fontSizes.sm, fontWeight: fontWeights.medium, fontFamily: 'inherit',
+    color: colors.text, cursor: 'pointer', fontSize: fontSizes.sm, fontWeight: fontWeights.medium, fontFamily: 'inherit',
   },
 };

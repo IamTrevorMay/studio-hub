@@ -47,7 +47,7 @@ function chip(bg) {
   return {
     width: '100%', height: '100%',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    background: bg, color: '#fff',
+    background: bg, color: colors.text,
     fontSize: fontSizes.xxs, fontWeight: fontWeights.bold,
     letterSpacing: '0.06em', textAlign: 'center', padding: 8,
     boxSizing: 'border-box',

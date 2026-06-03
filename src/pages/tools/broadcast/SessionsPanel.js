@@ -81,13 +81,13 @@ const styles = {
   slug: { fontSize: fontSizes.md, fontWeight: fontWeights.semibold, color: colors.text, display: 'flex', alignItems: 'center', gap: spacing.sm },
   livePill: {
     padding: `${spacing.xs}px ${spacing.sm}px`, fontSize: fontSizes.xxs,
-    color: '#fff', background: colors.danger.fg, borderRadius: radii.pill,
+    color: colors.text, background: colors.danger.fg, borderRadius: radii.pill,
     fontWeight: fontWeights.bold, letterSpacing: '0.06em',
   },
   meta: { fontSize: fontSizes.xs, color: colors.textSubtle, marginTop: 2 },
   primaryBtn: {
     padding: `${spacing.xs}px ${spacing.md}px`, background: colors.accent,
-    color: '#fff', border: 'none', borderRadius: radii.sm, cursor: 'pointer',
+    color: colors.text, border: 'none', borderRadius: radii.sm, cursor: 'pointer',
     fontSize: fontSizes.xs, fontWeight: fontWeights.medium, fontFamily: 'inherit',
   },
   endBtn: {

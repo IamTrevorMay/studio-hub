@@ -101,7 +101,7 @@ const styles = {
   tabActive: { color: colors.accentFg, background: colors.accentSoft, border: `1px solid ${colors.accentBorder}` },
   liveBtn: {
     padding: `${spacing.xs}px ${spacing.md}px`, background: colors.danger.fg,
-    color: '#fff', border: 'none', borderRadius: radii.sm, cursor: 'pointer',
+    color: colors.text, border: 'none', borderRadius: radii.sm, cursor: 'pointer',
     fontSize: fontSizes.sm, fontWeight: fontWeights.semibold, fontFamily: 'inherit',
   },
   errorBar: { padding: spacing.sm, background: colors.danger.bg, color: colors.danger.fg, fontSize: fontSizes.xs, textAlign: 'center' },

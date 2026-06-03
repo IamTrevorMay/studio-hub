@@ -248,10 +248,11 @@ hold the work; main is still pre-port aside from Phase 0 / 0.5 / 1.
 ### Pre-merge to main (per branch)
 - **Mailer**: env vars on Vercel (RESEND_API_KEY, RESEND_FROM_EMAIL,
   RESEND_WEBHOOK_SECRET, EMAIL_LINK_SECRET, CRON_SECRET, PUBLIC_APP_URL,
-  optional TRITON_SUPABASE_URL/KEY). Swap `<MAYDAY_VERCEL_HOST>` +
-  `<CRON_SECRET>` placeholders in
-  `supabase/migrations/20260603200100_cron_mailer_drain.sql` and apply
-  via SQL editor. Point Resend webhook URL at preview, verify svix sig.
+  optional TRITON_SUPABASE_URL/KEY). Apply
+  `supabase/migrations/20260603200100_cron_mailer_drain.sql` to enable
+  the scheduled-send drainer (uses vault `cron_secret`; default host is
+  `studio-hub.vercel.app`, swap the URL string if you've bound a custom
+  domain). Point Resend webhook URL at preview, verify svix sig.
   Smoke: create product → template → audience → test send → confirm
   open/click events + webhook bookkeeping.
 - **Broadcast**: ship the public overlay route at
@@ -262,8 +263,9 @@ hold the work; main is still pre-port aside from Phase 0 / 0.5 / 1.
 
 ### Phase 6 (cleanup, in progress on `claude/triton-port`)
 - ✅ `src/pages/Tools.js` deleted (AppLayout owns routing).
-- ✅ `receive-newsletter` + `ingest-newsletter` Supabase edge fns already
-  absent from `supabase/functions/`; nothing to delete.
+- ✅ `receive-newsletter` Supabase edge fn deleted from remote (was still
+  ACTIVE on Supabase even though local files were gone — caught in audit
+  pass 2026-06-03). `ingest-newsletter` was never deployed remote.
 - 📅 **Triton-side email decommission scheduled for 2026-07-03.** Triton
   keeps its `/api/emails/track` + `/api/emails/webhook` +
   `/api/emails/unsubscribe` routes live during the dual-run so in-flight

@@ -102,7 +102,7 @@ const styles = {
   grid: { display: 'grid', gap: spacing.xs, padding: spacing.sm },
   tile: {
     aspectRatio: '1 / 1', borderRadius: 6,
-    padding: 4, color: '#fff',
+    padding: 4, color: colors.text,
     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between',
     fontSize: fontSizes.xxs,
   },

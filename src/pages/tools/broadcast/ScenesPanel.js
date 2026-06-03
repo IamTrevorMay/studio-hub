@@ -98,7 +98,7 @@ const styles = {
   title: { fontSize: fontSizes.xl, fontWeight: fontWeights.semibold, color: colors.text },
   primaryBtn: {
     padding: `${spacing.sm}px ${spacing.lg}px`, background: colors.accent,
-    color: '#fff', border: 'none', borderRadius: radii.sm, cursor: 'pointer',
+    color: colors.text, border: 'none', borderRadius: radii.sm, cursor: 'pointer',
     fontSize: fontSizes.sm, fontWeight: fontWeights.medium, fontFamily: 'inherit',
   },
   error: { padding: spacing.sm, background: colors.danger.bg, color: colors.danger.fg, border: `1px solid ${colors.danger.border}`, borderRadius: radii.sm, fontSize: fontSizes.xs },

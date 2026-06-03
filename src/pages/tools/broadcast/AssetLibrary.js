@@ -201,7 +201,7 @@ const styles = {
   },
   primaryBtn: {
     padding: `${spacing.xs}px ${spacing.sm}px`, background: colors.accent,
-    color: '#fff', border: 'none', borderRadius: radii.sm, cursor: 'pointer',
+    color: colors.text, border: 'none', borderRadius: radii.sm, cursor: 'pointer',
     fontSize: fontSizes.xs, fontFamily: 'inherit',
   },
   cancelBtn: {
