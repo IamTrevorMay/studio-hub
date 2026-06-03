@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { colors, spacing, radii, fontSizes, fontWeights, fontFamily } from '../../../lib/styleTokens';
+import { supabase } from '../../../supabaseClient';
 import WidgetList from './WidgetList';
 import HistoryPane from './HistoryPane';
 import FilterBar from './FilterBar';
@@ -29,7 +30,8 @@ export default function Layout({ onBack }) {
   const [selectedWidgetId, setSelectedWidgetId] = useState(null);
   const [filters, setFilters] = useState({});
   const [size, setSize] = useState(DEFAULT_SIZE);
-  const [history, setHistory] = useState([]);  // 2D will populate from edge fn
+  const [history, setHistory] = useState([]);
+  const [historyError, setHistoryError] = useState(null);
 
   const selectedWidget = widgets.find((w) => w.id === selectedWidgetId) || null;
 
@@ -37,6 +39,32 @@ export default function Layout({ onBack }) {
     setSelectedWidgetId(widget.id);
     setFilters(widget.defaultFilters || {});
     if (widget.defaultSize) setSize(widget.defaultSize);
+  }
+
+  const refreshHistory = useCallback(async () => {
+    const { data, error } = await supabase.functions.invoke('imagine-history', {
+      method: 'GET',
+    });
+    if (error) {
+      setHistoryError(error.message || 'Failed to load history');
+      return;
+    }
+    setHistoryError(null);
+    setHistory(Array.isArray(data?.rows) ? data.rows : []);
+  }, []);
+
+  useEffect(() => { refreshHistory(); }, [refreshHistory]);
+
+  async function deleteHistoryRow(row) {
+    setHistory((h) => h.filter((r) => r.id !== row.id));  // optimistic
+    const { error } = await supabase.functions.invoke(
+      `imagine-history?id=${encodeURIComponent(row.id)}`,
+      { method: 'DELETE' },
+    );
+    if (error) {
+      setHistoryError(error.message || 'Failed to delete history row');
+      refreshHistory();  // re-sync
+    }
   }
 
   return (
@@ -48,7 +76,7 @@ export default function Layout({ onBack }) {
           </svg>
         </button>
         <span style={styles.headerTitle}>Graphics</span>
-        <span style={styles.headerBadge}>Phase 2C — widget registry wired</span>
+        <span style={styles.headerBadge}>Phase 2D — history wired</span>
       </header>
 
       <div style={styles.body}>
@@ -60,12 +88,13 @@ export default function Layout({ onBack }) {
           />
           <HistoryPane
             history={history}
+            error={historyError}
             onRestore={(row) => {
               setSelectedWidgetId(row.widget_id);
               setFilters(row.filters || {});
               setSize(row.size || DEFAULT_SIZE);
             }}
-            onDelete={(row) => setHistory((h) => h.filter((r) => r.id !== row.id))}
+            onDelete={deleteHistoryRow}
           />
         </aside>
 

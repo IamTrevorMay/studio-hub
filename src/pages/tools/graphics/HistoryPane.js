@@ -1,10 +1,11 @@
 import React from 'react';
 import { colors, spacing, radii, fontSizes, fontWeights } from '../../../lib/styleTokens';
 
-export default function HistoryPane({ history, onRestore, onDelete }) {
+export default function HistoryPane({ history, error, onRestore, onDelete }) {
   return (
     <div style={styles.container}>
       <div style={styles.label}>Recent exports</div>
+      {error ? <div style={styles.errorMsg}>{error}</div> : null}
       {history.length === 0 ? (
         <div style={styles.empty}>No exports yet</div>
       ) : (
@@ -58,6 +59,15 @@ const styles = {
     padding: `${spacing.md}px ${spacing.sm}px`,
     fontSize: fontSizes.sm,
     color: colors.textPlaceholder,
+  },
+  errorMsg: {
+    margin: `${spacing.xs}px ${spacing.sm}px`,
+    padding: spacing.sm,
+    fontSize: fontSizes.xs,
+    color: colors.danger?.fg || '#ef4444',
+    background: colors.danger?.bg || 'rgba(239,68,68,0.15)',
+    border: `1px solid ${colors.danger?.border || 'rgba(239,68,68,0.35)'}`,
+    borderRadius: radii.sm,
   },
   list: {
     listStyle: 'none',
