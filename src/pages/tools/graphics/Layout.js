@@ -32,6 +32,10 @@ export default function Layout({ onBack }) {
   const [size, setSize] = useState(DEFAULT_SIZE);
   const [history, setHistory] = useState([]);
   const [historyError, setHistoryError] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState(null);
+  const [previewIsStub, setPreviewIsStub] = useState(false);
 
   const selectedWidget = widgets.find((w) => w.id === selectedWidgetId) || null;
 
@@ -55,6 +59,68 @@ export default function Layout({ onBack }) {
 
   useEffect(() => { refreshHistory(); }, [refreshHistory]);
 
+  // Debounced render: 300ms after filters/size/widget settle, POST to
+  // imagine-render and swap the preview blob. Revokes the previous blob URL
+  // to avoid leaks. The fetch is gated on a per-effect token so a stale
+  // response from a slow render doesn't clobber a newer one.
+  useEffect(() => {
+    if (!selectedWidget) {
+      setPreviewUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
+      setPreviewError(null);
+      setPreviewLoading(false);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setPreviewLoading(true);
+      setPreviewError(null);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) throw new Error('Not authenticated');
+        const url = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/imagine-render`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json',
+            'apikey': process.env.REACT_APP_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({
+            widget_id: selectedWidget.id,
+            filters,
+            size,
+          }),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Render ${res.status}: ${text.slice(0, 300)}`);
+        }
+        const isStub = res.headers.get('x-imagine-stub') === '1';
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        if (cancelled) {
+          URL.revokeObjectURL(blobUrl);
+          return;
+        }
+        setPreviewUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return blobUrl;
+        });
+        setPreviewIsStub(isStub);
+      } catch (err) {
+        if (!cancelled) {
+          setPreviewError(err.message || String(err));
+        }
+      } finally {
+        if (!cancelled) setPreviewLoading(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [selectedWidget, filters, size]);
+
   async function deleteHistoryRow(row) {
     setHistory((h) => h.filter((r) => r.id !== row.id));  // optimistic
     const { error } = await supabase.functions.invoke(
@@ -76,7 +142,7 @@ export default function Layout({ onBack }) {
           </svg>
         </button>
         <span style={styles.headerTitle}>Graphics</span>
-        <span style={styles.headerBadge}>Phase 2D — history wired</span>
+        <span style={styles.headerBadge}>Phase 2E — render stub wired</span>
       </header>
 
       <div style={styles.body}>
@@ -104,6 +170,10 @@ export default function Layout({ onBack }) {
             filters={filters}
             size={size}
             onSizeChange={setSize}
+            previewUrl={previewUrl}
+            previewLoading={previewLoading}
+            previewError={previewError}
+            previewIsStub={previewIsStub}
           />
         </main>
 
