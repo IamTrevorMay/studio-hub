@@ -25,17 +25,34 @@ function json(res, status, body) {
 }
 
 function buildDemoScene(widgetId, width, height) {
-  // 2F.4 demo: shape + text up top, side-by-side rc-bar-chart and
-  // rc-donut-chart in the middle, rc-statline strip at the bottom.
-  // rc-table is exercised when widget data lands in 2F.6 (its row+col
-  // shape is awkward to fake here).
+  // 2F.5 demo: rc-heatmap (synthetic 16x16 grid + spectrum + legend) on
+  // the left, rc-donut-chart on the right, rc-statline strip on bottom.
+  // Heatmap uses a precomputed gridZ so we don't have to fabricate raw
+  // pitch locations just to test the renderer.
   const pitchData = [
     { label: 'FF',  value: 42, color: '#ef4444' },
-    { label: 'SL',  value: 22, color: '#f59e0b' },
-    { label: 'CH',  value: 18, color: '#22c55e' },
-    { label: 'CU',  value: 12, color: '#3b82f6' },
-    { label: 'SI',  value:  6, color: '#a855f7' },
+    { label: 'SL',  value: 22, color: '#0ea5e9' },
+    { label: 'CH',  value: 18, color: '#10b981' },
+    { label: 'CU',  value: 12, color: '#a855f7' },
+    { label: 'SI',  value:  6, color: '#f97316' },
   ];
+
+  // Synthetic 16x16 grid centered on the zone — peaks ~0.95 at center,
+  // tapers to ~0 at the corners, with a touch of noise so it doesn't look
+  // perfectly radial.
+  const nb = 16;
+  const gridZ = [];
+  for (let r = 0; r < nb; r++) {
+    const row = [];
+    for (let c = 0; c < nb; c++) {
+      const cx = (c - 7.5) / 7.5;
+      const cy = (r - 7.5) / 7.5;
+      const d = Math.sqrt(cx * cx + cy * cy);
+      const v = Math.max(0, 1 - d * 0.75) + (Math.sin(r * 1.3) * Math.cos(c * 0.9)) * 0.05;
+      row.push(Math.max(0, Math.min(1, v)));
+    }
+    gridZ.push(row);
+  }
 
   return {
     id: 'demo',
@@ -87,7 +104,7 @@ function buildDemoScene(widgetId, width, height) {
         height: height * 0.05,
         zIndex: 3,
         props: {
-          text: `${width} × ${height} · 2F.4 demo scene`,
+          text: `${width} × ${height} · 2F.5 demo scene`,
           fontSize: Math.round(height * 0.028),
           fontWeight: 400,
           color: 'rgba(255,255,255,0.55)',
@@ -95,18 +112,21 @@ function buildDemoScene(widgetId, width, height) {
         },
       },
       {
-        id: 'bar',
-        type: 'rc-bar-chart',
+        id: 'heatmap',
+        type: 'rc-heatmap',
         x: 48,
         y: height * 0.26,
         width: (width - 96) / 2 - 12,
         height: height * 0.42,
         zIndex: 4,
         props: {
-          title: 'Pitch Usage',
-          barData: pitchData,
-          fontSize: Math.round(height * 0.018),
-          bgColor: 'rgba(255,255,255,0.04)',
+          title: 'Whiff Rate',
+          metric: 'whiff_pct',
+          gridZ,
+          colorMode: 'rainbow',
+          showZone: true,
+          showLegend: true,
+          bgColor: '#0f0f12',
           borderRadius: 14,
         },
       },
@@ -153,7 +173,7 @@ function buildDemoScene(widgetId, width, height) {
         height: height * 0.04,
         zIndex: 6,
         props: {
-          text: 'bar + donut + statline live in 2F.4. rc-table demo waits on real widget data.',
+          text: 'heatmap (synthetic 16×16) + donut + statline live in 2F.5. Zone-plot + movement-plot wired but need pitch data.',
           fontSize: Math.round(height * 0.018),
           fontWeight: 400,
           color: 'rgba(255,255,255,0.45)',
@@ -214,7 +234,7 @@ module.exports = async (req, res) => {
   res.status(200);
   res.setHeader('Content-Type', 'image/png');
   res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('x-imagine-renderer', 'napi-2f4');
+  res.setHeader('x-imagine-renderer', 'napi-2f5');
   res.setHeader('x-imagine-widget', widget_id);
   res.end(pngBytes);
 };
