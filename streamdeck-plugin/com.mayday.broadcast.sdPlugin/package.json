@@ -1,0 +1,6 @@
+{
+  "name": "com.mayday.broadcast.sdPlugin",
+  "version": "1.0.0",
+  "description": "Mayday Broadcast Stream Deck plugin. Distributed as a .streamDeckPlugin bundle, not via npm.",
+  "private": true
+}
