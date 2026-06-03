@@ -77,13 +77,15 @@ export default function Layout({ onBack }) {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) throw new Error('Not authenticated');
-        const url = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/imagine-render`;
-        const res = await fetch(url, {
+        // Renderer is a Vercel Node serverless fn (api/imagine-render.js).
+        // Same-origin in production; on `npm start` it'll 404 since CRA's
+        // dev server doesn't run Vercel functions — use `vercel dev` or
+        // test against a preview deploy.
+        const res = await fetch('/api/imagine-render', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${session.access_token}`,
             'Content-Type': 'application/json',
-            'apikey': process.env.REACT_APP_SUPABASE_ANON_KEY,
           },
           body: JSON.stringify({
             widget_id: selectedWidget.id,
@@ -95,7 +97,8 @@ export default function Layout({ onBack }) {
           const text = await res.text();
           throw new Error(`Render ${res.status}: ${text.slice(0, 300)}`);
         }
-        const isStub = res.headers.get('x-imagine-stub') === '1';
+        const renderer = res.headers.get('x-imagine-renderer') || '';
+        const isStub = renderer.includes('spike') || res.headers.get('x-imagine-stub') === '1';
         const blob = await res.blob();
         const blobUrl = URL.createObjectURL(blob);
         if (cancelled) {
@@ -142,7 +145,7 @@ export default function Layout({ onBack }) {
           </svg>
         </button>
         <span style={styles.headerTitle}>Graphics</span>
-        <span style={styles.headerBadge}>Phase 2E — render stub wired</span>
+        <span style={styles.headerBadge}>Phase 2F.1 — Vercel renderer spike</span>
       </header>
 
       <div style={styles.body}>

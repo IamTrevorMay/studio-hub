@@ -15,6 +15,7 @@
     "@lexical/rich-text": "^0.41.0",
     "@lexical/selection": "^0.41.0",
     "@lexical/utils": "^0.41.0",
+    "@napi-rs/canvas": "^1.0.0",
     "@supabase/supabase-js": "^2.39.0",
     "@tailwindcss/postcss": "^4.2.2",
     "@tiptap/core": "^3.20.0",

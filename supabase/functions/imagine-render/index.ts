@@ -1,16 +1,13 @@
 // supabase/functions/imagine-render/index.ts
 // Deploy: supabase functions deploy imagine-render --no-verify-jwt
 //
-// Phase 2E STUB. Returns a 1x1 transparent PNG so the Mayday Graphics UI
-// can wire its debounce-render loop and prove the auth path works. The
-// real skia_canvas renderer replaces the body of this handler in Phase 2F.
+// Phase 2E STUB — restored after 2F.1 skia_canvas spike failed.
+// skia_canvas requires Deno FFI which Supabase Edge Functions disallow,
+// so the renderer architecture decision needs revisiting before 2F can
+// proceed. Tracked decisions in docs/tool-ports/decisions.md.
 //
-// Auth: any authenticated Mayday user (Graphics is open per Q16).
-//
-// POST /imagine-render
-//   body: { widget_id: string, filters: object, size: { width, height, label } }
-//   resp: image/png bytes (no JSON wrapper — matches Triton's contract so
-//         the UI can `await res.blob()` directly)
+// Returns a 1x1 transparent PNG so the Mayday Graphics UI keeps working
+// in stub mode while the renderer location is resolved.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -29,7 +26,6 @@ function jsonErr(message: string, status = 400) {
   });
 }
 
-// 1x1 transparent PNG, 67 bytes. Real renderer in 2F.
 const STUB_PNG_BYTES = Uint8Array.from(
   atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="),
   (c) => c.charCodeAt(0),

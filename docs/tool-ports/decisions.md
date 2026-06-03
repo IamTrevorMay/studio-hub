@@ -30,7 +30,19 @@ doc is the consolidated answer.
 | Broadcast | **Mayday main project** | Port 9 `broadcast_*` tables + storage bucket + 12 edge fns |
 | Report Cards | **Mayday main project** | Copy `report_card_templates` table |
 | Emails | **Mayday main project** | Export Triton subscribers + audiences, import to Mayday |
-| Imagine | **Mayday main project** + Deno+skia_canvas renderer | Port `imagine_history`; build server renderer as a Deno edge fn (no proxy) |
+| Imagine | **Mayday main project** + **Vercel Node fn** renderer | Port `imagine_history`; build server renderer as a Vercel Node serverless fn (api/imagine-render.js) using @napi-rs/canvas |
+
+**Renderer location pivot (2026-06-02, mid-Phase 2):** The 2F.1 skia spike
+proved Supabase Edge Functions cannot host the renderer — that runtime
+disallows native FFI, which `skia_canvas` requires. The pivot is to a
+Vercel Node serverless function alongside studio-hub's existing `api/`
+folder (Vercel already deploys ~6 Node functions there). Uses the same
+`@napi-rs/canvas` Triton ships, so the renderer body can be ported nearly
+verbatim from Triton's `lib/serverRenderCard.ts` and pixel output matches
+Triton's by construction. Mayday UI calls the relative URL
+`/api/imagine-render`; `npm start` local dev returns 404 since CRA's dev
+server doesn't run Vercel functions (use `vercel dev` or test on a Vercel
+preview).
 
 - Broadcast project membership: keyed by **email** match into
   `broadcast_project_members` (since Mayday `profiles.id` ≠ Triton
