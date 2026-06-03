@@ -74,7 +74,7 @@ const NAV_ITEMS = [
   { key: 'goals', label: 'Goals', icon: GoalsIcon },
   { key: 'business_dev', label: 'Business Dev', icon: BusinessDevIcon, adminOnly: true },
   { key: 'payroll', label: 'Payroll', icon: PayrollIcon, adminOnly: true },
-  { key: 'invoicing', label: 'Invoicing', icon: InvoicingIcon },
+  { key: 'invoicing', label: 'Invoicing', icon: InvoicingIcon, adminOnly: true },
   { key: 'freelancers', label: 'Contractors', icon: FreelancersIcon, adminOnly: true },
   { key: 'workflows', label: 'Workflows', icon: WorkflowsIcon, adminOnly: true },
   { key: 'jobs', label: 'Jobs', icon: JobsIcon, adminOnly: true },
@@ -86,7 +86,7 @@ const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', '
 
 // ─── Modes ──────────────────────────────────────────────────
 // Admin-only pages that live in Admin Mode and are hidden from the Work View.
-const ADMIN_PAGE_KEYS = ['assignments', 'payroll', 'analytics', 'accounting', 'business_dev', 'freelancers', 'workflows', 'jobs'];
+const ADMIN_PAGE_KEYS = ['assignments', 'payroll', 'analytics', 'accounting', 'business_dev', 'freelancers', 'workflows', 'jobs', 'invoicing'];
 // Everyday anchors kept at the top of the Admin Mode sidebar.
 const ADMIN_ESSENTIAL_KEYS = ['dashboard', 'my_tasks', 'messages'];
 // Admin Mode sidebar: essentials, a divider, then the admin pages + settings.
@@ -103,6 +103,7 @@ const ADMIN_MODE_NAV = [
   { type: 'item', key: 'freelancers', label: 'Contractors' },
   { type: 'item', key: 'workflows', label: 'Workflows' },
   { type: 'item', key: 'jobs', label: 'Jobs' },
+  { type: 'item', key: 'invoicing', label: 'Invoicing' },
   { type: 'item', key: 'admin', label: 'Admin Settings' },
 ];
 const ADMIN_MODE_KEYS = new Set([...ADMIN_ESSENTIAL_KEYS, ...ADMIN_PAGE_KEYS, 'admin']);
@@ -760,7 +761,7 @@ export default function AppLayout() {
           {activeTab === 'goals' && <Goals />}
           {(isAdmin || isPartner) && activeTab === 'business_dev' && <BusinessDev />}
           {isAdmin && activeTab === 'payroll' && <Payroll />}
-          {(isAdmin || isAssistant) && activeTab === 'invoicing' && <Invoicing />}
+          {isAdmin && activeTab === 'invoicing' && <Invoicing />}
 
           {activeTab === 'channels' && <Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} />}
           {activeTab === 'messages' && <Messages onNavigate={navigateTo} />}
