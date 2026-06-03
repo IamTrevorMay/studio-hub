@@ -2,12 +2,10 @@
 // Vercel serverless Node function (auto-deployed by Vercel from the api/
 // folder; same-origin to the SPA at /api/imagine-render).
 //
-// Phase 2F.2 — scene loop + text + shape rendering ported from Triton's
-// lib/serverRenderCard.ts. The fn now accepts an optional `scene` in the
-// body. If absent, we synthesize a default demo scene (rounded shape +
-// title text + subtitle text) so the UI's debounced render still gets a
-// readable preview while widget fetchData/buildScene wiring lands in
-// 2F.6. Future sub-steps (2F.3..2F.5) add the per-element drawX fns.
+// Renderer body lives in api/_lib/imagineRenderer.js — ported in pieces
+// from Triton-Tools/lib/serverRenderCard.ts. This file owns the HTTP
+// handler, auth, body parsing, and a demo scene used when the request
+// doesn't include one (until widget buildScene wiring lands in 2F.6).
 //
 // Auth: Supabase JWT in Authorization: Bearer. We validate by calling
 // supabase.auth.getUser(jwt). No role check (Graphics is open to any
@@ -27,14 +25,17 @@ function json(res, status, body) {
 }
 
 function buildDemoScene(widgetId, width, height) {
-  // 2F.3 demo: exercises shape + text (from 2F.2) plus the three new
-  // element types — rc-stat-box and stat-card. player-image is left off
-  // by default to keep the demo fast (it fetches a real MLB headshot);
-  // set Pose a sample `player-image` element from a test scene to verify
-  // that path.
-  const cardW = (width - 96) / 2;
-  const cardH = height * 0.18;
-  const cardY = height * 0.7;
+  // 2F.4 demo: shape + text up top, side-by-side rc-bar-chart and
+  // rc-donut-chart in the middle, rc-statline strip at the bottom.
+  // rc-table is exercised when widget data lands in 2F.6 (its row+col
+  // shape is awkward to fake here).
+  const pitchData = [
+    { label: 'FF',  value: 42, color: '#ef4444' },
+    { label: 'SL',  value: 22, color: '#f59e0b' },
+    { label: 'CH',  value: 18, color: '#22c55e' },
+    { label: 'CU',  value: 12, color: '#3b82f6' },
+    { label: 'SI',  value:  6, color: '#a855f7' },
+  ];
 
   return {
     id: 'demo',
@@ -63,13 +64,13 @@ function buildDemoScene(widgetId, width, height) {
         id: 'title',
         type: 'text',
         x: 48,
-        y: height * 0.18,
+        y: height * 0.05,
         width: width - 96,
-        height: height * 0.16,
+        height: height * 0.12,
         zIndex: 2,
         props: {
           text: widgetId,
-          fontSize: Math.round(height * 0.11),
+          fontSize: Math.round(height * 0.08),
           fontWeight: 700,
           color: '#ffffff',
           textAlign: 'center',
@@ -81,70 +82,82 @@ function buildDemoScene(widgetId, width, height) {
         id: 'subtitle',
         type: 'text',
         x: 48,
-        y: height * 0.36,
+        y: height * 0.18,
         width: width - 96,
-        height: height * 0.07,
+        height: height * 0.05,
         zIndex: 3,
         props: {
-          text: `${width} × ${height} · 2F.3 demo scene`,
-          fontSize: Math.round(height * 0.032),
+          text: `${width} × ${height} · 2F.4 demo scene`,
+          fontSize: Math.round(height * 0.028),
           fontWeight: 400,
-          color: 'rgba(255,255,255,0.6)',
+          color: 'rgba(255,255,255,0.55)',
           textAlign: 'center',
         },
       },
       {
-        id: 'body',
-        type: 'text',
-        x: 64,
-        y: height * 0.46,
-        width: width - 128,
-        height: height * 0.18,
+        id: 'bar',
+        type: 'rc-bar-chart',
+        x: 48,
+        y: height * 0.26,
+        width: (width - 96) / 2 - 12,
+        height: height * 0.42,
         zIndex: 4,
         props: {
-          text: 'Scene loop + shape + text from 2F.2. New in 2F.3: rc-stat-box and stat-card below, plus player-image (off by default — needs a real player id).',
-          fontSize: Math.round(height * 0.022),
-          fontWeight: 400,
-          color: 'rgba(255,255,255,0.7)',
-          textAlign: 'center',
-          lineHeight: 1.5,
-        },
-      },
-      {
-        id: 'rc-box',
-        type: 'rc-stat-box',
-        x: 48,
-        y: cardY,
-        width: cardW,
-        height: cardH,
-        zIndex: 5,
-        props: {
-          label: 'rc-stat-box',
-          value: '2.41',
-          fontSize: Math.round(cardH * 0.42),
-          color: '#06b6d4',
+          title: 'Pitch Usage',
+          barData: pitchData,
+          fontSize: Math.round(height * 0.018),
           bgColor: 'rgba(255,255,255,0.04)',
-          borderRadius: 16,
+          borderRadius: 14,
         },
       },
       {
-        id: 'stat-card',
-        type: 'stat-card',
-        x: width / 2 + 24,
-        y: cardY,
-        width: cardW,
-        height: cardH,
+        id: 'donut',
+        type: 'rc-donut-chart',
+        x: width / 2 + 12,
+        y: height * 0.26,
+        width: (width - 96) / 2 - 12,
+        height: height * 0.42,
+        zIndex: 4,
+        props: {
+          title: 'Pitch Mix',
+          usageData: pitchData,
+          innerRadius: 0.55,
+          fontSize: Math.round(height * 0.018),
+          bgColor: 'rgba(255,255,255,0.04)',
+          borderRadius: 14,
+        },
+      },
+      {
+        id: 'statline',
+        type: 'rc-statline',
+        x: 48,
+        y: height * 0.74,
+        width: width - 96,
+        height: height * 0.12,
         zIndex: 5,
         props: {
-          label: 'stat-card',
-          value: '+1.7%',
-          sublabel: 'vs league avg',
-          fontSize: Math.round(cardH * 0.4),
-          color: '#a5b4fc',
-          bgColor: 'rgba(99,102,241,0.08)',
-          borderColor: 'rgba(99,102,241,0.4)',
-          borderWidth: 1,
-          borderRadius: 16,
+          title: 'Last Outing',
+          statline: { ip: '6.1', h: 4, r: 2, k: 8, bb: 1, decision: 'W', era: '2.41' },
+          fontSize: Math.round(height * 0.035),
+          color: '#ffffff',
+          bgColor: 'rgba(99,102,241,0.10)',
+          borderRadius: 12,
+        },
+      },
+      {
+        id: 'footnote',
+        type: 'text',
+        x: 48,
+        y: height * 0.89,
+        width: width - 96,
+        height: height * 0.04,
+        zIndex: 6,
+        props: {
+          text: 'bar + donut + statline live in 2F.4. rc-table demo waits on real widget data.',
+          fontSize: Math.round(height * 0.018),
+          fontWeight: 400,
+          color: 'rgba(255,255,255,0.45)',
+          textAlign: 'center',
         },
       },
     ],
@@ -201,7 +214,7 @@ module.exports = async (req, res) => {
   res.status(200);
   res.setHeader('Content-Type', 'image/png');
   res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('x-imagine-renderer', 'napi-2f3');
+  res.setHeader('x-imagine-renderer', 'napi-2f4');
   res.setHeader('x-imagine-widget', widget_id);
   res.end(pngBytes);
 };

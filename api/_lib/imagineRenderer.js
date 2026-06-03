@@ -8,8 +8,9 @@
 // (shape element), drawUniversalBorder, text element with word-wrap and
 // auto-shrink-to-fit.
 // 2F.3 adds: player-image (with headshot fetch + cover-fit clip), stat-card,
-// rc-stat-box. Other element types render as a universal-bg fallback until
-// 2F.4 (rc-table, rc-bar-chart, rc-donut-chart, rc-statline) and 2F.5
+// rc-stat-box.
+// 2F.4 adds: rc-table, rc-bar-chart, rc-donut-chart, rc-statline. Other
+// element types render as a universal-bg fallback until 2F.5
 // (rc-heatmap, rc-zone-plot, rc-movement-plot).
 //
 // Underscore prefix on the dir name (_lib) tells Vercel "this is a helper,
@@ -330,8 +331,300 @@ function drawStatCard(ctx, el) {
   ctx.restore();
 }
 
-// ── Per-element dispatch (2F.4..2F.5 will add the remaining drawX fns
-// for tables, charts, heatmaps). ────────────────────────────────────────
+// ── rc-table ────────────────────────────────────────────────────────────
+function drawRCTable(ctx, el) {
+  const p = el.props || {};
+  const { x, y, width: w, height: h } = el;
+  const cols = p.columns || [];
+  const rows = p.rows || [];
+  const fontSize = p.fontSize || 16;
+  const headerFontSize = p.headerFontSize || 13;
+  const radius = p.borderRadius != null ? p.borderRadius : 12;
+  const title = p.title || '';
+
+  ctx.save();
+  ctx.fillStyle = p.bgColor || '#09090b';
+  roundRect(ctx, x, y, w, h, radius);
+  ctx.fill();
+
+  let titleOffset = 0;
+  if (title) {
+    titleOffset = 22;
+    ctx.fillStyle = p.headerColor || '#a1a1aa';
+    ctx.font = `600 ${Math.max(10, headerFontSize + 1)}px ${FONT()}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(title, x + w / 2, y + 6);
+  }
+
+  if (cols.length === 0) { ctx.restore(); return; }
+
+  const colW = w / cols.length;
+  const headerH = headerFontSize + 16 + 1;
+  const headerY = y + titleOffset;
+  const availableH = h - titleOffset - headerH;
+  const rowCount = Math.max(rows.length, 1);
+  const rowH = Math.max(0, availableH / rowCount);
+
+  // Header
+  ctx.font = `600 ${headerFontSize}px ${FONT()}`;
+  ctx.fillStyle = p.headerColor || '#a1a1aa';
+  ctx.textBaseline = 'middle';
+  for (let i = 0; i < cols.length; i++) {
+    ctx.textAlign = 'left';
+    ctx.fillText(cols[i].label, x + i * colW + 10, headerY + headerH / 2);
+  }
+
+  // Separator
+  ctx.strokeStyle = '#27272a';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x + 8, headerY + headerH);
+  ctx.lineTo(x + w - 8, headerY + headerH);
+  ctx.stroke();
+
+  // Rows
+  const startY = headerY + headerH;
+  ctx.font = `400 ${fontSize}px ${FONT()}`;
+
+  const truncate = (text, maxW) => {
+    if (ctx.measureText(text).width <= maxW) return text;
+    let t = text;
+    while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+    return t + '…';
+  };
+
+  for (let r = 0; r < rows.length; r++) {
+    const ry = startY + r * rowH;
+    if (ry + rowH > y + h) break;
+    for (let c = 0; c < cols.length; c++) {
+      const val = String(rows[r][cols[c].key] != null ? rows[r][cols[c].key] : '--');
+      ctx.fillStyle = cols[c].key === 'pitch_name'
+        ? (rows[r]._color || '#e4e4e7')
+        : '#e4e4e7';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(truncate(val, colW - 14), x + c * colW + 10, ry + rowH / 2);
+    }
+  }
+  ctx.restore();
+}
+
+// ── rc-bar-chart (horizontal bars w/ left labels + right values) ────────
+function drawRCBarChart(ctx, el) {
+  const p = el.props || {};
+  const { x, y, width: w, height: h } = el;
+  const barData = p.barData || [];
+  const fontSize = p.fontSize || 12;
+  const radius = p.borderRadius != null ? p.borderRadius : 12;
+  const title = p.title || '';
+
+  ctx.save();
+  ctx.fillStyle = p.bgColor || '#09090b';
+  roundRect(ctx, x, y, w, h, radius);
+  ctx.fill();
+
+  let titleOffset = 0;
+  if (title) {
+    titleOffset = 28;
+    ctx.fillStyle = '#a1a1aa';
+    ctx.font = `600 ${Math.max(10, fontSize)}px ${FONT()}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(title, x + w / 2, y + 8);
+  }
+
+  if (barData.length === 0) { ctx.restore(); return; }
+
+  const maxVal = Math.max(...barData.map((d) => d.value), 1);
+  const pad = { top: 15 + titleOffset, right: 15, bottom: 15, left: 80 };
+  const plotW = w - pad.left - pad.right;
+  const plotH = h - pad.top - pad.bottom;
+  const gap = 6;
+  const barH = (plotH - (barData.length - 1) * gap) / barData.length;
+  const startY = y + pad.top;
+
+  for (let i = 0; i < barData.length; i++) {
+    const d = barData[i];
+    const by = startY + i * (barH + gap);
+    const bw = (d.value / maxVal) * plotW;
+
+    ctx.fillStyle = '#a1a1aa';
+    ctx.font = `500 ${fontSize}px ${FONT()}`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(d.label, x + pad.left - 8, by + barH / 2);
+
+    ctx.fillStyle = '#27272a';
+    roundRect(ctx, x + pad.left, by, plotW, barH, 4);
+    ctx.fill();
+
+    ctx.fillStyle = d.color || '#06b6d4';
+    roundRect(ctx, x + pad.left, by, Math.max(bw, 4), barH, 4);
+    ctx.fill();
+
+    if (p.showValues !== false) {
+      ctx.fillStyle = '#e4e4e7';
+      ctx.font = `600 ${fontSize}px ${FONT()}`;
+      ctx.textAlign = 'left';
+      ctx.fillText(
+        d.value % 1 ? d.value.toFixed(1) : String(d.value),
+        x + pad.left + Math.max(bw, 4) + 6,
+        by + barH / 2,
+      );
+    }
+  }
+  ctx.restore();
+}
+
+// ── rc-donut-chart (slices w/ optional outside labels) ──────────────────
+function drawRCDonutChart(ctx, el) {
+  const p = el.props || {};
+  const { x, y, width: w, height: h } = el;
+  const usageData = p.usageData || [];
+  const innerRadiusRatio = p.innerRadius != null ? p.innerRadius : 0.55;
+  const fontSize = p.fontSize || 12;
+  const radius = p.borderRadius != null ? p.borderRadius : 12;
+  const title = p.title || '';
+
+  ctx.save();
+  ctx.fillStyle = p.bgColor || '#09090b';
+  roundRect(ctx, x, y, w, h, radius);
+  ctx.fill();
+
+  let titleOffset = 0;
+  if (title) {
+    titleOffset = 24;
+    ctx.fillStyle = '#a1a1aa';
+    ctx.font = `600 ${Math.max(10, fontSize)}px ${FONT()}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(title, x + w / 2, y + 6);
+  }
+
+  if (usageData.length === 0) { ctx.restore(); return; }
+
+  const total = usageData.reduce((s, d) => s + d.value, 0);
+  if (total === 0) { ctx.restore(); return; }
+
+  const cx = x + w / 2;
+  const cy = y + (h + titleOffset) / 2;
+  const outerR = Math.min(w, h) / 2 - 30;
+  const innerR = outerR * innerRadiusRatio;
+
+  let angle = -Math.PI / 2;
+
+  for (const item of usageData) {
+    const sliceAngle = (item.value / total) * Math.PI * 2;
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, outerR, angle, angle + sliceAngle);
+    ctx.arc(cx, cy, innerR, angle + sliceAngle, angle, true);
+    ctx.closePath();
+    ctx.fillStyle = item.color || '#06b6d4';
+    ctx.fill();
+    ctx.strokeStyle = p.bgColor || '#09090b';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    if (p.showLabels !== false && sliceAngle > 0.15) {
+      const midAngle = angle + sliceAngle / 2;
+      const labelR = outerR + 16;
+      const lx = cx + labelR * Math.cos(midAngle);
+      const ly = cy + labelR * Math.sin(midAngle);
+      ctx.fillStyle = '#a1a1aa';
+      ctx.font = `500 ${fontSize}px ${FONT()}`;
+      ctx.textAlign = midAngle > Math.PI / 2 && midAngle < 3 * Math.PI / 2 ? 'right' : 'left';
+      ctx.textBaseline = 'middle';
+      const pct = ((item.value / total) * 100).toFixed(0);
+      ctx.fillText(`${item.label} ${pct}%`, lx, ly);
+    }
+    angle += sliceAngle;
+  }
+
+  // Center hole (matches bg for clean donut hole)
+  ctx.beginPath();
+  ctx.arc(cx, cy, innerR - 1, 0, Math.PI * 2);
+  ctx.fillStyle = p.bgColor || '#09090b';
+  ctx.fill();
+
+  ctx.restore();
+}
+
+// ── rc-statline (7-cell baseball line: IP/H/R/SO/BB/W-L/ERA) ────────────
+function drawRCStatline(ctx, el) {
+  const p = el.props || {};
+  const { x, y, width: w, height: h } = el;
+  const statline = p.statline || { ip: '?', h: 0, r: 0, k: 0, bb: 0, decision: 'ND', era: '--' };
+  const fontSize = p.fontSize || 22;
+  const color = p.color || '#ffffff';
+  const headerColor = p.headerColor || '#a1a1aa';
+  const radius = p.borderRadius != null ? p.borderRadius : 8;
+  const title = p.title || '';
+
+  ctx.save();
+  ctx.fillStyle = p.bgColor || 'rgba(255,255,255,0.04)';
+  roundRect(ctx, x, y, w, h, radius);
+  ctx.fill();
+
+  const labels = ['IP', 'H', 'R', 'SO', 'BB', 'W/L', 'ERA'];
+  const values = [
+    statline.ip,
+    String(statline.h),
+    String(statline.r),
+    String(statline.k),
+    String(statline.bb),
+    statline.decision,
+    statline.era,
+  ];
+  const cellW = w / labels.length;
+
+  let contentY = y;
+  let contentH = h;
+
+  if (title) {
+    const titleSize = Math.max(9, fontSize * 0.55);
+    ctx.font = `600 ${titleSize}px ${FONT()}`;
+    ctx.fillStyle = headerColor;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(title.toUpperCase(), x + w / 2, y + 4);
+    contentY = y + titleSize + 8;
+    contentH = h - titleSize - 8;
+  }
+
+  const labelSize = Math.max(8, fontSize * 0.55);
+  const midY = contentY + contentH / 2;
+
+  for (let i = 0; i < labels.length; i++) {
+    const cellX = x + i * cellW + cellW / 2;
+
+    if (i > 0) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x + i * cellW, contentY + 6);
+      ctx.lineTo(x + i * cellW, contentY + contentH - 6);
+      ctx.stroke();
+    }
+
+    ctx.font = `500 ${labelSize}px ${FONT()}`;
+    ctx.fillStyle = headerColor;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(labels[i], cellX, midY - 2);
+
+    const maxValFont = Math.min(fontSize, cellW * 0.55);
+    ctx.font = `700 ${maxValFont}px ${FONT()}`;
+    ctx.fillStyle = color;
+    ctx.textBaseline = 'top';
+    ctx.fillText(values[i], cellX, midY + 2);
+  }
+
+  ctx.restore();
+}
+
+// ── Per-element dispatch (2F.5 will add heatmap + zone-plot + movement). ─
 async function drawElement(ctx, el, deps) {
   switch (el.type) {
     case 'shape':
@@ -348,6 +641,18 @@ async function drawElement(ctx, el, deps) {
       return;
     case 'stat-card':
       drawStatCard(ctx, el);
+      return;
+    case 'rc-table':
+      drawRCTable(ctx, el);
+      return;
+    case 'rc-bar-chart':
+      drawRCBarChart(ctx, el);
+      return;
+    case 'rc-donut-chart':
+      drawRCDonutChart(ctx, el);
+      return;
+    case 'rc-statline':
+      drawRCStatline(ctx, el);
       return;
     default:
       // Until the per-element fns land, render anything else as a generic
@@ -419,6 +724,10 @@ module.exports = {
   drawPlayerImage,
   drawRCStatBox,
   drawStatCard,
+  drawRCTable,
+  drawRCBarChart,
+  drawRCDonutChart,
+  drawRCStatline,
   fetchImage,
   FONT,
   ensureFont,
