@@ -71,7 +71,7 @@ const NAV_ITEMS = [
   { key: 'timeline', label: 'Timeline', icon: ToolsIcon },
   { key: 'report_cards', label: 'Report Cards', icon: ToolsIcon, adminOnly: true },
   { key: 'mailer', label: 'Mailer', icon: ToolsIcon, adminOnly: true },
-  { key: 'graphics', label: 'Graphics', icon: ToolsIcon, adminOnly: true },
+  { key: 'graphics', label: 'Graphics', icon: ToolsIcon },
   { key: 'asset_designer', label: 'Asset Designer', icon: ToolsIcon, adminOnly: true },
   { key: 'template_builder', label: 'Template Builder', icon: ToolsIcon, adminOnly: true },
   { key: 'assets', label: 'Assets Library', icon: ResourcesIcon, external: { url: 'https://www.mayday.systems/' } },

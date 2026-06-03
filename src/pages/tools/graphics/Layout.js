@@ -291,7 +291,7 @@ export default function Layout({ onBack }) {
           </svg>
         </button>
         <span style={styles.headerTitle}>Graphics</span>
-        <span style={styles.headerBadge}>Phase 2I — export + history</span>
+        <span style={styles.headerBadge}>Graphics</span>
       </header>
 
       <div style={styles.body}>
