@@ -1,6 +1,7 @@
 import React from 'react';
 import { colors, spacing, radii, fontSizes, fontWeights } from '../../../lib/styleTokens';
 import { getPanelFor } from './registry/panelRegistry';
+import PlayerSearchField from './PlayerSearchField';
 
 // Schema-driven FilterBar. Each widget's filterSchema is a list of
 // controls grouped by column (1..4). Controls within a column stack
@@ -14,7 +15,17 @@ import { getPanelFor } from './registry/panelRegistry';
 // widgets have minimal schemas; their richness lives in the panel
 // component we'll port in 2H).
 
-export default function FilterBar({ widget, filters, onFiltersChange }) {
+export default function FilterBar({
+  widget,
+  filters,
+  onFiltersChange,
+  size,
+  onSizeChange,
+  sizePresets,
+  onExport,
+  exportDisabled,
+  exporting,
+}) {
   if (!widget) {
     return (
       <div style={styles.container}>
@@ -25,9 +36,18 @@ export default function FilterBar({ widget, filters, onFiltersChange }) {
 
   const Panel = getPanelFor(widget.id);
   if (Panel) {
-    // Custom widget panels (heat-maps) will render here in 2H. Until then
-    // PANEL_REGISTRY is empty so this branch never runs.
-    return <Panel filters={filters} onChange={onFiltersChange} />;
+    return (
+      <Panel
+        filters={filters}
+        onChange={onFiltersChange}
+        size={size}
+        onSizeChange={onSizeChange}
+        sizePresets={sizePresets || widget.sizePresets || []}
+        onExport={onExport || (() => {})}
+        exportDisabled={exportDisabled}
+        exporting={!!exporting}
+      />
+    );
   }
 
   const schema = widget.filterSchema || [];
@@ -123,12 +143,19 @@ function Control({ control, value, filters, onChange }) {
           onChange={onChange}
         />
       );
-    case 'player-search':
+    case 'player-search': {
+      const playerType = control.playerTypeKey
+        ? (filters[control.playerTypeKey] || 'all')
+        : 'all';
       return (
-        <div style={styles.unsupported}>
-          Player search lands in step 2H.
-        </div>
+        <PlayerSearchField
+          value={value || { playerId: null, playerName: '' }}
+          playerType={playerType}
+          placeholder={control.placeholder}
+          onChange={onChange}
+        />
       );
+    }
     default:
       return <div style={styles.unsupported}>Unsupported control: {control.type}</div>;
   }

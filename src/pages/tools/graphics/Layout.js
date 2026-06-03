@@ -18,6 +18,12 @@ const CATEGORY_BY_ID = {
 };
 
 const DEFAULT_SIZE = { width: 1080, height: 1080, label: '1:1 Square' };
+const DEFAULT_SIZE_PRESETS = [
+  { width: 1080, height: 1080, label: '1:1 Square' },
+  { width: 1080, height: 1920, label: '9:16 Story' },
+  { width: 1920, height: 1080, label: '16:9 Landscape' },
+  { width: 1200, height: 630,  label: '1200x630 OG' },
+];
 
 export default function Layout({ onBack }) {
   const widgets = useMemo(
@@ -171,7 +177,7 @@ export default function Layout({ onBack }) {
           </svg>
         </button>
         <span style={styles.headerTitle}>Graphics</span>
-        <span style={styles.headerBadge}>Phase 2F.6 — widget data flow wired</span>
+        <span style={styles.headerBadge}>Phase 2H — player search + heatmap panels</span>
       </header>
 
       <div style={styles.body}>
@@ -211,6 +217,16 @@ export default function Layout({ onBack }) {
             widget={selectedWidget}
             filters={filters}
             onFiltersChange={setFilters}
+            size={size}
+            onSizeChange={setSize}
+            sizePresets={(selectedWidget && selectedWidget.sizePresets) || DEFAULT_SIZE_PRESETS}
+            onExport={() => {
+              // 2I wires this to imagine-history POST + thumbnail upload +
+              // showSaveFilePicker. Stub today.
+              window.alert('Export — lands in step 2I.');
+            }}
+            exportDisabled={!previewUrl || previewLoading}
+            exporting={false}
           />
         </aside>
       </div>
