@@ -91,18 +91,20 @@ async function executeAutomation(
     dedupResolved = resolveTemplate(dedupTemplate, triggerPayload);
   }
 
-  // Check dedup: skip if any active task with same automation_id + dedup_key exists
+  // Check dedup: skip if a previous successful run with same automation_id + dedup_key
+  // exists in automation_runs. Using runs (not tasks) so dedup survives task
+  // completion/deletion — the run log is permanent.
   if (dedupResolved) {
     const { data: existing } = await admin
-      .from("tasks")
+      .from("automation_runs")
       .select("id")
       .eq("automation_id", automationId)
-      .eq("status", "active")
       .eq("dedup_key", dedupResolved)
+      .eq("status", "success")
       .limit(1);
 
     if (existing && existing.length > 0) {
-      return { status: "skipped", actions_taken: [], error_message: `Dedup: active task exists for "${dedupResolved}"` };
+      return { status: "skipped", actions_taken: [], error_message: `Dedup: automation already ran for "${dedupResolved}"` };
     }
   }
 
@@ -123,11 +125,12 @@ async function executeAutomation(
         status: "error",
         actions_taken: actionsTaken,
         error_message: `Action ${actionType} failed: ${(err as Error).message}`,
+        dedupResolved,
       };
     }
   }
 
-  return { status: "success", actions_taken: actionsTaken };
+  return { status: "success", actions_taken: actionsTaken, dedupResolved };
 }
 
 // Create task action
@@ -240,7 +243,7 @@ async function logRun(
   admin: ReturnType<typeof createClient>,
   automationId: string,
   triggerPayload: Record<string, unknown>,
-  result: { status: string; actions_taken: unknown[]; error_message?: string },
+  result: { status: string; actions_taken: unknown[]; error_message?: string; dedupResolved?: string | null },
 ) {
   await admin.from("automation_runs").insert({
     automation_id: automationId,
@@ -248,6 +251,7 @@ async function logRun(
     actions_taken: result.actions_taken,
     status: result.status,
     error_message: result.error_message || null,
+    dedup_key: result.dedupResolved || null,
   });
 
   const updates: Record<string, unknown> = {

@@ -321,10 +321,20 @@ serve(async (req) => {
 
               if (batchError) {
                 console.error(`Batch upsert error: ${batchError.message}`);
-                failed += contentBatch.length;
+                // Fallback: try individual inserts to salvage what we can
+                for (const item of contentBatch) {
+                  const { error: singleErr } = await supabase
+                    .from("content_items")
+                    .upsert(item, { onConflict: "platform_account_id,external_id" });
+                  if (singleErr) {
+                    console.error(`Individual upsert failed for ${item.external_id}: ${singleErr.message}`);
+                    failed += 1;
+                  } else {
+                    processed += 1;
+                  }
+                }
               } else {
-                processed += contentBatch.length;
-
+                // Verify all rows actually persisted (silent failures possible)
                 const extIds = contentBatch.map(c => c.external_id);
                 const { data: items } = await supabase
                   .from("content_items")
@@ -332,8 +342,56 @@ serve(async (req) => {
                   .eq("platform_account_id", account.id)
                   .in("external_id", extIds);
 
+                const persistedIds = new Set((items || []).map((it: any) => it.external_id));
+                const missingItems = contentBatch.filter(c => !persistedIds.has(c.external_id));
+
+                if (missingItems.length > 0) {
+                  console.warn(`${missingItems.length} items did not persist after batch upsert, retrying individually`);
+                  for (const item of missingItems) {
+                    const { error: retryErr } = await supabase
+                      .from("content_items")
+                      .upsert(item, { onConflict: "platform_account_id,external_id" });
+                    if (retryErr) {
+                      console.error(`Retry upsert failed for ${item.external_id}: ${retryErr.message}`);
+                      failed += 1;
+                    } else {
+                      // Verify individual retry actually worked
+                      const { data: check } = await supabase
+                        .from("content_items")
+                        .select("id")
+                        .eq("platform_account_id", item.platform_account_id)
+                        .eq("external_id", item.external_id)
+                        .single();
+                      if (check) {
+                        processed += 1;
+                        persistedIds.add(item.external_id);
+                      } else {
+                        console.error(`Item ${item.external_id} still missing after individual retry`);
+                        failed += 1;
+                      }
+                    }
+                  }
+                }
+
+                processed += persistedIds.size;
+
                 if (items && items.length > 0) {
                   const idMap = new Map(items.map((it: any) => [it.external_id, it.id]));
+                  // Re-query to include any items recovered by individual retry
+                  let allItems = items;
+                  if (missingItems.length > 0) {
+                    const { data: refreshed } = await supabase
+                      .from("content_items")
+                      .select("id, external_id")
+                      .eq("platform_account_id", account.id)
+                      .in("external_id", extIds);
+                    if (refreshed) {
+                      allItems = refreshed;
+                      for (const it of refreshed) {
+                        idMap.set(it.external_id, it.id);
+                      }
+                    }
+                  }
                   const metricsBatch = videoMeta
                     .filter(vm => idMap.has(vm.videoId))
                     .map(vm => ({
@@ -363,11 +421,26 @@ serve(async (req) => {
           }
 
           // === FIRE AUTOMATION EVENTS for new non-short videos ===
+          // Verify videos actually persisted before firing events — prevents
+          // infinite new_video loop when batch upsert silently drops rows.
           if (newFullVideos.length > 0) {
+            const newVideoIds = newFullVideos.map(nv => nv.videoId);
+            const { data: persistedRows } = await supabase
+              .from("content_items")
+              .select("external_id")
+              .eq("platform_account_id", account.id)
+              .in("external_id", newVideoIds);
+            const persistedSet = new Set((persistedRows || []).map((r: any) => r.external_id));
+            const verifiedNewVideos = newFullVideos.filter(nv => persistedSet.has(nv.videoId));
+
+            if (verifiedNewVideos.length < newFullVideos.length) {
+              console.warn(`Skipping events for ${newFullVideos.length - verifiedNewVideos.length} videos that did not persist in content_items`);
+            }
+
             const supabaseUrl = Deno.env.get("SUPABASE_URL");
             const cronSecret = Deno.env.get("CRON_SECRET");
 
-            for (const nv of newFullVideos) {
+            for (const nv of verifiedNewVideos) {
               try {
                 const resp = await fetch(
                   `${supabaseUrl}/functions/v1/run-automations?secret=${cronSecret}`,
