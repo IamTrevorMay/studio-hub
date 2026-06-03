@@ -145,7 +145,7 @@ export default function Layout({ onBack }) {
           </svg>
         </button>
         <span style={styles.headerTitle}>Graphics</span>
-        <span style={styles.headerBadge}>Phase 2F.1 — Vercel renderer spike</span>
+        <span style={styles.headerBadge}>Phase 2F.2 — text + shape renderer</span>
       </header>
 
       <div style={styles.body}>
