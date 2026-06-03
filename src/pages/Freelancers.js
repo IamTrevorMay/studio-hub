@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 
-const TABS = ['Team', 'Assignments', 'Hours', 'Documents'];
+const TABS = ['Assignments', 'Hours', 'Documents', 'Team'];
 
 const STATUS_OPTIONS = ['assigned', 'in_progress', 'completed'];
 const STATUS_LABELS = { assigned: 'Assigned', in_progress: 'In Progress', completed: 'Completed' };
@@ -28,7 +28,7 @@ const FREELANCER_TITLES = [
 
 function Freelancers() {
   const { profile, isAdmin } = useAuth();
-  const [activeTab, setActiveTab] = useState('Team');
+  const [activeTab, setActiveTab] = useState('Assignments');
 
   /* ── Team state ── */
   const [freelancers, setFreelancers] = useState([]);
@@ -67,6 +67,8 @@ function Freelancers() {
   const [newComment, setNewComment] = useState('');
   const [commentPosting, setCommentPosting] = useState(false);
   const [editingAssignment, setEditingAssignment] = useState(null);
+  const [timeFilter, setTimeFilter] = useState('7d');
+  const [viewMode, setViewMode] = useState('list');
 
   // New assignment form
   const [newAssign, setNewAssign] = useState({
@@ -522,6 +524,51 @@ function Freelancers() {
 
   const avatarLetter = (name) => (name || '?')[0].toUpperCase();
 
+  const TIME_FILTERS = [
+    { key: 'today', label: 'Today' },
+    { key: '7d', label: 'Last 7 Days' },
+    { key: 'pay_period', label: 'This Pay Period' },
+    { key: 'month', label: 'This Month' },
+  ];
+
+  const getTimeFilterRange = (key) => {
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    switch (key) {
+      case 'today':
+        return { start: startOfDay, end: endOfDay };
+      case '7d':
+        return { start: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), end: now };
+      case 'pay_period': {
+        const day = now.getDate();
+        if (day <= 15) {
+          return {
+            start: new Date(now.getFullYear(), now.getMonth(), 1),
+            end: new Date(now.getFullYear(), now.getMonth(), 15, 23, 59, 59, 999),
+          };
+        }
+        return {
+          start: new Date(now.getFullYear(), now.getMonth(), 16),
+          end: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999),
+        };
+      }
+      case 'month':
+        return {
+          start: new Date(now.getFullYear(), now.getMonth(), 1),
+          end: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999),
+        };
+      default:
+        return { start: new Date(0), end: now };
+    }
+  };
+
+  const formatShortDate = (d) => {
+    if (!d) return '';
+    const dt = new Date(d);
+    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
   /* ─────────────────────────────────────────── */
   /*  Admin gate                                 */
   /* ─────────────────────────────────────────── */
@@ -543,6 +590,11 @@ function Freelancers() {
   const filteredAssignments = assignments.filter(a => {
     if (statusFilter !== 'all' && a.status !== statusFilter) return false;
     if (freelancerFilter !== 'all' && a.freelancer_id !== freelancerFilter) return false;
+    const { start, end } = getTimeFilterRange(timeFilter);
+    const created = a.created_at ? new Date(a.created_at) : null;
+    const completed = a.completed_at ? new Date(a.completed_at) : null;
+    const inRange = (d) => d && d >= start && d <= end;
+    if (!inRange(created) && !inRange(completed)) return false;
     return true;
   });
 
@@ -1109,6 +1161,20 @@ function Freelancers() {
               </button>
             ))}
 
+            {/* Divider */}
+            <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.1)' }} />
+
+            {/* Time filter pills */}
+            {TIME_FILTERS.map(tf => (
+              <button
+                key={tf.key}
+                onClick={() => setTimeFilter(tf.key)}
+                style={{ ...styles.filterPill, ...(timeFilter === tf.key ? styles.filterPillActive : {}) }}
+              >
+                {tf.label}
+              </button>
+            ))}
+
             {/* Freelancer dropdown */}
             <select
               value={freelancerFilter}
@@ -1120,6 +1186,27 @@ function Freelancers() {
                 <option key={fl.id} value={fl.id}>{fl.full_name || fl.email}</option>
               ))}
             </select>
+
+            {/* Spacer */}
+            <div style={{ flex: 1 }} />
+
+            {/* View toggle */}
+            <div style={{ display: 'flex', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, overflow: 'hidden' }}>
+              <button
+                onClick={() => setViewMode('list')}
+                style={{ ...styles.filterPill, borderRadius: 0, border: 'none', padding: '6px 10px', ...(viewMode === 'list' ? styles.filterPillActive : {}) }}
+                title="List view"
+              >
+                ☰
+              </button>
+              <button
+                onClick={() => setViewMode('kanban')}
+                style={{ ...styles.filterPill, borderRadius: 0, border: 'none', borderLeft: '1px solid rgba(255,255,255,0.08)', padding: '6px 10px', ...(viewMode === 'kanban' ? styles.filterPillActive : {}) }}
+                title="Kanban view"
+              >
+                ▥
+              </button>
+            </div>
           </div>
 
           {/* New assignment button/form */}
@@ -1204,10 +1291,80 @@ function Freelancers() {
             </div>
           )}
 
+          {/* Kanban view */}
+          {viewMode === 'kanban' && (
+            <div style={styles.kanbanContainer}>
+              {[
+                { key: 'assigned', label: 'Assigned' },
+                { key: 'in_progress', label: 'In Progress' },
+                { key: 'completed', label: 'Completed' },
+              ].map(col => {
+                const colItems = filteredAssignments.filter(a => a.status === col.key);
+                const colors = STATUS_BADGE_COLORS[col.key] || {};
+                return (
+                  <div key={col.key} style={styles.kanbanColumn}>
+                    <div style={{ ...styles.kanbanColumnHeader, background: colors.bg || 'rgba(255,255,255,0.05)' }}>
+                      <span style={{ fontWeight: 700, fontSize: 13, color: colors.color || '#fff' }}>{col.label}</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: colors.color || 'rgba(255,255,255,0.5)' }}>{colItems.length}</span>
+                    </div>
+                    <div style={styles.kanbanColumnBody}>
+                      {colItems.length === 0 ? (
+                        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)', textAlign: 'center', padding: '20px 0' }}>
+                          No assignments
+                        </div>
+                      ) : colItems.map(a => (
+                        <div key={a.id} style={styles.kanbanCard}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                            <div style={{ ...styles.avatar, width: 26, height: 26, fontSize: 11 }}>
+                              {avatarLetter(a.freelancer?.full_name)}
+                            </div>
+                            <span style={{ fontWeight: 600, color: '#fff', fontSize: 13 }}>
+                              {a.freelancer?.full_name || 'Unknown'}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', marginBottom: 6 }}>
+                            {a.title}
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                            <span style={{ ...styles.typeBadge }}>
+                              {TYPE_LABELS[a.assignment_type] || a.assignment_type}
+                            </span>
+                            {a.due_date && (
+                              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>
+                                Due {formatDate(a.due_date)}
+                              </span>
+                            )}
+                            {a.pay_amount && (
+                              <span style={{ fontSize: 11, color: '#34d399', fontWeight: 600 }}>
+                                ${Number(a.pay_amount).toFixed(2)}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                            {a.created_at && (
+                              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>
+                                Assigned {formatShortDate(a.created_at)}
+                              </span>
+                            )}
+                            {a.status === 'completed' && a.completed_at && (
+                              <span style={{ fontSize: 10, color: '#34d399' }}>
+                                Completed {formatShortDate(a.completed_at)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {/* Assignment list */}
-          {filteredAssignments.length === 0 ? (
+          {viewMode === 'list' && filteredAssignments.length === 0 ? (
             <p style={styles.emptyText}>No assignments found.</p>
-          ) : (
+          ) : viewMode === 'list' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {filteredAssignments.map(a => {
                 const isExpanded = expandedAssignment === a.id;
@@ -1244,6 +1401,16 @@ function Freelancers() {
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+                        {a.created_at && (
+                          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>
+                            Assigned {formatShortDate(a.created_at)}
+                          </span>
+                        )}
+                        {a.status === 'completed' && a.completed_at && (
+                          <span style={{ fontSize: 11, color: '#34d399' }}>
+                            Completed {formatShortDate(a.completed_at)}
+                          </span>
+                        )}
                         {a.due_date && (
                           <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
                             Due {formatDate(a.due_date)}
@@ -1916,6 +2083,13 @@ const styles = {
     letterSpacing: '0.04em',
     margin: '0 0 10px',
   },
+
+  /* Kanban */
+  kanbanContainer: { display: 'flex', gap: 16, minHeight: 400 },
+  kanbanColumn: { flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 },
+  kanbanColumnHeader: { padding: '10px 12px', borderRadius: '10px 10px 0 0', marginBottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
+  kanbanColumnBody: { flex: 1, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0 0 10px 10px', padding: 8, display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto' },
+  kanbanCard: { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: 12 },
 
   /* Mini rows (in expanded freelancer) */
   miniRow: {

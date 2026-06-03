@@ -218,6 +218,7 @@ export default function Calendar({ onNavigate }) {
   const [expandedSocialDays, setExpandedSocialDays] = useState({});
   const [showCustomRecurrence, setShowCustomRecurrence] = useState(false);
   const [recurrencePrompt, setRecurrencePrompt] = useState(null); // { action: 'edit'|'delete', event }
+  const [contextMenu, setContextMenu] = useState(null); // { x, y, event }
   const [showFilters, setShowFilters] = useState(false);
   const [visibleFilters, setVisibleFilters] = useState(() => {
     try {
@@ -253,6 +254,7 @@ export default function Calendar({ onNavigate }) {
       if (deliverableDropdownRef.current && !deliverableDropdownRef.current.contains(e.target)) {
         setShowDeliverableDropdown(false);
       }
+      setContextMenu(null);
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
@@ -918,6 +920,40 @@ export default function Calendar({ onNavigate }) {
     setSelectedEvent(selectedEvent?.id === ev.id ? null : ev);
   }
 
+  function handleEventContextMenu(e, ev) {
+    e.preventDefault();
+    e.stopPropagation();
+    setActiveTooltip(null);
+    setSelectedEvent(null);
+    setContextMenu({ x: e.clientX, y: e.clientY, event: ev });
+  }
+
+  async function handleDuplicateEvent(ev) {
+    const sourceEv = ev._isRecurrenceInstance
+      ? calendarEvents.find(e => e.id === ev._parentId) || ev
+      : ev;
+    try {
+      const payload = {
+        title: `${sourceEv.title} (copy)`,
+        description: sourceEv.description || '',
+        event_type: sourceEv.event_type,
+        start_date: sourceEv.start_date,
+        end_date: sourceEv.end_date,
+        all_day: sourceEv.all_day || false,
+        location: sourceEv.location || '',
+        guests: sourceEv.guests || [],
+        recurrence_rule: null,
+        created_by: profile.id,
+      };
+      const { error } = await supabase.from('calendar_events').insert(payload);
+      if (error) throw error;
+      fetchCalendarEvents();
+    } catch (err) {
+      console.error('Error duplicating event:', err);
+      alert('Failed to duplicate event: ' + err.message);
+    }
+  }
+
   function getUserName(userId) {
     const u = hubUsers.find(u => u.id === userId);
     return u ? (u.title ? `${u.full_name} · ${u.title}` : u.full_name) : 'Unknown';
@@ -941,6 +977,7 @@ export default function Calendar({ onNavigate }) {
           cursor: isDraggable ? 'grab' : 'pointer',
         }}
         onClick={(e) => handleEventClick(e, ev)}
+        onContextMenu={(e) => handleEventContextMenu(e, ev)}
       >
         <span style={{ fontSize: '9px', flexShrink: 0 }}>{icon}</span>
         {!ev.all_day && <span style={{ fontSize: '9px', flexShrink: 0, color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>{new Date(ev.start_date).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>}
@@ -1389,6 +1426,7 @@ export default function Calendar({ onNavigate }) {
                               fontSize: '11px',
                             }}
                             onClick={(e) => handleEventClick(e, ev)}
+                            onContextMenu={(e) => handleEventContextMenu(e, ev)}
                           >
                             <div style={{ fontWeight: 600, color, fontSize: '11px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                               {icon} {ev.title}
@@ -1491,6 +1529,7 @@ export default function Calendar({ onNavigate }) {
                             overflow: 'hidden',
                           }}
                           onClick={(e) => handleEventClick(e, ev)}
+                          onContextMenu={(e) => handleEventContextMenu(e, ev)}
                         >
                           <div style={{ fontWeight: 600, color, fontSize: '13px', marginBottom: '2px' }}>
                             {icon} {ev.title}
@@ -1534,6 +1573,63 @@ export default function Calendar({ onNavigate }) {
               {activeTooltip.data.publicUrl && <div style={styles.tooltipHint}>Click to open</div>}
             </>
           )}
+        </div>
+      )}
+
+      {/* Right-click context menu */}
+      {contextMenu && (
+        <div
+          style={{
+            position: 'fixed',
+            top: contextMenu.y,
+            left: contextMenu.x,
+            zIndex: 10000,
+            background: '#1a1a2e',
+            border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: 10,
+            padding: '4px 0',
+            minWidth: 160,
+            boxShadow: '0 8px 30px rgba(0,0,0,0.5)',
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <div
+            style={styles.ctxMenuItem}
+            onClick={() => {
+              const ev = contextMenu.event;
+              setContextMenu(null);
+              promptRecurrenceAction('edit', ev);
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          >
+            Edit
+          </div>
+          <div
+            style={styles.ctxMenuItem}
+            onClick={() => {
+              const ev = contextMenu.event;
+              setContextMenu(null);
+              handleDuplicateEvent(ev);
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          >
+            Duplicate
+          </div>
+          <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '4px 0' }} />
+          <div
+            style={{ ...styles.ctxMenuItem, color: '#fca5a5' }}
+            onClick={() => {
+              const ev = contextMenu.event;
+              setContextMenu(null);
+              promptRecurrenceAction('delete', ev);
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.08)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          >
+            Delete
+          </div>
         </div>
       )}
 
@@ -2257,6 +2353,7 @@ const styles = {
   eventDetailCard: { background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', padding: '20px', width: '400px', maxWidth: '95vw', boxShadow: '0 24px 48px rgba(0,0,0,0.5)' },
   eventDetailRow: { display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '12px' },
   eventDetailLabel: { fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.5px' },
+  ctxMenuItem: { padding: '8px 14px', fontSize: '13px', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', fontFamily: 'inherit', transition: 'background 0.1s' },
   eventEditBtn: { flex: 1, padding: '9px', background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '8px', color: '#a5b4fc', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   eventDeleteBtn: { flex: 1, padding: '9px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '8px', color: '#fca5a5', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   recurrencePrompt: {

@@ -64,6 +64,8 @@ export default function Assignments() {
   const [pending, setPending] = useState([]);
   const [done, setDone] = useState([]);
   const [declined, setDeclined] = useState([]);
+  const [flPending, setFlPending] = useState([]);
+  const [flDone, setFlDone] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
 
@@ -90,7 +92,7 @@ export default function Assignments() {
   const fetchData = useCallback(async () => {
     try {
       const sevenDaysAgo = new Date(Date.now() - SEVEN_DAYS_MS).toISOString();
-      const [profRes, pendRes, doneRes, declRes, delivRes, campRes] = await Promise.all([
+      const [profRes, pendRes, doneRes, declRes, delivRes, campRes, flPendRes, flDoneRes] = await Promise.all([
         supabase
           .from('profiles')
           .select('id, full_name, email, role')
@@ -119,11 +121,22 @@ export default function Assignments() {
           .from('sponsor_campaigns')
           .select('id, name, end_date')
           .order('name', { ascending: true }),
+        supabase
+          .from('freelancer_assignments')
+          .select('id, title, freelancer_id, status, created_at, completed_at, due_date, pay_amount, assignment_type')
+          .in('status', ['assigned', 'in_progress']),
+        supabase
+          .from('freelancer_assignments')
+          .select('id, title, freelancer_id, status, created_at, completed_at')
+          .eq('status', 'completed')
+          .gte('completed_at', sevenDaysAgo),
       ]);
       setProfiles((profRes.data || []).filter(p => p.role && p.role !== 'deactivated'));
       setPending(pendRes.data || []);
       setDone(doneRes.data || []);
       setDeclined(declRes.data || []);
+      setFlPending((flPendRes.data || []).map(a => ({ ...a, assignee_id: a.freelancer_id, _source: 'contractor' })));
+      setFlDone((flDoneRes.data || []).map(a => ({ ...a, assignee_id: a.freelancer_id, _source: 'contractor' })));
 
       // Active records for the template pickers
       const today = new Date().toISOString().slice(0, 10);
@@ -170,6 +183,7 @@ export default function Assignments() {
     const channel = supabase
       .channel('assignments-live')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, debouncedRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'freelancer_assignments' }, debouncedRefresh)
       .subscribe();
     return () => {
       if (refreshTimer.current) clearTimeout(refreshTimer.current);
@@ -186,8 +200,10 @@ export default function Assignments() {
     for (const t of pending) if (t.assignee_id) ensure(t.assignee_id).pending.push(t);
     for (const t of done) if (t.assignee_id) ensure(t.assignee_id).done.push(t);
     for (const t of declined) if (t.assignee_id) ensure(t.assignee_id).declined.push(t);
+    for (const t of flPending) if (t.assignee_id) ensure(t.assignee_id).pending.push(t);
+    for (const t of flDone) if (t.assignee_id) ensure(t.assignee_id).done.push(t);
     return map;
-  }, [pending, done, declined]);
+  }, [pending, done, declined, flPending, flDone]);
 
   const team = useMemo(() => profiles.filter(p => TEAM_ROLES.includes(p.role)), [profiles]);
   const contractors = useMemo(() => profiles.filter(p => p.role === 'freelancer'), [profiles]);
@@ -439,10 +455,10 @@ function PersonCard({ person, data, onCancel }) {
               {isOverdue(t) ? 'overdue ' : 'due '}{fmtDate(t.due_date)}
             </span>
           )}
-          <span style={{ ...styles.srcTag, ...(isDirect(t) ? styles.tagDirect : styles.tagWorkflow) }}>
-            {isDirect(t) ? 'direct' : 'workflow'}
+          <span style={{ ...styles.srcTag, ...(t._source === 'contractor' ? styles.tagContractor : isDirect(t) ? styles.tagDirect : styles.tagWorkflow) }}>
+            {t._source === 'contractor' ? 'assignment' : isDirect(t) ? 'direct' : 'workflow'}
           </span>
-          {isDirect(t) && (
+          {isDirect(t) && !t._source && (
             <button title="Cancel task" style={styles.cancelX} onClick={() => onCancel(t.id)}>✕</button>
           )}
         </div>
@@ -457,8 +473,8 @@ function PersonCard({ person, data, onCancel }) {
             <div key={t.id} style={styles.taskLine}>
               <span style={{ ...styles.dot, color: '#22c55e' }}>✓</span>
               <span style={{ ...styles.taskTitle, color: 'rgba(255,255,255,0.55)' }}>{t.title}</span>
-              <span style={{ ...styles.srcTag, ...(isDirect(t) ? styles.tagDirect : styles.tagWorkflow) }}>
-                {isDirect(t) ? 'direct' : 'workflow'}
+              <span style={{ ...styles.srcTag, ...(t._source === 'contractor' ? styles.tagContractor : isDirect(t) ? styles.tagDirect : styles.tagWorkflow) }}>
+                {t._source === 'contractor' ? 'assignment' : isDirect(t) ? 'direct' : 'workflow'}
               </span>
             </div>
           ))}
@@ -569,6 +585,7 @@ const styles = {
   srcTag: { fontSize: 9, fontWeight: 700, borderRadius: 3, padding: '1px 5px', textTransform: 'uppercase', letterSpacing: 0.3 },
   tagDirect: { background: 'rgba(99,102,241,0.18)', color: '#a5b4fc' },
   tagWorkflow: { background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.45)' },
+  tagContractor: { background: 'rgba(251,191,36,0.15)', color: '#fbbf24' },
   cancelX: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: 12, padding: '0 2px' },
   emptyLine: { fontSize: 12, color: 'rgba(255,255,255,0.3)', fontStyle: 'italic', padding: '2px 0' },
   moreLine: { fontSize: 11, color: 'rgba(255,255,255,0.35)', padding: '3px 0 0 18px' },
