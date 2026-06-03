@@ -79,6 +79,11 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
   // Beat sheets for deliverable linking
   const [beatSheets, setBeatSheets] = useState([]);
 
+  // Context menu + inline dropdowns for upcoming cards
+  const [cardContextMenu, setCardContextMenu] = useState(null); // { x, y, deliverable }
+  const [videoDropdownId, setVideoDropdownId] = useState(null); // deliverable id showing video picker
+  const [beatSheetDropdownId, setBeatSheetDropdownId] = useState(null); // deliverable id showing beat sheet picker
+
   // Auto-expand a campaign when navigated to from another page
   useEffect(() => {
     if (initialCampaignId) {
@@ -161,7 +166,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
     try {
       const { data, error } = await supabase
         .from('beat_sheets')
-        .select('id, title, folder')
+        .select('id, title, folder, is_archived')
         .order('created_at', { ascending: false });
       if (!error) setBeatSheets(data || []);
     } catch (err) {
@@ -703,6 +708,59 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
     fetchSponsors();
   }
 
+  // Inline assign video event to deliverable from card dropdown
+  async function handleInlineAssignVideo(deliverableId, videoEventId) {
+    setVideoDropdownId(null);
+    await supabase.from('sponsor_deliverables').update({
+      video_event_id: videoEventId || null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', deliverableId);
+    fetchSponsors();
+  }
+
+  // Inline assign beat sheet to deliverable from card dropdown
+  async function handleInlineAssignBeatSheet(deliverableId, beatSheetId) {
+    setBeatSheetDropdownId(null);
+    await supabase.from('sponsor_deliverables').update({
+      beat_sheet_id: beatSheetId || null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', deliverableId);
+    fetchSponsors();
+  }
+
+  // Duplicate a deliverable
+  async function handleDuplicateDeliverable(d) {
+    setCardContextMenu(null);
+    const { error } = await supabase.from('sponsor_deliverables').insert({
+      title: d.title + ' (copy)',
+      deliverable_type: d.deliverable_type,
+      due_date: d.due_date,
+      notes: d.notes,
+      platforms: d.platforms,
+      needs_review: d.needs_review,
+      campaign_id: d.campaign_id,
+      sponsor_id: d.sponsor_id,
+      pay: d.pay,
+      channel: d.channel,
+      delivered: false,
+    });
+    if (error) { alert('Error duplicating: ' + error.message); return; }
+    fetchSponsors();
+  }
+
+  // Get video events not already attached to any deliverable (except current)
+  function getAvailableVideoEvents(currentDeliverableId) {
+    const usedIds = new Set(allDeliverables.filter(d => d.video_event_id && d.id !== currentDeliverableId).map(d => d.video_event_id));
+    const today = new Date().toISOString().slice(0, 10);
+    return videoEvents.filter(ev => !usedIds.has(ev.id) && ev.start_date && ev.start_date.slice(0, 10) >= today);
+  }
+
+  // Get beat sheets not already linked to any deliverable (except current)
+  function getAvailableBeatSheets(currentDeliverableId) {
+    const usedIds = new Set(allDeliverables.filter(d => d.beat_sheet_id && d.id !== currentDeliverableId).map(d => d.beat_sheet_id));
+    return beatSheets.filter(bs => !usedIds.has(bs.id) && !bs.is_archived && bs.folder !== 'archive');
+  }
+
   // --- Campaign handlers ---
   function resetCampaignForm() {
     setCampaignForm({ name: '', brand: '', description: '', start_date: '', end_date: '', contact_name: '', contact_email: '', payment_status: 'unpaid' });
@@ -995,56 +1053,144 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
   function renderUpcomingCard(d) {
     const linkedSheet = beatSheets.find(bs => bs.id === d.beat_sheet_id);
     const ev = d.video_event_id ? videoEvents.find(e => e.id === d.video_event_id) : null;
+    const isVideoDropdownOpen = videoDropdownId === d.id;
+    const isBeatSheetDropdownOpen = beatSheetDropdownId === d.id;
     return (
-      <div key={d.id} style={{ ...styles.delivCard, flexDirection: 'row', alignItems: 'stretch', gap: '10px', position: 'relative', paddingBottom: '16px' }}>
+      <div
+        key={d.id}
+        style={{ ...styles.delivCard, flexDirection: 'row', alignItems: 'stretch', gap: '10px', position: 'relative' }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setCardContextMenu({ x: e.clientX, y: e.clientY, deliverable: d });
+        }}
+      >
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {/* Top row: icon + title */}
           <div style={styles.delivCardTop}>
-            <span style={{ fontSize: '15px', flexShrink: 0 }}>{DELIVERABLE_TYPES[d.deliverable_type]?.icon || '\u{1F4CB}'}</span>
             <span style={{ ...styles.delivCardTitle, flex: '0 1 auto' }}>{d.title}</span>
-            {d.pay != null && <span style={{ fontSize: '12px', fontWeight: 700, color: '#22c55e', flexShrink: 0 }}>${parseFloat(d.pay).toLocaleString()}</span>}
           </div>
+          {/* Sponsor / campaign */}
           <div style={styles.delivCardSub}>
             <span>{d.sponsor_name}</span>
             {d.campaign_name && <><span style={{ opacity: 0.4 }}>/</span><span>{d.campaign_name}</span></>}
-            {d.brief_url && (
+          </div>
+          {/* Brief link */}
+          {d.brief_url && (
+            <div style={styles.delivCardSub}>
               <a href={d.brief_url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ color: '#a5b4fc', textDecoration: 'none' }}>
                 {'\u{1F4C4}'} {d.brief_name || 'Brief'}
               </a>
-            )}
+            </div>
+          )}
+          {/* Bottom row: video chip, beat sheet chip on left; Mark Delivered on right */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap', marginTop: 'auto' }}>
+            {/* Video event chip / Not Scheduled */}
+            <div style={{ position: 'relative' }}>
+              {ev ? (
+                <span
+                  style={{ ...styles.chip, fontWeight: 600, background: 'rgba(168,85,247,0.12)', color: '#c084fc', cursor: 'pointer' }}
+                  onClick={(e) => { e.stopPropagation(); setVideoDropdownId(isVideoDropdownOpen ? null : d.id); setBeatSheetDropdownId(null); }}
+                >
+                  {'\ud83d\udcf9'} {new Date(ev.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} {'\u2014'} {ev.title}
+                </span>
+              ) : (
+                <span
+                  style={{ ...styles.chip, fontWeight: 600, background: 'rgba(245,158,11,0.12)', color: '#fbbf24', cursor: 'pointer' }}
+                  onClick={(e) => { e.stopPropagation(); setVideoDropdownId(isVideoDropdownOpen ? null : d.id); setBeatSheetDropdownId(null); }}
+                >
+                  Not Scheduled
+                </span>
+              )}
+              {isVideoDropdownOpen && (
+                <div style={styles.inlineDropdown}>
+                  {(() => {
+                    const available = getAvailableVideoEvents(d.id);
+                    if (available.length === 0) return <div style={styles.inlineDropdownEmpty}>No available videos</div>;
+                    return available.map(ve => (
+                      <button
+                        key={ve.id}
+                        style={styles.inlineDropdownItem}
+                        onClick={(e) => { e.stopPropagation(); handleInlineAssignVideo(d.id, ve.id); }}
+                      >
+                        <span style={{ color: '#c084fc', flexShrink: 0 }}>{'\ud83d\udcf9'}</span>
+                        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ve.title}</span>
+                        <span style={{ color: 'rgba(255,255,255,0.35)', flexShrink: 0, fontSize: '10px' }}>
+                          {new Date(ve.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </span>
+                      </button>
+                    ));
+                  })()}
+                  {ev && (
+                    <button
+                      style={{ ...styles.inlineDropdownItem, color: '#f87171', borderTop: '1px solid rgba(255,255,255,0.06)' }}
+                      onClick={(e) => { e.stopPropagation(); handleInlineAssignVideo(d.id, null); }}
+                    >
+                      Unlink video
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+            {/* Beat sheet chip (50% bigger) */}
+            <div style={{ position: 'relative' }}>
+              <span
+                style={{
+                  ...styles.chip,
+                  fontWeight: 600,
+                  background: linkedSheet ? 'rgba(99,102,241,0.1)' : 'rgba(239,68,68,0.1)',
+                  color: linkedSheet ? '#a5b4fc' : '#fca5a5',
+                  cursor: 'pointer',
+                }}
+                onClick={(e) => { e.stopPropagation(); setBeatSheetDropdownId(isBeatSheetDropdownOpen ? null : d.id); setVideoDropdownId(null); }}
+              >
+                {linkedSheet ? linkedSheet.title : 'Unassigned'}
+              </span>
+              {isBeatSheetDropdownOpen && (
+                <div style={styles.inlineDropdown}>
+                  {(() => {
+                    const available = getAvailableBeatSheets(d.id);
+                    if (available.length === 0) return <div style={styles.inlineDropdownEmpty}>No available beat sheets</div>;
+                    return available.map(bs => (
+                      <button
+                        key={bs.id}
+                        style={styles.inlineDropdownItem}
+                        onClick={(e) => { e.stopPropagation(); handleInlineAssignBeatSheet(d.id, bs.id); }}
+                      >
+                        {bs.title}
+                      </button>
+                    ));
+                  })()}
+                  {linkedSheet && (
+                    <button
+                      style={{ ...styles.inlineDropdownItem, color: '#f87171', borderTop: '1px solid rgba(255,255,255,0.06)' }}
+                      onClick={(e) => { e.stopPropagation(); handleInlineAssignBeatSheet(d.id, null); }}
+                    >
+                      Unlink beat sheet
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-          <div style={styles.delivChips}>
+        </div>
+        {/* Right column: chips top, pay middle, delivered bottom */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'space-between', flexShrink: 0, gap: '6px' }}>
+          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             {d.channel && CHANNEL_COLORS[d.channel] && (
               <span style={{ ...styles.chip, background: CHANNEL_COLORS[d.channel].bg, color: CHANNEL_COLORS[d.channel].color }}>{CHANNEL_COLORS[d.channel].label}</span>
             )}
             {(d.platforms || []).map(p => (
               <span key={p} style={{ ...styles.chip, fontWeight: 600, background: 'rgba(99,102,241,0.12)', color: '#a5b4fc' }}>{p}</span>
             ))}
-            {d.needs_review && <span style={{ ...styles.chip, background: 'rgba(236,72,153,0.15)', color: '#f9a8d4' }}>REVIEW</span>}
-            {ev && (
-              <span style={{ ...styles.chip, fontWeight: 600, background: 'rgba(168,85,247,0.12)', color: '#c084fc' }}>
-                {'\ud83d\udcf9'} {new Date(ev.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-              </span>
-            )}
-            <span style={{ ...styles.chip, fontWeight: 600, background: linkedSheet ? 'rgba(99,102,241,0.1)' : 'rgba(239,68,68,0.1)', color: linkedSheet ? '#a5b4fc' : '#fca5a5' }}>
-              {linkedSheet ? linkedSheet.title : 'Unassigned'}
-            </span>
           </div>
-        </div>
-        {/* Mark Delivered \u2014 vertically centered on the right (equal top/bottom) */}
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignSelf: 'stretch', flexShrink: 0 }}>
+          {d.pay != null && <span style={{ fontSize: '18px', fontWeight: 700, color: '#22c55e' }}>${parseFloat(d.pay).toLocaleString()}</span>}
           <button
             onClick={(e) => { e.stopPropagation(); handleToggleDelivered(d.id, d.delivered); }}
-            style={{ ...styles.delivToggle, padding: '9px 15px', fontSize: '11px', lineHeight: 1.2 }}
+            style={{ ...styles.delivToggle, ...(d.delivered ? styles.delivToggleDone : {}), padding: '4px 12px', fontSize: '11px', alignSelf: 'flex-end' }}
           >
-            Mark<br />Delivered
+            {d.delivered ? '\u2713 Delivered' : 'Delivered'}
           </button>
         </div>
-        {/* Edit \u2014 bottom-right corner */}
-        <button
-          onClick={(e) => { e.stopPropagation(); if (d.campaign_id) setExpandedCampaignId(d.campaign_id); startEditDeliverable(d); }}
-          style={{ ...styles.delivIconBtn, position: 'absolute', bottom: '4px', right: '6px' }}
-          title="Edit"
-        >{'\u270e'}</button>
       </div>
     );
   }
@@ -1813,6 +1959,56 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
           </div>
         </div>
       )}
+
+      {/* Context menu for upcoming deliverable cards */}
+      {cardContextMenu && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 9998 }}
+          onClick={() => setCardContextMenu(null)}
+          onContextMenu={(e) => { e.preventDefault(); setCardContextMenu(null); }}
+        >
+          <div style={{ ...styles.contextMenu, top: cardContextMenu.y, left: cardContextMenu.x }} onClick={e => e.stopPropagation()}>
+            <button
+              style={styles.contextMenuItem}
+              onClick={() => {
+                const d = cardContextMenu.deliverable;
+                if (d.campaign_id) setExpandedCampaignId(d.campaign_id);
+                startEditDeliverable(d);
+                setCardContextMenu(null);
+              }}
+            >
+              Edit
+            </button>
+            <button
+              style={styles.contextMenuItem}
+              onClick={() => {
+                handleDuplicateDeliverable(cardContextMenu.deliverable);
+              }}
+            >
+              Duplicate
+            </button>
+            <button
+              style={{ ...styles.contextMenuItem, color: '#f87171' }}
+              onClick={async () => {
+                const d = cardContextMenu.deliverable;
+                setCardContextMenu(null);
+                const ok = await confirm('Delete this deliverable?', 'This cannot be undone.');
+                if (ok) handleDeleteDeliverable(d);
+              }}
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Click-away for inline dropdowns */}
+      {(videoDropdownId || beatSheetDropdownId) && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 49 }}
+          onClick={() => { setVideoDropdownId(null); setBeatSheetDropdownId(null); }}
+        />
+      )}
     </div>
   );
 }
@@ -2063,6 +2259,33 @@ const styles = {
     background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)',
   },
   delivToggleDone: { background: 'rgba(34,197,94,0.2)', color: '#86efac' },
+  // Context menu
+  contextMenu: {
+    position: 'fixed', zIndex: 9999, minWidth: '140px',
+    background: '#1e1e32', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px',
+    padding: '4px 0', boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+  },
+  contextMenuItem: {
+    display: 'block', width: '100%', background: 'none', border: 'none',
+    color: 'rgba(255,255,255,0.8)', fontSize: '13px', fontFamily: 'inherit',
+    padding: '8px 14px', textAlign: 'left', cursor: 'pointer',
+  },
+  // Inline dropdown (video / beat sheet pickers)
+  inlineDropdown: {
+    position: 'absolute', top: '100%', left: 0, zIndex: 50,
+    marginTop: '4px', minWidth: '220px', maxHeight: '200px', overflowY: 'auto',
+    background: '#1e1e32', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px',
+    padding: '4px 0', boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+  },
+  inlineDropdownItem: {
+    display: 'flex', alignItems: 'center', gap: '8px', width: '100%',
+    background: 'none', border: 'none', color: 'rgba(255,255,255,0.8)',
+    fontSize: '12px', fontFamily: 'inherit', padding: '7px 12px',
+    textAlign: 'left', cursor: 'pointer',
+  },
+  inlineDropdownEmpty: {
+    padding: '10px 12px', fontSize: '12px', color: 'rgba(255,255,255,0.3)', textAlign: 'center',
+  },
   addDeliverableBtn: {
     width: '100%', padding: '8px', borderRadius: '8px',
     background: 'rgba(99,102,241,0.1)', color: '#a5b4fc',

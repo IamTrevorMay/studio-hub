@@ -582,7 +582,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
     return fc.toJSON(CUSTOM_FABRIC_PROPS);
   }
 
-  function loadCanvasJSON(json) {
+  function loadCanvasJSON(json, opts = {}) {
     const fc = fabricRef.current;
     if (!fc) return;
     skipHistory.current = true;
@@ -590,7 +590,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
       fc.renderAll();
       skipHistory.current = false;
       // Only sync annotation store in video mode — static mode manages its own canvas
-      if (!staticModeRef.current) syncStoreFromCanvas();
+      // skipSync: caller handles annotation state separately (e.g. video queue switching)
+      if (!staticModeRef.current && !opts.skipSync) syncStoreFromCanvas();
       const initial = fc.toJSON(CUSTOM_FABRIC_PROPS);
       undoStack.current = [JSON.stringify(initial)];
       redoStack.current = [];

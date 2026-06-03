@@ -6,6 +6,7 @@ import Toolbar from './telestration/Toolbar';
 import Timeline from './telestration/Timeline';
 import AnnotationList from './telestration/AnnotationList';
 import StaticImagePanel from './telestration/StaticImagePanel';
+import VideoQueuePanel from './telestration/VideoQueuePanel';
 import useVideoController from './telestration/useVideoController';
 import useAnnotationStore from './telestration/useAnnotationStore';
 import useExporter from './telestration/useExporter';
@@ -13,7 +14,8 @@ import { DEFAULT_SETTINGS } from './telestration/telestrationConstants';
 import { loadSettings, saveSettings } from './telestration/telestrationStorage';
 
 export default function Telestration({ onBack }) {
-  const [videoSource, setVideoSource] = useState(null);
+  const [videoSources, setVideoSources] = useState([]);
+  const [selectedVideoId, setSelectedVideoId] = useState(null);
   const [showAnnotationList, setShowAnnotationList] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const videoController = useVideoController();
@@ -32,11 +34,14 @@ export default function Telestration({ onBack }) {
   const [staticImages, setStaticImages] = useState([]);
   const [selectedStaticImageId, setSelectedStaticImageId] = useState(null);
   const staticImgRef = useRef(null);
-  const videoCanvasBackupRef = useRef(null);
 
   // Stable refs for use inside callbacks (avoids stale closures)
   const modeRef = useRef(mode);
   modeRef.current = mode;
+  const videoSourcesRef = useRef(videoSources);
+  videoSourcesRef.current = videoSources;
+  const selectedVideoIdRef = useRef(selectedVideoId);
+  selectedVideoIdRef.current = selectedVideoId;
   const staticImagesRef = useRef(staticImages);
   staticImagesRef.current = staticImages;
   const selectedStaticImageIdRef = useRef(selectedStaticImageId);
@@ -57,6 +62,9 @@ export default function Telestration({ onBack }) {
   useEffect(() => {
     return () => {
       staticImages.forEach(img => URL.revokeObjectURL(img.url));
+      videoSources.forEach(v => {
+        if (v.source.type === 'file' && v.source.url) URL.revokeObjectURL(v.source.url);
+      });
     };
   }, []); // eslint-disable-line
 
@@ -87,36 +95,52 @@ export default function Telestration({ onBack }) {
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [videoSource, mode]);
+  }, [selectedVideoId, mode]);
 
   // Computed
   const selectedStaticImage = staticImages.find(i => i.id === selectedStaticImageId) ?? null;
-  const isEditorMode = videoSource !== null || staticImages.length > 0;
+  const selectedVideo = videoSources.find(v => v.id === selectedVideoId) ?? null;
+  const selectedVideoSource = selectedVideo?.source ?? null;
+  const isEditorMode = videoSources.length > 0 || staticImages.length > 0;
 
   // --- Mode switching (uses refs to avoid stale closures) ---
   const handleSwitchMode = useCallback((newMode) => {
     if (newMode === modeRef.current) return;
-    const currentSelectedId = selectedStaticImageIdRef.current;
+    const currentStaticId = selectedStaticImageIdRef.current;
     const currentImages = staticImagesRef.current;
-    const currentSelectedImage = currentImages.find(i => i.id === currentSelectedId) ?? null;
+    const currentStaticImage = currentImages.find(i => i.id === currentStaticId) ?? null;
+    const currentVideoId = selectedVideoIdRef.current;
+    const currentVideos = videoSourcesRef.current;
 
     try {
       if (newMode === 'static') {
-        videoCanvasBackupRef.current = canvasRef.current?.getCanvasJSON() ?? null;
-        if (currentSelectedImage?.canvasJSON) {
-          canvasRef.current?.loadCanvasJSON(currentSelectedImage.canvasJSON);
+        // Save current video canvas + annotations into queue
+        if (currentVideoId) {
+          const json = canvasRef.current?.getCanvasJSON() ?? null;
+          const anns = [...(annotationStore.annotations || [])];
+          setVideoSources(prev => prev.map(v =>
+            v.id === currentVideoId ? { ...v, canvasJSON: json, annotations: anns } : v
+          ));
+        }
+        // Load static image canvas
+        if (currentStaticImage?.canvasJSON) {
+          canvasRef.current?.loadCanvasJSON(currentStaticImage.canvasJSON);
         } else {
           canvasRef.current?.clearCanvas();
         }
       } else {
-        if (currentSelectedImage) {
+        // Save static image canvas
+        if (currentStaticImage) {
           const json = canvasRef.current?.getCanvasJSON();
           setStaticImages(prev => prev.map(img =>
-            img.id === currentSelectedId ? { ...img, canvasJSON: json } : img
+            img.id === currentStaticId ? { ...img, canvasJSON: json } : img
           ));
         }
-        if (videoCanvasBackupRef.current) {
-          canvasRef.current?.loadCanvasJSON(videoCanvasBackupRef.current);
+        // Restore selected video canvas + annotations
+        const targetVideo = currentVideos.find(v => v.id === currentVideoId);
+        if (targetVideo?.canvasJSON) {
+          canvasRef.current?.loadCanvasJSON(targetVideo.canvasJSON, { skipSync: true });
+          annotationStore.replaceAnnotations(targetVideo.annotations || []);
         } else {
           canvasRef.current?.clearCanvas();
         }
@@ -125,7 +149,7 @@ export default function Telestration({ onBack }) {
       console.error('Mode switch canvas error:', e);
     }
     setMode(newMode); // always runs
-  }, []); // eslint-disable-line
+  }, [annotationStore]); // eslint-disable-line
 
   // --- Static image selection ---
   const handleSelectStaticImage = useCallback((id) => {
@@ -177,25 +201,119 @@ export default function Telestration({ onBack }) {
     if (files.length > 0) handleAddStaticImages(files);
   }, [handleAddStaticImages]);
 
+  // --- Video queue handlers ---
+  const handleAddVideo = useCallback((files, directSource) => {
+    const currentVideoId = selectedVideoIdRef.current;
+    const currentVideos = videoSourcesRef.current;
+
+    // Save current video state before adding
+    if (currentVideoId && currentVideos.length > 0) {
+      const json = canvasRef.current?.getCanvasJSON() ?? null;
+      const anns = [...(annotationStore.annotations || [])];
+      setVideoSources(prev => prev.map(v =>
+        v.id === currentVideoId ? { ...v, canvasJSON: json, annotations: anns } : v
+      ));
+    }
+
+    let newItems = [];
+    if (directSource) {
+      // YouTube or single source passed directly
+      newItems = [{
+        id: crypto.randomUUID(),
+        name: directSource.fileName || 'Untitled',
+        source: directSource,
+        annotations: [],
+        canvasJSON: null,
+      }];
+    } else if (files && files.length > 0) {
+      newItems = files.map(file => ({
+        id: crypto.randomUUID(),
+        name: file.name,
+        source: { type: 'file', url: URL.createObjectURL(file), fileName: file.name, file },
+        annotations: [],
+        canvasJSON: null,
+      }));
+    }
+
+    if (newItems.length > 0) {
+      setVideoSources(prev => [...prev, ...newItems]);
+      setSelectedVideoId(newItems[0].id);
+      canvasRef.current?.clearCanvas();
+      annotationStore.replaceAnnotations([]);
+    }
+  }, [annotationStore]);
+
+  const handleSelectVideo = useCallback((id) => {
+    const currentVideoId = selectedVideoIdRef.current;
+    if (id === currentVideoId) return;
+    const currentVideos = videoSourcesRef.current;
+
+    try {
+      // Save current video state
+      if (currentVideoId) {
+        const json = canvasRef.current?.getCanvasJSON() ?? null;
+        const anns = [...(annotationStore.annotations || [])];
+        setVideoSources(prev => prev.map(v =>
+          v.id === currentVideoId ? { ...v, canvasJSON: json, annotations: anns } : v
+        ));
+      }
+
+      videoController.pause();
+      setSelectedVideoId(id);
+
+      // Load target video state
+      const target = currentVideos.find(v => v.id === id);
+      if (target?.canvasJSON) {
+        canvasRef.current?.loadCanvasJSON(target.canvasJSON, { skipSync: true });
+      } else {
+        canvasRef.current?.clearCanvas();
+      }
+      annotationStore.replaceAnnotations(target?.annotations || []);
+    } catch (e) {
+      console.error('Select video canvas error:', e);
+      setSelectedVideoId(id);
+    }
+  }, [annotationStore, videoController]); // eslint-disable-line
+
+  const handleRemoveVideo = useCallback((id) => {
+    const currentVideos = videoSourcesRef.current;
+    const target = currentVideos.find(v => v.id === id);
+    if (target?.source.type === 'file' && target.source.url) {
+      URL.revokeObjectURL(target.source.url);
+    }
+
+    setVideoSources(prev => prev.filter(v => v.id !== id));
+    if (selectedVideoIdRef.current === id) {
+      const remaining = currentVideos.filter(v => v.id !== id);
+      if (remaining.length > 0) {
+        const next = remaining[0];
+        setSelectedVideoId(next.id);
+        if (next.canvasJSON) {
+          canvasRef.current?.loadCanvasJSON(next.canvasJSON, { skipSync: true });
+        } else {
+          canvasRef.current?.clearCanvas();
+        }
+        annotationStore.replaceAnnotations(next.annotations || []);
+      } else {
+        setSelectedVideoId(null);
+        canvasRef.current?.clearCanvas();
+        annotationStore.replaceAnnotations([]);
+      }
+    }
+  }, [annotationStore]); // eslint-disable-line
+
+  // Wire initial VideoSourcePanel to the queue
   const handleSourceSelected = useCallback((source) => {
-    setVideoSource(source);
-  }, []);
+    handleAddVideo(null, source);
+  }, [handleAddVideo]);
 
   const handleBack = useCallback(() => {
-    if (videoSource?.type === 'file' && videoSource.url) {
-      URL.revokeObjectURL(videoSource.url);
-    }
+    videoSources.forEach(v => {
+      if (v.source.type === 'file' && v.source.url) URL.revokeObjectURL(v.source.url);
+    });
     staticImages.forEach(img => URL.revokeObjectURL(img.url));
     onBack();
-  }, [videoSource, onBack, staticImages]);
-
-  const handleChangeSource = useCallback(() => {
-    videoController.pause();
-    if (videoSource?.type === 'file' && videoSource.url) {
-      URL.revokeObjectURL(videoSource.url);
-    }
-    setVideoSource(null);
-  }, [videoSource, videoController]);
+  }, [videoSources, onBack, staticImages]);
 
   // Select annotation: seek to its start and select on canvas
   const handleSelectAnnotation = useCallback((annId) => {
@@ -239,10 +357,10 @@ export default function Telestration({ onBack }) {
       videoController.duration,
       annotationStore.getVisibleIds,
       setVisibility,
-      videoSource?.fileName || 'telestration',
+      selectedVideo?.name || 'telestration',
       exportFormat,
     );
-  }, [exporter, videoController, annotationStore, videoSource, exportFormat]);
+  }, [exporter, videoController, annotationStore, selectedVideo, exportFormat]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -383,8 +501,8 @@ export default function Telestration({ onBack }) {
             </svg>
           </button>
           <span style={styles.headerTitle}>Telestrator</span>
-          {mode === 'video' && videoSource?.fileName && (
-            <span style={styles.fileName}>{videoSource.fileName}</span>
+          {mode === 'video' && selectedVideo && (
+            <span style={styles.fileName}>{selectedVideo.name}</span>
           )}
           {mode === 'static' && selectedStaticImage && (
             <span style={styles.fileName}>{selectedStaticImage.name}</span>
@@ -432,9 +550,6 @@ export default function Telestration({ onBack }) {
                   {annotationStore.annotations.length}
                 </span>
               </button>
-              <button onClick={handleChangeSource} style={styles.changeBtn}>
-                Change Video
-              </button>
             </>
           )}
         </div>
@@ -463,13 +578,14 @@ export default function Telestration({ onBack }) {
       <div style={styles.mainContent}>
         {/* Viewport */}
         <div ref={viewportRef} style={styles.viewport}>
-          {mode === 'video' && videoSource && (
+          {mode === 'video' && selectedVideoSource && (
             <VideoPlayer
-              videoSource={videoSource}
+              key={selectedVideoId}
+              videoSource={selectedVideoSource}
               videoController={videoController}
             />
           )}
-          {mode === 'video' && !videoSource && (
+          {mode === 'video' && !selectedVideoSource && (
             <div style={styles.noSourcePrompt}>
               <span style={styles.noSourceText}>No video loaded</span>
               <button onClick={() => handleSwitchMode('video')} style={styles.noSourceBtn}>
@@ -504,15 +620,26 @@ export default function Telestration({ onBack }) {
         </div>
 
         {/* Side panel */}
-        {mode === 'video' && showAnnotationList && (
-          <AnnotationList
-            annotations={annotationStore.annotations}
-            currentTime={videoController.currentTime}
-            onUpdateAnnotation={annotationStore.updateAnnotation}
-            onRemoveAnnotation={annotationStore.removeAnnotation}
-            onSelectAnnotation={handleSelectAnnotation}
-            onClose={() => setShowAnnotationList(false)}
-          />
+        {mode === 'video' && (
+          <div style={styles.videoSidePanel}>
+            <VideoQueuePanel
+              videos={videoSources}
+              selectedId={selectedVideoId}
+              onSelect={handleSelectVideo}
+              onAdd={handleAddVideo}
+              onRemove={handleRemoveVideo}
+            />
+            {showAnnotationList && (
+              <AnnotationList
+                annotations={annotationStore.annotations}
+                currentTime={videoController.currentTime}
+                onUpdateAnnotation={annotationStore.updateAnnotation}
+                onRemoveAnnotation={annotationStore.removeAnnotation}
+                onSelectAnnotation={handleSelectAnnotation}
+                onClose={() => setShowAnnotationList(false)}
+              />
+            )}
+          </div>
         )}
         {mode === 'static' && (
           <StaticImagePanel
@@ -656,16 +783,13 @@ const styles = {
   toggleLabel: {
     fontVariantNumeric: 'tabular-nums',
   },
-  changeBtn: {
-    background: 'rgba(255,255,255,0.06)',
-    border: '1px solid rgba(255,255,255,0.08)',
-    color: 'rgba(255,255,255,0.6)',
-    cursor: 'pointer',
-    padding: '6px 14px',
-    borderRadius: '6px',
-    fontSize: '13px',
-    fontFamily: 'inherit',
-    transition: 'background 0.15s',
+  videoSidePanel: {
+    display: 'flex',
+    flexDirection: 'column',
+    flexShrink: 0,
+    width: '220px',
+    overflow: 'hidden',
+    borderLeft: '1px solid rgba(255,255,255,0.06)',
   },
   fsBtn: {
     background: 'rgba(255,255,255,0.04)',
