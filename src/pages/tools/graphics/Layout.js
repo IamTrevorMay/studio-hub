@@ -1,0 +1,157 @@
+import React, { useState } from 'react';
+import { colors, spacing, radii, fontSizes, fontWeights, fontFamily } from '../../../lib/styleTokens';
+import WidgetList from './WidgetList';
+import HistoryPane from './HistoryPane';
+import FilterBar from './FilterBar';
+import PreviewPane from './PreviewPane';
+
+// Mock widget catalog for 2B. Replaced in 2C with the real registry ported
+// from Triton's lib/imagine/registry.ts.
+const MOCK_WIDGETS = [
+  { id: 'topFiveLeaderboard', name: 'Top 5 Leaderboard', category: 'Comparisons' },
+  { id: 'playerStats',        name: 'Player Stats',       category: 'Players' },
+  { id: 'teamStats',          name: 'Team Stats',         category: 'Teams' },
+  { id: 'heatMaps',           name: 'Heat Maps',          category: 'Charts' },
+  { id: 'heatMapOverlays',    name: 'Heat Map Overlays',  category: 'Charts' },
+];
+
+const DEFAULT_SIZE = { width: 1080, height: 1080, label: '1:1 Square' };
+
+export default function Layout({ onBack }) {
+  const [selectedWidgetId, setSelectedWidgetId] = useState(null);
+  const [filters, setFilters] = useState({});
+  const [size, setSize] = useState(DEFAULT_SIZE);
+  const [history, setHistory] = useState([]);  // 2D will populate from edge fn
+
+  const selectedWidget = MOCK_WIDGETS.find((w) => w.id === selectedWidgetId) || null;
+
+  function pickWidget(widget) {
+    setSelectedWidgetId(widget.id);
+    setFilters({});  // 2C will seed from widget.defaultFilters
+  }
+
+  return (
+    <div style={styles.container}>
+      <header style={styles.header}>
+        <button onClick={onBack} style={styles.backBtn} title="Back">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M19 12H5M12 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <span style={styles.headerTitle}>Graphics</span>
+        <span style={styles.headerBadge}>Phase 2 — UI skeleton</span>
+      </header>
+
+      <div style={styles.body}>
+        <aside style={styles.leftRail}>
+          <WidgetList
+            widgets={MOCK_WIDGETS}
+            selectedId={selectedWidgetId}
+            onPick={pickWidget}
+          />
+          <HistoryPane
+            history={history}
+            onRestore={(row) => {
+              setSelectedWidgetId(row.widget_id);
+              setFilters(row.filters || {});
+              setSize(row.size || DEFAULT_SIZE);
+            }}
+            onDelete={(row) => setHistory((h) => h.filter((r) => r.id !== row.id))}
+          />
+        </aside>
+
+        <main style={styles.center}>
+          <PreviewPane
+            widget={selectedWidget}
+            filters={filters}
+            size={size}
+            onSizeChange={setSize}
+          />
+        </main>
+
+        <aside style={styles.rightRail}>
+          <FilterBar
+            widget={selectedWidget}
+            filters={filters}
+            onFiltersChange={setFilters}
+          />
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+const styles = {
+  container: {
+    height: '100vh',
+    display: 'flex',
+    flexDirection: 'column',
+    background: colors.bg,
+    color: colors.text,
+    fontFamily,
+  },
+  header: {
+    height: 52,
+    flexShrink: 0,
+    display: 'flex',
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: `0 ${spacing.lg}px`,
+    borderBottom: `1px solid ${colors.border}`,
+    background: colors.bgRaised,
+  },
+  backBtn: {
+    width: 32,
+    height: 32,
+    border: 'none',
+    background: 'transparent',
+    color: colors.textMuted,
+    cursor: 'pointer',
+    borderRadius: radii.sm,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    fontSize: fontSizes.lg,
+    fontWeight: fontWeights.semibold,
+    color: colors.text,
+  },
+  headerBadge: {
+    marginLeft: 'auto',
+    padding: `${spacing.xs}px ${spacing.md}px`,
+    fontSize: fontSizes.xs,
+    fontWeight: fontWeights.semibold,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+    color: colors.accentFg,
+    background: colors.accentSoft,
+    border: `1px solid ${colors.accentBorder}`,
+    borderRadius: radii.pill,
+  },
+  body: {
+    flex: 1,
+    display: 'grid',
+    gridTemplateColumns: '260px 1fr 320px',
+    minHeight: 0,
+  },
+  leftRail: {
+    display: 'flex',
+    flexDirection: 'column',
+    borderRight: `1px solid ${colors.border}`,
+    background: colors.bgRaised,
+    minHeight: 0,
+  },
+  center: {
+    minWidth: 0,
+    minHeight: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    background: colors.bg,
+  },
+  rightRail: {
+    borderLeft: `1px solid ${colors.border}`,
+    background: colors.bgRaised,
+    overflowY: 'auto',
+  },
+};
