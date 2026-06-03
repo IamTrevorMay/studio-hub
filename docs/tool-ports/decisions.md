@@ -190,15 +190,103 @@ Deferred:
 
 ## Phased plan recap
 
-| Phase | Scope | Deliverable |
-|---|---|---|
-| 0 | Decisions + this doc | committed |
-| 0.5 | Bump `lucide-react` to v1.14 + icon audit | separate commit |
-| 1 | 7 scaffold tool pages + nav stubs | in progress |
-| 2 | Imagine (smallest BUILD-NOW) | including Deno skia renderer edge fn |
-| 3 | Report Cards | install plotly/recharts/html2canvas-pro |
-| 4 | Emails (large; DB + Resend + cron + tracking) | 7 tables, ~11 edge fns, dual-run setup |
-| 5 | Broadcast (largest; producer role + email-keyed ACL) | 9 tables, 11 Vercel routes, OBS + StreamDeck (WebHID + native plugin) + tus |
-| 6 | Cleanup (remove external nav stragglers, delete `Tools.js`, etc.) | |
+| Phase | Scope | Status | Branch / commit |
+|---|---|---|---|
+| 0   | Decisions + this doc | ✅ done | `main` |
+| 0.5 | Bump `lucide-react` 0.577 → 1.17 + icon audit | ✅ done | `main` @ `13cb55c2` |
+| 1   | 7 scaffold tool pages + nav stubs | ✅ done | `main` @ `02fc07a5` |
+| 2   | Imagine (Graphics) — Vercel renderer | ✅ done, pushed | `claude/imagine-port` |
+| 3   | Report Cards — Builder + Generator + PNG/PDF | ✅ done, pushed | `claude/report-cards-port` |
+| 4   | Mailer — DB + Resend + cron + tracking | ✅ done, pushed (preview) | `claude/mailer-port` @ `475056f0` |
+| 5   | Broadcast — producer role + OBS + StreamDeck + tus | ✅ done, pushed (preview) | `claude/broadcast-port` @ `53308f22` |
+| —   | Consolidate phases 2–5 onto one branch | ✅ done | `claude/triton-port` |
+| 6   | Cleanup (delete `Tools.js`, schedule Triton decom) | ✅ done (on consolidated branch) | `claude/triton-port` |
+
+Each phase ends with a manual verification step; no auto-merge. Branches
+hold the work; main is still pre-port aside from Phase 0 / 0.5 / 1.
+
+## Current state (snapshot 2026-06-03)
+
+### Shipped on `main`
+- 7 scaffold tool stubs in `src/pages/tools/`
+- `lucide-react` bumped to 1.17 with app-wide icon-rename audit pass
+- Director-tier roles (`director_creative`, `director_comms`) + role helpers
+
+### Shipped on preview branches (not yet merged)
+- **claude/imagine-port** — Graphics tool: imagine_history table, widget
+  registry, schema-driven FilterBar, scene-driven Vercel Node renderer
+  (`@napi-rs/canvas`, 9 renderer kinds), heatmap-data + league-baseline
+  same-origin proxies, history-pane + export flow. Nav row flipped to
+  all-authed.
+- **claude/report-cards-port** — Report Cards: 6 catalog cards, Builder
+  + Generator + canvas-based PNG export + jsPDF + history. Nav row
+  flipped to all-authed.
+- **claude/mailer-port** — Mailer (Emails port): 7 tables + email-assets
+  bucket, 13 Vercel routes (CRUD + send + preview + webhook + tracking +
+  unsub + cron + Triton subscriber pull), block editor UI with 15 block
+  types, audience manager + CSV bulk import, dual-run with Triton over
+  the next 30 days (Triton decommission target: 2026-07-03).
+- **claude/broadcast-port** — Broadcast: 9 tables + producer role +
+  email-keyed `broadcast_project_members` + `broadcast-assets` bucket,
+  11 Vercel routes, producer console with OBS WebSocket + StreamDeck
+  WebHID + ClipMarkerPanel + TemplateDataPanel + ChatReplay + tus
+  resumable uploads, native StreamDeck plugin scaffold at
+  `streamdeck-plugin/com.mayday.broadcast.sdPlugin/`.
+
+### What's untested in this session
+- Live Mailer send + Resend webhook + drainer cron (need Vercel preview
+  + env vars + Resend dashboard pointed at preview URL).
+- Live OBS WebSocket connection from the producer console (browser
+  needs OBS Studio + obs-websocket plugin running locally).
+- WebHID StreamDeck pairing (Chromium-only).
+- Tus upload against the real `broadcast-assets` bucket.
+- Native StreamDeck plugin install (needs `images/` PNGs + Elgato CLI
+  packaging before distribution).
+
+## What's left
+
+### Pre-merge to main (per branch)
+- **Mailer**: env vars on Vercel (RESEND_API_KEY, RESEND_FROM_EMAIL,
+  RESEND_WEBHOOK_SECRET, EMAIL_LINK_SECRET, CRON_SECRET, PUBLIC_APP_URL,
+  optional TRITON_SUPABASE_URL/KEY). Swap `<MAYDAY_VERCEL_HOST>` +
+  `<CRON_SECRET>` placeholders in
+  `supabase/migrations/20260603200100_cron_mailer_drain.sql` and apply
+  via SQL editor. Point Resend webhook URL at preview, verify svix sig.
+  Smoke: create product → template → audience → test send → confirm
+  open/click events + webhook bookkeeping.
+- **Broadcast**: ship the public overlay route at
+  `/broadcast-overlay/<channel_name>` (currently `LivePreview` is a
+  placeholder). Add StreamDeck plugin images + package via Elgato CLI.
+  Smoke: create project → upload asset → fire trigger from web grid →
+  confirm Realtime row updates + overlay (once it ships) renders.
+
+### Phase 6 (cleanup, in progress on `claude/triton-port`)
+- ✅ `src/pages/Tools.js` deleted (AppLayout owns routing).
+- ✅ `receive-newsletter` + `ingest-newsletter` Supabase edge fns already
+  absent from `supabase/functions/`; nothing to delete.
+- 📅 **Triton-side email decommission scheduled for 2026-07-03.** Triton
+  keeps its `/api/emails/track` + `/api/emails/webhook` +
+  `/api/emails/unsubscribe` routes live during the dual-run so in-flight
+  tracking pixels don't 404. On 2026-07-03: disable Triton's scheduled
+  send cron, archive `newsletter_subscribers`, and remove the routes in
+  a single Triton-side PR. Mayday side requires no further code change
+  for this step.
+- Remove the `Mayday Daily` placeholder stub used during Mailer
+  scaffolding, once a real product is created in prod. (Deferred — no
+  product seeded yet.)
+- External-link nav rows for `broadcast` / `scene_builder` are already
+  replaced by the in-app ports on this branch; no further action.
+
+### SCAFFOLD-tier (deferred; promote when needed)
+- Asset Designer — storage decision deferred until promoted.
+- Scene Composer — needs `@react-three/fiber` + `three`.
+- Template Builder — design work pending.
+
+### Open verifications before merging anything to `main`
+- Vercel preview deploy boots for both branches (no `api/*` regression).
+- Type-checks pass (`npm run build`).
+- Manual click-through of each tool's golden path on the preview URL.
+- RLS spot-checks: producer-role user can read own broadcast project but
+  not someone else's; admin-only Mailer routes 403 for non-admin JWTs.
 
 Each phase ends with a manual verification step; no auto-merge.
