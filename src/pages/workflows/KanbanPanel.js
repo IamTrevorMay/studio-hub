@@ -646,10 +646,8 @@ const teamStyles = {
 
 // ─── Main panel ──────────────────────────────────────────────
 
-export default function KanbanPanel({ showToast }) {
-  const [boards, setBoards] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
-  const [listLoading, setListLoading] = useState(true);
+export default function KanbanPanel({ boardId, onBack, showToast }) {
+  const [boardData, setBoardData] = useState(null);
 
   const [columns, setColumns] = useState([]);
   const [cards, setCards] = useState([]);
@@ -660,9 +658,6 @@ export default function KanbanPanel({ showToast }) {
   const [teamPending, setTeamPending] = useState([]);
   const [teamDone, setTeamDone] = useState([]);
 
-  const [showNewBoard, setShowNewBoard] = useState(false);
-  const [newBoardName, setNewBoardName] = useState('');
-
   const [showNewCard, setShowNewCard] = useState(false);
   const [newCardTitle, setNewCardTitle] = useState('');
   const [creatingCard, setCreatingCard] = useState(false);
@@ -671,9 +666,6 @@ export default function KanbanPanel({ showToast }) {
   const [openCardSignOffs, setOpenCardSignOffs] = useState([]);
   const [openCardAudit, setOpenCardAudit] = useState([]);
   const [cardCtxMenu, setCardCtxMenu] = useState(null);
-  const [ctxMenu, setCtxMenu] = useState(null); // { x, y, board }
-
-  const selectedBoard = boards.find((b) => b.id === selectedId);
 
   // ─── Load profiles ─────────────────────────────────────────
 
@@ -693,6 +685,22 @@ export default function KanbanPanel({ showToast }) {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // ─── Load board metadata ───────────────────────────────────
+
+  useEffect(() => {
+    if (!boardId) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('workflows')
+        .select('id, slug, name, description, is_active, trigger_mode, trigger_config')
+        .eq('id', boardId)
+        .single();
+      if (!cancelled && data) setBoardData(data);
+    })();
+    return () => { cancelled = true; };
+  }, [boardId]);
 
   // ─── Load team tasks ────────────────────────────────────────
 
@@ -726,36 +734,22 @@ export default function KanbanPanel({ showToast }) {
     return map;
   }, [teamPending, teamDone]);
 
-  // ─── Load boards ──────────────────────────────────────────
-
-  const fetchBoards = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('workflows')
-      .select('id, slug, name, description, is_active, trigger_mode, trigger_config')
-      .order('created_at', { ascending: true });
-    if (error) { showToast?.('Failed to load boards', 'error'); }
-    else setBoards(data || []);
-    setListLoading(false);
-  }, [showToast]);
-
-  useEffect(() => { fetchBoards(); }, [fetchBoards]);
-
-  // ─── Load selected board (columns + cards + sign-offs) ────
+  // ─── Load board detail (columns + cards + sign-offs) ────
 
   const fetchBoardDetail = useCallback(async () => {
-    if (!selectedId) { setColumns([]); setCards([]); setSignOffMap({}); return; }
+    if (!boardId) { setColumns([]); setCards([]); setSignOffMap({}); return; }
     setBoardLoading(true);
     try {
       const [{ data: cols }, { data: cardRows }] = await Promise.all([
         supabase
           .from('workflow_steps')
           .select('id, workflow_id, step_key, title_template, description_template, position, default_assignee_ids, entry_action_type, is_terminal')
-          .eq('workflow_id', selectedId)
+          .eq('workflow_id', boardId)
           .order('position', { ascending: true }),
         supabase
           .from('workflow_instances')
           .select('id, workflow_id, status, title, context, current_step_key, assignee_overrides, started_at')
-          .eq('workflow_id', selectedId)
+          .eq('workflow_id', boardId)
           .in('status', ['active', 'blocked', 'complete'])
           .order('started_at', { ascending: true }),
       ]);
@@ -810,101 +804,22 @@ export default function KanbanPanel({ showToast }) {
     } finally {
       setBoardLoading(false);
     }
-  }, [selectedId]);
+  }, [boardId]);
 
   useEffect(() => { fetchBoardDetail(); }, [fetchBoardDetail]);
 
-  // Realtime: refresh on instance/task/sign-off changes for the selected board.
+  // Realtime: refresh on instance/task/sign-off changes for the board.
   useEffect(() => {
-    if (!selectedId) return;
+    if (!boardId) return;
     const ch = supabase
-      .channel(`kanban-board-${selectedId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'workflow_instances', filter: `workflow_id=eq.${selectedId}` }, fetchBoardDetail)
+      .channel(`kanban-board-${boardId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'workflow_instances', filter: `workflow_id=eq.${boardId}` }, fetchBoardDetail)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, fetchBoardDetail)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'task_sign_offs' }, fetchBoardDetail)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'workflow_steps', filter: `workflow_id=eq.${selectedId}` }, fetchBoardDetail)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'workflow_steps', filter: `workflow_id=eq.${boardId}` }, fetchBoardDetail)
       .subscribe();
     return () => { supabase.removeChannel(ch); };
-  }, [selectedId, fetchBoardDetail]);
-
-  // ─── Board CRUD ───────────────────────────────────────────
-
-  const createBoard = async () => {
-    const name = newBoardName.trim();
-    if (!name) return;
-    const slug = name.toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
-    const { data, error } = await supabase
-      .from('workflows')
-      .insert({ name, slug: `${slug}_${Date.now().toString(36)}`, is_active: true, source: 'data', trigger_mode: 'manual' })
-      .select('id, slug, name, description, is_active, trigger_mode, trigger_config')
-      .single();
-    if (error) { showToast?.(error.message, 'error'); return; }
-
-    // Auto-create a "Complete" terminal column.
-    await supabase.from('workflow_steps').insert({
-      workflow_id: data.id,
-      step_key: 'complete',
-      title_template: 'Complete',
-      position: 9999,
-      assignee_type: 'static',
-      action_type: 'complete',
-      action_label: 'Done',
-      is_terminal: true,
-      entry_action_type: 'create_task',
-    });
-
-    setBoards((prev) => [...prev, data]);
-    setSelectedId(data.id);
-    setShowNewBoard(false);
-    setNewBoardName('');
-    showToast?.('Board created');
-  };
-
-  const deleteBoard = async () => {
-    if (!selectedBoard) return;
-    if (!window.confirm(`Delete board "${selectedBoard.name}" and all its cards + tasks?`)) return;
-    await supabase.from('workflow_instances').delete().eq('workflow_id', selectedBoard.id);
-    await supabase.from('workflow_steps').delete().eq('workflow_id', selectedBoard.id);
-    await supabase.from('workflow_versions').delete().eq('workflow_id', selectedBoard.id);
-    const { error } = await supabase.from('workflows').delete().eq('id', selectedBoard.id);
-    if (error) { showToast?.('Failed to delete board', 'error'); return; }
-    setSelectedId(null);
-    fetchBoards();
-    showToast?.('Board deleted');
-  };
-
-  const toggleBoardActive = async (board) => {
-    const next = !board.is_active;
-    await supabase.from('workflows').update({ is_active: next }).eq('id', board.id);
-    setBoards((prev) => prev.map((b) => (b.id === board.id ? { ...b, is_active: next } : b)));
-  };
-
-  // ─── Board context menu ──────────────────────────────────
-
-  useEffect(() => {
-    if (!ctxMenu) return;
-    const close = () => setCtxMenu(null);
-    window.addEventListener('click', close);
-    window.addEventListener('scroll', close, true);
-    return () => {
-      window.removeEventListener('click', close);
-      window.removeEventListener('scroll', close, true);
-    };
-  }, [ctxMenu]);
-
-  const handleCtxDelete = async () => {
-    if (!ctxMenu) return;
-    const board = ctxMenu.board;
-    setCtxMenu(null);
-    await supabase.from('workflow_instances').delete().eq('workflow_id', board.id);
-    await supabase.from('workflow_steps').delete().eq('workflow_id', board.id);
-    await supabase.from('workflow_versions').delete().eq('workflow_id', board.id);
-    const { error } = await supabase.from('workflows').delete().eq('id', board.id);
-    if (error) { showToast?.('Failed to delete board', 'error'); return; }
-    setBoards((prev) => prev.filter((b) => b.id !== board.id));
-    if (selectedId === board.id) setSelectedId(null);
-    showToast?.('Board deleted');
-  };
+  }, [boardId, fetchBoardDetail]);
 
   // ─── Card context menu (right-click → advance) ───────────
 
@@ -939,7 +854,7 @@ export default function KanbanPanel({ showToast }) {
   // ─── Column CRUD ──────────────────────────────────────────
 
   const addColumn = async () => {
-    if (!selectedId) return;
+    if (!boardId) return;
     // Insert before the terminal column.
     const terminalCol = columns.find((c) => c.is_terminal);
     const nonTerminal = columns.filter((c) => !c.is_terminal);
@@ -951,7 +866,7 @@ export default function KanbanPanel({ showToast }) {
     }
 
     const { error } = await supabase.from('workflow_steps').insert({
-      workflow_id: selectedId,
+      workflow_id: boardId,
       step_key: makeColumnKey(),
       title_template: `Column ${nonTerminal.length + 1}`,
       position: pos,
@@ -976,9 +891,9 @@ export default function KanbanPanel({ showToast }) {
   };
 
   const updateTrigger = async (triggerMode, triggerConfig) => {
-    if (!selectedId) return;
-    await supabase.from('workflows').update({ trigger_mode: triggerMode, trigger_config: triggerConfig }).eq('id', selectedId);
-    setBoards((prev) => prev.map((b) => b.id === selectedId ? { ...b, trigger_mode: triggerMode, trigger_config: triggerConfig } : b));
+    if (!boardId) return;
+    await supabase.from('workflows').update({ trigger_mode: triggerMode, trigger_config: triggerConfig }).eq('id', boardId);
+    setBoardData((prev) => prev ? { ...prev, trigger_mode: triggerMode, trigger_config: triggerConfig } : prev);
   };
 
   const setColumnDefault = async (column, ids) => {
@@ -1018,13 +933,13 @@ export default function KanbanPanel({ showToast }) {
   // ─── Card actions ─────────────────────────────────────────
 
   const createCard = async () => {
-    if (!selectedBoard || !newCardTitle.trim() || creatingCard) return;
+    if (!boardData || !newCardTitle.trim() || creatingCard) return;
     const nonTerminal = columns.filter((c) => !c.is_terminal);
     if (nonTerminal.length === 0) { showToast?.('Add at least one column first', 'error'); return; }
     setCreatingCard(true);
     try {
       await callFn('workflow-start', {
-        workflow_id: selectedBoard.id,
+        workflow_id: boardData.id,
         title: newCardTitle.trim(),
         context: {},
       });
@@ -1143,181 +1058,124 @@ export default function KanbanPanel({ showToast }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-    <div style={{ display: 'flex', gap: 24, flex: 1, minHeight: 0 }}>
-      {/* Left: board list */}
-      <div style={styles.leftPanel}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, color: '#ffffff', margin: 0 }}>Boards</h2>
-          <button onClick={() => setShowNewBoard(true)} style={styles.primaryBtnSm}>+ New</button>
-        </div>
-        {listLoading ? (
-          <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.4)', padding: 20 }}>Loading…</div>
-        ) : boards.length === 0 ? (
-          <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, textAlign: 'center', padding: 20 }}>No boards yet</p>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {boards.map((b) => (
-              <div
-                key={b.id}
-                onClick={() => setSelectedId(b.id)}
-                onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, board: b }); }}
-                style={{
-                  ...styles.listItem,
-                  ...(selectedId === b.id ? styles.listItemSelected : {}),
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: 13, color: '#ffffff', fontWeight: 600 }}>{b.name}</span>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); toggleBoardActive(b); }}
-                    title={b.is_active ? 'Active' : 'Inactive'}
-                    style={{
-                      width: 10, height: 10, borderRadius: '50%', border: 'none', cursor: 'pointer',
-                      background: b.is_active ? '#22c55e' : 'rgba(255,255,255,0.12)',
-                    }}
-                  />
+      {/* Back button */}
+      <button
+        onClick={onBack}
+        style={{
+          background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: 13,
+          cursor: 'pointer', padding: '4px 0', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6,
+          fontFamily: 'inherit', fontWeight: 600,
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="15 18 9 12 15 6" />
+        </svg>
+        Flows
+      </button>
+
+      {/* Board view — full width */}
+      {!boardData || boardLoading ? (
+        <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.4)', padding: 24 }}>Loading…</div>
+      ) : (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+            <h2 style={{ fontSize: 16, fontWeight: 700, color: '#ffffff', margin: 0 }}>{boardData.name}</h2>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={addColumn} style={styles.secondaryBtn}>+ Column</button>
+            </div>
+          </div>
+
+          <DragDropContext onDragEnd={reorderColumns}>
+            <Droppable droppableId="columns" direction="horizontal" type="COLUMN">
+              {(provided) => (
+                <div
+                  ref={provided.innerRef}
+                  {...provided.droppableProps}
+                  style={{ display: 'flex', gap: 16, overflowX: 'auto', flex: 1, paddingBottom: 16, alignItems: 'flex-start' }}
+                >
+                  {columns.length === 0 ? (
+                    <div style={{ color: 'rgba(255,255,255,0.4)', padding: 20 }}>
+                      No columns yet. Click "+ Column" to add the first stage.
+                    </div>
+                  ) : (
+                    <>
+                      {columns.filter((c) => !c.is_terminal).map((col, idx) => (
+                        <Draggable key={col.id} draggableId={col.id} index={idx}>
+                          {(dragProvided, dragSnapshot) => (
+                            <div
+                              ref={dragProvided.innerRef}
+                              {...dragProvided.draggableProps}
+                              {...dragProvided.dragHandleProps}
+                              style={{
+                                ...dragProvided.draggableProps.style,
+                                opacity: dragSnapshot.isDragging ? 0.8 : 1,
+                              }}
+                            >
+                              <KanbanColumn
+                                column={col}
+                                cards={cardsByColumn[col.step_key] || []}
+                                signOffMap={signOffMap}
+                                profiles={profiles}
+                                isFirst={idx === 0}
+                                isLast={false}
+                                triggerConfig={boardData.trigger_config}
+                                triggerMode={boardData.trigger_mode}
+                                onRename={(t) => renameColumn(col, t)}
+                                onSetDefault={(ids) => setColumnDefault(col, ids)}
+                                onUpdateColumn={(fields) => updateColumnFields(col, fields)}
+                                onUpdateTrigger={updateTrigger}
+                                onDelete={() => deleteColumn(col)}
+                                onCardClick={(c) => openCardDetail(c)}
+                                onAddCard={() => { setShowNewCard(true); setNewCardTitle(''); }}
+                                onCardContextMenu={(e, c) => { e.preventDefault(); setCardCtxMenu({ x: e.clientX, y: e.clientY, card: c }); }}
+                              />
+                            </div>
+                          )}
+                        </Draggable>
+                      ))}
+                      {provided.placeholder}
+                      {columns.filter((c) => c.is_terminal).map((col) => (
+                        <KanbanColumn
+                          key={col.id}
+                          column={col}
+                          cards={cardsByColumn[col.step_key] || []}
+                          signOffMap={signOffMap}
+                          profiles={profiles}
+                          isFirst={false}
+                          isLast={true}
+                          triggerConfig={boardData.trigger_config}
+                          triggerMode={boardData.trigger_mode}
+                          onRename={(t) => renameColumn(col, t)}
+                          onSetDefault={(ids) => setColumnDefault(col, ids)}
+                          onUpdateColumn={(fields) => updateColumnFields(col, fields)}
+                          onUpdateTrigger={updateTrigger}
+                          onDelete={() => deleteColumn(col)}
+                          onCardClick={(c) => openCardDetail(c)}
+                          onAddCard={() => { setShowNewCard(true); setNewCardTitle(''); }}
+                          onCardContextMenu={(e, c) => { e.preventDefault(); setCardCtxMenu({ x: e.clientX, y: e.clientY, card: c }); }}
+                        />
+                      ))}
+                    </>
+                  )}
                 </div>
-                {b.description && (
-                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.description}</span>
-                )}
-              </div>
+              )}
+            </Droppable>
+          </DragDropContext>
+        </>
+      )}
+
+      {/* Team section */}
+      {team.length > 0 && (
+        <div style={{ marginTop: 32 }}>
+          <h2 style={{ fontSize: 15, fontWeight: 700, color: '#ffffff', margin: '0 0 12px' }}>Team</h2>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(6, 1fr)',
+            gap: 14,
+          }}>
+            {team.map((p) => (
+              <PersonCard key={p.id} person={p} data={byAssignee[p.id] || { pending: [], done: [] }} />
             ))}
-          </div>
-        )}
-      </div>
-
-      {/* Right: board view */}
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        {!selectedBoard ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, color: 'rgba(255,255,255,0.4)' }}>
-            Select a board to view or create one
-          </div>
-        ) : boardLoading ? (
-          <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.4)', padding: 24 }}>Loading…</div>
-        ) : (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <h2 style={{ fontSize: 16, fontWeight: 700, color: '#ffffff', margin: 0 }}>{selectedBoard.name}</h2>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={addColumn} style={styles.secondaryBtn}>+ Column</button>
-                <button onClick={deleteBoard} style={styles.ghostBtn}>Delete board</button>
-              </div>
-            </div>
-
-            <DragDropContext onDragEnd={reorderColumns}>
-              <Droppable droppableId="columns" direction="horizontal" type="COLUMN">
-                {(provided) => (
-                  <div
-                    ref={provided.innerRef}
-                    {...provided.droppableProps}
-                    style={{ display: 'flex', gap: 16, overflowX: 'auto', flex: 1, paddingBottom: 16, alignItems: 'flex-start' }}
-                  >
-                    {columns.length === 0 ? (
-                      <div style={{ color: 'rgba(255,255,255,0.4)', padding: 20 }}>
-                        No columns yet. Click "+ Column" to add the first stage.
-                      </div>
-                    ) : (
-                      <>
-                        {columns.filter((c) => !c.is_terminal).map((col, idx) => (
-                          <Draggable key={col.id} draggableId={col.id} index={idx}>
-                            {(dragProvided, dragSnapshot) => (
-                              <div
-                                ref={dragProvided.innerRef}
-                                {...dragProvided.draggableProps}
-                                {...dragProvided.dragHandleProps}
-                                style={{
-                                  ...dragProvided.draggableProps.style,
-                                  opacity: dragSnapshot.isDragging ? 0.8 : 1,
-                                }}
-                              >
-                                <KanbanColumn
-                                  column={col}
-                                  cards={cardsByColumn[col.step_key] || []}
-                                  signOffMap={signOffMap}
-                                  profiles={profiles}
-                                  isFirst={idx === 0}
-                                  isLast={false}
-                                  triggerConfig={selectedBoard.trigger_config}
-                                  triggerMode={selectedBoard.trigger_mode}
-                                  onRename={(t) => renameColumn(col, t)}
-                                  onSetDefault={(ids) => setColumnDefault(col, ids)}
-                                  onUpdateColumn={(fields) => updateColumnFields(col, fields)}
-                                  onUpdateTrigger={updateTrigger}
-                                  onDelete={() => deleteColumn(col)}
-                                  onCardClick={(c) => openCardDetail(c)}
-                                  onAddCard={() => { setShowNewCard(true); setNewCardTitle(''); }}
-                                  onCardContextMenu={(e, c) => { e.preventDefault(); setCardCtxMenu({ x: e.clientX, y: e.clientY, card: c }); }}
-                                />
-                              </div>
-                            )}
-                          </Draggable>
-                        ))}
-                        {provided.placeholder}
-                        {columns.filter((c) => c.is_terminal).map((col) => (
-                          <KanbanColumn
-                            key={col.id}
-                            column={col}
-                            cards={cardsByColumn[col.step_key] || []}
-                            signOffMap={signOffMap}
-                            profiles={profiles}
-                            isFirst={false}
-                            isLast={true}
-                            triggerConfig={selectedBoard.trigger_config}
-                            triggerMode={selectedBoard.trigger_mode}
-                            onRename={(t) => renameColumn(col, t)}
-                            onSetDefault={(ids) => setColumnDefault(col, ids)}
-                            onUpdateColumn={(fields) => updateColumnFields(col, fields)}
-                            onUpdateTrigger={updateTrigger}
-                            onDelete={() => deleteColumn(col)}
-                            onCardClick={(c) => openCardDetail(c)}
-                            onAddCard={() => { setShowNewCard(true); setNewCardTitle(''); }}
-                            onCardContextMenu={(e, c) => { e.preventDefault(); setCardCtxMenu({ x: e.clientX, y: e.clientY, card: c }); }}
-                          />
-                        ))}
-                      </>
-                    )}
-                  </div>
-                )}
-              </Droppable>
-            </DragDropContext>
-          </>
-        )}
-      </div>
-    </div>
-
-    {/* Team section */}
-    {team.length > 0 && (
-      <div style={{ marginTop: 32 }}>
-        <h2 style={{ fontSize: 15, fontWeight: 700, color: '#ffffff', margin: '0 0 12px' }}>Team</h2>
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(6, 1fr)',
-          gap: 14,
-        }}>
-          {team.map((p) => (
-            <PersonCard key={p.id} person={p} data={byAssignee[p.id] || { pending: [], done: [] }} />
-          ))}
-        </div>
-      </div>
-    )}
-
-    {/* New board modal */}
-      {showNewBoard && (
-        <div style={styles.modalOverlay} onClick={() => setShowNewBoard(false)}>
-          <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ fontSize: 16, color: '#ffffff', margin: '0 0 16px' }}>New Board</h3>
-            <input
-              autoFocus
-              value={newBoardName}
-              onChange={(e) => setNewBoardName(e.target.value)}
-              placeholder="Board name (e.g. Mayday Video)"
-              onKeyDown={(e) => { if (e.key === 'Enter') createBoard(); }}
-              style={{ ...styles.inputBase, marginBottom: 16 }}
-            />
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowNewBoard(false)} style={styles.ghostBtn}>Cancel</button>
-              <button onClick={createBoard} disabled={!newBoardName.trim()} style={styles.primaryBtn}>Create</button>
-            </div>
           </div>
         </div>
       )}
@@ -1356,79 +1214,6 @@ export default function KanbanPanel({ showToast }) {
           onDelete={() => deleteCard(openCard)}
           onReassign={reassignCard}
         />
-      )}
-
-      {/* Board right-click context menu */}
-      {ctxMenu && (
-        <div
-          style={{
-            position: 'fixed',
-            zIndex: 9999,
-            top: ctxMenu.y,
-            left: ctxMenu.x,
-            background: '#15151f',
-            border: '1px solid rgba(255,255,255,0.12)',
-            borderRadius: 8,
-            padding: 8,
-            minWidth: 200,
-            boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <input
-            autoFocus
-            defaultValue={ctxMenu.board.name}
-            onBlur={(e) => {
-              const val = e.target.value.trim();
-              if (val && val !== ctxMenu.board.name) {
-                supabase.from('workflows').update({ name: val }).eq('id', ctxMenu.board.id);
-                setBoards((prev) => prev.map((bb) => bb.id === ctxMenu.board.id ? { ...bb, name: val } : bb));
-              }
-            }}
-            onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
-            style={{
-              fontSize: 13, fontWeight: 600, color: '#ffffff', background: 'rgba(255,255,255,0.06)',
-              border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6,
-              padding: '5px 8px', width: '100%', outline: 'none', boxSizing: 'border-box',
-              fontFamily: 'inherit',
-            }}
-          />
-          <input
-            defaultValue={ctxMenu.board.description || ''}
-            placeholder="Add description…"
-            onBlur={(e) => {
-              const val = e.target.value.trim();
-              if (val !== (ctxMenu.board.description || '')) {
-                supabase.from('workflows').update({ description: val || null }).eq('id', ctxMenu.board.id);
-                setBoards((prev) => prev.map((bb) => bb.id === ctxMenu.board.id ? { ...bb, description: val || null } : bb));
-              }
-            }}
-            onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
-            style={{
-              fontSize: 11, color: 'rgba(255,255,255,0.5)', background: 'rgba(255,255,255,0.06)',
-              border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6,
-              padding: '5px 8px', width: '100%', outline: 'none', boxSizing: 'border-box',
-              marginTop: 6, fontFamily: 'inherit',
-            }}
-          />
-          <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: 8, paddingTop: 4 }}>
-            <button
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                width: '100%', background: 'none', border: 'none', borderRadius: 6,
-                padding: '7px 8px', color: '#f87171', fontSize: 12, fontWeight: 600,
-                cursor: 'pointer', textAlign: 'left',
-              }}
-              onClick={handleCtxDelete}
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#f87171" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                <path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-              </svg>
-              Delete board
-            </button>
-          </div>
-        </div>
       )}
 
       {/* Card right-click context menu (advance) */}
@@ -1561,20 +1346,6 @@ const styles = {
     letterSpacing: 0.3, border: '1px solid rgba(234,179,8,0.35)',
     background: 'rgba(234,179,8,0.15)', color: '#eab308',
     lineHeight: 1.4, whiteSpace: 'nowrap',
-  },
-
-  // Layout
-  leftPanel: {
-    width: 260, minWidth: 260, borderRight: '1px solid rgba(255,255,255,0.06)',
-    paddingRight: 20, display: 'flex', flexDirection: 'column',
-  },
-  listItem: {
-    padding: '8px 12px', borderRadius: 8, cursor: 'pointer',
-    border: '1px solid transparent', transition: 'all 120ms ease-out',
-    display: 'flex', flexDirection: 'column', gap: 4,
-  },
-  listItemSelected: {
-    background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.35)',
   },
 
   // Column
