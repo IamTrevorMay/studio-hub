@@ -1,6 +1,7 @@
-// supabase/functions/workflow-complete-task/index.ts
-// Completes a task and advances the workflow to the next step(s).
-// Supports both code-sourced and data-driven workflows.
+// Complete a task. If all tasks in the current column are done,
+// advance card to next column. Standalone tasks (no workflow_instance_id)
+// just get marked complete.
+// Body: { task_id, payload? }
 // Deploy: supabase functions deploy workflow-complete-task --no-verify-jwt
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -10,139 +11,47 @@ import {
   corsHeaders,
   jsonResp,
   logEvent,
-  advanceWorkflow,
-  checkFanIn,
-  checkInstanceCompletion,
+  loadColumns,
+  findColumn,
+  nextColumn,
+  enterColumn,
+  isColumnDone,
+  completeInstance,
+  type Instance,
 } from "../shared/workflow-engine.ts";
-import {
-  getWorkflowDefinition,
-  resolveWorkflowDefinition,
-} from "../shared/workflow-definitions.ts";
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
-  if (req.method !== "POST") {
-    return jsonResp({ error: "Method not allowed" }, 405);
-  }
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method !== "POST") return jsonResp({ error: "Method not allowed" }, 405);
 
   const auth = await getUserFromJwt(req);
   if (!auth) return jsonResp({ error: "Unauthorized" }, 401);
 
-  let body: {
-    task_id?: string;
-    payload?: Record<string, unknown>;
-    impersonate_user_id?: string;
-  };
-  try {
-    body = await req.json();
-  } catch {
-    return jsonResp({ error: "Invalid JSON body" }, 400);
-  }
-
-  const { task_id, payload, impersonate_user_id } = body;
-  if (!task_id) return jsonResp({ error: "task_id is required" }, 400);
+  let body: { task_id?: string; payload?: Record<string, unknown> };
+  try { body = await req.json(); } catch { return jsonResp({ error: "Invalid JSON" }, 400); }
+  const { task_id, payload } = body;
+  if (!task_id) return jsonResp({ error: "task_id required" }, 400);
 
   const admin = getAdminClient();
 
-  // Fetch the task
+  // Fetch task + card.
   const { data: task, error: taskErr } = await admin
     .from("tasks")
-    .select(
-      "*, workflow_instance:workflow_instances(id, workflow_id, context, status, version_id, test_mode)",
-    )
+    .select("*, workflow_instance:workflow_instances(*)")
     .eq("id", task_id)
     .single();
 
-  if (taskErr || !task) {
-    return jsonResp({ error: "Task not found" }, 404);
-  }
+  if (taskErr || !task) return jsonResp({ error: "Task not found" }, 404);
 
-  const instance = task.workflow_instance;
-  const testMode = instance?.test_mode || false;
-
-  // Admin impersonation for simulator: if test_mode and admin, allow impersonation
-  let effectiveUserId = auth.userId;
-  if (impersonate_user_id && auth.isAdmin && testMode) {
-    effectiveUserId = impersonate_user_id;
-  }
-
-  // Verify ownership (assignee, impersonated user, or admin)
-  if (
-    task.assignee_id !== auth.userId &&
-    task.assignee_id !== effectiveUserId &&
-    !auth.isAdmin
-  ) {
+  if (task.assignee_id !== auth.userId && !auth.isAdmin) {
     return jsonResp({ error: "Not authorized to complete this task" }, 403);
   }
-
   if (task.status !== "active") {
     return jsonResp({ error: `Task is ${task.status}, not active` }, 400);
   }
 
-  // Direct / automation task: no workflow to advance — just mark it complete.
-  if (!task.workflow_instance_id) {
-    const { error: dErr } = await admin
-      .from("tasks")
-      .update({
-        status: "complete",
-        completion_payload: payload || {},
-        completed_at: new Date().toISOString(),
-      })
-      .eq("id", task_id);
-    if (dErr) {
-      return jsonResp({ error: `Failed to complete task: ${dErr.message}` }, 500);
-    }
-    await logEvent(admin, task_id, "completed", auth.userId, payload || {});
-    return jsonResp({ completed: task_id, next_task_ids: [] });
-  }
-
-  if (!instance || instance.status !== "active") {
-    return jsonResp({ error: "Workflow instance is not active" }, 400);
-  }
-
-  // Look up the workflow row (with source info for dual-mode)
-  const { data: workflow } = await admin
-    .from("workflows")
-    .select("id, slug, name, description, source, first_step_key, current_version_id")
-    .eq("id", instance.workflow_id)
-    .single();
-
-  if (!workflow) {
-    return jsonResp({ error: "Workflow not found" }, 500);
-  }
-
-  // Resolve the definition (dual-mode)
-  let definition;
-  if (workflow.source === "code") {
-    definition = getWorkflowDefinition(workflow.slug);
-  } else {
-    // Always use live DB rows so builder changes take effect immediately
-    definition = await resolveWorkflowDefinition(
-      admin,
-      workflow,
-      null,
-    );
-  }
-
-  if (!definition) {
-    return jsonResp(
-      { error: `Workflow definition "${workflow.slug}" could not be resolved` },
-      500,
-    );
-  }
-
-  const step = definition.steps[task.step_key];
-  if (!step) {
-    return jsonResp(
-      { error: `Step "${task.step_key}" not found in definition` },
-      500,
-    );
-  }
-
-  // Mark task complete
-  const { error: updateErr } = await admin
+  // Mark complete.
+  const { error: updErr } = await admin
     .from("tasks")
     .update({
       status: "complete",
@@ -150,65 +59,54 @@ Deno.serve(async (req: Request) => {
       completed_at: new Date().toISOString(),
     })
     .eq("id", task_id);
-
-  if (updateErr) {
-    return jsonResp(
-      { error: `Failed to update task: ${updateErr.message}` },
-      500,
-    );
-  }
-
-  // Log completion event
+  if (updErr) return jsonResp({ error: `Update failed: ${updErr.message}` }, 500);
   await logEvent(admin, task_id, "completed", auth.userId, payload || {});
 
-  // Run step's onComplete handler
-  const ctx = { ...(instance.context || {}) };
-  let result;
-  try {
-    result = await step.onComplete(ctx, payload || {}, admin);
-  } catch (err) {
-    // Revert task back to active so the user can retry
-    await admin
-      .from("tasks")
-      .update({ status: "active", completion_payload: null, completed_at: null })
-      .eq("id", task_id);
-    console.error(`onComplete failed for step ${task.step_key}:`, err);
-    return jsonResp({ error: `Step handler failed: ${err.message}` }, 500);
+  // Standalone task — done.
+  if (!task.workflow_instance_id) {
+    return jsonResp({ completed: task_id, next_task_ids: [] });
   }
 
-  // Apply context updates
-  if (result.contextUpdates) {
-    Object.assign(ctx, result.contextUpdates);
-    await admin
-      .from("workflow_instances")
-      .update({ context: ctx })
-      .eq("id", instance.id);
+  const inst = task.workflow_instance;
+  if (!inst || inst.status !== "active") {
+    return jsonResp({ completed: task_id, next_task_ids: [], note: "card not active" });
   }
 
-  // Advance to next step(s)
-  const nextTaskIds = await advanceWorkflow(
-    admin,
-    definition,
-    instance.id,
-    ctx,
-    result.next,
-    task.position,
-    auth.userId,
-    testMode,
-  );
+  // Check if column is done.
+  const columnDone = await isColumnDone(admin, inst.id, task.step_key);
+  if (!columnDone) {
+    return jsonResp({ completed: task_id, next_task_ids: [], column_done: false });
+  }
 
-  // Also run fan-in check (in case this completion unblocks pending tasks
-  // that were created by a different branch)
-  const fanInActivated = await checkFanIn(
-    admin,
-    instance.id,
-    auth.userId,
-    testMode,
-  );
-  nextTaskIds.push(...fanInActivated);
+  // Advance to next column.
+  const columns = await loadColumns(admin, inst.workflow_id);
+  const current = findColumn(columns, task.step_key);
+  if (!current) {
+    return jsonResp({ completed: task_id, next_task_ids: [], note: "current column missing" });
+  }
+  const next = nextColumn(columns, current.step_key);
+  if (!next) {
+    // Last column complete — finish card.
+    await completeInstance(admin, inst.id);
+    return jsonResp({ completed: task_id, next_task_ids: [], card_complete: true });
+  }
 
-  // Check if the entire workflow is now complete
-  await checkInstanceCompletion(admin, instance.id);
+  const instance: Instance = {
+    id: inst.id,
+    workflow_id: inst.workflow_id,
+    title: inst.title,
+    status: inst.status,
+    context: inst.context || {},
+    current_step_key: inst.current_step_key,
+    assignee_overrides: inst.assignee_overrides || {},
+    test_mode: inst.test_mode || false,
+  };
+  const { taskIds, blocked } = await enterColumn(admin, instance, next, auth.userId);
 
-  return jsonResp({ completed: task_id, next_task_ids: nextTaskIds });
+  return jsonResp({
+    completed: task_id,
+    next_task_ids: taskIds,
+    advanced_to: next.step_key,
+    blocked,
+  });
 });

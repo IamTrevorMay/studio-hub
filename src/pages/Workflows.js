@@ -18,6 +18,7 @@ import {
   lookupEvent,
 } from '../lib/workflowCatalog';
 import ShortcutsCanvas from './workflows/ShortcutsCanvas';
+import KanbanPanel from './workflows/KanbanPanel';
 
 // ─── Constants ───────────────────────────────────────────────
 
@@ -1459,25 +1460,30 @@ export default function Workflows() {
         </div>
       )}
 
+      {/* Tab switcher */}
+      <div style={{ ...styles.viewTabs, marginBottom: 16 }}>
+        <button
+          style={{ ...styles.viewTab, ...(view === 'workflows' ? styles.viewTabActive : {}) }}
+          onClick={() => { setView('workflows'); setSelectedAutoId(null); }}
+        >
+          Workflows
+        </button>
+        <button
+          style={{ ...styles.viewTab, ...(view === 'automations' ? styles.viewTabActive : {}) }}
+          onClick={() => { setView('automations'); setSelectedId(null); }}
+        >
+          Automations
+        </button>
+      </div>
+
+      {view === 'workflows' && (
+        <KanbanPanel showToast={showToast} />
+      )}
+
+      {view === 'automations' && (
       <div style={styles.layout}>
         {/* ── Left Panel ── */}
         <div style={styles.leftPanel}>
-          {/* Tab switcher */}
-          <div style={styles.viewTabs}>
-            <button
-              style={{ ...styles.viewTab, ...(view === 'workflows' ? styles.viewTabActive : {}) }}
-              onClick={() => { setView('workflows'); setSelectedAutoId(null); }}
-            >
-              Workflows
-            </button>
-            <button
-              style={{ ...styles.viewTab, ...(view === 'automations' ? styles.viewTabActive : {}) }}
-              onClick={() => { setView('automations'); setSelectedId(null); }}
-            >
-              Automations
-            </button>
-          </div>
-
           {view === 'workflows' ? (
             <>
               <div style={styles.listHeader}>
@@ -2289,6 +2295,7 @@ export default function Workflows() {
           )}
         </div>
       </div>
+      )}
 
       {/* ── New Automation Modal ── */}
       {showNewAutoModal && (
