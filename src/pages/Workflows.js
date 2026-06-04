@@ -3,6 +3,25 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import KanbanPanel from './workflows/KanbanPanel';
 
+// ─── Helpers ────────────────────────────────────────────────
+
+function fmtSnoozeEnd(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const now = new Date();
+  const diffMs = d.getTime() - now.getTime();
+  if (diffMs <= 0) return 'now';
+  const sameDay = d.toDateString() === now.toDateString();
+  const tomorrow = new Date(now); tomorrow.setDate(now.getDate() + 1);
+  const isTomorrow = d.toDateString() === tomorrow.toDateString();
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (sameDay) return `til ${time}`;
+  if (isTomorrow) return `til tmrw ${time}`;
+  const within7 = diffMs < 7 * 24 * 3600 * 1000;
+  if (within7) return `til ${d.toLocaleDateString([], { weekday: 'short' })} ${time}`;
+  return `til ${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
+}
+
 // ─── Component ───────────────────────────────────────────────
 export default function Workflows() {
   const { isAdmin, profile } = useAuth();
@@ -340,26 +359,35 @@ export default function Workflows() {
     return () => { cancelled = true; };
   }, [isAdmin, boards]);
 
-  // ─── Team data for overview ──────────────────────────────
+  // ─── Team + Contractor data for overview ─────────────────
 
   const [teamProfiles, setTeamProfiles] = useState([]);
+  const [contractorProfiles, setContractorProfiles] = useState([]);
   const [teamPending, setTeamPending] = useState([]);
   const [teamDone, setTeamDone] = useState([]);
+  const [flPending, setFlPending] = useState([]);
+  const [flDone, setFlDone] = useState([]);
 
   useEffect(() => {
     if (!isAdmin) return;
     let cancelled = false;
     (async () => {
-      const TEAM_ROLES = ['admin', 'assistant', 'member', 'partner'];
+      const TEAM_ROLES = ['admin', 'assistant', 'member'];
       const { data } = await supabase
         .from('profiles')
         .select('id, full_name, email, role, status')
         .order('full_name', { ascending: true, nullsFirst: false });
       if (cancelled) return;
+      const active = (data || []).filter(p => p.status !== 'archived');
       setTeamProfiles(
-        (data || [])
-          .filter(p => p.status !== 'archived' && TEAM_ROLES.includes(p.role))
+        active
+          .filter(p => TEAM_ROLES.includes(p.role))
           .map(p => ({ id: p.id, name: p.full_name || p.email || 'Unknown', role: p.role || 'member' })),
+      );
+      setContractorProfiles(
+        active
+          .filter(p => p.role === 'freelancer')
+          .map(p => ({ id: p.id, name: p.full_name || p.email || 'Unknown', role: 'contractor' })),
       );
     })();
     return () => { cancelled = true; };
@@ -371,18 +399,32 @@ export default function Workflows() {
     const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
     (async () => {
       const cutoff = new Date(Date.now() - SEVEN_DAYS_MS).toISOString();
-      const [{ data: pend }, { data: completed }] = await Promise.all([
-        supabase.from('tasks').select('id, title, assignee_id, due_date, status')
+      const [
+        { data: pend },
+        { data: completed },
+        { data: flPend },
+        { data: flDoneData },
+      ] = await Promise.all([
+        supabase.from('tasks').select('id, title, assignee_id, due_date, status, snoozed_until, hold_reason')
           .in('status', ['active', 'pending', 'on_hold'])
           .not('assignee_id', 'is', null),
         supabase.from('tasks').select('id, title, assignee_id, due_date, status, completed_at')
           .eq('status', 'complete')
           .gte('completed_at', cutoff)
           .not('assignee_id', 'is', null),
+        supabase.from('freelancer_assignments')
+          .select('id, title, freelancer_id, status, due_date, completed_at')
+          .in('status', ['assigned', 'in_progress']),
+        supabase.from('freelancer_assignments')
+          .select('id, title, freelancer_id, status, due_date, completed_at')
+          .eq('status', 'completed')
+          .gte('completed_at', cutoff),
       ]);
       if (cancelled) return;
       setTeamPending(pend || []);
       setTeamDone(completed || []);
+      setFlPending((flPend || []).map(a => ({ ...a, assignee_id: a.freelancer_id })));
+      setFlDone((flDoneData || []).map(a => ({ ...a, assignee_id: a.freelancer_id })));
     })();
     return () => { cancelled = true; };
   }, [isAdmin]);
@@ -394,6 +436,14 @@ export default function Workflows() {
     for (const t of teamDone) if (t.assignee_id) ensure(t.assignee_id).done.push(t);
     return map;
   }, [teamPending, teamDone]);
+
+  const contractorByAssignee = useMemo(() => {
+    const map = {};
+    const ensure = id => (map[id] || (map[id] = { pending: [], done: [] }));
+    for (const t of flPending) if (t.assignee_id) ensure(t.assignee_id).pending.push(t);
+    for (const t of flDone) if (t.assignee_id) ensure(t.assignee_id).done.push(t);
+    return map;
+  }, [flPending, flDone]);
 
   // (Old workflow builder / step CRUD / version publishing / simulator
   //  functions removed — no longer used in this grid layout.)
@@ -408,6 +458,79 @@ export default function Workflows() {
       </div>
     );
   }
+
+  // ─── Render helpers ─────────────────────────────────────────
+
+  const renderPersonCard = (p, d) => {
+    const data = d || { pending: [], done: [] };
+    const pending = data.pending || [];
+    const done = data.done || [];
+    const doneShown = done.slice(0, 6);
+    return (
+      <div key={p.id} style={styles.teamCard}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>{p.name}</span>
+          <span style={{
+            fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.5)',
+            background: 'rgba(255,255,255,0.06)', borderRadius: 4, padding: '2px 7px',
+            textTransform: 'uppercase', letterSpacing: 0.4,
+          }}>{p.role}</span>
+        </div>
+        <div style={{ fontSize: 10, fontWeight: 800, color: 'rgba(255,255,255,0.4)', letterSpacing: 0.5, marginBottom: 6 }}>
+          PENDING ({pending.length})
+        </div>
+        {pending.length === 0 ? (
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', fontStyle: 'italic', padding: '2px 0' }}>Nothing pending</div>
+        ) : pending.map(t => {
+          const nowMs = Date.now();
+          const snoozed = t.snoozed_until && new Date(t.snoozed_until).getTime() > nowMs;
+          const onHold = !snoozed && t.status === 'on_hold';
+          const color = snoozed ? '#a855f7' : onHold ? '#fb923c' : '#facc15';
+          const glow = snoozed ? 'rgba(168,85,247,0.7)' : onHold ? 'rgba(251,146,60,0.7)' : 'rgba(250,204,21,0.7)';
+          return (
+            <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', fontSize: 12.5 }}>
+              <span style={{
+                display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
+                background: color, boxShadow: `0 0 6px ${glow}`,
+                animation: 'wf-blink 1.2s ease-in-out infinite', flexShrink: 0,
+              }} />
+              <span style={{ color: 'rgba(255,255,255,0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>{t.title}</span>
+              {snoozed && (
+                <span style={{ fontSize: 10, fontWeight: 600, color: '#c084fc', flexShrink: 0 }}>
+                  💤 {fmtSnoozeEnd(t.snoozed_until)}
+                </span>
+              )}
+              {onHold && t.hold_reason && (
+                <span title={t.hold_reason} style={{ fontSize: 10, fontWeight: 600, color: '#fdba74', flexShrink: 0 }}>
+                  on hold
+                </span>
+              )}
+            </div>
+          );
+        })}
+        <div style={{ fontSize: 10, fontWeight: 800, color: 'rgba(255,255,255,0.4)', letterSpacing: 0.5, marginBottom: 6, marginTop: 10 }}>
+          DONE · 7d ({done.length})
+        </div>
+        {done.length === 0 ? (
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', fontStyle: 'italic', padding: '2px 0' }}>None this week</div>
+        ) : (
+          <>
+            {doneShown.map(t => (
+              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', fontSize: 12.5 }}>
+                <span style={{ color: '#22c55e', fontSize: 12 }}>✓</span>
+                <span style={{ color: 'rgba(255,255,255,0.55)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>{t.title}</span>
+              </div>
+            ))}
+            {done.length > doneShown.length && (
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', padding: '3px 0 0 18px' }}>
+                +{done.length - doneShown.length} more
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
 
   // ─── Render ─────────────────────────────────────────────────
 
@@ -925,61 +1048,25 @@ export default function Workflows() {
         </div>
       </div>
 
-      {/* ── Team section ── */}
-      {teamProfiles.length > 0 && (
+      {/* ── Team section (Team + Contractors) ── */}
+      {(teamProfiles.length > 0 || contractorProfiles.length > 0) && (
         <div style={{ marginTop: 32 }}>
+          <style>{`@keyframes wf-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }`}</style>
           <h2 style={{ fontSize: 15, fontWeight: 700, color: '#ffffff', margin: '0 0 12px' }}>Team</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 14 }}>
-            {teamProfiles.map(p => {
-              const d = teamByAssignee[p.id] || { pending: [], done: [] };
-              const pending = d.pending || [];
-              const done = d.done || [];
-              const doneShown = done.slice(0, 6);
-              return (
-                <div key={p.id} style={styles.teamCard}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>{p.name}</span>
-                    <span style={{
-                      fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.5)',
-                      background: 'rgba(255,255,255,0.06)', borderRadius: 4, padding: '2px 7px',
-                      textTransform: 'uppercase', letterSpacing: 0.4,
-                    }}>{p.role}</span>
-                  </div>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: 'rgba(255,255,255,0.4)', letterSpacing: 0.5, marginBottom: 6 }}>
-                    PENDING ({pending.length})
-                  </div>
-                  {pending.length === 0 ? (
-                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', fontStyle: 'italic', padding: '2px 0' }}>Nothing pending</div>
-                  ) : pending.map(t => (
-                    <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', fontSize: 12.5 }}>
-                      <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>○</span>
-                      <span style={{ color: 'rgba(255,255,255,0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>{t.title}</span>
-                    </div>
-                  ))}
-                  <div style={{ fontSize: 10, fontWeight: 800, color: 'rgba(255,255,255,0.4)', letterSpacing: 0.5, marginBottom: 6, marginTop: 10 }}>
-                    DONE · 7d ({done.length})
-                  </div>
-                  {done.length === 0 ? (
-                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', fontStyle: 'italic', padding: '2px 0' }}>None this week</div>
-                  ) : (
-                    <>
-                      {doneShown.map(t => (
-                        <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', fontSize: 12.5 }}>
-                          <span style={{ color: '#22c55e', fontSize: 12 }}>✓</span>
-                          <span style={{ color: 'rgba(255,255,255,0.55)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>{t.title}</span>
-                        </div>
-                      ))}
-                      {done.length > doneShown.length && (
-                        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', padding: '3px 0 0 18px' }}>
-                          +{done.length - doneShown.length} more
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+          {teamProfiles.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 14 }}>
+              {teamProfiles.map(p => renderPersonCard(p, teamByAssignee[p.id]))}
+            </div>
+          )}
+
+          {contractorProfiles.length > 0 && (
+            <>
+              <h3 style={{ fontSize: 13, fontWeight: 700, color: 'rgba(255,255,255,0.7)', margin: '20px 0 10px', textTransform: 'uppercase', letterSpacing: 0.6 }}>Contractors</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 14 }}>
+                {contractorProfiles.map(p => renderPersonCard(p, contractorByAssignee[p.id]))}
+              </div>
+            </>
+          )}
         </div>
       )}
       </>
