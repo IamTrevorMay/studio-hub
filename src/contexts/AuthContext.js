@@ -572,7 +572,8 @@ export function AuthProvider({ children }) {
         .from('tasks')
         .select('*', { count: 'exact', head: true })
         .eq('assignee_id', user.id)
-        .in('status', ['active', 'on_hold']);
+        .in('status', ['active', 'on_hold'])
+        .or('snoozed_until.is.null,snoozed_until.lt.' + new Date().toISOString());
       if (!error) setMyTaskCount(count || 0);
     } catch (err) {
       console.error('Error fetching my task count:', err);

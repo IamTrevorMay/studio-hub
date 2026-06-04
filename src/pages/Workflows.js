@@ -18,6 +18,7 @@ import {
   lookupEvent,
 } from '../lib/workflowCatalog';
 import ShortcutsCanvas from './workflows/ShortcutsCanvas';
+import KanbanPanel from './workflows/KanbanPanel';
 
 // ─── Constants ───────────────────────────────────────────────
 
@@ -639,6 +640,9 @@ export default function Workflows() {
   const [simCleaning, setSimCleaning] = useState(false);
   const [simInstanceContext, setSimInstanceContext] = useState(null);
 
+  // ── Context menu (right-click delete) ──
+  const [ctxMenu, setCtxMenu] = useState(null); // { x, y, type: 'workflow'|'automation', item }
+
   // ── New workflow state ──
   const [showNewModal, setShowNewModal] = useState(false);
   const [newName, setNewName] = useState('');
@@ -971,6 +975,52 @@ export default function Workflows() {
     }
     setWorkflows(prev => prev.map(w => w.id === wf.id ? { ...w, is_active: newVal } : w));
     showToast(newVal ? 'Activated' : 'Deactivated');
+  };
+
+  // ─── Context menu ────────────────────────────────────────
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [ctxMenu]);
+
+  const handleDeleteWorkflow = async () => {
+    if (!ctxMenu || ctxMenu.type !== 'workflow') return;
+    const wfId = ctxMenu.item.id;
+    setCtxMenu(null);
+    // Delete related rows then the workflow itself
+    await supabase.from('workflow_instances').delete().eq('workflow_id', wfId);
+    await supabase.from('workflow_steps').delete().eq('workflow_id', wfId);
+    await supabase.from('workflow_versions').delete().eq('workflow_id', wfId);
+    const { error } = await supabase.from('workflows').delete().eq('id', wfId);
+    if (error) {
+      showToast('Failed to delete workflow', 'error');
+      return;
+    }
+    setWorkflows(prev => prev.filter(w => w.id !== wfId));
+    if (selectedId === wfId) setSelectedId(null);
+    showToast('Workflow deleted');
+  };
+
+  const handleDeleteAutomation = async () => {
+    if (!ctxMenu || ctxMenu.type !== 'automation') return;
+    const autoId = ctxMenu.item.id;
+    setCtxMenu(null);
+    await supabase.from('automation_runs').delete().eq('automation_id', autoId);
+    const { error } = await supabase.from('automations').delete().eq('id', autoId);
+    if (error) {
+      showToast('Failed to delete automation', 'error');
+      return;
+    }
+    setAutomations(prev => prev.filter(a => a.id !== autoId));
+    if (selectedAutoId === autoId) setSelectedAutoId(null);
+    showToast('Automation deleted');
   };
 
   // ─── Create new workflow ──────────────────────────────────
@@ -1459,25 +1509,30 @@ export default function Workflows() {
         </div>
       )}
 
+      {/* Tab switcher */}
+      <div style={{ ...styles.viewTabs, marginBottom: 16 }}>
+        <button
+          style={{ ...styles.viewTab, ...(view === 'workflows' ? styles.viewTabActive : {}) }}
+          onClick={() => { setView('workflows'); setSelectedAutoId(null); }}
+        >
+          Workflows
+        </button>
+        <button
+          style={{ ...styles.viewTab, ...(view === 'automations' ? styles.viewTabActive : {}) }}
+          onClick={() => { setView('automations'); setSelectedId(null); }}
+        >
+          Automations
+        </button>
+      </div>
+
+      {view === 'workflows' && (
+        <KanbanPanel showToast={showToast} />
+      )}
+
+      {view === 'automations' && (
       <div style={styles.layout}>
         {/* ── Left Panel ── */}
         <div style={styles.leftPanel}>
-          {/* Tab switcher */}
-          <div style={styles.viewTabs}>
-            <button
-              style={{ ...styles.viewTab, ...(view === 'workflows' ? styles.viewTabActive : {}) }}
-              onClick={() => { setView('workflows'); setSelectedAutoId(null); }}
-            >
-              Workflows
-            </button>
-            <button
-              style={{ ...styles.viewTab, ...(view === 'automations' ? styles.viewTabActive : {}) }}
-              onClick={() => { setView('automations'); setSelectedId(null); }}
-            >
-              Automations
-            </button>
-          </div>
-
           {view === 'workflows' ? (
             <>
               <div style={styles.listHeader}>
@@ -1563,6 +1618,7 @@ export default function Workflows() {
                         ...(selectedAutoId === auto.id ? styles.listItemSelected : {}),
                       }}
                       onClick={() => setSelectedAutoId(auto.id)}
+                      onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, type: 'automation', item: auto }); }}
                     >
                       <div style={styles.listItemTop}>
                         <span style={styles.listItemName}>{auto.name}</span>
@@ -2289,6 +2345,7 @@ export default function Workflows() {
           )}
         </div>
       </div>
+      )}
 
       {/* ── New Automation Modal ── */}
       {showNewAutoModal && (
@@ -2409,6 +2466,30 @@ export default function Workflows() {
           </div>
         );
       })()}
+
+      {/* Right-click context menu */}
+      {ctxMenu && (
+        <div
+          style={{
+            ...styles.ctxMenu,
+            top: ctxMenu.y,
+            left: ctxMenu.x,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div style={styles.ctxMenuTitle}>{ctxMenu.item.name}</div>
+          <button
+            style={styles.ctxMenuBtn}
+            onClick={ctxMenu.type === 'automation' ? handleDeleteAutomation : handleDeleteWorkflow}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#f87171" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+              <path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+            </svg>
+            Delete {ctxMenu.type === 'automation' ? 'automation' : 'workflow'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -2420,6 +2501,41 @@ const styles = {
     padding: '24px 32px',
     minHeight: '100vh',
     position: 'relative',
+  },
+
+  // Context menu
+  ctxMenu: {
+    position: 'fixed',
+    zIndex: 9999,
+    background: '#1e1e2e',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: 8,
+    padding: 4,
+    minWidth: 160,
+    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+  },
+  ctxMenuTitle: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.4)',
+    padding: '6px 10px 4px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  ctxMenuBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    width: '100%',
+    background: 'none',
+    border: 'none',
+    borderRadius: 5,
+    padding: '7px 10px',
+    color: '#f87171',
+    fontSize: 13,
+    fontWeight: 500,
+    cursor: 'pointer',
+    textAlign: 'left',
   },
 
   // Toast

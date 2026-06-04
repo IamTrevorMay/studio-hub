@@ -4,6 +4,7 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { callWorkflowFn } from '../lib/workflowApi';
 
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
 
@@ -838,6 +839,19 @@ export default function Production() {
     const newFolder = destination.droppableId === 'unfiled' ? null : destination.droppableId;
     setSheets(prev => prev.map(s => s.id === sheetId ? { ...s, folder: newFolder } : s));
     await supabase.from('beat_sheets').update({ folder: newFolder }).eq('id', sheetId);
+
+    // Trigger workflow event when a sheet lands in a tracked folder.
+    const FOLDER_EVENTS = { mayday: 'new_beat_sheet_mayday', tm_baseball: 'new_beat_sheet_tm_baseball' };
+    const triggerEvent = FOLDER_EVENTS[newFolder];
+    if (triggerEvent && source.droppableId !== newFolder) {
+      const sheet = sheets.find(s => s.id === sheetId);
+      try {
+        await callWorkflowFn('workflow-trigger-event', {
+          event: triggerEvent,
+          payload: { beat_sheet_id: sheetId, title: sheet?.title || 'Untitled' },
+        });
+      } catch (e) { console.error('Beat sheet trigger failed:', e); }
+    }
   };
 
   // ─── folder browser ─────────────────────────────────────────────────────────

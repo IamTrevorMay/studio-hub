@@ -239,15 +239,62 @@ export default function MyTasks({ onNavigate }) {
   const fetchTasks = useCallback(async () => {
     if (!profile) return;
     try {
-      const now = new Date().toISOString();
-      const { data, error } = await supabase
+      // Fetch directly-assigned tasks.
+      const { data: assigned, error: assignedErr } = await supabase
         .from('tasks')
         .select('*, workflow_instance:workflow_instances(id, workflow_id, context, status)')
         .eq('assignee_id', profile.id)
         .in('status', ['active', 'on_hold'])
         .order('created_at', { ascending: true });
-      if (error) throw error;
-      setTasks(data || []);
+      if (assignedErr) throw assignedErr;
+
+      // Fetch sign-off tasks where this user has a pending sign-off.
+      const { data: signOffRows } = await supabase
+        .from('task_sign_offs')
+        .select('task_id')
+        .eq('user_id', profile.id)
+        .is('signed_off_at', null);
+      const signOffTaskIds = (signOffRows || []).map((r) => r.task_id);
+
+      let signOffTasks = [];
+      if (signOffTaskIds.length > 0) {
+        const { data: soTasks } = await supabase
+          .from('tasks')
+          .select('*, workflow_instance:workflow_instances(id, workflow_id, context, status)')
+          .in('id', signOffTaskIds)
+          .eq('status', 'active')
+          .eq('requires_sign_off', true)
+          .order('created_at', { ascending: true });
+        signOffTasks = soTasks || [];
+      }
+
+      // Merge, dedupe by id.
+      const seen = new Set();
+      const merged = [];
+      for (const t of [...(assigned || []), ...signOffTasks]) {
+        if (!seen.has(t.id)) { seen.add(t.id); merged.push(t); }
+      }
+
+      // Fetch sign-off progress for sign-off tasks.
+      const soIds = merged.filter((t) => t.requires_sign_off).map((t) => t.id);
+      if (soIds.length > 0) {
+        const { data: allSo } = await supabase
+          .from('task_sign_offs')
+          .select('task_id, signed_off_at')
+          .in('task_id', soIds);
+        const progressMap = {};
+        for (const so of allSo || []) {
+          if (!progressMap[so.task_id]) progressMap[so.task_id] = { done: 0, total: 0 };
+          progressMap[so.task_id].total++;
+          if (so.signed_off_at) progressMap[so.task_id].done++;
+        }
+        // Attach progress to tasks.
+        for (const t of merged) {
+          if (progressMap[t.id]) t._signOffProgress = progressMap[t.id];
+        }
+      }
+
+      setTasks(merged);
     } catch (err) {
       console.error('Error fetching tasks:', err);
     } finally {
@@ -345,6 +392,26 @@ export default function MyTasks({ onNavigate }) {
     }
   };
 
+  const handleSignOff = async (task) => {
+    setCompletingIds(prev => new Set(prev).add(task.id));
+    try {
+      await callWorkflowFn('workflow-complete-task', { task_id: task.id, action: 'sign_off' });
+      // Animate out
+      setFadingIds(prev => new Set(prev).add(task.id));
+      setTimeout(() => {
+        setTasks(prev => prev.filter(t => t.id !== task.id));
+        setFadingIds(prev => { const s = new Set(prev); s.delete(task.id); return s; });
+        setCompletingIds(prev => { const s = new Set(prev); s.delete(task.id); return s; });
+        refreshNotifications();
+        fetchCompletedTasks();
+      }, 300);
+    } catch (err) {
+      console.error('Sign-off failed:', err);
+      alert(err.message);
+      setCompletingIds(prev => { const s = new Set(prev); s.delete(task.id); return s; });
+    }
+  };
+
   const handleHoldSubmit = async () => {
     if (!holdModalTask || !holdReason.trim()) return;
     try {
@@ -423,7 +490,7 @@ export default function MyTasks({ onNavigate }) {
   };
 
   const handlePrimaryAction = (task) => {
-    const action = getStepAction(task.step_key);
+    const action = getStepAction(task.step_key, task);
     switch (action.type) {
       case 'complete':
         if (action.confirm) {
@@ -473,7 +540,7 @@ export default function MyTasks({ onNavigate }) {
 
   // Inline editor picker (for steps with action.type === 'editor_picker')
   const setEditorOnTask = async (task, editorId) => {
-    const action = getStepAction(task.step_key);
+    const action = getStepAction(task.step_key, task);
     const key = action.context_key || 'editor_id';
     try {
       await callWorkflowFn('workflow-update-task', {
@@ -557,7 +624,7 @@ export default function MyTasks({ onNavigate }) {
       {/* Active + on_hold tasks */}
       <div style={styles.taskList}>
         {activeTasks.map(task => {
-          const action = getStepAction(task.step_key);
+          const action = getStepAction(task.step_key, task);
           const isExpanded = !collapsedIds.has(task.id);
           const isFading = fadingIds.has(task.id);
           const isCompleting = completingIds.has(task.id);
@@ -636,9 +703,24 @@ export default function MyTasks({ onNavigate }) {
                 </div>
               )}
 
+              {/* Sign-off progress indicator */}
+              {task.requires_sign_off && task._signOffProgress && (
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 4 }}>
+                  {task._signOffProgress.done} of {task._signOffProgress.total} signed off
+                </div>
+              )}
+
               {/* Action row */}
               <div style={{ ...styles.actionRow, ...(isWriteAdRead ? { flexWrap: 'wrap' } : {}) }}>
-                {isOnHold ? (
+                {task.requires_sign_off && !isOnHold ? (
+                  <button
+                    style={styles.signOffBtn}
+                    onClick={() => handleSignOff(task)}
+                    disabled={isCompleting}
+                  >
+                    {isCompleting ? 'Signing off…' : 'Sign Off'}
+                  </button>
+                ) : isOnHold ? (
                   <button
                     style={styles.resumeBtn}
                     onClick={() => handleResume(task.id)}
@@ -1225,6 +1307,17 @@ const styles = {
     borderRadius: 6,
     padding: '7px 14px',
     fontSize: 12,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  signOffBtn: {
+    background: 'rgba(6,182,212,0.15)',
+    color: '#06b6d4',
+    border: '1px solid rgba(6,182,212,0.35)',
+    borderRadius: 6,
+    padding: '7px 16px',
+    fontSize: 13,
     fontWeight: 600,
     cursor: 'pointer',
     fontFamily: 'inherit',

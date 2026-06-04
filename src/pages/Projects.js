@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+import { callWorkflowFn } from '../lib/workflowApi';
 
 
 const STATUSES = ['concept', 'script', 'production', 'edit', 'review', 'published'];
@@ -248,10 +249,19 @@ export default function Projects({ onNavigate }) {
       beat_sheet_id: form.beat_sheet_id || null,
       ad_read_id: form.ad_read_id || null,
     };
-    const { error } = await supabase.from('projects').insert(insert);
+    const { data: created, error } = await supabase.from('projects').insert(insert).select('id').single();
     if (error) {
       alert('Error creating project: ' + error.message);
       return;
+    }
+    // Emit event for kanban boards that auto-create cards on new projects.
+    if (created?.id) {
+      try {
+        await callWorkflowFn('workflow-trigger-event', {
+          event: 'new_project_created',
+          payload: { project_id: created.id, title: form.name },
+        });
+      } catch (e) { console.error('Event trigger failed:', e); }
     }
     setForm({ name: '', category: 'creative', type: 'youtube_video', channel: '', start_date: '', deadline: '', status: 'concept', write_doc_id: '', write_doc_name: '', beat_sheet_id: '', ad_read_id: '' });
     setShowForm(false);

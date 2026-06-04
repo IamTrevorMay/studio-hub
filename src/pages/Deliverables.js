@@ -400,6 +400,14 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
       console.error('Failed to start ad read workflow:', wfErr);
     }
 
+    // Emit event for kanban boards that auto-create cards on new proposals.
+    try {
+      await callWorkflowFn('workflow-trigger-event', {
+        event: 'new_proposal_created',
+        payload: { proposal_id: proposalId, sponsor_name: proposalForm.sponsor_name },
+      });
+    } catch (e) { console.error('Event trigger failed:', e); }
+
     resetProposalForm();
     fetchProposals();
   }
