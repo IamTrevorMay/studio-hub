@@ -53,6 +53,25 @@ function ytKind(post) {
   return 'Video';
 }
 
+// Map Metricool network → POSTS_COLUMNS key (More Mayday only)
+const NETWORK_TO_COL_KEY = {
+  TIKTOK: 'tiktok',
+  YOUTUBE: 'mm_yt',
+  INSTAGRAM: 'instagram',
+  FACEBOOK: 'facebook',
+};
+
+function formatUpcomingDate(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '';
+  const day = d.toLocaleDateString('en-US', { weekday: 'short' });
+  const month = d.toLocaleDateString('en-US', { month: 'short' });
+  const date = d.getDate();
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  return `${day}, ${month} ${date} · ${time}`;
+}
+
 async function fetchAllRows(query) {
   const PAGE = 1000;
   let all = [];
@@ -120,6 +139,91 @@ export default function Tracking() {
   useEffect(() => {
     if (editingGoal && goalInputRef.current) goalInputRef.current.focus();
   }, [editingGoal]);
+
+  // Fetch upcoming posts from Metricool + YouTube scheduled videos
+  const [upcomingPosts, setUpcomingPosts] = useState([]);   // Metricool
+  const [ytScheduled, setYtScheduled] = useState([]);       // YouTube
+
+  const fetchUpcoming = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const headers = { Authorization: `Bearer ${session.access_token}`, apikey: process.env.REACT_APP_SUPABASE_ANON_KEY };
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const end = new Date(today);
+      end.setDate(end.getDate() + 7);
+      const startStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      const endStr = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
+
+      // Fetch Metricool + YouTube scheduled in parallel
+      const [mcRes, ytRes] = await Promise.all([
+        fetch(
+          `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/metricool-posts?start=${startStr}&end=${endStr}`,
+          { headers },
+        ),
+        fetch(
+          `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/youtube-scheduled`,
+          { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: '{}' },
+        ).catch(() => null),
+      ]);
+
+      // Process Metricool
+      if (mcRes.ok) {
+        const { posts: all } = await mcRes.json();
+        const now = new Date();
+        const upcoming = (all || [])
+          .filter(p => p.status !== 'PUBLISHED')
+          .filter(p => {
+            if (!p.publicationDate) return false;
+            const d = new Date(p.publicationDate);
+            return d >= now && d < end;
+          })
+          .sort((a, b) => new Date(a.publicationDate) - new Date(b.publicationDate));
+        setUpcomingPosts(upcoming);
+      }
+
+      // Process YouTube scheduled
+      if (ytRes && ytRes.ok) {
+        const { scheduled } = await ytRes.json();
+        setYtScheduled(scheduled || []);
+      }
+    } catch (e) {
+      console.error('Failed to fetch upcoming posts:', e);
+    }
+  }, []);
+
+  useEffect(() => { fetchUpcoming(); }, [fetchUpcoming]);
+
+  // Group upcoming posts by column key (Metricool + YouTube)
+  const upcomingByCol = useMemo(() => {
+    const map = {};
+    // Metricool upcoming
+    for (const p of upcomingPosts) {
+      const colKey = NETWORK_TO_COL_KEY[p.network];
+      if (!colKey) continue;
+      (map[colKey] ||= []).push({
+        id: `mc_upcoming_${p.id}`,
+        title: p.youtubeTitle || p.text || '(untitled)',
+        scheduledAt: p.publicationDate,
+      });
+    }
+    // YouTube scheduled — match accountId to POSTS_COLUMNS
+    for (const v of ytScheduled) {
+      const col = POSTS_COLUMNS.find(c => c.accountId === v.accountId);
+      if (!col) continue;
+      (map[col.key] ||= []).push({
+        id: `yt_sched_${v.videoId}`,
+        title: v.title,
+        scheduledAt: v.scheduledAt,
+      });
+    }
+    // Sort each column's upcoming by scheduledAt
+    for (const key of Object.keys(map)) {
+      map[key].sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt));
+    }
+    return map;
+  }, [upcomingPosts, ytScheduled]);
 
   const fetchPosts = useCallback(async () => {
     const gen = ++postsGenRef.current;
@@ -328,35 +432,54 @@ export default function Tracking() {
                   )}
                 </div>
                 <div style={styles.postsColumnBody}>
-                  {colPosts.length === 0 ? (
-                    <div style={styles.emptyRow}>No posts</div>
-                  ) : colPosts.map(post => {
-                    const kind = col.isYouTube ? ytKind(post) : null;
-                    return (
-                      <div
-                        key={post.id}
-                        onMouseEnter={(e) => onRowEnter(e, post)}
-                        onMouseLeave={onRowLeave}
-                        onClick={() => onRowClick(post)}
-                        style={styles.row}
-                      >
-                        <div style={styles.rowTitle} title={post.title || '(untitled)'}>
-                          {post.title || '(untitled)'}
+                  <div style={styles.postsScrollable}>
+                    {colPosts.length === 0 ? (
+                      <div style={styles.emptyRow}>No posts</div>
+                    ) : colPosts.map(post => {
+                      const kind = col.isYouTube ? ytKind(post) : null;
+                      return (
+                        <div
+                          key={post.id}
+                          onMouseEnter={(e) => onRowEnter(e, post)}
+                          onMouseLeave={onRowLeave}
+                          onClick={() => onRowClick(post)}
+                          style={styles.row}
+                        >
+                          <div style={styles.rowTitle} title={post.title || '(untitled)'}>
+                            {post.title || '(untitled)'}
+                          </div>
+                          <div style={styles.rowMeta}>
+                            <span style={styles.rowDate}>{shortDate(post.published_at)}</span>
+                            {kind && (
+                              <span style={{
+                                ...styles.kindChip,
+                                background: kind === 'Short' ? 'rgba(236,72,153,0.15)' : 'rgba(99,102,241,0.15)',
+                                color: kind === 'Short' ? '#f9a8d4' : '#a5b4fc',
+                                borderColor: kind === 'Short' ? 'rgba(236,72,153,0.35)' : 'rgba(99,102,241,0.35)',
+                              }}>{kind}</span>
+                            )}
+                          </div>
                         </div>
-                        <div style={styles.rowMeta}>
-                          <span style={styles.rowDate}>{shortDate(post.published_at)}</span>
-                          {kind && (
-                            <span style={{
-                              ...styles.kindChip,
-                              background: kind === 'Short' ? 'rgba(236,72,153,0.15)' : 'rgba(99,102,241,0.15)',
-                              color: kind === 'Short' ? '#f9a8d4' : '#a5b4fc',
-                              borderColor: kind === 'Short' ? 'rgba(236,72,153,0.35)' : 'rgba(99,102,241,0.35)',
-                            }}>{kind}</span>
-                          )}
-                        </div>
+                      );
+                    })}
+                  </div>
+                  {(upcomingByCol[col.key] || []).length > 0 && (
+                    <div style={styles.upcomingSection}>
+                      <div style={styles.upcomingDivider}>
+                        <span style={styles.upcomingDividerLabel}>Upcoming</span>
                       </div>
-                    );
-                  })}
+                      {upcomingByCol[col.key].map(p => (
+                        <div key={p.id} style={styles.upcomingRow}>
+                          <div style={styles.upcomingTitle} title={p.title}>
+                            {p.title}
+                          </div>
+                          <div style={styles.upcomingDate}>
+                            {formatUpcomingDate(p.scheduledAt)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -426,7 +549,8 @@ const styles = {
   postsGrid: { display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, minHeight: 400 },
   postsColumn: { display: 'flex', flexDirection: 'column', minWidth: 0 },
   postsColumnHeader: { padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 4 },
-  postsColumnBody: { flex: 1, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0 0 10px 10px', padding: 4, display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto', maxHeight: 'calc(100vh - 220px)' },
+  postsColumnBody: { flex: 1, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0 0 10px 10px', padding: 4, display: 'flex', flexDirection: 'column', maxHeight: 'calc(100vh - 220px)' },
+  postsScrollable: { flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2, minHeight: 0 },
 
   row: { padding: '6px 8px', borderRadius: 6, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 2, transition: 'background 0.12s' },
   rowTitle: { fontSize: 12, color: 'rgba(255,255,255,0.85)', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', whiteSpace: 'nowrap' },
@@ -454,4 +578,11 @@ const styles = {
   goalTarget: { cursor: 'pointer', borderBottom: '1px dashed rgba(255,255,255,0.15)', lineHeight: 1 },
   goalCountOnly: { fontSize: 11, color: 'rgba(255,255,255,0.35)', fontWeight: 600, cursor: 'pointer', borderBottom: '1px dashed transparent' },
   goalInput: { width: 28, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: '#fff', fontSize: 11, fontWeight: 600, padding: '1px 3px', outline: 'none', fontFamily: 'inherit', textAlign: 'center' },
+
+  upcomingSection: { flexShrink: 0, padding: '0 4px 4px' },
+  upcomingDivider: { borderTop: '1px solid rgba(255,255,255,0.08)', margin: '4px 0 6px', paddingTop: 6, display: 'flex', alignItems: 'center' },
+  upcomingDividerLabel: { fontSize: 9, fontWeight: 600, color: 'rgba(255,255,255,0.25)', textTransform: 'uppercase', letterSpacing: 0.5 },
+  upcomingRow: { padding: '4px 4px', display: 'flex', flexDirection: 'column', gap: 1 },
+  upcomingTitle: { fontSize: 12, color: 'rgba(255,255,255,0.6)', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  upcomingDate: { fontSize: 10, color: 'rgba(255,255,255,0.3)', fontWeight: 500 },
 };

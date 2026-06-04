@@ -1,12 +1,10 @@
 // Progress Kanban — 4-column production pipeline for short-form videos
-// + Upcoming sidebar panel on the right.
 // Cards are created/moved automatically by the sync-progress-cards edge function
 // based on Google Drive folder contents.
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
-import UpcomingPostsSidebar from './UpcomingPostsSidebar';
 
 // ─── Column config ───────────────────────────────────────────
 
@@ -160,10 +158,8 @@ export default function ProgressKanban() {
         </button>
       </div>
 
-      <div style={styles.row}>
-        {/* ── Kanban columns ── */}
-        <div style={styles.columns}>
-          {COLUMNS.map(col => {
+      <div style={styles.columns}>
+        {COLUMNS.map(col => {
             const items = grouped[col.key];
             return (
               <div key={col.key} style={styles.column}>
@@ -202,13 +198,7 @@ export default function ProgressKanban() {
                 </div>
               </div>
             );
-          })}
-        </div>
-
-        {/* ── Upcoming sidebar panel ── */}
-        <div style={styles.upcomingPanel}>
-          <UpcomingPostsSidebar embedded />
-        </div>
+        })}
       </div>
 
       {loading && cards.length === 0 && (
@@ -265,11 +255,6 @@ const styles = {
     fontSize: 13,
     color: 'rgba(255,255,255,0.35)',
     fontWeight: 400,
-  },
-  row: {
-    display: 'flex',
-    gap: 0,
-    alignItems: 'stretch',
   },
   columns: {
     display: 'flex',
@@ -363,13 +348,6 @@ const styles = {
     fontSize: 11,
     color: 'rgba(52,211,153,0.6)',
     fontStyle: 'italic',
-  },
-  upcomingPanel: {
-    marginLeft: 16,
-    paddingLeft: 16,
-    borderLeft: '1px solid rgba(255,255,255,0.08)',
-    flex: '0 0 25%',
-    minWidth: 0,
   },
   loadingText: {
     textAlign: 'center',
