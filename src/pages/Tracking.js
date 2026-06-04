@@ -4,6 +4,8 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
+import YearlyGoalsSection from '../components/YearlyGoalsSection';
+import UpcomingPostsSidebar from '../components/UpcomingPostsSidebar';
 
 // ─── Config ─────────────────────────────────────────────────
 
@@ -145,8 +147,12 @@ export default function Tracking() {
     <div style={styles.page}>
       <div style={styles.header}>
         <h1 style={styles.title}>Tracking</h1>
-        <p style={styles.subtitle}>All published posts by source for the selected month.</p>
+        <p style={styles.subtitle}>Goal progress + all published posts by source.</p>
       </div>
+
+      <div style={styles.layout}>
+        <div style={styles.mainCol}>
+      <YearlyGoalsSection />
 
       {/* ── Month Filter ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
@@ -236,6 +242,9 @@ export default function Tracking() {
           })}
         </div>
       )}
+        </div>
+        <UpcomingPostsSidebar />
+      </div>
 
       {/* ── Hover Popover (thumbnail + metrics) ── */}
       {hover && (
@@ -281,6 +290,8 @@ export default function Tracking() {
 
 const styles = {
   page: { padding: '24px 32px', minHeight: '100vh' },
+  layout: { display: 'flex', gap: 20, alignItems: 'flex-start' },
+  mainCol: { flex: 1, minWidth: 0 },
   header: { marginBottom: 20 },
   title: { fontSize: 22, fontWeight: 700, color: '#fff', margin: 0 },
   subtitle: { fontSize: 13, color: 'rgba(255,255,255,0.5)', margin: '4px 0 0' },
