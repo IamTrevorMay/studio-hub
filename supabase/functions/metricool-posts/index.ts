@@ -93,22 +93,28 @@ serve(async (req) => {
 
     const data = await mcResponse.json();
 
-    // Transform the data to only what the frontend needs
-    // This keeps the response light and avoids exposing unnecessary data
-    const posts = (data.data || []).map((post) => ({
-      id: post.id,
-      text: post.text?.substring(0, 120) || "",
-      publicationDate: post.publicationDate,
-      status: post.providers?.[0]?.status || "UNKNOWN",
-      network: post.providers?.[0]?.network || "unknown",
-      publicUrl: post.providers?.[0]?.publicUrl || null,
-      youtubeTitle: post.youtubeData?.title || null,
-      youtubeType: post.youtubeData?.type || null,
-      instagramType: post.instagramData?.type || null,
-      facebookType: post.facebookData?.type || null,
-      draft: post.draft,
-      creatorEmail: post.creatorUserMail,
-    }));
+    // Metricool returns publicationDate as { dateTime, timezone } and network
+    // names in lowercase. Normalize both so callers can treat them as plain
+    // strings and match the uppercase column constants in Tracking.
+    const posts = (data.data || []).map((post) => {
+      const pubRaw = post.publicationDate;
+      const publicationDate = typeof pubRaw === "string" ? pubRaw : (pubRaw?.dateTime || null);
+      const provider = post.providers?.[0] || {};
+      return {
+        id: post.id,
+        text: post.text?.substring(0, 120) || "",
+        publicationDate,
+        status: (provider.status || "UNKNOWN").toUpperCase(),
+        network: (provider.network || "unknown").toUpperCase(),
+        publicUrl: provider.publicUrl || null,
+        youtubeTitle: post.youtubeData?.title || null,
+        youtubeType: post.youtubeData?.type || null,
+        instagramType: post.instagramData?.type || null,
+        facebookType: post.facebookData?.type || null,
+        draft: post.draft,
+        creatorEmail: post.creatorUserMail,
+      };
+    });
 
     return new Response(
       JSON.stringify({ posts }),

@@ -275,7 +275,8 @@ serve(async (req) => {
               const snippet = video.snippet || {};
               const contentDetails = video.contentDetails || {};
               const duration = parseDuration(contentDetails.duration || "PT0S");
-              const isShort = duration <= 60;
+              // YouTube Shorts cutoff is 180 seconds (changed from 60 in 2024).
+              const isShort = duration > 0 && duration <= 180;
               const views = parseInt(stats.viewCount || "0");
               const likes = parseInt(stats.likeCount || "0");
               const comments = parseInt(stats.commentCount || "0");

@@ -115,7 +115,7 @@ Deno.serve(async (req) => {
               platform_account_id: account.id,
               external_id: video.item_id,
               title: video.title || "(No caption)",
-              content_type: duration <= 60 ? "short" : "video",
+              content_type: (duration > 0 && duration <= 180) ? "short" : "video",
               published_at: video.create_time
                 ? new Date(video.create_time * 1000).toISOString()
                 : undefined,
