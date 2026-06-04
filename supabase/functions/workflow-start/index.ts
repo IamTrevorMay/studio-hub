@@ -1,5 +1,6 @@
-// Start a workflow instance (= create a kanban card on column 1).
-// Body: { slug, title, context?, test_mode?, assignee_overrides? }
+// supabase/functions/workflow-start/index.ts
+// Starts a new workflow instance and creates the first task(s).
+// Supports both code-sourced and data-driven workflows.
 // Deploy: supabase functions deploy workflow-start --no-verify-jwt
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -8,25 +9,28 @@ import {
   getAdminClient,
   corsHeaders,
   jsonResp,
-  loadColumns,
-  enterColumn,
-  type Instance,
+  createTaskFromStep,
+  advanceWorkflow,
 } from "../shared/workflow-engine.ts";
+import {
+  getWorkflowDefinition,
+  resolveWorkflowDefinition,
+} from "../shared/workflow-definitions.ts";
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-  if (req.method !== "POST") return jsonResp({ error: "Method not allowed" }, 405);
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+  if (req.method !== "POST") {
+    return jsonResp({ error: "Method not allowed" }, 405);
+  }
 
   const auth = await getUserFromJwt(req);
   if (!auth) return jsonResp({ error: "Unauthorized" }, 401);
-  if (!auth.isAdmin) return jsonResp({ error: "Admin only" }, 403);
 
   let body: {
     slug?: string;
-    workflow_id?: string;
-    title?: string;
     context?: Record<string, unknown>;
-    assignee_overrides?: Record<string, string[]>;
     test_mode?: boolean;
   };
   try {
@@ -35,70 +39,115 @@ Deno.serve(async (req: Request) => {
     return jsonResp({ error: "Invalid JSON body" }, 400);
   }
 
-  const { slug, workflow_id, title, context, assignee_overrides, test_mode } = body;
-  if (!slug && !workflow_id) {
-    return jsonResp({ error: "slug or workflow_id required" }, 400);
-  }
-  if (!title || !title.trim()) {
-    return jsonResp({ error: "title required" }, 400);
+  const { slug, context: initialContext, test_mode: testMode } = body;
+  if (!slug) return jsonResp({ error: "slug is required" }, 400);
+
+  // Only admins can run test mode
+  if (testMode && !auth.isAdmin) {
+    return jsonResp({ error: "Only admins can run test mode" }, 403);
   }
 
   const admin = getAdminClient();
 
-  // Resolve workflow.
-  const q = admin.from("workflows").select("id, slug, name, is_active");
-  const { data: workflow, error: wfErr } = workflow_id
-    ? await q.eq("id", workflow_id).single()
-    : await q.eq("slug", slug!).eq("is_active", true).single();
-
-  if (wfErr || !workflow) {
-    return jsonResp({ error: "Workflow not found or inactive" }, 404);
-  }
-
-  // Load columns.
-  const columns = await loadColumns(admin, workflow.id);
-  if (columns.length === 0) {
-    return jsonResp({ error: "Workflow has no columns" }, 400);
-  }
-  const first = columns[0];
-
-  // Create card.
-  const { data: created, error: instErr } = await admin
-    .from("workflow_instances")
-    .insert({
-      workflow_id: workflow.id,
-      status: "active",
-      title: title.trim(),
-      context: context || {},
-      assignee_overrides: assignee_overrides || {},
-      started_by: auth.userId,
-      test_mode: !!test_mode,
-    })
-    .select("*")
+  // Look up the workflow row
+  const { data: workflow, error: wfErr } = await admin
+    .from("workflows")
+    .select("id, slug, name, description, source, first_step_key, current_version_id")
+    .eq("slug", slug)
+    .eq("is_active", true)
     .single();
 
-  if (instErr || !created) {
-    return jsonResp({ error: `Insert failed: ${instErr?.message}` }, 500);
+  if (wfErr || !workflow) {
+    return jsonResp(
+      { error: `Workflow "${slug}" not found or inactive in database. Seed it first.` },
+      404,
+    );
   }
 
-  const instance: Instance = {
-    id: created.id,
-    workflow_id: created.workflow_id,
-    title: created.title,
-    status: created.status,
-    context: created.context || {},
-    current_step_key: created.current_step_key,
-    assignee_overrides: created.assignee_overrides || {},
-    test_mode: created.test_mode || false,
+  // Resolve the definition (dual-mode: code or data)
+  let definition;
+  if (workflow.source === "code") {
+    definition = getWorkflowDefinition(workflow.slug);
+  } else {
+    // Pass null to skip version snapshots — always use live DB rows
+    definition = await resolveWorkflowDefinition(admin, workflow, null);
+  }
+
+  if (!definition) {
+    return jsonResp(
+      { error: `Workflow definition "${slug}" could not be resolved` },
+      500,
+    );
+  }
+
+  // Create the instance
+  const ctx = initialContext || {};
+  const instancePayload: Record<string, unknown> = {
+    workflow_id: workflow.id,
+    status: "active",
+    context: ctx,
+    started_by: auth.userId,
+    test_mode: !!testMode,
   };
 
-  // Enter first column.
-  const { taskIds, blocked } = await enterColumn(admin, instance, first, auth.userId);
+  // No version pinning — always use live DB rows so builder changes
+  // take effect immediately, even for in-flight instances.
 
-  return jsonResp({
-    instance_id: instance.id,
-    task_ids: taskIds,
-    blocked,
-    current_step_key: first.step_key,
-  });
+  const { data: instance, error: instErr } = await admin
+    .from("workflow_instances")
+    .insert(instancePayload)
+    .select("id")
+    .single();
+
+  if (instErr || !instance) {
+    return jsonResp(
+      { error: `Failed to create instance: ${instErr?.message}` },
+      500,
+    );
+  }
+
+  // Create the first task
+  const firstStep = definition.steps[definition.firstStep];
+  if (!firstStep) {
+    return jsonResp(
+      { error: `First step "${definition.firstStep}" not found in definition` },
+      500,
+    );
+  }
+
+  const task = await createTaskFromStep(
+    admin,
+    firstStep,
+    instance.id,
+    ctx,
+    0,
+    auth.userId,
+    [],
+    !!testMode,
+  );
+
+  if (!task) {
+    // First step was skipped (condition false) — advance past it
+    const skipResult = await firstStep.onComplete(ctx, {}, admin);
+    if (skipResult.contextUpdates) {
+      Object.assign(ctx, skipResult.contextUpdates);
+      await admin
+        .from("workflow_instances")
+        .update({ context: ctx })
+        .eq("id", instance.id);
+    }
+    const nextIds = await advanceWorkflow(
+      admin,
+      definition,
+      instance.id,
+      ctx,
+      skipResult.next,
+      0,
+      auth.userId,
+      !!testMode,
+    );
+    return jsonResp({ instance_id: instance.id, task_ids: nextIds });
+  }
+
+  return jsonResp({ instance_id: instance.id, task_id: task.id });
 });

@@ -1,34 +1,33 @@
-// Kanban workflow engine.
-// Workflow = board, workflow_steps rows = columns (ordered by position),
-// workflow_instance = card. When a card enters a column, one task row is
-// created per resolved assignee. Card advances when all tasks in the
-// current column are complete.
+// Shared workflow engine helpers used by all workflow-* edge functions
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  getWorkflowDefinition,
+  resolveTemplate,
+  type WorkflowStep,
+  type WorkflowDefinition,
+  type DynamicFanOutConfig,
+} from "./workflow-definitions.ts";
 
 // ─── Types ─────────────────────────────────────────────────────
 
-export interface Column {
+export interface TaskRow {
   id: string;
-  workflow_id: string;
+  workflow_instance_id: string;
   step_key: string;
-  title_template: string;
-  position: number;
-  default_assignee_ids: string[];
-}
-
-export interface Instance {
-  id: string;
-  workflow_id: string;
-  title: string | null;
+  title: string;
+  description: string | null;
+  assignee_id: string | null;
   status: string;
-  context: Record<string, unknown>;
-  current_step_key: string | null;
-  assignee_overrides: Record<string, string[]>;
-  test_mode: boolean;
+  related_entity_type: string | null;
+  related_entity_id: string | null;
+  position: number;
+  depends_on: string[];
+  created_at: string;
+  completed_at: string | null;
 }
 
-// ─── Admin client ──────────────────────────────────────────────
+// ─── Admin client factory ──────────────────────────────────────
 
 export function getAdminClient(): SupabaseClient {
   return createClient(
@@ -78,7 +77,7 @@ export function jsonResp(data: unknown, status = 200) {
   });
 }
 
-// ─── Notification + event helpers ──────────────────────────────
+// ─── Notification helper ───────────────────────────────────────
 
 export async function notifyUser(
   admin: SupabaseClient,
@@ -88,7 +87,7 @@ export async function notifyUser(
   taskId: string,
   testMode = false,
 ) {
-  if (testMode) return;
+  if (testMode) return; // Skip notifications for simulator runs
   await admin.from("notifications").insert({
     user_id: userId,
     type: "task_assigned",
@@ -99,6 +98,33 @@ export async function notifyUser(
     is_read: false,
   });
 }
+
+export async function notifyAdmins(
+  admin: SupabaseClient,
+  title: string,
+  body: string,
+  taskId: string,
+  testMode = false,
+) {
+  if (testMode) return; // Skip notifications for simulator runs
+  const { data: admins } = await admin
+    .from("profiles")
+    .select("id")
+    .eq("role", "admin");
+  if (!admins || admins.length === 0) return;
+  const rows = admins.map((a) => ({
+    user_id: a.id,
+    type: "task_held",
+    title,
+    body,
+    link_tab: "my_tasks",
+    link_target: taskId,
+    is_read: false,
+  }));
+  await admin.from("notifications").insert(rows);
+}
+
+// ─── Event logger ──────────────────────────────────────────────
 
 export async function logEvent(
   admin: SupabaseClient,
@@ -115,163 +141,340 @@ export async function logEvent(
   });
 }
 
-// ─── Column lookups ────────────────────────────────────────────
+// ─── Create a task from a step definition ──────────────────────
 
-export async function loadColumns(
+export async function createTaskFromStep(
   admin: SupabaseClient,
-  workflowId: string,
-): Promise<Column[]> {
-  const { data, error } = await admin
-    .from("workflow_steps")
-    .select("id, workflow_id, step_key, title_template, position, default_assignee_ids")
-    .eq("workflow_id", workflowId)
-    .order("position", { ascending: true });
-  if (error) throw new Error(`loadColumns: ${error.message}`);
-  return (data || []).map((c) => ({
-    ...c,
-    default_assignee_ids: c.default_assignee_ids || [],
-  })) as Column[];
-}
-
-export function findColumn(
-  columns: Column[],
-  stepKey: string | null,
-): Column | null {
-  if (!stepKey) return null;
-  return columns.find((c) => c.step_key === stepKey) || null;
-}
-
-export function nextColumn(
-  columns: Column[],
-  stepKey: string,
-): Column | null {
-  const i = columns.findIndex((c) => c.step_key === stepKey);
-  if (i < 0 || i >= columns.length - 1) return null;
-  return columns[i + 1];
-}
-
-// ─── Resolve assignees for a card in a column ──────────────────
-
-export function resolveAssignees(instance: Instance, column: Column): string[] {
-  const override = instance.assignee_overrides?.[column.step_key];
-  if (Array.isArray(override) && override.length > 0) return override;
-  return column.default_assignee_ids || [];
-}
-
-// ─── Enter a column (create N tasks, or block) ─────────────────
-
-export async function enterColumn(
-  admin: SupabaseClient,
-  instance: Instance,
-  column: Column,
-  actorId: string,
-): Promise<{ taskIds: string[]; blocked: boolean }> {
-  const assignees = resolveAssignees(instance, column);
-  const cardTitle = instance.title || "Untitled card";
-  const taskTitle = `${cardTitle} — ${column.title_template || column.step_key}`;
-
-  // Empty column = halt card.
-  if (assignees.length === 0) {
-    await admin
-      .from("workflow_instances")
-      .update({ status: "blocked", current_step_key: column.step_key })
-      .eq("id", instance.id);
-    return { taskIds: [], blocked: true };
-  }
-
-  // Update card pointer to this column + ensure status active.
-  await admin
-    .from("workflow_instances")
-    .update({ current_step_key: column.step_key, status: "active" })
-    .eq("id", instance.id);
-
-  // Insert one task per assignee.
-  const rows = assignees.map((uid, i) => ({
-    workflow_instance_id: instance.id,
-    step_key: column.step_key,
-    title: taskTitle,
-    description: null,
-    assignee_id: uid,
-    status: "active",
-    position: column.position * 100 + i,
-  }));
-
-  const { data: created, error } = await admin
-    .from("tasks")
-    .insert(rows)
-    .select("id, assignee_id, title");
-
-  if (error) throw new Error(`enterColumn insert: ${error.message}`);
-
-  const taskIds: string[] = [];
-  for (const t of created || []) {
-    await logEvent(admin, t.id, "created", actorId, { column: column.step_key });
-    if (t.assignee_id) {
-      await notifyUser(admin, t.assignee_id, "New task assigned", t.title, t.id, instance.test_mode);
-    }
-    taskIds.push(t.id);
-  }
-
-  return { taskIds, blocked: false };
-}
-
-// ─── Skip all open tasks in a column for a card ────────────────
-
-export async function skipOpenTasksInColumn(
-  admin: SupabaseClient,
+  step: WorkflowStep,
   instanceId: string,
-  stepKey: string,
+  context: Record<string, unknown>,
+  position: number,
   actorId: string,
+  dependsOnTaskIds: string[] = [],
+  testMode = false,
+): Promise<TaskRow | null> {
+  // Evaluate condition — skip if false
+  if (step.condition && !step.condition(context)) {
+    return null;
+  }
+
+  // Resolve assignee
+  const assigneeId = typeof step.assignee === "function"
+    ? step.assignee(context)
+    : step.assignee;
+
+  // Resolve title and description
+  const title = resolveTemplate(step.titleTemplate, context);
+  const description = step.descriptionTemplate
+    ? resolveTemplate(step.descriptionTemplate, context)
+    : null;
+
+  // Resolve related entity
+  let relatedEntityType: string | null = null;
+  let relatedEntityId: string | null = null;
+  if (step.relatedEntity) {
+    relatedEntityType = step.relatedEntity.type;
+    relatedEntityId = step.relatedEntity.resolver(context);
+  }
+
+  // Determine initial status
+  const status = dependsOnTaskIds.length > 0 ? "pending" : "active";
+
+  const { data: task, error } = await admin
+    .from("tasks")
+    .insert({
+      workflow_instance_id: instanceId,
+      step_key: step.stepKey,
+      title,
+      description,
+      assignee_id: assigneeId,
+      status,
+      related_entity_type: relatedEntityType,
+      related_entity_id: relatedEntityId,
+      position,
+      depends_on: dependsOnTaskIds,
+    })
+    .select("*")
+    .single();
+
+  if (error) {
+    console.error(`Failed to create task for step ${step.stepKey}:`, error.message);
+    return null;
+  }
+
+  // Log creation event
+  await logEvent(admin, task.id, "created", actorId);
+
+  // Notify assignee (only if task is immediately active)
+  if (status === "active" && assigneeId) {
+    await notifyUser(admin, assigneeId, "New task assigned", title, task.id, testMode);
+  }
+
+  return task as TaskRow;
+}
+
+// ─── Dynamic fan-out task creator ────────────────────────────────
+// When a step has dynamicFanOut config, create N tasks — one per
+// element in the context array — all sharing the same step_key.
+
+export async function createDynamicFanOutTasks(
+  admin: SupabaseClient,
+  step: WorkflowStep,
+  instanceId: string,
+  context: Record<string, unknown>,
+  position: number,
+  actorId: string,
+  dependsOnTaskIds: string[] = [],
+  testMode = false,
 ): Promise<string[]> {
-  const { data: open } = await admin
-    .from("tasks")
-    .select("id")
-    .eq("workflow_instance_id", instanceId)
-    .eq("step_key", stepKey)
-    .in("status", ["active", "on_hold", "pending"]);
-
-  const ids = (open || []).map((t) => t.id);
-  if (ids.length === 0) return [];
-
-  await admin
-    .from("tasks")
-    .update({ status: "skipped", completed_at: new Date().toISOString() })
-    .in("id", ids);
-
-  for (const id of ids) {
-    await logEvent(admin, id, "skipped", actorId, { reason: "card_moved" });
+  const config = step.dynamicFanOut!;
+  const items = context[config.contextKey] as Array<Record<string, unknown>>;
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    console.error(`Dynamic fan-out: no items at context key "${config.contextKey}"`);
+    return [];
   }
-  return ids;
+
+  // Deduplicate: skip if any task with this step_key already exists
+  const { data: existing } = await admin
+    .from("tasks")
+    .select("id, related_entity_id")
+    .eq("workflow_instance_id", instanceId)
+    .eq("step_key", step.stepKey);
+  const existingEntityIds = new Set((existing || []).map((t) => t.related_entity_id));
+
+  const assigneeId = typeof step.assignee === "function"
+    ? step.assignee(context)
+    : step.assignee;
+
+  const status = dependsOnTaskIds.length > 0 ? "pending" : "active";
+  const createdIds: string[] = [];
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const entityId = String(item[config.relatedEntityIdKey] || "");
+    if (existingEntityIds.has(entityId)) continue; // already created
+
+    const title = resolveTemplate(config.titleTemplate, { ...context, ...item });
+    const description = config.descriptionTemplate
+      ? resolveTemplate(config.descriptionTemplate, { ...context, ...item })
+      : null;
+
+    const { data: task, error } = await admin
+      .from("tasks")
+      .insert({
+        workflow_instance_id: instanceId,
+        step_key: step.stepKey,
+        title,
+        description,
+        assignee_id: assigneeId,
+        status,
+        related_entity_type: config.relatedEntityType,
+        related_entity_id: entityId,
+        position: position + i,
+        depends_on: dependsOnTaskIds,
+      })
+      .select("*")
+      .single();
+
+    if (error) {
+      console.error(`Failed to create fan-out task for ${step.stepKey}[${i}]:`, error.message);
+      continue;
+    }
+
+    await logEvent(admin, task.id, "created", actorId, { fanOut: true });
+
+    if (status === "active" && assigneeId) {
+      await notifyUser(admin, assigneeId, "New task assigned", title, task.id, testMode);
+    }
+
+    createdIds.push(task.id);
+  }
+
+  return createdIds;
 }
 
-// ─── Are all tasks in (instance, column) complete/skipped? ─────
+// ─── Fan-in checker ────────────────────────────────────────────
+// After completing a task, check if any pending tasks in the same
+// instance have all their depends_on tasks completed. If so, flip
+// them to active and notify the assignee.
 
-export async function isColumnDone(
+export async function checkFanIn(
   admin: SupabaseClient,
   instanceId: string,
-  stepKey: string,
-): Promise<boolean> {
-  const { data: open } = await admin
+  actorId: string,
+  testMode = false,
+): Promise<string[]> {
+  // Get all pending tasks with dependencies
+  const { data: pendingTasks } = await admin
     .from("tasks")
-    .select("id")
+    .select("*")
     .eq("workflow_instance_id", instanceId)
-    .eq("step_key", stepKey)
-    .in("status", ["active", "on_hold", "pending"]);
-  return !open || open.length === 0;
+    .eq("status", "pending");
+
+  if (!pendingTasks || pendingTasks.length === 0) return [];
+
+  const activatedIds: string[] = [];
+
+  for (const task of pendingTasks) {
+    if (!task.depends_on || task.depends_on.length === 0) continue;
+
+    // Check if all dependencies are complete or skipped
+    const { data: deps } = await admin
+      .from("tasks")
+      .select("id, status")
+      .in("id", task.depends_on);
+
+    if (!deps) continue;
+
+    const allDone = deps.every(
+      (d) => d.status === "complete" || d.status === "skipped",
+    );
+
+    if (allDone) {
+      await admin
+        .from("tasks")
+        .update({ status: "active" })
+        .eq("id", task.id);
+
+      await logEvent(admin, task.id, "created", actorId, { reason: "fan_in_resolved" });
+
+      if (task.assignee_id) {
+        await notifyUser(admin, task.assignee_id, "New task assigned", task.title, task.id, testMode);
+      }
+
+      activatedIds.push(task.id);
+    }
+  }
+
+  return activatedIds;
 }
 
-// ─── Mark instance complete ────────────────────────────────────
+// ─── Check if workflow instance is complete ────────────────────
 
-export async function completeInstance(
+export async function checkInstanceCompletion(
   admin: SupabaseClient,
   instanceId: string,
 ) {
-  await admin
-    .from("workflow_instances")
-    .update({
-      status: "complete",
-      completed_at: new Date().toISOString(),
-      current_step_key: null,
-    })
-    .eq("id", instanceId);
+  const { data: remaining } = await admin
+    .from("tasks")
+    .select("id")
+    .eq("workflow_instance_id", instanceId)
+    .in("status", ["pending", "active", "on_hold"]);
+
+  if (!remaining || remaining.length === 0) {
+    await admin
+      .from("workflow_instances")
+      .update({ status: "complete", completed_at: new Date().toISOString() })
+      .eq("id", instanceId);
+  }
+}
+
+// ─── Resolve next step(s) after completion ─────────────────────
+
+export async function advanceWorkflow(
+  admin: SupabaseClient,
+  definition: WorkflowDefinition,
+  instanceId: string,
+  context: Record<string, unknown>,
+  nextStepKeys: string | string[] | null,
+  currentPosition: number,
+  actorId: string,
+  testMode = false,
+): Promise<string[]> {
+  if (nextStepKeys === null) {
+    // Workflow complete — check if all tasks are done
+    await checkInstanceCompletion(admin, instanceId);
+    return [];
+  }
+
+  const keys = Array.isArray(nextStepKeys) ? nextStepKeys : [nextStepKeys];
+  const createdTaskIds: string[] = [];
+  const fanInTargets: Record<string, string[]> = {};
+
+  for (let i = 0; i < keys.length; i++) {
+    const stepKey = keys[i];
+    const step = definition.steps[stepKey];
+    if (!step) {
+      console.error(`Step ${stepKey} not found in workflow ${definition.slug}`);
+      continue;
+    }
+
+    // Check if this step has fan-in dependencies
+    let dependsOnTaskIds: string[] = [];
+    if (step.dependsOnSteps && step.dependsOnSteps.length > 0) {
+      // Find the task IDs for the dependency step keys in this instance
+      const { data: depTasks } = await admin
+        .from("tasks")
+        .select("id, step_key")
+        .eq("workflow_instance_id", instanceId)
+        .in("step_key", step.dependsOnSteps);
+
+      dependsOnTaskIds = (depTasks || []).map((t) => t.id);
+
+      // For dynamic fan-out steps with fan-in, don't deduplicate here —
+      // createDynamicFanOutTasks handles its own dedup per related_entity_id.
+      // For normal steps, check if a pending task already exists.
+      if (!step.dynamicFanOut) {
+        const { data: existing } = await admin
+          .from("tasks")
+          .select("id")
+          .eq("workflow_instance_id", instanceId)
+          .eq("step_key", stepKey);
+
+        if (existing && existing.length > 0) {
+          // Already exists — don't duplicate. Fan-in check will activate it.
+          continue;
+        }
+      }
+    }
+
+    // Dynamic fan-out: create N tasks from context array
+    if (step.dynamicFanOut) {
+      const fanOutIds = await createDynamicFanOutTasks(
+        admin, step, instanceId, context,
+        currentPosition + 1 + i, actorId, dependsOnTaskIds, testMode,
+      );
+      createdTaskIds.push(...fanOutIds);
+      continue;
+    }
+
+    const task = await createTaskFromStep(
+      admin,
+      step,
+      instanceId,
+      context,
+      currentPosition + 1 + i,
+      actorId,
+      dependsOnTaskIds,
+      testMode,
+    );
+
+    if (task) {
+      createdTaskIds.push(task.id);
+    } else if (!step.condition || step.condition(context)) {
+      // Task creation failed for a non-conditional step
+      console.error(`Failed to create task for step ${stepKey}`);
+    } else {
+      // Step was skipped due to condition — advance past it
+      const skipResult = await step.onComplete(context, {}, admin);
+      if (skipResult.contextUpdates) {
+        Object.assign(context, skipResult.contextUpdates);
+        await admin
+          .from("workflow_instances")
+          .update({ context })
+          .eq("id", instanceId);
+      }
+      const subIds = await advanceWorkflow(
+        admin, definition, instanceId, context,
+        skipResult.next, currentPosition + 1 + i, actorId, testMode,
+      );
+      createdTaskIds.push(...subIds);
+    }
+  }
+
+  // Run fan-in check in case newly created tasks unblocked something
+  const fanInActivated = await checkFanIn(admin, instanceId, actorId, testMode);
+  createdTaskIds.push(...fanInActivated);
+
+  return createdTaskIds;
 }
