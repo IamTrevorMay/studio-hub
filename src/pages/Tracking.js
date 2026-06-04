@@ -2,10 +2,10 @@
 // grouped by source (TikTok / More Mayday / TMB / Instagram / Facebook / Substack).
 // Compact row list per column. Hover reveals thumbnail + metrics.
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import YearlyGoalsSection from '../components/YearlyGoalsSection';
-import UpcomingPostsSidebar from '../components/UpcomingPostsSidebar';
+import ProgressKanban from '../components/ProgressKanban';
 
 // ─── Config ─────────────────────────────────────────────────
 
@@ -75,7 +75,51 @@ export default function Tracking() {
   const [postsData, setPostsData] = useState([]);
   const [postsLoading, setPostsLoading] = useState(false);
   const [hover, setHover] = useState(null); // { post, x, y }
+  const [goals, setGoals] = useState({});  // { columnKey: goalNumber }
+  const [editingGoal, setEditingGoal] = useState(null); // columnKey being edited
+  const goalInputRef = useRef(null);
   const postsGenRef = useRef(0);
+
+  // Fetch goals for current month
+  const fetchGoals = useCallback(async () => {
+    const { data } = await supabase
+      .from('tracking_post_goals')
+      .select('column_key, goal')
+      .eq('year', postsYear)
+      .eq('month', postsMonth);
+    const map = {};
+    (data || []).forEach(r => { map[r.column_key] = r.goal; });
+    setGoals(map);
+  }, [postsYear, postsMonth]);
+
+  useEffect(() => { fetchGoals(); }, [fetchGoals]);
+
+  const saveGoal = useCallback(async (columnKey, value) => {
+    const num = parseInt(value, 10);
+    if (isNaN(num) || num < 0) return;
+    setGoals(prev => ({ ...prev, [columnKey]: num || undefined }));
+    setEditingGoal(null);
+    if (num === 0) {
+      await supabase
+        .from('tracking_post_goals')
+        .delete()
+        .eq('column_key', columnKey)
+        .eq('year', postsYear)
+        .eq('month', postsMonth);
+    } else {
+      await supabase
+        .from('tracking_post_goals')
+        .upsert(
+          { column_key: columnKey, year: postsYear, month: postsMonth, goal: num, updated_at: new Date().toISOString() },
+          { onConflict: 'column_key,year,month' },
+        );
+    }
+  }, [postsYear, postsMonth]);
+
+  // Focus input when editing goal
+  useEffect(() => {
+    if (editingGoal && goalInputRef.current) goalInputRef.current.focus();
+  }, [editingGoal]);
 
   const fetchPosts = useCallback(async () => {
     const gen = ++postsGenRef.current;
@@ -128,6 +172,69 @@ export default function Tracking() {
 
   useEffect(() => { fetchPosts(); }, [fetchPosts]);
 
+  // Build YouTube sub-counts per column
+  const ytSubCounts = useMemo(() => {
+    const result = {};
+    POSTS_COLUMNS.filter(c => c.isYouTube).forEach(col => {
+      const colPosts = postsData.filter(p => p.platform_account_id === col.accountId);
+      const shorts = colPosts.filter(p => ytKind(p) === 'Short').length;
+      const videos = colPosts.filter(p => ytKind(p) === 'Video').length;
+      result[col.key] = { shorts, videos };
+    });
+    return result;
+  }, [postsData]);
+
+  // Editable goal number component
+  const GoalDisplay = ({ columnKey, count }) => {
+    const goal = goals[columnKey];
+    const isEditing = editingGoal === columnKey;
+
+    if (isEditing) {
+      return (
+        <span style={styles.goalFraction}>
+          <span style={styles.goalCount}>{count}</span>
+          <span style={styles.goalSlash}>/</span>
+          <input
+            ref={goalInputRef}
+            defaultValue={goal || ''}
+            placeholder="0"
+            style={styles.goalInput}
+            onBlur={e => saveGoal(columnKey, e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') saveGoal(columnKey, e.target.value);
+              if (e.key === 'Escape') setEditingGoal(null);
+            }}
+          />
+        </span>
+      );
+    }
+
+    if (!goal) {
+      return (
+        <span
+          style={styles.goalCountOnly}
+          onDoubleClick={() => setEditingGoal(columnKey)}
+          title="Double-click to set goal"
+        >{count}</span>
+      );
+    }
+
+    const met = count >= goal;
+    return (
+      <span
+        style={{ ...styles.goalFraction, color: met ? 'rgba(52,211,153,0.8)' : 'rgba(255,255,255,0.35)' }}
+        title="Double-click goal to edit"
+      >
+        <span style={styles.goalCount}>{count}</span>
+        <span style={styles.goalSlash}>/</span>
+        <span
+          style={styles.goalTarget}
+          onDoubleClick={() => setEditingGoal(columnKey)}
+        >{goal}</span>
+      </span>
+    );
+  };
+
   const onRowEnter = (e, post) => {
     const r = e.currentTarget.getBoundingClientRect();
     const vw = window.innerWidth;
@@ -150,10 +257,10 @@ export default function Tracking() {
         <p style={styles.subtitle}>Goal progress + all published posts by source.</p>
       </div>
 
-      <div style={styles.layout}>
-        <div style={styles.mainCol}>
       <YearlyGoalsSection />
 
+      {/* ── Posts Section ── */}
+      <div style={{ marginTop: 32 }}>
       {/* ── Month Filter ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
         <button
@@ -199,12 +306,26 @@ export default function Tracking() {
         <div style={styles.postsGrid}>
           {POSTS_COLUMNS.map(col => {
             const colPosts = postsData.filter(p => p.platform_account_id === col.accountId);
+            const yt = col.isYouTube ? ytSubCounts[col.key] : null;
             return (
               <div key={col.key} style={styles.postsColumn}>
                 <div style={{ ...styles.postsColumnHeader, borderBottom: `2px solid ${col.color}` }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: col.color, marginRight: 6 }}>{col.icon}</span>
                   <span style={{ fontSize: 13, fontWeight: 700, color: '#fff', flex: 1 }}>{col.label}</span>
-                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontWeight: 600 }}>{colPosts.length}</span>
+                  {yt ? (
+                    <div style={styles.ytSubCounts}>
+                      <div style={styles.ytSubRow}>
+                        <span style={styles.ytSubLabel}>Shorts</span>
+                        <GoalDisplay columnKey={`${col.key}_shorts`} count={yt.shorts} />
+                      </div>
+                      <div style={styles.ytSubRow}>
+                        <span style={styles.ytSubLabel}>Videos</span>
+                        <GoalDisplay columnKey={`${col.key}_videos`} count={yt.videos} />
+                      </div>
+                    </div>
+                  ) : (
+                    <GoalDisplay columnKey={col.key} count={colPosts.length} />
+                  )}
                 </div>
                 <div style={styles.postsColumnBody}>
                   {colPosts.length === 0 ? (
@@ -242,8 +363,10 @@ export default function Tracking() {
           })}
         </div>
       )}
-        </div>
-        <UpcomingPostsSidebar />
+      </div>
+
+      <div style={{ marginTop: 32 }}>
+        <ProgressKanban />
       </div>
 
       {/* ── Hover Popover (thumbnail + metrics) ── */}
@@ -290,8 +413,6 @@ export default function Tracking() {
 
 const styles = {
   page: { padding: '24px 32px', minHeight: '100vh' },
-  layout: { display: 'flex', gap: 20, alignItems: 'flex-start' },
-  mainCol: { flex: 1, minWidth: 0 },
   header: { marginBottom: 20 },
   title: { fontSize: 22, fontWeight: 700, color: '#fff', margin: 0 },
   subtitle: { fontSize: 13, color: 'rgba(255,255,255,0.5)', margin: '4px 0 0' },
@@ -322,4 +443,15 @@ const styles = {
   popoverStatVal: { fontSize: 12, fontWeight: 700, color: '#fff' },
   popoverStatLabel: { fontSize: 8, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.3, marginTop: 1 },
   popoverNoMetrics: { fontSize: 11, color: 'rgba(255,255,255,0.35)', textAlign: 'center', padding: '4px 0' },
+
+  ytSubCounts: { display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-end' },
+  ytSubRow: { display: 'flex', alignItems: 'center', gap: 4 },
+  ytSubLabel: { fontSize: 9, color: 'rgba(255,255,255,0.3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.3 },
+
+  goalFraction: { display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.35)' },
+  goalCount: { },
+  goalSlash: { margin: '0 1px', opacity: 0.5 },
+  goalTarget: { cursor: 'pointer', borderBottom: '1px dashed rgba(255,255,255,0.15)', lineHeight: 1 },
+  goalCountOnly: { fontSize: 11, color: 'rgba(255,255,255,0.35)', fontWeight: 600, cursor: 'pointer', borderBottom: '1px dashed transparent' },
+  goalInput: { width: 28, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: '#fff', fontSize: 11, fontWeight: 600, padding: '1px 3px', outline: 'none', fontFamily: 'inherit', textAlign: 'center' },
 };

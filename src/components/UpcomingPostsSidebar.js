@@ -55,7 +55,7 @@ function postTitle(p) {
   return p.youtubeTitle || p.text || '(untitled)';
 }
 
-export default function UpcomingPostsSidebar() {
+export default function UpcomingPostsSidebar({ embedded = false }) {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
@@ -118,8 +118,8 @@ export default function UpcomingPostsSidebar() {
   }
 
   return (
-    <aside style={styles.wrap}>
-      <div style={styles.inner}>
+    <aside style={embedded ? styles.wrapEmbedded : styles.wrap}>
+      <div style={embedded ? styles.innerEmbedded : styles.inner}>
         <div style={styles.header}>
           <h3 style={styles.headerTitle}>Upcoming</h3>
           <span style={styles.headerSub}>Next 3 days · scheduled in Metricool</span>
@@ -185,11 +185,19 @@ const styles = {
     position: 'sticky',
     top: 16,
   },
+  wrapEmbedded: {
+    width: '100%',
+  },
   inner: {
     background: 'rgba(20,20,30,0.6)',
     border: '1px solid rgba(255,255,255,0.08)',
     borderRadius: 16,
     padding: 16,
+    maxHeight: 'calc(100vh - 60px)',
+    overflowY: 'auto',
+  },
+  innerEmbedded: {
+    padding: 0,
     maxHeight: 'calc(100vh - 60px)',
     overflowY: 'auto',
   },
