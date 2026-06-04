@@ -15,6 +15,7 @@ import Ideation from './Ideation';
 import Reviews from './Reviews';
 import Resources from './Resources';
 import Analytics from './Analytics';
+import Tracking from './Tracking';
 import Accounting from './Accounting';
 import Research from './Research';
 import Goals from './Goals';
@@ -68,6 +69,7 @@ const NAV_ITEMS = [
   { key: 'deliverables', label: 'Deliverables', icon: DeliverablesIcon },
   { key: 'resources', label: 'Resources', icon: ResourcesIcon },
   { key: 'analytics', label: 'Analytics', icon: AnalyticsIcon, adminOnly: true },
+  { key: 'tracking', label: 'Tracking', icon: AnalyticsIcon, adminOnly: true },
   { key: 'accounting', label: 'Accounting', icon: ExpensesIcon, adminOnly: true },
   { key: 'research', label: 'Research', icon: ResearchIcon },
   { key: 'calendar', label: 'Calendar', icon: CalendarIcon },
@@ -86,7 +88,7 @@ const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', '
 
 // ─── Modes ──────────────────────────────────────────────────
 // Admin-only pages that live in Admin Mode and are hidden from the Work View.
-const ADMIN_PAGE_KEYS = ['assignments', 'payroll', 'analytics', 'accounting', 'business_dev', 'freelancers', 'workflows', 'jobs', 'invoicing'];
+const ADMIN_PAGE_KEYS = ['assignments', 'payroll', 'analytics', 'tracking', 'accounting', 'business_dev', 'freelancers', 'workflows', 'jobs', 'invoicing'];
 // Everyday anchors kept at the top of the Admin Mode sidebar.
 const ADMIN_ESSENTIAL_KEYS = ['dashboard', 'my_tasks', 'messages'];
 // Admin Mode sidebar: essentials, a divider, then the admin pages + settings.
@@ -98,6 +100,7 @@ const ADMIN_MODE_NAV = [
   { type: 'item', key: 'assignments', label: 'Assignments' },
   { type: 'item', key: 'payroll', label: 'Payroll' },
   { type: 'item', key: 'analytics', label: 'Analytics' },
+  { type: 'item', key: 'tracking', label: 'Tracking' },
   { type: 'item', key: 'accounting', label: 'Accounting' },
   { type: 'item', key: 'business_dev', label: 'Business Dev' },
   { type: 'item', key: 'freelancers', label: 'Contractors' },
@@ -170,6 +173,7 @@ const NAV_ICON_MAP = {
   deliverables: DeliverablesIcon,
   resources: ResourcesIcon,
   analytics: AnalyticsIcon,
+  tracking: AnalyticsIcon,
   accounting: ExpensesIcon,
   research: ResearchIcon,
   calendar: CalendarIcon,
@@ -755,6 +759,7 @@ export default function AppLayout() {
           {activeTab === 'timeline' && <Timeline />}
           {activeTab === 'organize' && <Organize onBack={() => setActiveTab('dashboard')} />}
           {isAdmin && activeTab === 'analytics' && <Analytics />}
+          {isAdmin && activeTab === 'tracking' && <Tracking />}
           {isAdmin && activeTab === 'accounting' && <Accounting />}
           {activeTab === 'research' && <Research />}
           {activeTab === 'reviews' && <Reviews />}

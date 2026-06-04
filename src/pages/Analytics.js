@@ -23,15 +23,6 @@ const PLATFORM_META = {
   threads:   { label: 'Threads',   color: '#FFFFFF', icon: 'TH' },
 };
 
-const POSTS_COLUMNS = [
-  { key: 'tiktok', label: 'TikTok', accountId: 'e6101720-f32c-45e1-8cc3-195864d0ae36', color: '#00F2EA', icon: 'TT', source: 'metricool', network: 'TIKTOK' },
-  { key: 'mm_yt', label: 'More Mayday', accountId: '4e7f34a3-acf8-4cae-9023-0bfa04280c14', color: '#FF0000', icon: 'YT', source: 'content_items' },
-  { key: 'tmb_yt', label: 'Trevor May Baseball', accountId: '3b68a43a-4967-4b00-8572-296077721ebb', color: '#FF0000', icon: 'YT', source: 'content_items' },
-  { key: 'instagram', label: 'Instagram', accountId: '4a960721-ef97-42c0-a1d4-222aa621ddc4', color: '#E4405F', icon: 'IG', source: 'metricool', network: 'INSTAGRAM' },
-  { key: 'facebook', label: 'Facebook', accountId: 'eb95b9c9-c78e-486a-b1a9-6991f5b030cd', color: '#1877F2', icon: 'FB', source: 'metricool', network: 'FACEBOOK' },
-  { key: 'substack', label: 'Substack', accountId: 'c46338e3-d923-43c7-a6ca-8dac8d53abf7', color: '#FF6719', icon: 'SS', source: 'content_items' },
-];
-
 const REVENUE_CATEGORIES = {
   merch:        { label: 'Merch',          color: '#f97316' },
   subscription: { label: 'Subscriptions',  color: '#8b5cf6' },
@@ -259,14 +250,6 @@ export default function Analytics() {
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [analysisData, setAnalysisData] = useState({ revenue: [], contentWithMetrics: [], audienceSnapshots: [] });
 
-  // Posts view
-  const [postsMonth, setPostsMonth] = useState(new Date().getMonth());
-  const [postsYear, setPostsYear] = useState(new Date().getFullYear());
-  const [postsData, setPostsData] = useState([]);
-  const [postsLoading, setPostsLoading] = useState(false);
-  const [postsDetail, setPostsDetail] = useState(null);
-  const postsGenRef = useRef(0);
-
   // Platform sync refresh
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState(null);
@@ -338,11 +321,6 @@ export default function Analytics() {
     fetchAllData();
   }, [fetchAllData]);
   useVisibilityRefresh(fetchAllData);
-
-  // Fetch posts when Posts tab is active or month changes
-  useEffect(() => {
-    if (viewMode === 'posts') fetchPosts();
-  }, [viewMode, postsMonth, postsYear]);
 
   // Auto-refresh content performance every 5 minutes
   useEffect(() => {
@@ -524,58 +502,6 @@ export default function Analytics() {
     setContentItems(data || []);
   }
 
-  async function fetchPosts() {
-    const gen = ++postsGenRef.current;
-    setPostsLoading(true);
-    const { start, end } = getMonthRange(postsYear, postsMonth);
-
-    // 1) content_items for YouTube + Substack
-    const ciIds = POSTS_COLUMNS.filter(c => c.source === 'content_items').map(c => c.accountId);
-    const ciQuery = supabase
-      .from('content_items')
-      .select('id, title, published_at, url, content_type, thumbnail_url, description, duration_seconds, platform_account_id, platform_account:platform_accounts(platform, account_name), latest_metrics:content_metrics(views, likes, comments, shares, engagement_rate)')
-      .in('platform_account_id', ciIds)
-      .gte('published_at', start)
-      .lte('published_at', end + 'T23:59:59.999')
-      .order('published_at', { ascending: false });
-
-    // 2) metricool-posts for IG/FB/TT
-    const { data: { session: mcSession } } = await supabase.auth.getSession();
-    const mcFetch = fetch(
-      `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/metricool-posts?start=${start}&end=${end}`,
-      { headers: { Authorization: `Bearer ${mcSession?.access_token}`, apikey: process.env.REACT_APP_SUPABASE_ANON_KEY } }
-    );
-
-    const [ciData, mcRes] = await Promise.all([fetchAllRows(ciQuery), mcFetch]);
-    if (gen !== postsGenRef.current) return;
-
-    // Map metricool posts into a unified format
-    let mcPosts = [];
-    if (mcRes.ok) {
-      const mcJson = await mcRes.json();
-      const networkToCol = {};
-      POSTS_COLUMNS.filter(c => c.source === 'metricool').forEach(c => { networkToCol[c.network] = c.accountId; });
-      mcPosts = (mcJson.posts || [])
-        .filter(p => p.status === 'PUBLISHED' && networkToCol[p.network])
-        .map(p => ({
-          id: `mc_${p.id}`,
-          title: p.youtubeTitle || p.text || '(untitled)',
-          published_at: p.publicationDate,
-          url: p.publicUrl,
-          content_type: p.instagramType || p.facebookType || p.youtubeType || null,
-          thumbnail_url: null,
-          description: null,
-          duration_seconds: null,
-          platform_account_id: networkToCol[p.network],
-          latest_metrics: null,
-          _source: 'metricool',
-        }));
-    }
-
-    setPostsData([...(ciData || []), ...mcPosts]);
-    setPostsLoading(false);
-  }
-
   // ── Toggle account filter ──
   function toggleAccount(accountId) {
     setActiveAccountIds(prev => {
@@ -686,7 +612,7 @@ export default function Analytics() {
       </div>
 
       {/* ── A. Date Range & Platform Filters (Dashboard only) ── */}
-      {viewMode !== 'advanced' && viewMode !== 'posts' && <div style={styles.filterBar}>
+      {viewMode !== 'advanced' && <div style={styles.filterBar}>
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
           {/* Month dropdown */}
           <select value={dateRange === 'month' ? filterMonth : ''}
@@ -782,7 +708,6 @@ export default function Analytics() {
         <button onClick={() => setViewMode('dashboard')} style={viewMode === 'dashboard' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Dashboard</button>
         <button onClick={() => setViewMode('advanced')} style={viewMode === 'advanced' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Advanced</button>
         <button onClick={() => setViewMode('health')} style={viewMode === 'health' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Content Health</button>
-        <button onClick={() => setViewMode('posts')} style={viewMode === 'posts' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Posts</button>
         <div ref={platformMenuRef} style={{ position: 'relative' }}>
           <button
             onClick={() => setPlatformMenuOpen(prev => !prev)}
@@ -825,158 +750,6 @@ export default function Analytics() {
 
       {viewMode === 'platform' && selectedPlatformAccountId && (
         <PlatformViewSafe accountId={selectedPlatformAccountId} accounts={accounts} start={start} end={end} />
-      )}
-
-      {viewMode === 'posts' && (
-        <>
-          {/* ── Posts Month Filter ── */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-            <button onClick={() => {
-              const pm = postsMonth === 0 ? 11 : postsMonth - 1;
-              const py = postsMonth === 0 ? postsYear - 1 : postsYear;
-              setPostsMonth(pm); setPostsYear(py);
-            }} style={{ ...styles.filterChip, padding: '6px 10px' }}>←</button>
-            <select value={postsMonth} onChange={e => setPostsMonth(Number(e.target.value))}
-              style={{ ...styles.filterSelect, ...styles.filterSelectActive }}>
-              {MONTHS.map((m, i) => <option key={i} value={i}>{m}</option>)}
-            </select>
-            <select value={postsYear} onChange={e => setPostsYear(Number(e.target.value))}
-              style={{ ...styles.filterSelect, ...styles.filterSelectActive }}>
-              {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(y => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-            <button onClick={() => {
-              const pm = postsMonth === 11 ? 0 : postsMonth + 1;
-              const py = postsMonth === 11 ? postsYear + 1 : postsYear;
-              setPostsMonth(pm); setPostsYear(py);
-            }} style={{ ...styles.filterChip, padding: '6px 10px' }}>→</button>
-            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', marginLeft: 8 }}>
-              {postsData.length} post{postsData.length !== 1 ? 's' : ''}
-            </span>
-          </div>
-
-          {postsLoading ? (
-            <p style={styles.loadingText}>Loading posts...</p>
-          ) : (
-            <div style={styles.postsGrid}>
-              {POSTS_COLUMNS.map(col => {
-                const colPosts = postsData.filter(p => p.platform_account_id === col.accountId);
-                return (
-                  <div key={col.key} style={styles.postsColumn}>
-                    <div style={{ ...styles.postsColumnHeader, borderBottom: `2px solid ${col.color}` }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: col.color, marginRight: 6 }}>{col.icon}</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: '#fff', flex: 1 }}>{col.label}</span>
-                      <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontWeight: 600 }}>{colPosts.length}</span>
-                    </div>
-                    <div style={styles.postsColumnBody}>
-                      {colPosts.length === 0 ? (
-                        <div style={{ padding: 16, textAlign: 'center', color: 'rgba(255,255,255,0.2)', fontSize: 12 }}>No posts</div>
-                      ) : colPosts.map(post => {
-                        const metrics = post.latest_metrics?.[0];
-                        const dateStr = post.published_at ? new Date(post.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
-                        return (
-                          <button key={post.id} onClick={() => setPostsDetail(post)} style={styles.postsCard}>
-                            {post.thumbnail_url && (
-                              <div style={{ width: '100%', height: 80, borderRadius: 6, overflow: 'hidden', marginBottom: 8, background: 'rgba(0,0,0,0.3)' }}>
-                                <img src={post.thumbnail_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                              </div>
-                            )}
-                            <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.85)', lineHeight: 1.35, marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-                              {post.title || '(untitled)'}
-                            </div>
-                            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>{dateStr}</div>
-                            {metrics && metrics.views > 0 && (
-                              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', marginTop: 2 }}>
-                                {formatCompact(metrics.views)} views
-                              </div>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* ── Post Detail Popup ── */}
-          {postsDetail && (
-            <div onClick={() => setPostsDetail(null)} style={styles.postsOverlay}>
-              <div onClick={e => e.stopPropagation()} style={styles.postsPopup}>
-                <button onClick={() => setPostsDetail(null)} style={styles.postsPopupClose}>✕</button>
-                {postsDetail.thumbnail_url && (
-                  <div style={{ width: '100%', height: 200, borderRadius: 10, overflow: 'hidden', marginBottom: 16, background: 'rgba(0,0,0,0.3)' }}>
-                    <img src={postsDetail.thumbnail_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  </div>
-                )}
-                <h3 style={{ fontSize: 16, fontWeight: 700, color: '#fff', margin: '0 0 8px', lineHeight: 1.3 }}>
-                  {postsDetail.title || '(untitled)'}
-                </h3>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
-                  {(() => {
-                    const col = POSTS_COLUMNS.find(c => c.accountId === postsDetail.platform_account_id);
-                    return col ? (
-                      <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 6, background: col.color + '22', color: col.color }}>
-                        {col.icon} {col.label}
-                      </span>
-                    ) : null;
-                  })()}
-                  {postsDetail.content_type && (
-                    <span style={{ fontSize: 11, fontWeight: 500, padding: '3px 8px', borderRadius: 6, background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)' }}>
-                      {postsDetail.content_type}
-                    </span>
-                  )}
-                  {postsDetail.published_at && (
-                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>
-                      {new Date(postsDetail.published_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
-                    </span>
-                  )}
-                  {postsDetail.duration_seconds > 0 && (
-                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>
-                      {Math.floor(postsDetail.duration_seconds / 60)}:{String(postsDetail.duration_seconds % 60).padStart(2, '0')}
-                    </span>
-                  )}
-                </div>
-                {(() => {
-                  const m = postsDetail.latest_metrics?.[0];
-                  return m ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16 }}>
-                      {[
-                        { label: 'Views', val: m.views },
-                        { label: 'Likes', val: m.likes },
-                        { label: 'Comments', val: m.comments },
-                        { label: 'Shares', val: m.shares },
-                      ].map(s => (
-                        <div key={s.label} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '10px 8px', textAlign: 'center' }}>
-                          <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{formatCompact(s.val || 0)}</div>
-                          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>{s.label}</div>
-                        </div>
-                      ))}
-                      {m.engagement_rate > 0 && (
-                        <div style={{ gridColumn: '1 / -1', fontSize: 11, color: 'rgba(255,255,255,0.4)', textAlign: 'center' }}>
-                          Engagement: {(m.engagement_rate * 100).toFixed(2)}%
-                        </div>
-                      )}
-                    </div>
-                  ) : null;
-                })()}
-                {postsDetail.description && (
-                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', lineHeight: 1.5, maxHeight: 120, overflow: 'auto', marginBottom: 16 }}>
-                    {postsDetail.description}
-                  </div>
-                )}
-                {postsDetail.url && (
-                  <a href={postsDetail.url} target="_blank" rel="noopener noreferrer"
-                    style={{ display: 'inline-block', padding: '8px 16px', borderRadius: 8, background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', color: '#a5b4fc', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
-                    Open on platform →
-                  </a>
-                )}
-              </div>
-            </div>
-          )}
-        </>
       )}
 
       {viewMode === 'dashboard' && (loading ? <p style={styles.loadingText}>Loading analytics...</p> : (
@@ -3514,14 +3287,4 @@ const styles = {
   viewToggleBar: { display: 'flex', gap: '2px', padding: '3px', background: 'rgba(255,255,255,0.04)', borderRadius: '10px', width: 'fit-content', marginBottom: '20px' },
   viewToggleBtn: { padding: '7px 18px', borderRadius: '8px', border: 'none', background: 'transparent', color: 'rgba(255,255,255,0.4)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   viewToggleBtnActive: { padding: '7px 18px', borderRadius: '8px', border: 'none', background: 'rgba(99,102,241,0.2)', color: '#a5b4fc', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
-
-  // Posts view
-  postsGrid: { display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, minHeight: 400 },
-  postsColumn: { display: 'flex', flexDirection: 'column', minWidth: 0 },
-  postsColumnHeader: { padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 4 },
-  postsColumnBody: { flex: 1, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0 0 10px 10px', padding: 6, display: 'flex', flexDirection: 'column', gap: 6, overflowY: 'auto', maxHeight: 'calc(100vh - 260px)' },
-  postsCard: { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 8, padding: 10, cursor: 'pointer', textAlign: 'left', width: '100%', fontFamily: 'inherit', transition: 'border-color 0.15s' },
-  postsOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  postsPopup: { background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, padding: 24, maxWidth: 480, width: '90%', maxHeight: '80vh', overflow: 'auto', position: 'relative' },
-  postsPopupClose: { position: 'absolute', top: 12, right: 12, background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', fontSize: 16, cursor: 'pointer', fontFamily: 'inherit' },
 };
