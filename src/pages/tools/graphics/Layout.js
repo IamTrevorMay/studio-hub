@@ -6,6 +6,7 @@ import HistoryPane from './HistoryPane';
 import FilterBar from './FilterBar';
 import PreviewPane from './PreviewPane';
 import { IMAGINE_WIDGETS } from './registry/registry';
+import { renderSceneToBlob } from '../../../lib/imagineRenderer';
 
 // Categories are inferred from widget id so WidgetList can group. Widgets
 // themselves don't carry a category in the Triton schema.
@@ -87,6 +88,69 @@ const DEFAULT_SIZE_PRESETS = [
   { width: 1200, height: 630,  label: '1200x630 OG' },
 ];
 
+// Fallback demo scene for widgets that don't have fetchData/buildScene.
+function buildDemoScene(widgetId, width, height) {
+  const pitchData = [
+    { label: 'FF',  value: 42, color: '#ef4444' },
+    { label: 'SL',  value: 22, color: '#0ea5e9' },
+    { label: 'CH',  value: 18, color: '#10b981' },
+    { label: 'CU',  value: 12, color: '#a855f7' },
+    { label: 'SI',  value:  6, color: '#f97316' },
+  ];
+  const nb = 16;
+  const gridZ = [];
+  for (let r = 0; r < nb; r++) {
+    const row = [];
+    for (let c = 0; c < nb; c++) {
+      const cx = (c - 7.5) / 7.5;
+      const cy = (r - 7.5) / 7.5;
+      const d = Math.sqrt(cx * cx + cy * cy);
+      const v = Math.max(0, 1 - d * 0.75) + (Math.sin(r * 1.3) * Math.cos(c * 0.9)) * 0.05;
+      row.push(Math.max(0, Math.min(1, v)));
+    }
+    gridZ.push(row);
+  }
+  return {
+    id: 'demo',
+    name: `${widgetId} demo`,
+    width,
+    height,
+    background: '#0f0f1a',
+    elements: [
+      {
+        id: 'card-bg', type: 'shape', x: 24, y: 24,
+        width: width - 48, height: height - 48, zIndex: 1,
+        props: { bgColor: '#1a1a2e', bgOpacity: 1, borderRadius: 24, borderWidth: 1, borderColor: '#6366f1' },
+      },
+      {
+        id: 'title', type: 'text', x: 48, y: height * 0.05,
+        width: width - 96, height: height * 0.12, zIndex: 2,
+        props: { text: widgetId, fontSize: Math.round(height * 0.08), fontWeight: 700, color: '#ffffff', textAlign: 'center', lineHeight: 1.1, textTransform: 'uppercase' },
+      },
+      {
+        id: 'subtitle', type: 'text', x: 48, y: height * 0.18,
+        width: width - 96, height: height * 0.05, zIndex: 3,
+        props: { text: `${width} \u00d7 ${height} \u00b7 demo scene`, fontSize: Math.round(height * 0.028), fontWeight: 400, color: 'rgba(255,255,255,0.55)', textAlign: 'center' },
+      },
+      {
+        id: 'heatmap', type: 'rc-heatmap', x: 48, y: height * 0.26,
+        width: (width - 96) / 2 - 12, height: height * 0.42, zIndex: 4,
+        props: { title: 'Whiff Rate', metric: 'whiff_pct', gridZ, colorMode: 'rainbow', showZone: true, showLegend: true, bgColor: '#0f0f12', borderRadius: 14 },
+      },
+      {
+        id: 'donut', type: 'rc-donut-chart', x: width / 2 + 12, y: height * 0.26,
+        width: (width - 96) / 2 - 12, height: height * 0.42, zIndex: 4,
+        props: { title: 'Pitch Mix', usageData: pitchData, innerRadius: 0.55, fontSize: Math.round(height * 0.018), bgColor: 'rgba(255,255,255,0.04)', borderRadius: 14 },
+      },
+      {
+        id: 'statline', type: 'rc-statline', x: 48, y: height * 0.74,
+        width: width - 96, height: height * 0.12, zIndex: 5,
+        props: { title: 'Last Outing', statline: { ip: '6.1', h: 4, r: 2, k: 8, bb: 1, decision: 'W', era: '2.41' }, fontSize: Math.round(height * 0.035), color: '#ffffff', bgColor: 'rgba(99,102,241,0.10)', borderRadius: 12 },
+      },
+    ],
+  };
+}
+
 export default function Layout({ onBack }) {
   const widgets = useMemo(
     () => IMAGINE_WIDGETS.map((w) => ({
@@ -128,10 +192,9 @@ export default function Layout({ onBack }) {
 
   useEffect(() => { refreshHistory(); }, [refreshHistory]);
 
-  // Debounced render: 300ms after filters/size/widget settle, POST to
-  // imagine-render and swap the preview blob. Revokes the previous blob URL
-  // to avoid leaks. The fetch is gated on a per-effect token so a stale
-  // response from a slow render doesn't clobber a newer one.
+  // Debounced render: 300ms after filters/size/widget settle, render
+  // client-side via canvas and swap the preview blob. Revokes the previous
+  // blob URL to avoid leaks.
   useEffect(() => {
     if (!selectedWidget) {
       setPreviewUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
@@ -144,23 +207,6 @@ export default function Layout({ onBack }) {
       setPreviewLoading(true);
       setPreviewError(null);
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) throw new Error('Not authenticated');
-
-        // 2F.6: run the widget's fetchData + buildScene in the browser so
-        // the Vercel renderer fn stays a pure Scene → PNG translator.
-        // Widget fetchData targets Triton's Next routes (scene-stats /
-        // league-baseline / heatmap-data) — those are the system of record
-        // for player stats; we proxy at the data layer rather than copy
-        // the schemas. The renderer fn ignores widget_id when a `scene`
-        // is present in the body and just renders it.
-        //
-        // 2G: for heatmap widgets we route through Mayday's same-origin
-        // Vercel proxies (api/imagine/heatmap-data + api/league-baseline)
-        // because the Triton route uses a long-running RPC against the
-        // `pitches` table that we deliberately don't replicate. For
-        // scene-stats based widgets we still call Triton directly; if
-        // that hits CORS we'll add a scene-stats proxy too.
         const tritonOrigin = process.env.REACT_APP_TRITON_ORIGIN
           || 'https://www.tritonapex.io';
         const useMaydayProxy = selectedWidget.id === 'heat-maps'
@@ -184,29 +230,8 @@ export default function Layout({ onBack }) {
             throw new Error(`Widget buildScene failed: ${err.message || err}`);
           }
         }
-        // If buildScene didn't run (widget shape doesn't match), the renderer
-        // will fall back to its built-in demo scene so the UI still shows
-        // something.
-        const res = await fetch('/api/imagine-render', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${session.access_token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            widget_id: selectedWidget.id,
-            filters,
-            size,
-            scene,
-          }),
-        });
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(`Render ${res.status}: ${text.slice(0, 300)}`);
-        }
-        const renderer = res.headers.get('x-imagine-renderer') || '';
-        const isStub = renderer.includes('spike') || res.headers.get('x-imagine-stub') === '1';
-        const blob = await res.blob();
+        if (!scene) scene = buildDemoScene(selectedWidget.id, size.width, size.height);
+        const blob = await renderSceneToBlob(scene);
         const blobUrl = URL.createObjectURL(blob);
         if (cancelled) {
           URL.revokeObjectURL(blobUrl);
@@ -216,7 +241,7 @@ export default function Layout({ onBack }) {
           if (prev) URL.revokeObjectURL(prev);
           return blobUrl;
         });
-        setPreviewIsStub(isStub);
+        setPreviewIsStub(false);
       } catch (err) {
         if (!cancelled) {
           setPreviewError(err.message || String(err));

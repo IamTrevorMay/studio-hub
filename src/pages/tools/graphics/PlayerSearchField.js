@@ -30,10 +30,9 @@ export default function PlayerSearchField({
       const rpcName = playerType === 'batter' ? 'search_batters'
         : playerType === 'pitcher' ? 'search_players'
         : 'search_all_players';
-      const { data, error } = await tritonSupabase.rpc(rpcName, {
-        search_term: query.trim(),
-        result_limit: 8,
-      });
+      const params = { search_term: query.trim(), result_limit: 8 };
+      if (rpcName === 'search_all_players') params.player_type = playerType || 'all';
+      const { data, error } = await tritonSupabase.rpc(rpcName, params);
       if (cancelled) return;
       if (error) {
         setSearchError(error.message || 'Search failed');
