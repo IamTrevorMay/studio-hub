@@ -155,7 +155,7 @@ export default function Payroll() {
         .eq('status', 'completed')
         .gte('completed_at', selectedPeriod.start + 'T00:00:00')
         .lte('completed_at', selectedPeriod.end + 'T23:59:59'),
-      supabase.from('profiles').select('id, full_name, role, avatar_url, pay_method, pay_method_detail').in('role', ['admin', 'assistant', 'member']),
+      supabase.from('profiles').select('id, full_name, role, avatar_url, pay_method, pay_method_detail').in('role', ['admin', 'assistant', 'member', 'director_creative', 'director_comms']),
       supabase.from('payroll_salaries').select('*').is('ended_at', null),
       supabase.from('payroll_one_offs').select('*').eq('period_start', selectedPeriod.start).order('created_at'),
       supabase.from('payroll_paid').select('profile_id').eq('period_start', selectedPeriod.start),
