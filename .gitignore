@@ -2,9 +2,8 @@ node_modules
 build
 .vercel
 .env
-.env.local
-.env.save
-.env*.local
+.env.*
+!.env.example
 .DS_Store
 supabase/.temp
 api/.env

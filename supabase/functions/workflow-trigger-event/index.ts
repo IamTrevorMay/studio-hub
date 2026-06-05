@@ -63,6 +63,43 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return jsonResp({ error: "Method not allowed" }, 405);
 
+  // Auth: require CRON_SECRET OR admin JWT. This endpoint runs under
+  // service role and synthesizes workflow cards / tasks from arbitrary
+  // event payloads, so it must not be callable by unauthenticated traffic.
+  // Internal callers (other edge fns, pg_cron) send x-cron-secret header;
+  // browser callers (admin UI on Deliverables / Projects / Production)
+  // send an admin Bearer token.
+  const url = new URL(req.url);
+  const providedSecret =
+    req.headers.get("x-cron-secret") || url.searchParams.get("secret");
+  const expectedSecret = Deno.env.get("CRON_SECRET");
+  const cronOk = !!expectedSecret && providedSecret === expectedSecret;
+
+  let adminOk = false;
+  if (!cronOk) {
+    const authHeader = req.headers.get("authorization") || "";
+    const token = authHeader.toLowerCase().startsWith("bearer ")
+      ? authHeader.slice(7)
+      : "";
+    if (token) {
+      const admin = getAdminClient();
+      const { data: userRes } = await admin.auth.getUser(token);
+      const uid = userRes?.user?.id;
+      if (uid) {
+        const { data: prof } = await admin
+          .from("profiles")
+          .select("role")
+          .eq("id", uid)
+          .maybeSingle();
+        adminOk = !!prof && ["admin", "director_creative", "director_comms"].includes(prof.role);
+      }
+    }
+  }
+
+  if (!cronOk && !adminOk) {
+    return jsonResp({ error: "Unauthorized" }, 401);
+  }
+
   let body: { event?: string; source?: string; payload?: Record<string, unknown> };
   try { body = await req.json(); } catch { return jsonResp({ error: "Invalid JSON" }, 400); }
   const { event, source, payload } = body;
