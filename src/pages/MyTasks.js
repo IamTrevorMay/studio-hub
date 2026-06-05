@@ -790,7 +790,7 @@ export default function MyTasks({ onNavigate }) {
                       onClick={() => handleCompleteWithConfirm(task)}
                       disabled={isCompleting}
                     >
-                      {isCompleting ? 'Working...' : 'Mark Complete'}
+                      {isCompleting ? 'Working...' : 'Complete'}
                     </button>
                   </>
                 ) : !isReviewProposal && (
@@ -808,20 +808,10 @@ export default function MyTasks({ onNavigate }) {
                         onClick={() => handleComplete(task)}
                         disabled={isCompleting}
                       >
-                        Mark Done
+                        Complete
                       </button>
                     )}
                   </>
-                )}
-
-                {/* Decline */}
-                {!isReviewProposal && action.type !== 'auto' && (
-                  <button
-                    style={styles.declineBtn}
-                    onClick={() => setDeclineModalTask(task)}
-                  >
-                    Decline
-                  </button>
                 )}
 
                 {/* Expand toggle (skip for review_proposal — full proposal already inline) */}
@@ -873,8 +863,16 @@ export default function MyTasks({ onNavigate }) {
                 )}
               </div>
 
-              {/* Hold + Snooze — bottom right */}
+              {/* Decline + Hold + Snooze — bottom right */}
               <div style={styles.holdSnoozeRow}>
+                {!isReviewProposal && action.type !== 'auto' && (
+                  <button
+                    style={styles.declineBtn}
+                    onClick={() => setDeclineModalTask(task)}
+                  >
+                    Decline
+                  </button>
+                )}
                 {!isOnHold && (
                   <button
                     style={styles.holdBtn}
@@ -1289,9 +1287,9 @@ const styles = {
     background: 'rgba(239,68,68,0.12)',
     color: '#f87171',
     border: '1px solid rgba(239,68,68,0.35)',
-    borderRadius: 6,
-    padding: '7px 14px',
-    fontSize: 12,
+    borderRadius: 5,
+    padding: '5px 10px',
+    fontSize: 10,
     fontWeight: 600,
     cursor: 'pointer',
     fontFamily: 'inherit',
