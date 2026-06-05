@@ -112,6 +112,7 @@ export default function useNavConfig() {
     // If no config or empty, return hardcoded items as-is
     if (!config || !config.items || config.items.length === 0) {
       return navItems
+        .filter(item => !item.hidden)
         .filter(item => !item.adminOnly || isAdmin)
         .filter(item => !isRestricted(item.key))
         .map(item => ({ type: 'item', key: item.key, label: item.label, adminOnly: item.adminOnly }));
@@ -135,6 +136,7 @@ export default function useNavConfig() {
       } else if (entry.type === 'item') {
         const codeItem = codeMap[entry.key];
         if (!codeItem) continue; // item removed from code
+        if (codeItem.hidden) continue;
         if (codeItem.adminOnly && !isAdmin) continue;
         if (isRestricted(entry.key)) continue;
         usedKeys.add(entry.key);
@@ -151,6 +153,7 @@ export default function useNavConfig() {
     // Append items from code that aren't in config
     for (const item of navItems) {
       if (!usedKeys.has(item.key)) {
+        if (item.hidden) continue;
         if (item.adminOnly && !isAdmin) continue;
         if (isRestricted(item.key)) continue;
         result.push({ type: 'item', key: item.key, label: item.label, folderId: null, adminOnly: item.adminOnly });

@@ -18,7 +18,6 @@ import Analytics from './Analytics';
 import Tracking from './Tracking';
 import Accounting from './Accounting';
 import Research from './Research';
-import Goals from './Goals';
 import BusinessDev from './BusinessDev';
 import Invoicing from './Invoicing';
 import Payroll from './Payroll';
@@ -63,18 +62,18 @@ const NAV_ITEMS = [
   { key: 'projects', label: 'Projects', icon: ProjectsIcon },
   { key: 'write', label: 'Write', icon: ResourcesIcon },
   { key: 'production', label: 'Beat Sheet', icon: ProductionIcon },
-  { key: 'scene_builder', label: 'Scene Composer', icon: ToolsIcon, adminOnly: true },
+  { key: 'scene_builder', label: 'Scene Composer', icon: ToolsIcon, adminOnly: true, hidden: true },
   { key: 'screenwriter', label: 'Screenwriter', icon: IdeationIcon },
   { key: 'teleprompter', label: 'Teleprompter', icon: ToolsIcon },
-  { key: 'broadcast', label: 'Broadcast', icon: ToolsIcon, adminOnly: true },
+  { key: 'broadcast', label: 'Broadcast', icon: ToolsIcon, adminOnly: true, hidden: true },
   { key: 'telestration', label: 'Telestrator', icon: ToolsIcon },
   { key: 'post_show', label: 'Clipping Tool', icon: ToolsIcon },
   { key: 'timeline', label: 'Timeline', icon: ToolsIcon },
-  { key: 'report_cards', label: 'Report Cards', icon: ToolsIcon, adminOnly: true },
-  { key: 'mailer', label: 'Mailer', icon: ToolsIcon, adminOnly: true },
+  { key: 'report_cards', label: 'Report Cards', icon: ToolsIcon, adminOnly: true, hidden: true },
+  { key: 'mailer', label: 'Mailer', icon: ToolsIcon, adminOnly: true, hidden: true },
   { key: 'graphics', label: 'Graphics', icon: ToolsIcon },
-  { key: 'asset_designer', label: 'Asset Designer', icon: ToolsIcon, adminOnly: true },
-  { key: 'template_builder', label: 'Template Builder', icon: ToolsIcon, adminOnly: true },
+  { key: 'asset_designer', label: 'Asset Designer', icon: ToolsIcon, adminOnly: true, hidden: true },
+  { key: 'template_builder', label: 'Template Builder', icon: ToolsIcon, adminOnly: true, hidden: true },
   { key: 'assets', label: 'Assets Library', icon: ResourcesIcon, external: { url: 'https://www.mayday.systems/' } },
   { key: 'reviews', label: 'Reviews', icon: ReviewsIcon },
   { key: 'organize', label: 'Organize', icon: ToolsIcon },
@@ -85,7 +84,6 @@ const NAV_ITEMS = [
   { key: 'accounting', label: 'Accounting', icon: ExpensesIcon, adminOnly: true },
   { key: 'research', label: 'Research', icon: ResearchIcon },
   { key: 'calendar', label: 'Calendar', icon: CalendarIcon },
-  { key: 'goals', label: 'Goals', icon: GoalsIcon },
   { key: 'business_dev', label: 'Business Dev', icon: BusinessDevIcon, adminOnly: true },
   { key: 'payroll', label: 'Payroll', icon: PayrollIcon, adminOnly: true },
   { key: 'invoicing', label: 'Invoicing', icon: InvoicingIcon, adminOnly: true },
@@ -189,7 +187,6 @@ const NAV_ICON_MAP = {
   accounting: ExpensesIcon,
   research: ResearchIcon,
   calendar: CalendarIcon,
-  goals: GoalsIcon,
   business_dev: BusinessDevIcon,
   payroll: PayrollIcon,
   invoicing: InvoicingIcon,
@@ -269,7 +266,8 @@ export default function AppLayout() {
   const filteredAdminModeNav = ADMIN_MODE_NAV.filter(
     (e) => e.type !== 'item' || !restrictedNavKeys?.has(e.key),
   );
-  const displayNav = (mode === 'admin' && isAdmin) ? filteredAdminModeNav : buildWorkNav(resolvedNav);
+  const displayNav = ((mode === 'admin' && isAdmin) ? filteredAdminModeNav : buildWorkNav(resolvedNav))
+    .filter(e => !e.hidden);
 
   function toggleMode() {
     if (mode === 'work') {
@@ -782,7 +780,6 @@ export default function AppLayout() {
           {isAdmin && activeTab === 'accounting' && <Accounting />}
           {activeTab === 'research' && <Research />}
           {activeTab === 'reviews' && <Reviews />}
-          {activeTab === 'goals' && <Goals />}
           {(isAdmin || isPartner) && activeTab === 'business_dev' && <BusinessDev />}
           {isAdmin && activeTab === 'payroll' && <Payroll />}
           {isAdmin && activeTab === 'invoicing' && <Invoicing />}
@@ -1099,15 +1096,6 @@ function MyTasksIcon({ active }) {
   );
 }
 
-function GoalsIcon({ active }) {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
-      <circle cx="10" cy="10" r="7" />
-      <circle cx="10" cy="10" r="4" />
-      <circle cx="10" cy="10" r="1" fill={active ? '#a5b4fc' : '#6b7280'} />
-    </svg>
-  );
-}
 
 function BusinessDevIcon({ active }) {
   return (

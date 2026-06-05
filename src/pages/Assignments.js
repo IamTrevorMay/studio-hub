@@ -1,19 +1,12 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 // Admin-only Assignments page.
-//  1. Assign one-off (direct) tasks to one or more people — they land in each
-//     assignee's My Tasks alongside workflow tasks.
-//  2. People grid (Team + Contractors) showing everyone's current pending tasks
-//     and what they've completed in the last 7 days (workflow + direct).
+// Assign one-off (direct) tasks to one or more people — they land in each
+// assignee's My Tasks alongside workflow tasks.
 
 const TEAM_ROLES = ['admin', 'assistant', 'member', 'partner'];
-const ROLE_LABEL = {
-  admin: 'Admin', assistant: 'Assistant', member: 'Member',
-  partner: 'Partner', freelancer: 'Contractor',
-};
-const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
 // Pages a "Do it" button can jump to (tab key -> label, matching the sidebar).
 const PAGES = [
@@ -32,7 +25,6 @@ const PAGES = [
   { key: 'resources', label: 'Resources' },
   { key: 'research', label: 'Research' },
   { key: 'calendar', label: 'Calendar' },
-  { key: 'goals', label: 'Goals' },
   { key: 'analytics', label: 'Analytics' },
   { key: 'business_dev', label: 'Business Dev' },
   { key: 'invoicing', label: 'Invoicing' },
@@ -48,25 +40,9 @@ const TASK_TEMPLATES = [
   { key: 'connect_to_video', label: 'Connect to Video', entity: 'deliverable', titlePrefix: 'Connect to video' },
 ];
 
-function fmtDate(d) {
-  if (!d) return '';
-  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-function isDirect(task) {
-  return !task.workflow_instance_id;
-}
-function isOverdue(task) {
-  return task.due_date && new Date(task.due_date) < new Date();
-}
 
 export default function Assignments() {
   const [profiles, setProfiles] = useState([]);
-  const [pending, setPending] = useState([]);
-  const [done, setDone] = useState([]);
-  const [declined, setDeclined] = useState([]);
-  const [flPending, setFlPending] = useState([]);
-  const [flDone, setFlDone] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
 
   // Assign form
@@ -91,28 +67,11 @@ export default function Assignments() {
 
   const fetchData = useCallback(async () => {
     try {
-      const sevenDaysAgo = new Date(Date.now() - SEVEN_DAYS_MS).toISOString();
-      const [profRes, pendRes, doneRes, declRes, delivRes, campRes, flPendRes, flDoneRes] = await Promise.all([
+      const [profRes, delivRes, campRes] = await Promise.all([
         supabase
           .from('profiles')
           .select('id, full_name, email, role')
           .order('full_name', { ascending: true, nullsFirst: false }),
-        supabase
-          .from('tasks')
-          .select('id, title, assignee_id, status, due_date, link_url, workflow_instance_id, step_key, created_at')
-          .in('status', ['active', 'on_hold']),
-        supabase
-          .from('tasks')
-          .select('id, title, assignee_id, status, workflow_instance_id, completed_at')
-          .eq('status', 'complete')
-          .gte('completed_at', sevenDaysAgo)
-          .order('completed_at', { ascending: false }),
-        supabase
-          .from('tasks')
-          .select('id, title, assignee_id, status, hold_reason, workflow_instance_id, completed_at')
-          .eq('status', 'declined')
-          .gte('completed_at', sevenDaysAgo)
-          .order('completed_at', { ascending: false }),
         supabase
           .from('sponsor_deliverables')
           .select('id, title, due_date, channel, delivered, status, notes, campaign:sponsor_campaigns(name, brief_url)')
@@ -121,22 +80,8 @@ export default function Assignments() {
           .from('sponsor_campaigns')
           .select('id, name, end_date')
           .order('name', { ascending: true }),
-        supabase
-          .from('freelancer_assignments')
-          .select('id, title, freelancer_id, status, created_at, completed_at, due_date, pay_amount, assignment_type')
-          .in('status', ['assigned', 'in_progress']),
-        supabase
-          .from('freelancer_assignments')
-          .select('id, title, freelancer_id, status, created_at, completed_at')
-          .eq('status', 'completed')
-          .gte('completed_at', sevenDaysAgo),
       ]);
       setProfiles((profRes.data || []).filter(p => p.role && p.role !== 'deactivated'));
-      setPending(pendRes.data || []);
-      setDone(doneRes.data || []);
-      setDeclined(declRes.data || []);
-      setFlPending((flPendRes.data || []).map(a => ({ ...a, assignee_id: a.freelancer_id, _source: 'contractor' })));
-      setFlDone((flDoneRes.data || []).map(a => ({ ...a, assignee_id: a.freelancer_id, _source: 'contractor' })));
 
       // Active records for the template pickers
       const today = new Date().toISOString().slice(0, 10);
@@ -164,46 +109,12 @@ export default function Assignments() {
     } catch (err) {
       console.error('Assignments fetch error:', err);
       showToast('Failed to load assignments', 'error');
-    } finally {
-      setLoading(false);
     }
   }, [showToast]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Live refresh: any change to a task (any assignee) refetches the grid.
-  // Debounced so a burst of changes only triggers one reload.
-  const refreshTimer = useRef(null);
-  const debouncedRefresh = useCallback(() => {
-    if (refreshTimer.current) clearTimeout(refreshTimer.current);
-    refreshTimer.current = setTimeout(() => { fetchData(); }, 500);
-  }, [fetchData]);
-
-  useEffect(() => {
-    const channel = supabase
-      .channel('assignments-live')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, debouncedRefresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'freelancer_assignments' }, debouncedRefresh)
-      .subscribe();
-    return () => {
-      if (refreshTimer.current) clearTimeout(refreshTimer.current);
-      supabase.removeChannel(channel);
-    };
-  }, [debouncedRefresh]);
-
   useVisibilityRefresh(() => { fetchData(); });
-
-  // Group tasks by assignee
-  const byAssignee = useMemo(() => {
-    const map = {};
-    const ensure = (id) => (map[id] || (map[id] = { pending: [], done: [], declined: [] }));
-    for (const t of pending) if (t.assignee_id) ensure(t.assignee_id).pending.push(t);
-    for (const t of done) if (t.assignee_id) ensure(t.assignee_id).done.push(t);
-    for (const t of declined) if (t.assignee_id) ensure(t.assignee_id).declined.push(t);
-    for (const t of flPending) if (t.assignee_id) ensure(t.assignee_id).pending.push(t);
-    for (const t of flDone) if (t.assignee_id) ensure(t.assignee_id).done.push(t);
-    return map;
-  }, [pending, done, declined, flPending, flDone]);
 
   const team = useMemo(() => profiles.filter(p => TEAM_ROLES.includes(p.role)), [profiles]);
   const contractors = useMemo(() => profiles.filter(p => p.role === 'freelancer'), [profiles]);
@@ -262,19 +173,6 @@ export default function Assignments() {
       showToast('Assign failed: ' + err.message, 'error');
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  const handleCancel = async (taskId) => {
-    try {
-      const { data, error } = await supabase.functions.invoke('assign-task', {
-        body: { op: 'cancel', task_id: taskId },
-      });
-      if (error || data?.error) throw new Error(error?.message || data?.error);
-      showToast('Task cancelled');
-      setPending(prev => prev.filter(t => t.id !== taskId));
-    } catch (err) {
-      showToast('Cancel failed: ' + err.message, 'error');
     }
   };
 
@@ -345,8 +243,8 @@ export default function Assignments() {
         )}
 
         <div style={{ ...styles.fieldLabel, marginTop: 12 }}>Assign to {assignees.length > 0 && <span style={styles.countPill}>{assignees.length}</span>}</div>
-        <PeopleChips label="Team" people={team} selected={assignees} onToggle={toggleAssignee} tasks={byAssignee} />
-        <PeopleChips label="Contractors" people={contractors} selected={assignees} onToggle={toggleAssignee} tasks={byAssignee} />
+        <PeopleChips label="Team" people={team} selected={assignees} onToggle={toggleAssignee} />
+        <PeopleChips label="Contractors" people={contractors} selected={assignees} onToggle={toggleAssignee} />
 
         <div style={styles.formGrid}>
           <div>
@@ -381,16 +279,6 @@ export default function Assignments() {
           </button>
         </div>
       </div>
-
-      {/* ── People grid ── */}
-      {loading ? (
-        <p style={styles.muted}>Loading…</p>
-      ) : (
-        <>
-          <PeopleSection title="Team" people={team} byAssignee={byAssignee} onCancel={handleCancel} />
-          <PeopleSection title="Contractors" people={contractors} byAssignee={byAssignee} onCancel={handleCancel} />
-        </>
-      )}
     </div>
   );
 }
@@ -416,90 +304,6 @@ function PeopleChips({ label, people, selected, onToggle }) {
   );
 }
 
-// ─── People grid section ────────────────────────────────────
-function PeopleSection({ title, people, byAssignee, onCancel }) {
-  if (people.length === 0) return null;
-  return (
-    <div style={{ marginTop: 24 }}>
-      <h2 style={styles.sectionTitle}>{title}</h2>
-      <div style={styles.grid}>
-        {people.map(p => (
-          <PersonCard key={p.id} person={p} data={byAssignee[p.id] || { pending: [], done: [] }} onCancel={onCancel} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function PersonCard({ person, data, onCancel }) {
-  const pending = data.pending || [];
-  const done = data.done || [];
-  const declined = data.declined || [];
-  const doneShown = done.slice(0, 6);
-  return (
-    <div style={styles.card}>
-      <div style={styles.cardHead}>
-        <span style={styles.cardName}>{person.full_name || person.email}</span>
-        <span style={styles.roleChip}>{ROLE_LABEL[person.role] || person.role}</span>
-      </div>
-
-      <div style={styles.cardSubhead}>PENDING ({pending.length})</div>
-      {pending.length === 0 ? (
-        <div style={styles.emptyLine}>Nothing pending</div>
-      ) : pending.map(t => (
-        <div key={t.id} style={styles.taskLine}>
-          <span style={styles.dot}>○</span>
-          <span style={styles.taskTitle}>{t.title}</span>
-          {t.due_date && (
-            <span style={{ ...styles.due, ...(isOverdue(t) ? { color: '#f87171' } : {}) }}>
-              {isOverdue(t) ? 'overdue ' : 'due '}{fmtDate(t.due_date)}
-            </span>
-          )}
-          <span style={{ ...styles.srcTag, ...(t._source === 'contractor' ? styles.tagContractor : isDirect(t) ? styles.tagDirect : styles.tagWorkflow) }}>
-            {t._source === 'contractor' ? 'assignment' : isDirect(t) ? 'direct' : 'workflow'}
-          </span>
-          {isDirect(t) && !t._source && (
-            <button title="Cancel task" style={styles.cancelX} onClick={() => onCancel(t.id)}>✕</button>
-          )}
-        </div>
-      ))}
-
-      <div style={{ ...styles.cardSubhead, marginTop: 10 }}>DONE · 7d ({done.length})</div>
-      {done.length === 0 ? (
-        <div style={styles.emptyLine}>None this week</div>
-      ) : (
-        <>
-          {doneShown.map(t => (
-            <div key={t.id} style={styles.taskLine}>
-              <span style={{ ...styles.dot, color: '#22c55e' }}>✓</span>
-              <span style={{ ...styles.taskTitle, color: 'rgba(255,255,255,0.55)' }}>{t.title}</span>
-              <span style={{ ...styles.srcTag, ...(t._source === 'contractor' ? styles.tagContractor : isDirect(t) ? styles.tagDirect : styles.tagWorkflow) }}>
-                {t._source === 'contractor' ? 'assignment' : isDirect(t) ? 'direct' : 'workflow'}
-              </span>
-            </div>
-          ))}
-          {done.length > doneShown.length && (
-            <div style={styles.moreLine}>+{done.length - doneShown.length} more</div>
-          )}
-        </>
-      )}
-
-      {declined.length > 0 && (
-        <>
-          <div style={{ ...styles.cardSubhead, marginTop: 10, color: '#f87171' }}>DECLINED · 7d ({declined.length})</div>
-          {declined.map(t => (
-            <div key={t.id} style={styles.taskLine}>
-              <span style={{ ...styles.dot, color: '#f87171' }}>✕</span>
-              <span style={{ ...styles.taskTitle, color: 'rgba(255,255,255,0.55)' }} title={t.hold_reason || ''}>
-                {t.title}{t.hold_reason ? ` — ${t.hold_reason}` : ''}
-              </span>
-            </div>
-          ))}
-        </>
-      )}
-    </div>
-  );
-}
 
 const styles = {
   page: { padding: '24px 32px', minHeight: '100vh', position: 'relative' },
@@ -568,26 +372,4 @@ const styles = {
     marginLeft: 'auto', background: 'none', border: 'none', color: '#a5b4fc',
     fontSize: 11, cursor: 'pointer', textDecoration: 'underline',
   },
-
-  grid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 },
-  card: {
-    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
-    borderRadius: 12, padding: 14,
-  },
-  cardHead: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  cardName: { fontSize: 14, fontWeight: 700, color: '#fff' },
-  roleChip: { fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.5)', background: 'rgba(255,255,255,0.06)', borderRadius: 4, padding: '2px 7px', textTransform: 'uppercase', letterSpacing: 0.4 },
-  cardSubhead: { fontSize: 10, fontWeight: 800, color: 'rgba(255,255,255,0.4)', letterSpacing: 0.5, marginBottom: 6 },
-  taskLine: { display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', fontSize: 12.5 },
-  dot: { color: 'rgba(255,255,255,0.35)', fontSize: 12 },
-  taskTitle: { color: 'rgba(255,255,255,0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 },
-  due: { fontSize: 10.5, color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap' },
-  srcTag: { fontSize: 9, fontWeight: 700, borderRadius: 3, padding: '1px 5px', textTransform: 'uppercase', letterSpacing: 0.3 },
-  tagDirect: { background: 'rgba(99,102,241,0.18)', color: '#a5b4fc' },
-  tagWorkflow: { background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.45)' },
-  tagContractor: { background: 'rgba(251,191,36,0.15)', color: '#fbbf24' },
-  cancelX: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: 12, padding: '0 2px' },
-  emptyLine: { fontSize: 12, color: 'rgba(255,255,255,0.3)', fontStyle: 'italic', padding: '2px 0' },
-  moreLine: { fontSize: 11, color: 'rgba(255,255,255,0.35)', padding: '3px 0 0 18px' },
-  muted: { color: 'rgba(255,255,255,0.4)', fontSize: 14 },
 };

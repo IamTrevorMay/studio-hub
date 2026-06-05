@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
+import { useAuth } from '../contexts/AuthContext';
 import YearlyGoalsSection from '../components/YearlyGoalsSection';
 import ProgressKanban from '../components/ProgressKanban';
 
@@ -89,6 +90,7 @@ async function fetchAllRows(query) {
 // ─── Component ──────────────────────────────────────────────
 
 export default function Tracking() {
+  const { isAdmin, profile } = useAuth();
   const [postsMonth, setPostsMonth] = useState(new Date().getMonth());
   const [postsYear, setPostsYear] = useState(new Date().getFullYear());
   const [postsData, setPostsData] = useState([]);
@@ -98,6 +100,14 @@ export default function Tracking() {
   const [editingGoal, setEditingGoal] = useState(null); // columnKey being edited
   const goalInputRef = useRef(null);
   const postsGenRef = useRef(0);
+
+  // ── Initiatives (daily goals) state ──
+  const [initiativeTargets, setInitiativeTargets] = useState({});
+  const [storyCounts, setStoryCounts] = useState({});
+  const [initiativeLoading, setInitiativeLoading] = useState(false);
+  const [editingInitiativeTarget, setEditingInitiativeTarget] = useState(null);
+  const [initiativeTargetDraft, setInitiativeTargetDraft] = useState('');
+  const storyFailCount = useRef(0);
 
   // Fetch goals for current month
   const fetchGoals = useCallback(async () => {
@@ -275,6 +285,89 @@ export default function Tracking() {
   }, [postsMonth, postsYear]);
 
   useEffect(() => { fetchPosts(); }, [fetchPosts]);
+
+  // ── Initiatives (daily goals) fetching ──
+  const fetchInitiativeTargets = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const { data } = await supabase
+        .from('admin_goals')
+        .select('id, name, daily_target')
+        .eq('is_active', true);
+      const map = {};
+      for (const g of data || []) map[g.name] = { id: g.id, daily_target: g.daily_target };
+      if (!map.ig_stories) map.ig_stories = { id: null, daily_target: 1 };
+      setInitiativeTargets(map);
+    } catch (err) {
+      console.error('Error fetching initiative targets:', err);
+      setInitiativeTargets(prev => prev.ig_stories ? prev : { ig_stories: { id: null, daily_target: 1 } });
+    }
+  }, [isAdmin]);
+
+  const fetchStoryCounts = useCallback(async () => {
+    if (!isAdmin) return;
+    setInitiativeLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
+      const resp = await fetch(
+        `${supabaseUrl}/functions/v1/metricool-stories?days=7`,
+        { headers: { Authorization: `Bearer ${session.access_token}`, apikey: process.env.REACT_APP_SUPABASE_ANON_KEY } }
+      );
+      if (resp.ok) {
+        const data = await resp.json();
+        setStoryCounts(data.countsByDate || {});
+        storyFailCount.current = 0;
+      } else {
+        storyFailCount.current += 1;
+      }
+    } catch (err) {
+      console.error('Error fetching story counts:', err);
+      storyFailCount.current += 1;
+    } finally {
+      setInitiativeLoading(false);
+    }
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin || !profile?.id) return;
+    fetchInitiativeTargets();
+    fetchStoryCounts();
+    const interval = setInterval(() => {
+      if (storyFailCount.current >= 3) return;
+      fetchStoryCounts();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [isAdmin, profile?.id, fetchInitiativeTargets, fetchStoryCounts]);
+
+  async function updateInitiativeTarget(goalId, newTarget) {
+    const val = Math.max(1, parseInt(newTarget, 10) || 1);
+    await supabase.from('admin_goals').update({ daily_target: val, updated_at: new Date().toISOString() }).eq('id', goalId);
+    setInitiativeTargets(prev => {
+      const updated = { ...prev };
+      for (const key of Object.keys(updated)) {
+        if (updated[key].id === goalId) updated[key] = { ...updated[key], daily_target: val };
+      }
+      return updated;
+    });
+    setEditingInitiativeTarget(null);
+  }
+
+  // Build 7-day data for initiatives section
+  const initiativeDays = useMemo(() => {
+    const goal = initiativeTargets.ig_stories;
+    if (!goal) return null;
+    const days = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const dayLabel = i === 0 ? 'Today' : d.toLocaleDateString('en-US', { weekday: 'short' });
+      days.push({ dateStr, dayLabel, count: storyCounts[dateStr] || 0 });
+    }
+    return days;
+  }, [initiativeTargets.ig_stories, storyCounts]);
 
   // Build YouTube sub-counts per column
   const ytSubCounts = useMemo(() => {
@@ -488,8 +581,129 @@ export default function Tracking() {
       )}
       </div>
 
-      <div style={{ marginTop: 32 }}>
-        <ProgressKanban />
+      <div style={{ marginTop: 32, display: 'flex', gap: 20 }}>
+        <div style={{ flex: 4 }}>
+          <ProgressKanban />
+        </div>
+        {isAdmin && initiativeTargets.ig_stories && initiativeDays && (() => {
+          const goal = initiativeTargets.ig_stories;
+          const today = initiativeDays[initiativeDays.length - 1];
+          const todayPct = Math.min(100, Math.round((today.count / goal.daily_target) * 100));
+
+          return (
+            <div style={{ flex: 1 }}>
+              <div style={{
+                background: 'rgba(255,255,255,0.03)',
+                border: '1px solid rgba(255,255,255,0.06)',
+                borderRadius: '14px',
+                padding: '20px 24px',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                  <h2 style={{ fontSize: '13px', fontWeight: 600, color: 'rgba(255,255,255,0.5)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Initiatives
+                  </h2>
+                  {initiativeLoading && (
+                    <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.25)' }}>syncing...</span>
+                  )}
+                </div>
+
+                {/* Goal row: label + editable target */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 600, color: '#e0e7ff' }}>IG Stories</span>
+                  <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.35)' }}>daily goal:</span>
+                  {editingInitiativeTarget === goal.id ? (
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <input
+                        type="number"
+                        min="1"
+                        value={initiativeTargetDraft}
+                        onChange={e => setInitiativeTargetDraft(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') updateInitiativeTarget(goal.id, initiativeTargetDraft); if (e.key === 'Escape') setEditingInitiativeTarget(null); }}
+                        style={{
+                          width: '48px', padding: '3px 6px', background: 'rgba(255,255,255,0.08)',
+                          border: '1px solid rgba(255,255,255,0.2)', borderRadius: '5px',
+                          color: '#fff', fontSize: '13px', fontFamily: 'inherit', textAlign: 'center', outline: 'none',
+                        }}
+                        autoFocus
+                      />
+                      <button
+                        onClick={() => updateInitiativeTarget(goal.id, initiativeTargetDraft)}
+                        style={{ padding: '3px 8px', background: '#6366f1', border: 'none', borderRadius: '5px', color: '#fff', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                      >Save</button>
+                    </div>
+                  ) : (
+                    <span
+                      onClick={() => { setEditingInitiativeTarget(goal.id); setInitiativeTargetDraft(String(goal.daily_target)); }}
+                      style={{ fontSize: '14px', fontWeight: 700, color: '#a5b4fc', cursor: 'pointer', borderBottom: '1px dashed rgba(165,180,252,0.3)' }}
+                      title="Click to change"
+                    >
+                      {goal.daily_target}
+                    </span>
+                  )}
+                </div>
+
+                {/* Today's progress bar */}
+                <div style={{ marginBottom: '18px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
+                    <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>Today</span>
+                    <span style={{ fontSize: '12px', color: todayPct >= 100 ? '#22c55e' : 'rgba(255,255,255,0.5)', fontWeight: 600 }}>
+                      {today.count}/{goal.daily_target}
+                    </span>
+                  </div>
+                  <div style={{ height: '8px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%',
+                      width: `${todayPct}%`,
+                      background: todayPct >= 100 ? '#22c55e' : '#6366f1',
+                      borderRadius: '4px',
+                      transition: 'width 0.4s ease, background 0.3s ease',
+                    }} />
+                  </div>
+                </div>
+
+                {/* Last 7 days */}
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'space-between' }}>
+                  {initiativeDays.map(day => {
+                    const pct = Math.min(100, Math.round((day.count / goal.daily_target) * 100));
+                    const met = pct >= 100;
+                    return (
+                      <div key={day.dateStr} style={{ flex: 1, textAlign: 'center', minWidth: 0 }}>
+                        <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', marginBottom: '6px', fontWeight: 500 }}>
+                          {day.dayLabel}
+                        </div>
+                        <div style={{
+                          height: '40px',
+                          background: 'rgba(255,255,255,0.04)',
+                          borderRadius: '6px',
+                          overflow: 'hidden',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'flex-end',
+                          border: met ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(255,255,255,0.04)',
+                        }}>
+                          <div style={{
+                            height: `${pct}%`,
+                            background: met ? '#22c55e' : 'rgba(99,102,241,0.5)',
+                            borderRadius: '0 0 5px 5px',
+                            transition: 'height 0.4s ease',
+                            minHeight: day.count > 0 ? '4px' : '0',
+                          }} />
+                        </div>
+                        <div style={{ marginTop: '4px', fontSize: '13px' }}>
+                          {met ? (
+                            <span style={{ color: '#22c55e' }}>&#10003;</span>
+                          ) : (
+                            <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: '11px' }}>{day.count}</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── Hover Popover (thumbnail + metrics) ── */}
