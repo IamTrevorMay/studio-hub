@@ -728,7 +728,6 @@ export default function MyTasks({ onNavigate }) {
                     Resume
                   </button>
                 ) : isWriteAdRead ? (
-                  <>
                     <button
                       style={styles.primaryBtn}
                       onClick={() => handlePrimaryAction(task)}
@@ -736,14 +735,6 @@ export default function MyTasks({ onNavigate }) {
                     >
                       Write It
                     </button>
-                    <button
-                      style={styles.markDoneBtn}
-                      onClick={() => handleCompleteWithConfirm(task)}
-                      disabled={isCompleting}
-                    >
-                      {isCompleting ? 'Working...' : 'Complete'}
-                    </button>
-                  </>
                 ) : action.type === 'editor_picker' ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
                     <label style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', whiteSpace: 'nowrap' }}>Assign an editor</label>
@@ -774,7 +765,6 @@ export default function MyTasks({ onNavigate }) {
                     {action.label}
                   </span>
                 ) : (action.type === 'external_link' || task.link_url) ? (
-                  <>
                     <button
                       style={styles.primaryBtn}
                       onClick={() => {
@@ -785,33 +775,14 @@ export default function MyTasks({ onNavigate }) {
                     >
                       {task.link_url ? 'Go To Work' : action.label}
                     </button>
-                    <button
-                      style={styles.markDoneBtn}
-                      onClick={() => handleCompleteWithConfirm(task)}
-                      disabled={isCompleting}
-                    >
-                      {isCompleting ? 'Working...' : 'Complete'}
-                    </button>
-                  </>
-                ) : !isReviewProposal && (
-                  <>
+                ) : !isReviewProposal && task.nav_target && onNavigate && (
                     <button
                       style={styles.primaryBtn}
-                      onClick={() => task.nav_target && onNavigate ? onNavigate(task.nav_target) : handlePrimaryAction(task)}
+                      onClick={() => onNavigate(task.nav_target)}
                       disabled={isCompleting}
                     >
-                      {isCompleting ? 'Working...' : (task.nav_target ? 'Do it →' : action.label)}
+                      Do it →
                     </button>
-                    {(action.type === 'navigate' || task.nav_target) && (
-                      <button
-                        style={styles.markDoneBtn}
-                        onClick={() => handleComplete(task)}
-                        disabled={isCompleting}
-                      >
-                        Complete
-                      </button>
-                    )}
-                  </>
                 )}
 
                 {/* Expand toggle (skip for review_proposal — full proposal already inline) */}
@@ -863,57 +834,70 @@ export default function MyTasks({ onNavigate }) {
                 )}
               </div>
 
-              {/* Decline + Hold + Snooze — bottom right */}
-              <div style={styles.holdSnoozeRow}>
-                {!isReviewProposal && action.type !== 'auto' && (
-                  <button
-                    style={styles.declineBtn}
-                    onClick={() => setDeclineModalTask(task)}
-                  >
-                    Decline
-                  </button>
-                )}
-                {!isOnHold && (
-                  <button
-                    style={styles.holdBtn}
-                    onClick={() => setHoldModalTask(task)}
-                  >
-                    Hold
-                  </button>
-                )}
-                <div style={styles.snoozeWrapper} ref={snoozeOpenId === task.id ? snoozeRef : undefined}>
-                  <button
-                    style={styles.snoozeBtn}
-                    onClick={(e) => {
-                      if (snoozeOpenId === task.id) {
-                        setSnoozeOpenId(null);
-                      } else {
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        setSnoozeDropUp(rect.top > 200);
-                        setSnoozeOpenId(task.id);
-                      }
-                    }}
-                  >
-                    Snooze
-                  </button>
-                  {snoozeOpenId === task.id && (
-                    <div style={snoozeDropUp ? styles.snoozeDropdown : styles.snoozeDropdownBelow}>
-                      {[
-                        { key: '1h', label: '1 hour' },
-                        { key: '4h', label: '4 hours' },
-                        { key: 'tomorrow', label: 'Tomorrow 9am' },
-                        { key: 'next_week', label: 'Next Monday 9am' },
-                      ].map(opt => (
-                        <button
-                          key={opt.key}
-                          style={styles.snoozeOption}
-                          onClick={() => handleSnooze(task.id, opt.key)}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
+              {/* Bottom row: Complete + Decline left, Hold + Snooze right */}
+              <div style={styles.cardBottomRow}>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  {!isOnHold && !isReviewProposal && action.type !== 'auto' && (
+                    <button
+                      style={styles.primaryBtn}
+                      onClick={() => handlePrimaryAction(task)}
+                      disabled={isCompleting}
+                    >
+                      {isCompleting ? 'Working...' : 'Complete'}
+                    </button>
                   )}
+                  {!isReviewProposal && action.type !== 'auto' && (
+                    <button
+                      style={{ ...styles.declineBtn, padding: '7px 16px', fontSize: 13 }}
+                      onClick={() => setDeclineModalTask(task)}
+                    >
+                      Decline
+                    </button>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  {!isOnHold && (
+                    <button
+                      style={styles.holdBtn}
+                      onClick={() => setHoldModalTask(task)}
+                    >
+                      Hold
+                    </button>
+                  )}
+                  <div style={styles.snoozeWrapper} ref={snoozeOpenId === task.id ? snoozeRef : undefined}>
+                    <button
+                      style={styles.snoozeBtn}
+                      onClick={(e) => {
+                        if (snoozeOpenId === task.id) {
+                          setSnoozeOpenId(null);
+                        } else {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          setSnoozeDropUp(rect.top > 200);
+                          setSnoozeOpenId(task.id);
+                        }
+                      }}
+                    >
+                      Snooze
+                    </button>
+                    {snoozeOpenId === task.id && (
+                      <div style={snoozeDropUp ? styles.snoozeDropdown : styles.snoozeDropdownBelow}>
+                        {[
+                          { key: '1h', label: '1 hour' },
+                          { key: '4h', label: '4 hours' },
+                          { key: 'tomorrow', label: 'Tomorrow 9am' },
+                          { key: 'next_week', label: 'Next Monday 9am' },
+                        ].map(opt => (
+                          <button
+                            key={opt.key}
+                            style={styles.snoozeOption}
+                            onClick={() => handleSnooze(task.id, opt.key)}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1266,10 +1250,10 @@ const styles = {
     fontSize: 12,
     cursor: 'pointer',
   },
-  holdSnoozeRow: {
+  cardBottomRow: {
     display: 'flex',
-    justifyContent: 'flex-end',
-    gap: 6,
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginTop: 8,
   },
   holdBtn: {
@@ -1287,9 +1271,9 @@ const styles = {
     background: 'rgba(239,68,68,0.12)',
     color: '#f87171',
     border: '1px solid rgba(239,68,68,0.35)',
-    borderRadius: 5,
-    padding: '5px 10px',
-    fontSize: 10,
+    borderRadius: 6,
+    padding: '7px 14px',
+    fontSize: 12,
     fontWeight: 600,
     cursor: 'pointer',
     fontFamily: 'inherit',

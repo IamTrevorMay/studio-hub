@@ -67,6 +67,7 @@ supabase/
 - Descriptive action-first messages: "Add feature", "Fix bug", "Redesign component"
 - No strict conventional commits but semantic clarity
 - Feature branches use `claude/*` prefix when automated
+- **NEVER commit or push automatically** — always wait for the user to explicitly request it
 
 ### Dashboard Widgets
 - "Do this more" widget (admin-only): tracks daily IG story posting goals via `metricool-stories` edge function + `admin_goals` table. Refreshes every 30s. Shows 7-day progress bars with green checkmarks when goal is met.
