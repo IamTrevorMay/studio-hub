@@ -30,6 +30,13 @@ import Organize from './tools/Organize';
 import PostShow from './tools/PostShow';
 import Telestration from './tools/Telestration';
 import Timeline from './tools/Timeline';
+import Broadcast from './tools/Broadcast';
+import ReportCards from './tools/ReportCards';
+import Mailer from './tools/Mailer';
+import Graphics from './tools/Graphics';
+import AssetDesigner from './tools/AssetDesigner';
+import SceneComposer from './tools/SceneComposer';
+import TemplateBuilder from './tools/TemplateBuilder';
 
 import FreelancerDashboard from './FreelancerDashboard';
 import FreelancerHours from './FreelancerHours';
@@ -56,13 +63,18 @@ const NAV_ITEMS = [
   { key: 'projects', label: 'Projects', icon: ProjectsIcon },
   { key: 'write', label: 'Write', icon: ResourcesIcon },
   { key: 'production', label: 'Beat Sheet', icon: ProductionIcon },
-  { key: 'scene_builder', label: 'Custom Visuals', icon: ToolsIcon, external: { triton: '/design/scene-composer' } },
+  { key: 'scene_builder', label: 'Scene Composer', icon: ToolsIcon, adminOnly: true },
   { key: 'screenwriter', label: 'Screenwriter', icon: IdeationIcon },
   { key: 'teleprompter', label: 'Teleprompter', icon: ToolsIcon },
-  { key: 'broadcast', label: 'Broadcast', icon: ToolsIcon, external: { url: 'https://www.tritonapex.io/broadcast' } },
+  { key: 'broadcast', label: 'Broadcast', icon: ToolsIcon, adminOnly: true },
   { key: 'telestration', label: 'Telestrator', icon: ToolsIcon },
   { key: 'post_show', label: 'Clipping Tool', icon: ToolsIcon },
   { key: 'timeline', label: 'Timeline', icon: ToolsIcon },
+  { key: 'report_cards', label: 'Report Cards', icon: ToolsIcon, adminOnly: true },
+  { key: 'mailer', label: 'Mailer', icon: ToolsIcon, adminOnly: true },
+  { key: 'graphics', label: 'Graphics', icon: ToolsIcon },
+  { key: 'asset_designer', label: 'Asset Designer', icon: ToolsIcon, adminOnly: true },
+  { key: 'template_builder', label: 'Template Builder', icon: ToolsIcon, adminOnly: true },
   { key: 'assets', label: 'Assets Library', icon: ResourcesIcon, external: { url: 'https://www.mayday.systems/' } },
   { key: 'reviews', label: 'Reviews', icon: ReviewsIcon },
   { key: 'organize', label: 'Organize', icon: ToolsIcon },
@@ -758,6 +770,13 @@ export default function AppLayout() {
           {activeTab === 'post_show' && <PostShow onBack={() => setActiveTab('dashboard')} />}
           {activeTab === 'timeline' && <Timeline />}
           {activeTab === 'organize' && <Organize onBack={() => setActiveTab('dashboard')} />}
+          {activeTab === 'broadcast' && <Broadcast onBack={() => setActiveTab('dashboard')} />}
+          {activeTab === 'report_cards' && <ReportCards onBack={() => setActiveTab('dashboard')} />}
+          {activeTab === 'mailer' && <Mailer onBack={() => setActiveTab('dashboard')} />}
+          {activeTab === 'graphics' && <Graphics onBack={() => setActiveTab('dashboard')} />}
+          {activeTab === 'asset_designer' && <AssetDesigner onBack={() => setActiveTab('dashboard')} />}
+          {activeTab === 'scene_builder' && <SceneComposer onBack={() => setActiveTab('dashboard')} />}
+          {activeTab === 'template_builder' && <TemplateBuilder onBack={() => setActiveTab('dashboard')} />}
           {isAdmin && activeTab === 'analytics' && <Analytics />}
           {isAdmin && activeTab === 'tracking' && <Tracking />}
           {isAdmin && activeTab === 'accounting' && <Accounting />}

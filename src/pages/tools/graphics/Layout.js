@@ -1,0 +1,420 @@
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { colors, spacing, radii, fontSizes, fontWeights, fontFamily } from '../../../lib/styleTokens';
+import { supabase } from '../../../supabaseClient';
+import WidgetList from './WidgetList';
+import HistoryPane from './HistoryPane';
+import FilterBar from './FilterBar';
+import PreviewPane from './PreviewPane';
+import { IMAGINE_WIDGETS } from './registry/registry';
+
+// Categories are inferred from widget id so WidgetList can group. Widgets
+// themselves don't carry a category in the Triton schema.
+const CATEGORY_BY_ID = {
+  topFiveLeaderboard:    'Comparisons',
+  playerStats:           'Players',
+  teamStats:             'Teams',
+  'heat-maps':           'Charts',
+  'heat-map-overlays':   'Charts',
+};
+
+const DEFAULT_SIZE = { width: 1080, height: 1080, label: '1:1 Square' };
+function slugify(s) {
+  return (s || 'graphics')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 80) || 'graphics';
+}
+
+// Try the File System Access API first (Chromium); fall back to a
+// classic anchor-click download in browsers without it (Safari/Firefox)
+// or when the user denies the prompt.
+async function savePngToDisk(blob, filename) {
+  if (typeof window !== 'undefined' && typeof window.showSaveFilePicker === 'function') {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{ description: 'PNG image', accept: { 'image/png': ['.png'] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return;
+    } catch (err) {
+      if (err && err.name === 'AbortError') return; // user dismissed
+      // any other failure: fall through to anchor download
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+// Downscale the full-res blob into a small thumbnail data URL that the
+// imagine-history edge fn will upload to the imagine-thumbnails bucket.
+async function makeThumbnailDataUrl(blob, maxDim) {
+  const objUrl = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error('thumbnail image load failed'));
+      i.src = objUrl;
+    });
+    const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+    const w = Math.max(1, Math.round(img.width * scale));
+    const h = Math.max(1, Math.round(img.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, w, h);
+    return canvas.toDataURL('image/png');
+  } finally {
+    URL.revokeObjectURL(objUrl);
+  }
+}
+
+const DEFAULT_SIZE_PRESETS = [
+  { width: 1080, height: 1080, label: '1:1 Square' },
+  { width: 1080, height: 1920, label: '9:16 Story' },
+  { width: 1920, height: 1080, label: '16:9 Landscape' },
+  { width: 1200, height: 630,  label: '1200x630 OG' },
+];
+
+export default function Layout({ onBack }) {
+  const widgets = useMemo(
+    () => IMAGINE_WIDGETS.map((w) => ({
+      ...w,
+      category: CATEGORY_BY_ID[w.id] || 'Other',
+    })),
+    [],
+  );
+  const [selectedWidgetId, setSelectedWidgetId] = useState(null);
+  const [filters, setFilters] = useState({});
+  const [size, setSize] = useState(DEFAULT_SIZE);
+  const [history, setHistory] = useState([]);
+  const [historyError, setHistoryError] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState(null);
+  const [previewIsStub, setPreviewIsStub] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  const selectedWidget = widgets.find((w) => w.id === selectedWidgetId) || null;
+
+  function pickWidget(widget) {
+    setSelectedWidgetId(widget.id);
+    setFilters(widget.defaultFilters || {});
+    if (widget.defaultSize) setSize(widget.defaultSize);
+  }
+
+  const refreshHistory = useCallback(async () => {
+    const { data, error } = await supabase.functions.invoke('imagine-history', {
+      method: 'GET',
+    });
+    if (error) {
+      setHistoryError(error.message || 'Failed to load history');
+      return;
+    }
+    setHistoryError(null);
+    setHistory(Array.isArray(data?.rows) ? data.rows : []);
+  }, []);
+
+  useEffect(() => { refreshHistory(); }, [refreshHistory]);
+
+  // Debounced render: 300ms after filters/size/widget settle, POST to
+  // imagine-render and swap the preview blob. Revokes the previous blob URL
+  // to avoid leaks. The fetch is gated on a per-effect token so a stale
+  // response from a slow render doesn't clobber a newer one.
+  useEffect(() => {
+    if (!selectedWidget) {
+      setPreviewUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
+      setPreviewError(null);
+      setPreviewLoading(false);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setPreviewLoading(true);
+      setPreviewError(null);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) throw new Error('Not authenticated');
+
+        // 2F.6: run the widget's fetchData + buildScene in the browser so
+        // the Vercel renderer fn stays a pure Scene → PNG translator.
+        // Widget fetchData targets Triton's Next routes (scene-stats /
+        // league-baseline / heatmap-data) — those are the system of record
+        // for player stats; we proxy at the data layer rather than copy
+        // the schemas. The renderer fn ignores widget_id when a `scene`
+        // is present in the body and just renders it.
+        //
+        // 2G: for heatmap widgets we route through Mayday's same-origin
+        // Vercel proxies (api/imagine/heatmap-data + api/league-baseline)
+        // because the Triton route uses a long-running RPC against the
+        // `pitches` table that we deliberately don't replicate. For
+        // scene-stats based widgets we still call Triton directly; if
+        // that hits CORS we'll add a scene-stats proxy too.
+        const tritonOrigin = process.env.REACT_APP_TRITON_ORIGIN
+          || 'https://www.tritonapex.io';
+        const useMaydayProxy = selectedWidget.id === 'heat-maps'
+          || selectedWidget.id === 'heat-map-overlays';
+        const widgetOrigin = useMaydayProxy
+          ? window.location.origin
+          : tritonOrigin;
+        let scene = null;
+        if (typeof selectedWidget.fetchData === 'function'
+          && typeof selectedWidget.buildScene === 'function') {
+          let data;
+          try {
+            data = await selectedWidget.fetchData(filters, widgetOrigin);
+          } catch (err) {
+            throw new Error(`Widget data fetch failed: ${err.message || err}`);
+          }
+          if (cancelled) return;
+          try {
+            scene = selectedWidget.buildScene(filters, data, size);
+          } catch (err) {
+            throw new Error(`Widget buildScene failed: ${err.message || err}`);
+          }
+        }
+        // If buildScene didn't run (widget shape doesn't match), the renderer
+        // will fall back to its built-in demo scene so the UI still shows
+        // something.
+        const res = await fetch('/api/imagine-render', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            widget_id: selectedWidget.id,
+            filters,
+            size,
+            scene,
+          }),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Render ${res.status}: ${text.slice(0, 300)}`);
+        }
+        const renderer = res.headers.get('x-imagine-renderer') || '';
+        const isStub = renderer.includes('spike') || res.headers.get('x-imagine-stub') === '1';
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        if (cancelled) {
+          URL.revokeObjectURL(blobUrl);
+          return;
+        }
+        setPreviewUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return blobUrl;
+        });
+        setPreviewIsStub(isStub);
+      } catch (err) {
+        if (!cancelled) {
+          setPreviewError(err.message || String(err));
+        }
+      } finally {
+        if (!cancelled) setPreviewLoading(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [selectedWidget, filters, size]);
+
+  // ── Export flow (2I) ─────────────────────────────────────────────
+  // 1. Pull the full-res PNG out of the current previewUrl blob.
+  // 2. Save to disk via showSaveFilePicker (Chromium) or anchor-download.
+  // 3. Downscale to a ~400-px thumbnail data URL.
+  // 4. POST { widget_id, title, filters, size, thumbnail_data_url } to
+  //    imagine-history; refresh the history list on success.
+  async function handleExport() {
+    if (!selectedWidget || !previewUrl || previewLoading || exporting) return;
+    setExporting(true);
+    setPreviewError(null);
+    try {
+      const title = (typeof selectedWidget.autoTitle === 'function'
+        ? selectedWidget.autoTitle(filters) : null) || selectedWidget.name;
+      const stem = (typeof selectedWidget.autoFilename === 'function'
+        ? selectedWidget.autoFilename(filters) : null) || slugify(title);
+
+      const blob = await fetch(previewUrl).then((r) => r.blob());
+      await savePngToDisk(blob, `${stem}.png`);
+      const thumbDataUrl = await makeThumbnailDataUrl(blob, 400);
+
+      const { error } = await supabase.functions.invoke('imagine-history', {
+        method: 'POST',
+        body: {
+          widget_id: selectedWidget.id,
+          title,
+          filters,
+          size,
+          thumbnail_data_url: thumbDataUrl,
+        },
+      });
+      if (error) throw new Error(error.message || 'History save failed');
+      await refreshHistory();
+    } catch (err) {
+      setPreviewError(err.message || String(err));
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function deleteHistoryRow(row) {
+    setHistory((h) => h.filter((r) => r.id !== row.id));  // optimistic
+    const { error } = await supabase.functions.invoke(
+      `imagine-history?id=${encodeURIComponent(row.id)}`,
+      { method: 'DELETE' },
+    );
+    if (error) {
+      setHistoryError(error.message || 'Failed to delete history row');
+      refreshHistory();  // re-sync
+    }
+  }
+
+  return (
+    <div style={styles.container}>
+      <header style={styles.header}>
+        <button onClick={onBack} style={styles.backBtn} title="Back">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M19 12H5M12 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <span style={styles.headerTitle}>Graphics</span>
+        <span style={styles.headerBadge}>Graphics</span>
+      </header>
+
+      <div style={styles.body}>
+        <aside style={styles.leftRail}>
+          <WidgetList
+            widgets={widgets}
+            selectedId={selectedWidgetId}
+            onPick={pickWidget}
+          />
+          <HistoryPane
+            history={history}
+            error={historyError}
+            onRestore={(row) => {
+              setSelectedWidgetId(row.widget_id);
+              setFilters(row.filters || {});
+              setSize(row.size || DEFAULT_SIZE);
+            }}
+            onDelete={deleteHistoryRow}
+          />
+        </aside>
+
+        <main style={styles.center}>
+          <PreviewPane
+            widget={selectedWidget}
+            filters={filters}
+            size={size}
+            onSizeChange={setSize}
+            previewUrl={previewUrl}
+            previewLoading={previewLoading}
+            previewError={previewError}
+            previewIsStub={previewIsStub}
+          />
+        </main>
+
+        <aside style={styles.rightRail}>
+          <FilterBar
+            widget={selectedWidget}
+            filters={filters}
+            onFiltersChange={setFilters}
+            size={size}
+            onSizeChange={setSize}
+            sizePresets={(selectedWidget && selectedWidget.sizePresets) || DEFAULT_SIZE_PRESETS}
+            onExport={handleExport}
+            exportDisabled={!previewUrl || previewLoading || exporting}
+            exporting={exporting}
+          />
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+const styles = {
+  container: {
+    height: '100vh',
+    display: 'flex',
+    flexDirection: 'column',
+    background: colors.bg,
+    color: colors.text,
+    fontFamily,
+  },
+  header: {
+    height: 52,
+    flexShrink: 0,
+    display: 'flex',
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: `0 ${spacing.lg}px`,
+    borderBottom: `1px solid ${colors.border}`,
+    background: colors.bgRaised,
+  },
+  backBtn: {
+    width: 32,
+    height: 32,
+    border: 'none',
+    background: 'transparent',
+    color: colors.textMuted,
+    cursor: 'pointer',
+    borderRadius: radii.sm,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    fontSize: fontSizes.lg,
+    fontWeight: fontWeights.semibold,
+    color: colors.text,
+  },
+  headerBadge: {
+    marginLeft: 'auto',
+    padding: `${spacing.xs}px ${spacing.md}px`,
+    fontSize: fontSizes.xs,
+    fontWeight: fontWeights.semibold,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+    color: colors.accentFg,
+    background: colors.accentSoft,
+    border: `1px solid ${colors.accentBorder}`,
+    borderRadius: radii.pill,
+  },
+  body: {
+    flex: 1,
+    display: 'grid',
+    gridTemplateColumns: '260px 1fr 320px',
+    minHeight: 0,
+  },
+  leftRail: {
+    display: 'flex',
+    flexDirection: 'column',
+    borderRight: `1px solid ${colors.border}`,
+    background: colors.bgRaised,
+    minHeight: 0,
+  },
+  center: {
+    minWidth: 0,
+    minHeight: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    background: colors.bg,
+  },
+  rightRail: {
+    borderLeft: `1px solid ${colors.border}`,
+    background: colors.bgRaised,
+    overflowY: 'auto',
+  },
+};
