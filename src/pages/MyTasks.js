@@ -814,51 +814,6 @@ export default function MyTasks({ onNavigate }) {
                   </>
                 )}
 
-                {!isOnHold && (
-                  <button
-                    style={styles.holdBtn}
-                    onClick={() => setHoldModalTask(task)}
-                  >
-                    Hold
-                  </button>
-                )}
-
-                {/* Snooze */}
-                <div style={styles.snoozeWrapper} ref={snoozeOpenId === task.id ? snoozeRef : undefined}>
-                  <button
-                    style={styles.snoozeBtn}
-                    onClick={(e) => {
-                      if (snoozeOpenId === task.id) {
-                        setSnoozeOpenId(null);
-                      } else {
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        setSnoozeDropUp(rect.top > 200);
-                        setSnoozeOpenId(task.id);
-                      }
-                    }}
-                  >
-                    Snooze
-                  </button>
-                  {snoozeOpenId === task.id && (
-                    <div style={snoozeDropUp ? styles.snoozeDropdown : styles.snoozeDropdownBelow}>
-                      {[
-                        { key: '1h', label: '1 hour' },
-                        { key: '4h', label: '4 hours' },
-                        { key: 'tomorrow', label: 'Tomorrow 9am' },
-                        { key: 'next_week', label: 'Next Monday 9am' },
-                      ].map(opt => (
-                        <button
-                          key={opt.key}
-                          style={styles.snoozeOption}
-                          onClick={() => handleSnooze(task.id, opt.key)}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
                 {/* Decline */}
                 {!isReviewProposal && action.type !== 'auto' && (
                   <button
@@ -916,6 +871,52 @@ export default function MyTasks({ onNavigate }) {
                     Go to Deliverables &rsaquo;
                   </button>
                 )}
+              </div>
+
+              {/* Hold + Snooze — bottom right */}
+              <div style={styles.holdSnoozeRow}>
+                {!isOnHold && (
+                  <button
+                    style={styles.holdBtn}
+                    onClick={() => setHoldModalTask(task)}
+                  >
+                    Hold
+                  </button>
+                )}
+                <div style={styles.snoozeWrapper} ref={snoozeOpenId === task.id ? snoozeRef : undefined}>
+                  <button
+                    style={styles.snoozeBtn}
+                    onClick={(e) => {
+                      if (snoozeOpenId === task.id) {
+                        setSnoozeOpenId(null);
+                      } else {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setSnoozeDropUp(rect.top > 200);
+                        setSnoozeOpenId(task.id);
+                      }
+                    }}
+                  >
+                    Snooze
+                  </button>
+                  {snoozeOpenId === task.id && (
+                    <div style={snoozeDropUp ? styles.snoozeDropdown : styles.snoozeDropdownBelow}>
+                      {[
+                        { key: '1h', label: '1 hour' },
+                        { key: '4h', label: '4 hours' },
+                        { key: 'tomorrow', label: 'Tomorrow 9am' },
+                        { key: 'next_week', label: 'Next Monday 9am' },
+                      ].map(opt => (
+                        <button
+                          key={opt.key}
+                          style={styles.snoozeOption}
+                          onClick={() => handleSnooze(task.id, opt.key)}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           );
@@ -1267,13 +1268,19 @@ const styles = {
     fontSize: 12,
     cursor: 'pointer',
   },
+  holdSnoozeRow: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: 6,
+    marginTop: 8,
+  },
   holdBtn: {
     background: 'rgba(249,115,22,0.15)',
     color: '#fb923c',
     border: '1px solid rgba(249,115,22,0.4)',
-    borderRadius: 6,
-    padding: '7px 14px',
-    fontSize: 12,
+    borderRadius: 5,
+    padding: '5px 10px',
+    fontSize: 10,
     fontWeight: 600,
     cursor: 'pointer',
     fontFamily: 'inherit',
@@ -1293,9 +1300,9 @@ const styles = {
     background: 'rgba(234,179,8,0.15)',
     color: '#facc15',
     border: '1px solid rgba(234,179,8,0.4)',
-    borderRadius: 6,
-    padding: '7px 14px',
-    fontSize: 12,
+    borderRadius: 5,
+    padding: '5px 10px',
+    fontSize: 10,
     fontWeight: 600,
     cursor: 'pointer',
     fontFamily: 'inherit',
