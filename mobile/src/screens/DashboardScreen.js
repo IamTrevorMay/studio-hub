@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
-  TouchableOpacity, TextInput, ActivityIndicator,
+  TouchableOpacity, TextInput, ActivityIndicator, Modal,
 } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
@@ -112,6 +112,20 @@ export default function DashboardScreen() {
   const [projectTasks, setProjectTasks] = useState([]);
   const [personalTasks, setPersonalTasks] = useState([]);
 
+  // Out of Office state
+  const [pendingOoo, setPendingOoo] = useState([]);
+  const [myActiveOoo, setMyActiveOoo] = useState([]);
+  const [showOooModal, setShowOooModal] = useState(false);
+  const [oooStart, setOooStart] = useState('');
+  const [oooEnd, setOooEnd] = useState('');
+  const [oooSubmitting, setOooSubmitting] = useState(false);
+  const [oooProcessingId, setOooProcessingId] = useState(null);
+  const [oooError, setOooError] = useState('');
+
+  const isAdminRole = profile?.role === 'admin'
+    || profile?.role === 'director_creative'
+    || profile?.role === 'director_comms';
+
   const todayStr = new Date().toISOString().split('T')[0];
 
   // ── Fetch General data ──
@@ -164,6 +178,38 @@ export default function DashboardScreen() {
     }
   }, [safeQuery, profile?.id, todayStr]);
 
+  // ── Fetch OOO ──
+  const fetchOoo = useCallback(async () => {
+    if (!profile?.id) return;
+    const tasks = [
+      safeQuery(() =>
+        supabase.from('ooo_requests')
+          .select('id, user_id, start_date, end_date, status, created_at, requester:profiles!user_id(id, full_name)')
+          .eq('user_id', profile.id)
+          .in('status', ['pending', 'approved'])
+          .gte('end_date', todayStr)
+          .order('start_date', { ascending: true })
+      ),
+    ];
+    if (isAdminRole) {
+      tasks.push(
+        safeQuery(() =>
+          supabase.from('ooo_requests')
+            .select('id, user_id, start_date, end_date, status, created_at, requester:profiles!user_id(id, full_name)')
+            .eq('status', 'pending')
+            .order('created_at', { ascending: true })
+        )
+      );
+    }
+    const results = await Promise.all(tasks);
+    if (results[0]?.data) setMyActiveOoo(results[0].data);
+    if (isAdminRole && results[1]?.data) {
+      setPendingOoo(results[1].data.filter((r) => r.user_id !== profile.id));
+    } else if (!isAdminRole) {
+      setPendingOoo([]);
+    }
+  }, [safeQuery, profile?.id, isAdminRole, todayStr]);
+
   // ── Fetch Tasks data ──
   const fetchTasks = useCallback(async () => {
     if (!profile?.id) return;
@@ -195,12 +241,13 @@ export default function DashboardScreen() {
   // ── Initial fetch ──
   useEffect(() => { fetchGeneral(); }, [fetchGeneral]);
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
+  useEffect(() => { fetchOoo(); }, [fetchOoo]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([fetchGeneral(), fetchTasks()]);
+    await Promise.all([fetchGeneral(), fetchTasks(), fetchOoo()]);
     setRefreshing(false);
-  }, [fetchGeneral, fetchTasks]);
+  }, [fetchGeneral, fetchTasks, fetchOoo]);
 
   // ── Check-in submit ──
   const submitCheckin = useCallback(async () => {
@@ -235,6 +282,132 @@ export default function DashboardScreen() {
       setCheckinLoading(false);
     }
   }, [checkin, checkinRating, checkinNote, profile?.id, todayStr]);
+
+  // ── OOO submit ──
+  const submitOoo = useCallback(async () => {
+    if (!oooStart || !oooEnd || !profile?.id) {
+      setOooError('Pick a start and end date');
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(oooStart) || !/^\d{4}-\d{2}-\d{2}$/.test(oooEnd)) {
+      setOooError('Dates must be YYYY-MM-DD');
+      return;
+    }
+    if (oooEnd < oooStart) {
+      setOooError('End date must be on or after start date');
+      return;
+    }
+    setOooSubmitting(true);
+    setOooError('');
+    try {
+      const { error } = await supabase.from('ooo_requests').insert({
+        user_id: profile.id,
+        start_date: oooStart,
+        end_date: oooEnd,
+      });
+      if (error) throw error;
+      // Notify admins.
+      const { data: admins } = await supabase
+        .from('profiles')
+        .select('id')
+        .in('role', ['admin', 'director_creative', 'director_comms']);
+      const notifications = (admins || [])
+        .filter((a) => a.id !== profile.id)
+        .map((a) => ({
+          user_id: a.id,
+          type: 'ooo_request',
+          title: `${profile.full_name} requested time off`,
+          body: `${oooStart} to ${oooEnd}`,
+          created_at: new Date().toISOString(),
+        }));
+      if (notifications.length > 0) {
+        await supabase.from('notifications').insert(notifications);
+      }
+      setShowOooModal(false);
+      setOooStart('');
+      setOooEnd('');
+      fetchOoo();
+    } catch (e) {
+      setOooError(e.message || 'Failed to submit');
+    } finally {
+      setOooSubmitting(false);
+    }
+  }, [oooStart, oooEnd, profile?.id, profile?.full_name, fetchOoo]);
+
+  // ── OOO approve/decline ──
+  const decideOoo = useCallback(async (request, decision) => {
+    if (!profile?.id || oooProcessingId) return;
+    setOooProcessingId(request.id);
+    try {
+      if (decision === 'approved') {
+        const requesterName = request.requester?.full_name || 'Team member';
+        const { data: calEvent, error: evError } = await supabase
+          .from('calendar_events')
+          .insert({
+            title: `${requesterName} — Out of Office`,
+            event_type: 'unavailable',
+            start_date: new Date(`${request.start_date}T00:00:00`).toISOString(),
+            end_date: new Date(`${request.end_date}T23:59:59`).toISOString(),
+            all_day: true,
+            created_by: profile.id,
+          })
+          .select('id')
+          .single();
+        if (evError) throw evError;
+
+        await supabase
+          .from('ooo_requests')
+          .update({
+            status: 'approved',
+            reviewed_by: profile.id,
+            reviewed_at: new Date().toISOString(),
+            calendar_event_id: calEvent.id,
+          })
+          .eq('id', request.id);
+
+        await supabase.from('notifications').insert({
+          user_id: request.user_id,
+          type: 'ooo_request',
+          title: 'Time off approved',
+          body: `Your OOO request (${request.start_date} to ${request.end_date}) was approved.`,
+          created_at: new Date().toISOString(),
+        });
+      } else {
+        await supabase
+          .from('ooo_requests')
+          .update({
+            status: 'rejected',
+            reviewed_by: profile.id,
+            reviewed_at: new Date().toISOString(),
+          })
+          .eq('id', request.id);
+
+        await supabase.from('notifications').insert({
+          user_id: request.user_id,
+          type: 'ooo_request',
+          title: 'Time off declined',
+          body: `Your OOO request (${request.start_date} to ${request.end_date}) was declined.`,
+          created_at: new Date().toISOString(),
+        });
+      }
+      fetchOoo();
+    } catch (e) {
+      // Best-effort; surface in console for debugging.
+      // eslint-disable-next-line no-console
+      console.error('OOO decision failed:', e);
+    } finally {
+      setOooProcessingId(null);
+    }
+  }, [profile?.id, oooProcessingId, fetchOoo]);
+
+  function applyOooQuick(days) {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + days - 1);
+    setOooStart(start.toISOString().slice(0, 10));
+    setOooEnd(end.toISOString().slice(0, 10));
+  }
 
   // ── Status helpers ──
   const statusLabel = (s) => s === 'active' ? 'Online' : s === 'busy' ? 'Busy' : 'Offline';
@@ -414,6 +587,78 @@ export default function DashboardScreen() {
               )}
             </View>
 
+            {/* Out of Office */}
+            <View style={styles.section}>
+              <View style={styles.oooHeader}>
+                <Text style={styles.sectionTitle}>Out of Office</Text>
+                <TouchableOpacity
+                  style={styles.oooRequestBtn}
+                  onPress={() => {
+                    setOooError('');
+                    setOooStart('');
+                    setOooEnd('');
+                    setShowOooModal(true);
+                  }}
+                >
+                  <Text style={styles.oooRequestBtnText}>+ Request</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* My active / upcoming OOO */}
+              {myActiveOoo.length > 0 && (
+                myActiveOoo.map((r) => (
+                  <View key={r.id} style={[styles.card, styles.oooMyCard]}>
+                    <Text style={styles.oooStatusLabel}>
+                      {r.status === 'pending' ? 'Pending review' : 'Approved'}
+                    </Text>
+                    <Text style={styles.oooDates}>{r.start_date} → {r.end_date}</Text>
+                  </View>
+                ))
+              )}
+
+              {/* Pending approvals (admin) */}
+              {isAdminRole && pendingOoo.length > 0 && (
+                <>
+                  <Text style={styles.oooSubTitle}>Pending approvals</Text>
+                  {pendingOoo.map((r) => {
+                    const processing = oooProcessingId === r.id;
+                    return (
+                      <View key={r.id} style={styles.card}>
+                        <Text style={styles.oooRequesterName}>{r.requester?.full_name || 'Team member'}</Text>
+                        <Text style={styles.oooStatusLabel}>Out of Office</Text>
+                        <Text style={styles.oooDates}>{r.start_date} → {r.end_date}</Text>
+                        <View style={styles.oooActionRow}>
+                          <TouchableOpacity
+                            style={[styles.oooApproveBtn, processing && styles.oooBtnDisabled]}
+                            onPress={() => decideOoo(r, 'approved')}
+                            disabled={processing}
+                          >
+                            {processing
+                              ? <ActivityIndicator color="#fff" size="small" />
+                              : <Text style={styles.oooApproveBtnText}>Approve</Text>
+                            }
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.oooDeclineBtn, processing && styles.oooBtnDisabled]}
+                            onPress={() => decideOoo(r, 'rejected')}
+                            disabled={processing}
+                          >
+                            <Text style={styles.oooDeclineBtnText}>Decline</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </>
+              )}
+
+              {myActiveOoo.length === 0 && (!isAdminRole || pendingOoo.length === 0) && (
+                <View style={styles.emptyCard}>
+                  <Text style={styles.emptyText}>No active or pending requests</Text>
+                </View>
+              )}
+            </View>
+
             {/* Team */}
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Team</Text>
@@ -574,6 +819,78 @@ export default function DashboardScreen() {
           </>
         )}
       </ScrollView>
+
+      {/* OOO Request Modal */}
+      <Modal
+        visible={showOooModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowOooModal(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Request Out of Office</Text>
+            <Text style={styles.modalHint}>Format: YYYY-MM-DD</Text>
+
+            <View style={styles.oooQuickRow}>
+              <TouchableOpacity style={styles.oooQuickBtn} onPress={() => applyOooQuick(1)}>
+                <Text style={styles.oooQuickBtnText}>Today</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.oooQuickBtn} onPress={() => applyOooQuick(3)}>
+                <Text style={styles.oooQuickBtnText}>3 days</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.oooQuickBtn} onPress={() => applyOooQuick(7)}>
+                <Text style={styles.oooQuickBtnText}>1 week</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.modalLabel}>Start date</Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="2026-06-06"
+              placeholderTextColor={colors.textTertiary}
+              value={oooStart}
+              onChangeText={setOooStart}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="numbers-and-punctuation"
+            />
+            <Text style={styles.modalLabel}>End date</Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="2026-06-08"
+              placeholderTextColor={colors.textTertiary}
+              value={oooEnd}
+              onChangeText={setOooEnd}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="numbers-and-punctuation"
+            />
+
+            {oooError ? <Text style={styles.errorText}>{oooError}</Text> : null}
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setShowOooModal(false)}
+                disabled={oooSubmitting}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalSubmitBtn, oooSubmitting && styles.modalSubmitBtnDisabled]}
+                onPress={submitOoo}
+                disabled={oooSubmitting}
+              >
+                {oooSubmitting
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <Text style={styles.modalSubmitText}>Submit</Text>
+                }
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -825,4 +1142,81 @@ const styles = StyleSheet.create({
   },
   categoryBadgeText: { fontSize: fontSize.xs, fontWeight: '600' },
   boardDue: { fontSize: fontSize.xs, fontWeight: '500' },
+
+  // Out of Office
+  oooHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  oooRequestBtn: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.sm,
+    backgroundColor: colors.primary + '22',
+  },
+  oooRequestBtnText: { color: colors.primary, fontWeight: '600', fontSize: fontSize.sm },
+  oooMyCard: { borderLeftWidth: 3, borderLeftColor: colors.primary },
+  oooSubTitle: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+    fontWeight: '600',
+  },
+  oooRequesterName: { fontSize: fontSize.md, fontWeight: '600', color: colors.text },
+  oooStatusLabel: { fontSize: fontSize.xs, color: colors.textSecondary, marginTop: 2 },
+  oooDates: { fontSize: fontSize.sm, color: colors.text, marginTop: spacing.xs },
+  oooActionRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
+  oooApproveBtn: {
+    flex: 1, paddingVertical: spacing.sm, borderRadius: radius.sm,
+    backgroundColor: colors.green, alignItems: 'center',
+  },
+  oooApproveBtnText: { color: '#fff', fontWeight: '600', fontSize: fontSize.sm },
+  oooDeclineBtn: {
+    flex: 1, paddingVertical: spacing.sm, borderRadius: radius.sm,
+    borderWidth: 1, borderColor: colors.border, alignItems: 'center',
+  },
+  oooDeclineBtnText: { color: colors.text, fontWeight: '600', fontSize: fontSize.sm },
+  oooBtnDisabled: { opacity: 0.5 },
+
+  // Modal
+  modalBackdrop: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center', alignItems: 'center', padding: spacing.lg,
+  },
+  modalCard: {
+    width: '100%', backgroundColor: colors.surface, borderRadius: radius.lg,
+    padding: spacing.lg, gap: spacing.sm,
+  },
+  modalTitle: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text },
+  modalHint: { fontSize: fontSize.xs, color: colors.textTertiary, marginBottom: spacing.sm },
+  modalLabel: {
+    fontSize: fontSize.xs, color: colors.textSecondary, fontWeight: '600',
+    marginTop: spacing.sm,
+  },
+  modalInput: {
+    backgroundColor: colors.surfaceHover, borderRadius: radius.sm,
+    padding: spacing.sm, color: colors.text, fontSize: fontSize.md,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  oooQuickRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
+  oooQuickBtn: {
+    flex: 1, paddingVertical: spacing.xs, borderRadius: radius.sm,
+    borderWidth: 1, borderColor: colors.border, alignItems: 'center',
+  },
+  oooQuickBtnText: { color: colors.textSecondary, fontSize: fontSize.sm, fontWeight: '500' },
+  modalActions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg },
+  modalCancelBtn: {
+    flex: 1, paddingVertical: spacing.sm, borderRadius: radius.sm,
+    borderWidth: 1, borderColor: colors.border, alignItems: 'center',
+  },
+  modalCancelText: { color: colors.text, fontWeight: '600', fontSize: fontSize.sm },
+  modalSubmitBtn: {
+    flex: 1, paddingVertical: spacing.sm, borderRadius: radius.sm,
+    backgroundColor: colors.primary, alignItems: 'center',
+  },
+  modalSubmitBtnDisabled: { opacity: 0.5 },
+  modalSubmitText: { color: '#fff', fontWeight: '600', fontSize: fontSize.sm },
 });
