@@ -549,8 +549,8 @@ const topFiveLeaderboard: Widget<LeaderboardFilters> = {
     { key: 'minSample', type: 'number', label: 'Min Pitches (qualifier)', min: 1, column: 2, visibleWhen: (f) => f.customMode !== 'custom' },
     // ── Column 3: viewable stats (size/aspect appended by FilterBar) ──
     { key: 'primaryStat', type: 'select', label: 'Primary Stat', options: STAT_OPTIONS, column: 3, visibleWhen: (f) => f.customMode !== 'custom' },
-    { key: 'secondaryStat', type: 'toggle-select', label: 'Secondary Stat', options: STAT_OPTIONS, column: 3, visibleWhen: (f) => f.customMode !== 'custom' },
-    { key: 'tertiaryStat', type: 'toggle-select', label: 'Tertiary Stat', options: STAT_OPTIONS, column: 3, visibleWhen: (f) => f.customMode !== 'custom' },
+    { key: 'secondaryStat', type: 'select', label: 'Secondary Stat', placeholder: '— None —', options: STAT_OPTIONS, column: 3, visibleWhen: (f) => f.customMode !== 'custom' },
+    { key: 'tertiaryStat', type: 'select', label: 'Tertiary Stat', placeholder: '— None —', options: STAT_OPTIONS, column: 3, visibleWhen: (f) => f.customMode !== 'custom' && !!f.secondaryStat },
   ],
 
   defaultFilters: {
@@ -625,6 +625,20 @@ const topFiveLeaderboard: Widget<LeaderboardFilters> = {
   },
 
   normalizeFilters(next, prev) {
+    // Coerce stat fields in case a legacy history row saved a chip-array
+    // value. After the toggle-select → select migration (2026-06-05) all
+    // new values are scalar strings.
+    const flat = (v: unknown): string => {
+      if (Array.isArray(v)) return typeof v[0] === 'string' ? v[0] : ''
+      return typeof v === 'string' ? v : ''
+    }
+    next = {
+      ...next,
+      primaryStat: flat(next.primaryStat) || next.primaryStat,
+      secondaryStat: flat(next.secondaryStat),
+      tertiaryStat: flat(next.tertiaryStat),
+    }
+
     // Custom mode skips all dynamic-mode normalization
     if (next.customMode === 'custom') return next
 

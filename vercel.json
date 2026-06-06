@@ -1,5 +1,5 @@
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/((?!api/|static/|.*\\.[a-zA-Z0-9]+$).*)", "destination": "/index.html" }
   ]
 }

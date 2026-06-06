@@ -147,7 +147,16 @@ function metricLabel(key: string): string {
 }
 
 function activeMetrics(f: TeamStatsFilters): string[] {
-  return METRIC_KEYS.map(k => f[k]).filter(Boolean)
+  // Coerce in case a legacy history row saved chip-array values; pick the
+  // first element when array. After the toggle-select → select migration
+  // (2026-06-05) all new values are scalar strings.
+  return METRIC_KEYS
+    .map(k => {
+      const v = f[k] as unknown
+      if (Array.isArray(v)) return typeof v[0] === 'string' ? v[0] : ''
+      return typeof v === 'string' ? v : ''
+    })
+    .filter(Boolean)
 }
 
 function buildAutoTitle(f: TeamStatsFilters): string {
@@ -414,14 +423,14 @@ const teamStats: Widget<TeamStatsFilters> = {
     // ── Column 2: data filters ──
     { key: 'dateRange', type: 'date-range-season-or-custom', label: 'Date Range', years: YEARS, column: 2, visibleWhen: (f) => f.customMode !== 'custom' },
     // ── Column 3: stat slots ──
-    { key: 'metric1', type: 'select',        label: 'Stat 1', options: STAT_OPTIONS, column: 3, visibleWhen: (f) => f.customMode !== 'custom' },
-    { key: 'metric2', type: 'toggle-select', label: 'Stat 2', options: STAT_OPTIONS, column: 3, visibleWhen: (f) => f.customMode !== 'custom' },
-    { key: 'metric3', type: 'toggle-select', label: 'Stat 3', options: STAT_OPTIONS, column: 3, visibleWhen: (f) => f.customMode !== 'custom' && !!f.metric2 },
-    { key: 'metric4', type: 'toggle-select', label: 'Stat 4', options: STAT_OPTIONS, column: 3, visibleWhen: (f) => f.customMode !== 'custom' && !!f.metric3 },
-    { key: 'metric5', type: 'toggle-select', label: 'Stat 5', options: STAT_OPTIONS, column: 3, visibleWhen: (f) => f.customMode !== 'custom' && !!f.metric4 },
-    { key: 'metric6', type: 'toggle-select', label: 'Stat 6', options: STAT_OPTIONS, column: 3, visibleWhen: (f) => f.customMode !== 'custom' && !!f.metric5 },
-    { key: 'metric7', type: 'toggle-select', label: 'Stat 7', options: STAT_OPTIONS, column: 3, visibleWhen: (f) => f.customMode !== 'custom' && !!f.metric6 },
-    { key: 'metric8', type: 'toggle-select', label: 'Stat 8', options: STAT_OPTIONS, column: 3, visibleWhen: (f) => f.customMode !== 'custom' && !!f.metric7 },
+    { key: 'metric1', type: 'select', label: 'Stat 1', options: STAT_OPTIONS, column: 3, visibleWhen: (f) => f.customMode !== 'custom' },
+    { key: 'metric2', type: 'select', label: 'Stat 2', placeholder: '— None —', options: STAT_OPTIONS, column: 3, visibleWhen: (f) => f.customMode !== 'custom' },
+    { key: 'metric3', type: 'select', label: 'Stat 3', placeholder: '— None —', options: STAT_OPTIONS, column: 3, visibleWhen: (f) => f.customMode !== 'custom' && !!f.metric2 },
+    { key: 'metric4', type: 'select', label: 'Stat 4', placeholder: '— None —', options: STAT_OPTIONS, column: 3, visibleWhen: (f) => f.customMode !== 'custom' && !!f.metric3 },
+    { key: 'metric5', type: 'select', label: 'Stat 5', placeholder: '— None —', options: STAT_OPTIONS, column: 3, visibleWhen: (f) => f.customMode !== 'custom' && !!f.metric4 },
+    { key: 'metric6', type: 'select', label: 'Stat 6', placeholder: '— None —', options: STAT_OPTIONS, column: 3, visibleWhen: (f) => f.customMode !== 'custom' && !!f.metric5 },
+    { key: 'metric7', type: 'select', label: 'Stat 7', placeholder: '— None —', options: STAT_OPTIONS, column: 3, visibleWhen: (f) => f.customMode !== 'custom' && !!f.metric6 },
+    { key: 'metric8', type: 'select', label: 'Stat 8', placeholder: '— None —', options: STAT_OPTIONS, column: 3, visibleWhen: (f) => f.customMode !== 'custom' && !!f.metric7 },
   ],
 
   defaultFilters: {

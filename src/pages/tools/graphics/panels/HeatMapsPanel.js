@@ -17,6 +17,13 @@ const TEAMS = [
   'SEA','STL','TB','TEX','TOR','WSH',
 ];
 
+const CURRENT_YEAR = new Date().getFullYear();
+const SEASON_YEARS = (() => {
+  const arr = [];
+  for (let y = CURRENT_YEAR; y >= CURRENT_YEAR - 7; y--) arr.push(y);
+  return arr;
+})();
+
 export default function HeatMapsPanel({
   filters,
   onChange,
@@ -45,6 +52,12 @@ export default function HeatMapsPanel({
 
   const m = maps[activeTab];
 
+  const dateRange = filters.dateRange || { mode: 'season', year: CURRENT_YEAR };
+
+  function setDateRange(next) {
+    onChange((prev) => ({ ...prev, dateRange: next }));
+  }
+
   return (
     <div style={styles.container}>
       <div style={styles.section}>
@@ -56,6 +69,56 @@ export default function HeatMapsPanel({
           onChange={(e) => onChange((prev) => ({ ...prev, title: e.target.value }))}
           style={styles.input}
         />
+      </div>
+
+      <div style={styles.section}>
+        <div style={styles.fieldLabel}>Date range</div>
+        <div style={styles.segGrid}>
+          {['season', 'custom'].map((m) => {
+            const active = dateRange.mode === m;
+            return (
+              <button
+                key={m}
+                onClick={() => {
+                  if (m === 'season') {
+                    setDateRange({ mode: 'season', year: dateRange.mode === 'season' ? dateRange.year : CURRENT_YEAR });
+                  } else {
+                    setDateRange({ mode: 'custom', start: dateRange.start || '', end: dateRange.end || '' });
+                  }
+                }}
+                style={{ ...styles.segBtn, ...(active ? styles.segBtnActive : {}) }}
+              >
+                {m === 'season' ? 'Season' : 'Custom'}
+              </button>
+            );
+          })}
+        </div>
+        {dateRange.mode === 'season' ? (
+          <select
+            value={dateRange.year}
+            onChange={(e) => setDateRange({ mode: 'season', year: Number(e.target.value) })}
+            style={{ ...styles.input, marginTop: spacing.sm }}
+          >
+            {SEASON_YEARS.map((y) => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: spacing.xs, marginTop: spacing.sm }}>
+            <input
+              type="date"
+              value={dateRange.start || ''}
+              onChange={(e) => setDateRange({ mode: 'custom', start: e.target.value, end: dateRange.end || '' })}
+              style={styles.input}
+            />
+            <input
+              type="date"
+              value={dateRange.end || ''}
+              onChange={(e) => setDateRange({ mode: 'custom', start: dateRange.start || '', end: e.target.value })}
+              style={styles.input}
+            />
+          </div>
+        )}
       </div>
 
       <div style={styles.tabStrip}>

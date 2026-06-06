@@ -63,10 +63,15 @@ export type MapConfig = {
   filters: ActiveFilter[]
 }
 
+export type HeatMapDateRange =
+  | { mode: 'season'; year: number }
+  | { mode: 'custom'; start: string; end: string }
+
 export type HeatMapsFilters = {
   /** Optional overall card title (auto when blank). */
   title?: string
   maps: MapConfig[]   // always length 3
+  dateRange: HeatMapDateRange
 }
 
 /* ── Constants ─────────────────────────────────────────────────────────── */
@@ -184,6 +189,9 @@ function buildAutoFilename(f: HeatMapsFilters): string {
   const parts: string[] = ['heatmaps']
   const active = f.maps.filter(m => m.active && isScopeReady(m.scope))
   for (const m of active) parts.push(slug(scopeLabel(m.scope)))
+  const dr = f.dateRange
+  if (dr?.mode === 'season') parts.push(String(dr.year))
+  else if (dr?.mode === 'custom' && dr.start) parts.push(`${dr.start}_to_${dr.end || dr.start}`)
   return parts.join('-')
 }
 
@@ -216,7 +224,11 @@ async function fetchLeagueBaseline(
   return { zMid: Number(b.value), zSpan: 3 * Number(b.stddev) }
 }
 
-async function fetchScope(scope: MapScope, origin: string): Promise<any[]> {
+async function fetchScope(
+  scope: MapScope,
+  origin: string,
+  dateRange: HeatMapDateRange,
+): Promise<any[]> {
   if (!isScopeReady(scope)) return []
   const params = new URLSearchParams()
   if (scope.type === 'player') {
@@ -227,6 +239,12 @@ async function fetchScope(scope: MapScope, origin: string): Promise<any[]> {
     params.set('scope', 'team')
     params.set('team', scope.teamCode)
     params.set('side', scope.side)
+  }
+  if (dateRange.mode === 'season') {
+    params.set('gameYear', String(dateRange.year))
+  } else {
+    if (dateRange.start) params.set('dateFrom', dateRange.start)
+    if (dateRange.end) params.set('dateTo', dateRange.end)
   }
   const json = await proxyFetchJson(`${origin}/api/imagine/heatmap-data?${params}`)
   return json.rows || []
@@ -472,6 +490,7 @@ const heatMaps: Widget<HeatMapsFilters> = {
   defaultFilters: {
     title: '',
     maps: [defaultMap(true), defaultMap(false), defaultMap(false)],
+    dateRange: { mode: 'season', year: CURRENT_YEAR },
   },
 
   sizePresets: SIZE_PRESETS,
@@ -491,10 +510,11 @@ const heatMaps: Widget<HeatMapsFilters> = {
     const ready = active.filter(({ m }) => isScopeReady(m.scope))
 
     // Dedupe scopes so we fetch each unique one exactly once.
+    const dateRange = filters.dateRange || { mode: 'season', year: CURRENT_YEAR }
     const fetchByKey = new Map<string, Promise<any[]>>()
     for (const { m } of ready) {
       const k = scopeKey(m.scope)
-      if (!fetchByKey.has(k)) fetchByKey.set(k, fetchScope(m.scope, origin))
+      if (!fetchByKey.has(k)) fetchByKey.set(k, fetchScope(m.scope, origin, dateRange))
     }
     const resolved = new Map<string, any[]>()
     await Promise.all(Array.from(fetchByKey.entries()).map(async ([k, p]) => {
@@ -503,8 +523,11 @@ const heatMaps: Widget<HeatMapsFilters> = {
 
     // League baseline lookup, deduped by (role, metric) — heatmap-relevant
     // metrics (BA / wOBA / EV / whiff% / etc.) center on the league mean,
-    // with hot/cold extremes at ±3σ. Frequency has no baseline.
-    const season = CURRENT_YEAR
+    // with hot/cold extremes at ±3σ. Frequency has no baseline. Custom
+    // ranges use the year of the start date as the baseline lookup.
+    const season = dateRange.mode === 'season'
+      ? dateRange.year
+      : (parseInt(dateRange.start?.slice(0, 4) || '', 10) || CURRENT_YEAR)
     const baselineKey = (s: MapScope, metric: string) => `${scopeRole(s)}:${metric}`
     const baselineFetches = new Map<string, Promise<{ zMid: number; zSpan: number } | null>>()
     for (const { m } of ready) {

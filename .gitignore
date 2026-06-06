@@ -10,3 +10,4 @@ api/.env
 google-drive-account.json
 *-service-account.json
 .claude/
+.env*
