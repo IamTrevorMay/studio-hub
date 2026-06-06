@@ -79,33 +79,43 @@ export default function Research() {
   const [addFeedSaving, setAddFeedSaving] = useState(false);
   const [managingFeeds, setManagingFeeds] = useState(null); // 'news' | 'newsletter' | null
 
+  // All Triton cron/admin calls route through /api/triton-cron so the cron
+  // secret stays server-side (REACT_APP_* env vars get inlined into the CRA
+  // bundle — a leak of the cron secret to anyone reading the JS).
+  const callTritonCron = useCallback(async ({ path, method = 'GET', query, body }) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Not authenticated');
+    const res = await fetch('/api/triton-cron', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ path, method, query, body }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json.error || `Server error ${res.status}`);
+    return { res, json };
+  }, []);
+
   const fetchCardsConfig = useCallback(async () => {
     try {
-      const res = await fetch('https://www.tritonapex.io/api/daily-cards-config');
-      if (!res.ok) return;
-      const data = await res.json();
-      setCardsConfig(data.config);
-      setAvailableTemplates(data.templates || []);
+      const { json } = await callTritonCron({ path: '/api/daily-cards-config', method: 'GET' });
+      setCardsConfig(json.config);
+      setAvailableTemplates(json.templates || []);
     } catch (err) {
       console.error('Error fetching cards config:', err);
     }
-  }, []);
+  }, [callTritonCron]);
 
   const updateCardsConfig = async (templateId, topN) => {
     setSavingConfig(true);
     try {
-      const res = await fetch('https://www.tritonapex.io/api/daily-cards-config', {
+      await callTritonCron({
+        path: '/api/daily-cards-config',
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.REACT_APP_TRITON_CRON_SECRET}`,
-        },
-        body: JSON.stringify({ template_id: templateId, ...(topN !== undefined ? { top_n: topN } : {}) }),
+        body: { template_id: templateId, ...(topN !== undefined ? { top_n: topN } : {}) },
       });
-      if (!res.ok) {
-        const j = await res.json();
-        throw new Error(j.error || 'Failed to update config');
-      }
       await fetchCardsConfig();
     } catch (err) {
       alert('Failed to save config: ' + err.message);
@@ -117,11 +127,7 @@ export default function Research() {
   const handleRegenerateBrief = async () => {
     setRegeneratingBrief(true);
     try {
-      const res = await fetch('https://www.tritonapex.io/api/cron/briefs?force=true', {
-        headers: { Authorization: `Bearer ${process.env.REACT_APP_TRITON_CRON_SECRET}` },
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to regenerate brief');
+      await callTritonCron({ path: '/api/cron/briefs', method: 'GET', query: { force: 'true' } });
       await fetchBriefs();
       if (currentBriefDate) await fetchFullBrief(currentBriefDate);
     } catch (err) {
@@ -139,13 +145,7 @@ export default function Research() {
     setRegeneratingCards(true);
     setRegenerateError(null);
     try {
-      const res = await fetch('https://www.tritonapex.io/api/cron/daily-cards?force=true', {
-        headers: { Authorization: `Bearer ${process.env.REACT_APP_TRITON_CRON_SECRET}` },
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(json.error || `Server error ${res.status}`);
-      }
+      const { json } = await callTritonCron({ path: '/api/cron/daily-cards', method: 'GET', query: { force: 'true' } });
       if (json.skipped) {
         setRegenerateError(`Skipped: ${json.reason === 'no_games' ? 'No finished games for this date' : json.reason === 'no_starters' ? 'No starting pitchers found' : json.reason || 'unknown'}`);
       } else {

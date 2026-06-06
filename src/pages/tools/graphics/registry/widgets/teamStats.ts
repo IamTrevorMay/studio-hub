@@ -9,6 +9,7 @@
 import type { Scene, SceneElement } from '../sceneTypes'
 import { SCENE_METRICS } from '../reportMetrics'
 import type { Widget, SizePreset, FilterOption } from '../types'
+import { proxyFetchJson } from './proxyFetch'
 
 /* ── Team list (current 30 MLB teams) ────────────────────────────────────── */
 
@@ -500,14 +501,7 @@ const teamStats: Widget<TeamStatsFilters> = {
       params.set('dateTo', filters.dateRange.to)
     }
 
-    const res = await fetch(`${origin}/api/scene-stats?${params}`, {
-      headers: { 'cache-control': 'no-store' },
-    })
-    if (!res.ok) {
-      const body = await res.text().catch(() => '')
-      throw new Error(`scene-stats team fetch failed: ${res.status} ${body.slice(0, 200)}`)
-    }
-    const json = await res.json()
+    const json = await proxyFetchJson(`${origin}/api/scene-stats?${params}`)
     return {
       stats: json.teamStats?.stats || {},
       ranks: json.teamStats?.ranks || {},

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { colors, spacing, radii, fontSizes, fontWeights, fontFamily } from '../../../lib/styleTokens';
 import { supabase } from '../../../supabaseClient';
 import WidgetList from './WidgetList';
@@ -11,9 +11,9 @@ import { renderSceneToBlob } from '../../../lib/imagineRenderer';
 // Categories are inferred from widget id so WidgetList can group. Widgets
 // themselves don't carry a category in the Triton schema.
 const CATEGORY_BY_ID = {
-  topFiveLeaderboard:    'Comparisons',
-  playerStats:           'Players',
-  teamStats:             'Teams',
+  'top-5-leaderboard':   'Comparisons',
+  'player-stats':        'Players',
+  'team-stats':          'Teams',
   'heat-maps':           'Charts',
   'heat-map-overlays':   'Charts',
 };
@@ -165,9 +165,12 @@ export default function Layout({ onBack }) {
   const [history, setHistory] = useState([]);
   const [historyError, setHistoryError] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
+  // Hold a ref to the underlying blob too. The blob URL passed to <img>
+  // can be revoked when the debounced render swaps it; handleExport needs
+  // the raw bytes regardless.
+  const previewBlobRef = useRef(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState(null);
-  const [previewIsStub, setPreviewIsStub] = useState(false);
   const [exporting, setExporting] = useState(false);
 
   const selectedWidget = widgets.find((w) => w.id === selectedWidgetId) || null;
@@ -207,13 +210,11 @@ export default function Layout({ onBack }) {
       setPreviewLoading(true);
       setPreviewError(null);
       try {
-        const tritonOrigin = process.env.REACT_APP_TRITON_ORIGIN
-          || 'https://www.tritonapex.io';
-        const useMaydayProxy = selectedWidget.id === 'heat-maps'
-          || selectedWidget.id === 'heat-map-overlays';
-        const widgetOrigin = useMaydayProxy
-          ? window.location.origin
-          : tritonOrigin;
+        // All 5 widgets now fetch through Mayday's same-origin /api proxies
+        // (tritonProxy.js). Browser never talks to Triton directly — keeps
+        // the Triton anon JWT out of the data path and lets us enforce
+        // Mayday auth on every read.
+        const widgetOrigin = window.location.origin;
         let scene = null;
         if (typeof selectedWidget.fetchData === 'function'
           && typeof selectedWidget.buildScene === 'function') {
@@ -237,11 +238,11 @@ export default function Layout({ onBack }) {
           URL.revokeObjectURL(blobUrl);
           return;
         }
+        previewBlobRef.current = blob;
         setPreviewUrl((prev) => {
           if (prev) URL.revokeObjectURL(prev);
           return blobUrl;
         });
-        setPreviewIsStub(false);
       } catch (err) {
         if (!cancelled) {
           setPreviewError(err.message || String(err));
@@ -263,7 +264,7 @@ export default function Layout({ onBack }) {
   // 4. POST { widget_id, title, filters, size, thumbnail_data_url } to
   //    imagine-history; refresh the history list on success.
   async function handleExport() {
-    if (!selectedWidget || !previewUrl || previewLoading || exporting) return;
+    if (!selectedWidget || !previewBlobRef.current || previewLoading || exporting) return;
     setExporting(true);
     setPreviewError(null);
     try {
@@ -272,7 +273,9 @@ export default function Layout({ onBack }) {
       const stem = (typeof selectedWidget.autoFilename === 'function'
         ? selectedWidget.autoFilename(filters) : null) || slugify(title);
 
-      const blob = await fetch(previewUrl).then((r) => r.blob());
+      // Read directly from the cached blob — previewUrl may have been
+      // revoked by a debounced re-render between trigger and click.
+      const blob = previewBlobRef.current;
       await savePngToDisk(blob, `${stem}.png`);
       const thumbDataUrl = await makeThumbnailDataUrl(blob, 400);
 
@@ -297,10 +300,10 @@ export default function Layout({ onBack }) {
 
   async function deleteHistoryRow(row) {
     setHistory((h) => h.filter((r) => r.id !== row.id));  // optimistic
-    const { error } = await supabase.functions.invoke(
-      `imagine-history?id=${encodeURIComponent(row.id)}`,
-      { method: 'DELETE' },
-    );
+    const { error } = await supabase.functions.invoke('imagine-history', {
+      method: 'DELETE',
+      body: { id: row.id },
+    });
     if (error) {
       setHistoryError(error.message || 'Failed to delete history row');
       refreshHistory();  // re-sync
@@ -347,7 +350,6 @@ export default function Layout({ onBack }) {
             previewUrl={previewUrl}
             previewLoading={previewLoading}
             previewError={previewError}
-            previewIsStub={previewIsStub}
           />
         </main>
 

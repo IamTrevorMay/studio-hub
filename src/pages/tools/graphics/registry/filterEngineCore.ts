@@ -133,18 +133,27 @@ export function applyFiltersToData(data: any[], filters: ActiveFilter[]): any[] 
   return data.filter(d => {
     for (const f of filters) {
       const col = f.def.key
+      const raw = d[col]
       if (f.def.type === 'multi' && f.values && f.values.length > 0) {
-        const val = f.def.numberCast ? Number(d[col]) : String(d[col])
+        if (raw == null) return false
+        const val = f.def.numberCast ? Number(raw) : String(raw)
         const check = f.def.numberCast ? f.values.map(Number) : f.values
         if (!(check as any[]).includes(val)) return false
       }
       if (f.def.type === 'range') {
-        if (f.min && (d[col] == null || d[col] < parseFloat(f.min))) return false
-        if (f.max && (d[col] == null || d[col] > parseFloat(f.max))) return false
+        const min = f.min !== undefined && f.min !== '' ? parseFloat(f.min) : null
+        const max = f.max !== undefined && f.max !== '' ? parseFloat(f.max) : null
+        if (min != null || max != null) {
+          if (raw == null) return false
+          const n = Number(raw)
+          if (Number.isNaN(n)) return false
+          if (min != null && n < min) return false
+          if (max != null && n > max) return false
+        }
       }
       if (f.def.type === 'date') {
-        if (f.startDate && d.game_date < f.startDate) return false
-        if (f.endDate && d.game_date > f.endDate) return false
+        if (f.startDate && (d.game_date == null || d.game_date < f.startDate)) return false
+        if (f.endDate && (d.game_date == null || d.game_date > f.endDate)) return false
       }
     }
     return true

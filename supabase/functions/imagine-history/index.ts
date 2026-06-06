@@ -61,7 +61,10 @@ Deno.serve(async (req: Request) => {
       .select("id, widget_id, title, filters, size, thumbnail_url, created_at")
       .order("created_at", { ascending: false })
       .limit(HISTORY_LIMIT);
-    if (error) return jsonResp({ error: error.message }, 500);
+    if (error) {
+      console.error("imagine-history GET failed:", error.message);
+      return jsonResp({ error: "Failed to load history" }, 500);
+    }
     return jsonResp({ rows: data || [] });
   }
 
@@ -94,12 +97,15 @@ Deno.serve(async (req: Request) => {
       if (bytes.length > 2 * 1024 * 1024) {
         return jsonResp({ error: "thumbnail too large (2MB max)" }, 413);
       }
-      const path = `${user.id}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${ext}`;
+      const path = `${user.id}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
       const { error: upErr } = await admin.storage.from(BUCKET).upload(path, bytes, {
         contentType: `image/${m[1]}`,
         upsert: false,
       });
-      if (upErr) return jsonResp({ error: `thumbnail upload failed: ${upErr.message}` }, 500);
+      if (upErr) {
+        console.error("thumbnail upload failed:", upErr.message);
+        return jsonResp({ error: "thumbnail upload failed" }, 500);
+      }
       const { data: { publicUrl } } = admin.storage.from(BUCKET).getPublicUrl(path);
       thumbnail_url = publicUrl;
     }
@@ -116,13 +122,26 @@ Deno.serve(async (req: Request) => {
       })
       .select("id, widget_id, title, filters, size, thumbnail_url, created_at")
       .single();
-    if (error) return jsonResp({ error: error.message }, 500);
+    if (error) {
+      console.error("imagine-history POST insert failed:", error.message);
+      return jsonResp({ error: "Failed to save history row" }, 500);
+    }
     return jsonResp({ row: data });
   }
 
   if (req.method === "DELETE") {
     const url = new URL(req.url);
-    const id = url.searchParams.get("id");
+    let id = url.searchParams.get("id");
+    if (!id) {
+      // supabase-js .invoke() does not pass query strings reliably; accept
+      // id from the JSON body as a fallback.
+      try {
+        const body = await req.json();
+        if (body && typeof body.id === "string") id = body.id;
+      } catch {
+        // no body provided
+      }
+    }
     if (!id || !/^[0-9a-f-]{36}$/i.test(id)) {
       return jsonResp({ error: "valid id required" }, 400);
     }
@@ -138,7 +157,10 @@ Deno.serve(async (req: Request) => {
       .from("imagine_history")
       .delete()
       .eq("id", id);
-    if (delErr) return jsonResp({ error: delErr.message }, 500);
+    if (delErr) {
+      console.error("imagine-history DELETE failed:", delErr.message);
+      return jsonResp({ error: "Failed to delete history row" }, 500);
+    }
 
     // Best-effort thumb cleanup; storage path is everything after the
     // bucket name in the public URL.

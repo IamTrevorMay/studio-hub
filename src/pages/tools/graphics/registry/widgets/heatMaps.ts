@@ -25,6 +25,7 @@ import type { Widget, SizePreset } from '../types'
 // client' and can't be imported by the render API server route.
 import type { ActiveFilter } from '../filterEngineCore'
 import { applyFiltersToData } from '../filterEngineCore'
+import { proxyFetchJson, proxyFetchJsonOrNull } from './proxyFetch'
 
 /* ── Types ─────────────────────────────────────────────────────────────── */
 
@@ -208,18 +209,11 @@ async function fetchLeagueBaseline(
     role: scopeRole(scope),
     metric,
   })
-  try {
-    const res = await fetch(`${origin}/api/league-baseline?${params}`, {
-      headers: { 'cache-control': 'no-store' },
-    })
-    if (!res.ok) return null
-    const json = await res.json()
-    const b = json?.baseline
-    if (!b || b.value == null || b.stddev == null) return null
-    return { zMid: Number(b.value), zSpan: 3 * Number(b.stddev) }
-  } catch {
-    return null
-  }
+  const json = await proxyFetchJsonOrNull(`${origin}/api/league-baseline?${params}`)
+  if (!json) return null
+  const b = json?.baseline
+  if (!b || b.value == null || b.stddev == null) return null
+  return { zMid: Number(b.value), zSpan: 3 * Number(b.stddev) }
 }
 
 async function fetchScope(scope: MapScope, origin: string): Promise<any[]> {
@@ -234,11 +228,7 @@ async function fetchScope(scope: MapScope, origin: string): Promise<any[]> {
     params.set('team', scope.teamCode)
     params.set('side', scope.side)
   }
-  const res = await fetch(`${origin}/api/imagine/heatmap-data?${params}`, {
-    headers: { 'cache-control': 'no-store' },
-  })
-  if (!res.ok) throw new Error(`heatmap-data fetch failed: ${res.status}`)
-  const json = await res.json()
+  const json = await proxyFetchJson(`${origin}/api/imagine/heatmap-data?${params}`)
   return json.rows || []
 }
 

@@ -8,8 +8,8 @@ const SIZE_PRESETS = [
   { width: 1200, height: 630,  label: '1200x630 OG' },
 ];
 
-// Center pane. Shows the rendered preview from imagine-render, plus
-// loading + error states. The render call lives in Layout.js so the
+// Center pane. Shows the client-side canvas render (renderSceneToBlob),
+// plus loading + error states. The render call lives in Layout.js so the
 // blob URL persists across pane unmounts (e.g. window resizes).
 
 export default function PreviewPane({
@@ -19,7 +19,6 @@ export default function PreviewPane({
   previewUrl,
   previewLoading,
   previewError,
-  previewIsStub,
 }) {
   return (
     <div style={styles.container}>
@@ -41,9 +40,6 @@ export default function PreviewPane({
         <div style={styles.sizeMeta}>
           {size.width} × {size.height}
           {previewLoading && <span style={styles.spinner}>rendering…</span>}
-          {previewIsStub && !previewLoading && !previewError && (
-            <span style={styles.stubBadge}>stub PNG (Phase 2F adds real renderer)</span>
-          )}
         </div>
       </div>
 
@@ -65,7 +61,6 @@ export default function PreviewPane({
             url={previewUrl}
             size={size}
             widget={widget}
-            isStub={previewIsStub}
             loading={previewLoading}
           />
         )}
@@ -74,7 +69,7 @@ export default function PreviewPane({
   );
 }
 
-function PreviewFrame({ url, size, widget, isStub, loading }) {
+function PreviewFrame({ url, size, widget, loading }) {
   // Fit the canvas into the available wrap while preserving aspect ratio.
   // The CSS aspectRatio handles sizing; max dimensions cap it at 720 on
   // the longer side so very tall sizes (9:16) don't blow past the viewport.
@@ -101,20 +96,12 @@ function PreviewFrame({ url, size, widget, isStub, loading }) {
             height: '100%',
             display: 'block',
             objectFit: 'contain',
-            background: isStub ? colors.accentSoft : 'transparent',
+            background: 'transparent',
             borderRadius: radii.lg,
           }}
         />
       ) : (
         <div style={styles.frameEmpty}>Waiting for first render…</div>
-      )}
-      {isStub && url && (
-        <div style={styles.stubOverlay}>
-          <div style={styles.stubOverlayTitle}>{widget?.name}</div>
-          <div style={styles.stubOverlayBody}>
-            Stub PNG returned by edge fn. Real scene rendering lands in 2F.
-          </div>
-        </div>
       )}
     </div>
   );
@@ -169,16 +156,6 @@ const styles = {
   spinner: {
     color: colors.accentFg,
   },
-  stubBadge: {
-    padding: `2px ${spacing.sm}px`,
-    color: colors.accentFg,
-    background: colors.accentSoft,
-    border: `1px solid ${colors.accentBorder}`,
-    borderRadius: radii.pill,
-    fontSize: fontSizes.xxs,
-    letterSpacing: 0.3,
-    fontFamily: 'inherit',
-  },
   previewWrap: {
     flex: 1,
     minHeight: 0,
@@ -219,30 +196,6 @@ const styles = {
     justifyContent: 'center',
     fontSize: fontSizes.sm,
     color: colors.textPlaceholder,
-  },
-  stubOverlay: {
-    position: 'absolute',
-    inset: spacing.lg,
-    padding: spacing.lg,
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    textAlign: 'center',
-    background: colors.bgOverlay,
-    borderRadius: radii.md,
-    pointerEvents: 'none',
-  },
-  stubOverlayTitle: {
-    fontSize: fontSizes.xl,
-    fontWeight: fontWeights.bold,
-    color: colors.text,
-    marginBottom: spacing.sm,
-  },
-  stubOverlayBody: {
-    fontSize: fontSizes.sm,
-    color: colors.textMuted,
-    lineHeight: 1.5,
   },
   errorCard: {
     maxWidth: 420,

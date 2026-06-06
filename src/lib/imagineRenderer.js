@@ -139,10 +139,10 @@ async function fetchImage(url) {
     return await new Promise((resolve, reject) => {
       const img = new Image();
       img.crossOrigin = 'anonymous';
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error('Image load failed'));
+      const timer = setTimeout(() => reject(new Error('Image load timeout')), 8000);
+      img.onload = () => { clearTimeout(timer); resolve(img); };
+      img.onerror = () => { clearTimeout(timer); reject(new Error('Image load failed')); };
       img.src = url;
-      setTimeout(() => reject(new Error('Image load timeout')), 8000);
     });
   } catch {
     return null;
@@ -166,8 +166,12 @@ async function drawPlayerImage(ctx, el) {
   }
 
   if (p.customImageUrl || p.playerId) {
+    // Route through same-origin /api/headshot so the upstream MLB CDN's
+    // missing CORS headers don't taint the canvas. Tainted canvas blocks
+    // the export `toBlob()` call with SecurityError.
     const imgUrl = p.customImageUrl
-      || `https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_213,q_auto:best/v1/people/${p.playerId}/headshot/67/current`;
+      ? `/api/headshot?url=${encodeURIComponent(p.customImageUrl)}`
+      : `/api/headshot?id=${encodeURIComponent(p.playerId)}`;
     const img = await fetchImage(imgUrl);
     if (img) {
       ctx.save();
@@ -1187,13 +1191,23 @@ function browserCreateCanvas(w, h) {
 }
 
 // ── Main export: Scene → Blob ───────────────────────────────────────────
+// Browsers cap canvas size (Chromium: 32767 per side, ~268M total pixels).
+// A malformed scene with huge dims would crash silently. Clamp.
+const MAX_CANVAS_SIDE = 16384;
+const MAX_CANVAS_PIXELS = 134_217_728; // 128M, well under all browser caps
+
 export async function renderSceneToBlob(scene) {
-  const canvas = browserCreateCanvas(scene.width, scene.height);
+  const w = Math.max(1, Math.min(MAX_CANVAS_SIDE, scene.width | 0));
+  const h = Math.max(1, Math.min(MAX_CANVAS_SIDE, scene.height | 0));
+  if (w * h > MAX_CANVAS_PIXELS) {
+    throw new Error(`scene too large: ${w}x${h} exceeds browser canvas cap`);
+  }
+  const canvas = browserCreateCanvas(w, h);
   const ctx = canvas.getContext('2d');
 
   if (scene.background && scene.background !== 'transparent') {
     ctx.fillStyle = scene.background;
-    ctx.fillRect(0, 0, scene.width, scene.height);
+    ctx.fillRect(0, 0, w, h);
   }
 
   const sorted = [...(scene.elements || [])].sort(

@@ -19,6 +19,7 @@
 import type { Scene, SceneElement } from '../sceneTypes'
 import { SCENE_METRICS } from '../reportMetrics'
 import type { Widget, SizePreset, FilterOption, PlayerSearchValue } from '../types'
+import { proxyFetchJson } from './proxyFetch'
 
 /* ── Filter state shape ────────────────────────────────────────────────── */
 
@@ -222,8 +223,7 @@ function buildSceneInternal(
   // for 2 rows of stats).
   const heroFraction = isTall ? 0.42 : 0.48
   const heroTop = subtitleY + subtitleH + Math.round(height * 0.012)
-  const heroBottom = Math.round(height * heroFraction) + heroTop * 0  // anchored to top, height = canvas * heroFraction
-  const heroH = Math.round(height * heroFraction) - (subtitleY + subtitleH)
+  const heroH = Math.round(height * heroFraction)
   const heroAvailableH = Math.max(120, heroH)
 
   // Player image — sized to fit within the hero region (height-bounded), then
@@ -445,11 +445,7 @@ const playerStats: Widget<PlayerStatsFilters> = {
     }
     if (filters.pitchType) params.set('pitchType', filters.pitchType)
 
-    const res = await fetch(`${origin}/api/scene-stats?${params}`, {
-      headers: { 'cache-control': 'no-store' },
-    })
-    if (!res.ok) throw new Error(`scene-stats fetch failed: ${res.status}`)
-    const json = await res.json()
+    const json = await proxyFetchJson(`${origin}/api/scene-stats?${params}`)
     return { stats: json.stats || {}, player_name: filters.player.playerName }
   },
 

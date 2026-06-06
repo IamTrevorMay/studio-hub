@@ -18,7 +18,12 @@ export default function HistoryPane({ history, error, onRestore, onDelete }) {
                 title={row.title}
               >
                 {row.thumbnail_url && (
-                  <img src={row.thumbnail_url} alt="" style={styles.thumb} />
+                  <img
+                    src={row.thumbnail_url}
+                    alt=""
+                    style={styles.thumb}
+                    onError={(e) => { e.currentTarget.style.visibility = 'hidden'; }}
+                  />
                 )}
                 <span style={styles.itemTitle}>{row.title}</span>
               </button>

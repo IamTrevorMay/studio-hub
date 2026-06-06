@@ -30,6 +30,7 @@ import type { Scene, SceneElement } from '../sceneTypes'
 import type { Widget, SizePreset } from '../types'
 import type { ActiveFilter } from '../filterEngineCore'
 import { applyFiltersToData } from '../filterEngineCore'
+import { proxyFetchJson } from './proxyFetch'
 import {
   buildMetricGrid, normalizeGrid, multiplyGrids,
   HEATMAP_METRIC_LABELS, type HeatmapMetricKey,
@@ -155,11 +156,7 @@ async function fetchSidePitches(p: OverlayPlayer, origin: string): Promise<any[]
   params.set('scope', 'player')
   params.set('id', String(p.playerId))
   params.set('col', p.role === 'hitter' ? 'batter' : 'pitcher')
-  const res = await fetch(`${origin}/api/imagine/heatmap-data?${params}`, {
-    headers: { 'cache-control': 'no-store' },
-  })
-  if (!res.ok) throw new Error(`heatmap-data fetch failed: ${res.status}`)
-  const json = await res.json()
+  const json = await proxyFetchJson(`${origin}/api/imagine/heatmap-data?${params}`)
   return json.rows || []
 }
 

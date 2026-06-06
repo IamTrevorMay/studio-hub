@@ -1,12 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { colors, spacing, radii, fontSizes, fontWeights, zIndex } from '../../../lib/styleTokens';
-import { tritonSupabase } from '../../../tritonClient';
+import { supabase } from '../../../supabaseClient';
 
 // Compact, debounced player-search field used inside widget filter panels.
-// Hits Triton's search_all_players / search_players / search_batters RPCs
-// via tritonSupabase, writes back { playerId, playerName } when picked.
-// Ported from Triton/components/imagine/PlayerSearchField.tsx, restyled
-// with Mayday inline tokens; no functional change beyond the styling.
+// Calls Mayday's /api/triton-search proxy (which holds the Triton anon key
+// server-side and validates a Mayday JWT) instead of hitting Triton's
+// PostgREST directly with a browser-leaked anon JWT.
 
 export default function PlayerSearchField({
   value,
@@ -21,25 +20,38 @@ export default function PlayerSearchField({
 
   useEffect(() => {
     if (!query.trim()) { setResults([]); return undefined; }
-    if (!tritonSupabase) {
-      setSearchError('Triton client not configured');
-      return undefined;
-    }
     let cancelled = false;
     const t = setTimeout(async () => {
-      const rpcName = playerType === 'batter' ? 'search_batters'
+      const rpc = playerType === 'batter' ? 'search_batters'
         : playerType === 'pitcher' ? 'search_players'
         : 'search_all_players';
       const params = { search_term: query.trim(), result_limit: 8 };
-      if (rpcName === 'search_all_players') params.player_type = playerType || 'all';
-      const { data, error } = await tritonSupabase.rpc(rpcName, params);
-      if (cancelled) return;
-      if (error) {
-        setSearchError(error.message || 'Search failed');
+      if (rpc === 'search_all_players') params.player_type = playerType || 'all';
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (cancelled) return;
+        if (!session) { setSearchError('Not authenticated'); setResults([]); return; }
+        const res = await fetch('/api/triton-search', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ rpc, params }),
+        });
+        if (cancelled) return;
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setSearchError(json.error || `Search failed (${res.status})`);
+          setResults([]);
+        } else {
+          setSearchError(null);
+          setResults(Array.isArray(json.rows) ? json.rows : []);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setSearchError(err.message || 'Search failed');
         setResults([]);
-      } else {
-        setSearchError(null);
-        setResults(Array.isArray(data) ? data : []);
       }
     }, 200);
     return () => { cancelled = true; clearTimeout(t); };

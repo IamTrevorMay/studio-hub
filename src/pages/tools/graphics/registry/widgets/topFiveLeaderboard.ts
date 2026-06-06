@@ -8,6 +8,7 @@
 import type { Scene, SceneElement, TemplateDataRow } from '../sceneTypes'
 import { SCENE_METRICS } from '../reportMetrics'
 import type { Widget, SizePreset, FilterOption } from '../types'
+import { proxyFetchJson } from './proxyFetch'
 
 /* ── Filter state shape ────────────────────────────────────────────────── */
 
@@ -604,8 +605,10 @@ const topFiveLeaderboard: Widget<LeaderboardFilters> = {
       playerType: filters.playerType,
       limit: '5',
       sortDir: filters.sortDir,
-      minSample: String(filters.minSample),
     })
+    if (filters.minSample !== undefined && filters.minSample !== null) {
+      params.set('minSample', String(filters.minSample))
+    }
     if (filters.dateRange.type === 'season') {
       params.set('gameYear', String(filters.dateRange.year))
     } else {
@@ -617,11 +620,7 @@ const topFiveLeaderboard: Widget<LeaderboardFilters> = {
     if (filters.secondaryStat) params.set('secondaryMetric', filters.secondaryStat)
     if (filters.tertiaryStat) params.set('tertiaryMetric', filters.tertiaryStat)
 
-    const res = await fetch(`${origin}/api/scene-stats?${params}`, {
-      headers: { 'cache-control': 'no-store' },
-    })
-    if (!res.ok) throw new Error(`scene-stats fetch failed: ${res.status}`)
-    const json = await res.json()
+    const json = await proxyFetchJson(`${origin}/api/scene-stats?${params}`)
     return (json.leaderboard || []) as TemplateDataRow[]
   },
 

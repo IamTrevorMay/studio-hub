@@ -126,11 +126,11 @@ export default function HeatMapOverlaysPanel({
 }
 
 function OverlayEditor({ overlay, onChange }) {
-  const a = overlay.playerA || { role: 'pitcher', metric: 'whiff_pct', playerId: null, playerName: '' };
-  const b = overlay.playerB || { role: 'hitter', metric: 'ba', playerId: null, playerName: '' };
+  const a = overlay.sideA || { role: 'pitcher', metric: 'whiff_pct', playerId: null, playerName: '' };
+  const b = overlay.sideB || { role: 'hitter', metric: 'ba', playerId: null, playerName: '' };
 
-  function setA(partial) { onChange({ playerA: { ...a, ...partial } }); }
-  function setB(partial) { onChange({ playerB: { ...b, ...partial } }); }
+  function setA(partial) { onChange({ sideA: { ...a, ...partial } }); }
+  function setB(partial) { onChange({ sideB: { ...b, ...partial } }); }
 
   return (
     <div style={styles.editorBody}>
