@@ -42,6 +42,18 @@ New pages: `ContentHealthDashboard.js`, `YouTubeStudioAdvanced.js`. New edge fun
 ### Contractor System (2026-05-25 → 2026-05-29)
 Renamed Freelancer to Contractor in admin panel. Added document signing (`DocumentSigner.js`, `DrawingPad.js`), assigned Drive folders, and contract upload flow. Multiple migrations for freelancer tables, notifications RLS, invitation signing flag, and signature columns. Later added edit/delete UI for assignments, and Submit/In Progress/I'm Stuck UX for contractor dashboard.
 
+## Planned
+
+### Near-term
+- `project_type` enum needs business board values added (issue #5)
+- Supabase CLI update (v2.95.4 → v2.101.0)
+- `CLAUDE_MODEL` env var should be set in Supabase dashboard to pin model versions across `generate-trends`, `run-report`
+
+### Long-term
+- **Business Dev Page** — Full spec written (in CLAUDE.md), not yet built. Four-level hierarchy: Phase > Workstream > Initiative > Task. Four views: Phases, Timeline/Gantt, Calendar, My Stuff. Tables: `bd_phases`, `bd_initiatives`, `bd_initiative_links`, `bd_tasks`, `bd_milestones`, `bd_settings`.
+  - Deferred from v1: Comments/discussion threads, file attachments, budget rollup view, non-admin owners and visibility, MyBoard/personal_tasks integration, email reminders
+- Consider converting remaining enums to text + check constraints (proven pattern)
+
 ## Known Issues
 
 ### Open GitHub Issues
@@ -59,27 +71,6 @@ Renamed Freelancer to Contractor in admin panel. Added document signing (`Docume
 - `20260328200001_cron_generate_trends.sql` contains a hardcoded `CRON_SECRET`
 - Orphan remote migration `20260526035022` was reverted from history (tables already created by it exist)
 - Pages are large single-file components (100-200KB) — consider splitting as complexity grows
-
-## Upcoming / Deferred
-
-### Business Dev Page (Spec in CLAUDE.md)
-Full spec written, not yet built. Four-level hierarchy: Phase > Workstream > Initiative > Task. Four views: Phases, Timeline/Gantt, Calendar, My Stuff. Tables: `bd_phases`, `bd_initiatives`, `bd_initiative_links`, `bd_tasks`, `bd_milestones`, `bd_settings`.
-
-**Deferred from v1:**
-- Comments / discussion threads on initiatives
-- File attachments
-- Budget rollup view
-- Non-admin owners and visibility
-- MyBoard / personal_tasks integration
-- Email reminders
-
-### Database
-- `project_type` enum needs business board values added (issue #5)
-- Consider converting remaining enums to text + check constraints (proven pattern)
-
-### Infrastructure
-- Supabase CLI outdated (v2.95.4 vs v2.101.0 available)
-- `CLAUDE_MODEL` env var should be set in Supabase dashboard to pin model versions across `generate-trends`, `run-report`
 
 ## Architecture Notes
 
@@ -99,3 +90,9 @@ Full spec written, not yet built. Four-level hierarchy: Phase > Workstream > Ini
 - `src/pages/Freelancers.js` — admin-facing contractor management
 - `supabase/functions/shared/utils.ts` — shared ingestion log, upsert, retry helpers
 - `supabase/functions/drive-upload-init/index.ts` — Google Drive resumable upload init (used by AppLayout + FreelancerDashboard)
+
+## Open Risks
+
+- Supabase CLI outdated (v2.95.4 vs v2.101.0 available) — potential compatibility issues
+- Pages are large single-file components (100-200KB) — maintainability risk as complexity grows
+- `CRON_SECRET` hardcoded in a migration file
