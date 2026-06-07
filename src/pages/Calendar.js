@@ -893,7 +893,7 @@ export default function Calendar({ onNavigate }) {
 
   function getPostsForDate(date) {
     const d = dk(date);
-    return scheduledPosts.filter(p => p.publicationDate.dateTime.startsWith(d));
+    return scheduledPosts.filter(p => p.publicationDate?.dateTime?.startsWith(d));
   }
 
   function getPostDisplayText(post) {

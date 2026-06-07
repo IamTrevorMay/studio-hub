@@ -65,9 +65,9 @@ export default function SprintPanel({ profile, boardVersion, onSprintChange }) {
       .eq('user_id', profile.id)
       .eq('status', 'completed')
       .not('velocity', 'is', null)
-      .order('start_date', { ascending: true })
+      .order('start_date', { ascending: false })
       .limit(8);
-    if (!error) setPastSprints(data || []);
+    if (!error) setPastSprints((data || []).reverse());
   }, [profile?.id]);
 
   // ── Fetch sprint goals ──
