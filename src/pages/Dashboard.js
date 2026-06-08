@@ -142,6 +142,7 @@ export default function Dashboard({ onNavigate }) {
   const [pendingOooRequests, setPendingOooRequests] = useState([]);
   const [oooProcessingId, setOooProcessingId] = useState(null);
   const [approvedOooToday, setApprovedOooToday] = useState([]);
+  const [upcomingOoo, setUpcomingOoo] = useState([]);
 
   // Stage tasks state
   const [stageTasks, setStageTasks] = useState([]);
@@ -280,6 +281,21 @@ export default function Dashboard({ onNavigate }) {
       setApprovedOooToday((approved || []).map(r => r.user_id));
     } catch (err) {
       console.error('Error fetching OOO requests:', err);
+    }
+  }, [profile?.id, todayStr]);
+
+  const fetchUpcomingOoo = useCallback(async () => {
+    if (!profile?.id) return;
+    try {
+      const { data } = await supabase
+        .from('ooo_requests')
+        .select('id, start_date, end_date, calendar_event_id, requester:profiles!user_id(id, full_name), event:calendar_events!calendar_event_id(all_day, start_date, end_date)')
+        .eq('status', 'approved')
+        .gte('end_date', todayStr)
+        .order('start_date', { ascending: true });
+      setUpcomingOoo(data || []);
+    } catch (err) {
+      console.error('Error fetching upcoming OOO:', err);
     }
   }, [profile?.id, todayStr]);
 
@@ -568,8 +584,11 @@ export default function Dashboard({ onNavigate }) {
   }, [profile?.id, fetchTeamProfiles]);
 
   useEffect(() => {
-    if (profile?.id) fetchOooRequests();
-  }, [profile?.id, fetchOooRequests]);
+    if (profile?.id) {
+      fetchOooRequests();
+      fetchUpcomingOoo();
+    }
+  }, [profile?.id, fetchOooRequests, fetchUpcomingOoo]);
 
   useEffect(() => {
     if (!profile?.id) return;
@@ -594,10 +613,10 @@ export default function Dashboard({ onNavigate }) {
       .channel('ooo-changes')
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'ooo_requests',
-      }, () => { fetchOooRequests(); })
+      }, () => { fetchOooRequests(); fetchUpcomingOoo(); })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [profile?.id, fetchOooRequests]);
+  }, [profile?.id, fetchOooRequests, fetchUpcomingOoo]);
 
   useVisibilityRefresh(useCallback(() => {
     if (!profile?.id) return;
@@ -611,7 +630,8 @@ export default function Dashboard({ onNavigate }) {
     fetchAnnouncements();
     fetchTeamProfiles();
     fetchOooRequests();
-  }, [profile?.id, isAdmin, isAssistant, isPartner, fetchAssignments, fetchStageTasks, fetchSponsorDeliverables, fetchStatsCounts, fetchItinerary, fetchAnnouncements, fetchTeamProfiles, fetchOooRequests]));
+    fetchUpcomingOoo();
+  }, [profile?.id, isAdmin, isAssistant, isPartner, fetchAssignments, fetchStageTasks, fetchSponsorDeliverables, fetchStatsCounts, fetchItinerary, fetchAnnouncements, fetchTeamProfiles, fetchOooRequests, fetchUpcomingOoo]));
 
   useEffect(() => {
     if (profile?.id) fetchCheckins();
@@ -967,6 +987,7 @@ export default function Dashboard({ onNavigate }) {
         });
       }
       fetchOooRequests();
+      fetchUpcomingOoo();
     } catch (err) {
       console.error('Error handling OOO decision:', err);
     } finally {
@@ -2069,6 +2090,82 @@ export default function Dashboard({ onNavigate }) {
 
         </div>
       </div>
+
+      {/* Admin: Upcoming Out of Office */}
+      {isAdmin && upcomingOoo.length > 0 && (
+        <div style={styles.section}>
+          <h2 style={styles.sectionTitle}>Upcoming Out of Office</h2>
+          <div style={{
+            background: 'rgba(255,255,255,0.02)',
+            border: '1px solid rgba(255,255,255,0.06)',
+            borderRadius: '12px',
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px',
+          }}>
+            {upcomingOoo.map(req => {
+              const start = new Date(req.start_date + 'T00:00:00');
+              const end = new Date(req.end_date + 'T00:00:00');
+              const today = new Date(todayStr + 'T00:00:00');
+              const isCurrentlyOut = start <= today && today <= end;
+              const isSingleDay = req.start_date === req.end_date;
+              const startFmt = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              const endFmt = end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+              // Show times for non-all-day events
+              let timeStr = null;
+              if (req.event && req.event.all_day === false && req.event.start_date && req.event.end_date) {
+                const eventStart = new Date(req.event.start_date);
+                const eventEnd = new Date(req.event.end_date);
+                const fmtTime = (d) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+                timeStr = `${fmtTime(eventStart)} \u2013 ${fmtTime(eventEnd)}`;
+              }
+
+              return (
+                <div key={req.id} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '10px 12px',
+                  background: isCurrentlyOut ? 'rgba(249,115,22,0.06)' : 'rgba(255,255,255,0.02)',
+                  border: `1px solid ${isCurrentlyOut ? 'rgba(249,115,22,0.15)' : 'rgba(255,255,255,0.06)'}`,
+                  borderRadius: '8px',
+                }}>
+                  <div style={{
+                    width: '32px', height: '32px', borderRadius: '50%',
+                    background: 'rgba(249,115,22,0.15)', color: '#f97316',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '13px', fontWeight: 700, flexShrink: 0,
+                  }}>
+                    {req.requester?.full_name?.charAt(0)?.toUpperCase() || '?'}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: 600, color: '#e2e8f0' }}>
+                        {req.requester?.full_name || 'Unknown'}
+                      </span>
+                      {isCurrentlyOut && (
+                        <span style={{
+                          fontSize: '10px', fontWeight: 700, color: '#f97316',
+                          background: 'rgba(249,115,22,0.12)',
+                          padding: '2px 6px', borderRadius: '4px',
+                        }}>
+                          Currently Out
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)', marginTop: '2px' }}>
+                      {isSingleDay ? startFmt : `${startFmt} \u2013 ${endFmt}`}
+                      {timeStr && <span style={{ marginLeft: '6px' }}>{timeStr}</span>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Admin: Today section */}
       {isAdmin && (
