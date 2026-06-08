@@ -54,6 +54,55 @@ Renamed Freelancer to Contractor in admin panel. Added document signing (`Docume
   - Deferred from v1: Comments/discussion threads, file attachments, budget rollup view, non-admin owners and visibility, MyBoard/personal_tasks integration, email reminders
 - Consider converting remaining enums to text + check constraints (proven pattern)
 
+---
+
+## Infrastructure & Architecture Improvements
+
+Based on inefficiency report review (June 2026). Items are grouped by phase; each was either agreed-upon from the report or identified as an additional recommendation during review.
+
+### Phase 0 — Immediate Correctness & Security
+
+| Item | Source | Notes |
+|---|---|---|
+| Fix More Mayday YouTube sync and backfill missing videos after May 5 | Report #20 | Highest-priority product bug. Function reports success but data is stale. Verify channel ID, uploads playlist ID, `YOUTUBE_REFRESH_TOKEN_MAYDAY`, and API quota. Backfill missing content_items and recompute affected rollups/goals. |
+| Rotate hardcoded `CRON_SECRET` in migration `20260328200001` | Report #18 | Secret is in git history. Rotate value, remove from migration, add CI secret scanner, establish rule that migrations never contain secrets. |
+| Deploy staged Goals fixes | Report #22 | Three fixes sitting undeployed: `reel` content type filter, missing auth header on `metricool-posts` (always 401), channel names in Monthly Results. |
+| Fix "Total Short Form Posts" goal configuration | Report #21 | Only has TikTok account ID with placeholder external_id. Needs YouTube + Instagram account IDs added to `platform_account_ids`. |
+| Fix `handleOooDecision` hardcoded `all_day: true` | Additional | OOO approval creates calendar events with `all_day: true` regardless of the actual request. Should respect the user's original all_day/partial-day selection. |
+
+### Phase 1 — Stabilize Platform Infrastructure
+
+| Item | Source | Notes |
+|---|---|---|
+| Split AuthContext into smaller providers | Report #3 | 692-line context owns auth, session, profile, presence, realtime, notifications. Split into AuthSessionProvider, ProfileProvider, PresenceProvider, NotificationProvider, RealtimeProvider with focused hooks (`useSession`, `useProfile`, `usePermissions`, `usePresence`, `useNotifications`). |
+| Replace session nuking with staged degradation | Report #5 | Profile fetch failure after 3 retries currently nukes the session. Replace with: 0-4s loading → 4-10s reconnecting/degraded → 10s+ "profile unavailable" with retry + sign out option. Only nuke on definitively invalid/revoked token. |
+| Server-side notification summary RPC | Report #6 | Move badge count logic out of AuthContext. Create a `getNotificationSummary(userId)` RPC that returns all counts in one call. Realtime updates invalidate cached summary instead of each badge source maintaining its own fetch/subscription. |
+| Edge Function standardization (`createFunction` wrapper) | Report #16 | Create a shared wrapper with explicit auth modes (`public`, `user`, `admin`, `cron`, `cron-or-admin`, `webhook-signed`), input validation, structured logging, request IDs, error formatting, timeout/retry policy, and rate limiting. |
+| Build ingestion control plane | Report #19 | Tables: `source_accounts` (platform, status, token_status, last_success_at, last_data_seen_at), `ingestion_runs` (records_fetched/inserted/updated/skipped, newest_source_item_at, error), `ingestion_alerts`. Dashboards show freshness per source. |
+| Build Ops dashboard | Report #46 | Internal admin page showing: sync health, external API quota/token health, latest ingestion runs, edge function errors, cron run status, automation failures, public endpoint abuse/rate limits, realtime connection health, known issue status. |
+| Add rate limiting to authenticated edge functions | Additional | Currently only public endpoints have rate limiting. Authenticated functions (especially admin-triggered syncs, bulk operations) should have basic rate limiting to prevent accidental abuse. |
+| Fix `reconnectRealtime()` hardcoded 150ms delay | Additional | Uses a fixed 150ms `setTimeout` before reconnecting. Should use exponential backoff with jitter to avoid thundering herd on infrastructure issues. |
+
+### Phase 2 — Reduce Frontend Maintenance Cost
+
+| Item | Source | Notes |
+|---|---|---|
+| Split monolithic page files into feature modules | Report #13 | Start with largest: Reviews.js (182KB), Analytics.js (172KB), BusinessDev.js (154KB), Dashboard.js (133KB). Extract into `pages/Analytics/AnalyticsPage.jsx` + `analytics.queries.js` + `components/` + `modals/` + `styles.js`. |
+| Standardize realtime subscriptions with delta updates | Report #11 | Current pattern refetches entire page data on any row change. Create a shared `useRealtimeTable` hook that uses `onInsert`/`onUpdate`/`onDelete` handlers for incremental cache updates instead of full refetches. |
+| Add error boundaries on pages | Additional | No React error boundaries exist on page components. A crash in one section (e.g., a chart) takes down the entire page. Add route-level or section-level error boundaries with fallback UI and error reporting. |
+| Fix mobile bundle split recovery | Additional | `App.js` checks `isMobileViewport()` once at boot and lazy-loads the corresponding layout. Orientation change, split-screen, or resize after boot can't recover. Add a resize listener or at minimum handle the most common viewport transitions. |
+| Enable strict CI (fix warnings, then set `CI=true`) | Additional | `CI=false` in build hides real warnings. Audit current warnings, fix them, then enable strict mode so new issues are caught at build time instead of accumulating silently. |
+
+### Phase 3 — Operational Maturity
+
+| Item | Source | Notes |
+|---|---|---|
+| Make deployments atomic | Report #44 | Frontend auto-deploys to Vercel on push, but edge functions and migrations are manual. A frontend change can deploy before its migration. Create a release checklist or lightweight pipeline: migrations → edge functions → frontend, with smoke tests at each stage. |
+| Document and harden Triton client dependency | Additional | Second Supabase project (Triton, read-only for briefs/cards) is initialized inline with hardcoded URL/key. If Triton goes down, affected pages fail silently. Document which features depend on it, add connection health checks, and consider a fallback/cache strategy. |
+| Address Google Drive service account single point of failure | Additional | All Drive functions use one shared service account via `GOOGLE_DRIVE_REFRESH_TOKEN`. If token is revoked or account is disabled, all Drive features break simultaneously. Document the account, set up token health monitoring, and consider a backup credential. |
+| Reduce `drive-watch-poll` frequency | Additional | Runs every minute (1440 API calls/day). Most Drive changes don't need minute-level detection. Evaluate whether 5-minute or 15-minute intervals are sufficient, or switch to push notifications via Drive webhooks where possible. |
+| Add backup/export strategy for Supabase data | Additional | No documented backup or export strategy. Supabase provides point-in-time recovery on Pro plans, but there's no manual export process for critical tables (financials, projects, content). Set up periodic pg_dump or Supabase backup verification. |
+
 ## Known Issues
 
 ### Open GitHub Issues
