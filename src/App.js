@@ -1,5 +1,7 @@
 import React, { Suspense } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { PresenceProvider } from './contexts/PresenceContext';
+import { NotificationProvider } from './contexts/NotificationContext';
 import { isMobileViewport } from './hooks/useIsMobile';
 import { ConfirmProvider } from './contexts/ConfirmContext';
 
@@ -94,9 +96,13 @@ export default function App() {
   }
   return (
     <AuthProvider>
-      <ConfirmProvider>
-        <AppContent />
-      </ConfirmProvider>
+      <PresenceProvider>
+        <NotificationProvider>
+          <ConfirmProvider>
+            <AppContent />
+          </ConfirmProvider>
+        </NotificationProvider>
+      </PresenceProvider>
     </AuthProvider>
   );
 }

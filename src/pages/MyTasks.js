@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useNotifications } from '../contexts/NotificationContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { getStepAction } from '../lib/workflowSteps';
 import { getWorkflowModal } from '../lib/workflowModals';
@@ -180,7 +181,8 @@ function ReviewProposalCard({ task }) {
 // ─── Component ────────────────────────────────────────────────
 
 export default function MyTasks({ onNavigate }) {
-  const { profile, refreshNotifications } = useAuth();
+  const { profile } = useAuth();
+  const { refreshNotifications } = useNotifications();
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [collapsedIds, setCollapsedIds] = useState(new Set());

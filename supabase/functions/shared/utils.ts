@@ -29,31 +29,62 @@ export async function startIngestionLog(
 export async function completeIngestionLog(
   supabase: ReturnType<typeof createClient>,
   logId: string,
-  stats: { records_processed?: number; records_created?: number; records_updated?: number }
+  stats: { records_processed?: number; records_created?: number; records_updated?: number },
+  platformAccountId?: string
 ) {
   const { error } = await supabase
     .from("ingestion_logs")
     .update({ status: "success", completed_at: new Date().toISOString(), ...stats })
     .eq("id", logId);
   if (error) console.error(`Failed to complete ingestion log ${logId}:`, error.message);
+
+  // Update platform account health
+  if (platformAccountId) {
+    await supabase
+      .from("platform_accounts")
+      .update({
+        last_success_at: new Date().toISOString(),
+        consecutive_failures: 0,
+        token_status: "valid",
+      })
+      .eq("id", platformAccountId);
+  }
 }
 
 export async function failIngestionLog(
   supabase: ReturnType<typeof createClient>,
   logId: string,
   error: Error | string,
-  details?: Record<string, unknown>
+  details?: Record<string, unknown>,
+  platformAccountId?: string
 ) {
+  const errorMsg = typeof error === "string" ? error : error.message;
   const { error: updateError } = await supabase
     .from("ingestion_logs")
     .update({
       status: "failed",
       completed_at: new Date().toISOString(),
-      error_message: typeof error === "string" ? error : error.message,
+      error_message: errorMsg,
       error_details: details || {},
     })
     .eq("id", logId);
   if (updateError) console.error(`Failed to update ingestion log ${logId} as failed:`, updateError.message);
+
+  // Update platform account health
+  if (platformAccountId) {
+    await supabase
+      .from("platform_accounts")
+      .update({
+        last_error_at: new Date().toISOString(),
+        last_error_message: errorMsg,
+      })
+      .eq("id", platformAccountId);
+
+    // Increment consecutive_failures atomically
+    await supabase.rpc("increment_consecutive_failures", {
+      p_account_id: platformAccountId,
+    });
+  }
 }
 
 export async function getActiveAccounts(
@@ -156,6 +187,25 @@ export async function fetchWithRetry(
     }
   }
   throw new Error(`Failed after ${maxRetries} retries: ${url}`);
+}
+
+export async function checkRateLimit(
+  supabase: ReturnType<typeof createClient>,
+  bucket: string,
+  userId: string,
+  maxRequests: number,
+  windowMs: number
+): Promise<{ allowed: boolean; remaining: number }> {
+  const windowStart = new Date(Date.now() - windowMs).toISOString();
+  const { count } = await supabase
+    .from("authenticated_rate_limits")
+    .select("id", { count: "exact", head: true })
+    .eq("bucket", bucket)
+    .eq("user_id", userId)
+    .gte("created_at", windowStart);
+  if ((count || 0) >= maxRequests) return { allowed: false, remaining: 0 };
+  await supabase.from("authenticated_rate_limits").insert({ bucket, user_id: userId });
+  return { allowed: true, remaining: maxRequests - (count || 0) - 1 };
 }
 
 export function jsonResponse(data: unknown, status = 200) {

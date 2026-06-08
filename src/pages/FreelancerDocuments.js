@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useNotifications } from '../contexts/NotificationContext';
 
 export default function FreelancerDocuments() {
-  const { user, refreshNotifications } = useAuth();
+  const { user } = useAuth();
+  const { refreshNotifications } = useNotifications();
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [signingDoc, setSigningDoc] = useState(null);

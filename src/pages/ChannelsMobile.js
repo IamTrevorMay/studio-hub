@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useNotifications } from '../contexts/NotificationContext';
 import FullScreenSheet from '../components/mobile/FullScreenSheet';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
 import { getDisplayName } from '../lib/displayName';
@@ -11,7 +12,8 @@ import { getDisplayName } from '../lib/displayName';
 // Pin / edit / delete / channel-management stays desktop-only.
 
 export default function ChannelsMobile({ initialChannelName, onChannelOpened }) {
-  const { profile, refreshKey, unreadMentionChannelIds, markChannelSeen } = useAuth();
+  const { profile, refreshKey } = useAuth();
+  const { unreadMentionChannelIds, markChannelSeen } = useNotifications();
   const [channels, setChannels] = useState([]);
   const [activeChannel, setActiveChannel] = useState(null);
   const [lastMessages, setLastMessages] = useState({}); // channelId -> { content, created_at }

@@ -1,40 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createHandler } from "../shared/handler.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-
-Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
-
-  try {
-    // Auth: cron secret only
-    const url = new URL(req.url);
-    const cronSecret =
-      url.searchParams.get("secret") || req.headers.get("x-cron-secret");
-    const expectedSecret = Deno.env.get("CRON_SECRET");
-
-    if (!expectedSecret || cronSecret !== expectedSecret) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        {
-          status: 401,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
-    }
-
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
-
+Deno.serve(
+  createHandler({ auth: "cron", methods: ["POST"] }, async ({ admin }) => {
     // Compute today's date in Pacific time
     const now = new Date();
     const pacificDate = now.toLocaleDateString("en-CA", {
@@ -42,7 +10,7 @@ Deno.serve(async (req: Request) => {
     }); // YYYY-MM-DD
 
     // Find all admin users
-    const { data: admins, error: adminsError } = await supabase
+    const { data: admins, error: adminsError } = await admin
       .from("profiles")
       .select("id")
       .eq("role", "admin");
@@ -51,20 +19,17 @@ Deno.serve(async (req: Request) => {
     if (!admins || admins.length === 0) {
       return new Response(
         JSON.stringify({ message: "No admin users found" }),
-        {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        { status: 200, headers: { "Content-Type": "application/json" } }
       );
     }
 
     const summary: Record<string, { logged: number; archived: number }> = {};
 
-    for (const admin of admins) {
-      const userId = admin.id;
+    for (const adminUser of admins) {
+      const userId = adminUser.id;
 
       // Get today's check-in (may not exist)
-      const { data: checkin } = await supabase
+      const { data: checkin } = await admin
         .from("daily_checkins")
         .select("rating, note")
         .eq("user_id", userId)
@@ -72,7 +37,7 @@ Deno.serve(async (req: Request) => {
         .maybeSingle();
 
       // Get active sprint
-      const { data: sprint } = await supabase
+      const { data: sprint } = await admin
         .from("sprints")
         .select("id")
         .eq("user_id", userId)
@@ -80,7 +45,7 @@ Deno.serve(async (req: Request) => {
         .maybeSingle();
 
       // Get done tasks in the active sprint
-      const query = supabase
+      const query = admin
         .from("personal_tasks")
         .select("id, content, priority")
         .eq("created_by", userId)
@@ -118,7 +83,7 @@ Deno.serve(async (req: Request) => {
       }));
 
       // Upsert into daily_work_logs
-      const { error: upsertError } = await supabase
+      const { error: upsertError } = await admin
         .from("daily_work_logs")
         .upsert(rows, { onConflict: "user_id,date,task_id" });
 
@@ -126,7 +91,7 @@ Deno.serve(async (req: Request) => {
 
       // Archive done tasks
       const taskIds = doneTasks.map((t) => t.id);
-      const { error: archiveError } = await supabase
+      const { error: archiveError } = await admin
         .from("personal_tasks")
         .update({ status: "archived", updated_at: new Date().toISOString() })
         .in("id", taskIds);
@@ -136,21 +101,9 @@ Deno.serve(async (req: Request) => {
       summary[userId] = { logged: doneTasks.length, archived: taskIds.length };
     }
 
-    return new Response(
-      JSON.stringify({ date: pacificDate, summary }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
-    );
-  } catch (err) {
-    console.error("snapshot-daily-work error:", err);
-    return new Response(
-      JSON.stringify({ error: err.message }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
-    );
-  }
-});
+    return new Response(JSON.stringify({ date: pacificDate, summary }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  })
+);

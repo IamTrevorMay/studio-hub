@@ -1,52 +1,12 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createHandler } from "../shared/handler.ts";
 import { parseRssItems } from "./parse.ts";
 import { isSafeExternalUrl } from "../shared/url-validation.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-
-Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
-
-  try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: "No authorization header" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Verify the user is authenticated
-    const userClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } }
-    );
-
-    const { data: { user }, error: userError } = await userClient.auth.getUser();
-    if (userError || !user) {
-      return new Response(
-        JSON.stringify({ error: "Not authenticated" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Use service role to upsert articles
-    const adminClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
-
+Deno.serve(
+  createHandler({ auth: "jwt", methods: ["POST"] }, async ({ admin }) => {
     // Get enabled feeds
-    const { data: feeds, error: feedsError } = await adminClient
+    const { data: feeds, error: feedsError } = await admin
       .from("research_feeds")
       .select("*")
       .eq("enabled", true);
@@ -54,7 +14,7 @@ Deno.serve(async (req: Request) => {
     if (feedsError) {
       return new Response(
         JSON.stringify({ error: "Failed to fetch feeds: " + feedsError.message }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 500, headers: { "Content-Type": "application/json" } }
       );
     }
 
@@ -92,7 +52,7 @@ Deno.serve(async (req: Request) => {
         const guid = item.guid || item.link;
         if (!guid) continue;
 
-        const { error: upsertError } = await adminClient
+        const { error: upsertError } = await admin
           .from("research_articles")
           .upsert(
             {
@@ -114,7 +74,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // Fetch articles with feed data for the response
-    const { data: articles } = await adminClient
+    const { data: articles } = await admin
       .from("research_articles")
       .select("*, feed:research_feeds(id, name, color, icon_emoji, source_type)")
       .order("pub_date", { ascending: false })
@@ -125,12 +85,7 @@ Deno.serve(async (req: Request) => {
         articles: articles || [],
         feeds: feeds || [],
       }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { headers: { "Content-Type": "application/json" } }
     );
-  } catch (err) {
-    return new Response(
-      JSON.stringify({ error: err.message }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  }
-});
+  })
+);

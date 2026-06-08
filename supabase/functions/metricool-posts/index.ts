@@ -3,6 +3,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkRateLimit } from "../shared/utils.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,6 +18,7 @@ serve(async (req) => {
   }
 
   // Auth: admin JWT required (response includes creatorEmail PII).
+  let _authedUserId: string;
   {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
@@ -40,6 +42,24 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Admin access required" }), {
         status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+    _authedUserId = user.id;
+  }
+
+  // Rate limit: 30 requests per hour per user
+  {
+    const adminClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+    const { allowed, remaining } = await checkRateLimit(
+      adminClient, "metricool-posts", _authedUserId, 30, 3600000
+    );
+    if (!allowed) {
+      return new Response(
+        JSON.stringify({ error: "Rate limit exceeded. Try again later." }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json", "X-RateLimit-Remaining": "0" } }
+      );
     }
   }
 

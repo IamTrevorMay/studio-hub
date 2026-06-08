@@ -14,11 +14,10 @@ export function AuthProvider({ children }) {
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
   const [isInviteSetup, setIsInviteSetup] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [unsignedDocCount, setUnsignedDocCount] = useState(0);
-  const [newAssignmentCount, setNewAssignmentCount] = useState(0);
   const initDone = useRef(false);
   const visibilityInFlight = useRef(false);
   const inviteSetupRef = useRef(false); // ref for closure access in listener
+  const authFailureCount = useRef(0);
 
   // Nuclear option: wipe all auth state from the browser
   const nukeSession = useCallback(async () => {
@@ -41,6 +40,34 @@ export function AuthProvider({ children }) {
     // Also tell Supabase to sign out (ignore errors)
     try { await supabase.auth.signOut({ scope: 'local' }); } catch (e) {}
   }, []);
+
+  // Staged degradation: attempt silent recovery before nuking
+  const handleAuthFailure = useCallback(async (context, error) => {
+    authFailureCount.current += 1;
+    console.warn(`Auth failure #${authFailureCount.current} (${context}):`, error?.message || error);
+
+    if (authFailureCount.current >= 3) {
+      console.error('3+ consecutive auth failures — nuking session');
+      await nukeSession();
+      return 'nuked';
+    }
+
+    // Attempt silent recovery
+    try {
+      const { data, error: refreshError } = await supabase.auth.refreshSession();
+      if (refreshError || !data?.session) {
+        console.warn('Silent recovery failed, will nuke on next failure');
+        return 'degraded';
+      }
+      // Recovery succeeded — reset counter
+      authFailureCount.current = 0;
+      setUser(data.session.user);
+      return 'recovered';
+    } catch (e) {
+      console.warn('Silent recovery threw:', e);
+      return 'degraded';
+    }
+  }, [nukeSession]);
 
   const fetchProfile = useCallback(async (userId, retries = 3) => {
     for (let attempt = 0; attempt <= retries; attempt++) {
@@ -71,13 +98,20 @@ export function AuthProvider({ children }) {
           await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
           continue;
         }
-        // All retries exhausted — nuke session so user gets clean login screen
-        console.warn('All profile fetch attempts failed, nuking session');
-        await nukeSession();
+        // All retries exhausted — attempt staged degradation before full nuke
+        const result = await handleAuthFailure('profile_fetch_exhausted', error);
+        if (result === 'recovered') {
+          // Try one more time with the refreshed session
+          try {
+            const { data: retryData } = await supabase.from('profiles').select('*').eq('id', userId).single();
+            if (retryData) { setProfile(retryData); setAuthError(null); return retryData; }
+          } catch (e) { /* fall through */ }
+        }
+        if (result !== 'nuked') await nukeSession();
       }
     }
     return null;
-  }, [nukeSession]);
+  }, [nukeSession, handleAuthFailure]);
 
   useEffect(() => {
     if (initDone.current) return;
@@ -119,7 +153,8 @@ export function AuthProvider({ children }) {
         } catch (e) {
           // getSession itself threw (e.g., corrupt token, lock timeout)
           console.error('getSession threw:', e);
-          await nukeSession();
+          const result = await handleAuthFailure('getSession_threw', e);
+          if (result !== 'recovered') await nukeSession();
           setLoading(false);
           clearTimeout(timeout);
           return;
@@ -127,7 +162,8 @@ export function AuthProvider({ children }) {
 
         if (error) {
           console.error('getSession error:', error);
-          await nukeSession();
+          const result = await handleAuthFailure('getSession_error', error);
+          if (result !== 'recovered') await nukeSession();
           setLoading(false);
           clearTimeout(timeout);
           return;
@@ -146,16 +182,19 @@ export function AuthProvider({ children }) {
               const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
               if (refreshError || !refreshData?.session) {
                 console.error('Token refresh failed:', refreshError);
-                await nukeSession();
+                const result = await handleAuthFailure('token_refresh_failed', refreshError);
+                if (result !== 'recovered') await nukeSession();
                 setLoading(false);
                 clearTimeout(timeout);
                 return;
               }
+              authFailureCount.current = 0; // successful refresh
               setUser(refreshData.session.user);
               await fetchProfile(refreshData.session.user.id);
             } catch (e) {
               console.error('Token refresh threw:', e);
-              await nukeSession();
+              const result = await handleAuthFailure('token_refresh_threw', e);
+              if (result !== 'recovered') await nukeSession();
               setLoading(false);
               clearTimeout(timeout);
               return;
@@ -233,7 +272,7 @@ export function AuthProvider({ children }) {
       clearTimeout(timeout);
       subscription.unsubscribe();
     };
-  }, [fetchProfile, nukeSession]);
+  }, [fetchProfile, nukeSession, handleAuthFailure]);
 
   async function signIn(email, password) {
     const { data, error } = await supabase.auth.signInWithPassword({
@@ -336,30 +375,6 @@ export function AuthProvider({ children }) {
     window.location.hash = '';
   }
 
-  // ── Presence heartbeat ──
-  useEffect(() => {
-    if (!user) return;
-
-    // Set online + update last_seen_at immediately
-    const ping = () => {
-      supabase.from('profiles').update({ status: 'active', last_seen_at: new Date().toISOString() }).eq('id', user.id).then(() => {});
-    };
-    ping();
-
-    const interval = setInterval(ping, 60000); // every 60s
-
-    const handleBeforeUnload = () => {
-      // Best-effort offline on tab close
-      supabase.from('profiles').update({ status: 'offline', last_seen_at: new Date().toISOString() }).eq('id', user.id);
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, [user]);
-
   // ── Reconnect WebSocket when tab returns after a long absence ──
   // Data re-fetching is handled directly by useVisibilityRefresh in each page
   // (visibilitychange + focus listeners) — no custom event needed here.
@@ -416,241 +431,6 @@ export function AuthProvider({ children }) {
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [user]);
 
-  // ── Notification state ──
-  const [unreadAnnouncementCount, setUnreadAnnouncementCount] = useState(0);
-  const [newItineraryCount, setNewItineraryCount] = useState(0);
-  const [unreadMentionChannelIds, setUnreadMentionChannelIds] = useState([]);
-  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
-  const [pendingProposalCount, setPendingProposalCount] = useState(0);
-
-  const fetchUnreadAnnouncementCount = useCallback(async () => {
-    if (!user) return;
-    try {
-      const todayStr = new Date().toISOString().split('T')[0];
-      // Get today's announcements
-      const { data: announcements, error: aErr } = await supabase
-        .from('announcements')
-        .select('id')
-        .eq('target_date', todayStr);
-      if (aErr) throw aErr;
-      if (!announcements || announcements.length === 0) {
-        setUnreadAnnouncementCount(0);
-        return;
-      }
-      // Get which ones the user has read
-      const { data: reads, error: rErr } = await supabase
-        .from('announcement_reads')
-        .select('announcement_id')
-        .eq('user_id', user.id);
-      if (rErr) throw rErr;
-      const readIds = new Set((reads || []).map(r => r.announcement_id));
-      const unread = announcements.filter(a => !readIds.has(a.id)).length;
-      setUnreadAnnouncementCount(unread);
-    } catch (err) {
-      console.error('Error fetching unread announcement count:', err);
-    }
-  }, [user]);
-
-  const fetchNewItineraryCount = useCallback(async () => {
-    if (!user || profile?.role !== 'admin') { setNewItineraryCount(0); return; }
-    try {
-      const todayStr = new Date().toISOString().split('T')[0];
-      const lastSeen = localStorage.getItem('dashboard_last_seen') || '1970-01-01T00:00:00.000Z';
-      const { data, error } = await supabase
-        .from('daily_itinerary')
-        .select('id')
-        .eq('target_date', todayStr)
-        .gt('updated_at', lastSeen);
-      if (error) throw error;
-      setNewItineraryCount(data?.length || 0);
-    } catch (err) {
-      console.error('Error fetching new itinerary count:', err);
-    }
-  }, [user, profile?.role]);
-
-  const fetchUnreadMentions = useCallback(async () => {
-    if (!user) return;
-    try {
-      const { data, error } = await supabase
-        .from('channel_messages')
-        .select('channel_id, created_at')
-        .contains('mentions', [user.id]);
-      if (error) throw error;
-      if (!data || data.length === 0) { setUnreadMentionChannelIds([]); return; }
-      // Group by channel and check against localStorage timestamps
-      const channelMap = {};
-      data.forEach(msg => {
-        if (!channelMap[msg.channel_id] || msg.created_at > channelMap[msg.channel_id]) {
-          channelMap[msg.channel_id] = msg.created_at;
-        }
-      });
-      const unread = Object.entries(channelMap).filter(([chId, latestMention]) => {
-        const seen = localStorage.getItem(`channel_seen_${chId}`) || '1970-01-01T00:00:00.000Z';
-        return latestMention > seen;
-      }).map(([chId]) => chId);
-      setUnreadMentionChannelIds(unread);
-    } catch (err) {
-      console.error('Error fetching unread mentions:', err);
-    }
-  }, [user]);
-
-  const fetchUnreadNotificationCount = useCallback(async () => {
-    if (!user) return;
-    try {
-      const { count, error } = await supabase
-        .from('notifications')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .eq('is_read', false);
-      if (error) throw error;
-      setUnreadNotificationCount(count || 0);
-    } catch (err) {
-      console.error('Error fetching unread notification count:', err);
-    }
-  }, [user]);
-
-  const fetchPendingProposalCount = useCallback(async () => {
-    if (!user) return;
-    try {
-      const { count, error } = await supabase
-        .from('ad_read_proposals')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'pending');
-      if (error) throw error;
-      setPendingProposalCount(count || 0);
-    } catch (err) {
-      console.error('Error fetching pending proposal count:', err);
-    }
-  }, [user]);
-
-  const markChannelSeen = useCallback((channelId) => {
-    localStorage.setItem(`channel_seen_${channelId}`, new Date().toISOString());
-    setUnreadMentionChannelIds(prev => prev.filter(id => id !== channelId));
-  }, []);
-
-  const markDashboardSeen = useCallback(() => {
-    localStorage.setItem('dashboard_last_seen', new Date().toISOString());
-    setNewItineraryCount(0);
-  }, []);
-
-  const fetchUnsignedDocCount = useCallback(async () => {
-    if (!user || profile?.role !== 'freelancer') { setUnsignedDocCount(0); return; }
-    try {
-      const { count, error } = await supabase
-        .from('freelancer_documents')
-        .select('*', { count: 'exact', head: true })
-        .eq('freelancer_id', user.id)
-        .eq('doc_type', 'signing')
-        .is('signed_at', null);
-      if (!error) setUnsignedDocCount(count || 0);
-    } catch (err) {
-      console.error('Error fetching unsigned doc count:', err);
-    }
-  }, [user, profile?.role]);
-
-  const [stuckCommentCount, setStuckCommentCount] = useState(0);
-  const fetchStuckCommentCount = useCallback(async () => {
-    if (!user || profile?.role !== 'admin') { setStuckCommentCount(0); return; }
-    try {
-      const { count, error } = await supabase
-        .from('notifications')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .eq('type', 'fl_stuck')
-        .eq('is_read', false);
-      if (!error) setStuckCommentCount(count || 0);
-    } catch (err) {
-      console.error('Error fetching stuck comment count:', err);
-    }
-  }, [user, profile?.role]);
-
-  const [myTaskCount, setMyTaskCount] = useState(0);
-  const fetchMyTaskCount = useCallback(async () => {
-    if (!user) { setMyTaskCount(0); return; }
-    try {
-      const { count, error } = await supabase
-        .from('tasks')
-        .select('*', { count: 'exact', head: true })
-        .eq('assignee_id', user.id)
-        .in('status', ['active', 'on_hold'])
-        .or('snoozed_until.is.null,snoozed_until.lt.' + new Date().toISOString());
-      if (!error) setMyTaskCount(count || 0);
-    } catch (err) {
-      console.error('Error fetching my task count:', err);
-    }
-  }, [user]);
-
-  const fetchNewAssignmentCount = useCallback(async () => {
-    if (!user || profile?.role !== 'freelancer') { setNewAssignmentCount(0); return; }
-    try {
-      const { count, error } = await supabase
-        .from('freelancer_assignments')
-        .select('*', { count: 'exact', head: true })
-        .eq('freelancer_id', user.id)
-        .eq('status', 'assigned');
-      if (!error) setNewAssignmentCount(count || 0);
-    } catch (err) {
-      console.error('Error fetching new assignment count:', err);
-    }
-  }, [user, profile?.role]);
-
-  const refreshNotifications = useCallback(() => {
-    fetchUnreadAnnouncementCount();
-    fetchNewItineraryCount();
-    fetchUnreadMentions();
-    fetchUnreadNotificationCount();
-    fetchPendingProposalCount();
-    fetchUnsignedDocCount();
-    fetchNewAssignmentCount();
-    fetchMyTaskCount();
-    fetchStuckCommentCount();
-  }, [fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions, fetchUnreadNotificationCount, fetchPendingProposalCount, fetchUnsignedDocCount, fetchNewAssignmentCount, fetchMyTaskCount, fetchStuckCommentCount]);
-
-  // Initial fetch + real-time subscriptions + 5-min fallback poll
-  useEffect(() => {
-    if (!user) return;
-    refreshNotifications();
-
-    const channel = supabase.channel('notification-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements' }, () => {
-        fetchUnreadAnnouncementCount();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'announcement_reads' }, () => {
-        fetchUnreadAnnouncementCount();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_itinerary' }, () => {
-        fetchNewItineraryCount();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'channel_messages' }, () => {
-        fetchUnreadMentions();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => {
-        fetchUnreadNotificationCount();
-        fetchStuckCommentCount();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'ad_read_proposals' }, () => {
-        fetchPendingProposalCount();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'freelancer_documents' }, () => {
-        fetchUnsignedDocCount();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'freelancer_assignments' }, () => {
-        fetchNewAssignmentCount();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => {
-        fetchMyTaskCount();
-      })
-      .subscribe();
-
-    // 5-minute fallback poll as safety net for dropped connections
-    const interval = setInterval(refreshNotifications, 300000);
-
-    return () => {
-      supabase.removeChannel(channel);
-      clearInterval(interval);
-    };
-  }, [user, refreshNotifications, fetchUnreadAnnouncementCount, fetchNewItineraryCount, fetchUnreadMentions, fetchUnreadNotificationCount, fetchPendingProposalCount, fetchUnsignedDocCount, fetchNewAssignmentCount, fetchMyTaskCount, fetchStuckCommentCount, refreshKey]);
-
   const value = {
     user,
     profile,
@@ -672,18 +452,6 @@ export function AuthProvider({ children }) {
     isFreelancer: profile?.role === 'freelancer',
     canPost: profile?.role === 'admin' || profile?.posting_allowed === true,
     restrictedNavKeys: getRestrictedNavKeys(profile?.role),
-    unreadAnnouncementCount,
-    newItineraryCount,
-    markDashboardSeen,
-    unreadMentionChannelIds,
-    markChannelSeen,
-    refreshNotifications,
-    unreadNotificationCount,
-    pendingProposalCount,
-    unsignedDocCount,
-    newAssignmentCount,
-    myTaskCount,
-    stuckCommentCount,
     refreshKey,
   };
 

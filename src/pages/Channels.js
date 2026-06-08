@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useNotifications } from '../contexts/NotificationContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
@@ -32,7 +33,8 @@ function applyFormatMarker(textareaRef, text, marker, setter) {
 }
 
 export default function Channels({ initialChannelName, onChannelOpened }) {
-  const { profile, isAdmin, unreadMentionChannelIds, markChannelSeen, refreshNotifications, refreshKey } = useAuth();
+  const { profile, isAdmin, refreshKey } = useAuth();
+  const { unreadMentionChannelIds, markChannelSeen, refreshNotifications } = useNotifications();
   const confirm = useConfirm();
   const [channels, setChannels] = useState([]);
   const [activeChannel, setActiveChannel] = useState(null);

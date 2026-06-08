@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useNotifications } from '../contexts/NotificationContext';
 import useNavConfig from '../hooks/useNavConfig';
 import { filterNavForMobile, isExcludedOnMobile } from '../config/mobileNavConfig';
 import MobileTopBar from '../components/mobile/MobileTopBar';
@@ -79,7 +80,8 @@ const TAB_LABELS = NAV_ITEMS.reduce((acc, item) => { acc[item.key] = item.label;
 });
 
 export default function AppLayoutMobile() {
-  const { profile, signOut, isAdmin, isAssistant, isPartner, isFreelancer, unreadNotificationCount, markDashboardSeen, refreshNotifications } = useAuth();
+  const { profile, signOut, isAdmin, isAssistant, isPartner, isFreelancer } = useAuth();
+  const { unreadNotificationCount, markDashboardSeen, refreshNotifications } = useNotifications();
   const { getResolvedNav } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => getTabFromPath() || localStorage.getItem('studio-hub-tab') || 'dashboard');
   const [navTarget, setNavTarget] = useState(null);

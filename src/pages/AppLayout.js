@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useNotifications } from '../contexts/NotificationContext';
 import useNavConfig from '../hooks/useNavConfig';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
 import SidebarEditMode from '../components/SidebarEditMode';
@@ -48,6 +49,7 @@ import MyTasks from './MyTasks';
 import Assignments from './Assignments';
 import Jobs from './Jobs';
 import Workflows from './Workflows';
+import Ops from './Ops';
 import Morty from '../components/Morty';
 import FreelancerTour from '../components/FreelancerTour';
 
@@ -94,11 +96,11 @@ const NAV_ITEMS = [
   { key: 'messages', label: 'Messages', icon: MessagesIcon },
 ];
 
-const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_documents', 'fl_assignments', 'fl_submit', 'ideas'));
+const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'ops', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_documents', 'fl_assignments', 'fl_submit', 'ideas'));
 
 // ─── Modes ──────────────────────────────────────────────────
 // Admin-only pages that live in Admin Mode and are hidden from the Work View.
-const ADMIN_PAGE_KEYS = ['assignments', 'payroll', 'analytics', 'tracking', 'accounting', 'business_dev', 'freelancers', 'workflows', 'jobs', 'invoicing'];
+const ADMIN_PAGE_KEYS = ['assignments', 'payroll', 'analytics', 'tracking', 'accounting', 'business_dev', 'freelancers', 'workflows', 'jobs', 'invoicing', 'ops'];
 // Everyday anchors kept at the top of the Admin Mode sidebar.
 const ADMIN_ESSENTIAL_KEYS = ['dashboard', 'my_tasks', 'messages'];
 // Admin Mode sidebar: essentials, a divider, then the admin pages + settings.
@@ -117,6 +119,7 @@ const ADMIN_MODE_NAV = [
   { type: 'item', key: 'workflows', label: 'Workflows' },
   { type: 'item', key: 'jobs', label: 'Jobs' },
   { type: 'item', key: 'invoicing', label: 'Invoicing' },
+  { type: 'item', key: 'ops', label: 'Ops' },
   { type: 'item', key: 'admin', label: 'Admin Settings' },
 ];
 const ADMIN_MODE_KEYS = new Set([...ADMIN_ESSENTIAL_KEYS, ...ADMIN_PAGE_KEYS, 'admin']);
@@ -192,6 +195,7 @@ const NAV_ICON_MAP = {
   invoicing: InvoicingIcon,
   freelancers: FreelancersIcon,
   workflows: WorkflowsIcon,
+  ops: AnalyticsIcon,
   jobs: JobsIcon,
   channels: ChannelsIcon,
   messages: MessagesIcon,
@@ -207,7 +211,8 @@ const NAV_ICON_MAP = {
 };
 
 export default function AppLayout() {
-  const { profile, signOut, isAdmin, isAssistant, isPartner, isFreelancer, restrictedNavKeys, unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, newAssignmentCount, myTaskCount, stuckCommentCount, refreshNotifications } = useAuth();
+  const { profile, signOut, isAdmin, isAssistant, isPartner, isFreelancer, restrictedNavKeys } = useAuth();
+  const { unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, newAssignmentCount, myTaskCount, stuckCommentCount, refreshNotifications } = useNotifications();
   const { getResolvedNav, saveConfig, saving } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => getTabFromPath() || localStorage.getItem('studio-hub-tab') || 'dashboard');
   const [mode, setMode] = useState(() => localStorage.getItem('studio-hub-mode') === 'admin' ? 'admin' : 'work');
@@ -789,6 +794,7 @@ export default function AppLayout() {
           {isAdmin && activeTab === 'admin' && <AdminPanel initialTab={adminInitialTab} />}
           {isAdmin && activeTab === 'freelancers' && <Freelancers />}
           {isAdmin && activeTab === 'workflows' && <Workflows />}
+          {isAdmin && activeTab === 'ops' && <Ops />}
           {isAdmin && activeTab === 'jobs' && <Jobs />}
           {isFreelancer && activeTab === 'fl_dashboard' && <FreelancerDashboard onNavigate={navigateTo} />}
           {isFreelancer && activeTab === 'fl_hours' && <FreelancerHours />}
