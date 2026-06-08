@@ -73,15 +73,13 @@ supabase/
 - "Do this more" widget (admin-only): tracks daily IG story posting goals via `metricool-stories` edge function + `admin_goals` table. Refreshes every 30s. Shows 7-day progress bars with green checkmarks when goal is met.
 
 ## Known Issues
-- **sync-youtube is broken for More Mayday channel.** Runs successfully (status "success", processes 167 records) but hasn't picked up any new videos since May 5, 2026. The YouTube uploads playlist fetch appears stale — returning the same 167 video IDs every run with 0 new records created. All content_items counts for More Mayday after May 5 are wrong/missing, cascading to incorrect Goals page monthly results. Needs investigation in `supabase/functions/sync-youtube/index.ts` — likely the uploads playlist ID is cached or the API key/quota is exhausted.
-- **"Total Short Form Posts" monthly goal misconfigured.** Only has TikTok account ID (which has a placeholder external_id). Needs YouTube + Instagram account IDs added to its `platform_account_ids`.
-- **Goals page fixes staged but not deployed:** (1) added `'reel'` to short-form content_type filter in `fetchMonthlyProgress`, (2) added missing auth header to `metricool-posts` fetch (was always 401), (3) added channel names to Monthly Results section.
+- **sync-youtube stale for More Mayday channel.** YouTube API returns the same 167 video IDs every run — root cause is external (stale API response or quota), not a code bug. Freshness detection added: API error checking, staleness warnings in logs, and `newest_content_at` metadata on ingestion logs. Deploy updated `sync-youtube` and monitor. May need YouTube API key/quota investigation or uploads playlist ID verification.
 
 ## Important Notes
 - Pages are large single-file components (100-200KB) — read specific line ranges, not whole files
 - `node_modules/` changes in git status are normal (local package drift) — do not commit them
 - `.env` contains Supabase keys — never commit secrets
-- Migration `20260328200001_cron_generate_trends.sql` contains a hardcoded `CRON_SECRET` — be mindful if repo is shared
+- Migration `20260328200001_cron_generate_trends.sql` contains a hardcoded `CRON_SECRET` — secret has been rotated and moved to Vault, but old value remains in git history
 
 ## Business Dev page (admin-only, nested under Core Team folder)
 

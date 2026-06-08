@@ -62,13 +62,12 @@ Based on inefficiency report review (June 2026). Items are grouped by phase; eac
 
 ### Phase 0 — Immediate Correctness & Security
 
-| Item | Source | Notes |
-|---|---|---|
-| Fix More Mayday YouTube sync and backfill missing videos after May 5 | Report #20 | Highest-priority product bug. Function reports success but data is stale. Verify channel ID, uploads playlist ID, `YOUTUBE_REFRESH_TOKEN_MAYDAY`, and API quota. Backfill missing content_items and recompute affected rollups/goals. |
-| Rotate hardcoded `CRON_SECRET` in migration `20260328200001` | Report #18 | Secret is in git history. Rotate value, remove from migration, add CI secret scanner, establish rule that migrations never contain secrets. |
-| Deploy staged Goals fixes | Report #22 | Three fixes sitting undeployed: `reel` content type filter, missing auth header on `metricool-posts` (always 401), channel names in Monthly Results. |
-| Fix "Total Short Form Posts" goal configuration | Report #21 | Only has TikTok account ID with placeholder external_id. Needs YouTube + Instagram account IDs added to `platform_account_ids`. |
-| Fix `handleOooDecision` hardcoded `all_day: true` | Additional | OOO approval creates calendar events with `all_day: true` regardless of the actual request. Should respect the user's original all_day/partial-day selection. |
+| Item | Source | Status | Notes |
+|---|---|---|---|
+| Fix More Mayday YouTube sync | Report #20 | **In progress** | Code is correct — YouTube API returns the same 167 video IDs. Added freshness detection: API error checking in `fetchAllVideoIds`, staleness warnings when no new videos found, `newest_content_at`/`total_api_videos`/`existing_db_videos` metadata on ingestion logs. Root cause is external (stale API response or quota). Deploy updated `sync-youtube` and monitor. |
+| Rotate hardcoded `CRON_SECRET` | Report #18 | **Done** | Rotated in migration `20260512130000`, moved to Supabase Vault in `20260601140000`, sync jobs switched to header-based auth in `20260601150000`. |
+| Deploy staged Goals fixes | Report #22 | **Done** | All three fixes live in `YearlyGoalsSection.js`: `reel` filter (line 288), auth header on metricool-posts (line 262), channel names in Monthly Results (lines 876-882). |
+| Fix "Total Short Form Posts" goal configuration | Report #21 | **Done** | Updated `monthly_goals` to include YouTube (Trevor May Baseball + More Mayday), Instagram, and TikTok platform account IDs. |
 
 ### Phase 1 — Stabilize Platform Infrastructure
 
@@ -117,7 +116,7 @@ Based on inefficiency report review (June 2026). Items are grouped by phase; eac
 
 ### Tech Debt
 - `node_modules/` drift in git status (local package versions diverge) — do not commit
-- `20260328200001_cron_generate_trends.sql` contains a hardcoded `CRON_SECRET`
+- `20260328200001_cron_generate_trends.sql` contains a hardcoded `CRON_SECRET` (mitigated: secret rotated and moved to Vault, but old value remains in git history)
 - Orphan remote migration `20260526035022` was reverted from history (tables already created by it exist)
 - Pages are large single-file components (100-200KB) — consider splitting as complexity grows
 

@@ -130,6 +130,11 @@ async function fetchAllVideoIds(uploadsPlaylistId: string, apiKey: string): Prom
     const res = await fetchWithRetry(url);
     const data = await res.json();
 
+    if (data.error) {
+      console.error(`YouTube API error fetching playlist ${uploadsPlaylistId}:`, JSON.stringify(data.error));
+      throw new Error(`YouTube API error: ${data.error.message || data.error.code || 'unknown'}`);
+    }
+
     const ids = (data.items || [])
       .map((item: any) => item.contentDetails?.videoId)
       .filter(Boolean);
@@ -188,6 +193,9 @@ serve(async (req) => {
       let created = 0;
       let updated = 0;
       let failed = 0;
+      let videoIds: string[] = [];
+      let existingExtIds = new Set<string>();
+      let newestPublishedAt: string | null = null;
 
       try {
         const channelId = account.external_id;
@@ -247,7 +255,8 @@ serve(async (req) => {
             throw new Error("Could not find uploads playlist for channel");
           }
 
-          const videoIds = await fetchAllVideoIds(uploadsPlaylistId, apiKey);
+          console.log(`Uploads playlist ID for ${account.account_name}: ${uploadsPlaylistId}`);
+          videoIds = await fetchAllVideoIds(uploadsPlaylistId, apiKey);
           console.log(`Total videos for ${account.account_name}: ${videoIds.length}`);
 
           // Snapshot existing external_ids so we can detect new videos after upsert
@@ -255,7 +264,7 @@ serve(async (req) => {
             .from("content_items")
             .select("external_id")
             .eq("platform_account_id", account.id);
-          const existingExtIds = new Set((existingItems || []).map((r: any) => r.external_id));
+          existingExtIds = new Set((existingItems || []).map((r: any) => r.external_id));
 
           // Collect new non-short videos for clip task creation
           const newFullVideos: { videoId: string; title: string; url: string }[] = [];
@@ -304,6 +313,11 @@ serve(async (req) => {
               });
               videoMeta.push({ videoId: video.id, views, likes, comments, engagementRate,
                 favoriteCount: parseInt(stats.favoriteCount || "0") });
+
+              // Track newest published_at for freshness detection
+              if (snippet.publishedAt && (!newestPublishedAt || snippet.publishedAt > newestPublishedAt)) {
+                newestPublishedAt = snippet.publishedAt;
+              }
 
               // Track new non-short videos for clip tasks
               if (!isShort && !existingExtIds.has(video.id)) {
@@ -623,13 +637,28 @@ serve(async (req) => {
         }
 
         await updateLastSynced(supabase, account.id);
+
+        // Freshness detection: warn if no new videos were found
+        if (videoIds.length > 0 && videoIds.length === existingExtIds.size) {
+          console.warn(`STALENESS WARNING for ${account.account_name}: API returned ${videoIds.length} videos, all already in DB. Newest content: ${newestPublishedAt || 'unknown'}. No new videos detected.`);
+        }
+
         await completeIngestionLog(supabase, logId, {
           records_processed: processed,
           records_created: created,
           records_updated: updated,
         });
 
-        results.push({ account: account.account_name, processed, failed, revenue_synced: true });
+        // Store freshness metadata on the ingestion log
+        await supabase.from("ingestion_logs").update({
+          metadata: {
+            newest_content_at: newestPublishedAt,
+            total_api_videos: videoIds.length,
+            existing_db_videos: existingExtIds.size,
+          },
+        }).eq("id", logId);
+
+        results.push({ account: account.account_name, processed, failed, revenue_synced: true, newest_content_at: newestPublishedAt });
       } catch (err) {
         await failIngestionLog(supabase, logId, err as Error);
         results.push({ account: account.account_name, error: (err as Error).message });
