@@ -59,7 +59,7 @@
   },
   "scripts": {
     "start": "craco start",
-    "build": "CI=false craco build",
+    "build": "CI=true craco build",
     "test": "craco test",
     "test:frontend": "craco test --watchAll=false",
     "test:edge": "deno test supabase/functions/ --allow-env --allow-net --allow-read --no-check",

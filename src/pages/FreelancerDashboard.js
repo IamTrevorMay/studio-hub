@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import useRealtimeTable from '../hooks/useRealtimeTable';
 
 const SUBMISSIONS_FOLDER_ID = '1r1dENUCjNSs57MjidYbE2rWrbMKXpLM0';
 
@@ -177,16 +178,35 @@ export default function FreelancerDashboard({ onNavigate }) {
 
   // ── Realtime ───────────────────────────────────────────────────
 
-  useEffect(() => {
-    if (!profile?.id) return;
-    const channel = supabase.channel('fl-dashboard')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'freelancer_assignments', filter: `freelancer_id=eq.${profile.id}` }, () => fetchAssignments())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'freelancer_assignment_comments' }, () => { if (selectedId) fetchComments(selectedId); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${profile.id}` }, () => fetchNotifications())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements' }, () => fetchAnnouncements())
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [profile?.id, fetchAssignments, fetchComments, fetchNotifications, fetchAnnouncements, selectedId]);
+  const refetchComments = useCallback(() => {
+    if (selectedId) fetchComments(selectedId);
+  }, [selectedId, fetchComments]);
+
+  useRealtimeTable('fl-assignments', {
+    table: 'freelancer_assignments',
+    filter: profile?.id ? `freelancer_id=eq.${profile.id}` : undefined,
+    onAny: fetchAssignments,
+    enabled: !!profile?.id,
+  });
+
+  useRealtimeTable('fl-comments', {
+    table: 'freelancer_assignment_comments',
+    onAny: refetchComments,
+    enabled: !!profile?.id,
+  });
+
+  useRealtimeTable('fl-notifications', {
+    table: 'notifications',
+    filter: profile?.id ? `user_id=eq.${profile.id}` : undefined,
+    onAny: fetchNotifications,
+    enabled: !!profile?.id,
+  });
+
+  useRealtimeTable('fl-announcements', {
+    table: 'announcements',
+    onAny: fetchAnnouncements,
+    enabled: !!profile?.id,
+  });
 
   // ── Handlers ───────────────────────────────────────────────────
 

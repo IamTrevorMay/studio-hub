@@ -2,10 +2,19 @@ import React, { Suspense } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { PresenceProvider } from './contexts/PresenceContext';
 import { NotificationProvider } from './contexts/NotificationContext';
-import { isMobileViewport } from './hooks/useIsMobile';
+import { isMobileViewport, MOBILE_BREAKPOINT_PX } from './hooks/useIsMobile';
 import { ConfirmProvider } from './contexts/ConfirmContext';
 
 // Pick the layout + auth chunks once at boot. Cross-breakpoint resize requires reload.
+// Reload when the viewport crosses the mobile breakpoint after boot
+const _initialMobile = isMobileViewport();
+if (typeof window !== 'undefined') {
+  const _mq = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX}px)`);
+  const _handler = (e) => { if (e.matches !== _initialMobile) window.location.reload(); };
+  if (_mq.addEventListener) _mq.addEventListener('change', _handler);
+  else _mq.addListener(_handler);
+}
+
 const Layout = isMobileViewport()
   ? React.lazy(() => import('./pages/AppLayoutMobile'))
   : React.lazy(() => import('./pages/AppLayout'));

@@ -28,6 +28,12 @@ module.exports = {
           })
         })
       }
+      config.ignoreWarnings = [
+        {
+          module: /node_modules/,
+          message: /Critical dependency/,
+        },
+      ];
       return config
     },
   },

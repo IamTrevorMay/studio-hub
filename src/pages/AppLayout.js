@@ -15,7 +15,7 @@ import AdminPanel from './AdminPanel';
 import Ideation from './Ideation';
 import Reviews from './Reviews';
 import Resources from './Resources';
-import Analytics from './Analytics';
+import Analytics from './analytics/Analytics';
 import Tracking from './Tracking';
 import Accounting from './Accounting';
 import Research from './Research';
@@ -52,6 +52,7 @@ import Workflows from './Workflows';
 import Ops from './Ops';
 import Morty from '../components/Morty';
 import FreelancerTour from '../components/FreelancerTour';
+import PageErrorBoundary from '../components/PageErrorBoundary';
 
 // Sidebar catalog. Labels listed here are aliased internally — the user
 // refers to Production as "Beat Sheet", Scene Builder as "Custom Visuals",
@@ -756,51 +757,51 @@ export default function AppLayout() {
           </div>
         </div>
         <div ref={mainContentRef} style={styles.mainContent}>
-          {activeTab === 'dashboard' && <Dashboard onNavigate={navigateTo} />}
-          {activeTab === 'my_tasks' && <MyTasks onNavigate={navigateTo} />}
-          {isAdmin && activeTab === 'assignments' && <Assignments />}
-          {activeTab === 'projects' && <Projects onNavigate={navigateTo} />}
-          {activeTab === 'deliverables' && <Deliverables initialCampaignId={navTarget} onCampaignOpened={() => setNavTarget(null)} />}
-          {activeTab === 'calendar' && <Calendar onNavigate={navigateTo} />}
-          {activeTab === 'production' && <Production />}
-          {activeTab === 'ideation' && <Ideation initialConceptId={navTarget} onConceptOpened={() => setNavTarget(null)} />}
-          {activeTab === 'resources' && <Resources />}
-          {activeTab === 'write' && <Write />}
-          {activeTab === 'ideas' && <Ideas />}
-          {activeTab === 'screenwriter' && <Screenwriter initialScriptId={navTarget} onScriptOpened={() => setNavTarget(null)} />}
-          {activeTab === 'teleprompter' && <Teleprompter onBack={() => setActiveTab('dashboard')} />}
-          {activeTab === 'telestration' && <Telestration onBack={() => setActiveTab('dashboard')} />}
-          {activeTab === 'post_show' && <PostShow onBack={() => setActiveTab('dashboard')} />}
-          {activeTab === 'timeline' && <Timeline />}
-          {activeTab === 'organize' && <Organize onBack={() => setActiveTab('dashboard')} />}
-          {activeTab === 'broadcast' && <Broadcast onBack={() => setActiveTab('dashboard')} />}
-          {activeTab === 'report_cards' && <ReportCards onBack={() => setActiveTab('dashboard')} />}
-          {activeTab === 'mailer' && <Mailer onBack={() => setActiveTab('dashboard')} />}
-          {activeTab === 'graphics' && <Graphics onBack={() => setActiveTab('dashboard')} />}
-          {activeTab === 'asset_designer' && <AssetDesigner onBack={() => setActiveTab('dashboard')} />}
-          {activeTab === 'scene_builder' && <SceneComposer onBack={() => setActiveTab('dashboard')} />}
-          {activeTab === 'template_builder' && <TemplateBuilder onBack={() => setActiveTab('dashboard')} />}
-          {isAdmin && activeTab === 'analytics' && <Analytics />}
-          {isAdmin && activeTab === 'tracking' && <Tracking />}
-          {isAdmin && activeTab === 'accounting' && <Accounting />}
-          {activeTab === 'research' && <Research />}
-          {activeTab === 'reviews' && <Reviews />}
-          {(isAdmin || isPartner) && activeTab === 'business_dev' && <BusinessDev />}
-          {isAdmin && activeTab === 'payroll' && <Payroll />}
-          {isAdmin && activeTab === 'invoicing' && <Invoicing />}
+          {activeTab === 'dashboard' && <PageErrorBoundary key="dashboard"><Dashboard onNavigate={navigateTo} /></PageErrorBoundary>}
+          {activeTab === 'my_tasks' && <PageErrorBoundary key="my_tasks"><MyTasks onNavigate={navigateTo} /></PageErrorBoundary>}
+          {isAdmin && activeTab === 'assignments' && <PageErrorBoundary key="assignments"><Assignments /></PageErrorBoundary>}
+          {activeTab === 'projects' && <PageErrorBoundary key="projects"><Projects onNavigate={navigateTo} /></PageErrorBoundary>}
+          {activeTab === 'deliverables' && <PageErrorBoundary key="deliverables"><Deliverables initialCampaignId={navTarget} onCampaignOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
+          {activeTab === 'calendar' && <PageErrorBoundary key="calendar"><Calendar onNavigate={navigateTo} /></PageErrorBoundary>}
+          {activeTab === 'production' && <PageErrorBoundary key="production"><Production /></PageErrorBoundary>}
+          {activeTab === 'ideation' && <PageErrorBoundary key="ideation"><Ideation initialConceptId={navTarget} onConceptOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
+          {activeTab === 'resources' && <PageErrorBoundary key="resources"><Resources /></PageErrorBoundary>}
+          {activeTab === 'write' && <PageErrorBoundary key="write"><Write /></PageErrorBoundary>}
+          {activeTab === 'ideas' && <PageErrorBoundary key="ideas"><Ideas /></PageErrorBoundary>}
+          {activeTab === 'screenwriter' && <PageErrorBoundary key="screenwriter"><Screenwriter initialScriptId={navTarget} onScriptOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
+          {activeTab === 'teleprompter' && <PageErrorBoundary key="teleprompter"><Teleprompter onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
+          {activeTab === 'telestration' && <PageErrorBoundary key="telestration"><Telestration onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
+          {activeTab === 'post_show' && <PageErrorBoundary key="post_show"><PostShow onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
+          {activeTab === 'timeline' && <PageErrorBoundary key="timeline"><Timeline /></PageErrorBoundary>}
+          {activeTab === 'organize' && <PageErrorBoundary key="organize"><Organize onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
+          {activeTab === 'broadcast' && <PageErrorBoundary key="broadcast"><Broadcast onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
+          {activeTab === 'report_cards' && <PageErrorBoundary key="report_cards"><ReportCards onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
+          {activeTab === 'mailer' && <PageErrorBoundary key="mailer"><Mailer onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
+          {activeTab === 'graphics' && <PageErrorBoundary key="graphics"><Graphics onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
+          {activeTab === 'asset_designer' && <PageErrorBoundary key="asset_designer"><AssetDesigner onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
+          {activeTab === 'scene_builder' && <PageErrorBoundary key="scene_builder"><SceneComposer onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
+          {activeTab === 'template_builder' && <PageErrorBoundary key="template_builder"><TemplateBuilder onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
+          {isAdmin && activeTab === 'analytics' && <PageErrorBoundary key="analytics"><Analytics /></PageErrorBoundary>}
+          {isAdmin && activeTab === 'tracking' && <PageErrorBoundary key="tracking"><Tracking /></PageErrorBoundary>}
+          {isAdmin && activeTab === 'accounting' && <PageErrorBoundary key="accounting"><Accounting /></PageErrorBoundary>}
+          {activeTab === 'research' && <PageErrorBoundary key="research"><Research /></PageErrorBoundary>}
+          {activeTab === 'reviews' && <PageErrorBoundary key="reviews"><Reviews /></PageErrorBoundary>}
+          {(isAdmin || isPartner) && activeTab === 'business_dev' && <PageErrorBoundary key="business_dev"><BusinessDev /></PageErrorBoundary>}
+          {isAdmin && activeTab === 'payroll' && <PageErrorBoundary key="payroll"><Payroll /></PageErrorBoundary>}
+          {isAdmin && activeTab === 'invoicing' && <PageErrorBoundary key="invoicing"><Invoicing /></PageErrorBoundary>}
 
-          {activeTab === 'channels' && <Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} />}
-          {activeTab === 'messages' && <Messages onNavigate={navigateTo} />}
-          {isAdmin && activeTab === 'admin' && <AdminPanel initialTab={adminInitialTab} />}
-          {isAdmin && activeTab === 'freelancers' && <Freelancers />}
-          {isAdmin && activeTab === 'workflows' && <Workflows />}
-          {isAdmin && activeTab === 'ops' && <Ops />}
-          {isAdmin && activeTab === 'jobs' && <Jobs />}
-          {isFreelancer && activeTab === 'fl_dashboard' && <FreelancerDashboard onNavigate={navigateTo} />}
-          {isFreelancer && activeTab === 'fl_hours' && <FreelancerHours />}
-          {isFreelancer && activeTab === 'fl_profile' && <FreelancerProfile />}
-          {isFreelancer && activeTab === 'fl_notifications' && <FreelancerNotifications onNavigate={navigateTo} />}
-          {isFreelancer && activeTab === 'fl_documents' && <FreelancerDocuments />}
+          {activeTab === 'channels' && <PageErrorBoundary key="channels"><Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
+          {activeTab === 'messages' && <PageErrorBoundary key="messages"><Messages onNavigate={navigateTo} /></PageErrorBoundary>}
+          {isAdmin && activeTab === 'admin' && <PageErrorBoundary key="admin"><AdminPanel initialTab={adminInitialTab} /></PageErrorBoundary>}
+          {isAdmin && activeTab === 'freelancers' && <PageErrorBoundary key="freelancers"><Freelancers /></PageErrorBoundary>}
+          {isAdmin && activeTab === 'workflows' && <PageErrorBoundary key="workflows"><Workflows /></PageErrorBoundary>}
+          {isAdmin && activeTab === 'ops' && <PageErrorBoundary key="ops"><Ops /></PageErrorBoundary>}
+          {isAdmin && activeTab === 'jobs' && <PageErrorBoundary key="jobs"><Jobs /></PageErrorBoundary>}
+          {isFreelancer && activeTab === 'fl_dashboard' && <PageErrorBoundary key="fl_dashboard"><FreelancerDashboard onNavigate={navigateTo} /></PageErrorBoundary>}
+          {isFreelancer && activeTab === 'fl_hours' && <PageErrorBoundary key="fl_hours"><FreelancerHours /></PageErrorBoundary>}
+          {isFreelancer && activeTab === 'fl_profile' && <PageErrorBoundary key="fl_profile"><FreelancerProfile /></PageErrorBoundary>}
+          {isFreelancer && activeTab === 'fl_notifications' && <PageErrorBoundary key="fl_notifications"><FreelancerNotifications onNavigate={navigateTo} /></PageErrorBoundary>}
+          {isFreelancer && activeTab === 'fl_documents' && <PageErrorBoundary key="fl_documents"><FreelancerDocuments /></PageErrorBoundary>}
         </div>
       </main>
       {profile?.mascot_enabled !== false && <Morty />}
