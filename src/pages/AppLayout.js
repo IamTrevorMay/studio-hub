@@ -23,7 +23,6 @@ import BusinessDev from './BusinessDev';
 import Invoicing from './Invoicing';
 import Payroll from './Payroll';
 import Production from './Production';
-import Write from './Write';
 import Screenwriter from './Screenwriter';
 import Teleprompter from './tools/Teleprompter';
 import Organize from './tools/Organize';
@@ -63,7 +62,7 @@ const NAV_ITEMS = [
   { key: 'my_tasks', label: 'My Tasks', icon: MyTasksIcon },
   { key: 'assignments', label: 'Assignments', icon: AssignmentsIcon, adminOnly: true },
   { key: 'projects', label: 'Projects', icon: ProjectsIcon },
-  { key: 'write', label: 'Write', icon: ResourcesIcon },
+  { key: 'ideas', label: 'Ideas', icon: ResourcesIcon },
   { key: 'production', label: 'Beat Sheet', icon: ProductionIcon },
   { key: 'scene_builder', label: 'Scene Composer', icon: ToolsIcon, adminOnly: true, hidden: true },
   { key: 'screenwriter', label: 'Screenwriter', icon: IdeationIcon },
@@ -766,7 +765,6 @@ export default function AppLayout() {
           {activeTab === 'production' && <PageErrorBoundary key="production"><Production /></PageErrorBoundary>}
           {activeTab === 'ideation' && <PageErrorBoundary key="ideation"><Ideation initialConceptId={navTarget} onConceptOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {activeTab === 'resources' && <PageErrorBoundary key="resources"><Resources /></PageErrorBoundary>}
-          {activeTab === 'write' && <PageErrorBoundary key="write"><Write /></PageErrorBoundary>}
           {activeTab === 'ideas' && <PageErrorBoundary key="ideas"><Ideas /></PageErrorBoundary>}
           {activeTab === 'screenwriter' && <PageErrorBoundary key="screenwriter"><Screenwriter initialScriptId={navTarget} onScriptOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {activeTab === 'teleprompter' && <PageErrorBoundary key="teleprompter"><Teleprompter onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
