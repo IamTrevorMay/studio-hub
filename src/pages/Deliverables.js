@@ -736,6 +736,39 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
     fetchSponsors();
   }
 
+  // Push ad copy to linked beat sheet (manual button in form)
+  const [pushingAdCopy, setPushingAdCopy] = useState(false);
+  const [pushAdCopyDone, setPushAdCopyDone] = useState(false);
+  async function handlePushAdCopyToBeatSheet() {
+    if (!deliverableBeatSheetId || !deliverableNotes) return;
+    setPushingAdCopy(true);
+    try {
+      const { data: sheet } = await supabase
+        .from('beat_sheets')
+        .select('beats')
+        .eq('id', deliverableBeatSheetId)
+        .single();
+      if (!sheet) return;
+      const newBeat = {
+        id: crypto.randomUUID(),
+        title: 'Ad Read\n\n' + deliverableNotes,
+        context: '',
+        graphics: [],
+        videos: [],
+      };
+      await supabase.from('beat_sheets').update({
+        beats: [...(sheet.beats || []), newBeat],
+        updated_at: new Date().toISOString(),
+      }).eq('id', deliverableBeatSheetId);
+      setPushAdCopyDone(true);
+      setTimeout(() => setPushAdCopyDone(false), 2000);
+    } catch (err) {
+      console.error('Error pushing ad copy to beat sheet:', err);
+    } finally {
+      setPushingAdCopy(false);
+    }
+  }
+
   // Duplicate a deliverable
   async function handleDuplicateDeliverable(d) {
     setCardContextMenu(null);
@@ -1792,7 +1825,29 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                             </div>
                           </div>
                           <div style={styles.field}>
-                            <label style={styles.label}>Ad Copy</label>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <label style={styles.label}>Ad Copy</label>
+                              <button
+                                type="button"
+                                disabled={!deliverableBeatSheetId || !deliverableNotes || pushingAdCopy}
+                                onClick={handlePushAdCopyToBeatSheet}
+                                style={{
+                                  padding: '4px 10px',
+                                  fontSize: '11px',
+                                  borderRadius: '6px',
+                                  border: '1px solid',
+                                  borderColor: (!deliverableBeatSheetId || !deliverableNotes) ? 'rgba(255,255,255,0.1)' : 'rgba(99,102,241,0.4)',
+                                  background: (!deliverableBeatSheetId || !deliverableNotes) ? 'rgba(255,255,255,0.03)' : 'rgba(99,102,241,0.15)',
+                                  color: (!deliverableBeatSheetId || !deliverableNotes) ? 'rgba(255,255,255,0.25)' : '#a5b4fc',
+                                  cursor: (!deliverableBeatSheetId || !deliverableNotes) ? 'not-allowed' : 'pointer',
+                                  fontFamily: 'DM Sans, sans-serif',
+                                  fontWeight: 500,
+                                  transition: 'all 0.15s ease',
+                                }}
+                              >
+                                {pushAdCopyDone ? 'Pushed!' : pushingAdCopy ? 'Pushing...' : 'Push to Beat Sheet'}
+                              </button>
+                            </div>
                             <textarea value={deliverableNotes} onChange={e => setDeliverableNotes(e.target.value)} placeholder="Ad copy, talking points, key messaging..." rows={2} style={{ ...styles.input, resize: 'vertical' }} />
                           </div>
                           <button type="submit" style={styles.submitBtn}>{editingDeliverable ? 'Update Deliverable' : 'Add Deliverable'}</button>
@@ -1859,10 +1914,14 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
         const upcomingReads = allDeliverables
           .filter(d => !d.delivered)
           .sort((a, b) => {
-            if (!a.due_date && !b.due_date) return 0;
-            if (!a.due_date) return 1;
-            if (!b.due_date) return -1;
-            return a.due_date.localeCompare(b.due_date);
+            const evA = a.video_event_id ? videoEvents.find(e => e.id === a.video_event_id) : null;
+            const evB = b.video_event_id ? videoEvents.find(e => e.id === b.video_event_id) : null;
+            const dateA = evA?.start_date;
+            const dateB = evB?.start_date;
+            if (!dateA && !dateB) return 0;
+            if (!dateA) return 1;
+            if (!dateB) return -1;
+            return dateA.localeCompare(dateB);
           });
         const totalPay = upcomingReads.reduce((sum, d) => sum + (parseFloat(d.pay) || 0), 0);
         return (
@@ -1895,17 +1954,19 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
               </div>
             ) : (
               (() => {
-                // Group by due month (already sorted ascending; undated last).
+                // Group by video event month (already sorted ascending; unlinked last).
                 const groups = [];
                 const byKey = {};
                 for (const d of upcomingReads) {
-                  const key = d.due_date ? d.due_date.slice(0, 7) : 'none';
+                  const ev = d.video_event_id ? videoEvents.find(e => e.id === d.video_event_id) : null;
+                  const evDate = ev?.start_date;
+                  const key = evDate ? evDate.slice(0, 7) : 'none';
                   if (!byKey[key]) {
                     byKey[key] = {
                       key,
-                      label: d.due_date
-                        ? new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-                        : 'No due date',
+                      label: evDate
+                        ? new Date(evDate.slice(0, 10) + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+                        : 'Not Scheduled',
                       items: [],
                     };
                     groups.push(byKey[key]);
