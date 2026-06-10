@@ -143,6 +143,22 @@ Deferred:
   pixels and Resend webhook hits continue to land somewhere. Hard cutover
   of new outbound sends to Mayday on deploy day.
 - **Broadcast**: no live shows in next 2 weeks — free cutover window.
+  - Producer role added to `profiles.role`; producers see only the
+    Broadcast nav row (plus member-tier defaults). Per-project ACL via
+    email-keyed `broadcast_project_members` rows.
+  - Storage: `broadcast-assets` bucket (public read, producer-write).
+    Files >100 MB log a server-side warning; cap is the Supabase Pro
+    platform max (5 GB / file). Uploads use the tus protocol directly
+    against `${SUPABASE_URL}/storage/v1/upload/resumable`.
+  - Realtime: `broadcast_widget_state` + `broadcast_chat_messages` +
+    `broadcast_sessions` published on `supabase_realtime`. Overlay
+    subscribes to row updates; ephemeral signals (producer panel
+    show/hide) go through Supabase channel `broadcast` events.
+  - Public overlay route at `/broadcast-overlay/<channel_name>` is **deferred**;
+    `LivePreview` is a placeholder for now. Producer console works
+    end-to-end (asset CRUD + trigger + Realtime + OBS WS + StreamDeck WebHID + native plugin).
+  - StreamDeck native plugin lives at `streamdeck-plugin/com.mayday.broadcast.sdPlugin/`,
+    packaged separately via Elgato's CLI. See `streamdeck-plugin/README.md`.
 - **Report Cards / Imagine**: no live cutover risk.
 
 ## Re-confirmed flags
@@ -166,7 +182,7 @@ Deferred:
 | 2 | Imagine (smallest BUILD-NOW) | including Deno skia renderer edge fn |
 | 3 | Report Cards | install plotly/recharts/html2canvas-pro |
 | 4 | Emails (large; DB + Resend + cron + tracking) | 7 tables, ~11 edge fns, dual-run setup |
-| 5 | Broadcast (largest; producer role + email-keyed ACL) | 9 tables, 12 edge fns, OBS + StreamDeck + tus |
+| 5 | Broadcast (largest; producer role + email-keyed ACL) | 9 tables, 11 Vercel routes, OBS + StreamDeck (WebHID + native plugin) + tus |
 | 6 | Cleanup (remove external nav stragglers, delete `Tools.js`, etc.) | |
 
 Each phase ends with a manual verification step; no auto-merge.

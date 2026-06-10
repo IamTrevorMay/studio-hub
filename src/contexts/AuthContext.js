@@ -450,6 +450,7 @@ export function AuthProvider({ children }) {
     isAssistant: profile?.role === 'assistant',
     isPartner: profile?.role === 'partner',
     isFreelancer: profile?.role === 'freelancer',
+    isProducer: profile?.role === 'producer',
     canPost: profile?.role === 'admin' || profile?.posting_allowed === true,
     restrictedNavKeys: getRestrictedNavKeys(profile?.role),
     refreshKey,

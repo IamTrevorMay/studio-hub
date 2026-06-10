@@ -1,5 +1,16 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
+import { canAccessBroadcast } from '../lib/rolePermissions';
+
+// Some pages are admin-only by default but should also be visible to a
+// specific non-admin role. Add overrides here as more producer-tier
+// pages land.
+function itemAllowedForUser(item, isAdmin, profile) {
+  if (!item.adminOnly) return true;
+  if (isAdmin) return true;
+  if (item.key === 'broadcast' && canAccessBroadcast(profile?.role)) return true;
+  return false;
+}
 
 /**
  * Hook to fetch, save, and subscribe to sidebar nav config from Supabase.
@@ -112,8 +123,7 @@ export default function useNavConfig() {
     // If no config or empty, return hardcoded items as-is
     if (!config || !config.items || config.items.length === 0) {
       return navItems
-        .filter(item => !item.hidden)
-        .filter(item => !item.adminOnly || isAdmin)
+        .filter(item => itemAllowedForUser(item, isAdmin, profile))
         .filter(item => !isRestricted(item.key))
         .map(item => ({ type: 'item', key: item.key, label: item.label, adminOnly: item.adminOnly }));
     }
@@ -136,8 +146,7 @@ export default function useNavConfig() {
       } else if (entry.type === 'item') {
         const codeItem = codeMap[entry.key];
         if (!codeItem) continue; // item removed from code
-        if (codeItem.hidden) continue;
-        if (codeItem.adminOnly && !isAdmin) continue;
+        if (!itemAllowedForUser(codeItem, isAdmin, profile)) continue;
         if (isRestricted(entry.key)) continue;
         usedKeys.add(entry.key);
         result.push({
@@ -153,8 +162,7 @@ export default function useNavConfig() {
     // Append items from code that aren't in config
     for (const item of navItems) {
       if (!usedKeys.has(item.key)) {
-        if (item.hidden) continue;
-        if (item.adminOnly && !isAdmin) continue;
+        if (!itemAllowedForUser(item, isAdmin, profile)) continue;
         if (isRestricted(item.key)) continue;
         result.push({ type: 'item', key: item.key, label: item.label, folderId: null, adminOnly: item.adminOnly });
       }
