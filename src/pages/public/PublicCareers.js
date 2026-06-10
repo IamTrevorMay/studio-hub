@@ -121,7 +121,52 @@ export default function PublicCareers() {
   );
 }
 
+function renderBullets(text) {
+  if (!text) return null;
+  const lines = text.split('\n').filter(l => l.trim());
+  return (
+    <div style={{ margin: '8px 0 0' }}>
+      {lines.map((line, i) => {
+        const isSub = line.startsWith('  ');
+        const trimmed = line.trim();
+        return (
+          <div key={i} style={{ paddingLeft: isSub ? 24 : 8, fontSize: 15, lineHeight: 1.7, color: 'rgba(255,255,255,0.82)', marginBottom: 2 }}>
+            <span style={{ marginRight: 8, color: 'rgba(255,255,255,0.4)' }}>{isSub ? '○' : '•'}</span>{trimmed}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function StructuredDescription({ data }) {
+  const sectionHead = { fontSize: 16, fontWeight: 700, color: '#fff', margin: '24px 0 6px' };
+  const bodyText = { fontSize: 15, lineHeight: 1.7, color: 'rgba(255,255,255,0.82)' };
+  return (
+    <div style={{ marginBottom: 32 }}>
+      {data.subtitle && <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)', marginBottom: 20 }}>{data.subtitle}</div>}
+      {data.intro && <div style={{ ...bodyText, whiteSpace: 'pre-wrap', marginBottom: 8 }}>{data.intro}</div>}
+      {data.responsibilities && (<><div style={sectionHead}>What You'll Do</div>{renderBullets(data.responsibilities)}</>)}
+      {data.requirements && (<><div style={sectionHead}>Requirements</div>{renderBullets(data.requirements)}</>)}
+      {data.reporting && (<><div style={sectionHead}>Reporting Structure</div><div style={bodyText}>{data.reporting}</div></>)}
+      {data.compensation && (<><div style={sectionHead}>Compensation</div><div style={bodyText}>{data.compensation}</div></>)}
+      {data.how_to_apply && (
+        <>
+          <div style={sectionHead}>How to Apply</div>
+          {data.apply_email && <div style={bodyText}>Email the following to <span style={{ color: '#a5b4fc', fontWeight: 600 }}>{data.apply_email}</span>:</div>}
+          {renderBullets(data.how_to_apply)}
+        </>
+      )}
+      {data.warning && <div style={{ fontSize: 15, fontWeight: 700, color: '#fca5a5', marginTop: 24 }}>{data.warning}</div>}
+      {data.subject_line && <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.7)', marginTop: 12 }}><span style={{ textDecoration: 'underline', fontWeight: 600 }}>Subject Line:</span> {data.subject_line}</div>}
+    </div>
+  );
+}
+
 function ListingDetail({ listing, onBack }) {
+  let structured = null;
+  try { const p = JSON.parse(listing.description); if (p && p.structured) structured = p; } catch {}
+
   return (
     <div>
       <button style={s.back} onClick={onBack}>← All roles</button>
@@ -132,9 +177,11 @@ function ListingDetail({ listing, onBack }) {
         {listing.work_mode && <span style={s.metaTag}>{MODE_LABEL[listing.work_mode]}{listing.location ? ` · ${listing.location}` : ''}</span>}
         {listing.comp_range && <span style={s.metaComp}>{listing.comp_range}</span>}
       </div>
-      {listing.description && (
+      {structured ? (
+        <StructuredDescription data={structured} />
+      ) : listing.description ? (
         <div style={s.description}>{listing.description}</div>
-      )}
+      ) : null}
       <ApplyForm listing={listing} />
     </div>
   );

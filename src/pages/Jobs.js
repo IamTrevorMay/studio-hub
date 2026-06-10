@@ -122,8 +122,9 @@ function ListingsTab({ listings, onChange, showToast }) {
                   <span style={{ ...st.statusPill, ...statusPillStyle(l.status) }}>{l.status}</span>
                 </div>
                 <div style={st.listingMeta}>
-                  {[l.department, l.employment_type && TYPE_OPTS.find(t => t.v === l.employment_type)?.l, l.work_mode && MODE_OPTS.find(m => m.v === l.work_mode)?.l, l.comp_range].filter(Boolean).join('  ·  ')}
+                  {(() => { const p = parseStructured(l.description); return p?.subtitle || [l.department, l.employment_type && TYPE_OPTS.find(t => t.v === l.employment_type)?.l, l.work_mode && MODE_OPTS.find(m => m.v === l.work_mode)?.l, l.comp_range].filter(Boolean).join('  ·  '); })()}
                 </div>
+                {(() => { const p = parseStructured(l.description); if (!p?.intro) return null; const t = p.intro.length > 120 ? p.intro.slice(0, 120) + '…' : p.intro; return <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.4)', marginTop: 4, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{t}</div>; })()}
               </div>
               <div style={st.listingActions}>
                 <button style={st.smallBtn} onClick={() => setEditing(l)}>Edit</button>
@@ -141,9 +142,25 @@ function ListingsTab({ listings, onChange, showToast }) {
   );
 }
 
+function parseStructured(raw) {
+  if (!raw) return null;
+  try { const p = JSON.parse(raw); return p && p.structured ? p : null; } catch { return null; }
+}
+
 function ListingModal({ listing, onClose, onSaved, showToast }) {
+  const parsed = parseStructured(listing.description);
   const [f, setF] = useState({
-    title: listing.title || '', description: listing.description || '',
+    title: listing.title || '',
+    subtitle: parsed?.subtitle || '',
+    intro: parsed ? (parsed.intro || '') : (listing.description || ''),
+    responsibilities: parsed?.responsibilities || '',
+    requirements: parsed?.requirements || '',
+    reporting: parsed?.reporting || '',
+    compensation: parsed?.compensation || '',
+    how_to_apply: parsed?.how_to_apply || '',
+    apply_email: parsed?.apply_email || '',
+    warning: parsed?.warning || '',
+    subject_line: parsed?.subject_line || '',
     employment_type: listing.employment_type || '', work_mode: listing.work_mode || '',
     location: listing.location || '', comp_range: listing.comp_range || '',
     department: listing.department || '', status: listing.status || 'draft',
@@ -154,8 +171,15 @@ function ListingModal({ listing, onClose, onSaved, showToast }) {
   const save = async () => {
     if (!f.title.trim()) { showToast('Title is required', 'error'); return; }
     setSaving(true);
+    const structured = {
+      structured: true, subtitle: f.subtitle, intro: f.intro,
+      responsibilities: f.responsibilities, requirements: f.requirements,
+      reporting: f.reporting, compensation: f.compensation,
+      how_to_apply: f.how_to_apply, apply_email: f.apply_email,
+      warning: f.warning, subject_line: f.subject_line,
+    };
     const payload = {
-      title: f.title.trim(), description: f.description || null,
+      title: f.title.trim(), description: JSON.stringify(structured),
       employment_type: f.employment_type || null, work_mode: f.work_mode || null,
       location: f.location.trim() || null, comp_range: f.comp_range.trim() || null,
       department: f.department.trim() || null, status: f.status,
@@ -179,7 +203,21 @@ function ListingModal({ listing, onClose, onSaved, showToast }) {
       <div style={st.modal} onClick={e => e.stopPropagation()}>
         <h3 style={st.modalTitle}>{listing.id ? 'Edit listing' : 'New listing'}</h3>
         <L label="Title"><input style={st.input} value={f.title} onChange={e => set('title', e.target.value)} /></L>
-        <L label="Description"><textarea style={st.textarea} rows={6} value={f.description} onChange={e => set('description', e.target.value)} placeholder="Role overview, responsibilities, requirements…" /></L>
+        <L label="Subtitle"><input style={st.input} value={f.subtitle} onChange={e => set('subtitle', e.target.value)} placeholder="Fall 2026 | Paid Internship | Kirkland, WA" /></L>
+        <L label="Introduction"><textarea style={st.textarea} rows={4} value={f.intro} onChange={e => set('intro', e.target.value)} placeholder="Company intro and role overview…" /></L>
+        <L label="What You'll Do"><textarea style={st.textarea} rows={5} value={f.responsibilities} onChange={e => set('responsibilities', e.target.value)} placeholder="One responsibility per line" /></L>
+        <L label="Requirements"><textarea style={st.textarea} rows={4} value={f.requirements} onChange={e => set('requirements', e.target.value)} placeholder="One requirement per line" /></L>
+        <L label="Reporting Structure"><input style={st.input} value={f.reporting} onChange={e => set('reporting', e.target.value)} placeholder="Reports directly to…" /></L>
+        <div style={st.modalGrid}>
+          <L label="Compensation (structured)"><input style={st.input} value={f.compensation} onChange={e => set('compensation', e.target.value)} placeholder="Paid internship (rate TBD)" /></L>
+          <L label="Apply Email"><input style={st.input} value={f.apply_email} onChange={e => set('apply_email', e.target.value)} placeholder="email@example.com" /></L>
+        </div>
+        <L label="How to Apply"><textarea style={st.textarea} rows={4} value={f.how_to_apply} onChange={e => set('how_to_apply', e.target.value)} placeholder="Application instructions, one item per line. Indent with two spaces for sub-bullets." /></L>
+        <L label="Warning"><input style={st.input} value={f.warning} onChange={e => set('warning', e.target.value)} placeholder="Applications submitted without a resume will not be considered." /></L>
+        <L label="Subject Line"><input style={st.input} value={f.subject_line} onChange={e => set('subject_line', e.target.value)} placeholder="Fall 2026 Internship Application" /></L>
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '16px 0 12px', paddingTop: 12 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>Metadata</div>
+        </div>
         <div style={st.modalGrid}>
           <L label="Employment type">
             <select style={st.input} value={f.employment_type} onChange={e => set('employment_type', e.target.value)}>
@@ -194,7 +232,7 @@ function ListingModal({ listing, onClose, onSaved, showToast }) {
         </div>
         <div style={st.modalGrid}>
           <L label="Location"><input style={st.input} value={f.location} onChange={e => set('location', e.target.value)} placeholder="Remote (US)" /></L>
-          <L label="Compensation"><input style={st.input} value={f.comp_range} onChange={e => set('comp_range', e.target.value)} placeholder="$60–80k / $40/hr" /></L>
+          <L label="Comp range (card display)"><input style={st.input} value={f.comp_range} onChange={e => set('comp_range', e.target.value)} placeholder="$60–80k / $40/hr" /></L>
         </div>
         <div style={st.modalGrid}>
           <L label="Department"><input style={st.input} value={f.department} onChange={e => set('department', e.target.value)} placeholder="Video, Social…" /></L>
