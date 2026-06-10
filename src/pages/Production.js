@@ -1054,18 +1054,27 @@ export default function Production() {
         setToast({ type: 'error', message: data?.error || error?.message || 'B-Roll search failed' });
         return;
       }
-      if (!data.suggestions?.length) {
+      if (!data.videos?.length && !data.articles?.length) {
         setToast({ type: 'error', message: 'No B-Roll suggestions found.' });
         return;
       }
-      const newItems = data.suggestions.map(s => ({
-        type: 'broll_suggestion', title: s.title, source: s.source,
-        url: s.url, description: s.description
-      }));
+      const newItems = [
+        ...(data.videos || []).map(s => ({
+          type: 'broll_video', title: s.title, source: s.source,
+          url: s.url, description: s.description
+        })),
+        ...(data.articles || []).map(s => ({
+          type: 'broll_article', title: s.title, source: s.source,
+          url: s.url, description: s.description
+        })),
+      ];
       setBeats(prev => mapBeatsDeep(prev, b =>
         b.id === beatId ? { ...b, videos: [...b.videos, ...newItems] } : b
       ));
-      setToast({ type: 'success', message: `Found ${newItems.length} B-Roll suggestions.` });
+      const parts = [];
+      if (data.videos?.length) parts.push(`${data.videos.length} video${data.videos.length > 1 ? 's' : ''}`);
+      if (data.articles?.length) parts.push(`${data.articles.length} article${data.articles.length > 1 ? 's' : ''}`);
+      setToast({ type: 'success', message: `Found ${parts.join(' and ')}.` });
     } catch (err) {
       console.error('findBroll error:', err);
       setToast({ type: 'error', message: 'B-Roll search failed.' });
@@ -1091,11 +1100,17 @@ export default function Production() {
         const { data, error } = await supabase.functions.invoke('find-broll', {
           body: { beat_text: beat.title }
         });
-        if (!error && data?.suggestions?.length) {
-          const newItems = data.suggestions.map(s => ({
-            type: 'broll_suggestion', title: s.title, source: s.source,
-            url: s.url, description: s.description
-          }));
+        if (!error && (data?.videos?.length || data?.articles?.length)) {
+          const newItems = [
+            ...(data.videos || []).map(s => ({
+              type: 'broll_video', title: s.title, source: s.source,
+              url: s.url, description: s.description
+            })),
+            ...(data.articles || []).map(s => ({
+              type: 'broll_article', title: s.title, source: s.source,
+              url: s.url, description: s.description
+            })),
+          ];
           setBeats(prev => mapBeatsDeep(prev, b =>
             b.id === beat.id ? { ...b, videos: [...b.videos, ...newItems] } : b
           ));
@@ -1297,12 +1312,18 @@ export default function Production() {
         }}
       >
         {beat.videos.map((v, i) => {
-          if (typeof v === 'object' && v.type === 'broll_suggestion') {
+          if (typeof v === 'object' && (v.type === 'broll_video' || v.type === 'broll_article')) {
             const sc = SOURCE_COLORS[v.source] || SOURCE_COLORS.other;
+            const isVideo = v.type === 'broll_video';
             return (
-              <div key={i} style={styles.brollCard}>
-                <div style={{ ...styles.brollSource, background: sc.bg, color: sc.fg }}>{SOURCE_LABELS[v.source] || v.source}</div>
-                <a href={v.url} target="_blank" rel="noopener noreferrer" style={styles.brollTitle}>
+              <div key={i} style={{ ...styles.brollCard, borderColor: isVideo ? 'rgba(99,102,241,0.15)' : 'rgba(251,191,36,0.15)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ ...styles.brollCategory, background: isVideo ? 'rgba(99,102,241,0.15)' : 'rgba(251,191,36,0.12)', color: isVideo ? '#a5b4fc' : '#fbbf24' }}>
+                    {isVideo ? 'Video' : 'Article'}
+                  </div>
+                  <div style={{ ...styles.brollSource, background: sc.bg, color: sc.fg }}>{SOURCE_LABELS[v.source] || v.source}</div>
+                </div>
+                <a href={v.url} target="_blank" rel="noopener noreferrer" style={{ ...styles.brollTitle, color: isVideo ? '#a5b4fc' : '#fbbf24' }}>
                   {v.title}
                 </a>
                 {v.description && <div style={styles.brollDesc}>{v.description}</div>}
@@ -3023,9 +3044,13 @@ const styles = {
     border: '1px solid rgba(99,102,241,0.15)', borderRadius: 8,
     display: 'flex', flexDirection: 'column', gap: 4, position: 'relative',
   },
+  brollCategory: {
+    fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5,
+    padding: '2px 6px', borderRadius: 4,
+  },
   brollSource: {
     fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5,
-    padding: '2px 6px', borderRadius: 4, alignSelf: 'flex-start',
+    padding: '2px 6px', borderRadius: 4,
   },
   brollTitle: {
     fontSize: 12, fontWeight: 600, color: '#a5b4fc', textDecoration: 'none',

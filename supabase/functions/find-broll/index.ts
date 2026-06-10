@@ -1,6 +1,7 @@
 // supabase/functions/find-broll/index.ts
 // Deploy with: supabase functions deploy find-broll --no-verify-jwt
 // Analyzes beat text via Claude, then searches Brave for B-Roll suggestions.
+// Returns videos and articles separately (up to 4 each), baseball-focused.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createHandler } from "../shared/handler.ts";
@@ -53,6 +54,31 @@ function getDomainPriority(url: string): number {
   return 99;
 }
 
+/** Classify a result as video or article based on URL patterns */
+function classifyResult(url: string, source: string): "video" | "article" {
+  try {
+    const path = new URL(url).pathname.toLowerCase();
+
+    // YouTube is always video
+    if (source === "youtube") return "video";
+
+    // MLB.com video paths
+    if (source === "mlb" && (path.includes("/video") || path.includes("/gameday"))) return "video";
+
+    // ESPN video paths
+    if (source === "espn" && (path.includes("/video") || path.includes("/watch"))) return "video";
+
+    // Yahoo video paths
+    if (source === "yahoo" && path.includes("/video")) return "video";
+
+    // Generic video indicators in URL
+    if (/\/(video|watch|clip|highlight|play)s?\b/.test(path)) return "video";
+  } catch {
+    // ignore
+  }
+  return "article";
+}
+
 Deno.serve(
   createHandler({ auth: "jwt", methods: ["POST"] }, async ({ req }) => {
     const { beat_text } = await req.json();
@@ -92,9 +118,11 @@ Deno.serve(
         body: JSON.stringify({
           model,
           max_tokens: 1024,
-          system: `You extract key subjects and generate search queries from video script beats.
-Given a beat (a short script segment), identify the key subjects (people, teams, events, plays) and generate 3-5 targeted search queries optimized for finding video footage and highlight clips.
-Prioritize sports content sources (MLB.com, YouTube highlights, ESPN) when the content is sports-related.
+          system: `You extract key subjects and generate search queries from baseball video script beats.
+Given a beat (a short script segment about baseball/MLB), identify the key subjects (players, teams, plays, games) and generate 3-5 targeted search queries.
+ALL queries MUST be baseball/MLB focused. Always include "baseball" or "MLB" in queries when not already obvious.
+Generate a mix of queries: some targeting video highlights (include "highlights", "video", or "clip") and some targeting articles/analysis.
+Prioritize MLB.com, YouTube, ESPN, and The Athletic as sources.
 Return ONLY valid JSON with no markdown formatting: { "subjects": ["..."], "queries": ["..."] }`,
           messages: [{ role: "user", content: beat_text.trim() }],
         }),
@@ -116,7 +144,7 @@ Return ONLY valid JSON with no markdown formatting: { "subjects": ["..."], "quer
       queries = (parsed.queries || []).slice(0, 5);
 
       if (!queries.length) {
-        return jsonRes({ suggestions: [], subjects, message: "No search queries generated" });
+        return jsonRes({ videos: [], articles: [], subjects, message: "No search queries generated" });
       }
     } catch (err) {
       clearTimeout(claudeTimeout);
@@ -161,33 +189,43 @@ Return ONLY valid JSON with no markdown formatting: { "subjects": ["..."], "quer
       })
     );
 
-    // ── Step 3: Deduplicate and prioritize ──
+    // ── Step 3: Deduplicate, classify, and prioritize ──
     const seenUrls = new Set<string>();
-    const allResults: { title: string; url: string; source: string; description: string; priority: number }[] = [];
+    const videoResults: { title: string; url: string; source: string; description: string; priority: number }[] = [];
+    const articleResults: { title: string; url: string; source: string; description: string; priority: number }[] = [];
 
     for (const result of searchResults) {
       if (result.status !== "fulfilled") continue;
       for (const item of result.value) {
         if (seenUrls.has(item.url)) continue;
         seenUrls.add(item.url);
-        allResults.push({
+        const source = getDomainLabel(item.url);
+        const category = classifyResult(item.url, source);
+        const entry = {
           title: item.title,
           url: item.url,
-          source: getDomainLabel(item.url),
+          source,
           description: item.description,
           priority: getDomainPriority(item.url),
-        });
+        };
+        if (category === "video") {
+          videoResults.push(entry);
+        } else {
+          articleResults.push(entry);
+        }
       }
     }
 
-    // Sort by domain priority, take top 8
-    allResults.sort((a, b) => a.priority - b.priority);
-    const suggestions = allResults.slice(0, 8).map(({ priority: _, ...rest }) => rest);
+    // Sort each by domain priority, take top 4
+    videoResults.sort((a, b) => a.priority - b.priority);
+    articleResults.sort((a, b) => a.priority - b.priority);
+    const videos = videoResults.slice(0, 4).map(({ priority: _, ...rest }) => rest);
+    const articles = articleResults.slice(0, 4).map(({ priority: _, ...rest }) => rest);
 
-    if (!suggestions.length) {
-      return jsonRes({ suggestions: [], subjects, message: "No results found" });
+    if (!videos.length && !articles.length) {
+      return jsonRes({ videos: [], articles: [], subjects, message: "No results found" });
     }
 
-    return jsonRes({ suggestions, subjects });
+    return jsonRes({ videos, articles, subjects });
   })
 );
