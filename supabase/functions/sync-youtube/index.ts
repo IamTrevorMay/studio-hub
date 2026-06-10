@@ -647,7 +647,7 @@ serve(async (req) => {
           records_processed: processed,
           records_created: created,
           records_updated: updated,
-        });
+        }, account.id);
 
         // Store freshness metadata on the ingestion log
         await supabase.from("ingestion_logs").update({
@@ -660,7 +660,7 @@ serve(async (req) => {
 
         results.push({ account: account.account_name, processed, failed, revenue_synced: true, newest_content_at: newestPublishedAt });
       } catch (err) {
-        await failIngestionLog(supabase, logId, err as Error);
+        await failIngestionLog(supabase, logId, err as Error, undefined, account.id);
         results.push({ account: account.account_name, error: (err as Error).message });
       }
     }

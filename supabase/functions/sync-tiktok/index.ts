@@ -145,10 +145,10 @@ Deno.serve(async (req) => {
           records_processed: processed,
           records_created: created,
           records_updated: updated,
-        });
+        }, account.id);
         results.push({ account: account.account_name, processed, created, updated });
       } catch (err) {
-        await failIngestionLog(supabase, logId, err as Error);
+        await failIngestionLog(supabase, logId, err as Error, undefined, account.id);
         results.push({ account: account.account_name, error: (err as Error).message });
       }
     }

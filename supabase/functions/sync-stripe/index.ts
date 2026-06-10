@@ -304,7 +304,7 @@ async function handleBatchReconciliation(supabase: any, stripeHeaders: Record<st
     );
 
     await updateLastSynced(supabase, account.id);
-    await completeIngestionLog(supabase, logId, { records_processed: processed, records_created: processed });
+    await completeIngestionLog(supabase, logId, { records_processed: processed, records_created: processed }, account.id);
 
     return jsonResponse({
       success: true,
@@ -313,7 +313,7 @@ async function handleBatchReconciliation(supabase: any, stripeHeaders: Record<st
       mrr_cents: mrr,
     });
   } catch (err) {
-    await failIngestionLog(supabase, logId, err as Error);
+    await failIngestionLog(supabase, logId, err as Error, undefined, account.id);
     return errorResponse((err as Error).message);
   }
 }

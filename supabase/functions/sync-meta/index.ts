@@ -127,10 +127,10 @@ Deno.serve(async (req) => {
         }
 
         await updateLastSynced(supabase, account.id);
-        await completeIngestionLog(supabase, logId, { records_processed: processed, records_created: created, records_updated: updated });
+        await completeIngestionLog(supabase, logId, { records_processed: processed, records_created: created, records_updated: updated }, account.id);
         results.push({ account: account.account_name, platform: "facebook", processed, created, updated });
       } catch (err) {
-        await failIngestionLog(supabase, logId, err as Error);
+        await failIngestionLog(supabase, logId, err as Error, undefined, account.id);
         results.push({ account: account.account_name, platform: "facebook", error: (err as Error).message });
       }
     }
@@ -231,10 +231,10 @@ Deno.serve(async (req) => {
         }
 
         await updateLastSynced(supabase, account.id);
-        await completeIngestionLog(supabase, logId, { records_processed: processed, records_created: created, records_updated: updated });
+        await completeIngestionLog(supabase, logId, { records_processed: processed, records_created: created, records_updated: updated }, account.id);
         results.push({ account: account.account_name, platform: "instagram", processed, created, updated });
       } catch (err) {
-        await failIngestionLog(supabase, logId, err as Error);
+        await failIngestionLog(supabase, logId, err as Error, undefined, account.id);
         results.push({ account: account.account_name, platform: "instagram", error: (err as Error).message });
       }
     }

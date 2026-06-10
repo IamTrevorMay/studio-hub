@@ -147,15 +147,15 @@ serve(async (req) => {
       const logId = await startIngestionLog(supabase, account.id, "youtube_dimensions_sync");
       try {
         const accessToken = await getAccessToken(account.account_name);
-        if (!accessToken) { await failIngestionLog(supabase, logId, "No access token"); results.push({ account: account.account_name, error: "no_access_token" }); continue; }
+        if (!accessToken) { await failIngestionLog(supabase, logId, "No access token", undefined, account.id); results.push({ account: account.account_name, error: "no_access_token" }); continue; }
         const channelDims = await syncChannelDimensions(supabase, accessToken, account, targetDate, targetDate);
         let videoDaily: any = { count: 0 };
         if (includeVideos) videoDaily = await syncVideoDaily(supabase, accessToken, account, targetDate, targetDate);
         const totalRows = Object.values(channelDims).reduce((s: number, v: any) => s + (v?.rows || 0), 0);
-        await completeIngestionLog(supabase, logId, { records_processed: totalRows + videoDaily.count });
+        await completeIngestionLog(supabase, logId, { records_processed: totalRows + videoDaily.count }, account.id);
         results.push({ account: account.account_name, date: targetDate, video_daily_count: videoDaily.count, ...(debug ? { channel_dims: channelDims, video_daily_debug: videoDaily.debug } : { channel_dims_summary: Object.fromEntries(Object.entries(channelDims).map(([k, v]: [string, any]) => [k, v.rows ?? 0])) }) });
       } catch (err) {
-        await failIngestionLog(supabase, logId, err as Error);
+        await failIngestionLog(supabase, logId, err as Error, undefined, account.id);
         results.push({ account: account.account_name, error: (err as Error).message });
       }
     }
