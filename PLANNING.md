@@ -49,6 +49,27 @@ Renamed Freelancer to Contractor in admin panel. Added document signing (`Docume
 - Supabase CLI update (v2.95.4 → v2.101.0)
 - `CLAUDE_MODEL` env var should be set in Supabase dashboard to pin model versions across `generate-trends`, `run-report`
 
+### Creative Board → Task Integration
+Wire the Creative Board Kanban columns to the My Tasks system so moving a card into a column creates tasks for the stage assignees, and moving it out completes/removes those tasks.
+
+**Behavior:**
+- When a card is dragged into a new column, create a task for each person assigned to that column (via `project_stage_assignments`). Task title would be something like `"{project name} — {stage label}"`.
+- The task can only be cleared by moving the card out of that column (either forward or back). No manual complete.
+- Only users assigned to the card's current column (or admins) can physically drag the card. Set `isDragDisabled` based on whether the current user is in the stage assignments for the source column.
+- Notifications already fire on column change — the new task creation replaces/augments that.
+
+**Key touchpoints:**
+- `src/pages/Projects.js` — `onDragEnd` handler (drag permission check + task create/complete), `KanbanCard` (disable drag prop)
+- `project_stage_assignments` table — determines who owns each column
+- `tasks` table — new tasks linked via `project_id` or similar reference
+
+**Open questions:**
+- One shared task per column move, or one task per stage assignee?
+- Should there be a fallback if no one is assigned to a column? (block the move, or allow admins only)
+
+### Split "YouTube Video" Project Type
+Split the current `YouTube Video` project type into two distinct types: `Mayday Video` and `Trevor May Baseball Video`. These map to the two YouTube channels and their separate workflow boards. Currently both use the same generic "YouTube Video" type, which makes filtering and workflow triggers ambiguous.
+
 ### Long-term
 - **Business Dev Page** — Full spec written (in CLAUDE.md), not yet built. Four-level hierarchy: Phase > Workstream > Initiative > Task. Four views: Phases, Timeline/Gantt, Calendar, My Stuff. Tables: `bd_phases`, `bd_initiatives`, `bd_initiative_links`, `bd_tasks`, `bd_milestones`, `bd_settings`.
   - Deferred from v1: Comments/discussion threads, file attachments, budget rollup view, non-admin owners and visibility, MyBoard/personal_tasks integration, email reminders
