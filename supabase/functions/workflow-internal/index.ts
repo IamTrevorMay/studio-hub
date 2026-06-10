@@ -105,12 +105,17 @@ Deno.serve(async (req: Request) => {
       return jsonResp({ error: `Workflow definition "${slug}" missing` }, 500);
     }
 
-    // Create instance
+    // Derive a card title from context (beat_sheet_title, title, or workflow name).
+    const cardTitle = (ctx.beat_sheet_title || ctx.title || workflow.name || "Untitled") as string;
+
+    // Create instance with title + current_step_key so the Kanban board can display it.
     const { data: instance, error: instErr } = await admin
       .from("workflow_instances")
       .insert({
         workflow_id: workflow.id,
         status: "active",
+        title: cardTitle,
+        current_step_key: definition.firstStep,
         context: ctx,
         started_by: null,
         test_mode: false,
