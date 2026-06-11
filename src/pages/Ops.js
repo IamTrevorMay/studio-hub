@@ -70,6 +70,22 @@ export default function Ops() {
   useEffect(() => { fetchData(); }, [fetchData]);
   useVisibilityRefresh(fetchData);
 
+  // Live updates so the page reflects new sync runs without manual refresh.
+  useEffect(() => {
+    const channel = supabase
+      .channel('ops-page')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ingestion_logs' }, fetchData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'platform_accounts' }, fetchData)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [fetchData]);
+
+  // Fallback poll every 60s in case realtime drops or the table isn't in the publication.
+  useEffect(() => {
+    const id = setInterval(fetchData, 60_000);
+    return () => clearInterval(id);
+  }, [fetchData]);
+
   const filteredLogs = logs.filter(log => {
     if (logFilter === 'all') return true;
     if (logFilter === 'failed') return log.status === 'failed';

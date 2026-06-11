@@ -377,17 +377,25 @@ export default function Workflows() {
     if (!isAdmin) return;
     let cancelled = false;
     (async () => {
-      const TEAM_ROLES = ['admin', 'assistant', 'member'];
+      const TEAM_ROLES = ['admin', 'assistant', 'member', 'director_creative', 'director_comms'];
+      const ROLE_PRIORITY = { admin: 0, director_creative: 1, director_comms: 1, assistant: 2, member: 3 };
       const { data } = await supabase
         .from('profiles')
         .select('id, full_name, email, role, status')
         .order('full_name', { ascending: true, nullsFirst: false });
       if (cancelled) return;
       const active = (data || []).filter(p => p.status !== 'archived');
+      // Dedupe duplicate name records by keeping the highest-priority role.
+      const byKey = new Map();
+      for (const p of active.filter(p => TEAM_ROLES.includes(p.role))) {
+        const key = (p.full_name || p.email || p.id).trim().toLowerCase();
+        const prev = byKey.get(key);
+        const pri = ROLE_PRIORITY[p.role] ?? 99;
+        const prevPri = prev ? (ROLE_PRIORITY[prev.role] ?? 99) : 99;
+        if (!prev || pri < prevPri) byKey.set(key, p);
+      }
       setTeamProfiles(
-        active
-          .filter(p => TEAM_ROLES.includes(p.role))
-          .map(p => ({ id: p.id, name: p.full_name || p.email || 'Unknown', role: p.role || 'member' })),
+        Array.from(byKey.values()).map(p => ({ id: p.id, name: p.full_name || p.email || 'Unknown', role: p.role || 'member' })),
       );
       setContractorProfiles(
         active
