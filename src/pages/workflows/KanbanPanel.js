@@ -5,6 +5,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../../supabaseClient';
+import { WORKFLOWS_CREATION_DISABLED } from '../../lib/workflowApi';
 
 // ─── Constants ───────────────────────────────────────────────
 
@@ -933,6 +934,10 @@ export default function KanbanPanel({ boardId, onBack, showToast }) {
   // ─── Card actions ─────────────────────────────────────────
 
   const createCard = async () => {
+    if (WORKFLOWS_CREATION_DISABLED) {
+      showToast?.('Workflow creation is disabled while the unified board is being built', 'error');
+      return;
+    }
     if (!boardData || !newCardTitle.trim() || creatingCard) return;
     const nonTerminal = columns.filter((c) => !c.is_terminal);
     if (nonTerminal.length === 0) { showToast?.('Add at least one column first', 'error'); return; }
@@ -1078,6 +1083,20 @@ export default function KanbanPanel({ boardId, onBack, showToast }) {
         <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.4)', padding: 24 }}>Loading…</div>
       ) : (
         <>
+          {WORKFLOWS_CREATION_DISABLED && (
+            <div style={{
+              padding: '10px 14px',
+              marginBottom: 12,
+              background: 'rgba(245, 158, 11, 0.12)',
+              border: '1px solid rgba(245, 158, 11, 0.35)',
+              borderRadius: 8,
+              color: '#fbbf24',
+              fontSize: 13,
+              lineHeight: 1.45,
+            }}>
+              <strong>Workflow creation paused.</strong> New cards can't be added while the unified content board is being built. In-flight cards continue to advance normally.
+            </div>
+          )}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
             <h2 style={{ fontSize: 16, fontWeight: 700, color: '#ffffff', margin: 0 }}>{boardData.name}</h2>
             <div style={{ display: 'flex', gap: 8 }}>

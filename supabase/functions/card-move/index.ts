@@ -1,0 +1,220 @@
+// card-move
+// Server-side card move for the Unified Content Kanban.
+// Forward move: admins + current-stage assignees.
+// Backward move: admins only.
+// Closes open tasks for the current stage, writes an optional handoff note,
+// updates projects.status, fans out one task + one notification per target-stage assignee.
+//
+// Body: { project_id, target_stage, handoff_note? }
+// Deploy: supabase functions deploy card-move --no-verify-jwt
+
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const STAGES = ["idea", "write", "produce", "edit", "review", "publish"] as const;
+type Stage = typeof STAGES[number];
+
+const STAGE_LABELS: Record<string, Record<Stage, string>> = {
+  mayday_video:      { idea: "Idea", write: "Script",  produce: "Shoot",   edit: "Edit", review: "Review", publish: "Publish" },
+  tm_baseball_video: { idea: "Idea", write: "Script",  produce: "Shoot",   edit: "Edit", review: "Review", publish: "Publish" },
+  podcast:           { idea: "Idea", write: "Outline", produce: "Record",  edit: "Edit", review: "Review", publish: "Publish" },
+  short_form:        { idea: "Idea", write: "Concept", produce: "Capture", edit: "Cut",  review: "Review", publish: "Publish" },
+};
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+function jsonResp(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+function getAdminClient(): SupabaseClient {
+  return createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+}
+
+async function getCaller(req: Request): Promise<{ userId: string; role: string } | null> {
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) return null;
+  const userClient = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_ANON_KEY")!,
+    { global: { headers: { Authorization: authHeader } } },
+  );
+  const { data: { user }, error } = await userClient.auth.getUser();
+  if (error || !user) return null;
+  const admin = getAdminClient();
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+  return { userId: user.id, role: profile?.role || "" };
+}
+
+function labelFor(projectType: string | null, stage: Stage): string {
+  if (!projectType) return stage;
+  return STAGE_LABELS[projectType]?.[stage] || stage;
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method !== "POST") return jsonResp({ error: "Method not allowed" }, 405);
+
+  const caller = await getCaller(req);
+  if (!caller) return jsonResp({ error: "Unauthorized" }, 401);
+  if (!["admin", "assistant", "member"].includes(caller.role)) {
+    return jsonResp({ error: "Forbidden" }, 403);
+  }
+
+  let body: { project_id?: string; target_stage?: string; handoff_note?: string };
+  try { body = await req.json(); } catch { return jsonResp({ error: "Invalid JSON" }, 400); }
+
+  const { project_id, target_stage, handoff_note } = body;
+  if (!project_id) return jsonResp({ error: "project_id required" }, 400);
+  if (!target_stage || !STAGES.includes(target_stage as Stage)) {
+    return jsonResp({ error: "target_stage must be one of " + STAGES.join(", ") }, 400);
+  }
+  const targetStage = target_stage as Stage;
+
+  const admin = getAdminClient();
+
+  // Load project.
+  const { data: project, error: projErr } = await admin
+    .from("projects")
+    .select("id, name, type, status, deadline, on_hold")
+    .eq("id", project_id)
+    .single();
+  if (projErr || !project) return jsonResp({ error: "Project not found" }, 404);
+
+  if (project.type === null) {
+    return jsonResp({ error: "Project has no type yet — tag it before moving" }, 400);
+  }
+  if (project.on_hold) {
+    return jsonResp({ error: "Card is on hold; admin must unhold before moving" }, 403);
+  }
+
+  const currentStage = project.status as Stage;
+  if (currentStage === targetStage) {
+    return jsonResp({ error: "Card already in target stage" }, 400);
+  }
+
+  const currentIdx = STAGES.indexOf(currentStage);
+  const targetIdx = STAGES.indexOf(targetStage);
+  if (currentIdx < 0) return jsonResp({ error: `Project status "${currentStage}" not on canonical board` }, 400);
+
+  const isBackward = targetIdx < currentIdx;
+
+  // Permission: forward = admin or assignee of current stage; backward = admin only.
+  if (isBackward && caller.role !== "admin") {
+    return jsonResp({ error: "Only admins can move a card backward" }, 403);
+  }
+  if (!isBackward && caller.role !== "admin") {
+    const { data: assigned } = await admin
+      .from("project_stage_assignments")
+      .select("user_id")
+      .eq("project_id", project.id)
+      .eq("stage", currentStage)
+      .eq("user_id", caller.userId)
+      .limit(1);
+    if (!assigned || assigned.length === 0) {
+      return jsonResp({ error: "You are not assigned to the current stage" }, 403);
+    }
+  }
+
+  // Write handoff note (if provided).
+  if (handoff_note && handoff_note.trim()) {
+    await admin.from("project_card_handoffs").insert({
+      project_id: project.id,
+      from_stage: currentStage,
+      to_stage: targetStage,
+      body: handoff_note.trim(),
+      author_id: caller.userId,
+    });
+  }
+
+  // Update project status (card move).
+  const { error: updErr } = await admin
+    .from("projects")
+    .update({ status: targetStage, updated_at: new Date().toISOString() })
+    .eq("id", project.id);
+  if (updErr) return jsonResp({ error: `Failed to update project: ${updErr.message}` }, 500);
+
+  // Close open tasks for the current stage.
+  const { data: closedTasks } = await admin
+    .from("tasks")
+    .update({ status: "complete", completed_at: new Date().toISOString() })
+    .eq("related_entity_type", "project")
+    .eq("related_entity_id", project.id)
+    .eq("step_key", currentStage)
+    .in("status", ["pending", "active", "on_hold"])
+    .select("id");
+
+  // Find target-stage assignees.
+  const { data: targetAssignees } = await admin
+    .from("project_stage_assignments")
+    .select("user_id")
+    .eq("project_id", project.id)
+    .eq("stage", targetStage);
+
+  const assigneeIds = (targetAssignees || []).map((a) => a.user_id);
+  const newTaskIds: string[] = [];
+  const targetLabel = labelFor(project.type, targetStage);
+  const prevLabel = labelFor(project.type, currentStage);
+
+  const taskTitle = `${project.name} — ${targetLabel}`;
+  const description = handoff_note && handoff_note.trim()
+    ? `Handoff from ${prevLabel}:\n${handoff_note.trim()}\n\nSee project notes for full context.`
+    : `Moved from ${prevLabel}.`;
+
+  for (const userId of assigneeIds) {
+    const { data: task, error: taskErr } = await admin
+      .from("tasks")
+      .insert({
+        step_key: targetStage,
+        title: taskTitle,
+        description,
+        assignee_id: userId,
+        status: "pending",
+        related_entity_type: "project",
+        related_entity_id: project.id,
+        due_date: project.deadline,
+        created_by: caller.userId,
+      })
+      .select("id")
+      .single();
+    if (taskErr || !task) {
+      console.error("Failed to insert task:", taskErr?.message);
+      continue;
+    }
+    newTaskIds.push(task.id);
+    // Notification.
+    await admin.from("notifications").insert({
+      user_id: userId,
+      type: "task_assigned",
+      title: `New task: ${project.name} — ${targetLabel}`,
+      body: description,
+      link_tab: "my_tasks",
+      link_target: task.id,
+      is_read: false,
+    });
+  }
+
+  return jsonResp({
+    project_id: project.id,
+    from_stage: currentStage,
+    target_stage: targetStage,
+    direction: isBackward ? "backward" : "forward",
+    closed_tasks: (closedTasks || []).length,
+    new_task_ids: newTaskIds,
+    assignee_count: assigneeIds.length,
+  });
+});

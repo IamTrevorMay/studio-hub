@@ -62,6 +62,11 @@ Deno.serve(async (req: Request) => {
   const admin = getAdminClient();
 
   if (op === "start") {
+    // Phase 2 unified-Kanban gate: stop new instance creation while new board is built.
+    // Other ops (complete_match, etc.) keep working so in-flight workflows advance.
+    if (Deno.env.get("WORKFLOWS_DISABLED") === "true") {
+      return jsonResp({ disabled: true, skipped: "Workflow creation temporarily disabled" }, 200);
+    }
     const slug = body.slug as string;
     const ctx = (body.context as Record<string, unknown>) || {};
     const dedupeKey = body.dedupe_key as string | undefined;

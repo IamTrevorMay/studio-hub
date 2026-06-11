@@ -17,6 +17,11 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return jsonResp({ error: "Method not allowed" }, 405);
 
+  // Phase 2 unified-Kanban gate: stop new instance creation while new board is built.
+  if (Deno.env.get("WORKFLOWS_DISABLED") === "true") {
+    return jsonResp({ disabled: true, message: "Workflow creation temporarily disabled" }, 200);
+  }
+
   const auth = await getUserFromJwt(req);
   if (!auth) return jsonResp({ error: "Unauthorized" }, 401);
   if (!auth.isAdmin) return jsonResp({ error: "Admin only" }, 403);

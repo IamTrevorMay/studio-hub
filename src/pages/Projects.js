@@ -5,40 +5,29 @@ import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
-import { callWorkflowFn } from '../lib/workflowApi';
+import UnifiedBoard from './projects/UnifiedBoard';
 
 
-const STATUSES = ['concept', 'script', 'production', 'edit', 'review', 'published'];
+const STATUSES = ['idea', 'write', 'produce', 'edit', 'review', 'publish'];
 const STATUS_LABELS = {
-  concept: 'Idea', script: 'Script/Beat Sheet', production: 'Production',
-  edit: 'Edit', review: 'Review', published: 'Published',
+  idea: 'Idea', write: 'Write', produce: 'Produce',
+  edit: 'Edit', review: 'Review', publish: 'Publish',
 };
 const STATUS_COLORS = {
-  concept: '#8b5cf6', script: '#3b82f6', production: '#f59e0b',
-  edit: '#f97316', review: '#ec4899', published: '#22c55e',
+  idea: '#8b5cf6', write: '#3b82f6', produce: '#f59e0b',
+  edit: '#f97316', review: '#ec4899', publish: '#22c55e',
 };
 const PROJECT_TYPES = [
-  { value: 'youtube_video', label: 'YouTube Video' },
-  { value: 'short_form', label: 'Short Form' },
-  { value: 'social_post', label: 'Social Post' },
+  { value: 'mayday_video', label: 'Mayday Video' },
+  { value: 'tm_baseball_video', label: 'TM Baseball Video' },
   { value: 'podcast', label: 'Podcast' },
-  { value: 'substack_article', label: 'Substack Article' },
-  { value: 'other', label: 'Other' },
+  { value: 'short_form', label: 'Short Form' },
 ];
-const BUSINESS_PROJECT_TYPES = [
-  { value: 'sponsorship', label: 'Sponsorship' },
-  { value: 'collaboration', label: 'Collaboration' },
-  { value: 'documentation', label: 'Documentation' },
-  { value: 'administration', label: 'Administration' },
-  { value: 'other', label: 'Other' },
-];
-const BUSINESS_STATUSES = ['backlog', 'in_progress', 'holding', 'completed'];
-const BUSINESS_STATUS_LABELS = {
-  backlog: 'Backlog', in_progress: 'In Progress', holding: 'Holding', completed: 'Completed',
-};
-const BUSINESS_STATUS_COLORS = {
-  backlog: '#8b5cf6', in_progress: '#3b82f6', holding: '#f59e0b', completed: '#22c55e',
-};
+// Business types collapsed into the 4 content types per the Unified Kanban spec.
+const BUSINESS_PROJECT_TYPES = [];
+const BUSINESS_STATUSES = [];
+const BUSINESS_STATUS_LABELS = {};
+const BUSINESS_STATUS_COLORS = {};
 const CHANNELS = ['Trevor May Baseball', 'More Mayday', 'AWA Wiffle'];
 const ASSIGNMENT_ROLES = ['producer', 'writer', 'editor', 'designer', 'reviewer', 'other'];
 
@@ -90,8 +79,8 @@ export default function Projects({ onNavigate }) {
 
   // Form state
   const [form, setForm] = useState({
-    name: '', category: 'creative', type: 'youtube_video', channel: '',
-    start_date: '', deadline: '', status: 'concept',
+    name: '', category: 'creative', type: 'mayday_video', channel: '',
+    start_date: '', deadline: '', status: 'idea',
     write_doc_id: '', write_doc_name: '', beat_sheet_id: '', ad_read_id: '',
   });
 
@@ -254,16 +243,7 @@ export default function Projects({ onNavigate }) {
       alert('Error creating project: ' + error.message);
       return;
     }
-    // Emit event for kanban boards that auto-create cards on new projects.
-    if (created?.id) {
-      try {
-        await callWorkflowFn('workflow-trigger-event', {
-          event: 'new_project_created',
-          payload: { project_id: created.id, title: form.name },
-        });
-      } catch (e) { console.error('Event trigger failed:', e); }
-    }
-    setForm({ name: '', category: 'creative', type: 'youtube_video', channel: '', start_date: '', deadline: '', status: 'concept', write_doc_id: '', write_doc_name: '', beat_sheet_id: '', ad_read_id: '' });
+    setForm({ name: '', category: 'creative', type: 'mayday_video', channel: '', start_date: '', deadline: '', status: 'idea', write_doc_id: '', write_doc_name: '', beat_sheet_id: '', ad_read_id: '' });
     setShowForm(false);
     fetchProjects();
   }
@@ -575,70 +555,6 @@ export default function Projects({ onNavigate }) {
     fetchProjects();
   }
 
-  async function onDragEnd(result) {
-    if (!result.destination) return;
-    const { draggableId, source, destination } = result;
-    const srcStatus = source.droppableId.includes(':') ? source.droppableId.split(':')[1] : source.droppableId;
-    const destStatus = destination.droppableId.includes(':') ? destination.droppableId.split(':')[1] : destination.droppableId;
-    const board = source.droppableId.includes(':') ? source.droppableId.split(':')[0] : 'creative';
-    const isSameColumn = srcStatus === destStatus;
-    if (isSameColumn && source.index === destination.index) return;
-
-    const project = projects.find(p => p.id === draggableId);
-    if (!project) return;
-
-    const boardProjects = board === 'business' ? businessBoardProjects : creativeBoardProjects;
-    const colSort = (a, b) => {
-      const d = (a.sort_order ?? 0) - (b.sort_order ?? 0);
-      return d !== 0 ? d : new Date(a.created_at) - new Date(b.created_at);
-    };
-
-    if (isSameColumn) {
-      const col = boardProjects.filter(p => p.status === srcStatus).sort(colSort);
-      const reordered = Array.from(col);
-      const [moved] = reordered.splice(source.index, 1);
-      reordered.splice(destination.index, 0, moved);
-      const updates = reordered.map((p, i) => ({ id: p.id, sort_order: (i + 1) * 10 }));
-      // Optimistic update
-      setProjects(prev => prev.map(p => {
-        const u = updates.find(u => u.id === p.id);
-        return u ? { ...p, sort_order: u.sort_order } : p;
-      }));
-      await Promise.all(updates.map(u =>
-        supabase.from('projects').update({ sort_order: u.sort_order }).eq('id', u.id)
-      ));
-    } else {
-      const destCol = boardProjects
-        .filter(p => p.status === destStatus && p.id !== draggableId)
-        .sort(colSort);
-      const inserted = Array.from(destCol);
-      inserted.splice(destination.index, 0, { id: draggableId, sort_order: 0 });
-      const updates = inserted.map((p, i) => ({ id: p.id, sort_order: (i + 1) * 10 }));
-      const newSortOrder = updates.find(u => u.id === draggableId)?.sort_order ?? (destination.index + 1) * 10;
-      // Optimistic update
-      setProjects(prev => prev.map(p => {
-        if (p.id === draggableId) return { ...p, status: destStatus, sort_order: newSortOrder };
-        const u = updates.find(u => u.id === p.id);
-        return u ? { ...p, sort_order: u.sort_order } : p;
-      }));
-      await supabase.from('projects').update({ status: destStatus, sort_order: newSortOrder }).eq('id', draggableId);
-      await Promise.all(updates.filter(u => u.id !== draggableId).map(u =>
-        supabase.from('projects').update({ sort_order: u.sort_order }).eq('id', u.id)
-      ));
-      // Notifications
-      if (project.project_assignments?.length) {
-        const notifs = project.project_assignments
-          .filter(a => a.user_id !== profile.id)
-          .map(a => ({
-            user_id: a.user_id, type: 'status_change',
-            title: `${project.name} moved to ${STATUS_LABELS[destStatus]}`,
-            body: `${profile.full_name} changed the status`,
-            link_tab: 'projects', link_target: project.id,
-          }));
-        if (notifs.length) await supabase.from('notifications').insert(notifs);
-      }
-    }
-  }
 
   const now = new Date();
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -649,7 +565,7 @@ export default function Projects({ onNavigate }) {
 
   // Creative projects only for the list-view sections. A project is "current"
   // as long as it has a deadline (start date is optional).
-  const creativeActive = projects.filter(p => (p.category || 'creative') === 'creative' && !p.is_archived && p.status !== 'published');
+  const creativeActive = projects.filter(p => (p.category || 'creative') === 'creative' && !p.is_archived && p.status !== 'publish');
   const currentProjects = creativeActive.filter(p =>
     p.deadline && searchFilter(p) && statusFilter(p)
   );
@@ -657,26 +573,18 @@ export default function Projects({ onNavigate }) {
     !p.deadline && searchFilter(p) && statusFilter(p)
   );
   const completedProjects = projects.filter(p => {
-    if (p.is_archived || p.status !== 'published') return false;
+    if (p.is_archived || p.status !== 'publish') return false;
     // Published within last 7 days (use updated_at as proxy for when it was published)
     const publishedDate = new Date(p.updated_at);
     return publishedDate >= sevenDaysAgo && searchFilter(p);
   });
   const archivedProjects = projects.filter(p => {
     if (p.is_archived) return true;
-    if (p.status !== 'published') return false;
+    if (p.status !== 'publish') return false;
     const publishedDate = new Date(p.updated_at);
     return publishedDate < sevenDaysAgo;
   }).filter(searchFilter);
 
-  // Kanban board datasets (separated by category)
-  const creativeBoardProjects = projects.filter(p =>
-    (p.category || 'creative') === 'creative' && !p.is_archived
-    && searchFilter(p) && statusFilter(p)
-  );
-  const businessBoardProjects = projects.filter(p =>
-    p.category === 'business' && !p.is_archived && searchFilter(p)
-  );
   const archivedCount = archivedProjects.length;
 
   const editingCount = shorts.filter(s => s.stage === 'editing').length;
@@ -946,151 +854,7 @@ export default function Projects({ onNavigate }) {
       {loading ? (
         <p style={styles.emptyText}>Loading projects...</p>
       ) : viewMode === 'board' ? (
-        <>
-        <DragDropContext onDragEnd={onDragEnd}>
-          {/* Creative Board */}
-          <h2 style={{ ...styles.sectionHeading, marginTop: 0 }}>Creative</h2>
-          <div style={styles.boardContainer}>
-            {STATUSES.map(status => {
-              const columnProjects = creativeBoardProjects
-                .filter(p => p.status === status)
-                .sort((a, b) => {
-                  const d = (a.sort_order ?? 0) - (b.sort_order ?? 0);
-                  return d !== 0 ? d : new Date(a.created_at) - new Date(b.created_at);
-                });
-              return (
-                <Droppable droppableId={`creative:${status}`} key={`creative:${status}`}>
-                  {(provided, snapshot) => (
-                    <div
-                      ref={provided.innerRef}
-                      {...provided.droppableProps}
-                      style={{
-                        ...styles.boardColumn,
-                        background: snapshot.isDraggingOver ? 'rgba(99,102,241,0.06)' : 'rgba(255,255,255,0.02)',
-                      }}
-                    >
-                      <div style={styles.boardColumnHeader}>
-                        <div style={{ ...styles.boardColumnDot, background: STATUS_COLORS[status] }} />
-                        <span style={{ ...styles.boardColumnTitle, color: STATUS_COLORS[status] }}>{STATUS_LABELS[status]}</span>
-                        <span style={styles.boardColumnCount}>{columnProjects.length}</span>
-                      </div>
-                      <div style={styles.boardColumnBody}>
-                        {columnProjects.map((project, index) => (
-                          <Draggable key={project.id} draggableId={project.id} index={index}>
-                            {(provided, snapshot) => (
-                              <div
-                                ref={provided.innerRef}
-                                {...provided.draggableProps}
-                                {...provided.dragHandleProps}
-                                onClick={() => setSelectedProject(project.id)}
-                                style={{
-                                  ...styles.kanbanCard,
-                                  ...(snapshot.isDragging ? { boxShadow: '0 8px 24px rgba(0,0,0,0.4)', border: '1px solid rgba(99,102,241,0.3)' } : {}),
-                                  ...provided.draggableProps.style,
-                                }}
-                              >
-                                <KanbanCard project={project} />
-                              </div>
-                            )}
-                          </Draggable>
-                        ))}
-                        {provided.placeholder}
-                        <button onClick={() => openFormWithPreset('creative', status)} style={styles.columnAddBtn}>+ Add</button>
-                      </div>
-                    </div>
-                  )}
-                </Droppable>
-              );
-            })}
-          </div>
-
-          {/* Business Board */}
-          <h2 style={{ ...styles.sectionHeading, marginTop: '32px' }}>Business</h2>
-          <div style={styles.boardContainer}>
-            {BUSINESS_STATUSES.map(status => {
-              const columnProjects = businessBoardProjects
-                .filter(p => p.status === status)
-                .sort((a, b) => {
-                  const d = (a.sort_order ?? 0) - (b.sort_order ?? 0);
-                  return d !== 0 ? d : new Date(a.created_at) - new Date(b.created_at);
-                });
-              return (
-                <Droppable droppableId={`business:${status}`} key={`business:${status}`}>
-                  {(provided, snapshot) => (
-                    <div
-                      ref={provided.innerRef}
-                      {...provided.droppableProps}
-                      style={{
-                        ...styles.boardColumn,
-                        background: snapshot.isDraggingOver ? 'rgba(99,102,241,0.06)' : 'rgba(255,255,255,0.02)',
-                      }}
-                    >
-                      <div style={styles.boardColumnHeader}>
-                        <div style={{ ...styles.boardColumnDot, background: BUSINESS_STATUS_COLORS[status] }} />
-                        <span style={{ ...styles.boardColumnTitle, color: BUSINESS_STATUS_COLORS[status] }}>{BUSINESS_STATUS_LABELS[status]}</span>
-                        <span style={styles.boardColumnCount}>{columnProjects.length}</span>
-                      </div>
-                      <div style={styles.boardColumnBody}>
-                        {columnProjects.map((project, index) => (
-                          <Draggable key={project.id} draggableId={project.id} index={index}>
-                            {(provided, snapshot) => (
-                              <div
-                                ref={provided.innerRef}
-                                {...provided.draggableProps}
-                                {...provided.dragHandleProps}
-                                onClick={() => setSelectedProject(project.id)}
-                                style={{
-                                  ...styles.kanbanCard,
-                                  ...(snapshot.isDragging ? { boxShadow: '0 8px 24px rgba(0,0,0,0.4)', border: '1px solid rgba(99,102,241,0.3)' } : {}),
-                                  ...provided.draggableProps.style,
-                                }}
-                              >
-                                <KanbanCard project={project} />
-                              </div>
-                            )}
-                          </Draggable>
-                        ))}
-                        {provided.placeholder}
-                        <button onClick={() => openFormWithPreset('business', status)} style={styles.columnAddBtn}>+ Add</button>
-                      </div>
-                    </div>
-                  )}
-                </Droppable>
-              );
-            })}
-          </div>
-        </DragDropContext>
-
-        {/* Project details modal (board view) */}
-        {selectedProject && (() => {
-          const proj = projects.find(p => p.id === selectedProject);
-          if (!proj) return null;
-          return (
-            <div style={styles.modalOverlay} onClick={() => setSelectedProject(null)}>
-              <div style={styles.projectModalContent} onClick={(e) => e.stopPropagation()}>
-                <button
-                  onClick={() => setSelectedProject(null)}
-                  style={styles.projectModalClose}
-                  title="Close"
-                  aria-label="Close"
-                >✕</button>
-                <ProjectRow
-                  project={proj} teamMembers={teamMembers} profile={profile}
-                  isSelected={true} onToggle={() => setSelectedProject(null)}
-                  onStatusChange={handleStatusChange} onAssign={handleAssign} onRemoveAssignment={handleRemoveAssignment}
-                  onAddAttachment={handleAddAttachment} onRemoveAttachment={handleRemoveAttachment} onAddComment={handleAddComment}
-                  onDeleteComment={handleDeleteComment} onDeleteProject={(id) => { handleDeleteProject(id); setSelectedProject(null); }} onArchiveProject={(id) => { handleArchiveProject(id); setSelectedProject(null); }}
-                  onUnarchiveProject={handleUnarchiveProject} onNavigate={onNavigate}
-                  isAdmin={isAdmin} onAddChecklistItem={handleAddChecklistItem} onToggleChecklistItem={handleToggleChecklistItem}
-                  onDeleteChecklistItem={handleDeleteChecklistItem} onAssignProjectStage={handleAssignProjectStage}
-                  onRemoveProjectStageAssignment={handleRemoveProjectStageAssignment} onUpdateProject={handleUpdateProject}
-                  linkedFieldData={{ writeDocs, beatSheets, adReadDeliverables }}
-                />
-              </div>
-            </div>
-          );
-        })()}
-        </>
+        <UnifiedBoard />
       ) : (
         <>
         {/* ── Current Projects ── */}

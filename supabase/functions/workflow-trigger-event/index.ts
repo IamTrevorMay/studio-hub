@@ -63,6 +63,11 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return jsonResp({ error: "Method not allowed" }, 405);
 
+  // Phase 2 unified-Kanban gate: stop new instance creation while new board is built.
+  if (Deno.env.get("WORKFLOWS_DISABLED") === "true") {
+    return jsonResp({ disabled: true, matched: 0, created: [] }, 200);
+  }
+
   // Auth: require CRON_SECRET OR admin JWT. This endpoint runs under
   // service role and synthesizes workflow cards / tasks from arbitrary
   // event payloads, so it must not be callable by unauthenticated traffic.

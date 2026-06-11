@@ -2,7 +2,20 @@ import { supabase } from '../supabaseClient';
 
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL || '';
 
+// Phase 2 of unified Kanban migration: stop creating new workflow instances.
+// In-flight workflows continue to advance via workflow-complete-task. Flip back
+// to false (or delete) once the new board ships.
+export const WORKFLOWS_CREATION_DISABLED = true;
+
+const CREATION_FN_NAMES = new Set([
+  'workflow-start',
+  'workflow-trigger-event',
+]);
+
 export async function callWorkflowFn(fnName, body) {
+  if (WORKFLOWS_CREATION_DISABLED && CREATION_FN_NAMES.has(fnName)) {
+    return { disabled: true, instance_id: null, task_ids: [], matched: 0, created: [] };
+  }
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Not authenticated');
   const res = await fetch(`${SUPABASE_URL}/functions/v1/${fnName}`, {

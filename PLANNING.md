@@ -49,26 +49,100 @@ Renamed Freelancer to Contractor in admin panel. Added document signing (`Docume
 - Supabase CLI update (v2.95.4 → v2.101.0)
 - `CLAUDE_MODEL` env var should be set in Supabase dashboard to pin model versions across `generate-trends`, `run-report`
 
-### Creative Board → Task Integration
-Wire the Creative Board Kanban columns to the My Tasks system so moving a card into a column creates tasks for the stage assignees, and moving it out completes/removes those tasks.
+### Unified Content Kanban (locked spec, 2026-06-10)
 
-**Behavior:**
-- When a card is dragged into a new column, create a task for each person assigned to that column (via `project_stage_assignments`). Task title would be something like `"{project name} — {stage label}"`.
-- The task can only be cleared by moving the card out of that column (either forward or back). No manual complete.
-- Only users assigned to the card's current column (or admins) can physically drag the card. Set `isDragDisabled` based on whether the current user is in the stage assignments for the source column.
-- Notifications already fire on column change — the new task creation replaces/augments that.
+Replace Projects page Kanban with a type-aware unified board for all content projects. Disable workflow-instance creation + automation triggers while developing (nav stays; in-flight runs continue).
 
-**Key touchpoints:**
-- `src/pages/Projects.js` — `onDragEnd` handler (drag permission check + task create/complete), `KanbanCard` (disable drag prop)
-- `project_stage_assignments` table — determines who owns each column
-- `tasks` table — new tasks linked via `project_id` or similar reference
+**Project types (4)** — collapses existing 10
+- `mayday_video` → More Mayday
+- `tm_baseball_video` → Trevor May Baseball
+- `podcast`
+- `short_form`
 
-**Open questions:**
-- One shared task per column move, or one task per stage assignee?
-- Should there be a fallback if no one is assigned to a column? (block the move, or allow admins only)
+Channel field dropped (derived from type). AWA Wiffle retired.
 
-### Split "YouTube Video" Project Type
-Split the current `YouTube Video` project type into two distinct types: `Mayday Video` and `Trevor May Baseball Video`. These map to the two YouTube channels and their separate workflow boards. Currently both use the same generic "YouTube Video" type, which makes filtering and workflow triggers ambiguous.
+**Columns** — shared canonical (6), type-specific labels (Map A, verb-leaning)
+
+| Canonical | Mayday  | TM Baseball | Podcast | Short Form |
+|-----------|---------|-------------|---------|------------|
+| Idea      | Idea    | Idea        | Idea    | Idea       |
+| Write     | Script  | Script      | Outline | Concept    |
+| Produce   | Shoot   | Shoot       | Record  | Capture    |
+| Edit      | Edit    | Edit        | Edit    | Cut        |
+| Review    | Review  | Review      | Review  | Review     |
+| Publish   | Publish | Publish     | Publish | Publish    |
+
+**Assignment + tasks**
+- Reuse `project_stage_assignments(project_id, stage, user_id)` — N assignees per stage allowed.
+- Card enters column → one task per assignee (N tasks). Title: `{project name} — {column label}`.
+- No manual complete; tasks close atomically on card move.
+- Notif: task-creation notif only (drop legacy column-change notif).
+
+**Carry-forward to next task**
+- Rolling notes thread (all prior columns).
+- Hold reason (if recently held).
+- Outgoing-assignee handoff note (optional input on exit).
+- Previous-column outputs (links/files).
+- Card-level due date.
+
+**Drag rules**
+- Forward: current column assignees + admins.
+- Backward: admin only. Closes current tasks; creates fresh tasks for prior-column assignees.
+- Type change mid-flight: relabel column in place, retitle open tasks. Card stays put.
+
+**Hold**
+- Sidecar lane on right edge, collapsible. Admin-only hold/unhold with required reason.
+- Storage: `projects.on_hold bool` + `projects.hold_reason text`.
+- Open tasks suspended (no nag) while held.
+
+**Sort within column**: auto by due date ascending. Drag only changes columns.
+
+**Publish terminal**: stay current week; Monday 00:00 PT cron archives to `projects.archived_at`; "Published" expander shows archived.
+
+**Visibility**: admin + assistant + member. Contractors: no board; get auto-generated tasks in portal as today.
+
+**Mobile**: vertical scroll one column at a time, swipe between, long-press menu replaces drag.
+
+**Doc linkage**: card surfaces "Open" buttons for `write_doc_id` / `beat_sheet_id` / `ad_read_id`. No auto-create.
+
+**New project create**: form has "Start at column" dropdown (default Idea).
+
+**Migration**
+
+Type collapse:
+- `youtube_video` → `mayday_video` (default)
+- `short_form` / `podcast` → unchanged
+- `social_post`, `substack_article`, `sponsorship`, `collaboration`, `documentation`, `administration`, `other` → NULL (admin re-tag tray)
+
+Status collapse (creative): concept→Idea, script→Write, production→Produce, edit→Edit, review→Review, published→Publish.
+
+Status collapse (legacy shorts): editing→Edit, ready_to_post→Review, posted→Publish.
+
+Re-tag UX: persistent yellow banner above board (`N projects need a type`) → modal w/ type picker. Banner disappears at zero.
+
+**Unplug Workflows**
+- Disable workflow-instance creation endpoints + UI buttons.
+- `automations.is_enabled = false` where actions include workflow-creating step.
+- Workflows sidebar nav stays.
+- In-flight `workflow_instances` continue to completion.
+
+**Key touchpoints**
+- `src/pages/Projects.js` — gut Kanban; rebuild as type-aware board.
+- `src/pages/Workflows.js` — disable creation paths + UI.
+- `supabase/functions/run-automations/index.ts` — gate workflow-creating actions.
+- New columns: `projects.on_hold`, `projects.hold_reason`, `projects.archived_at`, `projects.start_column`.
+- New tables: `project_card_notes` (rolling thread per column), `project_card_handoffs` (exit notes per transition).
+- New edge fns: `card-move` (server-side fan-out + carry-forward + RLS check), `archive-published-cards` (Monday cron).
+- New migration: `projects.type` CHECK constraint update to 4 values after backfill.
+
+**Phasing**
+1. Schema + migration (columns, new tables, backfill, re-tag banner).
+2. Unplug workflows.
+3. Backend (`card-move` edge fn, server task fan-out, carry-forward).
+4. Board UI rebuild (desktop).
+5. Mobile swipe view.
+6. Archive cron + Publish expander.
+7. Cleanup dead workflow paths.
 
 ### Long-term
 - **Business Dev Page** — Full spec written (in CLAUDE.md), not yet built. Four-level hierarchy: Phase > Workstream > Initiative > Task. Four views: Phases, Timeline/Gantt, Calendar, My Stuff. Tables: `bd_phases`, `bd_initiatives`, `bd_initiative_links`, `bd_tasks`, `bd_milestones`, `bd_settings`.
