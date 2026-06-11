@@ -114,9 +114,14 @@ export default function UnifiedBoard() {
     [filteredTyped],
   );
 
+  const backlogProjects = useMemo(
+    () => filteredTyped.filter((p) => p.status === 'backlog' && !p.on_hold).sort(sortByDueDate),
+    [filteredTyped],
+  );
+
   const byStage = useMemo(() => {
     const map = Object.fromEntries(CANONICAL_STAGES.map((s) => [s, []]));
-    filteredTyped.filter((p) => !p.on_hold).forEach((p) => {
+    filteredTyped.filter((p) => !p.on_hold && p.status !== 'backlog').forEach((p) => {
       if (map[p.status]) map[p.status].push(p);
     });
     Object.values(map).forEach((arr) => arr.sort(sortByDueDate));
@@ -139,9 +144,20 @@ export default function UnifiedBoard() {
     const targetStage = destination.droppableId;
     const sourceStage = source.droppableId;
     if (targetStage === sourceStage) return;
-    if (!CANONICAL_STAGES.includes(targetStage)) return;
+    const validTargets = [...CANONICAL_STAGES, 'backlog'];
+    if (!validTargets.includes(targetStage)) return;
     const project = projects.find((p) => p.id === draggableId);
     if (!project) return;
+
+    // Backlog ops: admin-only, no handoff modal.
+    if (targetStage === 'backlog' || sourceStage === 'backlog') {
+      if (!isAdmin) {
+        alert('Only admins can move cards in or out of Backlog.');
+        return;
+      }
+      await performMove(project, targetStage, null);
+      return;
+    }
 
     const sourceIdx = CANONICAL_STAGES.indexOf(sourceStage);
     const targetIdx = CANONICAL_STAGES.indexOf(targetStage);
@@ -256,24 +272,32 @@ export default function UnifiedBoard() {
       ) : (
         <div style={s.boardWrap}>
           <DragDropContext onDragEnd={onDragEnd}>
-            <div style={s.columnsRow}>
-              {CANONICAL_STAGES.map((stage) => (
-                <Column
-                  key={stage}
-                  stage={stage}
-                  projects={byStage[stage]}
-                  canDragProject={canDrag}
-                  onCardClick={(p) => setEditProject(p)}
-                  footer={stage === 'publish' ? (
-                    <ArchivedExpander
-                      expanded={archivedExpanded}
-                      loading={archivedLoading}
-                      projects={archivedProjects}
-                      onToggle={() => setArchivedExpanded((v) => !v)}
-                    />
-                  ) : null}
-                />
-              ))}
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: spacing.md }}>
+              <div style={s.columnsRow}>
+                {CANONICAL_STAGES.map((stage) => (
+                  <Column
+                    key={stage}
+                    stage={stage}
+                    projects={byStage[stage]}
+                    canDragProject={canDrag}
+                    onCardClick={(p) => setEditProject(p)}
+                    footer={stage === 'publish' ? (
+                      <ArchivedExpander
+                        expanded={archivedExpanded}
+                        loading={archivedLoading}
+                        projects={archivedProjects}
+                        onToggle={() => setArchivedExpanded((v) => !v)}
+                      />
+                    ) : null}
+                  />
+                ))}
+              </div>
+
+              <BacklogSection
+                projects={backlogProjects}
+                canDragProject={canDrag}
+                onCardClick={(p) => setEditProject(p)}
+              />
             </div>
           </DragDropContext>
 
@@ -420,6 +444,69 @@ function Column({ stage, projects, canDragProject, onCardClick, footer }) {
         )}
       </Droppable>
       {footer}
+    </div>
+  );
+}
+
+// ─── BacklogSection ──────────────────────────────────────────────
+
+function BacklogSection({ projects, canDragProject, onCardClick }) {
+  return (
+    <div style={s.backlog.wrap}>
+      <div style={s.backlog.header}>
+        <span style={s.backlog.title}>BACKLOG</span>
+        <span style={s.backlog.count}>{projects.length}</span>
+      </div>
+      <Droppable droppableId="backlog" direction="horizontal">
+        {(provided, snapshot) => (
+          <div
+            ref={provided.innerRef}
+            {...provided.droppableProps}
+            style={{
+              ...s.backlog.body,
+              background: snapshot.isDraggingOver ? colors.bgHover : 'transparent',
+            }}
+          >
+            {projects.length === 0 ? (
+              <div style={s.backlog.empty}>Drag cards here to park them.</div>
+            ) : projects.map((p, idx) => (
+              <Draggable
+                key={p.id}
+                draggableId={p.id}
+                index={idx}
+                isDragDisabled={!canDragProject(p)}
+              >
+                {(drag, dragSnap) => (
+                  <div
+                    ref={drag.innerRef}
+                    {...drag.draggableProps}
+                    {...drag.dragHandleProps}
+                    onClick={() => { if (!dragSnap.isDragging) onCardClick?.(p); }}
+                    style={{
+                      ...drag.draggableProps.style,
+                      ...s.backlog.card,
+                      cursor: 'pointer',
+                      opacity: canDragProject(p) ? 1 : 0.65,
+                      boxShadow: dragSnap.isDragging ? '0 8px 20px rgba(0,0,0,0.4)' : 'none',
+                    }}
+                  >
+                    <div style={s.cardTitle}>{p.name}</div>
+                    <div style={s.cardMeta}>
+                      <span style={s.typeTag}>{typeLabel(p.type)}</span>
+                      {p.deadline && (
+                        <span style={s.dueDate}>
+                          {new Date(p.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </Draggable>
+            ))}
+            {provided.placeholder}
+          </div>
+        )}
+      </Droppable>
     </div>
   );
 }
@@ -771,7 +858,7 @@ function RetagModal({ untyped, onClose }) {
 function NewProjectModal({ onClose, onCreated, createdBy }) {
   const [name, setName] = useState('');
   const [type, setType] = useState(PROJECT_TYPE_OPTIONS[0].value);
-  const [startColumn, setStartColumn] = useState('idea');
+  const [startColumn, setStartColumn] = useState('queue');
   const [deadline, setDeadline] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -1413,6 +1500,49 @@ const s = {
     sheetCancel: {
       marginTop: spacing.md, justifyContent: 'center',
       color: colors.textMuted, background: 'transparent',
+    },
+  },
+
+  backlog: {
+    wrap: {
+      background: colors.bgRaised,
+      border: `1px solid ${colors.border}`,
+      borderRadius: radii.md,
+      padding: spacing.md,
+      width: '100%',
+    },
+    header: {
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      fontSize: fontSizes.xs, fontWeight: fontWeights.bold, letterSpacing: 1,
+      color: STAGE_COLORS.backlog,
+      paddingBottom: spacing.sm, marginBottom: spacing.sm,
+      borderBottom: `1px solid ${colors.border}`,
+    },
+    title: {},
+    count: { color: colors.textDim, fontWeight: fontWeights.regular },
+    body: {
+      display: 'flex',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+      minHeight: 80,
+      padding: spacing.sm,
+      borderRadius: radii.sm,
+      alignItems: 'flex-start',
+    },
+    empty: {
+      color: colors.textDim,
+      fontStyle: 'italic',
+      fontSize: fontSizes.sm,
+      padding: `${spacing.sm}px ${spacing.md}px`,
+    },
+    card: {
+      background: colors.bg,
+      border: `1px solid ${colors.border}`,
+      borderRadius: radii.sm,
+      padding: spacing.sm,
+      minWidth: 220,
+      maxWidth: 280,
+      flex: '0 1 240px',
     },
   },
 };

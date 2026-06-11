@@ -11,14 +11,16 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const STAGES = ["idea", "write", "produce", "edit", "review", "publish"] as const;
+const STAGES = ["queue", "write", "produce", "edit", "review", "publish"] as const;
 type Stage = typeof STAGES[number];
+const BACKLOG_STAGE = "backlog" as const;
+const ALL_TARGETS = [...STAGES, BACKLOG_STAGE];
 
 const STAGE_LABELS: Record<string, Record<Stage, string>> = {
-  mayday_video:      { idea: "Idea", write: "Script",  produce: "Shoot",   edit: "Edit", review: "Review", publish: "Publish" },
-  tm_baseball_video: { idea: "Idea", write: "Script",  produce: "Shoot",   edit: "Edit", review: "Review", publish: "Publish" },
-  podcast:           { idea: "Idea", write: "Outline", produce: "Record",  edit: "Edit", review: "Review", publish: "Publish" },
-  short_form:        { idea: "Idea", write: "Concept", produce: "Capture", edit: "Cut",  review: "Review", publish: "Publish" },
+  mayday_video:      { queue: "Queue", write: "Script",  produce: "Shoot",   edit: "Edit", review: "Review", publish: "Publish" },
+  tm_baseball_video: { queue: "Queue", write: "Script",  produce: "Shoot",   edit: "Edit", review: "Review", publish: "Publish" },
+  podcast:           { queue: "Queue", write: "Outline", produce: "Record",  edit: "Edit", review: "Review", publish: "Publish" },
+  short_form:        { queue: "Queue", write: "Concept", produce: "Capture", edit: "Cut",  review: "Review", publish: "Publish" },
 };
 
 const corsHeaders = {
@@ -60,9 +62,10 @@ async function getCaller(req: Request): Promise<{ userId: string; role: string }
   return { userId: user.id, role: profile?.role || "" };
 }
 
-function labelFor(projectType: string | null, stage: Stage): string {
+function labelFor(projectType: string | null, stage: string): string {
+  if (stage === BACKLOG_STAGE) return "Backlog";
   if (!projectType) return stage;
-  return STAGE_LABELS[projectType]?.[stage] || stage;
+  return STAGE_LABELS[projectType]?.[stage as Stage] || stage;
 }
 
 Deno.serve(async (req: Request) => {
@@ -80,10 +83,10 @@ Deno.serve(async (req: Request) => {
 
   const { project_id, target_stage, handoff_note } = body;
   if (!project_id) return jsonResp({ error: "project_id required" }, 400);
-  if (!target_stage || !STAGES.includes(target_stage as Stage)) {
-    return jsonResp({ error: "target_stage must be one of " + STAGES.join(", ") }, 400);
+  if (!target_stage || !ALL_TARGETS.includes(target_stage as Stage | typeof BACKLOG_STAGE)) {
+    return jsonResp({ error: "target_stage must be one of " + ALL_TARGETS.join(", ") }, 400);
   }
-  const targetStage = target_stage as Stage;
+  const targetStage = target_stage as Stage | typeof BACKLOG_STAGE;
 
   const admin = getAdminClient();
 
@@ -102,32 +105,51 @@ Deno.serve(async (req: Request) => {
     return jsonResp({ error: "Card is on hold; admin must unhold before moving" }, 403);
   }
 
-  const currentStage = project.status as Stage;
+  const currentStage = project.status as Stage | typeof BACKLOG_STAGE;
   if (currentStage === targetStage) {
     return jsonResp({ error: "Card already in target stage" }, 400);
   }
 
-  const currentIdx = STAGES.indexOf(currentStage);
-  let targetIdx = STAGES.indexOf(targetStage);
-  if (currentIdx < 0) return jsonResp({ error: `Project status "${currentStage}" not on canonical board` }, 400);
-
-  const isBackward = targetIdx < currentIdx;
-
-  // Auto-advance through stages marked Skip in stage_config (forward only).
+  // Backlog handling: parking lot below the board. No skip logic, no task fanout.
   const stageConfig = (project.stage_config || {}) as Record<string, { skip?: boolean }>;
-  if (!isBackward) {
-    while (targetIdx < STAGES.length && stageConfig[STAGES[targetIdx]]?.skip) {
-      targetIdx += 1;
-    }
-    if (targetIdx >= STAGES.length) {
-      return jsonResp({ error: "All forward stages are skipped — clear a skip before moving" }, 400);
-    }
-  }
-  const resolvedTargetStage = STAGES[targetIdx];
+  let resolvedTargetStage: Stage | typeof BACKLOG_STAGE;
+  let isBackward = false;
 
-  // Permission: forward = admin or assignee of current stage; backward = admin only.
+  if (targetStage === BACKLOG_STAGE) {
+    resolvedTargetStage = BACKLOG_STAGE;
+  } else if (currentStage === BACKLOG_STAGE) {
+    // Leaving backlog always re-enters at Queue. Auto-advance past any
+    // queue-side skip flags in case the admin pre-skipped it.
+    let qIdx = STAGES.indexOf("queue" as Stage);
+    while (qIdx < STAGES.length && stageConfig[STAGES[qIdx]]?.skip) {
+      qIdx += 1;
+    }
+    if (qIdx >= STAGES.length) {
+      return jsonResp({ error: "All forward stages are skipped — clear a skip before pulling from backlog" }, 400);
+    }
+    resolvedTargetStage = STAGES[qIdx];
+  } else {
+    const currentIdx = STAGES.indexOf(currentStage as Stage);
+    let targetIdx = STAGES.indexOf(targetStage as Stage);
+    if (currentIdx < 0) return jsonResp({ error: `Project status "${currentStage}" not on canonical board` }, 400);
+    isBackward = targetIdx < currentIdx;
+    if (!isBackward) {
+      while (targetIdx < STAGES.length && stageConfig[STAGES[targetIdx]]?.skip) {
+        targetIdx += 1;
+      }
+      if (targetIdx >= STAGES.length) {
+        return jsonResp({ error: "All forward stages are skipped — clear a skip before moving" }, 400);
+      }
+    }
+    resolvedTargetStage = STAGES[targetIdx];
+  }
+
+  // Permission: forward = admin or assignee of current stage; backward + backlog ops = admin only.
   if (isBackward && caller.role !== "admin") {
     return jsonResp({ error: "Only admins can move a card backward" }, 403);
+  }
+  if ((targetStage === BACKLOG_STAGE || currentStage === BACKLOG_STAGE) && caller.role !== "admin") {
+    return jsonResp({ error: "Only admins can move cards in or out of Backlog" }, 403);
   }
   if (!isBackward && caller.role !== "admin") {
     const { data: assigned } = await admin

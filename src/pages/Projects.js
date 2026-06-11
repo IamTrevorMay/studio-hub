@@ -9,13 +9,13 @@ import UnifiedBoard from './projects/UnifiedBoard';
 import { labelFor as stageTaskLabel } from '../lib/kanbanStages';
 
 
-const STATUSES = ['idea', 'write', 'produce', 'edit', 'review', 'publish'];
+const STATUSES = ['queue', 'write', 'produce', 'edit', 'review', 'publish'];
 const STATUS_LABELS = {
-  idea: 'Idea', write: 'Write', produce: 'Produce',
+  queue: 'Queue', write: 'Write', produce: 'Produce',
   edit: 'Edit', review: 'Review', publish: 'Publish',
 };
 const STATUS_COLORS = {
-  idea: '#8b5cf6', write: '#3b82f6', produce: '#f59e0b',
+  queue: '#8b5cf6', write: '#3b82f6', produce: '#f59e0b',
   edit: '#f97316', review: '#ec4899', publish: '#22c55e',
 };
 const PROJECT_TYPES = [
@@ -81,7 +81,7 @@ export default function Projects({ onNavigate }) {
   // Form state
   const [form, setForm] = useState({
     name: '', category: 'creative', type: 'mayday_video', channel: '',
-    start_date: '', deadline: '', status: 'idea',
+    start_date: '', deadline: '', status: 'queue',
     write_doc_id: '', write_doc_name: '', beat_sheet_id: '', ad_read_id: '',
   });
 
@@ -244,7 +244,7 @@ export default function Projects({ onNavigate }) {
       alert('Error creating project: ' + error.message);
       return;
     }
-    setForm({ name: '', category: 'creative', type: 'mayday_video', channel: '', start_date: '', deadline: '', status: 'idea', write_doc_id: '', write_doc_name: '', beat_sheet_id: '', ad_read_id: '' });
+    setForm({ name: '', category: 'creative', type: 'mayday_video', channel: '', start_date: '', deadline: '', status: 'queue', write_doc_id: '', write_doc_name: '', beat_sheet_id: '', ad_read_id: '' });
     setShowForm(false);
     fetchProjects();
   }

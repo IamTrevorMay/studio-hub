@@ -1,13 +1,15 @@
 // Unified Content Kanban — shared stage constants.
 // Mirror this file in supabase/functions/card-move/index.ts when changing labels.
 
-export const CANONICAL_STAGES = ['idea', 'write', 'produce', 'edit', 'review', 'publish'];
+export const CANONICAL_STAGES = ['queue', 'write', 'produce', 'edit', 'review', 'publish'];
+
+export const BACKLOG_STAGE = 'backlog';
 
 export const STAGE_LABELS_BY_TYPE = {
-  mayday_video:      { idea: 'Idea', write: 'Script',  produce: 'Shoot',   edit: 'Edit', review: 'Review', publish: 'Publish' },
-  tm_baseball_video: { idea: 'Idea', write: 'Script',  produce: 'Shoot',   edit: 'Edit', review: 'Review', publish: 'Publish' },
-  podcast:           { idea: 'Idea', write: 'Outline', produce: 'Record',  edit: 'Edit', review: 'Review', publish: 'Publish' },
-  short_form:        { idea: 'Idea', write: 'Concept', produce: 'Capture', edit: 'Cut',  review: 'Review', publish: 'Publish' },
+  mayday_video:      { queue: 'Queue', write: 'Script',  produce: 'Shoot',   edit: 'Edit', review: 'Review', publish: 'Publish' },
+  tm_baseball_video: { queue: 'Queue', write: 'Script',  produce: 'Shoot',   edit: 'Edit', review: 'Review', publish: 'Publish' },
+  podcast:           { queue: 'Queue', write: 'Outline', produce: 'Record',  edit: 'Edit', review: 'Review', publish: 'Publish' },
+  short_form:        { queue: 'Queue', write: 'Concept', produce: 'Capture', edit: 'Cut',  review: 'Review', publish: 'Publish' },
 };
 
 export const PROJECT_TYPE_OPTIONS = [
@@ -18,7 +20,8 @@ export const PROJECT_TYPE_OPTIONS = [
 ];
 
 export const STAGE_COLORS = {
-  idea:    '#8b5cf6',
+  queue:   '#8b5cf6',
+  backlog: '#64748b',
   write:   '#3b82f6',
   produce: '#f59e0b',
   edit:    '#f97316',
