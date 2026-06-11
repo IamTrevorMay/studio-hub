@@ -97,6 +97,17 @@ export const PROJECT_TYPE_OPTIONS = [
   { value: 'short_form',        label: 'Short Form',        channel: 'Shorts' },
 ];
 
+export const TYPE_COLORS = {
+  mayday_video:      { fg: '#f87171', bg: 'rgba(248,113,113,0.15)', border: 'rgba(248,113,113,0.35)' },
+  tm_baseball_video: { fg: '#34d399', bg: 'rgba(52,211,153,0.15)',  border: 'rgba(52,211,153,0.35)' },
+  podcast:           { fg: '#c084fc', bg: 'rgba(192,132,252,0.15)', border: 'rgba(192,132,252,0.35)' },
+  short_form:        { fg: '#fbbf24', bg: 'rgba(251,191,36,0.15)',  border: 'rgba(251,191,36,0.35)' },
+};
+
+export function typeColors(projectType) {
+  return TYPE_COLORS[projectType] || { fg: '#94a3b8', bg: 'rgba(148,163,184,0.15)', border: 'rgba(148,163,184,0.35)' };
+}
+
 export const STAGE_COLORS = {
   queue:           '#8b5cf6',
   backlog:         '#64748b',

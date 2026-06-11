@@ -49,6 +49,25 @@ Renamed Freelancer to Contractor in admin panel. Added document signing (`Docume
 - Supabase CLI update (v2.95.4 → v2.101.0)
 - `CLAUDE_MODEL` env var should be set in Supabase dashboard to pin model versions across `generate-trends`, `run-report`
 
+### Pending — Wire Projects board progress into Workflows Team + Contractors sections (2026-06-11)
+
+The Workflows page Team Section currently only mirrors the Tracking > Progress
+"Editing" column into Alana Benson's Pending list. The new 8-stage Projects
+Kanban needs broader integration:
+
+- Each team member's Pending column in the Team Section should also list
+  project cards where they are the current-stage assignee (queried via
+  `project_stage_assignments` joined to `projects` where `stage = status`).
+- Same for the Contractors section — freelancer profiles assigned to a project
+  stage should see those cards in their Pending list.
+- Visual cue should distinguish a project card from a regular task entry
+  (e.g. blue dot + "PROJECT" badge vs. yellow dot for tasks).
+- The Done section should pick up project cards archived in the last 7 days.
+
+Open question: displace the existing tasks-based mirror, or render project
+entries alongside it? Suggestion — keep tasks as primary, append project
+entries under a "Projects:" sub-list within the same row.
+
 ### Pending — Contractor-assignment auto-complete hooks (Mayday Kanban port, 2026-06-11)
 
 The 8-stage Workflows port landed labels + descriptions for Mayday's `film` and

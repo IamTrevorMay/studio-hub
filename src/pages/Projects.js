@@ -102,7 +102,7 @@ export default function Projects({ onNavigate }) {
           project_assignments(*, profile:profiles(id, full_name, title)),
           project_attachments(*),
           project_checklists(*),
-          project_stage_assignments(*, profile:profiles(id, full_name))
+          project_stage_assignments(*, profile:profiles(id, full_name, title, role))
         `)
         .order('created_at', { ascending: false });
 
@@ -1220,11 +1220,11 @@ function RowContextMenu({ x, y, onClose, onDuplicate, onArchive, onDelete }) {
           top: y,
           zIndex: 999,
           background: '#1a1a2e',
-          border: '1px solid rgba(255,255,255,0.12)',
+          border: '1px solid rgba(255,255,255,0.18)',
           borderRadius: '8px',
           padding: '4px',
           minWidth: '160px',
-          boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+          boxShadow: '0 12px 32px rgba(0,0,0,0.7)',
         }}
       >
         {items.map((it) => (
@@ -1657,13 +1657,17 @@ function ProjectRow({
                       <option value="skip">Skip</option>
                     </select>
                     <div style={{ display: 'flex', gap: '4px', flex: 1, flexWrap: 'wrap', alignItems: 'center', pointerEvents: isSkipped ? 'none' : 'auto' }}>
-                      {stageAs.map(a => (
-                        <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(99,102,241,0.1)', padding: '2px 6px', borderRadius: '6px' }}>
-                          <div style={{ width: '18px', height: '18px', borderRadius: '6px', background: 'rgba(99,102,241,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '9px', fontWeight: 600, color: '#a5b4fc' }}>{a.profile?.full_name?.charAt(0)}</div>
-                          <span style={{ fontSize: '11px', color: '#a5b4fc' }}>{a.profile?.full_name}</span>
-                          <button onClick={() => onRemoveProjectStageAssignment(a.id)} disabled={isSkipped} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.25)', cursor: isSkipped ? 'not-allowed' : 'pointer', fontSize: '12px', padding: '4px' }}>✕</button>
-                        </div>
-                      ))}
+                      {stageAs.map(a => {
+                        const tt = a.profile?.title || a.profile?.role;
+                        return (
+                          <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(99,102,241,0.1)', padding: '2px 6px', borderRadius: '6px' }}>
+                            <div style={{ width: '18px', height: '18px', borderRadius: '6px', background: 'rgba(99,102,241,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '9px', fontWeight: 600, color: '#a5b4fc' }}>{a.profile?.full_name?.charAt(0)}</div>
+                            <span style={{ fontSize: '11px', color: '#a5b4fc' }}>{a.profile?.full_name}</span>
+                            {tt && <span style={{ fontSize: '10px', color: 'rgba(165,180,252,0.6)' }}>— {tt}</span>}
+                            <button onClick={() => onRemoveProjectStageAssignment(a.id)} disabled={isSkipped} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.25)', cursor: isSkipped ? 'not-allowed' : 'pointer', fontSize: '12px', padding: '4px' }}>✕</button>
+                          </div>
+                        );
+                      })}
                       <select
                         disabled={isSkipped}
                         onChange={(e) => { if (e.target.value) { onAssignProjectStage(project.id, stage, e.target.value); e.target.value = ''; } }}
@@ -1671,9 +1675,12 @@ function ProjectRow({
                         style={{ padding: '3px 6px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', color: '#fff', fontSize: '11px', fontFamily: 'inherit', outline: 'none' }}
                       >
                         <option value="">+ Assign</option>
-                        {teamMembers.filter(m => !stageAs.some(a => a.user_id === m.id)).map(m => (
-                          <option key={m.id} value={m.id}>{m.full_name}</option>
-                        ))}
+                        {teamMembers.filter(m => !stageAs.some(a => a.user_id === m.id)).map(m => {
+                          const tt = m.title;
+                          return (
+                            <option key={m.id} value={m.id}>{tt ? `${m.full_name} — ${tt}` : m.full_name}</option>
+                          );
+                        })}
                       </select>
                     </div>
                     <input

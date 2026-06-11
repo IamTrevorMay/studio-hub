@@ -11,12 +11,13 @@ import {
   STAGE_COLORS,
   labelFor,
   typeLabel,
+  typeColors,
   defaultStageConfigForType,
 } from '../../lib/kanbanStages';
 
 const SELECT = `
   id, name, type, status, deadline, on_hold, hold_reason, archived_at, stage_config,
-  project_stage_assignments(id, stage, user_id, profile:profiles(id, full_name, nickname))
+  project_stage_assignments(id, stage, user_id, profile:profiles(id, full_name, nickname, title, role))
 `;
 
 function sortByDueDate(a, b) {
@@ -531,12 +532,12 @@ function CardContextMenu({ x, y, onClose, onDuplicate, onArchive, onDelete }) {
           left: x,
           top: y,
           zIndex: 999,
-          background: colors.bgRaised,
-          border: `1px solid ${colors.border}`,
+          background: '#1a1a2e',
+          border: `1px solid rgba(255,255,255,0.15)`,
           borderRadius: radii.md,
           padding: spacing.xs,
           minWidth: 160,
-          boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+          boxShadow: '0 12px 32px rgba(0,0,0,0.7)',
         }}
       >
         <CtxItem label="Duplicate" onClick={onDuplicate} />
@@ -617,7 +618,7 @@ function BacklogSection({ projects, canDragProject, onCardClick, onCardContextMe
                   >
                     <div style={s.cardTitle}>{p.name}</div>
                     <div style={s.cardMeta}>
-                      <span style={s.typeTag}>{typeLabel(p.type)}</span>
+                      <span style={{ ...s.typeTag, color: typeColors(p.type).fg, background: typeColors(p.type).bg, borderColor: typeColors(p.type).border }}>{typeLabel(p.type)}</span>
                       {p.deadline && (
                         <span style={s.dueDate}>
                           {new Date(p.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
@@ -655,7 +656,7 @@ function ArchivedExpander({ expanded, loading, projects, onToggle }) {
             <div key={p.id} style={s.archived.card}>
               <div style={{ ...s.cardTitle, fontSize: fontSizes.sm }}>{p.name}</div>
               <div style={{ ...s.cardMeta, fontSize: 10 }}>
-                <span style={s.typeTag}>{typeLabel(p.type)}</span>
+                <span style={{ ...s.typeTag, color: typeColors(p.type).fg, background: typeColors(p.type).bg, borderColor: typeColors(p.type).border }}>{typeLabel(p.type)}</span>
                 {p.archived_at && (
                   <span style={s.archived.date}>
                     {new Date(p.archived_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
@@ -681,7 +682,7 @@ function KanbanCard({ project }) {
     <>
       <div style={s.cardTitle}>{project.name}</div>
       <div style={s.cardMeta}>
-        <span style={s.typeTag}>{typeLabel(project.type)}</span>
+        <span style={{ ...s.typeTag, color: typeColors(project.type).fg, background: typeColors(project.type).bg, borderColor: typeColors(project.type).border }}>{typeLabel(project.type)}</span>
         {project.deadline && (
           <span style={s.dueDate}>
             {new Date(project.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
@@ -765,7 +766,7 @@ function MobileBoard({
                 <div key={p.id} onClick={() => stage === 'hold' ? null : onCardTap(p)} style={s.mobile.card}>
                   <div style={s.cardTitle}>{p.name}</div>
                   <div style={s.cardMeta}>
-                    <span style={s.typeTag}>{typeLabel(p.type)}</span>
+                    <span style={{ ...s.typeTag, color: typeColors(p.type).fg, background: typeColors(p.type).bg, borderColor: typeColors(p.type).border }}>{typeLabel(p.type)}</span>
                     {p.deadline && (
                       <span style={s.dueDate}>
                         {new Date(p.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
@@ -1077,9 +1078,8 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
     (async () => {
       const { data } = await supabase
         .from('profiles')
-        .select('id, full_name, nickname, role, status')
-        .neq('status', 'archived')
-        .in('role', ['admin', 'assistant', 'member']);
+        .select('id, full_name, nickname, role, title, status')
+        .neq('status', 'archived');
       if (cancelled) return;
       setTeamMembers((data || []).sort((a, b) =>
         (a.full_name || a.nickname || '').localeCompare(b.full_name || b.nickname || ''),
@@ -1269,21 +1269,28 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
                     <option value="skip">Skip</option>
                   </select>
                   <div style={{ display: 'flex', gap: 4, flex: 1, flexWrap: 'wrap', alignItems: 'center', pointerEvents: isSkipped ? 'none' : 'auto' }}>
-                    {stageAs.map((a) => (
-                      <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(99,102,241,0.12)', padding: '2px 6px', borderRadius: 6 }}>
-                        <span style={{ fontSize: 11, color: '#a5b4fc' }}>{getDisplayName(a.profile)}</span>
-                        {isAdmin && (
-                          <button
-                            type="button"
-                            onClick={() => removeStageAssignment(a.id)}
-                            disabled={isSkipped}
-                            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: isSkipped ? 'not-allowed' : 'pointer', fontSize: 12, padding: 0 }}
-                          >
-                            ✕
-                          </button>
-                        )}
-                      </div>
-                    ))}
+                    {stageAs.map((a) => {
+                      const nm = getDisplayName(a.profile);
+                      const tt = a.profile?.title || a.profile?.role;
+                      return (
+                        <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(99,102,241,0.12)', padding: '2px 6px', borderRadius: 6 }}>
+                          <span style={{ fontSize: 11, color: '#a5b4fc' }}>{nm}</span>
+                          {tt && (
+                            <span style={{ fontSize: 10, color: 'rgba(165,180,252,0.6)' }}>— {tt}</span>
+                          )}
+                          {isAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => removeStageAssignment(a.id)}
+                              disabled={isSkipped}
+                              style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: isSkipped ? 'not-allowed' : 'pointer', fontSize: 12, padding: 0 }}
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
                     {isAdmin && (
                       <select
                         disabled={isSkipped}
@@ -1292,9 +1299,13 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
                         style={{ ...s.input, padding: '3px 6px', fontSize: 11, minWidth: 90, width: 'auto' }}
                       >
                         <option value="">+ Assign</option>
-                        {teamMembers.filter((m) => !stageAs.some((a) => a.user_id === m.id)).map((m) => (
-                          <option key={m.id} value={m.id}>{m.full_name || m.nickname || 'Unknown'}</option>
-                        ))}
+                        {teamMembers.filter((m) => !stageAs.some((a) => a.user_id === m.id)).map((m) => {
+                          const nm = m.full_name || m.nickname || 'Unknown';
+                          const tt = m.title || m.role;
+                          return (
+                            <option key={m.id} value={m.id}>{tt ? `${nm} — ${tt}` : nm}</option>
+                          );
+                        })}
                       </select>
                     )}
                   </div>
@@ -1452,7 +1463,9 @@ const s = {
     fontSize: fontSizes.xs,
   },
   typeTag: {
-    color: colors.textDim, textTransform: 'uppercase', letterSpacing: 0.5,
+    textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: fontWeights.semibold,
+    padding: '1px 6px', borderRadius: radii.sm,
+    border: '1px solid transparent',
   },
   dueDate: { color: colors.textMuted, fontWeight: fontWeights.medium },
   assigneeRow: {

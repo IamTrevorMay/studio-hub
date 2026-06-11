@@ -1,10 +1,10 @@
 // archive-published-cards
-// Weekly cron. Archives Publish-column cards whose updated_at falls before
-// the START of the current PT week. A card published anytime Mon-Sun stays
-// visible through that week; the following Monday it archives.
+// Daily cron. Archives Publish-column cards whose updated_at is older than
+// 7 days. A card published today stays visible for a full week; on day 8
+// it archives.
 //
 // Auth: x-cron-secret header OR ?secret= query param, matching CRON_SECRET.
-// Schedule (UTC): every Monday at 08:00 (= Monday 00:00 PST / 01:00 PDT).
+// Schedule (UTC): every day at 08:00 (= 00:00 PST / 01:00 PDT).
 // Deploy: supabase functions deploy archive-published-cards --no-verify-jwt
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -30,60 +30,6 @@ function getAdminClient(): SupabaseClient {
   );
 }
 
-// Start of the current week in America/Los_Angeles, returned as a UTC ISO timestamp.
-// Week boundary = Monday 00:00:00 LA-local time.
-function startOfCurrentWeekPTUtc(now: Date): string {
-  // Format `now` as parts in America/Los_Angeles.
-  const fmt = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Los_Angeles",
-    year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", second: "2-digit",
-    hour12: false, weekday: "short",
-  });
-  const parts = Object.fromEntries(
-    fmt.formatToParts(now).filter((p) => p.type !== "literal").map((p) => [p.type, p.value]),
-  );
-  const weekdayMap: Record<string, number> = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
-  const wd = weekdayMap[parts.weekday] || 1;
-  const daysSinceMonday = wd - 1;
-
-  // Build a UTC date that represents Monday 00:00:00 LA wall-clock.
-  // Strategy: take "now" in LA, subtract daysSinceMonday days + current hours/mins/secs, get back to Monday 00:00 LA.
-  const y = parts.year;
-  const m = parts.month;
-  const d = parts.day;
-  const h = parts.hour === "24" ? "00" : parts.hour;
-  const mi = parts.minute;
-  const se = parts.second;
-  // Reconstruct "now" as if it were UTC, then subtract elapsed time of week to land on Monday 00:00.
-  const nowLAasUTC = new Date(`${y}-${m}-${d}T${h}:${mi}:${se}Z`);
-  const startLAasUTC = new Date(
-    nowLAasUTC.getTime()
-      - daysSinceMonday * 86_400_000
-      - Number(h) * 3_600_000
-      - Number(mi) * 60_000
-      - Number(se) * 1_000,
-  );
-  // Now convert LA-wall to real UTC: LA offset from UTC for that moment.
-  // Compute by formatting startLAasUTC again in LA tz and diffing.
-  const trueUtcFmt = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Los_Angeles",
-    timeZoneName: "shortOffset",
-  });
-  const offsetPart = trueUtcFmt.formatToParts(startLAasUTC).find((p) => p.type === "timeZoneName")?.value || "GMT-8";
-  const match = offsetPart.match(/GMT([+-])(\d{1,2})(?::?(\d{2}))?/);
-  let offsetMinutes = -480;
-  if (match) {
-    const sign = match[1] === "+" ? 1 : -1;
-    const hh = Number(match[2]);
-    const mm = Number(match[3] || 0);
-    offsetMinutes = sign * (hh * 60 + mm);
-  }
-  // LA-local 00:00 = UTC time = local minus offset.
-  const actualStartUtc = new Date(startLAasUTC.getTime() - offsetMinutes * 60_000);
-  return actualStartUtc.toISOString();
-}
-
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return jsonResp({ error: "Method not allowed" }, 405);
@@ -97,9 +43,9 @@ Deno.serve(async (req: Request) => {
   }
 
   const admin = getAdminClient();
-  const cutoffIso = startOfCurrentWeekPTUtc(new Date());
+  const cutoffIso = new Date(Date.now() - 7 * 86_400_000).toISOString();
 
-  // Find candidates: typed projects, status=publish, not yet archived, updated before this PT week.
+  // Find candidates: typed projects, status=publish, not yet archived, last touched >7d ago.
   const { data: candidates, error: selectErr } = await admin
     .from("projects")
     .select("id, name, updated_at")
