@@ -14,7 +14,7 @@ import {
 } from '../../lib/kanbanStages';
 
 const SELECT = `
-  id, name, type, status, deadline, on_hold, hold_reason, archived_at,
+  id, name, type, status, deadline, on_hold, hold_reason, archived_at, stage_config,
   project_stage_assignments(id, stage, user_id, profile:profiles(id, full_name, nickname))
 `;
 
@@ -850,8 +850,27 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
   const [status, setStatus] = useState(project.status);
   const [deadline, setDeadline] = useState(project.deadline ? project.deadline.slice(0, 10) : '');
   const [busy, setBusy] = useState(false);
+  const [stageConfig, setStageConfig] = useState(project.stage_config || {});
+  const [stageAssignments, setStageAssignments] = useState(project.project_stage_assignments || []);
+  const [teamMembers, setTeamMembers] = useState([]);
 
-  const isAssignee = (project.project_stage_assignments || [])
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, full_name, nickname, role, status')
+        .neq('status', 'archived')
+        .in('role', ['admin', 'assistant', 'member']);
+      if (cancelled) return;
+      setTeamMembers((data || []).sort((a, b) =>
+        (a.full_name || a.nickname || '').localeCompare(b.full_name || b.nickname || ''),
+      ));
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const isAssignee = stageAssignments
     .some((a) => a.stage === project.status && a.user_id === userId);
   const canEdit = isAdmin || isAssignee;
   const canMoveBackward = isAdmin;
@@ -861,6 +880,46 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
     if (idx < currentIdx) return canMoveBackward;
     return canEdit;
   });
+
+  async function saveStageSkip(stage, skip) {
+    const next = { ...stageConfig };
+    const existing = { ...(next[stage] || {}) };
+    if (skip) existing.skip = true;
+    else delete existing.skip;
+    if (Object.keys(existing).length === 0) delete next[stage];
+    else next[stage] = existing;
+    setStageConfig(next);
+    const { error } = await supabase
+      .from('projects')
+      .update({ stage_config: next })
+      .eq('id', project.id);
+    if (error) alert(`Failed to save skip: ${error.message}`);
+    else onSaved?.();
+  }
+
+  async function assignStage(stage, profileId) {
+    const { data, error } = await supabase
+      .from('project_stage_assignments')
+      .insert({ project_id: project.id, stage, user_id: profileId })
+      .select('id, stage, user_id, profile:profiles(id, full_name, nickname)')
+      .single();
+    if (error && error.code !== '23505') {
+      alert(`Assign failed: ${error.message}`);
+      return;
+    }
+    if (data) setStageAssignments((prev) => [...prev, data]);
+    onSaved?.();
+  }
+
+  async function removeStageAssignment(id) {
+    const { error } = await supabase
+      .from('project_stage_assignments')
+      .delete()
+      .eq('id', id);
+    if (error) { alert(`Remove failed: ${error.message}`); return; }
+    setStageAssignments((prev) => prev.filter((a) => a.id !== id));
+    onSaved?.();
+  }
 
   async function submit(e) {
     e.preventDefault();
@@ -909,7 +968,7 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
   }
 
   return (
-    <ModalShell title="Edit project" onClose={onClose}>
+    <ModalShell title="Edit project" onClose={onClose} wide>
       <form onSubmit={submit}>
         <Field label="Name">
           <input
@@ -953,6 +1012,78 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
             style={s.input}
           />
         </Field>
+
+        {/* Assignments */}
+        <div style={{ marginTop: spacing.md, marginBottom: spacing.md }}>
+          <label style={s.fieldLabel}>Assignments</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
+            {CANONICAL_STAGES.map((stage) => {
+              const stageAs = stageAssignments.filter((a) => a.stage === stage);
+              const isCurrentStage = project.status === stage;
+              const isSkipped = !!stageConfig[stage]?.skip;
+              const taskName = labelFor(type, stage);
+              return (
+                <div
+                  key={stage}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: spacing.sm,
+                    padding: '6px 8px',
+                    borderRadius: radii.sm,
+                    background: isCurrentStage ? `${STAGE_COLORS[stage]}18` : 'rgba(255,255,255,0.02)',
+                    borderLeft: isCurrentStage ? `2px solid ${STAGE_COLORS[stage]}` : '2px solid transparent',
+                    opacity: isSkipped ? 0.55 : 1,
+                  }}
+                >
+                  <span style={{ fontSize: 11, fontWeight: 600, color: STAGE_COLORS[stage], width: 70, flexShrink: 0 }}>
+                    {stage.toUpperCase()}
+                  </span>
+                  <select
+                    value={isSkipped ? 'skip' : 'task'}
+                    onChange={(e) => saveStageSkip(stage, e.target.value === 'skip')}
+                    disabled={!isAdmin}
+                    style={{ ...s.input, padding: '4px 6px', fontSize: 12, minWidth: 110, width: 'auto' }}
+                  >
+                    <option value="task">{taskName}</option>
+                    <option value="skip">Skip</option>
+                  </select>
+                  <div style={{ display: 'flex', gap: 4, flex: 1, flexWrap: 'wrap', alignItems: 'center', pointerEvents: isSkipped ? 'none' : 'auto' }}>
+                    {stageAs.map((a) => (
+                      <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(99,102,241,0.12)', padding: '2px 6px', borderRadius: 6 }}>
+                        <span style={{ fontSize: 11, color: '#a5b4fc' }}>{getDisplayName(a.profile)}</span>
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => removeStageAssignment(a.id)}
+                            disabled={isSkipped}
+                            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: isSkipped ? 'not-allowed' : 'pointer', fontSize: 12, padding: 0 }}
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {isAdmin && (
+                      <select
+                        disabled={isSkipped}
+                        defaultValue=""
+                        onChange={(e) => { if (e.target.value) { assignStage(stage, e.target.value); e.target.value = ''; } }}
+                        style={{ ...s.input, padding: '3px 6px', fontSize: 11, minWidth: 90, width: 'auto' }}
+                      >
+                        <option value="">+ Assign</option>
+                        {teamMembers.filter((m) => !stageAs.some((a) => a.user_id === m.id)).map((m) => (
+                          <option key={m.id} value={m.id}>{m.full_name || m.nickname || 'Unknown'}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
         <div style={s.modalActions}>
           {isAdmin && (
             <button

@@ -90,7 +90,7 @@ Deno.serve(async (req: Request) => {
   // Load project.
   const { data: project, error: projErr } = await admin
     .from("projects")
-    .select("id, name, type, status, deadline, on_hold")
+    .select("id, name, type, status, deadline, on_hold, stage_config")
     .eq("id", project_id)
     .single();
   if (projErr || !project) return jsonResp({ error: "Project not found" }, 404);
@@ -108,10 +108,22 @@ Deno.serve(async (req: Request) => {
   }
 
   const currentIdx = STAGES.indexOf(currentStage);
-  const targetIdx = STAGES.indexOf(targetStage);
+  let targetIdx = STAGES.indexOf(targetStage);
   if (currentIdx < 0) return jsonResp({ error: `Project status "${currentStage}" not on canonical board` }, 400);
 
   const isBackward = targetIdx < currentIdx;
+
+  // Auto-advance through stages marked Skip in stage_config (forward only).
+  const stageConfig = (project.stage_config || {}) as Record<string, { skip?: boolean }>;
+  if (!isBackward) {
+    while (targetIdx < STAGES.length && stageConfig[STAGES[targetIdx]]?.skip) {
+      targetIdx += 1;
+    }
+    if (targetIdx >= STAGES.length) {
+      return jsonResp({ error: "All forward stages are skipped — clear a skip before moving" }, 400);
+    }
+  }
+  const resolvedTargetStage = STAGES[targetIdx];
 
   // Permission: forward = admin or assignee of current stage; backward = admin only.
   if (isBackward && caller.role !== "admin") {
@@ -135,7 +147,7 @@ Deno.serve(async (req: Request) => {
     await admin.from("project_card_handoffs").insert({
       project_id: project.id,
       from_stage: currentStage,
-      to_stage: targetStage,
+      to_stage: resolvedTargetStage,
       body: handoff_note.trim(),
       author_id: caller.userId,
     });
@@ -144,7 +156,7 @@ Deno.serve(async (req: Request) => {
   // Update project status (card move).
   const { error: updErr } = await admin
     .from("projects")
-    .update({ status: targetStage, updated_at: new Date().toISOString() })
+    .update({ status: resolvedTargetStage, updated_at: new Date().toISOString() })
     .eq("id", project.id);
   if (updErr) return jsonResp({ error: `Failed to update project: ${updErr.message}` }, 500);
 
@@ -163,11 +175,11 @@ Deno.serve(async (req: Request) => {
     .from("project_stage_assignments")
     .select("user_id")
     .eq("project_id", project.id)
-    .eq("stage", targetStage);
+    .eq("stage", resolvedTargetStage);
 
   const assigneeIds = (targetAssignees || []).map((a) => a.user_id);
   const newTaskIds: string[] = [];
-  const targetLabel = labelFor(project.type, targetStage);
+  const targetLabel = labelFor(project.type, resolvedTargetStage);
   const prevLabel = labelFor(project.type, currentStage);
 
   const taskTitle = `${project.name} — ${targetLabel}`;
@@ -179,7 +191,7 @@ Deno.serve(async (req: Request) => {
     const { data: task, error: taskErr } = await admin
       .from("tasks")
       .insert({
-        step_key: targetStage,
+        step_key: resolvedTargetStage,
         title: taskTitle,
         description,
         assignee_id: userId,
@@ -211,7 +223,7 @@ Deno.serve(async (req: Request) => {
   return jsonResp({
     project_id: project.id,
     from_stage: currentStage,
-    target_stage: targetStage,
+    target_stage: resolvedTargetStage,
     direction: isBackward ? "backward" : "forward",
     closed_tasks: (closedTasks || []).length,
     new_task_ids: newTaskIds,
