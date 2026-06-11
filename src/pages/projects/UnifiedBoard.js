@@ -48,6 +48,7 @@ export default function UnifiedBoard() {
   const [holdModal, setHoldModal] = useState(null);
   const [handoffModal, setHandoffModal] = useState(null);
   const [actionSheet, setActionSheet] = useState(null); // mobile only: { project }
+  const [editProject, setEditProject] = useState(null);
   const [busy, setBusy] = useState(false);
   const [archivedExpanded, setArchivedExpanded] = useState(false);
   const [archivedProjects, setArchivedProjects] = useState([]);
@@ -262,6 +263,7 @@ export default function UnifiedBoard() {
                   stage={stage}
                   projects={byStage[stage]}
                   canDragProject={canDrag}
+                  onCardClick={(p) => setEditProject(p)}
                   footer={stage === 'publish' ? (
                     <ArchivedExpander
                       expanded={archivedExpanded}
@@ -308,6 +310,11 @@ export default function UnifiedBoard() {
             setActionSheet(null);
             setHoldModal({ project, action: 'hold' });
           }}
+          onEdit={() => {
+            const project = actionSheet.project;
+            setActionSheet(null);
+            setEditProject(project);
+          }}
         />
       )}
 
@@ -317,6 +324,15 @@ export default function UnifiedBoard() {
           onClose={() => setNewProjectOpen(false)}
           onCreated={fetchProjects}
           createdBy={profile?.id}
+        />
+      )}
+      {editProject && (
+        <EditProjectModal
+          project={editProject}
+          isAdmin={isAdmin}
+          userId={profile?.id}
+          onClose={() => setEditProject(null)}
+          onSaved={fetchProjects}
         />
       )}
       {retagOpen && (
@@ -356,7 +372,7 @@ export default function UnifiedBoard() {
 
 // ─── Column ──────────────────────────────────────────────────────
 
-function Column({ stage, projects, canDragProject, footer }) {
+function Column({ stage, projects, canDragProject, onCardClick, footer }) {
   return (
     <div style={s.column}>
       <div style={{ ...s.columnHeader, color: STAGE_COLORS[stage] }}>
@@ -385,9 +401,11 @@ function Column({ stage, projects, canDragProject, footer }) {
                     ref={drag.innerRef}
                     {...drag.draggableProps}
                     {...drag.dragHandleProps}
+                    onClick={() => { if (!dragSnap.isDragging) onCardClick?.(p); }}
                     style={{
                       ...drag.draggableProps.style,
                       ...s.card,
+                      cursor: 'pointer',
                       opacity: canDragProject(p) ? 1 : 0.65,
                       boxShadow: dragSnap.isDragging ? '0 8px 20px rgba(0,0,0,0.4)' : 'none',
                     }}
@@ -568,7 +586,7 @@ function MobileBoard({
 
 // ─── ActionSheet (mobile move/hold menu) ─────────────────────────
 
-function ActionSheet({ project, isAdmin, userId, onClose, onMove, onHold }) {
+function ActionSheet({ project, isAdmin, userId, onClose, onMove, onHold, onEdit }) {
   const currentIdx = CANONICAL_STAGES.indexOf(project.status);
   const isCurrentAssignee = (project.project_stage_assignments || [])
     .some((a) => a.stage === project.status && a.user_id === userId);
@@ -607,6 +625,12 @@ function ActionSheet({ project, isAdmin, userId, onClose, onMove, onHold }) {
         {isAdmin && !project.on_hold && (
           <button onClick={onHold} style={{ ...s.mobile.sheetBtn, marginTop: spacing.md }}>
             Hold card
+          </button>
+        )}
+
+        {onEdit && (
+          <button onClick={onEdit} style={{ ...s.mobile.sheetBtn, marginTop: spacing.sm }}>
+            Edit card
           </button>
         )}
 
@@ -811,6 +835,138 @@ function NewProjectModal({ onClose, onCreated, createdBy }) {
           <button type="button" onClick={onClose} style={s.ghostBtn} disabled={busy}>Cancel</button>
           <button type="submit" style={s.primaryBtn} disabled={busy}>
             {busy ? 'Creating…' : 'Create'}
+          </button>
+        </div>
+      </form>
+    </ModalShell>
+  );
+}
+
+// ─── EditProjectModal ────────────────────────────────────────────
+
+function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
+  const [name, setName] = useState(project.name || '');
+  const [type, setType] = useState(project.type || PROJECT_TYPE_OPTIONS[0].value);
+  const [status, setStatus] = useState(project.status);
+  const [deadline, setDeadline] = useState(project.deadline ? project.deadline.slice(0, 10) : '');
+  const [busy, setBusy] = useState(false);
+
+  const isAssignee = (project.project_stage_assignments || [])
+    .some((a) => a.stage === project.status && a.user_id === userId);
+  const canEdit = isAdmin || isAssignee;
+  const canMoveBackward = isAdmin;
+  const currentIdx = CANONICAL_STAGES.indexOf(project.status);
+  const stageOptions = CANONICAL_STAGES.filter((_, idx) => {
+    if (idx === currentIdx) return true;
+    if (idx < currentIdx) return canMoveBackward;
+    return canEdit;
+  });
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setBusy(true);
+    try {
+      const patch = {
+        name: name.trim(),
+        type,
+        deadline: deadline || null,
+      };
+      const { error } = await supabase.from('projects').update(patch).eq('id', project.id);
+      if (error) throw error;
+      if (status !== project.status) {
+        await callEdgeFn('card-move', {
+          project_id: project.id,
+          target_stage: status,
+        });
+      }
+      onSaved?.();
+      onClose();
+    } catch (err) {
+      alert(`Save failed: ${err.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function archive() {
+    if (!isAdmin) return;
+    if (!window.confirm(`Archive "${project.name}"?`)) return;
+    setBusy(true);
+    try {
+      const { error } = await supabase
+        .from('projects')
+        .update({ archived_at: new Date().toISOString() })
+        .eq('id', project.id);
+      if (error) throw error;
+      onSaved?.();
+      onClose();
+    } catch (err) {
+      alert(`Archive failed: ${err.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <ModalShell title="Edit project" onClose={onClose}>
+      <form onSubmit={submit}>
+        <Field label="Name">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            disabled={!canEdit}
+            style={s.input}
+          />
+        </Field>
+        <Field label="Type">
+          <select
+            value={type}
+            onChange={(e) => setType(e.target.value)}
+            disabled={!canEdit}
+            style={s.input}
+          >
+            {PROJECT_TYPE_OPTIONS.map((t) => (
+              <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Stage">
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            disabled={!canEdit}
+            style={s.input}
+          >
+            {stageOptions.map((st) => (
+              <option key={st} value={st}>{labelFor(type, st)}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Deadline">
+          <input
+            type="date"
+            value={deadline}
+            onChange={(e) => setDeadline(e.target.value)}
+            disabled={!canEdit}
+            style={s.input}
+          />
+        </Field>
+        <div style={s.modalActions}>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={archive}
+              style={{ ...s.ghostBtn, marginRight: 'auto', color: colors.danger?.fg || '#ef4444' }}
+              disabled={busy}
+            >
+              Archive
+            </button>
+          )}
+          <button type="button" onClick={onClose} style={s.ghostBtn} disabled={busy}>Cancel</button>
+          <button type="submit" style={s.primaryBtn} disabled={busy || !canEdit}>
+            {busy ? 'Saving…' : 'Save'}
           </button>
         </div>
       </form>
