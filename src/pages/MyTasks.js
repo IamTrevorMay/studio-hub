@@ -394,6 +394,25 @@ export default function MyTasks({ onNavigate }) {
     }
   };
 
+  const handleConfirmAutomation = async (task, outcome) => {
+    setCompletingIds(prev => new Set(prev).add(task.id));
+    try {
+      await callWorkflowFn('approve-automation', { task_id: task.id, outcome });
+      setFadingIds(prev => new Set(prev).add(task.id));
+      setTimeout(() => {
+        setTasks(prev => prev.filter(t => t.id !== task.id));
+        setFadingIds(prev => { const s = new Set(prev); s.delete(task.id); return s; });
+        setCompletingIds(prev => { const s = new Set(prev); s.delete(task.id); return s; });
+        refreshNotifications();
+        fetchCompletedTasks();
+      }, 300);
+    } catch (err) {
+      console.error('Confirm automation failed:', err);
+      alert(err.message);
+      setCompletingIds(prev => { const s = new Set(prev); s.delete(task.id); return s; });
+    }
+  };
+
   const handleSignOff = async (task) => {
     setCompletingIds(prev => new Set(prev).add(task.id));
     try {
@@ -632,6 +651,7 @@ export default function MyTasks({ onNavigate }) {
           const isCompleting = completingIds.has(task.id);
           const isOnHold = task.status === 'on_hold';
           const isReviewProposal = task.step_key === 'review_proposal';
+          const isConfirmAutomation = task.step_key === 'confirm_automation';
           const isWriteAdRead = action.type === 'write_ad_read';
 
           return (
@@ -822,6 +842,26 @@ export default function MyTasks({ onNavigate }) {
                   </>
                 )}
 
+                {/* Approve / Decline for admin-confirmation gate */}
+                {isConfirmAutomation && !isOnHold && (
+                  <>
+                    <button
+                      style={{ ...styles.acceptBtn, marginLeft: 'auto', opacity: isCompleting ? 0.6 : 1 }}
+                      onClick={() => handleConfirmAutomation(task, 'approve')}
+                      disabled={isCompleting}
+                    >
+                      {isCompleting ? 'Approving…' : 'Approve'}
+                    </button>
+                    <button
+                      style={{ ...styles.declineBtn, opacity: isCompleting ? 0.6 : 1 }}
+                      onClick={() => handleConfirmAutomation(task, 'reject')}
+                      disabled={isCompleting}
+                    >
+                      Decline
+                    </button>
+                  </>
+                )}
+
                 {/* Go to Deliverables — pinned right */}
                 {isWriteAdRead && !isOnHold && (
                   <button
@@ -839,7 +879,7 @@ export default function MyTasks({ onNavigate }) {
               {/* Bottom row: Complete + Decline left, Hold + Snooze right */}
               <div style={styles.cardBottomRow}>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  {!isOnHold && !isReviewProposal && action.type !== 'auto' && (
+                  {!isOnHold && !isReviewProposal && !isConfirmAutomation && action.type !== 'auto' && (
                     <button
                       style={styles.primaryBtn}
                       onClick={() => handlePrimaryAction(task)}
@@ -848,7 +888,7 @@ export default function MyTasks({ onNavigate }) {
                       {isCompleting ? 'Working...' : 'Complete'}
                     </button>
                   )}
-                  {!isReviewProposal && action.type !== 'auto' && (
+                  {!isReviewProposal && !isConfirmAutomation && action.type !== 'auto' && (
                     <button
                       style={{ ...styles.declineBtn, padding: '7px 16px', fontSize: 13 }}
                       onClick={() => setDeclineModalTask(task)}

@@ -120,6 +120,8 @@ export default function Workflows() {
         trigger_config: auto.trigger_config || {},
         actions: auto.actions || [],
         dedup_key: auto.dedup_key || '',
+        requires_confirmation: !!auto.requires_confirmation,
+        confirmation_admin_id: auto.confirmation_admin_id || '',
       });
       // Fetch recent runs
       (async () => {
@@ -185,6 +187,8 @@ export default function Workflows() {
           trigger_config: autoForm.trigger_config,
           actions: autoForm.actions,
           dedup_key: autoForm.dedup_key || null,
+          requires_confirmation: !!autoForm.requires_confirmation,
+          confirmation_admin_id: autoForm.confirmation_admin_id || null,
         })
         .eq('id', selectedAutoId);
       if (error) throw error;
@@ -367,6 +371,7 @@ export default function Workflows() {
   const [teamDone, setTeamDone] = useState([]);
   const [flPending, setFlPending] = useState([]);
   const [flDone, setFlDone] = useState([]);
+  const [editingCards, setEditingCards] = useState([]);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -429,13 +434,43 @@ export default function Workflows() {
     return () => { cancelled = true; };
   }, [isAdmin]);
 
+  useEffect(() => {
+    if (!isAdmin) return;
+    let cancelled = false;
+    const loadEditing = async () => {
+      const { data } = await supabase
+        .from('progress_cards')
+        .select('id, title')
+        .eq('status', 'editing')
+        .is('archived_at', null);
+      if (!cancelled) setEditingCards(data || []);
+    };
+    loadEditing();
+    const ch = supabase
+      .channel('workflows-editing-cards')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'progress_cards' }, loadEditing)
+      .subscribe();
+    return () => { cancelled = true; supabase.removeChannel(ch); };
+  }, [isAdmin]);
+
   const teamByAssignee = useMemo(() => {
     const map = {};
     const ensure = id => (map[id] || (map[id] = { pending: [], done: [] }));
     for (const t of teamPending) if (t.assignee_id) ensure(t.assignee_id).pending.push(t);
     for (const t of teamDone) if (t.assignee_id) ensure(t.assignee_id).done.push(t);
+    // Mirror Tracking > Progress > Editing column into Alana Benson's pending list.
+    const alana = teamProfiles.find(p => p.name === 'Alana Benson');
+    if (alana && editingCards.length > 0) {
+      for (const c of editingCards) {
+        ensure(alana.id).pending.push({
+          id: `progress-card-${c.id}`,
+          title: c.title || '(untitled video)',
+          status: 'pending',
+        });
+      }
+    }
     return map;
-  }, [teamPending, teamDone]);
+  }, [teamPending, teamDone, teamProfiles, editingCards]);
 
   const contractorByAssignee = useMemo(() => {
     const map = {};
@@ -876,6 +911,36 @@ export default function Workflows() {
                   </p>
                 </div>
 
+                {/* Admin Confirmation Gate */}
+                <div style={styles.autoSection}>
+                  <label style={{ ...styles.fieldLabel, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={!!autoForm.requires_confirmation}
+                      onChange={e => updateAutoForm('requires_confirmation', e.target.checked)}
+                    />
+                    <span>Require admin confirmation before running</span>
+                  </label>
+                  {autoForm.requires_confirmation && (
+                    <div style={{ marginTop: 8 }}>
+                      <label style={styles.fieldLabel}>Send confirmation task to</label>
+                      <select
+                        style={styles.modalInput}
+                        value={autoForm.confirmation_admin_id || ''}
+                        onChange={e => updateAutoForm('confirmation_admin_id', e.target.value)}
+                      >
+                        <option value="">All admins (first to respond wins)</option>
+                        {profiles.filter(p => p.role === 'admin').map(p => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <p style={styles.autoHelperText}>
+                    When enabled, the trigger creates an Approve/Decline task instead of firing the actions. Actions run only after an admin approves.
+                  </p>
+                </div>
+
                 {/* History Section */}
                 <div style={styles.autoSection}>
                   <button
@@ -894,12 +959,14 @@ export default function Workflows() {
                             ...styles.sourceBadge,
                             background: run.status === 'success' ? 'rgba(34,197,94,0.15)'
                               : run.status === 'skipped' ? 'rgba(234,179,8,0.15)'
+                              : run.status === 'pending_confirmation' ? 'rgba(99,102,241,0.15)'
                               : 'rgba(239,68,68,0.15)',
                             color: run.status === 'success' ? '#22c55e'
                               : run.status === 'skipped' ? '#facc15'
+                              : run.status === 'pending_confirmation' ? '#818cf8'
                               : '#ef4444',
                           }}>
-                            {run.status}
+                            {run.status === 'pending_confirmation' ? 'pending' : run.status}
                           </span>
                           <span style={styles.slugText}>
                             {new Date(run.created_at).toLocaleString()}

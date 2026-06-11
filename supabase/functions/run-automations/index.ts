@@ -79,10 +79,12 @@ async function executeAutomation(
   admin: ReturnType<typeof createClient>,
   automation: Record<string, unknown>,
   triggerPayload: Record<string, unknown>,
-): Promise<{ status: string; actions_taken: unknown[]; error_message?: string; dedupResolved?: string | null }> {
+): Promise<{ status: string; actions_taken: unknown[]; error_message?: string; dedupResolved?: string | null; alreadyLogged?: boolean }> {
   const actions = automation.actions as Array<Record<string, unknown>>;
   const dedupTemplate = automation.dedup_key as string | null;
   const automationId = automation.id as string;
+  const requiresConfirmation = automation.requires_confirmation === true;
+  const confirmationAdminId = automation.confirmation_admin_id as string | null;
   const actionsTaken: unknown[] = [];
 
   // Resolve dedup key
@@ -91,21 +93,33 @@ async function executeAutomation(
     dedupResolved = resolveTemplate(dedupTemplate, triggerPayload);
   }
 
-  // Check dedup: skip if a previous successful run with same automation_id + dedup_key
-  // exists in automation_runs. Using runs (not tasks) so dedup survives task
-  // completion/deletion — the run log is permanent.
+  // Check dedup: skip if a previous successful OR pending_confirmation run with
+  // same automation_id + dedup_key exists. Pending counts because we don't want
+  // to stack multiple confirmation tasks for the same trigger.
   if (dedupResolved) {
     const { data: existing } = await admin
       .from("automation_runs")
       .select("id")
       .eq("automation_id", automationId)
       .eq("dedup_key", dedupResolved)
-      .eq("status", "success")
+      .in("status", ["success", "pending_confirmation"])
       .limit(1);
 
     if (existing && existing.length > 0) {
       return { status: "skipped", actions_taken: [], error_message: `Dedup: automation already ran for "${dedupResolved}"` };
     }
+  }
+
+  // Admin-confirmation gate: defer action execution until an admin approves.
+  if (requiresConfirmation) {
+    const gateResult = await createConfirmationGate(
+      admin,
+      automation,
+      triggerPayload,
+      dedupResolved,
+      confirmationAdminId,
+    );
+    return gateResult;
   }
 
   for (const action of actions) {
@@ -131,6 +145,123 @@ async function executeAutomation(
   }
 
   return { status: "success", actions_taken: actionsTaken, dedupResolved };
+}
+
+// Build a human-readable preview of the deferred actions for the confirmation task description.
+function describeActions(
+  actions: Array<Record<string, unknown>>,
+  triggerPayload: Record<string, unknown>,
+): string {
+  if (!actions || actions.length === 0) return "(no actions configured)";
+  const lines = actions.map((a, i) => {
+    const cfg = (a.config || {}) as Record<string, unknown>;
+    if (a.type === "create_task") {
+      const title = cfg.title ? resolveTemplate(String(cfg.title), triggerPayload) : "(untitled)";
+      const assignee = cfg.assignee_type === "all_admins"
+        ? "all admins"
+        : cfg.assignee_type === "specific"
+        ? "specific user"
+        : cfg.assignee_type === "context"
+        ? "context user"
+        : "unknown";
+      return `${i + 1}. Create task "${title}" → ${assignee}`;
+    }
+    if (a.type === "send_notification") {
+      const title = cfg.title ? resolveTemplate(String(cfg.title), triggerPayload) : "(untitled)";
+      return `${i + 1}. Send notification "${title}"`;
+    }
+    return `${i + 1}. ${a.type}`;
+  });
+  return lines.join("\n");
+}
+
+// Create the confirmation gate: insert pending automation_run + assigned confirmation task(s).
+async function createConfirmationGate(
+  admin: ReturnType<typeof createClient>,
+  automation: Record<string, unknown>,
+  triggerPayload: Record<string, unknown>,
+  dedupResolved: string | null,
+  confirmationAdminId: string | null,
+): Promise<{ status: string; actions_taken: unknown[]; error_message?: string; dedupResolved?: string | null; alreadyLogged: boolean }> {
+  const automationId = automation.id as string;
+  const automationName = (automation.name as string) || "Automation";
+  const actions = (automation.actions as Array<Record<string, unknown>>) || [];
+
+  // Insert the pending run row up front so dedup blocks repeat fires.
+  const { data: runRow, error: runErr } = await admin
+    .from("automation_runs")
+    .insert({
+      automation_id: automationId,
+      trigger_payload: triggerPayload,
+      actions_taken: [],
+      status: "pending_confirmation",
+      dedup_key: dedupResolved,
+    })
+    .select("id")
+    .single();
+
+  if (runErr || !runRow) {
+    return {
+      status: "error",
+      actions_taken: [],
+      error_message: `Failed to log pending confirmation: ${runErr?.message || "unknown"}`,
+      dedupResolved,
+      alreadyLogged: false,
+    };
+  }
+
+  // Resolve assignees: chosen admin, else all admins.
+  let assigneeIds: string[] = [];
+  if (confirmationAdminId) {
+    assigneeIds = [confirmationAdminId];
+  } else {
+    const { data: admins } = await admin
+      .from("profiles")
+      .select("id")
+      .eq("role", "admin");
+    assigneeIds = (admins || []).map((a: { id: string }) => a.id);
+  }
+
+  if (assigneeIds.length === 0) {
+    // Roll back the pending row so the admin can re-fire after configuring an admin.
+    await admin.from("automation_runs").update({
+      status: "error",
+      error_message: "No admin assignee available for confirmation",
+    }).eq("id", runRow.id);
+    return {
+      status: "error",
+      actions_taken: [],
+      error_message: "No admin assignee available for confirmation",
+      dedupResolved,
+      alreadyLogged: true,
+    };
+  }
+
+  const description = `Approve to fire this automation. Decline to cancel.\n\nActions:\n${describeActions(actions, triggerPayload)}`;
+
+  for (const aId of assigneeIds) {
+    const { error } = await admin.from("tasks").insert({
+      automation_id: automationId,
+      confirmation_run_id: runRow.id,
+      step_key: "confirm_automation",
+      title: `Confirm: ${automationName}`,
+      description,
+      assignee_id: aId,
+      status: "active",
+      position: 0,
+      dedup_key: dedupResolved,
+    });
+    if (error) {
+      console.error(`Failed to insert confirmation task for ${aId}: ${error.message}`);
+    }
+  }
+
+  return {
+    status: "pending_confirmation",
+    actions_taken: [],
+    dedupResolved,
+    alreadyLogged: true,
+  };
 }
 
 // Create task action
@@ -243,16 +374,18 @@ async function logRun(
   admin: ReturnType<typeof createClient>,
   automationId: string,
   triggerPayload: Record<string, unknown>,
-  result: { status: string; actions_taken: unknown[]; error_message?: string; dedupResolved?: string | null },
+  result: { status: string; actions_taken: unknown[]; error_message?: string; dedupResolved?: string | null; alreadyLogged?: boolean },
 ) {
-  await admin.from("automation_runs").insert({
-    automation_id: automationId,
-    trigger_payload: triggerPayload,
-    actions_taken: result.actions_taken,
-    status: result.status,
-    error_message: result.error_message || null,
-    dedup_key: result.dedupResolved || null,
-  });
+  if (!result.alreadyLogged) {
+    await admin.from("automation_runs").insert({
+      automation_id: automationId,
+      trigger_payload: triggerPayload,
+      actions_taken: result.actions_taken,
+      status: result.status,
+      error_message: result.error_message || null,
+      dedup_key: result.dedupResolved || null,
+    });
+  }
 
   const updates: Record<string, unknown> = {
     last_run_at: new Date().toISOString(),
@@ -265,12 +398,15 @@ async function logRun(
     .eq("id", automationId);
 
   // Atomic run_count bump via RPC. Surface failures instead of swallowing —
-  // a missing/broken RPC silently zero-counts every run.
-  const { error: rpcErr } = await admin.rpc("increment_automation_run_count", {
-    automation_uuid: automationId,
-  });
-  if (rpcErr) {
-    console.error(`increment_automation_run_count failed for ${automationId}: ${rpcErr.message}`);
+  // a missing/broken RPC silently zero-counts every run. Skip for
+  // pending_confirmation runs — approve-automation increments on resolution.
+  if (result.status !== "pending_confirmation") {
+    const { error: rpcErr } = await admin.rpc("increment_automation_run_count", {
+      automation_uuid: automationId,
+    });
+    if (rpcErr) {
+      console.error(`increment_automation_run_count failed for ${automationId}: ${rpcErr.message}`);
+    }
   }
 }
 
