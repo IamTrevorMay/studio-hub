@@ -1550,7 +1550,8 @@ function ProjectRow({
                 const stageAs = (project.project_stage_assignments || []).filter(a => a.stage === stage);
                 const isCurrentStage = project.status === stage;
                 const stageDates = editStageTimelines[stage] || {};
-                const taskName = stageTaskLabel(project.type, stage) || statusLabels[stage];
+                const stageTask = stageTaskLabel(project.type, stage) || statusLabels[stage];
+                const taskTitle = `${project.name} — ${stageTask}`;
                 const isSkipped = !!editStageConfig[stage]?.skip;
                 const taskValue = isSkipped ? 'skip' : 'task';
                 return (
@@ -1559,9 +1560,10 @@ function ProjectRow({
                     <select
                       value={taskValue}
                       onChange={(e) => saveStageSkip(stage, e.target.value === 'skip')}
-                      style={{ padding: '3px 6px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', color: '#fff', fontSize: '11px', fontFamily: 'inherit', outline: 'none', minWidth: '110px' }}
+                      title={taskTitle}
+                      style={{ padding: '3px 6px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', color: '#fff', fontSize: '11px', fontFamily: 'inherit', outline: 'none', minWidth: '180px', maxWidth: '260px', overflow: 'hidden', textOverflow: 'ellipsis' }}
                     >
-                      <option value="task">{taskName}</option>
+                      <option value="task">{taskTitle}</option>
                       <option value="skip">Skip</option>
                     </select>
                     <div style={{ display: 'flex', gap: '4px', flex: 1, flexWrap: 'wrap', alignItems: 'center', pointerEvents: isSkipped ? 'none' : 'auto' }}>

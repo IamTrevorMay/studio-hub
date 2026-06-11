@@ -1021,7 +1021,8 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
               const stageAs = stageAssignments.filter((a) => a.stage === stage);
               const isCurrentStage = project.status === stage;
               const isSkipped = !!stageConfig[stage]?.skip;
-              const taskName = labelFor(type, stage);
+              const stageTask = labelFor(type, stage);
+              const taskTitle = `${name || project.name} — ${stageTask}`;
               return (
                 <div
                   key={stage}
@@ -1043,9 +1044,10 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
                     value={isSkipped ? 'skip' : 'task'}
                     onChange={(e) => saveStageSkip(stage, e.target.value === 'skip')}
                     disabled={!isAdmin}
-                    style={{ ...s.input, padding: '4px 6px', fontSize: 12, minWidth: 110, width: 'auto' }}
+                    title={taskTitle}
+                    style={{ ...s.input, padding: '4px 6px', fontSize: 12, minWidth: 200, maxWidth: 280, width: 'auto' }}
                   >
-                    <option value="task">{taskName}</option>
+                    <option value="task">{taskTitle}</option>
                     <option value="skip">Skip</option>
                   </select>
                   <div style={{ display: 'flex', gap: 4, flex: 1, flexWrap: 'wrap', alignItems: 'center', pointerEvents: isSkipped ? 'none' : 'auto' }}>
