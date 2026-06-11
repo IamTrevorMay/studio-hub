@@ -49,6 +49,7 @@ export default function UnifiedBoard() {
   const [handoffModal, setHandoffModal] = useState(null);
   const [actionSheet, setActionSheet] = useState(null); // mobile only: { project }
   const [editProject, setEditProject] = useState(null);
+  const [cardCtxMenu, setCardCtxMenu] = useState(null); // { x, y, project }
   const [busy, setBusy] = useState(false);
   const [archivedExpanded, setArchivedExpanded] = useState(false);
   const [archivedProjects, setArchivedProjects] = useState([]);
@@ -192,6 +193,58 @@ export default function UnifiedBoard() {
     }
   }
 
+  async function duplicateProject(project) {
+    setBusy(true);
+    try {
+      const { error } = await supabase.from('projects').insert({
+        name: `${project.name} (copy)`,
+        type: project.type,
+        status: 'queue',
+        start_column: 'queue',
+        deadline: project.deadline || null,
+        category: project.category || 'creative',
+        stage_config: project.stage_config || {},
+        created_by: profile?.id,
+      });
+      if (error) throw error;
+      fetchProjects();
+    } catch (err) {
+      alert(`Duplicate failed: ${err.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function archiveProject(project) {
+    setBusy(true);
+    try {
+      const { error } = await supabase
+        .from('projects')
+        .update({ archived_at: new Date().toISOString() })
+        .eq('id', project.id);
+      if (error) throw error;
+      fetchProjects();
+    } catch (err) {
+      alert(`Archive failed: ${err.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteProject(project) {
+    if (!window.confirm(`Delete "${project.name}" permanently? This cannot be undone.`)) return;
+    setBusy(true);
+    try {
+      const { error } = await supabase.from('projects').delete().eq('id', project.id);
+      if (error) throw error;
+      fetchProjects();
+    } catch (err) {
+      alert(`Delete failed: ${err.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function performHold(project, action, reason) {
     setBusy(true);
     try {
@@ -281,6 +334,7 @@ export default function UnifiedBoard() {
                     projects={byStage[stage]}
                     canDragProject={canDrag}
                     onCardClick={(p) => setEditProject(p)}
+                    onCardContextMenu={isAdmin ? (e, p) => { e.preventDefault(); setCardCtxMenu({ x: e.clientX, y: e.clientY, project: p }); } : null}
                     footer={stage === 'publish' ? (
                       <ArchivedExpander
                         expanded={archivedExpanded}
@@ -297,6 +351,7 @@ export default function UnifiedBoard() {
                 projects={backlogProjects}
                 canDragProject={canDrag}
                 onCardClick={(p) => setEditProject(p)}
+                onCardContextMenu={isAdmin ? (e, p) => { e.preventDefault(); setCardCtxMenu({ x: e.clientX, y: e.clientY, project: p }); } : null}
               />
             </div>
           </DragDropContext>
@@ -359,6 +414,16 @@ export default function UnifiedBoard() {
           onSaved={fetchProjects}
         />
       )}
+      {cardCtxMenu && (
+        <CardContextMenu
+          x={cardCtxMenu.x}
+          y={cardCtxMenu.y}
+          onClose={() => setCardCtxMenu(null)}
+          onDuplicate={async () => { await duplicateProject(cardCtxMenu.project); setCardCtxMenu(null); }}
+          onArchive={async () => { await archiveProject(cardCtxMenu.project); setCardCtxMenu(null); }}
+          onDelete={async () => { await deleteProject(cardCtxMenu.project); setCardCtxMenu(null); }}
+        />
+      )}
       {retagOpen && (
         <RetagModal
           untyped={untyped}
@@ -396,7 +461,7 @@ export default function UnifiedBoard() {
 
 // ─── Column ──────────────────────────────────────────────────────
 
-function Column({ stage, projects, canDragProject, onCardClick, footer }) {
+function Column({ stage, projects, canDragProject, onCardClick, onCardContextMenu, footer }) {
   return (
     <div style={s.column}>
       <div style={{ ...s.columnHeader, color: STAGE_COLORS[stage] }}>
@@ -426,6 +491,7 @@ function Column({ stage, projects, canDragProject, onCardClick, footer }) {
                     {...drag.draggableProps}
                     {...drag.dragHandleProps}
                     onClick={() => { if (!dragSnap.isDragging) onCardClick?.(p); }}
+                    onContextMenu={onCardContextMenu ? (e) => onCardContextMenu(e, p) : undefined}
                     style={{
                       ...drag.draggableProps.style,
                       ...s.card,
@@ -448,9 +514,66 @@ function Column({ stage, projects, canDragProject, onCardClick, footer }) {
   );
 }
 
+// ─── CardContextMenu ─────────────────────────────────────────────
+
+function CardContextMenu({ x, y, onClose, onDuplicate, onArchive, onDelete }) {
+  return (
+    <>
+      <div
+        onClick={onClose}
+        onContextMenu={(e) => { e.preventDefault(); onClose(); }}
+        style={{ position: 'fixed', inset: 0, zIndex: 998 }}
+      />
+      <div
+        style={{
+          position: 'fixed',
+          left: x,
+          top: y,
+          zIndex: 999,
+          background: colors.bgRaised,
+          border: `1px solid ${colors.border}`,
+          borderRadius: radii.md,
+          padding: spacing.xs,
+          minWidth: 160,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+        }}
+      >
+        <CtxItem label="Duplicate" onClick={onDuplicate} />
+        <CtxItem label="Archive" onClick={onArchive} />
+        <CtxItem label="Delete" onClick={onDelete} danger />
+      </div>
+    </>
+  );
+}
+
+function CtxItem({ label, onClick, danger }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        display: 'block',
+        width: '100%',
+        textAlign: 'left',
+        background: 'transparent',
+        border: 'none',
+        padding: `${spacing.sm}px ${spacing.md}px`,
+        fontSize: fontSizes.sm,
+        color: danger ? (colors.danger?.fg || '#ef4444') : colors.text,
+        cursor: 'pointer',
+        borderRadius: radii.sm,
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = colors.bgHover; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+    >
+      {label}
+    </button>
+  );
+}
+
 // ─── BacklogSection ──────────────────────────────────────────────
 
-function BacklogSection({ projects, canDragProject, onCardClick }) {
+function BacklogSection({ projects, canDragProject, onCardClick, onCardContextMenu }) {
   return (
     <div style={s.backlog.wrap}>
       <div style={s.backlog.header}>
@@ -482,6 +605,7 @@ function BacklogSection({ projects, canDragProject, onCardClick }) {
                     {...drag.draggableProps}
                     {...drag.dragHandleProps}
                     onClick={() => { if (!dragSnap.isDragging) onCardClick?.(p); }}
+                    onContextMenu={onCardContextMenu ? (e) => onCardContextMenu(e, p) : undefined}
                     style={{
                       ...drag.draggableProps.style,
                       ...s.backlog.card,

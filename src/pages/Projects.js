@@ -56,6 +56,7 @@ export default function Projects({ onNavigate }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('projects_view') || 'board');
   const [showArchived, setShowArchived] = useState(false);
+  const [rowCtxMenu, setRowCtxMenu] = useState(null); // { x, y, project }
   const [activeSection, setActiveSection] = useState('projects');
 
   // Shorts Queue state
@@ -510,6 +511,21 @@ export default function Projects({ onNavigate }) {
     fetchProjects();
   }
 
+  async function handleDuplicateProject(project) {
+    const { error } = await supabase.from('projects').insert({
+      name: `${project.name} (copy)`,
+      type: project.type,
+      status: 'queue',
+      start_column: 'queue',
+      deadline: project.deadline || null,
+      category: project.category || 'creative',
+      stage_config: project.stage_config || {},
+      created_by: profile?.id || null,
+    });
+    if (error) { alert(`Duplicate failed: ${error.message}`); return; }
+    fetchProjects();
+  }
+
   async function handleAddChecklistItem(projectId, stage, content) {
     if (!content.trim()) return;
     await supabase.from('project_checklists').insert({
@@ -874,6 +890,7 @@ export default function Projects({ onNavigate }) {
                   onDeleteChecklistItem={handleDeleteChecklistItem} onAssignProjectStage={handleAssignProjectStage}
                   onRemoveProjectStageAssignment={handleRemoveProjectStageAssignment} onUpdateProject={handleUpdateProject}
                   linkedFieldData={{ writeDocs, beatSheets, adReadDeliverables }}
+                  onContextMenu={isAdmin ? (e, p) => { e.preventDefault(); setRowCtxMenu({ x: e.clientX, y: e.clientY, project: p }); } : null}
                 />
               ))}
             </div>
@@ -896,6 +913,7 @@ export default function Projects({ onNavigate }) {
                   onDeleteChecklistItem={handleDeleteChecklistItem} onAssignProjectStage={handleAssignProjectStage}
                   onRemoveProjectStageAssignment={handleRemoveProjectStageAssignment} onUpdateProject={handleUpdateProject}
                   linkedFieldData={{ writeDocs, beatSheets, adReadDeliverables }}
+                  onContextMenu={isAdmin ? (e, p) => { e.preventDefault(); setRowCtxMenu({ x: e.clientX, y: e.clientY, project: p }); } : null}
                 />
               ))}
             </div>
@@ -920,6 +938,7 @@ export default function Projects({ onNavigate }) {
                   onDeleteChecklistItem={handleDeleteChecklistItem} onAssignProjectStage={handleAssignProjectStage}
                   onRemoveProjectStageAssignment={handleRemoveProjectStageAssignment} onUpdateProject={handleUpdateProject}
                   linkedFieldData={{ writeDocs, beatSheets, adReadDeliverables }}
+                  onContextMenu={isAdmin ? (e, p) => { e.preventDefault(); setRowCtxMenu({ x: e.clientX, y: e.clientY, project: p }); } : null}
                 />
               ))}
             </div>
@@ -960,7 +979,7 @@ export default function Projects({ onNavigate }) {
                       isAdmin={isAdmin} onAddChecklistItem={handleAddChecklistItem} onToggleChecklistItem={handleToggleChecklistItem}
                       onDeleteChecklistItem={handleDeleteChecklistItem} onAssignProjectStage={handleAssignProjectStage}
                       onRemoveProjectStageAssignment={handleRemoveProjectStageAssignment} onUpdateProject={handleUpdateProject}
-    
+                      onContextMenu={isAdmin ? (e, p) => { e.preventDefault(); setRowCtxMenu({ x: e.clientX, y: e.clientY, project: p }); } : null}
                     />
                   ))}
                 </div>
@@ -1165,7 +1184,73 @@ export default function Projects({ onNavigate }) {
       )}
 
       {/* Deliverables section removed — now lives at /deliverables */}
+
+      {rowCtxMenu && (
+        <RowContextMenu
+          x={rowCtxMenu.x}
+          y={rowCtxMenu.y}
+          onClose={() => setRowCtxMenu(null)}
+          onDuplicate={async () => { await handleDuplicateProject(rowCtxMenu.project); setRowCtxMenu(null); }}
+          onArchive={async () => { await handleArchiveProject(rowCtxMenu.project.id); setRowCtxMenu(null); }}
+          onDelete={async () => { await handleDeleteProject(rowCtxMenu.project.id); setRowCtxMenu(null); }}
+        />
+      )}
     </div>
+  );
+}
+
+function RowContextMenu({ x, y, onClose, onDuplicate, onArchive, onDelete }) {
+  const items = [
+    { label: 'Duplicate', onClick: onDuplicate },
+    { label: 'Archive', onClick: onArchive },
+    { label: 'Delete', onClick: onDelete, danger: true },
+  ];
+  return (
+    <>
+      <div
+        onClick={onClose}
+        onContextMenu={(e) => { e.preventDefault(); onClose(); }}
+        style={{ position: 'fixed', inset: 0, zIndex: 998 }}
+      />
+      <div
+        style={{
+          position: 'fixed',
+          left: x,
+          top: y,
+          zIndex: 999,
+          background: '#1a1a2e',
+          border: '1px solid rgba(255,255,255,0.12)',
+          borderRadius: '8px',
+          padding: '4px',
+          minWidth: '160px',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+        }}
+      >
+        {items.map((it) => (
+          <button
+            key={it.label}
+            type="button"
+            onClick={it.onClick}
+            style={{
+              display: 'block',
+              width: '100%',
+              textAlign: 'left',
+              background: 'transparent',
+              border: 'none',
+              padding: '8px 12px',
+              fontSize: '13px',
+              color: it.danger ? '#ef4444' : '#fff',
+              cursor: 'pointer',
+              borderRadius: '6px',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+          >
+            {it.label}
+          </button>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -1180,6 +1265,7 @@ function ProjectRow({
   onAssignProjectStage, onRemoveProjectStageAssignment,
   onUpdateProject,
   linkedFieldData = {},
+  onContextMenu,
 }) {
   const { writeDocs = [], beatSheets = [], adReadDeliverables = [] } = linkedFieldData;
   const isBusiness = project.category === 'business';
@@ -1289,10 +1375,13 @@ function ProjectRow({
   ) : null;
 
   return (
-    <div style={{
-      ...styles.projectRow,
-      ...(project.is_archived ? { opacity: 0.6 } : {}),
-    }}>
+    <div
+      style={{
+        ...styles.projectRow,
+        ...(project.is_archived ? { opacity: 0.6 } : {}),
+      }}
+      onContextMenu={onContextMenu ? (e) => onContextMenu(e, project) : undefined}
+    >
       <div style={styles.projectRowMain} onClick={onToggle}>
         <div style={styles.projectRowLeft}>
           <div style={{
