@@ -49,6 +49,32 @@ Renamed Freelancer to Contractor in admin panel. Added document signing (`Docume
 - Supabase CLI update (v2.95.4 → v2.101.0)
 - `CLAUDE_MODEL` env var should be set in Supabase dashboard to pin model versions across `generate-trends`, `run-report`
 
+### Pending — Ops page not showing updates (2026-06-11)
+
+Ops dashboard remains stale — no fresh ingestion/sync/edge-function activity
+showing despite recent runs. Need to audit:
+- Whether the data sources (ingestion_runs, ingestion_logs, edge function
+  invocations) are actually being written.
+- Whether the page query filters are dropping recent rows.
+- Whether realtime subscriptions on the Ops page are bound to the right
+  channels.
+
+### Pending — Missing team members from Workflows Team Section (2026-06-11)
+
+Workflows page Team Section is missing three profiles that should appear:
+- **Trevor May (CEO)**
+- **Emily Jude**
+- **Ethan Jones**
+
+Likely culprit is the `TEAM_ROLES` filter in `src/pages/Workflows.js`
+(`teamProfiles` useEffect) — it filters by `role IN (...some allowlist...)`.
+Whatever role these three profiles have isn't in the allowlist. Audit:
+1. Pull profiles.role for each missing user.
+2. Confirm whether `TEAM_ROLES` should add their role or whether their role
+   is wrong in DB.
+3. Decide whether owners/leadership should always render in Team Section
+   regardless of role.
+
 ### Pending — Wire Projects board progress into Workflows Team + Contractors sections (2026-06-11)
 
 The Workflows page Team Section currently only mirrors the Tracking > Progress
