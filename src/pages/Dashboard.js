@@ -266,7 +266,7 @@ export default function Dashboard({ onNavigate }) {
       // Fetch pending requests (admin needs these for approval)
       const { data: pending } = await supabase
         .from('ooo_requests')
-        .select('*, requester:profiles!user_id(id, full_name)')
+        .select('*, requester:profiles!ooo_requests_user_id_fkey(id, full_name)')
         .eq('status', 'pending')
         .order('created_at', { ascending: true });
       setPendingOooRequests(pending || []);
@@ -287,12 +287,16 @@ export default function Dashboard({ onNavigate }) {
   const fetchUpcomingOoo = useCallback(async () => {
     if (!profile?.id) return;
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('ooo_requests')
-        .select('id, start_date, end_date, calendar_event_id, requester:profiles!user_id(id, full_name), event:calendar_events!calendar_event_id(all_day, start_date, end_date)')
+        .select('id, start_date, end_date, calendar_event_id, requester:profiles!ooo_requests_user_id_fkey(id, full_name), event:calendar_events!calendar_event_id(all_day, start_date, end_date)')
         .eq('status', 'approved')
         .gte('end_date', todayStr)
         .order('start_date', { ascending: true });
+      if (error) {
+        console.error('fetchUpcomingOoo error:', error);
+        return;
+      }
       setUpcomingOoo(data || []);
     } catch (err) {
       console.error('Error fetching upcoming OOO:', err);
@@ -2092,7 +2096,7 @@ export default function Dashboard({ onNavigate }) {
       </div>
 
       {/* Admin: Upcoming Out of Office */}
-      {isAdmin && upcomingOoo.length > 0 && (
+      {isAdmin && (
         <div style={styles.section}>
           <h2 style={styles.sectionTitle}>Upcoming Out of Office</h2>
           <div style={{
@@ -2104,7 +2108,16 @@ export default function Dashboard({ onNavigate }) {
             flexDirection: 'column',
             gap: '10px',
           }}>
-            {upcomingOoo.map(req => {
+            {upcomingOoo.length === 0 ? (
+              <div style={{
+                color: 'rgba(255,255,255,0.45)',
+                fontSize: '13px',
+                fontStyle: 'italic',
+                padding: '6px 4px',
+              }}>
+                No upcoming time off.
+              </div>
+            ) : upcomingOoo.map(req => {
               const start = new Date(req.start_date + 'T00:00:00');
               const end = new Date(req.end_date + 'T00:00:00');
               const today = new Date(todayStr + 'T00:00:00');
