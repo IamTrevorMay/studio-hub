@@ -11,6 +11,7 @@ import {
   STAGE_COLORS,
   labelFor,
   typeLabel,
+  defaultStageConfigForType,
 } from '../../lib/kanbanStages';
 
 const SELECT = `
@@ -941,7 +942,12 @@ function RetagModal({ untyped, onClose }) {
   const [busyId, setBusyId] = useState(null);
   async function retag(p, newType) {
     setBusyId(p.id);
-    const { error } = await supabase.from('projects').update({ type: newType }).eq('id', p.id);
+    const patch = { type: newType };
+    // Seed default per-type skips only if the project hasn't customized stage_config.
+    if (!p.stage_config || Object.keys(p.stage_config).length === 0) {
+      patch.stage_config = defaultStageConfigForType(newType);
+    }
+    const { error } = await supabase.from('projects').update(patch).eq('id', p.id);
     if (error) alert(`Retag failed: ${error.message}`);
     setBusyId(null);
   }
@@ -998,6 +1004,7 @@ function NewProjectModal({ onClose, onCreated, createdBy }) {
       deadline: deadline || null,
       category: 'creative',
       created_by: createdBy,
+      stage_config: defaultStageConfigForType(type),
     });
     setBusy(false);
     if (error) {
@@ -1411,7 +1418,7 @@ const s = {
     display: 'flex', gap: spacing.md, alignItems: 'flex-start',
   },
   columnsRow: {
-    display: 'grid', gridTemplateColumns: 'repeat(6, minmax(180px, 1fr))',
+    display: 'grid', gridTemplateColumns: `repeat(${CANONICAL_STAGES.length}, minmax(170px, 1fr))`,
     gap: spacing.md, flex: 1, minWidth: 0,
   },
   column: {

@@ -6,17 +6,17 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import UnifiedBoard from './projects/UnifiedBoard';
-import { labelFor as stageTaskLabel } from '../lib/kanbanStages';
+import { labelFor as stageTaskLabel, defaultStageConfigForType } from '../lib/kanbanStages';
 
 
-const STATUSES = ['queue', 'write', 'produce', 'edit', 'review', 'publish'];
+const STATUSES = ['queue', 'write', 'pre_production', 'film', 'review', 'edit', 'post_production', 'publish'];
 const STATUS_LABELS = {
-  queue: 'Queue', write: 'Write', produce: 'Produce',
-  edit: 'Edit', review: 'Review', publish: 'Publish',
+  queue: 'Queue', write: 'Write', pre_production: 'Pre-Production', film: 'Film',
+  review: 'Review', edit: 'Edit', post_production: 'Post-Production', publish: 'Published',
 };
 const STATUS_COLORS = {
-  queue: '#8b5cf6', write: '#3b82f6', produce: '#f59e0b',
-  edit: '#f97316', review: '#ec4899', publish: '#22c55e',
+  queue: '#8b5cf6', write: '#3b82f6', pre_production: '#0ea5e9', film: '#f59e0b',
+  review: '#ec4899', edit: '#f97316', post_production: '#a855f7', publish: '#22c55e',
 };
 const PROJECT_TYPES = [
   { value: 'mayday_video', label: 'Mayday Video' },
@@ -239,6 +239,7 @@ export default function Projects({ onNavigate }) {
       write_doc_name: form.write_doc_name || null,
       beat_sheet_id: form.beat_sheet_id || null,
       ad_read_id: form.ad_read_id || null,
+      stage_config: defaultStageConfigForType(form.type),
     };
     const { data: created, error } = await supabase.from('projects').insert(insert).select('id').single();
     if (error) {

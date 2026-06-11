@@ -49,6 +49,26 @@ Renamed Freelancer to Contractor in admin panel. Added document signing (`Docume
 - Supabase CLI update (v2.95.4 → v2.101.0)
 - `CLAUDE_MODEL` env var should be set in Supabase dashboard to pin model versions across `generate-trends`, `run-report`
 
+### Pending — Contractor-assignment auto-complete hooks (Mayday Kanban port, 2026-06-11)
+
+The 8-stage Workflows port landed labels + descriptions for Mayday's `film` and
+`edit` tasks but does NOT auto-complete them. Legacy `mayday_video_workflow`
+auto-cleared these on contractor events:
+
+- **`film` stage** ("Film & Send to Editor") cleared when Trevor created the
+  editor's Contractors assignment.
+- **`edit` stage** ("Wait on Edit") cleared when the editor marked their
+  Contractors assignment complete.
+
+Both still need wiring. Suggested approach:
+- Postgres trigger on `freelancer_assignments` (insert + update) calling a
+  SECURITY DEFINER function that looks up the matching open `tasks` row by
+  `step_key` + `related_entity_id=project.id` and sets `status='complete'`,
+  `completed_at=now()`.
+- Optional notification to other stage assignees mirroring the existing
+  `card-move` notification path.
+- Until wired, both tasks behave like any other manual-Complete task.
+
 ### Unified Content Kanban (locked spec, 2026-06-10)
 
 Replace Projects page Kanban with a type-aware unified board for all content projects. Disable workflow-instance creation + automation triggers while developing (nav stays; in-flight runs continue).

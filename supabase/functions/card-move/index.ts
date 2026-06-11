@@ -11,17 +11,90 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const STAGES = ["queue", "write", "produce", "edit", "review", "publish"] as const;
+const STAGES = ["queue", "write", "pre_production", "film", "review", "edit", "post_production", "publish"] as const;
 type Stage = typeof STAGES[number];
 const BACKLOG_STAGE = "backlog" as const;
 const ALL_TARGETS = [...STAGES, BACKLOG_STAGE];
 
 const STAGE_LABELS: Record<string, Record<Stage, string>> = {
-  mayday_video:      { queue: "Queue", write: "Script",  produce: "Shoot",   edit: "Edit", review: "Review", publish: "Publish" },
-  tm_baseball_video: { queue: "Queue", write: "Script",  produce: "Shoot",   edit: "Edit", review: "Review", publish: "Publish" },
-  podcast:           { queue: "Queue", write: "Outline", produce: "Record",  edit: "Edit", review: "Review", publish: "Publish" },
-  short_form:        { queue: "Queue", write: "Concept", produce: "Capture", edit: "Cut",  review: "Review", publish: "Publish" },
+  mayday_video: {
+    queue: "Queue",
+    write: "Beat Sheet + Broadcast",
+    pre_production: "Filming Prep",
+    film: "Film & Send to Editor",
+    review: "Review & Add B-Roll",
+    edit: "Wait on Edit",
+    post_production: "Thumbnail & Schedule",
+    publish: "Published",
+  },
+  tm_baseball_video: {
+    queue: "Queue",
+    write: "Beat Sheet + Broadcast",
+    pre_production: "Pre-Production",
+    film: "Film",
+    review: "Review & Add B-Roll",
+    edit: "Edit",
+    post_production: "Thumbnail & Schedule",
+    publish: "Published",
+  },
+  podcast: {
+    queue: "Queue",
+    write: "Outline",
+    pre_production: "Prep Guest + Rundown",
+    film: "Record",
+    review: "Review",
+    edit: "Edit",
+    post_production: "Show Notes + Schedule",
+    publish: "Published",
+  },
+  short_form: {
+    queue: "Queue",
+    write: "Concept",
+    pre_production: "Pre-Production",
+    film: "Capture",
+    review: "Review",
+    edit: "Cut",
+    post_production: "Thumbnail + Schedule",
+    publish: "Published",
+  },
 };
+
+const STAGE_DESCRIPTIONS: Record<string, Partial<Record<Stage, string>>> = {
+  mayday_video: {
+    write: "Complete beat sheet & update Broadcast.",
+    pre_production: "Finalize beat sheet & push script to teleprompter.",
+    film: "Pick the editor. Task will need contractor-assignment hook to auto-complete (TODO).",
+    review: "1. Review the Beat Sheet for B-Roll\n2. Add where you see gaps\n3. Download B-Roll files, name them to match Video tags in Beat Sheet\n4. Upload into project folder.",
+    edit: "Monitor editor progress. Task will need contractor-assignment hook to auto-complete (TODO).",
+    post_production: "Build the thumbnail, schedule the upload, close out the workflow.",
+  },
+  tm_baseball_video: {
+    write: "Complete beat sheet & update Broadcast.",
+    pre_production: "Lock shot list, gear, location.",
+    film: "Shoot per shot list.",
+    review: "1. Review the Beat Sheet for B-Roll\n2. Add where you see gaps\n3. Download B-Roll files, name them to match Video tags in Beat Sheet\n4. Upload into project folder.",
+    edit: "Cut the video.",
+    post_production: "Build the thumbnail, schedule the upload, close out the workflow.",
+  },
+  podcast: {
+    write: "Draft topic outline + show notes skeleton.",
+    pre_production: "Confirm guest, share rundown, test audio chain.",
+    film: "Run the recording session.",
+    edit: "Edit audio + video.",
+    post_production: "Write show notes, schedule release.",
+  },
+  short_form: {
+    write: "Lock the hook, beats, on-screen text.",
+    film: "Capture all footage on shot list.",
+    edit: "Cut + add captions/text.",
+    post_production: "Build thumb, schedule across platforms.",
+  },
+};
+
+function descriptionFor(projectType: string | null, stage: string): string | null {
+  if (!projectType) return null;
+  return STAGE_DESCRIPTIONS[projectType]?.[stage as Stage] || null;
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -205,9 +278,10 @@ Deno.serve(async (req: Request) => {
   const prevLabel = labelFor(project.type, currentStage);
 
   const taskTitle = `${project.name} — ${targetLabel}`;
+  const stageDesc = descriptionFor(project.type, resolvedTargetStage);
   const description = handoff_note && handoff_note.trim()
-    ? `Handoff from ${prevLabel}:\n${handoff_note.trim()}\n\nSee project notes for full context.`
-    : `Moved from ${prevLabel}.`;
+    ? `${stageDesc ? stageDesc + "\n\n" : ""}Handoff from ${prevLabel}:\n${handoff_note.trim()}`
+    : (stageDesc || `Moved from ${prevLabel}.`);
 
   for (const userId of assigneeIds) {
     const { data: task, error: taskErr } = await admin
