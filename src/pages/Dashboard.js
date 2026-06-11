@@ -287,11 +287,13 @@ export default function Dashboard({ onNavigate }) {
   const fetchUpcomingOoo = useCallback(async () => {
     if (!profile?.id) return;
     try {
+      // Only sessions happening now or in the future.
+      const nowIso = new Date().toISOString();
       const { data, error } = await supabase
-        .from('ooo_requests')
-        .select('id, start_date, end_date, calendar_event_id, requester:profiles!ooo_requests_user_id_fkey(id, full_name), event:calendar_events!calendar_event_id(all_day, start_date, end_date)')
-        .eq('status', 'approved')
-        .gte('end_date', todayStr)
+        .from('calendar_events')
+        .select('id, title, start_date, end_date, all_day')
+        .eq('event_type', 'unavailable')
+        .gte('end_date', nowIso)
         .order('start_date', { ascending: true });
       if (error) {
         console.error('fetchUpcomingOoo error:', error);
@@ -301,7 +303,7 @@ export default function Dashboard({ onNavigate }) {
     } catch (err) {
       console.error('Error fetching upcoming OOO:', err);
     }
-  }, [profile?.id, todayStr]);
+  }, [profile?.id]);
 
   const fetchAnnouncements = useCallback(async () => {
     if (!profile?.id) return;
@@ -617,7 +619,10 @@ export default function Dashboard({ onNavigate }) {
       .channel('ooo-changes')
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'ooo_requests',
-      }, () => { fetchOooRequests(); fetchUpcomingOoo(); })
+      }, () => { fetchOooRequests(); })
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'calendar_events',
+      }, () => { fetchUpcomingOoo(); })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [profile?.id, fetchOooRequests, fetchUpcomingOoo]);
@@ -2117,26 +2122,28 @@ export default function Dashboard({ onNavigate }) {
               }}>
                 No upcoming time off.
               </div>
-            ) : upcomingOoo.map(req => {
-              const start = new Date(req.start_date + 'T00:00:00');
-              const end = new Date(req.end_date + 'T00:00:00');
-              const today = new Date(todayStr + 'T00:00:00');
-              const isCurrentlyOut = start <= today && today <= end;
-              const isSingleDay = req.start_date === req.end_date;
+            ) : upcomingOoo.map(ev => {
+              const start = new Date(ev.start_date);
+              const end = new Date(ev.end_date);
+              const now = new Date();
+              const isCurrentlyOut = start <= now && now <= end;
+              const startDayKey = start.toISOString().slice(0, 10);
+              const endDayKey = end.toISOString().slice(0, 10);
+              const isSingleDay = startDayKey === endDayKey;
               const startFmt = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
               const endFmt = end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
-              // Show times for non-all-day events
               let timeStr = null;
-              if (req.event && req.event.all_day === false && req.event.start_date && req.event.end_date) {
-                const eventStart = new Date(req.event.start_date);
-                const eventEnd = new Date(req.event.end_date);
+              if (ev.all_day === false) {
                 const fmtTime = (d) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-                timeStr = `${fmtTime(eventStart)} \u2013 ${fmtTime(eventEnd)}`;
+                timeStr = `${fmtTime(start)} \u2013 ${fmtTime(end)}`;
               }
 
+              const displayTitle = ev.title || 'Unavailable';
+              const initial = displayTitle.trim().charAt(0).toUpperCase() || '?';
+
               return (
-                <div key={req.id} style={{
+                <div key={ev.id} style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: '12px',
@@ -2151,12 +2158,12 @@ export default function Dashboard({ onNavigate }) {
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: '13px', fontWeight: 700, flexShrink: 0,
                   }}>
-                    {req.requester?.full_name?.charAt(0)?.toUpperCase() || '?'}
+                    {initial}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span style={{ fontSize: '13px', fontWeight: 600, color: '#e2e8f0' }}>
-                        {req.requester?.full_name || 'Unknown'}
+                        {displayTitle}
                       </span>
                       {isCurrentlyOut && (
                         <span style={{
