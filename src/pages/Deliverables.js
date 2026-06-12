@@ -1490,7 +1490,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
 
     return (
       <div style={styles.modalOverlay} onClick={() => setScheduleModalDeliverable(null)}>
-        <div style={{ ...styles.modalBox, maxWidth: 920, padding: '28px 32px' }} onClick={e => e.stopPropagation()}>
+        <div style={{ ...styles.modalBox, maxWidth: '92vw', padding: '28px 32px' }} onClick={e => e.stopPropagation()}>
           <div style={styles.modalHeader}>
             <div>
               <h3 style={styles.modalTitle}>{d.title}</h3>
@@ -2537,10 +2537,12 @@ const styles = {
   // ── Calendar modal grid ──
   calendarGrid: {
     display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '3px',
+    overflow: 'hidden',
   },
   calendarDay: {
     minHeight: '90px', padding: '6px 8px', borderRadius: '6px',
     background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.04)',
+    minWidth: 0, overflow: 'hidden',
   },
   calendarDayBlank: {
     minHeight: '90px',
