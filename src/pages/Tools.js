@@ -20,13 +20,6 @@ const TOOLS = [
     tritonPath: '/broadcast',
   },
   {
-    key: 'scene-builder',
-    name: 'Scene Builder',
-    description: 'Visual scene composer for building data-driven broadcast graphics and overlays.',
-    color: '#f59e0b',
-    tritonPath: '/visualize/scene-composer',
-  },
-  {
     key: 'organize',
     name: 'Organize',
     description: 'Browser-based media file organizer. Tag files by type and subtype, then sort them into folders.',

@@ -51,7 +51,6 @@ export const MOBILE_SUPPORT = {
   teleprompter: 'excluded',
   telestration: 'excluded',
   organize: 'excluded',
-  scene_builder: 'excluded',
   broadcast: 'excluded',
 };
 

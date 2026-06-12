@@ -37,7 +37,6 @@ const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard' },
   { key: 'write', label: 'Write' },
   { key: 'production', label: 'Beat Sheet' },
-  { key: 'scene_builder', label: 'Custom Visuals', external: { triton: '/design/scene-composer' } },
   { key: 'screenwriter', label: 'Screenwriter' },
   { key: 'teleprompter', label: 'Teleprompter' },
   { key: 'broadcast', label: 'Broadcast', external: { url: 'https://www.tritonapex.io/broadcast' } },

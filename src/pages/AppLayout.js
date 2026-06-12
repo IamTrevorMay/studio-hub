@@ -33,9 +33,6 @@ import Broadcast from './tools/Broadcast';
 import ReportCards from './tools/ReportCards';
 import Mailer from './tools/Mailer';
 import Graphics from './tools/Graphics';
-import AssetDesigner from './tools/AssetDesigner';
-import SceneComposer from './tools/SceneComposer';
-import TemplateBuilder from './tools/TemplateBuilder';
 
 import FreelancerDashboard from './FreelancerDashboard';
 import FreelancerHours from './FreelancerHours';
@@ -64,7 +61,6 @@ const NAV_ITEMS = [
   { key: 'projects', label: 'Projects', icon: ProjectsIcon },
   { key: 'ideas', label: 'Ideas', icon: ResourcesIcon },
   { key: 'production', label: 'Beat Sheet', icon: ProductionIcon },
-  { key: 'scene_builder', label: 'Scene Composer', icon: ToolsIcon, adminOnly: true, hidden: true },
   { key: 'screenwriter', label: 'Screenwriter', icon: IdeationIcon },
   { key: 'teleprompter', label: 'Teleprompter', icon: ToolsIcon },
   { key: 'broadcast', label: 'Broadcast', icon: ToolsIcon, adminOnly: true, hidden: true },
@@ -74,8 +70,6 @@ const NAV_ITEMS = [
   { key: 'report_cards', label: 'Report Cards', icon: ToolsIcon, adminOnly: true, hidden: true },
   { key: 'mailer', label: 'Mailer', icon: ToolsIcon, adminOnly: true, hidden: true },
   { key: 'graphics', label: 'Graphics', icon: ToolsIcon },
-  { key: 'asset_designer', label: 'Asset Designer', icon: ToolsIcon, adminOnly: true, hidden: true },
-  { key: 'template_builder', label: 'Template Builder', icon: ToolsIcon, adminOnly: true, hidden: true },
   { key: 'assets', label: 'Assets Library', icon: ResourcesIcon, external: { url: 'https://www.mayday.systems/' } },
   { key: 'reviews', label: 'Reviews', icon: ReviewsIcon },
   { key: 'organize', label: 'Organize', icon: ToolsIcon },
@@ -174,7 +168,6 @@ const NAV_ICON_MAP = {
   assignments: AssignmentsIcon,
   write: ResourcesIcon,
   production: ProductionIcon,
-  scene_builder: ToolsIcon,
   screenwriter: IdeationIcon,
   teleprompter: ToolsIcon,
   broadcast: ToolsIcon,
@@ -778,9 +771,6 @@ export default function AppLayout() {
           {activeTab === 'report_cards' && <PageErrorBoundary key="report_cards"><ReportCards onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {activeTab === 'mailer' && <PageErrorBoundary key="mailer"><Mailer onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {activeTab === 'graphics' && <PageErrorBoundary key="graphics"><Graphics onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
-          {activeTab === 'asset_designer' && <PageErrorBoundary key="asset_designer"><AssetDesigner onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
-          {activeTab === 'scene_builder' && <PageErrorBoundary key="scene_builder"><SceneComposer onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
-          {activeTab === 'template_builder' && <PageErrorBoundary key="template_builder"><TemplateBuilder onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {isAdmin && activeTab === 'analytics' && <PageErrorBoundary key="analytics"><Analytics /></PageErrorBoundary>}
           {isAdmin && activeTab === 'tracking' && <PageErrorBoundary key="tracking"><Tracking /></PageErrorBoundary>}
           {isAdmin && activeTab === 'accounting' && <PageErrorBoundary key="accounting"><Accounting /></PageErrorBoundary>}
