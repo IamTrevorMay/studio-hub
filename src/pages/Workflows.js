@@ -372,8 +372,6 @@ export default function Workflows() {
   const [flPending, setFlPending] = useState([]);
   const [flDone, setFlDone] = useState([]);
   const [editingCards, setEditingCards] = useState([]);
-  const [projectStagePending, setProjectStagePending] = useState([]);
-  const [projectStageDone, setProjectStageDone] = useState([]);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -444,43 +442,6 @@ export default function Workflows() {
     return () => { cancelled = true; };
   }, [isAdmin]);
 
-  // Project stage assignments for current-stage rows (Pending) + recently-archived (Done 7d).
-  useEffect(() => {
-    if (!isAdmin) return;
-    let cancelled = false;
-    const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
-    const load = async () => {
-      const cutoff = new Date(Date.now() - SEVEN_DAYS_MS).toISOString();
-      const { data, error } = await supabase
-        .from('project_stage_assignments')
-        .select('id, stage, user_id, project:projects(id, name, status, type, archived_at)');
-      if (error || cancelled) return;
-      const rows = data || [];
-      const pending = [];
-      const done = [];
-      for (const r of rows) {
-        const p = r.project;
-        if (!p || !r.user_id) continue;
-        if (!p.archived_at && r.stage === p.status) {
-          pending.push({ id: `proj-${r.id}`, project_id: p.id, name: p.name, stage: r.stage, type: p.type, assignee_id: r.user_id });
-        } else if (p.archived_at && p.archived_at >= cutoff && r.stage === p.status) {
-          done.push({ id: `proj-${r.id}`, project_id: p.id, name: p.name, stage: r.stage, type: p.type, assignee_id: r.user_id, archived_at: p.archived_at });
-        }
-      }
-      if (!cancelled) {
-        setProjectStagePending(pending);
-        setProjectStageDone(done);
-      }
-    };
-    load();
-    const ch = supabase
-      .channel('workflows-project-stages')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'project_stage_assignments' }, load)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, load)
-      .subscribe();
-    return () => { cancelled = true; supabase.removeChannel(ch); };
-  }, [isAdmin]);
-
   useEffect(() => {
     if (!isAdmin) return;
     let cancelled = false;
@@ -502,11 +463,9 @@ export default function Workflows() {
 
   const teamByAssignee = useMemo(() => {
     const map = {};
-    const ensure = id => (map[id] || (map[id] = { pending: [], done: [], projectsPending: [], projectsDone: [] }));
+    const ensure = id => (map[id] || (map[id] = { pending: [], done: [] }));
     for (const t of teamPending) if (t.assignee_id) ensure(t.assignee_id).pending.push(t);
     for (const t of teamDone) if (t.assignee_id) ensure(t.assignee_id).done.push(t);
-    for (const p of projectStagePending) ensure(p.assignee_id).projectsPending.push(p);
-    for (const p of projectStageDone) ensure(p.assignee_id).projectsDone.push(p);
     // Mirror Tracking > Progress > Editing column into Alana Benson's pending list.
     const alana = teamProfiles.find(p => p.name === 'Alana Benson');
     if (alana && editingCards.length > 0) {
@@ -519,17 +478,15 @@ export default function Workflows() {
       }
     }
     return map;
-  }, [teamPending, teamDone, teamProfiles, editingCards, projectStagePending, projectStageDone]);
+  }, [teamPending, teamDone, teamProfiles, editingCards]);
 
   const contractorByAssignee = useMemo(() => {
     const map = {};
-    const ensure = id => (map[id] || (map[id] = { pending: [], done: [], projectsPending: [], projectsDone: [] }));
+    const ensure = id => (map[id] || (map[id] = { pending: [], done: [] }));
     for (const t of flPending) if (t.assignee_id) ensure(t.assignee_id).pending.push(t);
     for (const t of flDone) if (t.assignee_id) ensure(t.assignee_id).done.push(t);
-    for (const p of projectStagePending) ensure(p.assignee_id).projectsPending.push(p);
-    for (const p of projectStageDone) ensure(p.assignee_id).projectsDone.push(p);
     return map;
-  }, [flPending, flDone, projectStagePending, projectStageDone]);
+  }, [flPending, flDone]);
 
   // (Old workflow builder / step CRUD / version publishing / simulator
   //  functions removed — no longer used in this grid layout.)
@@ -548,11 +505,9 @@ export default function Workflows() {
   // ─── Render helpers ─────────────────────────────────────────
 
   const renderPersonRow = (p, d) => {
-    const data = d || { pending: [], done: [], projectsPending: [], projectsDone: [] };
+    const data = d || { pending: [], done: [] };
     const pending = data.pending || [];
     const done = data.done || [];
-    const projectsPending = data.projectsPending || [];
-    const projectsDone = data.projectsDone || [];
     const nowMs = Date.now();
 
     // Categorize pending tasks
@@ -570,10 +525,7 @@ export default function Workflows() {
       return !snoozed && t.status === 'on_hold';
     });
 
-    const pendingTotal = pending.length + projectsPending.length;
-    const doneTotal = done.length + projectsDone.length;
     const doneShown = done.slice(0, 4);
-    const projDoneShown = projectsDone.slice(0, 3);
 
     const tdBase = { padding: '10px 12px', verticalAlign: 'top', borderBottom: '1px solid rgba(255,255,255,0.04)' };
 
@@ -593,7 +545,7 @@ export default function Workflows() {
         </td>
         {/* Pending */}
         <td style={tdBase}>
-          {pendingTotal === 0 ? (
+          {pending.length === 0 ? (
             <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)', fontStyle: 'italic' }}>—</span>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -653,30 +605,9 @@ export default function Workflows() {
             </div>
           )}
         </td>
-        {/* Projects */}
-        <td style={tdBase}>
-          {projectsPending.length === 0 ? (
-            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)', fontStyle: 'italic' }}>—</span>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-              {projectsPending.map(proj => (
-                <div key={proj.id} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12 }}>
-                  <span style={{
-                    display: 'inline-block', width: 7, height: 7, borderRadius: '50%',
-                    background: '#60a5fa', boxShadow: '0 0 5px rgba(96,165,250,0.7)', flexShrink: 0,
-                  }} />
-                  <span style={{ color: 'rgba(255,255,255,0.8)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
-                    {proj.name}
-                  </span>
-                  <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', flexShrink: 0 }}>{proj.stage}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </td>
         {/* Done · 7d */}
         <td style={tdBase}>
-          {doneTotal === 0 ? (
+          {done.length === 0 ? (
             <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)', fontStyle: 'italic' }}>—</span>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -688,15 +619,6 @@ export default function Workflows() {
               ))}
               {done.length > doneShown.length && (
                 <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', paddingLeft: 16 }}>+{done.length - doneShown.length} more</div>
-              )}
-              {projDoneShown.map(proj => (
-                <div key={proj.id} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12 }}>
-                  <span style={{ color: '#60a5fa', fontSize: 11, flexShrink: 0 }}>✓</span>
-                  <span style={{ color: 'rgba(255,255,255,0.5)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>{proj.name}</span>
-                </div>
-              ))}
-              {projectsDone.length > projDoneShown.length && (
-                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', paddingLeft: 16 }}>+{projectsDone.length - projDoneShown.length} more</div>
               )}
             </div>
           )}
@@ -1262,7 +1184,7 @@ export default function Workflows() {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
-                  {['Name', 'Role', 'Pending', 'Projects', 'Done · 7d'].map(h => (
+                  {['Name', 'Role', 'Pending', 'Done · 7d'].map(h => (
                     <th key={h} style={{
                       textAlign: 'left', padding: '8px 12px', fontSize: 10, fontWeight: 800,
                       color: 'rgba(255,255,255,0.4)', letterSpacing: 0.5, textTransform: 'uppercase',
@@ -1275,7 +1197,7 @@ export default function Workflows() {
                 {teamProfiles.length > 0 && (
                   <>
                     <tr>
-                      <td colSpan={5} style={{
+                      <td colSpan={4} style={{
                         padding: '6px 12px', fontSize: 10, fontWeight: 800,
                         color: 'rgba(255,255,255,0.35)', letterSpacing: 0.6, textTransform: 'uppercase',
                         background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.04)',
@@ -1287,7 +1209,7 @@ export default function Workflows() {
                 {contractorProfiles.length > 0 && (
                   <>
                     <tr>
-                      <td colSpan={5} style={{
+                      <td colSpan={4} style={{
                         padding: '6px 12px', fontSize: 10, fontWeight: 800,
                         color: 'rgba(255,255,255,0.35)', letterSpacing: 0.6, textTransform: 'uppercase',
                         background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.04)',
