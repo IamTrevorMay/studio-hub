@@ -82,25 +82,24 @@ person's row. `project_stage_assignments` joined to `projects` filtered to
 under tasks-based mirror (PROJECTS sub-list). Done · 7d picks up project rows
 where `projects.archived_at` falls within last 7 days. Tasks remain primary.
 
-### Pending — Contractor-assignment auto-complete hooks (Mayday Kanban port, 2026-06-11)
+### Done — Contractor-assignment auto-complete hooks (Mayday Kanban port, 2026-06-12)
 
-The 8-stage Workflows port landed labels + descriptions for Mayday's `film` and
-`edit` tasks but does NOT auto-complete them. Legacy `mayday_video_workflow`
-auto-cleared these on contractor events:
+Migration `20260612200000_contractor_assignment_auto_complete_hooks.sql`
+installs two SECURITY DEFINER trigger functions on `freelancer_assignments`:
 
-- **`film` stage** ("Film & Send to Editor") cleared when Trevor created the
-  editor's Contractors assignment.
-- **`edit` stage** ("Wait on Edit") cleared when the editor marked their
-  Contractors assignment complete.
+- `auto_complete_film_on_assignment_insert` — fires AFTER INSERT. Closes open
+  `film` tasks for the project when a contractor assignment is created.
+- `auto_complete_edit_on_assignment_complete` — fires AFTER UPDATE OF status.
+  Closes open `edit` tasks when the assignment transitions to `completed`.
 
-Both still need wiring. Suggested approach:
-- Postgres trigger on `freelancer_assignments` (insert + update) calling a
-  SECURITY DEFINER function that looks up the matching open `tasks` row by
-  `step_key` + `related_entity_id=project.id` and sets `status='complete'`,
-  `completed_at=now()`.
-- Optional notification to other stage assignees mirroring the existing
-  `card-move` notification path.
-- Until wired, both tasks behave like any other manual-Complete task.
+Scope (all conditions must match):
+- `projects.type = 'mayday_video'`
+- `freelancer_assignments.assignment_type = 'edit'`
+- `projects.status` matches the stage being closed (`film` / `edit`)
+
+Each closed task fans out one `task_assigned` notification to its assignee
+mirroring the `card-move` pattern. `card-move`'s mayday_video stage
+descriptions + `src/lib/kanbanStages.js` updated to drop the (TODO) markers.
 
 ### Unified Content Kanban (locked spec, 2026-06-10)
 
@@ -154,8 +153,6 @@ Channel field dropped (derived from type). AWA Wiffle retired.
 
 **Visibility**: admin + assistant + member. Contractors: no board; get auto-generated tasks in portal as today.
 
-**Mobile**: vertical scroll one column at a time, swipe between, long-press menu replaces drag.
-
 **Doc linkage**: card surfaces "Open" buttons for `write_doc_id` / `beat_sheet_id` / `ad_read_id`. No auto-create.
 
 **New project create**: form has "Start at column" dropdown (default Idea).
@@ -193,14 +190,35 @@ Re-tag UX: persistent yellow banner above board (`N projects need a type`) → m
 2. Unplug workflows.
 3. Backend (`card-move` edge fn, server task fan-out, carry-forward).
 4. Board UI rebuild (desktop).
-5. Mobile swipe view.
-6. Archive cron + Publish expander.
-7. Cleanup dead workflow paths.
+5. Archive cron + Publish expander.
+6. Cleanup dead workflow paths.
+
+Mobile swipe view tracked in the **Mobile View** section below.
 
 ### Long-term
 - **Business Dev Page** — Full spec written (in CLAUDE.md), not yet built. Four-level hierarchy: Phase > Workstream > Initiative > Task. Four views: Phases, Timeline/Gantt, Calendar, My Stuff. Tables: `bd_phases`, `bd_initiatives`, `bd_initiative_links`, `bd_tasks`, `bd_milestones`, `bd_settings`.
   - Deferred from v1: Comments/discussion threads, file attachments, budget rollup view, non-admin owners and visibility, MyBoard/personal_tasks integration, email reminders
 - Consider converting remaining enums to text + check constraints (proven pattern)
+
+---
+
+## Mobile View
+
+Everything mobile-specific lives here. The mobile build is a parallel set of
+`*Mobile.js` page components selected at the 640px viewport breakpoint.
+
+### Done
+- **Mobile bundle split recovery** — `App.js` listens via `matchMedia` and reloads when the viewport crosses the 640px breakpoint after boot, so the desktop/mobile bundle split doesn't strand the user on the wrong build.
+
+### Pending
+- **Unified Content Kanban — mobile swipe view** — Vertical scroll one column at a time, swipe between columns, long-press menu replaces drag. Last phase of the Unified Kanban rollout (desktop board shipped; mobile view not yet built). Touchpoint: `src/pages/ProjectsMobile.js`.
+
+### Mobile-paired pages
+- `AuthPage.js` ↔ `AuthPageMobile.js`
+- `AppLayout.js` ↔ `AppLayoutMobile.js`
+- `Projects.js` ↔ `ProjectsMobile.js`
+
+When adding a feature to a desktop page that has a mobile counterpart, mirror the change (or explicitly note that mobile is deferred).
 
 ---
 
@@ -236,7 +254,6 @@ Based on inefficiency report review (June 2026). Items are grouped by phase; eac
 |---|---|---|---|
 | Add error boundaries on pages | Additional | **Done** | Created `PageErrorBoundary` component, wrapped all ~46 page entries in `AppLayout.js`. |
 | Enable strict CI | Additional | **Done** | Flipped `CI=false` → `CI=true` in build script. Added `ignoreWarnings` for node_modules Critical dependency warnings in `craco.config.js`. |
-| Fix mobile bundle split recovery | Additional | **Done** | Added `matchMedia` listener in `App.js` that reloads when viewport crosses the 640px breakpoint after boot. |
 | Standardize realtime subscriptions (`useRealtimeTable`) | Report #11 | **Done** | Created `src/hooks/useRealtimeTable.js` with per-event handlers, exponential backoff retry, and ref-based stale closure prevention. Pilot-migrated `FreelancerDashboard.js` (4 table subscriptions). Remaining pages can migrate incrementally. |
 | Split Analytics.js into feature modules | Report #13 | **Done** | Decomposed 3,290-line monolith into `src/pages/analytics/` directory: `Analytics.js` (orchestrator), `constants.js`, `utils.js`, `styles.js`, and 13 components in `components/`. Remaining large pages (Reviews, BusinessDev, Dashboard) can follow the same pattern. |
 

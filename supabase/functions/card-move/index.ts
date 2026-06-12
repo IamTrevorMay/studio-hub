@@ -63,9 +63,9 @@ const STAGE_DESCRIPTIONS: Record<string, Partial<Record<Stage, string>>> = {
   mayday_video: {
     write: "Complete beat sheet & update Broadcast.",
     pre_production: "Finalize beat sheet & push script to teleprompter.",
-    film: "Pick the editor. Task will need contractor-assignment hook to auto-complete (TODO).",
+    film: "Pick the editor. Task auto-completes when the editor's contractor assignment is created.",
     review: "1. Review the Beat Sheet for B-Roll\n2. Add where you see gaps\n3. Download B-Roll files, name them to match Video tags in Beat Sheet\n4. Upload into project folder.",
-    edit: "Monitor editor progress. Task will need contractor-assignment hook to auto-complete (TODO).",
+    edit: "Monitor editor progress. Task auto-completes when the editor marks their contractor assignment complete.",
     post_production: "Build the thumbnail, schedule the upload, close out the workflow.",
   },
   tm_baseball_video: {
