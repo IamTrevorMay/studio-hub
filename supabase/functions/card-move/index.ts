@@ -119,6 +119,13 @@ function getAdminClient(): SupabaseClient {
 async function getCaller(req: Request): Promise<{ userId: string; role: string } | null> {
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) return null;
+
+  // Service-role bypass for internal calls (e.g., workflow-complete-task auto-advance).
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (serviceKey && authHeader === `Bearer ${serviceKey}`) {
+    return { userId: "system", role: "admin" };
+  }
+
   const userClient = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_ANON_KEY")!,

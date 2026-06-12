@@ -113,8 +113,53 @@ Deno.serve(async (req: Request) => {
   if (updErr) return jsonResp({ error: `Update failed: ${updErr.message}` }, 500);
   await logEvent(admin, task_id, "completed", auth.userId, payload || {});
 
-  // Standalone task — done.
+  // Standalone task — done (possibly auto-advance a project).
   if (!task.workflow_instance_id) {
+    if (task.related_entity_type === "project" && task.related_entity_id && task.step_key) {
+      // Check if all tasks for this project+stage are now complete.
+      const { data: openTasks } = await admin
+        .from("tasks")
+        .select("id")
+        .eq("related_entity_type", "project")
+        .eq("related_entity_id", task.related_entity_id)
+        .eq("step_key", task.step_key)
+        .in("status", ["pending", "active", "on_hold"])
+        .limit(1);
+
+      if (!openTasks || openTasks.length === 0) {
+        // All stage tasks done — call card-move to advance the project.
+        const STAGES = ["queue","write","pre_production","film","review","edit","post_production","publish"];
+        const currentIdx = STAGES.indexOf(task.step_key);
+        if (currentIdx >= 0 && currentIdx < STAGES.length - 1) {
+          const nextStage = STAGES[currentIdx + 1];
+          try {
+            const moveResp = await fetch(
+              `${Deno.env.get("SUPABASE_URL")}/functions/v1/card-move`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+                },
+                body: JSON.stringify({
+                  project_id: task.related_entity_id,
+                  target_stage: nextStage,
+                }),
+              },
+            );
+            const moveResult = await moveResp.json();
+            return jsonResp({
+              completed: task_id,
+              next_task_ids: moveResult.new_task_ids || [],
+              advanced_to: moveResult.target_stage,
+              project_advanced: true,
+            });
+          } catch (e) {
+            console.error("card-move call failed:", e);
+          }
+        }
+      }
+    }
     return jsonResp({ completed: task_id, next_task_ids: [] });
   }
 

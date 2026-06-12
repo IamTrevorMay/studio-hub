@@ -861,6 +861,14 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
       }
     }
 
+    if (task.task_id) {
+      if (newStatus === 'done') {
+        supabase.from('tasks').update({ status: 'complete', completed_at: new Date().toISOString() }).eq('id', task.task_id);
+      } else if (task.status === 'done') {
+        supabase.from('tasks').update({ status: 'active', completed_at: null }).eq('id', task.task_id);
+      }
+    }
+
     if (onBoardChange) onBoardChange();
   }
 
