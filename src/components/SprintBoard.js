@@ -403,8 +403,8 @@ function TaskDetailModal({ task, onClose, onSave, onDelete, projects, categoryOp
   );
 }
 
-// ─── MyBoard (main export) ──────────────────────────────────
-export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVersion }) {
+// ─── SprintBoard (main export) ──────────────────────────────────
+export default function SprintBoard({ profile, onNavigate, onBoardChange, sprintVersion }) {
   const { refreshKey } = useAuth();
   const [tasks, _setTasks] = useState([]);
   const tasksRef = useRef(tasks);
@@ -858,14 +858,6 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
         supabase.from('bd_tasks').update({ completed_at: new Date().toISOString() }).eq('id', task.bd_task_id);
       } else if (task.status === 'done') {
         supabase.from('bd_tasks').update({ completed_at: null }).eq('id', task.bd_task_id);
-      }
-    }
-
-    if (task.task_id) {
-      if (newStatus === 'done') {
-        supabase.from('tasks').update({ status: 'complete', completed_at: new Date().toISOString() }).eq('id', task.task_id);
-      } else if (task.status === 'done') {
-        supabase.from('tasks').update({ status: 'active', completed_at: null }).eq('id', task.task_id);
       }
     }
 

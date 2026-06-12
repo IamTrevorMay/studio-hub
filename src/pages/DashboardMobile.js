@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
-import MyBoardMobile from '../components/MyBoardMobile';
+import SprintBoardMobile from '../components/SprintBoardMobile';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
 
 const EVENT_TYPE_COLORS = {
@@ -73,7 +73,7 @@ export default function DashboardMobile({ onNavigate }) {
         ))}
       </div>
 
-      {activeTab === 'tasks' && <MyBoardMobile profile={profile} />}
+      {activeTab === 'tasks' && <SprintBoardMobile profile={profile} />}
       {activeTab === 'todo' && <TodoTab profile={profile} />}
       {activeTab === 'today' && <TodayTab profile={profile} isAdmin={isAdmin} onNavigate={onNavigate} />}
       {activeTab === 'checkin' && <CheckinTab profile={profile} />}

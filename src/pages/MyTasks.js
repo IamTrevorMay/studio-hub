@@ -246,7 +246,7 @@ export default function MyTasks({ onNavigate }) {
         .from('tasks')
         .select('*, workflow_instance:workflow_instances(id, workflow_id, context, status)')
         .eq('assignee_id', profile.id)
-        .in('status', ['active', 'on_hold'])
+        .in('status', ['pending', 'active', 'on_hold'])
         .order('created_at', { ascending: true });
       if (assignedErr) throw assignedErr;
 

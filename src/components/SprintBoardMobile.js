@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import BottomSheet from './mobile/BottomSheet';
 import { mobileTokens } from '../utils/mobileTokens';
 
-// Simplified MyBoard for mobile. Skips sprints, retros, drag-drop, week-nav.
+// Simplified SprintBoard for mobile. Skips sprints, retros, drag-drop, week-nav.
 // Focus: see tasks, add tasks, complete tasks, edit a task. Same `personal_tasks`
 // table as the desktop component.
 
@@ -35,7 +35,7 @@ const STATUS_OPTIONS = [
   { value: 'done', label: 'Done' },
 ];
 
-export default function MyBoardMobile({ profile }) {
+export default function SprintBoardMobile({ profile }) {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newTaskText, setNewTaskText] = useState('');

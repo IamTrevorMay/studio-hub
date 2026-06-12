@@ -35,7 +35,7 @@ Content production & operations hub for creator teams. Manages projects through 
 src/
   contexts/AuthContext.js    # Auth provider, profile, notifications
   hooks/                     # useSupabaseQuery, useVisibilityRefresh, useNavConfig
-  components/                # MyBoard, SprintPanel, Morty (mascot)
+  components/                # SprintBoard, SprintPanel, Morty (mascot)
   pages/                     # Dashboard, Projects, Analytics, Calendar, etc.
   pages/editors/             # doc-editor (Tiptap), screenplay-editor, Whiteboard
   pages/tools/               # Teleprompter, PostShow, Organize
@@ -107,7 +107,7 @@ Permanent multi-phase program tracker. The first phase is "Mayday Media + Neptun
 1. **Phases** (default) — vertical list of collapsible phase cards. Each card has its own header (countdown, milestones, overall %), its own filter bar (tag pills + Hide Done), and a workstream-grouped tree of initiatives. Solo phase auto-expands; multi-phase setups default collapsed.
 2. **Timeline / Gantt** — horizontal bars per initiative across a time axis, grouped by phase then workstream, color-coded by tag. Phase chip filter at top.
 3. **Calendar** — month grid with task due dates, initiative target dates, milestones as pills. Pills colored by phase. Phase chip filter at top.
-4. **My Stuff** — current admin's owned tasks + initiatives only. Phase chip filter at top. BD-scoped (no MyBoard merge for v1).
+4. **My Stuff** — current admin's owned tasks + initiatives only. Phase chip filter at top. BD-scoped (no SprintBoard merge for v1).
 
 ### Per-phase header (inside each phase card)
 - **Launch countdown** — driven by phase's own `launch_target_date`
@@ -139,7 +139,7 @@ Phase-chip filters live at the top of Timeline/Calendar/My Stuff (multi-select, 
 - File attachments (links cover most needs)
 - Budget rollup view (budget shown per initiative; no aggregate yet)
 - Non-admin owners and visibility
-- MyBoard / personal_tasks integration
+- SprintBoard / personal_tasks integration
 - Email reminders
 
 ## Automations System
