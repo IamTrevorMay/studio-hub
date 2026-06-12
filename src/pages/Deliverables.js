@@ -31,7 +31,6 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
   const [campaignInactiveOpen, setCampaignInactiveOpen] = useState(false);
   const [showDeliverableForm, setShowDeliverableForm] = useState(null);
   const [editingDeliverable, setEditingDeliverable] = useState(null);
-  const [deliverableTitle, setDeliverableTitle] = useState('');
   const [deliverableType, setDeliverableType] = useState('long_form_read');
   const [dueDate, setDueDate] = useState('');
   const [deliverableNotes, setDeliverableNotes] = useState('');
@@ -561,7 +560,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
 
   // --- Deliverable handlers ---
   function resetDeliverableForm() {
-    setDeliverableTitle(''); setDeliverableType('long_form_read');
+    setDeliverableType('long_form_read');
     setDueDate(''); setDeliverableNotes('');
     setDeliverablePlatforms([]); setDeliverableNeedsReview(false); setDeliverableCampaignId('');
     setDeliverablePay(''); setDeliverableBeatSheetId(''); setDeliverableVideoEventId('');
@@ -570,7 +569,6 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
   }
 
   function startEditDeliverable(d) {
-    setDeliverableTitle(d.title);
     setDeliverableType(d.deliverable_type);
     setDueDate(d.due_date ? d.due_date.slice(0, 7) : '');
     setDeliverableNotes(d.notes || '');
@@ -588,10 +586,11 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
   async function handleSaveDeliverable(e, sponsorId, campaignId) {
     e.preventDefault();
     const sponsor = sponsors.find(s => s.id === sponsorId);
+    const autoTitle = `${DELIVERABLE_TYPES[deliverableType]?.label || deliverableType} — ${sponsor?.name || 'Sponsor'}`;
     if (editingDeliverable) {
       const deliverable = sponsor?.sponsor_deliverables?.find(d => d.id === editingDeliverable);
       const { error } = await supabase.from('sponsor_deliverables').update({
-        title: deliverableTitle,
+        title: autoTitle,
         deliverable_type: deliverableType,
         due_date: dueDate ? dueDate + '-01' : null,
         notes: deliverableNotes || null,
@@ -609,13 +608,13 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
       const dueDateFull = dueDate ? dueDate + '-01' : null;
       if (dueDateFull && deliverable?.calendar_event_id) {
         await supabase.from('calendar_events').update({
-          title: `\u{1F91D} ${sponsor?.name}: ${deliverableTitle}`,
+          title: `\u{1F91D} ${sponsor?.name}: ${DELIVERABLE_TYPES[deliverableType]?.label || deliverableType}`,
           start_date: `${dueDateFull}T09:00:00`,
           end_date: `${dueDateFull}T10:00:00`,
         }).eq('id', deliverable.calendar_event_id);
       } else if (dueDateFull && !deliverable?.calendar_event_id) {
         const { data: evData } = await supabase.from('calendar_events').insert({
-          title: `\u{1F91D} ${sponsor?.name}: ${deliverableTitle}`,
+          title: `\u{1F91D} ${sponsor?.name}: ${DELIVERABLE_TYPES[deliverableType]?.label || deliverableType}`,
           event_type: 'sponsor',
           start_date: `${dueDateFull}T09:00:00`,
           end_date: `${dueDateFull}T10:00:00`,
@@ -632,7 +631,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
     } else {
       const { data: dData, error } = await supabase.from('sponsor_deliverables').insert({
         sponsor_id: sponsorId,
-        title: deliverableTitle,
+        title: autoTitle,
         deliverable_type: deliverableType,
         due_date: dueDate ? dueDate + '-01' : null,
         notes: deliverableNotes || null,
@@ -649,7 +648,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
       const newDueDateFull = dueDate ? dueDate + '-01' : null;
       if (newDueDateFull && dData) {
         const { data: evData } = await supabase.from('calendar_events').insert({
-          title: `\u{1F91D} ${sponsor?.name}: ${deliverableTitle}`,
+          title: `\u{1F91D} ${sponsor?.name}: ${DELIVERABLE_TYPES[deliverableType]?.label || deliverableType}`,
           event_type: 'sponsor',
           start_date: `${newDueDateFull}T09:00:00`,
           end_date: `${newDueDateFull}T10:00:00`,
@@ -783,7 +782,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
   async function handleDuplicateDeliverable(d) {
     setCardContextMenu(null);
     const { error } = await supabase.from('sponsor_deliverables').insert({
-      title: d.title + ' (copy)',
+      title: d.title || '',
       deliverable_type: d.deliverable_type,
       due_date: d.due_date,
       notes: d.notes,
@@ -1023,7 +1022,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
           <span style={{ fontSize: '14px', flexShrink: 0 }}>{DELIVERABLE_TYPES[d.deliverable_type]?.icon || '\u{1F4CB}'}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: '13px', color: d.delivered ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.85)', textDecoration: d.delivered ? 'line-through' : 'none' }}>
-              {d.title}
+              {DELIVERABLE_TYPES[d.deliverable_type]?.label || d.deliverable_type}
             </div>
           </div>
           {d.channel && CHANNEL_COLORS[d.channel] && (
@@ -1066,7 +1065,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
       <div key={d.id} style={{ ...styles.delivCard, ...(delivered ? styles.delivCardDone : {}) }}>
         <div style={styles.delivCardTop}>
           <span style={{ fontSize: '15px', flexShrink: 0 }}>{DELIVERABLE_TYPES[d.deliverable_type]?.icon || '\u{1F4CB}'}</span>
-          <span style={{ ...styles.delivCardTitle, ...(delivered ? { textDecoration: 'line-through', color: 'rgba(255,255,255,0.55)' } : {}) }}>{d.title}</span>
+          <span style={{ ...styles.delivCardTitle, ...(delivered ? { textDecoration: 'line-through', color: 'rgba(255,255,255,0.55)' } : {}) }}>{DELIVERABLE_TYPES[d.deliverable_type]?.label || d.deliverable_type}</span>
           <button onClick={(e) => { e.stopPropagation(); startEditDeliverable(d); }} style={styles.delivIconBtn} title="Edit">{'\u270e'}</button>
           <button onClick={(e) => { e.stopPropagation(); handleDeleteDeliverable(d); }} style={styles.delivIconBtn} title="Delete">{'\u2715'}</button>
         </div>
@@ -1187,7 +1186,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
     list.sort((a, b) => {
       let cmp = 0;
       switch (sortCol) {
-        case 'title': cmp = (a.title || '').localeCompare(b.title || ''); break;
+        case 'due': cmp = (a.due_date || '').localeCompare(b.due_date || ''); break;
         case 'sponsor': {
           const sA = `${a.sponsor_name || ''} ${a.campaign_name || ''}`;
           const sB = `${b.sponsor_name || ''} ${b.campaign_name || ''}`;
@@ -1261,7 +1260,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
             <table style={styles.table}>
               <thead>
                 <tr>
-                  <th style={thStyle} onClick={() => handleSort('title')}>Title{sortArrow('title')}</th>
+                  <th style={thStyle} onClick={() => handleSort('due')}>Due{sortArrow('due')}</th>
                   <th style={thStyle} onClick={() => handleSort('sponsor')}>Sponsor{sortArrow('sponsor')}</th>
                   <th style={thStyle} onClick={() => handleSort('type')}>Type{sortArrow('type')}</th>
                   <th style={thStyle} onClick={() => handleSort('channel')}>Channel{sortArrow('channel')}</th>
@@ -1286,9 +1285,11 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                         setCardContextMenu({ x: e.clientX, y: e.clientY, deliverable: d });
                       }}
                     >
-                      {/* Title */}
+                      {/* Due */}
                       <td style={styles.tableTd}>
-                        <span style={{ fontWeight: 600, color: 'rgba(255,255,255,0.9)', fontSize: '13px' }}>{d.title}</span>
+                        <span style={{ fontWeight: 600, color: 'rgba(255,255,255,0.7)', fontSize: '13px' }}>
+                          {d.due_date ? new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '—'}
+                        </span>
                       </td>
                       {/* Sponsor */}
                       <td style={styles.tableTd}>
@@ -1493,8 +1494,8 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
         <div style={{ ...styles.modalBox, maxWidth: 1060, padding: '28px 32px' }} onClick={e => e.stopPropagation()}>
           <div style={styles.modalHeader}>
             <div>
-              <h3 style={styles.modalTitle}>{d.title}</h3>
-              <p style={styles.modalSubtitle}>{d.sponsor_name}{d.campaign_name ? ` / ${d.campaign_name}` : ''} — Select a video post to link</p>
+              <h3 style={styles.modalTitle}>{d.sponsor_name}{d.campaign_name ? ` — ${d.campaign_name}` : ''}</h3>
+              <p style={styles.modalSubtitle}>{DELIVERABLE_TYPES[d.deliverable_type]?.label || d.deliverable_type} — Select a video post to link</p>
             </div>
             <button onClick={() => setScheduleModalDeliverable(null)} style={styles.modalClose} aria-label="Close">✕</button>
           </div>
@@ -1996,10 +1997,6 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                         <Modal title={editingDeliverable ? 'Edit Deliverable' : 'Add Deliverable'} subtitle={campaign.name} onClose={() => { resetDeliverableForm(); setShowDeliverableForm(null); }} maxWidth={680}>
                         <form onSubmit={(e) => handleSaveDeliverable(e, campaign.sponsor_id, campaign.id)}>
                           <div style={styles.formGrid}>
-                            <div style={styles.field}>
-                              <label style={styles.label}>Title *</label>
-                              <input value={deliverableTitle} onChange={e => setDeliverableTitle(e.target.value)} placeholder="e.g. Mid-roll integration" required style={styles.input} />
-                            </div>
                             <div style={styles.field}>
                               <label style={styles.label}>Type</label>
                               <select value={deliverableType} onChange={e => setDeliverableType(e.target.value)} style={styles.select}>
