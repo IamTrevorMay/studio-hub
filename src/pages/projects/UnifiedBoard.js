@@ -204,7 +204,6 @@ export default function UnifiedBoard() {
         status: 'queue',
         start_column: 'queue',
         deadline: project.deadline || null,
-        category: project.category || 'creative',
         stage_config: project.stage_config || {},
         created_by: profile?.id,
       });
@@ -1003,7 +1002,6 @@ function NewProjectModal({ onClose, onCreated, createdBy }) {
       status: startColumn,
       start_column: startColumn,
       deadline: deadline || null,
-      category: 'creative',
       created_by: createdBy,
       stage_config: defaultStageConfigForType(type),
     });
