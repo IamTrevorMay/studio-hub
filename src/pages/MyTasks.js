@@ -635,7 +635,7 @@ export default function MyTasks({ onNavigate }) {
               key={task.id}
               style={{
                 ...styles.taskCard,
-                ...(isOnHold ? styles.taskCardOnHold : {}),
+                ...(isOnHold ? styles.taskCardOnHold : styles.taskCardActive),
                 ...(isFading ? styles.taskCardFading : {}),
               }}
             >
@@ -949,7 +949,7 @@ export default function MyTasks({ onNavigate }) {
             <span style={styles.chevron}>{showSnoozed ? '\u25B2' : '\u25BC'}</span>
           </button>
           {showSnoozed && snoozedTasks.map(task => (
-            <div key={task.id} style={{ ...styles.taskCard, opacity: 0.5 }}>
+            <div key={task.id} style={{ ...styles.taskCard, ...styles.taskCardSnoozed }}>
               <div style={styles.taskHeader}>
                 <div style={styles.taskTitleRow}>
                   <span style={styles.taskTitle}>{task.title}</span>
@@ -1159,8 +1159,15 @@ const styles = {
     padding: '14px 18px',
     transition: 'opacity 0.3s ease, transform 0.3s ease',
   },
+  taskCardActive: {
+    borderLeft: '3px solid #facc15',
+  },
   taskCardOnHold: {
-    borderLeft: '3px solid #eab308',
+    borderLeft: '3px solid #fb923c',
+  },
+  taskCardSnoozed: {
+    borderLeft: '3px solid #a855f7',
+    opacity: 0.55,
   },
   taskCardFading: {
     opacity: 0,

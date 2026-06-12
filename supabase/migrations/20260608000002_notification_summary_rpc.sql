@@ -69,7 +69,7 @@ begin
   select count(*) into v_task_count
   from tasks
   where assignee_id = p_user_id
-    and status in ('active', 'on_hold')
+    and status in ('pending', 'active', 'on_hold')
     and (snoozed_until is null or snoozed_until < now());
 
   -- New assignments (freelancer only)
