@@ -24,11 +24,6 @@ const PROJECT_TYPES = [
   { value: 'podcast', label: 'Podcast' },
   { value: 'short_form', label: 'Short Form' },
 ];
-// Business types collapsed into the 4 content types per the Unified Kanban spec.
-const BUSINESS_PROJECT_TYPES = [];
-const BUSINESS_STATUSES = [];
-const BUSINESS_STATUS_LABELS = {};
-const BUSINESS_STATUS_COLORS = {};
 const CHANNELS = ['Trevor May Baseball', 'More Mayday', 'AWA Wiffle'];
 const ASSIGNMENT_ROLES = ['producer', 'writer', 'editor', 'designer', 'reviewer', 'other'];
 
@@ -81,7 +76,7 @@ export default function Projects({ onNavigate }) {
 
   // Form state
   const [form, setForm] = useState({
-    name: '', category: 'creative', type: 'mayday_video', channel: '',
+    name: '', type: 'mayday_video', channel: '',
     start_date: '', deadline: '', status: 'queue',
     write_doc_id: '', write_doc_name: '', beat_sheet_id: '', ad_read_id: '',
   });
@@ -213,23 +208,12 @@ export default function Projects({ onNavigate }) {
     }
   }
 
-  function openFormWithPreset(category, status) {
-    const types = category === 'business' ? BUSINESS_PROJECT_TYPES : PROJECT_TYPES;
-    setForm({ name: '', category, type: types[0].value, channel: '', start_date: '', deadline: '', status, write_doc_id: '', write_doc_name: '', beat_sheet_id: '', ad_read_id: '' });
-    setShowForm(true);
-    fetchWriteDocs();
-    fetchBeatSheets();
-    fetchAdReadDeliverables();
-    setTimeout(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
-  }
-
   async function handleCreateProject(e, seriesId) {
     e.preventDefault();
     const insert = {
       name: form.name,
-      category: form.category,
       type: form.type,
-      channel: form.category === 'business' ? null : (form.channel || null),
+      channel: form.channel || null,
       status: form.status,
       start_date: form.start_date || null,
       deadline: form.deadline || null,
@@ -246,7 +230,7 @@ export default function Projects({ onNavigate }) {
       alert('Error creating project: ' + error.message);
       return;
     }
-    setForm({ name: '', category: 'creative', type: 'mayday_video', channel: '', start_date: '', deadline: '', status: 'queue', write_doc_id: '', write_doc_name: '', beat_sheet_id: '', ad_read_id: '' });
+    setForm({ name: '', type: 'mayday_video', channel: '', start_date: '', deadline: '', status: 'queue', write_doc_id: '', write_doc_name: '', beat_sheet_id: '', ad_read_id: '' });
     setShowForm(false);
     fetchProjects();
   }
@@ -519,7 +503,6 @@ export default function Projects({ onNavigate }) {
       status: 'queue',
       start_column: 'queue',
       deadline: project.deadline || null,
-      category: project.category || 'creative',
       stage_config: project.stage_config || {},
       created_by: profile?.id || null,
     });
@@ -583,7 +566,7 @@ export default function Projects({ onNavigate }) {
 
   // Creative projects only for the list-view sections. A project is "current"
   // as long as it has a deadline (start date is optional).
-  const creativeActive = projects.filter(p => (p.category || 'creative') === 'creative' && !p.is_archived && p.status !== 'publish');
+  const creativeActive = projects.filter(p => !p.is_archived && p.status !== 'publish');
   const currentProjects = creativeActive.filter(p =>
     p.deadline && searchFilter(p) && statusFilter(p)
   );
@@ -662,52 +645,28 @@ export default function Projects({ onNavigate }) {
               />
             </div>
             <div style={styles.field}>
-              <label style={styles.label}>Category *</label>
-              <select
-                value={form.category}
-                onChange={(e) => {
-                  const nextCategory = e.target.value;
-                  const nextTypes = nextCategory === 'business' ? BUSINESS_PROJECT_TYPES : PROJECT_TYPES;
-                  const nextStatuses = nextCategory === 'business' ? BUSINESS_STATUSES : STATUSES;
-                  setForm({
-                    ...form,
-                    category: nextCategory,
-                    type: nextTypes[0].value,
-                    status: nextStatuses[0],
-                    channel: nextCategory === 'business' ? '' : form.channel,
-                  });
-                }}
-                style={styles.select}
-              >
-                <option value="creative">Creative</option>
-                <option value="business">Business</option>
-              </select>
-            </div>
-            <div style={styles.field}>
               <label style={styles.label}>Type *</label>
               <select
                 value={form.type}
                 onChange={(e) => setForm({ ...form, type: e.target.value })}
                 style={styles.select}
               >
-                {(form.category === 'business' ? BUSINESS_PROJECT_TYPES : PROJECT_TYPES).map(t => (
+                {PROJECT_TYPES.map(t => (
                   <option key={t.value} value={t.value}>{t.label}</option>
                 ))}
               </select>
             </div>
-            {form.category === 'creative' && (
-              <div style={styles.field}>
-                <label style={styles.label}>Channel</label>
-                <select
-                  value={form.channel}
-                  onChange={(e) => setForm({ ...form, channel: e.target.value })}
-                  style={styles.input}
-                >
-                  <option value="">Select channel...</option>
-                  {CHANNELS.map((ch) => <option key={ch} value={ch}>{ch}</option>)}
-                </select>
-              </div>
-            )}
+            <div style={styles.field}>
+              <label style={styles.label}>Channel</label>
+              <select
+                value={form.channel}
+                onChange={(e) => setForm({ ...form, channel: e.target.value })}
+                style={styles.input}
+              >
+                <option value="">Select channel...</option>
+                {CHANNELS.map((ch) => <option key={ch} value={ch}>{ch}</option>)}
+              </select>
+            </div>
             <div style={styles.field}>
               <label style={styles.label}>Status</label>
               <select
@@ -715,13 +674,9 @@ export default function Projects({ onNavigate }) {
                 onChange={(e) => setForm({ ...form, status: e.target.value })}
                 style={styles.select}
               >
-                {form.category === 'business'
-                  ? BUSINESS_STATUSES.map(s => (
-                      <option key={s} value={s}>{BUSINESS_STATUS_LABELS[s]}</option>
-                    ))
-                  : STATUSES.map(s => (
-                      <option key={s} value={s}>{STATUS_LABELS[s]}</option>
-                    ))}
+                {STATUSES.map(s => (
+                  <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+                ))}
               </select>
             </div>
             <div style={styles.field}>
@@ -743,56 +698,52 @@ export default function Projects({ onNavigate }) {
               />
             </div>
           </div>
-          {form.category === 'creative' && (
-            <>
-              <div style={styles.field}>
-                <label style={styles.label}>Write Doc</label>
-                <select
-                  value={form.write_doc_id}
-                  onChange={(e) => {
-                    const doc = writeDocs.find(d => d.id === e.target.value);
-                    setForm({ ...form, write_doc_id: e.target.value, write_doc_name: doc?.name || '' });
-                  }}
-                  style={styles.select}
-                >
-                  <option value="">Select a doc...</option>
-                  {writeDocs.map(doc => (
-                    <option key={doc.id} value={doc.id}>
-                      {doc.folderName ? `${doc.folderName} / ${doc.name}` : doc.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div style={styles.field}>
-                <label style={styles.label}>Script / Beat Sheet</label>
-                <select
-                  value={form.beat_sheet_id}
-                  onChange={(e) => setForm({ ...form, beat_sheet_id: e.target.value })}
-                  style={styles.select}
-                >
-                  <option value="">Select a beat sheet...</option>
-                  {beatSheets.map(bs => (
-                    <option key={bs.id} value={bs.id}>{bs.title}</option>
-                  ))}
-                </select>
-              </div>
-              <div style={styles.field}>
-                <label style={styles.label}>Ad Read</label>
-                <select
-                  value={form.ad_read_id}
-                  onChange={(e) => setForm({ ...form, ad_read_id: e.target.value })}
-                  style={styles.select}
-                >
-                  <option value="">Select a deliverable...</option>
-                  {adReadDeliverables.map(d => (
-                    <option key={d.id} value={d.id}>
-                      {d.sponsor_name}{d.campaign_name ? ` — ${d.campaign_name}` : ''}{d.title ? `: ${d.title}` : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </>
-          )}
+          <div style={styles.field}>
+            <label style={styles.label}>Write Doc</label>
+            <select
+              value={form.write_doc_id}
+              onChange={(e) => {
+                const doc = writeDocs.find(d => d.id === e.target.value);
+                setForm({ ...form, write_doc_id: e.target.value, write_doc_name: doc?.name || '' });
+              }}
+              style={styles.select}
+            >
+              <option value="">Select a doc...</option>
+              {writeDocs.map(doc => (
+                <option key={doc.id} value={doc.id}>
+                  {doc.folderName ? `${doc.folderName} / ${doc.name}` : doc.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div style={styles.field}>
+            <label style={styles.label}>Script / Beat Sheet</label>
+            <select
+              value={form.beat_sheet_id}
+              onChange={(e) => setForm({ ...form, beat_sheet_id: e.target.value })}
+              style={styles.select}
+            >
+              <option value="">Select a beat sheet...</option>
+              {beatSheets.map(bs => (
+                <option key={bs.id} value={bs.id}>{bs.title}</option>
+              ))}
+            </select>
+          </div>
+          <div style={styles.field}>
+            <label style={styles.label}>Ad Read</label>
+            <select
+              value={form.ad_read_id}
+              onChange={(e) => setForm({ ...form, ad_read_id: e.target.value })}
+              style={styles.select}
+            >
+              <option value="">Select a deliverable...</option>
+              {adReadDeliverables.map(d => (
+                <option key={d.id} value={d.id}>
+                  {d.sponsor_name}{d.campaign_name ? ` — ${d.campaign_name}` : ''}{d.title ? `: ${d.title}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
           <button type="submit" style={styles.submitBtn}>Create Project</button>
         </form>
       )}
@@ -1269,11 +1220,10 @@ function ProjectRow({
   onContextMenu,
 }) {
   const { writeDocs = [], beatSheets = [], adReadDeliverables = [] } = linkedFieldData;
-  const isBusiness = project.category === 'business';
-  const typeList = isBusiness ? BUSINESS_PROJECT_TYPES : PROJECT_TYPES;
-  const statusList = isBusiness ? BUSINESS_STATUSES : STATUSES;
-  const statusLabels = isBusiness ? BUSINESS_STATUS_LABELS : STATUS_LABELS;
-  const statusColors = isBusiness ? BUSINESS_STATUS_COLORS : STATUS_COLORS;
+  const typeList = PROJECT_TYPES;
+  const statusList = STATUSES;
+  const statusLabels = STATUS_LABELS;
+  const statusColors = STATUS_COLORS;
 
   const [assignUserId, setAssignUserId] = useState('');
   const [assignRole, setAssignRole] = useState('editor');
@@ -1820,10 +1770,7 @@ function KanbanCard({ project }) {
   const stageItems = checklists.filter(c => c.stage === project.status);
   const completed = stageItems.filter(c => c.is_complete).length;
   const total = stageItems.length;
-  const isBusiness = project.category === 'business';
-  const typeList = isBusiness ? BUSINESS_PROJECT_TYPES : PROJECT_TYPES;
-  const statusColors = isBusiness ? BUSINESS_STATUS_COLORS : STATUS_COLORS;
-  const typeLabel = typeList.find(t => t.value === project.type)?.label || project.type.replace('_', ' ');
+  const typeLabel = PROJECT_TYPES.find(t => t.value === project.type)?.label || project.type.replace('_', ' ');
 
   return (
     <>
@@ -1831,8 +1778,8 @@ function KanbanCard({ project }) {
       <div style={styles.kanbanCardMeta}>
         <span style={{
           ...styles.kanbanTypeBadge,
-          background: `${statusColors[project.status]}15`,
-          color: statusColors[project.status],
+          background: `${STATUS_COLORS[project.status]}15`,
+          color: STATUS_COLORS[project.status],
         }}>
           {typeLabel}
         </span>

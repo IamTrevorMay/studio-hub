@@ -45,7 +45,6 @@ Renamed Freelancer to Contractor in admin panel. Added document signing (`Docume
 ## Planned
 
 ### Near-term
-- `project_type` enum needs business board values added (issue #5)
 - Supabase CLI update (v2.95.4 → v2.101.0)
 - `CLAUDE_MODEL` env var should be set in Supabase dashboard to pin model versions across `generate-trends`, `run-report`
 
@@ -75,24 +74,13 @@ Whatever role these three profiles have isn't in the allowlist. Audit:
 3. Decide whether owners/leadership should always render in Team Section
    regardless of role.
 
-### Pending — Wire Projects board progress into Workflows Team + Contractors sections (2026-06-11)
+### Done — Wire Projects board progress into Workflows Team + Contractors sections (2026-06-12)
 
-The Workflows page Team Section currently only mirrors the Tracking > Progress
-"Editing" column into Alana Benson's Pending list. The new 8-stage Projects
-Kanban needs broader integration:
-
-- Each team member's Pending column in the Team Section should also list
-  project cards where they are the current-stage assignee (queried via
-  `project_stage_assignments` joined to `projects` where `stage = status`).
-- Same for the Contractors section — freelancer profiles assigned to a project
-  stage should see those cards in their Pending list.
-- Visual cue should distinguish a project card from a regular task entry
-  (e.g. blue dot + "PROJECT" badge vs. yellow dot for tasks).
-- The Done section should pick up project cards archived in the last 7 days.
-
-Open question: displace the existing tasks-based mirror, or render project
-entries alongside it? Suggestion — keep tasks as primary, append project
-entries under a "Projects:" sub-list within the same row.
+Workflows Team + Contractors sections now append project cards under each
+person's row. `project_stage_assignments` joined to `projects` filtered to
+`stage = projects.status AND archived_at IS NULL` → blue dot + "PROJECT" badge
+under tasks-based mirror (PROJECTS sub-list). Done · 7d picks up project rows
+where `projects.archived_at` falls within last 7 days. Tasks remain primary.
 
 ### Pending — Contractor-assignment auto-complete hooks (Mayday Kanban port, 2026-06-11)
 
@@ -266,7 +254,7 @@ Based on inefficiency report review (June 2026). Items are grouped by phase; eac
 
 ### Open GitHub Issues
 - **#4** — Resources / Google Docs integration
-- **#5** — `project_type` enum missing business board values (e.g. `sponsorship`)
+- ~~**#5** — `project_type` enum missing business board values~~ (resolved: Business board removed entirely 2026-06-12)
 
 ### Low Priority (from backend audit)
 - `backfill-youtube-dimensions/index.ts:3` — inconsistent import path (`./shared/` vs `../shared/`)
