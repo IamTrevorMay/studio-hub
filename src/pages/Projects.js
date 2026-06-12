@@ -7,6 +7,7 @@ import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import UnifiedBoard from './projects/UnifiedBoard';
 import { labelFor as stageTaskLabel, defaultStageConfigForType } from '../lib/kanbanStages';
+import { callEdgeFn } from '../lib/edgeFn';
 
 
 const STATUSES = ['queue', 'write', 'pre_production', 'film', 'review', 'edit', 'post_production', 'publish'];
@@ -245,26 +246,15 @@ export default function Projects({ onNavigate }) {
   }
 
   async function handleStatusChange(projectId, newStatus) {
-    const project = projects.find(p => p.id === projectId);
-    const { error } = await supabase.from('projects').update({ status: newStatus }).eq('id', projectId);
-    if (error) { console.error('Status change failed:', error); return; }
-    // Notify assigned users
-    if (project?.project_assignments) {
-      const notifs = project.project_assignments
-        .filter(a => a.user_id !== profile.id)
-        .map(a => ({
-          user_id: a.user_id,
-          type: 'status_change',
-          title: `${project.name} moved to ${STATUS_LABELS[newStatus]}`,
-          body: `${profile.full_name} changed the status`,
-          link_tab: 'projects',
-          link_target: projectId,
-        }));
-      if (notifs.length > 0) {
-        await supabase.from('notifications').insert(notifs);
-      }
+    try {
+      await callEdgeFn('card-move', {
+        project_id: projectId,
+        target_stage: newStatus,
+      });
+      fetchProjects();
+    } catch (err) {
+      alert(`Move failed: ${err.message}`);
     }
-    fetchProjects();
   }
 
   async function handleAssign(projectId, userId, role) {

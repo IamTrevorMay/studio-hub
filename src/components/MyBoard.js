@@ -34,7 +34,6 @@ const SUBCATEGORY_OPTIONS = [
   { value: 'document', label: 'Document' },
 ];
 
-const PROJECT_STATUSES = ['concept', 'script', 'production', 'edit', 'review', 'published'];
 
 // Rotation of colors auto-assigned to new buckets so each appears distinct
 // on task cards without requiring a per-bucket color picker in the UI.
@@ -790,24 +789,6 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
     }
   }
 
-  // ── Auto-advance project stage ──
-  async function advanceProjectStage(projectId, expectedStage) {
-    try {
-      const { data: project, error } = await supabase
-        .from('projects')
-        .select('id, status')
-        .eq('id', projectId)
-        .single();
-      if (error || !project) return;
-      if (project.status !== expectedStage) return;
-      const currentIndex = PROJECT_STATUSES.indexOf(project.status);
-      if (currentIndex < 0 || currentIndex >= PROJECT_STATUSES.length - 1) return;
-      const nextStatus = PROJECT_STATUSES[currentIndex + 1];
-      await supabase.from('projects').update({ status: nextStatus }).eq('id', projectId);
-    } catch (err) {
-      console.error('Error advancing project stage:', err);
-    }
-  }
 
   // ── Drag-and-drop handler ──
   // Reindexes the entire destination column so positions never collide.
@@ -871,9 +852,6 @@ export default function MyBoard({ profile, onNavigate, onBoardChange, sprintVers
       fetchTasks(); // recover from DB truth
     }
 
-    if (newStatus === 'done' && task.project_id && task.project_stage) {
-      advanceProjectStage(task.project_id, task.project_stage);
-    }
 
     if (task.bd_task_id) {
       if (newStatus === 'done') {
