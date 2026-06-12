@@ -1238,7 +1238,7 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
               const isCurrentStage = project.status === stage;
               const isSkipped = !!stageConfig[stage]?.skip;
               const stageTask = labelFor(type, stage);
-              const taskTitle = `${name || project.name} — ${stageTask}`;
+              const shortStage = stage === 'pre_production' ? 'PRE-PROD' : stage === 'post_production' ? 'POST-PROD' : stage.toUpperCase();
               return (
                 <div
                   key={stage}
@@ -1254,16 +1254,16 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
                   }}
                 >
                   <span style={{ fontSize: 11, fontWeight: 600, color: STAGE_COLORS[stage], width: 70, flexShrink: 0 }}>
-                    {stage.toUpperCase()}
+                    {shortStage}
                   </span>
                   <select
                     value={isSkipped ? 'skip' : 'task'}
                     onChange={(e) => saveStageSkip(stage, e.target.value === 'skip')}
                     disabled={!isAdmin}
-                    title={taskTitle}
+                    title={stageTask}
                     style={{ ...s.input, padding: '4px 6px', fontSize: 12, minWidth: 200, maxWidth: 280, width: 'auto' }}
                   >
-                    <option value="task">{taskTitle}</option>
+                    <option value="task">{stageTask}</option>
                     <option value="skip">Skip</option>
                   </select>
                   <div style={{ display: 'flex', gap: 4, flex: 1, flexWrap: 'wrap', alignItems: 'center', pointerEvents: isSkipped ? 'none' : 'auto' }}>
