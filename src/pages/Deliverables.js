@@ -1490,7 +1490,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
 
     return (
       <div style={styles.modalOverlay} onClick={() => setScheduleModalDeliverable(null)}>
-        <div style={{ ...styles.modalBox, maxWidth: '92vw', padding: '28px 32px' }} onClick={e => e.stopPropagation()}>
+        <div style={{ ...styles.modalBox, maxWidth: 1060, padding: '28px 32px' }} onClick={e => e.stopPropagation()}>
           <div style={styles.modalHeader}>
             <div>
               <h3 style={styles.modalTitle}>{d.title}</h3>
