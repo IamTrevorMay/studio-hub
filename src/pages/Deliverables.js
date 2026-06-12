@@ -727,12 +727,13 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
 
   // Inline assign video event to deliverable from card dropdown
   async function handleInlineAssignVideo(deliverableId, videoEventId) {
-    setScheduleModalDeliverable(null);
-    await supabase.from('sponsor_deliverables').update({
+    const { error } = await supabase.from('sponsor_deliverables').update({
       video_event_id: videoEventId || null,
       updated_at: new Date().toISOString(),
     }).eq('id', deliverableId);
-    fetchSponsors();
+    if (error) { console.error('Assign video failed:', error); return; }
+    await fetchSponsors();
+    setScheduleModalDeliverable(null);
   }
 
   // Inline assign beat sheet to deliverable from card dropdown
@@ -1423,14 +1424,18 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
       if (del.video_event_id) linkedMap[del.video_event_id] = del;
     });
 
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
     const cells = [];
-    for (let i = 0; i < firstDay; i++) cells.push(<div key={`blank-${i}`} />);
+    for (let i = 0; i < firstDay; i++) cells.push(<div key={`blank-${i}`} style={styles.calendarDayBlank} />);
     for (let day = 1; day <= daysInMonth; day++) {
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       const dayEvents = monthEvents.filter(ev => ev.start_date.slice(0, 10) === dateStr);
+      const isToday = dateStr === todayStr;
       cells.push(
-        <div key={day} style={styles.calendarDay}>
-          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginBottom: '2px' }}>{day}</div>
+        <div key={day} style={{ ...styles.calendarDay, ...(isToday ? { border: '1px solid rgba(99,102,241,0.5)' } : {}) }}>
+          <div style={{ fontSize: '11px', fontWeight: isToday ? 700 : 500, color: isToday ? '#818cf8' : 'rgba(255,255,255,0.4)', marginBottom: '4px' }}>{day}</div>
           {dayEvents.map(ev => {
             const isLinkedToCurrent = d.video_event_id === ev.id;
             const linkedTo = linkedMap[ev.id];
@@ -1440,28 +1445,31 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
               <div
                 key={ev.id}
                 style={{
-                  fontSize: '10px', fontWeight: 600, padding: '2px 4px', borderRadius: '4px',
-                  marginBottom: '2px', cursor: isLinkedToOther ? 'default' : 'pointer',
+                  fontSize: '11px', fontWeight: 600, padding: '3px 6px', borderRadius: '5px',
+                  marginBottom: '3px', cursor: isLinkedToOther ? 'default' : 'pointer',
                   background: isLinkedToCurrent ? 'rgba(34,197,94,0.2)' : isLinkedToOther ? 'rgba(255,255,255,0.04)' : 'rgba(168,85,247,0.15)',
                   color: isLinkedToCurrent ? '#4ade80' : isLinkedToOther ? 'rgba(255,255,255,0.3)' : '#c084fc',
+                  border: isLinkedToCurrent ? '1px solid rgba(34,197,94,0.3)' : isLinkedToOther ? '1px solid rgba(255,255,255,0.06)' : '1px solid rgba(168,85,247,0.25)',
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                   position: 'relative',
+                  transition: 'background 0.15s',
                 }}
                 onClick={() => { if (!isLinkedToOther) handleInlineAssignVideo(d.id, ev.id); }}
                 onMouseEnter={() => setScheduleModalHoveredEvent(ev.id)}
                 onMouseLeave={() => setScheduleModalHoveredEvent(null)}
                 title={ev.title}
               >
-                {isLinkedToOther && '🤝 '}{ev.title}
+                {isLinkedToOther && '🤝 '}{isLinkedToCurrent && '✓ '}{ev.title}
                 {isHovered && (
                   <div style={styles.calendarTooltip}>
                     <div style={{ fontWeight: 700, marginBottom: '4px' }}>{ev.title}</div>
-                    <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)' }}>
-                      {new Date(ev.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                    <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}>
+                      {new Date(ev.start_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
                     </div>
-                    {ev.description && <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', marginTop: '2px' }}>{ev.description}</div>}
-                    {isLinkedToOther && <div style={{ fontSize: '10px', color: '#f59e0b', marginTop: '4px' }}>Linked to: {linkedTo.title}</div>}
-                    {isLinkedToCurrent && <div style={{ fontSize: '10px', color: '#4ade80', marginTop: '4px' }}>Linked to this deliverable</div>}
+                    {ev.description && <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginTop: '4px' }}>{ev.description}</div>}
+                    {isLinkedToOther && <div style={{ fontSize: '11px', color: '#f59e0b', marginTop: '6px', fontWeight: 600 }}>Linked to: {linkedTo.title}</div>}
+                    {isLinkedToCurrent && <div style={{ fontSize: '11px', color: '#4ade80', marginTop: '6px', fontWeight: 600 }}>Linked to this deliverable</div>}
+                    {!isLinkedToOther && !isLinkedToCurrent && <div style={{ fontSize: '11px', color: '#c084fc', marginTop: '6px', fontWeight: 600 }}>Click to link</div>}
                   </div>
                 )}
               </div>
@@ -1473,49 +1481,66 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
 
     const currentLinkedEvent = d.video_event_id ? videoEvents.find(e => e.id === d.video_event_id) : null;
 
+    // Legend items
+    const legend = [
+      { color: '#c084fc', bg: 'rgba(168,85,247,0.15)', border: 'rgba(168,85,247,0.25)', label: 'Available' },
+      { color: '#4ade80', bg: 'rgba(34,197,94,0.2)', border: 'rgba(34,197,94,0.3)', label: 'Linked to this' },
+      { color: 'rgba(255,255,255,0.3)', bg: 'rgba(255,255,255,0.04)', border: 'rgba(255,255,255,0.06)', label: 'Taken' },
+    ];
+
     return (
       <div style={styles.modalOverlay} onClick={() => setScheduleModalDeliverable(null)}>
-        <div style={{ ...styles.modalBox, maxWidth: 540 }} onClick={e => e.stopPropagation()}>
+        <div style={{ ...styles.modalBox, maxWidth: 680, padding: '28px 32px' }} onClick={e => e.stopPropagation()}>
           <div style={styles.modalHeader}>
             <div>
-              <h3 style={styles.modalTitle}>Schedule: {d.title}</h3>
-              <p style={styles.modalSubtitle}>{d.sponsor_name}{d.campaign_name ? ` / ${d.campaign_name}` : ''}</p>
+              <h3 style={styles.modalTitle}>{d.title}</h3>
+              <p style={styles.modalSubtitle}>{d.sponsor_name}{d.campaign_name ? ` / ${d.campaign_name}` : ''} — Select a video post to link</p>
             </div>
             <button onClick={() => setScheduleModalDeliverable(null)} style={styles.modalClose} aria-label="Close">✕</button>
           </div>
 
           {/* Month navigation */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '20px', marginBottom: '16px' }}>
             <button
               onClick={() => setScheduleModalDate(new Date(year, month - 1, 1))}
-              style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '16px', padding: '4px 8px' }}
+              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', fontSize: '14px', padding: '4px 10px', lineHeight: 1 }}
             >◀</button>
-            <span style={{ fontWeight: 600, color: 'rgba(255,255,255,0.9)', fontSize: '14px' }}>{monthLabel}</span>
+            <span style={{ fontWeight: 700, color: '#fff', fontSize: '15px', minWidth: '160px', textAlign: 'center' }}>{monthLabel}</span>
             <button
               onClick={() => setScheduleModalDate(new Date(year, month + 1, 1))}
-              style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '16px', padding: '4px 8px' }}
+              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', fontSize: '14px', padding: '4px 10px', lineHeight: 1 }}
             >▶</button>
           </div>
 
           {/* Day-of-week headers */}
           <div style={styles.calendarGrid}>
-            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-              <div key={d} style={{ textAlign: 'center', fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.35)', padding: '4px 0' }}>{d}</div>
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(dayName => (
+              <div key={dayName} style={{ textAlign: 'center', fontSize: '11px', fontWeight: 700, color: 'rgba(255,255,255,0.35)', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>{dayName}</div>
             ))}
             {cells}
           </div>
 
+          {/* Legend */}
+          <div style={{ display: 'flex', gap: '16px', marginTop: '14px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            {legend.map(l => (
+              <div key={l.label} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: l.bg, border: `1px solid ${l.border}` }} />
+                <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>{l.label}</span>
+              </div>
+            ))}
+          </div>
+
           {/* Unlink button */}
           {currentLinkedEvent && (
-            <div style={{ marginTop: '14px', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>
-                Linked: <span style={{ color: '#4ade80' }}>📹 {new Date(currentLinkedEvent.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — {currentLinkedEvent.title}</span>
+            <div style={{ marginTop: '12px', background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.15)', borderRadius: '8px', padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>
+                Currently linked: <span style={{ color: '#4ade80', fontWeight: 600 }}>📹 {new Date(currentLinkedEvent.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — {currentLinkedEvent.title}</span>
               </span>
               <button
                 onClick={() => handleInlineAssignVideo(d.id, null)}
-                style={{ background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '6px', padding: '4px 10px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                style={{ background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '6px', padding: '5px 12px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
               >
-                Unlink current video
+                Unlink
               </button>
             </div>
           )}
@@ -2511,19 +2536,22 @@ const styles = {
 
   // ── Calendar modal grid ──
   calendarGrid: {
-    display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '1px',
+    display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px',
   },
   calendarDay: {
-    minHeight: '60px', padding: '4px', borderRadius: '4px',
-    background: 'rgba(255,255,255,0.02)',
+    minHeight: '80px', padding: '6px', borderRadius: '6px',
+    background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.04)',
+  },
+  calendarDayBlank: {
+    minHeight: '80px',
   },
   calendarTooltip: {
     position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)',
     background: '#1e1e32', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px',
-    padding: '8px 10px', fontSize: '11px', color: '#fff', zIndex: 100,
-    minWidth: '160px', maxWidth: '240px', whiteSpace: 'normal',
-    boxShadow: '0 8px 24px rgba(0,0,0,0.5)', pointerEvents: 'none',
-    marginBottom: '4px',
+    padding: '10px 12px', fontSize: '11px', color: '#fff', zIndex: 100,
+    minWidth: '180px', maxWidth: '260px', whiteSpace: 'normal',
+    boxShadow: '0 8px 24px rgba(0,0,0,0.6)', pointerEvents: 'none',
+    marginBottom: '6px',
   },
 
   // ── Modal ──
