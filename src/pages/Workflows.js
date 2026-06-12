@@ -420,7 +420,7 @@ export default function Workflows() {
         { data: flPend },
         { data: flDoneData },
       ] = await Promise.all([
-        supabase.from('tasks').select('id, title, assignee_id, due_date, status, snoozed_until, hold_reason')
+        supabase.from('tasks').select('id, title, assignee_id, due_date, status, snoozed_until, hold_reason, planned_date')
           .in('status', ['active', 'pending', 'on_hold'])
           .not('assignee_id', 'is', null),
         supabase.from('tasks').select('id, title, assignee_id, due_date, status, completed_at')
@@ -594,6 +594,11 @@ export default function Workflows() {
               {onHold && t.hold_reason && (
                 <span title={t.hold_reason} style={{ fontSize: 10, fontWeight: 600, color: '#fdba74', flexShrink: 0 }}>
                   on hold
+                </span>
+              )}
+              {t.planned_date && !snoozed && (
+                <span style={{ fontSize: 10, fontWeight: 600, color: '#facc15', flexShrink: 0 }}>
+                  {new Date(t.planned_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                 </span>
               )}
             </div>

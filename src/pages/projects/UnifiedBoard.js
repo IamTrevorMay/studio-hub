@@ -56,6 +56,7 @@ export default function UnifiedBoard() {
   const [archivedExpanded, setArchivedExpanded] = useState(false);
   const [archivedProjects, setArchivedProjects] = useState([]);
   const [archivedLoading, setArchivedLoading] = useState(false);
+  const [taskPlannedDates, setTaskPlannedDates] = useState({});
 
   const loadArchived = useCallback(async () => {
     setArchivedLoading(true);
@@ -80,6 +81,23 @@ export default function UnifiedBoard() {
     if (archivedExpanded) loadArchived();
   }, [archivedExpanded, loadArchived]);
 
+  const fetchPlannedDates = useCallback(async () => {
+    const { data } = await supabase
+      .from('tasks')
+      .select('related_entity_id, assignee_id, planned_date')
+      .eq('related_entity_type', 'project')
+      .not('planned_date', 'is', null)
+      .in('status', ['pending', 'active', 'on_hold']);
+    if (!data) return;
+    const map = {};
+    for (const t of data) {
+      if (!t.related_entity_id || !t.assignee_id) continue;
+      if (!map[t.related_entity_id]) map[t.related_entity_id] = {};
+      map[t.related_entity_id][t.assignee_id] = t.planned_date;
+    }
+    setTaskPlannedDates(map);
+  }, []);
+
   const fetchProjects = useCallback(async () => {
     const { data, error } = await supabase
       .from('projects')
@@ -96,13 +114,15 @@ export default function UnifiedBoard() {
 
   useEffect(() => {
     fetchProjects();
+    fetchPlannedDates();
     const channel = supabase
       .channel('unified-board')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, fetchProjects)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'project_stage_assignments' }, fetchProjects)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, fetchPlannedDates)
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [fetchProjects]);
+  }, [fetchProjects, fetchPlannedDates]);
 
   const untyped = useMemo(() => projects.filter((p) => !p.type), [projects]);
   const typed = useMemo(() => projects.filter((p) => p.type), [projects]);
@@ -501,7 +521,7 @@ function Column({ stage, projects, canDragProject, onCardClick, onCardContextMen
                       boxShadow: dragSnap.isDragging ? '0 8px 20px rgba(0,0,0,0.4)' : 'none',
                     }}
                   >
-                    <KanbanCard project={p} />
+                    <KanbanCard project={p} taskPlannedDates={taskPlannedDates} />
                   </div>
                 )}
               </Draggable>
@@ -672,11 +692,11 @@ function ArchivedExpander({ expanded, loading, projects, onToggle }) {
 
 // ─── KanbanCard ──────────────────────────────────────────────────
 
-function KanbanCard({ project }) {
-  const assignees = (project.project_stage_assignments || [])
-    .filter((a) => a.stage === project.status)
-    .map((a) => getDisplayName(a.profile))
-    .filter(Boolean);
+function KanbanCard({ project, taskPlannedDates }) {
+  const stageAssignments = (project.project_stage_assignments || [])
+    .filter((a) => a.stage === project.status);
+  const assignees = stageAssignments.map((a) => getDisplayName(a.profile)).filter(Boolean);
+  const projectPlanned = taskPlannedDates?.[project.id];
   return (
     <>
       <div style={s.cardTitle}>{project.name}</div>
@@ -689,7 +709,24 @@ function KanbanCard({ project }) {
         )}
       </div>
       {assignees.length > 0 && (
-        <div style={s.assigneeRow}>{assignees.slice(0, 3).join(' · ')}</div>
+        <div style={s.assigneeRow}>
+          {stageAssignments.slice(0, 3).map((a, i) => {
+            const name = getDisplayName(a.profile);
+            if (!name) return null;
+            const pd = projectPlanned?.[a.user_id];
+            return (
+              <span key={a.id}>
+                {i > 0 && ' · '}
+                {name}
+                {pd && (
+                  <span style={s.plannedBadge}>
+                    {new Date(pd + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  </span>
+                )}
+              </span>
+            );
+          })}
+        </div>
       )}
     </>
   );
@@ -1468,6 +1505,10 @@ const s = {
   dueDate: { color: colors.textMuted, fontWeight: fontWeights.medium },
   assigneeRow: {
     marginTop: spacing.xs, color: colors.textSubtle, fontSize: fontSizes.xs,
+  },
+  plannedBadge: {
+    fontSize: 9, color: '#facc15', background: 'rgba(250,204,21,0.12)',
+    borderRadius: 3, padding: '1px 4px', marginLeft: 4, fontWeight: 600,
   },
   holdLane: {
     width: 240, flexShrink: 0,

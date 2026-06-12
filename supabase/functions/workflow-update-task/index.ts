@@ -151,15 +151,19 @@ Deno.serve(async (req: Request) => {
       if (!until || isNaN(Date.parse(until))) {
         return jsonResp({ error: "Valid until ISO timestamp is required" }, 400);
       }
+      const plannedDate = (body.planned_date as string) || null;
+
+      const update: Record<string, unknown> = { snoozed_until: until };
+      if (plannedDate) update.planned_date = plannedDate;
 
       await admin
         .from("tasks")
-        .update({ snoozed_until: until })
+        .update(update)
         .eq("id", taskId);
 
-      await logEvent(admin, taskId, "snoozed", auth.userId, { until });
+      await logEvent(admin, taskId, "snoozed", auth.userId, { until, planned_date: plannedDate });
 
-      return jsonResp({ ok: true, snoozed_until: until });
+      return jsonResp({ ok: true, snoozed_until: until, planned_date: plannedDate });
     }
 
     // ─── Unsnooze ────────────────────────────────────────────
@@ -170,7 +174,7 @@ Deno.serve(async (req: Request) => {
 
       await admin
         .from("tasks")
-        .update({ snoozed_until: null })
+        .update({ snoozed_until: null, planned_date: null })
         .eq("id", taskId);
 
       await logEvent(admin, taskId, "snoozed", auth.userId, { action: "unsnooze" });

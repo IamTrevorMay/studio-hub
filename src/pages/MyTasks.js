@@ -21,38 +21,10 @@ function timeAgo(dateStr) {
   return `${days}d ago`;
 }
 
-function snoozeLabel(until) {
-  if (!until) return '';
-  const d = new Date(until);
-  const now = new Date();
-  const diff = d.getTime() - now.getTime();
-  if (diff <= 0) return 'Snooze expired';
-  const hrs = Math.floor(diff / 3600000);
-  if (hrs < 1) return `${Math.ceil(diff / 60000)}m`;
-  if (hrs < 24) return `${hrs}h`;
-  return `${Math.floor(hrs / 24)}d`;
-}
-
-function computeSnoozeUntil(preset) {
-  const now = new Date();
-  switch (preset) {
-    case '1h': return new Date(now.getTime() + 3600000).toISOString();
-    case '4h': return new Date(now.getTime() + 4 * 3600000).toISOString();
-    case 'tomorrow': {
-      const d = new Date(now);
-      d.setDate(d.getDate() + 1);
-      d.setHours(9, 0, 0, 0);
-      return d.toISOString();
-    }
-    case 'next_week': {
-      const d = new Date(now);
-      const daysUntilMon = ((8 - d.getDay()) % 7) || 7;
-      d.setDate(d.getDate() + daysUntilMon);
-      d.setHours(9, 0, 0, 0);
-      return d.toISOString();
-    }
-    default: return null;
-  }
+function plannedLabel(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 // ─── API calls ────────────────────────────────────────────────
@@ -190,8 +162,10 @@ export default function MyTasks({ onNavigate }) {
   const [declineModalTask, setDeclineModalTask] = useState(null);
   const [declineReason, setDeclineReason] = useState('');
   const [holdReason, setHoldReason] = useState('');
-  const [snoozeOpenId, setSnoozeOpenId] = useState(null);
-  const [snoozeDropUp, setSnoozeDropUp] = useState(true);
+  const [planOpenId, setPlanOpenId] = useState(null);
+  const [planDropUp, setPlanDropUp] = useState(true);
+  const [planDate, setPlanDate] = useState('');
+  const [planTime, setPlanTime] = useState('09:00');
   const [completingIds, setCompletingIds] = useState(new Set());
   const [fadingIds, setFadingIds] = useState(new Set());
   const [showSnoozed, setShowSnoozed] = useState(false);
@@ -202,19 +176,19 @@ export default function MyTasks({ onNavigate }) {
   const [deliverableMeta, setDeliverableMeta] = useState({}); // { [deliverable_id]: { title, due_date } }
   const [activeProfiles, setActiveProfiles] = useState([]); // for inline editor pickers
   const channelRef = useRef(null);
-  const snoozeRef = useRef(null);
+  const planRef = useRef(null);
 
-  // Close snooze dropdown on outside click
+  // Close plan dropdown on outside click
   useEffect(() => {
-    if (!snoozeOpenId) return;
+    if (!planOpenId) return;
     const handler = (e) => {
-      if (snoozeRef.current && !snoozeRef.current.contains(e.target)) {
-        setSnoozeOpenId(null);
+      if (planRef.current && !planRef.current.contains(e.target)) {
+        setPlanOpenId(null);
       }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [snoozeOpenId]);
+  }, [planOpenId]);
 
   // Load active profiles for any task that needs an inline person picker.
   useEffect(() => {
@@ -485,16 +459,18 @@ export default function MyTasks({ onNavigate }) {
     }
   };
 
-  const handleSnooze = async (taskId, preset) => {
-    const until = computeSnoozeUntil(preset);
-    if (!until) return;
+  const handlePlan = async (taskId, date, time) => {
+    if (!date) return;
+    const until = new Date(`${date}T${time || '09:00'}:00`).toISOString();
     try {
-      await callWorkflowFn('workflow-update-task', { task_id: taskId, action: 'snooze', until });
-      setSnoozeOpenId(null);
+      await callWorkflowFn('workflow-update-task', {
+        task_id: taskId, action: 'snooze', until, planned_date: date,
+      });
+      setPlanOpenId(null);
       fetchTasks();
       refreshNotifications();
     } catch (err) {
-      console.error('Snooze failed:', err);
+      console.error('Plan failed:', err);
       alert(err.message);
     }
   };
@@ -906,37 +882,52 @@ export default function MyTasks({ onNavigate }) {
                       Hold
                     </button>
                   )}
-                  <div style={styles.snoozeWrapper} ref={snoozeOpenId === task.id ? snoozeRef : undefined}>
+                  <div style={styles.snoozeWrapper} ref={planOpenId === task.id ? planRef : undefined}>
                     <button
                       style={styles.snoozeBtn}
                       onClick={(e) => {
-                        if (snoozeOpenId === task.id) {
-                          setSnoozeOpenId(null);
+                        if (planOpenId === task.id) {
+                          setPlanOpenId(null);
                         } else {
                           const rect = e.currentTarget.getBoundingClientRect();
-                          setSnoozeDropUp(rect.top > 200);
-                          setSnoozeOpenId(task.id);
+                          setPlanDropUp(rect.top > 260);
+                          setPlanDate('');
+                          setPlanTime('09:00');
+                          setPlanOpenId(task.id);
                         }
                       }}
                     >
-                      Snooze
+                      Plan
                     </button>
-                    {snoozeOpenId === task.id && (
-                      <div style={snoozeDropUp ? styles.snoozeDropdown : styles.snoozeDropdownBelow}>
-                        {[
-                          { key: '1h', label: '1 hour' },
-                          { key: '4h', label: '4 hours' },
-                          { key: 'tomorrow', label: 'Tomorrow 9am' },
-                          { key: 'next_week', label: 'Next Monday 9am' },
-                        ].map(opt => (
+                    {planOpenId === task.id && (
+                      <div style={planDropUp ? styles.snoozeDropdown : styles.snoozeDropdownBelow}>
+                        <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          <label style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>
+                            When I plan to complete
+                          </label>
+                          <input
+                            type="date"
+                            value={planDate}
+                            onChange={(e) => setPlanDate(e.target.value)}
+                            style={styles.planInput}
+                          />
+                          <label style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>
+                            Remind me at
+                          </label>
+                          <input
+                            type="time"
+                            value={planTime}
+                            onChange={(e) => setPlanTime(e.target.value)}
+                            style={styles.planInput}
+                          />
                           <button
-                            key={opt.key}
-                            style={styles.snoozeOption}
-                            onClick={() => handleSnooze(task.id, opt.key)}
+                            style={{ ...styles.primaryBtn, width: '100%', marginTop: 2 }}
+                            disabled={!planDate}
+                            onClick={() => handlePlan(task.id, planDate, planTime)}
                           >
-                            {opt.label}
+                            Set
                           </button>
-                        ))}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -947,14 +938,14 @@ export default function MyTasks({ onNavigate }) {
         })}
       </div>
 
-      {/* Snoozed section */}
+      {/* Planned section */}
       {snoozedTasks.length > 0 && (
         <div style={styles.section}>
           <button
             style={styles.sectionHeader}
             onClick={() => setShowSnoozed(!showSnoozed)}
           >
-            <span>Snoozed ({snoozedTasks.length})</span>
+            <span>Planned ({snoozedTasks.length})</span>
             <span style={styles.chevron}>{showSnoozed ? '\u25B2' : '\u25BC'}</span>
           </button>
           {showSnoozed && snoozedTasks.map(task => (
@@ -962,12 +953,16 @@ export default function MyTasks({ onNavigate }) {
               <div style={styles.taskHeader}>
                 <div style={styles.taskTitleRow}>
                   <span style={styles.taskTitle}>{task.title}</span>
-                  <span style={styles.snoozeBadge}>Wakes in {snoozeLabel(task.snoozed_until)}</span>
+                  <span style={styles.snoozeBadge}>
+                    {task.planned_date
+                      ? `Planned for ${plannedLabel(task.planned_date)}`
+                      : `Wakes ${plannedLabel(task.snoozed_until?.slice(0, 10)) || 'soon'}`}
+                  </span>
                 </div>
               </div>
               <div style={styles.actionRow}>
                 <button style={styles.secondaryBtn} onClick={() => handleUnsnooze(task.id)}>
-                  Wake now
+                  Show now
                 </button>
               </div>
             </div>
@@ -1393,6 +1388,16 @@ const styles = {
     padding: '4px 0',
     marginLeft: 'auto',
     fontFamily: 'inherit',
+  },
+  planInput: {
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.15)',
+    borderRadius: 5,
+    color: '#fff',
+    padding: '6px 8px',
+    fontSize: 13,
+    fontFamily: 'inherit',
+    colorScheme: 'dark',
   },
   snoozeWrapper: {
     position: 'relative',
