@@ -145,9 +145,6 @@ export default function Dashboard({ onNavigate }) {
   const [upcomingOoo, setUpcomingOoo] = useState([]);
 
   // Stage tasks state
-  const [stageTasks, setStageTasks] = useState([]);
-  const [stageTasksLoading, setStageTasksLoading] = useState(false);
-  const [addedToBoard, setAddedToBoard] = useState({});
 
   // Stats counters
   const [teamActiveCount, setTeamActiveCount] = useState(0);
@@ -343,33 +340,6 @@ export default function Dashboard({ onNavigate }) {
     }
   }, [profile?.id, todayStr]);
 
-  const fetchStageTasks = useCallback(async () => {
-    if (!profile?.id) return;
-    setStageTasksLoading(true);
-    try {
-      const { data: projectStageData } = await supabase
-        .from('project_stage_assignments')
-        .select('*, project:projects(id, name, status, deadline, type, channel)')
-        .eq('user_id', profile.id);
-
-      const tasks = [];
-      (projectStageData || []).forEach(a => {
-        if (a.project && a.project.status === a.stage && a.project.status !== 'published') {
-          tasks.push({
-            id: a.id, type: 'project', projectId: a.project.id, name: a.project.name, stage: a.stage,
-            stageColor: STATUS_COLORS[a.stage] || '#6b7280', stageLabel: STATUS_LABELS[a.stage] || a.stage,
-            deadline: a.project.deadline, extra: a.project.channel || a.project.type?.replace('_', ' '),
-          });
-        }
-      });
-      setStageTasks(tasks);
-    } catch (err) {
-      console.error('Error fetching stage tasks:', err);
-      setStageTasks([]);
-    } finally {
-      setStageTasksLoading(false);
-    }
-  }, [profile?.id]);
 
   const fetchStatsCounts = useCallback(async () => {
     try {
@@ -403,51 +373,6 @@ export default function Dashboard({ onNavigate }) {
     }
   }, []);
 
-  async function addStageTaskToBoard(task) {
-    if (!profile?.id || addedToBoard[task.id] === 'loading') return;
-    setAddedToBoard(prev => ({ ...prev, [task.id]: 'loading' }));
-    try {
-      // Check for duplicate: same project_id + project_stage, not done
-      const { data: existing } = await supabase
-        .from('personal_tasks')
-        .select('id')
-        .eq('created_by', profile.id)
-        .eq('project_id', task.projectId)
-        .eq('project_stage', task.stage)
-        .neq('status', 'done')
-        .limit(1);
-      if (existing && existing.length > 0) {
-        setAddedToBoard(prev => ({ ...prev, [task.id]: 'duplicate' }));
-        return;
-      }
-
-      // Get max position in inbox for ordering
-      const { data: inboxTasks } = await supabase
-        .from('personal_tasks')
-        .select('position')
-        .eq('created_by', profile.id)
-        .eq('status', 'inbox')
-        .order('position', { ascending: false })
-        .limit(1);
-      const nextPos = (inboxTasks?.[0]?.position || 0) + 10;
-
-      const { error } = await supabase.from('personal_tasks').insert({
-        created_by: profile.id,
-        content: `${task.name} — ${task.stageLabel}`,
-        category: 'production',
-        project_id: task.projectId,
-        project_stage: task.stage,
-        status: 'inbox',
-        position: nextPos,
-      });
-      if (error) throw error;
-      setAddedToBoard(prev => ({ ...prev, [task.id]: 'added' }));
-      setSprintVersion(v => v + 1); // trigger SprintBoard re-fetch
-    } catch (err) {
-      console.error('Error adding stage task to board:', err);
-      setAddedToBoard(prev => ({ ...prev, [task.id]: 'error' }));
-    }
-  }
 
   const fetchSponsorDeliverables = useCallback(async () => {
     if (!profile?.id) return;
@@ -566,11 +491,10 @@ export default function Dashboard({ onNavigate }) {
     if (!profile?.id) return;
     if (!isPartner) {
       fetchAssignments();
-      fetchStageTasks();
       fetchSponsorDeliverables();
       fetchStatsCounts();
     }
-  }, [profile?.id, isPartner, fetchAssignments, fetchStageTasks, fetchSponsorDeliverables, fetchStatsCounts]);
+  }, [profile?.id, isPartner, fetchAssignments, fetchSponsorDeliverables, fetchStatsCounts]);
 
   useEffect(() => {
     if ((isAdmin || isAssistant) && profile?.id) {
@@ -631,7 +555,6 @@ export default function Dashboard({ onNavigate }) {
     if (!profile?.id) return;
     if (!isPartner) {
       fetchAssignments();
-      fetchStageTasks();
       fetchSponsorDeliverables();
       fetchStatsCounts();
     }
@@ -640,7 +563,7 @@ export default function Dashboard({ onNavigate }) {
     fetchTeamProfiles();
     fetchOooRequests();
     fetchUpcomingOoo();
-  }, [profile?.id, isAdmin, isAssistant, isPartner, fetchAssignments, fetchStageTasks, fetchSponsorDeliverables, fetchStatsCounts, fetchItinerary, fetchAnnouncements, fetchTeamProfiles, fetchOooRequests, fetchUpcomingOoo]));
+  }, [profile?.id, isAdmin, isAssistant, isPartner, fetchAssignments, fetchSponsorDeliverables, fetchStatsCounts, fetchItinerary, fetchAnnouncements, fetchTeamProfiles, fetchOooRequests, fetchUpcomingOoo]));
 
   useEffect(() => {
     if (profile?.id) fetchCheckins();
@@ -1702,10 +1625,6 @@ export default function Dashboard({ onNavigate }) {
             <div style={styles.statValue}>{dueSoonCount}</div>
             <div style={styles.statLabel}>Due Soon</div>
           </div>
-          <div style={styles.stat}>
-            <div style={styles.statValue}>{stageTasks.length}</div>
-            <div style={styles.statLabel}>Stage Tasks</div>
-          </div>
         </div>
         )}
       </div>
@@ -2404,85 +2323,6 @@ export default function Dashboard({ onNavigate }) {
         </div>
       )}
 
-      {/* Stage Tasks */}
-      {!isPartner && stageTasks.length > 0 && (
-        <div style={styles.section}>
-          <h2 style={styles.sectionTitle}>Project Tasks</h2>
-          {stageTasksLoading ? (
-            <p style={styles.emptyText}>Loading...</p>
-          ) : (
-            <div style={styles.projectGrid}>
-              {stageTasks.map(task => {
-                const days = task.deadline ? getDaysUntil(task.deadline) : null;
-                const urgency = days !== null ? getUrgencyColor(days) : 'rgba(255,255,255,0.4)';
-                return (
-                  <div key={task.id} style={styles.projectCard}>
-                    <div style={styles.projectCardHeader}>
-                      <span style={{
-                        ...styles.statusBadge,
-                        background: `${task.stageColor}20`,
-                        color: task.stageColor,
-                      }}>
-                        {task.stageLabel}
-                      </span>
-                      <span style={styles.roleBadge}>{task.type === 'project' ? 'Project' : 'Deliverable'}</span>
-                    </div>
-                    <h3 style={styles.projectName}>{task.name}</h3>
-                    {task.extra && (
-                      <p style={styles.projectChannel}>{task.extra}</p>
-                    )}
-                    {days !== null && (
-                      <div style={styles.projectDeadline}>
-                        <div style={{
-                          ...styles.deadlineIndicator,
-                          background: urgency,
-                        }} />
-                        <span style={{ color: urgency, fontWeight: 600, fontSize: '13px' }}>
-                          {days < 0
-                            ? `${Math.abs(days)} days overdue`
-                            : days === 0
-                              ? 'Due today'
-                              : `${days} days remaining`}
-                        </span>
-                      </div>
-                    )}
-                    {task.deadline && (
-                      <div style={styles.projectDates}>
-                        <span>Due {new Date(task.deadline + (task.deadline.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                      </div>
-                    )}
-                    <button
-                      onClick={() => addStageTaskToBoard(task)}
-                      disabled={addedToBoard[task.id] === 'loading' || addedToBoard[task.id] === 'added'}
-                      style={{
-                        marginTop: '10px', width: '100%', padding: '6px 0',
-                        background: addedToBoard[task.id] === 'added' ? 'rgba(34,197,94,0.12)'
-                          : addedToBoard[task.id] === 'duplicate' ? 'rgba(234,179,8,0.12)'
-                          : 'rgba(99,102,241,0.12)',
-                        color: addedToBoard[task.id] === 'added' ? '#22c55e'
-                          : addedToBoard[task.id] === 'duplicate' ? '#eab308'
-                          : '#818cf8',
-                        border: `1px solid ${addedToBoard[task.id] === 'added' ? 'rgba(34,197,94,0.2)'
-                          : addedToBoard[task.id] === 'duplicate' ? 'rgba(234,179,8,0.2)'
-                          : 'rgba(99,102,241,0.2)'}`,
-                        borderRadius: '6px',
-                        fontSize: '12px', fontWeight: 600,
-                        cursor: addedToBoard[task.id] === 'added' ? 'default' : 'pointer',
-                        opacity: addedToBoard[task.id] === 'loading' ? 0.5 : 1,
-                      }}
-                    >
-                      {addedToBoard[task.id] === 'loading' ? 'Adding...'
-                        : addedToBoard[task.id] === 'added' ? 'Added to Board'
-                        : addedToBoard[task.id] === 'duplicate' ? 'Already on Board'
-                        : 'Add to Board'}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Completed Projects */}
       {!isPartner && completedAssignments.length > 0 && (
