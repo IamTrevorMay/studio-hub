@@ -1490,7 +1490,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
 
     return (
       <div style={styles.modalOverlay} onClick={() => setScheduleModalDeliverable(null)}>
-        <div style={{ ...styles.modalBox, maxWidth: 680, padding: '28px 32px' }} onClick={e => e.stopPropagation()}>
+        <div style={{ ...styles.modalBox, maxWidth: 920, padding: '28px 32px' }} onClick={e => e.stopPropagation()}>
           <div style={styles.modalHeader}>
             <div>
               <h3 style={styles.modalTitle}>{d.title}</h3>
@@ -2536,14 +2536,14 @@ const styles = {
 
   // ── Calendar modal grid ──
   calendarGrid: {
-    display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px',
+    display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '3px',
   },
   calendarDay: {
-    minHeight: '80px', padding: '6px', borderRadius: '6px',
+    minHeight: '90px', padding: '6px 8px', borderRadius: '6px',
     background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.04)',
   },
   calendarDayBlank: {
-    minHeight: '80px',
+    minHeight: '90px',
   },
   calendarTooltip: {
     position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)',
@@ -2557,8 +2557,8 @@ const styles = {
   // ── Modal ──
   modalOverlay: {
     position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
-    display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-    padding: '48px 16px', overflowY: 'auto', zIndex: 9999,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    padding: '24px 16px', overflowY: 'auto', zIndex: 9999,
   },
   modalBox: {
     background: '#1a1a2e', borderRadius: '14px', padding: '24px',
