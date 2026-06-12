@@ -14,9 +14,9 @@ const DELIVERABLE_PLATFORMS = ['YouTube', 'TikTok', 'Instagram', 'X/Twitter', 'F
 const SPONSOR_STATUS_COLORS = { active: '#10b981', completed: '#6366f1', cancelled: '#ef4444' };
 const PAYMENT_STATUS_COLORS = { unpaid: '#ef4444', partial: '#f59e0b', paid: '#10b981' };
 const CHANNEL_COLORS = {
-  mayday: { bg: 'rgba(99,102,241,0.12)', color: '#a5b4fc', label: 'MD' },
-  tmb: { bg: 'rgba(239,68,68,0.12)', color: '#fca5a5', label: 'TMB' },
-  socials: { bg: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)', label: 'SOC' },
+  mayday: { bg: 'rgba(99,102,241,0.12)', color: '#a5b4fc', label: 'Mayday' },
+  tmb: { bg: 'rgba(239,68,68,0.12)', color: '#fca5a5', label: 'TM Baseball' },
+  socials: { bg: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)', label: 'Social' },
 };
 
 export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
@@ -81,8 +81,17 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
 
   // Context menu + inline dropdowns for upcoming cards
   const [cardContextMenu, setCardContextMenu] = useState(null); // { x, y, deliverable }
-  const [videoDropdownId, setVideoDropdownId] = useState(null); // deliverable id showing video picker
   const [beatSheetDropdownId, setBeatSheetDropdownId] = useState(null); // deliverable id showing beat sheet picker
+
+  // Table sorting + delivered toggle
+  const [sortCol, setSortCol] = useState('schedule'); // default sort by schedule date
+  const [sortDir, setSortDir] = useState('asc');
+  const [showDelivered, setShowDelivered] = useState(false);
+
+  // Schedule calendar modal
+  const [scheduleModalDeliverable, setScheduleModalDeliverable] = useState(null);
+  const [scheduleModalDate, setScheduleModalDate] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
+  const [scheduleModalHoveredEvent, setScheduleModalHoveredEvent] = useState(null);
 
   // Auto-expand a campaign when navigated to from another page
   useEffect(() => {
@@ -718,7 +727,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
 
   // Inline assign video event to deliverable from card dropdown
   async function handleInlineAssignVideo(deliverableId, videoEventId) {
-    setVideoDropdownId(null);
+    setScheduleModalDeliverable(null);
     await supabase.from('sponsor_deliverables').update({
       video_event_id: videoEventId || null,
       updated_at: new Date().toISOString(),
@@ -1089,153 +1098,6 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
     );
   }
 
-  // Deliverable card for the Upcoming grid \u2014 adds sponsor/campaign, brief, pay,
-  // and beat-sheet assignment to the same card style.
-  function renderUpcomingCard(d) {
-    const linkedSheet = beatSheets.find(bs => bs.id === d.beat_sheet_id);
-    const ev = d.video_event_id ? videoEvents.find(e => e.id === d.video_event_id) : null;
-    const isVideoDropdownOpen = videoDropdownId === d.id;
-    const isBeatSheetDropdownOpen = beatSheetDropdownId === d.id;
-    return (
-      <div
-        key={d.id}
-        style={{ ...styles.delivCard, flexDirection: 'row', alignItems: 'stretch', gap: '10px', position: 'relative' }}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          setCardContextMenu({ x: e.clientX, y: e.clientY, deliverable: d });
-        }}
-      >
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {/* Top row: icon + title */}
-          <div style={styles.delivCardTop}>
-            <span style={{ ...styles.delivCardTitle, flex: '0 1 auto' }}>{d.title}</span>
-          </div>
-          {/* Sponsor / campaign */}
-          <div style={styles.delivCardSub}>
-            <span>{d.sponsor_name}</span>
-            {d.campaign_name && <><span style={{ opacity: 0.4 }}>/</span><span>{d.campaign_name}</span></>}
-          </div>
-          {/* Brief link */}
-          {d.brief_url && (
-            <div style={styles.delivCardSub}>
-              <a href={d.brief_url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ color: '#a5b4fc', textDecoration: 'none' }}>
-                {'\u{1F4C4}'} {d.brief_name || 'Brief'}
-              </a>
-            </div>
-          )}
-          {/* Bottom row: video chip, beat sheet chip on left; Mark Delivered on right */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap', marginTop: 'auto' }}>
-            {/* Video event chip / Not Scheduled */}
-            <div style={{ position: 'relative' }}>
-              {ev ? (
-                <span
-                  style={{ ...styles.chip, fontWeight: 600, background: 'rgba(168,85,247,0.12)', color: '#c084fc', cursor: 'pointer' }}
-                  onClick={(e) => { e.stopPropagation(); setVideoDropdownId(isVideoDropdownOpen ? null : d.id); setBeatSheetDropdownId(null); }}
-                >
-                  {'\ud83d\udcf9'} {new Date(ev.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} {'\u2014'} {ev.title}
-                </span>
-              ) : (
-                <span
-                  style={{ ...styles.chip, fontWeight: 600, background: 'rgba(245,158,11,0.12)', color: '#fbbf24', cursor: 'pointer' }}
-                  onClick={(e) => { e.stopPropagation(); setVideoDropdownId(isVideoDropdownOpen ? null : d.id); setBeatSheetDropdownId(null); }}
-                >
-                  Not Scheduled
-                </span>
-              )}
-              {isVideoDropdownOpen && (
-                <div style={styles.inlineDropdown}>
-                  {(() => {
-                    const available = getAvailableVideoEvents(d.id);
-                    if (available.length === 0) return <div style={styles.inlineDropdownEmpty}>No available videos</div>;
-                    return available.map(ve => (
-                      <button
-                        key={ve.id}
-                        style={styles.inlineDropdownItem}
-                        onClick={(e) => { e.stopPropagation(); handleInlineAssignVideo(d.id, ve.id); }}
-                      >
-                        <span style={{ color: '#c084fc', flexShrink: 0 }}>{'\ud83d\udcf9'}</span>
-                        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ve.title}</span>
-                        <span style={{ color: 'rgba(255,255,255,0.35)', flexShrink: 0, fontSize: '10px' }}>
-                          {new Date(ve.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                        </span>
-                      </button>
-                    ));
-                  })()}
-                  {ev && (
-                    <button
-                      style={{ ...styles.inlineDropdownItem, color: '#f87171', borderTop: '1px solid rgba(255,255,255,0.06)' }}
-                      onClick={(e) => { e.stopPropagation(); handleInlineAssignVideo(d.id, null); }}
-                    >
-                      Unlink video
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-            {/* Beat sheet chip (50% bigger) */}
-            <div style={{ position: 'relative' }}>
-              <span
-                style={{
-                  ...styles.chip,
-                  fontWeight: 600,
-                  background: linkedSheet ? 'rgba(99,102,241,0.1)' : 'rgba(239,68,68,0.1)',
-                  color: linkedSheet ? '#a5b4fc' : '#fca5a5',
-                  cursor: 'pointer',
-                }}
-                onClick={(e) => { e.stopPropagation(); setBeatSheetDropdownId(isBeatSheetDropdownOpen ? null : d.id); setVideoDropdownId(null); }}
-              >
-                {linkedSheet ? linkedSheet.title : 'Unassigned'}
-              </span>
-              {isBeatSheetDropdownOpen && (
-                <div style={styles.inlineDropdown}>
-                  {(() => {
-                    const available = getAvailableBeatSheets(d.id);
-                    if (available.length === 0) return <div style={styles.inlineDropdownEmpty}>No available beat sheets</div>;
-                    return available.map(bs => (
-                      <button
-                        key={bs.id}
-                        style={styles.inlineDropdownItem}
-                        onClick={(e) => { e.stopPropagation(); handleInlineAssignBeatSheet(d.id, bs.id); }}
-                      >
-                        {bs.title}
-                      </button>
-                    ));
-                  })()}
-                  {linkedSheet && (
-                    <button
-                      style={{ ...styles.inlineDropdownItem, color: '#f87171', borderTop: '1px solid rgba(255,255,255,0.06)' }}
-                      onClick={(e) => { e.stopPropagation(); handleInlineAssignBeatSheet(d.id, null); }}
-                    >
-                      Unlink beat sheet
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-        {/* Right column: chips top, pay middle, delivered bottom */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'space-between', flexShrink: 0, gap: '6px' }}>
-          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            {d.channel && CHANNEL_COLORS[d.channel] && (
-              <span style={{ ...styles.chip, background: CHANNEL_COLORS[d.channel].bg, color: CHANNEL_COLORS[d.channel].color }}>{CHANNEL_COLORS[d.channel].label}</span>
-            )}
-            {(d.platforms || []).map(p => (
-              <span key={p} style={{ ...styles.chip, fontWeight: 600, background: 'rgba(99,102,241,0.12)', color: '#a5b4fc' }}>{p}</span>
-            ))}
-          </div>
-          {d.pay != null && <span style={{ fontSize: '18px', fontWeight: 700, color: '#22c55e' }}>${parseFloat(d.pay).toLocaleString()}</span>}
-          <button
-            onClick={(e) => { e.stopPropagation(); handleToggleDelivered(d.id, d.delivered); }}
-            style={{ ...styles.delivToggle, ...(d.delivered ? styles.delivToggleDone : {}), padding: '4px 12px', fontSize: '11px', alignSelf: 'flex-end' }}
-          >
-            {d.delivered ? '\u2713 Delivered' : 'Delivered'}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   // Single read-slot month card (Mayday / TM Baseball counts vs limits).
   function renderReadSlotCard(month) {
     const count = (ch) => allDeliverables.filter(d => d.channel === ch && d.due_date && d.due_date.slice(0, 7) === month).length;
@@ -1308,6 +1170,360 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
     );
   }
 
+  // --- Sorting handler ---
+  function handleSort(col) {
+    if (sortCol === col) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortCol(col);
+      setSortDir('asc');
+    }
+  }
+
+  // --- Computed table data ---
+  const tableDeliverables = (() => {
+    let list = showDelivered ? [...allDeliverables] : allDeliverables.filter(d => !d.delivered);
+    list.sort((a, b) => {
+      let cmp = 0;
+      switch (sortCol) {
+        case 'title': cmp = (a.title || '').localeCompare(b.title || ''); break;
+        case 'sponsor': {
+          const sA = `${a.sponsor_name || ''} ${a.campaign_name || ''}`;
+          const sB = `${b.sponsor_name || ''} ${b.campaign_name || ''}`;
+          cmp = sA.localeCompare(sB); break;
+        }
+        case 'type': cmp = (a.deliverable_type || '').localeCompare(b.deliverable_type || ''); break;
+        case 'channel': cmp = (a.channel || '').localeCompare(b.channel || ''); break;
+        case 'schedule': {
+          const evA = a.video_event_id ? videoEvents.find(e => e.id === a.video_event_id) : null;
+          const evB = b.video_event_id ? videoEvents.find(e => e.id === b.video_event_id) : null;
+          const dA = evA?.start_date || '';
+          const dB = evB?.start_date || '';
+          if (!dA && !dB) cmp = 0;
+          else if (!dA) cmp = 1;
+          else if (!dB) cmp = -1;
+          else cmp = dA.localeCompare(dB);
+          break;
+        }
+        case 'pay': cmp = (parseFloat(a.pay) || 0) - (parseFloat(b.pay) || 0); break;
+        default: break;
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+    return list;
+  })();
+
+  // --- Sortable deliverable table ---
+  function renderDeliverableTable() {
+    const sortArrow = (col) => sortCol === col ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
+    const thStyle = { ...styles.tableTh, cursor: 'pointer', userSelect: 'none' };
+    const totalPay = tableDeliverables.reduce((sum, d) => sum + (parseFloat(d.pay) || 0), 0);
+    return (
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+          <div>
+            <h1 style={styles.pageTitle}>Upcoming Deliverables</h1>
+            <p style={styles.pageSubtitle}>
+              {tableDeliverables.length} deliverable{tableDeliverables.length !== 1 ? 's' : ''}
+              {totalPay > 0 ? ` · $${totalPay.toLocaleString()} total` : ''}
+            </p>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>
+            <input
+              type="checkbox"
+              checked={showDelivered}
+              onChange={e => setShowDelivered(e.target.checked)}
+              style={{ accentColor: '#6366f1' }}
+            />
+            Show Delivered
+          </label>
+        </div>
+
+        {/* Read Slots */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+          {[0, 1, 2].map(off => {
+            const dt = new Date();
+            dt.setDate(1);
+            dt.setMonth(dt.getMonth() + off);
+            const m = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+            return <div key={m} style={{ display: 'flex' }}>{renderReadSlotCard(m)}</div>;
+          })}
+        </div>
+        <div style={styles.columnDivider} />
+
+        {tableDeliverables.length === 0 ? (
+          <div style={styles.emptyCard}>
+            <p style={styles.emptyText}>No upcoming deliverables. Add deliverables to campaigns above.</p>
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={thStyle} onClick={() => handleSort('title')}>Title{sortArrow('title')}</th>
+                  <th style={thStyle} onClick={() => handleSort('sponsor')}>Sponsor{sortArrow('sponsor')}</th>
+                  <th style={thStyle} onClick={() => handleSort('type')}>Type{sortArrow('type')}</th>
+                  <th style={thStyle} onClick={() => handleSort('channel')}>Channel{sortArrow('channel')}</th>
+                  <th style={thStyle} onClick={() => handleSort('schedule')}>Schedule{sortArrow('schedule')}</th>
+                  <th style={styles.tableTh}>Beat Sheet</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }} onClick={() => handleSort('pay')}>Pay{sortArrow('pay')}</th>
+                  <th style={styles.tableTh}>Brief</th>
+                  <th style={styles.tableTh}>Delivered</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tableDeliverables.map(d => {
+                  const ev = d.video_event_id ? videoEvents.find(e => e.id === d.video_event_id) : null;
+                  const linkedSheet = beatSheets.find(bs => bs.id === d.beat_sheet_id);
+                  const isBSOpen = beatSheetDropdownId === d.id;
+                  return (
+                    <tr
+                      key={d.id}
+                      style={{ ...(d.delivered ? { opacity: 0.5 } : {}) }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setCardContextMenu({ x: e.clientX, y: e.clientY, deliverable: d });
+                      }}
+                    >
+                      {/* Title */}
+                      <td style={styles.tableTd}>
+                        <span style={{ fontWeight: 600, color: 'rgba(255,255,255,0.9)', fontSize: '13px' }}>{d.title}</span>
+                      </td>
+                      {/* Sponsor */}
+                      <td style={styles.tableTd}>
+                        <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>
+                          {d.sponsor_name}{d.campaign_name ? ` / ${d.campaign_name}` : ''}
+                        </span>
+                      </td>
+                      {/* Type */}
+                      <td style={styles.tableTd}>
+                        <span title={DELIVERABLE_TYPES[d.deliverable_type]?.label || d.deliverable_type} style={{ fontSize: '16px' }}>
+                          {DELIVERABLE_TYPES[d.deliverable_type]?.icon || '📋'}
+                        </span>
+                      </td>
+                      {/* Channel */}
+                      <td style={styles.tableTd}>
+                        {d.channel && CHANNEL_COLORS[d.channel] && (
+                          <span style={{ ...styles.chip, background: CHANNEL_COLORS[d.channel].bg, color: CHANNEL_COLORS[d.channel].color }}>
+                            {CHANNEL_COLORS[d.channel].label}
+                          </span>
+                        )}
+                      </td>
+                      {/* Schedule */}
+                      <td style={styles.tableTd}>
+                        {ev ? (
+                          <span
+                            style={{ ...styles.chip, fontWeight: 600, background: 'rgba(168,85,247,0.12)', color: '#c084fc', cursor: 'pointer' }}
+                            onClick={() => { setScheduleModalDeliverable(d); setScheduleModalDate(new Date(ev.start_date)); }}
+                          >
+                            📹 {new Date(ev.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          </span>
+                        ) : (
+                          <span
+                            style={{ ...styles.chip, fontWeight: 600, background: 'rgba(245,158,11,0.12)', color: '#fbbf24', cursor: 'pointer' }}
+                            onClick={() => { setScheduleModalDeliverable(d); setScheduleModalDate(new Date()); }}
+                          >
+                            Not Scheduled
+                          </span>
+                        )}
+                      </td>
+                      {/* Beat Sheet */}
+                      <td style={{ ...styles.tableTd, position: 'relative' }}>
+                        <span
+                          style={{
+                            ...styles.chip,
+                            fontWeight: 600,
+                            background: linkedSheet ? 'rgba(99,102,241,0.1)' : 'rgba(239,68,68,0.1)',
+                            color: linkedSheet ? '#a5b4fc' : '#fca5a5',
+                            cursor: 'pointer',
+                          }}
+                          onClick={(e) => { e.stopPropagation(); setBeatSheetDropdownId(isBSOpen ? null : d.id); }}
+                        >
+                          {linkedSheet ? linkedSheet.title : 'Unassigned'}
+                        </span>
+                        {isBSOpen && (
+                          <div style={styles.inlineDropdown}>
+                            {(() => {
+                              const available = getAvailableBeatSheets(d.id);
+                              if (available.length === 0) return <div style={styles.inlineDropdownEmpty}>No available beat sheets</div>;
+                              return available.map(bs => (
+                                <button
+                                  key={bs.id}
+                                  style={styles.inlineDropdownItem}
+                                  onClick={(e) => { e.stopPropagation(); handleInlineAssignBeatSheet(d.id, bs.id); }}
+                                >
+                                  {bs.title}
+                                </button>
+                              ));
+                            })()}
+                            {linkedSheet && (
+                              <button
+                                style={{ ...styles.inlineDropdownItem, color: '#f87171', borderTop: '1px solid rgba(255,255,255,0.06)' }}
+                                onClick={(e) => { e.stopPropagation(); handleInlineAssignBeatSheet(d.id, null); }}
+                              >
+                                Unlink beat sheet
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      {/* Pay */}
+                      <td style={{ ...styles.tableTd, textAlign: 'right' }}>
+                        {d.pay != null && parseFloat(d.pay) > 0 && (
+                          <span style={{ fontWeight: 700, color: '#22c55e', fontSize: '13px' }}>
+                            ${parseFloat(d.pay).toLocaleString()}
+                          </span>
+                        )}
+                      </td>
+                      {/* Brief */}
+                      <td style={styles.tableTd}>
+                        {d.brief_url && (
+                          <a href={d.brief_url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ color: '#a5b4fc', textDecoration: 'none', fontSize: '14px' }} title={d.brief_name || 'Brief'}>
+                            📄
+                          </a>
+                        )}
+                      </td>
+                      {/* Delivered */}
+                      <td style={styles.tableTd}>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleToggleDelivered(d.id, d.delivered); }}
+                          style={{ ...styles.delivToggle, ...(d.delivered ? styles.delivToggleDone : {}), padding: '3px 10px', fontSize: '11px' }}
+                        >
+                          {d.delivered ? '✓' : '—'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // --- Schedule calendar modal ---
+  function renderScheduleCalendarModal() {
+    if (!scheduleModalDeliverable) return null;
+    const d = scheduleModalDeliverable;
+    const year = scheduleModalDate.getFullYear();
+    const month = scheduleModalDate.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const monthLabel = scheduleModalDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+    // Filter to video_post events in this month
+    const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+    const monthEvents = videoEvents.filter(ev => ev.event_type === 'video_post' && ev.start_date && ev.start_date.slice(0, 7) === monthStr);
+
+    // Which events are linked to other deliverables
+    const linkedMap = {};
+    allDeliverables.forEach(del => {
+      if (del.video_event_id) linkedMap[del.video_event_id] = del;
+    });
+
+    const cells = [];
+    for (let i = 0; i < firstDay; i++) cells.push(<div key={`blank-${i}`} />);
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const dayEvents = monthEvents.filter(ev => ev.start_date.slice(0, 10) === dateStr);
+      cells.push(
+        <div key={day} style={styles.calendarDay}>
+          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginBottom: '2px' }}>{day}</div>
+          {dayEvents.map(ev => {
+            const isLinkedToCurrent = d.video_event_id === ev.id;
+            const linkedTo = linkedMap[ev.id];
+            const isLinkedToOther = linkedTo && linkedTo.id !== d.id;
+            const isHovered = scheduleModalHoveredEvent === ev.id;
+            return (
+              <div
+                key={ev.id}
+                style={{
+                  fontSize: '10px', fontWeight: 600, padding: '2px 4px', borderRadius: '4px',
+                  marginBottom: '2px', cursor: isLinkedToOther ? 'default' : 'pointer',
+                  background: isLinkedToCurrent ? 'rgba(34,197,94,0.2)' : isLinkedToOther ? 'rgba(255,255,255,0.04)' : 'rgba(168,85,247,0.15)',
+                  color: isLinkedToCurrent ? '#4ade80' : isLinkedToOther ? 'rgba(255,255,255,0.3)' : '#c084fc',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  position: 'relative',
+                }}
+                onClick={() => { if (!isLinkedToOther) handleInlineAssignVideo(d.id, ev.id); }}
+                onMouseEnter={() => setScheduleModalHoveredEvent(ev.id)}
+                onMouseLeave={() => setScheduleModalHoveredEvent(null)}
+                title={ev.title}
+              >
+                {isLinkedToOther && '🤝 '}{ev.title}
+                {isHovered && (
+                  <div style={styles.calendarTooltip}>
+                    <div style={{ fontWeight: 700, marginBottom: '4px' }}>{ev.title}</div>
+                    <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)' }}>
+                      {new Date(ev.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                    </div>
+                    {ev.description && <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', marginTop: '2px' }}>{ev.description}</div>}
+                    {isLinkedToOther && <div style={{ fontSize: '10px', color: '#f59e0b', marginTop: '4px' }}>Linked to: {linkedTo.title}</div>}
+                    {isLinkedToCurrent && <div style={{ fontSize: '10px', color: '#4ade80', marginTop: '4px' }}>Linked to this deliverable</div>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    const currentLinkedEvent = d.video_event_id ? videoEvents.find(e => e.id === d.video_event_id) : null;
+
+    return (
+      <div style={styles.modalOverlay} onClick={() => setScheduleModalDeliverable(null)}>
+        <div style={{ ...styles.modalBox, maxWidth: 540 }} onClick={e => e.stopPropagation()}>
+          <div style={styles.modalHeader}>
+            <div>
+              <h3 style={styles.modalTitle}>Schedule: {d.title}</h3>
+              <p style={styles.modalSubtitle}>{d.sponsor_name}{d.campaign_name ? ` / ${d.campaign_name}` : ''}</p>
+            </div>
+            <button onClick={() => setScheduleModalDeliverable(null)} style={styles.modalClose} aria-label="Close">✕</button>
+          </div>
+
+          {/* Month navigation */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+            <button
+              onClick={() => setScheduleModalDate(new Date(year, month - 1, 1))}
+              style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '16px', padding: '4px 8px' }}
+            >◀</button>
+            <span style={{ fontWeight: 600, color: 'rgba(255,255,255,0.9)', fontSize: '14px' }}>{monthLabel}</span>
+            <button
+              onClick={() => setScheduleModalDate(new Date(year, month + 1, 1))}
+              style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '16px', padding: '4px 8px' }}
+            >▶</button>
+          </div>
+
+          {/* Day-of-week headers */}
+          <div style={styles.calendarGrid}>
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+              <div key={d} style={{ textAlign: 'center', fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.35)', padding: '4px 0' }}>{d}</div>
+            ))}
+            {cells}
+          </div>
+
+          {/* Unlink button */}
+          {currentLinkedEvent && (
+            <div style={{ marginTop: '14px', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>
+                Linked: <span style={{ color: '#4ade80' }}>📹 {new Date(currentLinkedEvent.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — {currentLinkedEvent.title}</span>
+              </span>
+              <button
+                onClick={() => handleInlineAssignVideo(d.id, null)}
+                style={{ background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '6px', padding: '4px 10px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Unlink current video
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={styles.page}>
       {/* Page header — Proposals drawer trigger */}
@@ -1318,11 +1534,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
         </button>
       </div>
 
-      {/* ── Campaigns (left) + Slots/Upcoming (right) ── */}
-      <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start', marginBottom: '28px' }}>
-        {/* ── LEFT PANEL: Campaigns (40%) ── */}
-        <div style={{ ...styles.columnPanel, width: '40%', flexShrink: 0, minWidth: 0 }}>
-          {/* ── Proposals drawer (slides in from the right) ── */}
+      {/* ── Proposals drawer (slides in from the right) ── */}
           {proposalsDrawerOpen && (
             <div style={styles.drawerOverlay} onClick={() => setProposalsDrawerOpen(false)}>
               <div style={styles.drawerPanel} onClick={e => e.stopPropagation()}>
@@ -1905,91 +2117,12 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
           </div>
         </details>
       )}
-        </div>
 
-        {/* ── RIGHT PANEL: Slots + Upcoming (60%) ── */}
-        <div style={{ ...styles.columnPanel, flex: 1, minWidth: 0 }}>
-      {/* ====== UPCOMING AD READS SECTION ====== */}
-      {(() => {
-        const upcomingReads = allDeliverables
-          .filter(d => !d.delivered)
-          .sort((a, b) => {
-            const evA = a.video_event_id ? videoEvents.find(e => e.id === a.video_event_id) : null;
-            const evB = b.video_event_id ? videoEvents.find(e => e.id === b.video_event_id) : null;
-            const dateA = evA?.start_date;
-            const dateB = evB?.start_date;
-            if (!dateA && !dateB) return 0;
-            if (!dateA) return 1;
-            if (!dateB) return -1;
-            return dateA.localeCompare(dateB);
-          });
-        const totalPay = upcomingReads.reduce((sum, d) => sum + (parseFloat(d.pay) || 0), 0);
-        return (
-          <div style={{ minWidth: 0 }}>
-            <div style={styles.topBar}>
-              <div>
-                <h1 style={styles.pageTitle}>Upcoming Deliverables</h1>
-                <p style={styles.pageSubtitle}>
-                  {upcomingReads.length} deliverable{upcomingReads.length !== 1 ? 's' : ''}
-                  {totalPay > 0 ? ` · $${totalPay.toLocaleString()} total` : ''}
-                </p>
-              </div>
-            </div>
+      {/* ── Upcoming Deliverables Table ── */}
+      {renderDeliverableTable()}
 
-            {/* Read Slots — below the title, above the deliverables list */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-              {[0, 1, 2].map(off => {
-                const d = new Date();
-                d.setDate(1);
-                d.setMonth(d.getMonth() + off);
-                const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-                return <div key={m} style={{ display: 'flex' }}>{renderReadSlotCard(m)}</div>;
-              })}
-            </div>
-            <div style={styles.columnDivider} />
-
-            {upcomingReads.length === 0 ? (
-              <div style={styles.emptyCard}>
-                <p style={styles.emptyText}>No upcoming deliverables. Add deliverables to sponsors above.</p>
-              </div>
-            ) : (
-              (() => {
-                // Group by video event month (already sorted ascending; unlinked last).
-                const groups = [];
-                const byKey = {};
-                for (const d of upcomingReads) {
-                  const ev = d.video_event_id ? videoEvents.find(e => e.id === d.video_event_id) : null;
-                  const evDate = ev?.start_date;
-                  const key = evDate ? evDate.slice(0, 7) : 'none';
-                  if (!byKey[key]) {
-                    byKey[key] = {
-                      key,
-                      label: evDate
-                        ? new Date(evDate.slice(0, 10) + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-                        : 'Not Scheduled',
-                      items: [],
-                    };
-                    groups.push(byKey[key]);
-                  }
-                  byKey[key].items.push(d);
-                }
-                return groups.map(g => (
-                  <div key={g.key}>
-                    <div style={styles.monthGroupTitle}>{g.label}</div>
-                    <div style={styles.upcomingGrid}>
-                      {g.items.map(d => renderUpcomingCard(d))}
-                    </div>
-                  </div>
-                ));
-              })()
-            )}
-          </div>
-        );
-      })()}
-        </div>
-      </div>
-
-      {/* Money section migrated to the Accounting page (Revenue → Mayday Media). */}
+      {/* Schedule Calendar Modal */}
+      {renderScheduleCalendarModal()}
 
       {/* ====== ADD BRIEF MODAL ====== */}
       {briefModalCampaign && (
@@ -2072,10 +2205,10 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
       )}
 
       {/* Click-away for inline dropdowns */}
-      {(videoDropdownId || beatSheetDropdownId) && (
+      {beatSheetDropdownId && (
         <div
           style={{ position: 'fixed', inset: 0, zIndex: 49 }}
-          onClick={() => { setVideoDropdownId(null); setBeatSheetDropdownId(null); }}
+          onClick={() => setBeatSheetDropdownId(null)}
         />
       )}
     </div>
@@ -2100,7 +2233,7 @@ function Modal({ title, subtitle, onClose, maxWidth = 640, children }) {
 }
 
 const styles = {
-  page: { padding: '32px 40px' },
+  page: { padding: '32px 0', maxWidth: '70%', margin: '0 auto' },
   topBar: {
     display: 'flex',
     justifyContent: 'space-between',
@@ -2362,16 +2495,35 @@ const styles = {
     fontSize: '12px', fontWeight: 600, fontFamily: 'inherit',
   },
 
-  // ── Upcoming: month groups ──
-  monthGroupTitle: {
-    fontSize: '12px', fontWeight: 700, color: 'rgba(255,255,255,0.55)',
-    textTransform: 'uppercase', letterSpacing: '0.5px',
-    margin: '14px 0 8px',
+  // ── Sortable table ──
+  table: {
+    width: '100%', borderCollapse: 'collapse', fontSize: '13px',
   },
-  upcomingGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-    gap: '10px',
+  tableTh: {
+    padding: '8px 10px', textAlign: 'left', fontSize: '11px', fontWeight: 700,
+    color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '0.4px',
+    borderBottom: '1px solid rgba(255,255,255,0.08)', whiteSpace: 'nowrap',
+  },
+  tableTd: {
+    padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.04)',
+    verticalAlign: 'middle', color: 'rgba(255,255,255,0.8)',
+  },
+
+  // ── Calendar modal grid ──
+  calendarGrid: {
+    display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '1px',
+  },
+  calendarDay: {
+    minHeight: '60px', padding: '4px', borderRadius: '4px',
+    background: 'rgba(255,255,255,0.02)',
+  },
+  calendarTooltip: {
+    position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)',
+    background: '#1e1e32', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px',
+    padding: '8px 10px', fontSize: '11px', color: '#fff', zIndex: 100,
+    minWidth: '160px', maxWidth: '240px', whiteSpace: 'normal',
+    boxShadow: '0 8px 24px rgba(0,0,0,0.5)', pointerEvents: 'none',
+    marginBottom: '4px',
   },
 
   // ── Modal ──
