@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
@@ -6,7 +6,7 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import UnifiedBoard from './projects/UnifiedBoard';
-import { labelFor as stageTaskLabel, defaultStageConfigForType } from '../lib/kanbanStages';
+import { labelFor as stageTaskLabel } from '../lib/kanbanStages';
 import { callEdgeFn } from '../lib/edgeFn';
 
 
@@ -46,7 +46,6 @@ export default function Projects({ onNavigate }) {
   const [projects, setProjects] = useState([]);
   const [teamMembers, setTeamMembers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
   const [filterStatus, setFilterStatus] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -67,20 +66,10 @@ export default function Projects({ onNavigate }) {
 
   const [showArchivedSection, setShowArchivedSection] = useState(false);
 
-
-  const formRef = useRef(null);
-
-  // Form dropdown data
+  // Dropdown data for linked-field editing (used by EditProjectModal + rows)
   const [writeDocs, setWriteDocs] = useState([]);
   const [beatSheets, setBeatSheets] = useState([]);
   const [adReadDeliverables, setAdReadDeliverables] = useState([]);
-
-  // Form state
-  const [form, setForm] = useState({
-    name: '', type: 'mayday_video', channel: '',
-    start_date: '', deadline: '', status: 'queue',
-    write_doc_id: '', write_doc_name: '', beat_sheet_id: '', ad_read_id: '',
-  });
 
   useEffect(() => {
     localStorage.setItem('projects_view', viewMode);
@@ -207,33 +196,6 @@ export default function Projects({ onNavigate }) {
     } catch (err) {
       console.error('Error fetching ad read deliverables:', err);
     }
-  }
-
-  async function handleCreateProject(e, seriesId) {
-    e.preventDefault();
-    const insert = {
-      name: form.name,
-      type: form.type,
-      channel: form.channel || null,
-      status: form.status,
-      start_date: form.start_date || null,
-      deadline: form.deadline || null,
-      series_id: seriesId || null,
-      created_by: profile.id,
-      write_doc_id: form.write_doc_id || null,
-      write_doc_name: form.write_doc_name || null,
-      beat_sheet_id: form.beat_sheet_id || null,
-      ad_read_id: form.ad_read_id || null,
-      stage_config: defaultStageConfigForType(form.type),
-    };
-    const { data: created, error } = await supabase.from('projects').insert(insert).select('id').single();
-    if (error) {
-      alert('Error creating project: ' + error.message);
-      return;
-    }
-    setForm({ name: '', type: 'mayday_video', channel: '', start_date: '', deadline: '', status: 'queue', write_doc_id: '', write_doc_name: '', beat_sheet_id: '', ad_read_id: '' });
-    setShowForm(false);
-    fetchProjects();
   }
 
   async function handleUpdateProject(projectId, updates) {
@@ -613,130 +575,7 @@ export default function Projects({ onNavigate }) {
           <h1 style={styles.pageTitle}>Projects</h1>
           <p style={styles.pageSubtitle}>{currentProjects.length + comingUpProjects.length} active{completedProjects.length > 0 ? ` · ${completedProjects.length} completed` : ''}{archivedCount > 0 ? ` · ${archivedCount} archived` : ''}</p>
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button onClick={() => setShowForm(!showForm)} style={styles.addBtn}>
-            {showForm ? '✕ Cancel' : '+ New Project'}
-          </button>
-        </div>
       </div>
-
-      {/* Create Form */}
-      {showForm && (
-        <form ref={formRef} onSubmit={handleCreateProject} style={styles.formCard}>
-          <div style={styles.formGrid}>
-            <div style={styles.field}>
-              <label style={styles.label}>Project Name *</label>
-              <input
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder="e.g. iPhone 17 Review"
-                required
-                style={styles.input}
-              />
-            </div>
-            <div style={styles.field}>
-              <label style={styles.label}>Type *</label>
-              <select
-                value={form.type}
-                onChange={(e) => setForm({ ...form, type: e.target.value })}
-                style={styles.select}
-              >
-                {PROJECT_TYPES.map(t => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
-                ))}
-              </select>
-            </div>
-            <div style={styles.field}>
-              <label style={styles.label}>Channel</label>
-              <select
-                value={form.channel}
-                onChange={(e) => setForm({ ...form, channel: e.target.value })}
-                style={styles.input}
-              >
-                <option value="">Select channel...</option>
-                {CHANNELS.map((ch) => <option key={ch} value={ch}>{ch}</option>)}
-              </select>
-            </div>
-            <div style={styles.field}>
-              <label style={styles.label}>Status</label>
-              <select
-                value={form.status}
-                onChange={(e) => setForm({ ...form, status: e.target.value })}
-                style={styles.select}
-              >
-                {STATUSES.map(s => (
-                  <option key={s} value={s}>{STATUS_LABELS[s]}</option>
-                ))}
-              </select>
-            </div>
-            <div style={styles.field}>
-              <label style={styles.label}>Start Date</label>
-              <input
-                type="date"
-                value={form.start_date}
-                onChange={(e) => setForm({ ...form, start_date: e.target.value })}
-                style={styles.input}
-              />
-            </div>
-            <div style={styles.field}>
-              <label style={styles.label}>Deadline</label>
-              <input
-                type="date"
-                value={form.deadline}
-                onChange={(e) => setForm({ ...form, deadline: e.target.value })}
-                style={styles.input}
-              />
-            </div>
-          </div>
-          <div style={styles.field}>
-            <label style={styles.label}>Write Doc</label>
-            <select
-              value={form.write_doc_id}
-              onChange={(e) => {
-                const doc = writeDocs.find(d => d.id === e.target.value);
-                setForm({ ...form, write_doc_id: e.target.value, write_doc_name: doc?.name || '' });
-              }}
-              style={styles.select}
-            >
-              <option value="">Select a doc...</option>
-              {writeDocs.map(doc => (
-                <option key={doc.id} value={doc.id}>
-                  {doc.folderName ? `${doc.folderName} / ${doc.name}` : doc.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div style={styles.field}>
-            <label style={styles.label}>Script / Beat Sheet</label>
-            <select
-              value={form.beat_sheet_id}
-              onChange={(e) => setForm({ ...form, beat_sheet_id: e.target.value })}
-              style={styles.select}
-            >
-              <option value="">Select a beat sheet...</option>
-              {beatSheets.map(bs => (
-                <option key={bs.id} value={bs.id}>{bs.title}</option>
-              ))}
-            </select>
-          </div>
-          <div style={styles.field}>
-            <label style={styles.label}>Ad Read</label>
-            <select
-              value={form.ad_read_id}
-              onChange={(e) => setForm({ ...form, ad_read_id: e.target.value })}
-              style={styles.select}
-            >
-              <option value="">Select a deliverable...</option>
-              {adReadDeliverables.map(d => (
-                <option key={d.id} value={d.id}>
-                  {d.sponsor_name}{d.campaign_name ? ` — ${d.campaign_name}` : ''}{d.title ? `: ${d.title}` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button type="submit" style={styles.submitBtn}>Create Project</button>
-        </form>
-      )}
 
       {/* Filters (list view only — kanban columns are self-filtering) */}
       <div style={styles.filterRow}>
