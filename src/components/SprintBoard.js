@@ -208,7 +208,11 @@ function AddOptionInline({ kind, value, onChange, onCommit, onCancel, busy, erro
 }
 
 // ─── TaskDetailModal ────────────────────────────────────────
-function TaskDetailModal({ task, onClose, onSave, onDelete, projects, categoryOptions, subcategoryOptions, bucketOptions, onAddOption, activeSprint }) {
+function TaskDetailModal({
+  task, onClose, onSave, onDelete,
+  projects, categoryOptions, subcategoryOptions, bucketOptions, onAddOption, activeSprint,
+  isNew, templates, onSaveTemplate, onDeleteTemplate,
+}) {
   const [form, setForm] = useState({
     content: task.content,
     category: task.category || 'administration',
@@ -226,6 +230,48 @@ function TaskDetailModal({ task, onClose, onSave, onDelete, projects, categoryOp
   const [addingLabel, setAddingLabel] = useState('');
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState(null);
+
+  // Template UI state.
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [templateNameInput, setTemplateNameInput] = useState('');
+  const [templateSaveError, setTemplateSaveError] = useState(null);
+  const [showTemplateManager, setShowTemplateManager] = useState(false);
+
+  function applyTemplate(tplId) {
+    if (!tplId) return;
+    const tpl = (templates || []).find(t => t.id === tplId);
+    if (!tpl) return;
+    setForm(f => ({
+      ...f,
+      content: tpl.content || f.content,
+      category: tpl.category || f.category,
+      subcategory: tpl.subcategory || f.subcategory,
+      bucket: tpl.bucket || '',
+      priority: tpl.priority || null,
+      project_id: tpl.project_id || '',
+    }));
+  }
+
+  async function handleSaveTemplate() {
+    const name = templateNameInput.trim();
+    if (!name) { setTemplateSaveError('Name required.'); return; }
+    if (!onSaveTemplate) return;
+    setTemplateSaveError(null);
+    try {
+      await onSaveTemplate(name, {
+        content: form.content,
+        category: form.category,
+        subcategory: form.subcategory,
+        bucket: form.bucket || null,
+        priority: form.priority || null,
+        project_id: form.project_id || null,
+      });
+      setSavingTemplate(false);
+      setTemplateNameInput('');
+    } catch (err) {
+      setTemplateSaveError(err?.message || 'Could not save.');
+    }
+  }
 
   function handleSave() {
     onSave(task.id, {
@@ -285,6 +331,36 @@ function TaskDetailModal({ task, onClose, onSave, onDelete, projects, categoryOp
           <h3 style={{ margin: 0, fontSize: '16px', color: '#fff', fontWeight: 600 }}>{task.content ? 'Edit Task' : 'New Task'}</h3>
           <button onClick={onClose} style={closeBtnStyle}>{'\u2715'}</button>
         </div>
+
+        {/* Template picker (new cards only) */}
+        {isNew && templates && templates.length > 0 && (
+          <div style={{ marginBottom: '14px', padding: '10px 12px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <label style={{ ...labelStyle, marginBottom: 0, color: '#a5b4fc', flexShrink: 0 }}>Template</label>
+              <select
+                defaultValue=""
+                onChange={e => applyTemplate(e.target.value)}
+                style={{ ...inputStyle, flex: 1 }}
+              >
+                <option value="">\u2014 None \u2014</option>
+                {templates.map(t => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => setShowTemplateManager(true)}
+                style={{ background: 'none', border: 'none', color: 'rgba(165,180,252,0.7)', fontSize: '11px', cursor: 'pointer', textDecoration: 'underline' }}
+              >
+                Manage
+              </button>
+            </div>
+          </div>
+        )}
+        {isNew && templates && templates.length === 0 && (
+          <div style={{ marginBottom: '14px', fontSize: '11px', color: 'rgba(255,255,255,0.35)', fontStyle: 'italic' }}>
+            No templates yet \u2014 save this card's setup as one below.
+          </div>
+        )}
 
         {/* Content */}
         <label style={labelStyle}>Content</label>
@@ -390,6 +466,39 @@ function TaskDetailModal({ task, onClose, onSave, onDelete, projects, categoryOp
           )}
         </div>
 
+        {/* Save as Template */}
+        {onSaveTemplate && (
+          <div style={{ marginTop: '14px', padding: '10px 12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px' }}>
+            {!savingTemplate ? (
+              <button
+                onClick={() => { setSavingTemplate(true); setTemplateNameInput(''); setTemplateSaveError(null); }}
+                style={{ background: 'none', border: 'none', color: '#a5b4fc', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}
+              >
+                + Save current layout as template
+              </button>
+            ) : (
+              <div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <input
+                    autoFocus
+                    type="text"
+                    placeholder="Template name"
+                    value={templateNameInput}
+                    onChange={e => setTemplateNameInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleSaveTemplate(); if (e.key === 'Escape') setSavingTemplate(false); }}
+                    style={{ ...inputStyle, flex: 1 }}
+                  />
+                  <button onClick={handleSaveTemplate} disabled={!templateNameInput.trim()} style={{ ...saveBtnStyle, opacity: templateNameInput.trim() ? 1 : 0.4 }}>Save</button>
+                  <button onClick={() => setSavingTemplate(false)} style={cancelBtnStyle}>Cancel</button>
+                </div>
+                {templateSaveError && (
+                  <div style={{ marginTop: '6px', fontSize: '11px', color: '#f87171' }}>{templateSaveError}</div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Actions */}
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '14px' }}>
           <button onClick={() => { onDelete(task.id); onClose(); }} style={deleteBtnStyle}>Delete</button>
@@ -398,6 +507,47 @@ function TaskDetailModal({ task, onClose, onSave, onDelete, projects, categoryOp
             <button onClick={handleSave} disabled={!form.content.trim()} style={{ ...saveBtnStyle, opacity: form.content.trim() ? 1 : 0.4 }}>Save</button>
           </div>
         </div>
+
+        {/* Template Manager sub-modal */}
+        {showTemplateManager && (
+          <div
+            style={{ ...overlayStyle, zIndex: 1100 }}
+            onMouseDown={(e) => { if (e.target === e.currentTarget) setShowTemplateManager(false); }}
+          >
+            <div style={{ ...modalStyle, maxWidth: '420px' }} onClick={e => e.stopPropagation()}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                <h3 style={{ margin: 0, fontSize: '15px', color: '#fff', fontWeight: 600 }}>Manage Templates</h3>
+                <button onClick={() => setShowTemplateManager(false)} style={closeBtnStyle}>{'✕'}</button>
+              </div>
+              {(!templates || templates.length === 0) ? (
+                <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px', margin: 0 }}>No templates yet.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {templates.map(t => (
+                    <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '6px' }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: '13px', color: '#fff', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</div>
+                        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {[t.category, t.subcategory, t.bucket && `bucket:${t.bucket}`, t.priority && `${t.priority}pts`].filter(Boolean).join(' · ') || 'No fields set'}
+                        </div>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          if (window.confirm(`Delete template "${t.name}"?`)) {
+                            if (onDeleteTemplate) await onDeleteTemplate(t.id);
+                          }
+                        }}
+                        style={{ background: 'none', border: 'none', color: '#f87171', fontSize: '12px', cursor: 'pointer', padding: '4px 8px', fontFamily: 'inherit' }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -421,6 +571,7 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
   const [projects, setProjects] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
   const [userOptions, setUserOptions] = useState({ category: [], subcategory: [], bucket: [] });
+  const [templates, setTemplates] = useState([]);
   const [showAllDone, setShowAllDone] = useState(false);
 
   // Sprint state
@@ -548,6 +699,50 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
   }, [profile?.id]);
 
   useEffect(() => { fetchUserOptions(); }, [fetchUserOptions]);
+
+  // Sprint card templates (per-user, private).
+  const fetchTemplates = useCallback(async () => {
+    if (!profile?.id) return;
+    const { data, error } = await supabase
+      .from('personal_task_templates')
+      .select('*')
+      .eq('user_id', profile.id)
+      .order('name', { ascending: true });
+    if (error) { console.error('Error fetching templates:', error); return; }
+    setTemplates(data || []);
+  }, [profile?.id]);
+
+  useEffect(() => { fetchTemplates(); }, [fetchTemplates]);
+
+  const saveTemplate = useCallback(async (name, fields) => {
+    if (!profile?.id) throw new Error('Not signed in.');
+    const row = {
+      user_id: profile.id,
+      name,
+      content: fields.content || '',
+      category: fields.category || 'administration',
+      subcategory: fields.subcategory || null,
+      bucket: fields.bucket || null,
+      priority: fields.priority || null,
+      project_id: fields.project_id || null,
+    };
+    const { error } = await supabase
+      .from('personal_task_templates')
+      .upsert(row, { onConflict: 'user_id,name' });
+    if (error) {
+      throw new Error(error.message || 'Could not save template.');
+    }
+    await fetchTemplates();
+  }, [profile?.id, fetchTemplates]);
+
+  const deleteTemplate = useCallback(async (id) => {
+    const { error } = await supabase
+      .from('personal_task_templates')
+      .delete()
+      .eq('id', id);
+    if (error) { console.error('Error deleting template:', error); return; }
+    setTemplates(prev => prev.filter(t => t.id !== id));
+  }, []);
 
   // Insert a user-specific option and return the stored value.
   // Errors bubble up so the inline input can surface them to the user.
@@ -1160,6 +1355,10 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
           bucketOptions={bucketOptions}
           onAddOption={addUserOption}
           activeSprint={activeSprint}
+          isNew={isNewTaskRef.current}
+          templates={templates}
+          onSaveTemplate={saveTemplate}
+          onDeleteTemplate={deleteTemplate}
         />
       )}
       {/* Retro modal */}
