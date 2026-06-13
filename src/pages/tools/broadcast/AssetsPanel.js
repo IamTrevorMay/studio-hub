@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { colors, spacing, radii, fontSizes, fontWeights } from '../../../lib/styleTokens';
 import { listAssets, deleteAsset } from './api';
 import AssetLibrary from './AssetLibrary';
@@ -12,6 +12,10 @@ export default function AssetsPanel({ project }) {
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  // Mirror selection in a ref so async post-load handlers can read the
+  // latest user choice instead of the value captured at call time.
+  const selectedRef = useRef(null);
+  useEffect(() => { selectedRef.current = selected; }, [selected]);
 
   async function load() {
     setLoading(true); setError(null);
@@ -41,17 +45,26 @@ export default function AssetsPanel({ project }) {
         onSelect={setSelected}
         onDelete={handleDelete}
         onUploaded={load}
-        onCreated={async (created) => { await load(); setSelected(created); }}
+        onCreated={async (created) => {
+          // Capture the selection at dispatch time; if the user has
+          // already picked something different by the time load() returns,
+          // don't clobber their choice with the freshly-uploaded asset.
+          const selBefore = selectedRef.current;
+          await load();
+          if (selectedRef.current === selBefore) setSelected(created);
+        }}
       />
       <AssetProperties
         project={project}
         asset={selected}
         onSaved={async () => {
+          const saveTarget = selectedRef.current;
           await load();
-          if (selected) {
-            const updated = (await listAssets(project.id)).assets.find((a) => a.id === selected.id);
-            if (updated) setSelected(updated);
-          }
+          if (!saveTarget) return;
+          // Only refresh selection if the user hasn't switched away.
+          if (selectedRef.current?.id !== saveTarget.id) return;
+          const updated = (await listAssets(project.id)).assets.find((a) => a.id === saveTarget.id);
+          if (updated && selectedRef.current?.id === saveTarget.id) setSelected(updated);
         }}
       />
     </div>

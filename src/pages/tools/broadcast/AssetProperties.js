@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { colors, spacing, radii, fontSizes, fontWeights } from '../../../lib/styleTokens';
 import { updateAsset } from './api';
 import SlideshowEditor from './SlideshowEditor';
@@ -12,18 +12,27 @@ export default function AssetProperties({ project, asset, onSaved }) {
   const [saving, setSaving] = useState('idle');
   const [error, setError] = useState(null);
 
+  // Track the currently-selected asset id so an in-flight PATCH started
+  // for asset X can't write its "saved" badge or fire onSaved after the
+  // user has already switched to asset Y.
+  const activeAssetIdRef = useRef(asset?.id || null);
+  useEffect(() => { activeAssetIdRef.current = asset?.id || null; }, [asset?.id]);
+
   useEffect(() => { setDraft(asset); setSaving('idle'); setError(null); }, [asset?.id]);
 
   useEffect(() => {
     if (!draft || !asset) return;
     if (sameAsset(draft, asset)) return;
+    const targetId = asset.id;
     const t = setTimeout(async () => {
       setSaving('saving');
       try {
-        await updateAsset(asset.id, sanitize(draft));
+        await updateAsset(targetId, sanitize(draft));
+        if (activeAssetIdRef.current !== targetId) return;
         setSaving('saved');
         onSaved && onSaved();
       } catch (e) {
+        if (activeAssetIdRef.current !== targetId) return;
         setSaving('error'); setError(e.message);
       }
     }, 500);

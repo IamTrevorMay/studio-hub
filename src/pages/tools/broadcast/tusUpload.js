@@ -57,7 +57,24 @@ export async function uploadAssetTus({ projectId, file, onProgress, signal }) {
       upload.start();
     }).catch(() => upload.start());
 
-    if (signal) signal.addEventListener('abort', () => upload.abort(true).catch(() => null));
+    // Wire abort, but detach the listener once the upload settles so the
+    // same AbortController (if a caller reuses one) doesn't accumulate
+    // dangling handlers for finished uploads.
+    if (signal) {
+      const onAbort = () => upload.abort(true).catch(() => null);
+      signal.addEventListener('abort', onAbort);
+      const detach = () => signal.removeEventListener('abort', onAbort);
+      const wrapResolve = (v) => { detach(); resolve(v); };
+      const wrapReject = (e) => { detach(); reject(e); };
+      // Replace closures bound above. Tus instance already captured the
+      // earlier resolve/reject, so override its handlers in place.
+      upload.options.onSuccess = () => wrapResolve({
+        storage_path: init.path,
+        public_url: init.public_url,
+        size: file.size,
+      });
+      upload.options.onError = (err) => wrapReject(err);
+    }
   });
 }
 
