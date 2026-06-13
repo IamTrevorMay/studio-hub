@@ -353,6 +353,7 @@ export default function UnifiedBoard() {
                     key={stage}
                     stage={stage}
                     projects={byStage[stage]}
+                    taskPlannedDates={taskPlannedDates}
                     canDragProject={canDrag}
                     onCardClick={(p) => setEditProject(p)}
                     onCardContextMenu={isAdmin ? (e, p) => { e.preventDefault(); setCardCtxMenu({ x: e.clientX, y: e.clientY, project: p }); } : null}
@@ -482,7 +483,7 @@ export default function UnifiedBoard() {
 
 // ─── Column ──────────────────────────────────────────────────────
 
-function Column({ stage, projects, canDragProject, onCardClick, onCardContextMenu, footer }) {
+function Column({ stage, projects, canDragProject, onCardClick, onCardContextMenu, footer, taskPlannedDates }) {
   return (
     <div style={s.column}>
       <div style={{ ...s.columnHeader, color: STAGE_COLORS[stage] }}>

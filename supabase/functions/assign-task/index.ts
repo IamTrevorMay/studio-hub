@@ -55,18 +55,25 @@ Deno.serve(async (req: Request) => {
 
     // Optional template: reuse a workflow block's action/modal as a one-off.
     // Whitelisted so a client can't set an arbitrary step_key.
-    const TEMPLATE_KEYS = ["write_ad_reads", "collect_brief", "connect_to_video"];
+    const TEMPLATE_KEYS = ["write_ad_reads", "collect_brief", "connect_to_video", "background_research"];
+    // Entity-based templates link to a deliverable/campaign record. Others
+    // (e.g. background_research) carry a link_url instead of a related entity.
+    const ENTITY_TEMPLATES = ["write_ad_reads", "collect_brief", "connect_to_video"];
     const reqStepKey = (body.step_key as string) || "direct_task";
     const stepKey = TEMPLATE_KEYS.includes(reqStepKey) ? reqStepKey : "direct_task";
-    const relType = stepKey === "direct_task" ? null : ((body.related_entity_type as string) || null);
-    const relId = stepKey === "direct_task" ? null : ((body.related_entity_id as string) || null);
+    const isEntityTemplate = ENTITY_TEMPLATES.includes(stepKey);
+    const relType = isEntityTemplate ? ((body.related_entity_type as string) || null) : null;
+    const relId = isEntityTemplate ? ((body.related_entity_id as string) || null) : null;
 
     if (!title) return jsonResp({ error: "title is required" }, 400);
     if (assigneeIds.length === 0) {
       return jsonResp({ error: "at least one assignee is required" }, 400);
     }
-    if (stepKey !== "direct_task" && !relId) {
+    if (isEntityTemplate && !relId) {
       return jsonResp({ error: "a record must be selected for this template" }, 400);
+    }
+    if (stepKey === "background_research" && !linkUrl) {
+      return jsonResp({ error: "a research doc is required for Background Research" }, 400);
     }
 
     const rows = assigneeIds.map((uid) => ({

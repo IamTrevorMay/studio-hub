@@ -2,6 +2,12 @@
 
 ## Recently Completed
 
+### Templates: Beat Sheet + Research Documents (2026-06-13)
+
+- **Beat Sheet templates**: new "New Beat Sheet" modal (name + Blank/template picker, deep-clones template beats with fresh UUIDs), kept in-editor "Save as Template" (full state incl. media) + append-into-open-sheet, added rename action. Migration `20260613000007` makes `beat_sheet_templates` universal (any authed user can update/delete).
+- **Research Documents page** (`src/pages/ResearchDocs.js`, key `research_docs`, label "Research", in Pre-Production folder, all roles): lists Google Docs from a shared Drive folder (`16qph…`), "+ New Research Document" copies a template doc (`1F3PfP…`) into the folder and opens it. Rename/delete per row. Backed by new edge function `google-drive-research` (deployed, `verify_jwt=false`, reuses `GOOGLE_DRIVE_REFRESH_TOKEN`). Old RSS/briefs/trends page relabeled "Research" → "News" (key `research` unchanged). `nav_config` updated on remote.
+- **TODO — mobile**: the new Research Documents page is desktop-only. It is NOT wired into `AppLayoutMobile.js` (separate page registry + mobile variants like `ResearchMobile.js`). It safely won't appear on mobile rather than break. Needs a mobile variant + route case (`case 'research_docs'`) added eventually.
+
 ### Mailer Phase 4 (2026-06-13)
 
 Full Phase 4 port of the Mailer tool from Triton. Admin-only newsletter

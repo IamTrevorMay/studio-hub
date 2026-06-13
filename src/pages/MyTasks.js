@@ -8,6 +8,32 @@ import { getWorkflowModal } from '../lib/workflowModals';
 
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL || '';
 
+// A blank beat (fallback when the Mayday Video template is missing/empty).
+function newBeatRow() {
+  return { id: crypto.randomUUID(), title: '', context: '', graphics: [], videos: [], notes: '' };
+}
+
+// Deep-clone template beats with fresh UUIDs so the new sheet is independent.
+// Mirrors cloneBeatsFresh in Production.js.
+function cloneBeatsFresh(items) {
+  return (items || []).map(item => {
+    if (item?.type === 'segment') {
+      return {
+        ...item,
+        id: crypto.randomUUID(),
+        children: (item.children || []).map(b => ({
+          ...b, id: crypto.randomUUID(),
+          graphics: [...(b.graphics || [])], videos: [...(b.videos || [])],
+        })),
+      };
+    }
+    return {
+      ...item, id: crypto.randomUUID(),
+      graphics: [...(item.graphics || [])], videos: [...(item.videos || [])],
+    };
+  });
+}
+
 // ─── Helpers ──────────────────────────────────────────────────
 
 function timeAgo(dateStr) {
@@ -174,6 +200,8 @@ export default function MyTasks({ onNavigate }) {
   const [openModal, setOpenModal] = useState(null); // { task, ModalComponent }
   const [confirmTask, setConfirmTask] = useState(null); // task pending confirmation
   const [deliverableMeta, setDeliverableMeta] = useState({}); // { [deliverable_id]: { title, due_date } }
+  const [projectMeta, setProjectMeta] = useState({}); // { [project_id]: { name, type } }
+  const [startingBeatSheet, setStartingBeatSheet] = useState(null); // task id being processed
   const [activeProfiles, setActiveProfiles] = useState([]); // for inline editor pickers
   const channelRef = useRef(null);
   const planRef = useRef(null);
@@ -319,6 +347,57 @@ export default function MyTasks({ onNavigate }) {
         setDeliverableMeta(map);
       });
   }, [tasks]);
+
+  // Fetch project metadata for tasks linked to projects (the Mayday Video
+  // "Start the Beat Sheet" button needs the project type + name).
+  useEffect(() => {
+    const ids = tasks
+      .filter(t => t.related_entity_type === 'project' && t.related_entity_id)
+      .map(t => t.related_entity_id);
+    if (ids.length === 0) return;
+    const unique = [...new Set(ids)];
+    supabase
+      .from('projects')
+      .select('id, name, type')
+      .in('id', unique)
+      .then(({ data }) => {
+        if (!data) return;
+        const map = {};
+        for (const p of data) map[p.id] = p;
+        setProjectMeta(map);
+      });
+  }, [tasks]);
+
+  // Create a beat sheet from the Mayday Video template (in the Mayday folder,
+  // named after the project) and jump straight into it.
+  async function startBeatSheet(task) {
+    if (startingBeatSheet) return;
+    setStartingBeatSheet(task.id);
+    try {
+      const proj = projectMeta[task.related_entity_id];
+      const sheetTitle = (proj?.name || task.title || 'Untitled').trim();
+      const { data: tpl } = await supabase
+        .from('beat_sheet_templates')
+        .select('beats')
+        .eq('name', 'Mayday Video')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const beats = (tpl?.beats && tpl.beats.length) ? cloneBeatsFresh(tpl.beats) : [newBeatRow()];
+      const { data: sheet, error } = await supabase
+        .from('beat_sheets')
+        .insert({ user_id: profile.id, title: sheetTitle, beats, folder: 'mayday' })
+        .select('id')
+        .single();
+      if (error) throw error;
+      if (onNavigate) onNavigate('production', sheet.id);
+    } catch (err) {
+      console.error('Start beat sheet error:', err);
+      alert('Failed to create beat sheet: ' + err.message);
+    } finally {
+      setStartingBeatSheet(null);
+    }
+  }
 
   useVisibilityRefresh(() => {
     fetchTasks();
@@ -629,6 +708,10 @@ export default function MyTasks({ onNavigate }) {
           const isReviewProposal = task.step_key === 'review_proposal';
           const isConfirmAutomation = task.step_key === 'confirm_automation';
           const isWriteAdRead = action.type === 'write_ad_read';
+          const isBackgroundResearch = task.step_key === 'background_research';
+          const isMaydayWrite = task.related_entity_type === 'project'
+            && task.step_key === 'write'
+            && projectMeta[task.related_entity_id]?.type === 'mayday_video';
 
           return (
             <div
@@ -660,7 +743,7 @@ export default function MyTasks({ onNavigate }) {
                       {new Date(task.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                     </span>
                   )}
-                  {task.link_url && (
+                  {task.link_url && !isBackgroundResearch && (
                     <a href={task.link_url} target="_blank" rel="noopener noreferrer" style={styles.linkBtn}>
                       {'🔗'} Open link
                     </a>
@@ -733,6 +816,14 @@ export default function MyTasks({ onNavigate }) {
                     >
                       Write It
                     </button>
+                ) : isMaydayWrite ? (
+                    <button
+                      style={styles.primaryBtn}
+                      onClick={() => startBeatSheet(task)}
+                      disabled={startingBeatSheet === task.id}
+                    >
+                      {startingBeatSheet === task.id ? 'Creating…' : 'Start the Beat Sheet'}
+                    </button>
                 ) : action.type === 'editor_picker' ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
                     <label style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', whiteSpace: 'nowrap' }}>Assign an editor</label>
@@ -771,7 +862,7 @@ export default function MyTasks({ onNavigate }) {
                       }}
                       disabled={isCompleting}
                     >
-                      {task.link_url ? 'Go To Work' : action.label}
+                      {isBackgroundResearch ? 'Start the Research' : (task.link_url ? 'Go To Work' : action.label)}
                     </button>
                 ) : !isReviewProposal && task.nav_target && onNavigate && (
                     <button

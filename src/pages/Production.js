@@ -59,6 +59,31 @@ function mapBeatsDeep(items, fn) {
   });
 }
 
+// Deep-clone a beats array with fresh UUIDs (and fresh media arrays) so the
+// copy can live in a new sheet/template without colliding on ids.
+function cloneBeatsFresh(items) {
+  return (items || []).map(item => {
+    if (isSegment(item)) {
+      return {
+        ...item,
+        id: crypto.randomUUID(),
+        children: (item.children || []).map(b => ({
+          ...b,
+          id: crypto.randomUUID(),
+          graphics: [...(b.graphics || [])],
+          videos: [...(b.videos || [])],
+        })),
+      };
+    }
+    return {
+      ...item,
+      id: crypto.randomUUID(),
+      graphics: [...(item.graphics || [])],
+      videos: [...(item.videos || [])],
+    };
+  });
+}
+
 function timeAgo(dateStr) {
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
@@ -85,7 +110,7 @@ const SOURCE_LABELS = { mlb: 'MLB', youtube: 'YouTube', espn: 'ESPN', yahoo: 'Ya
 
 // ─── component ─────────────────────────────────────────────────────────────────
 
-export default function Production() {
+export default function Production({ initialSheetId, onSheetOpened }) {
   const { profile } = useAuth();
   const confirm = useConfirm();
 
@@ -136,6 +161,12 @@ export default function Production() {
   const [templates, setTemplates] = useState([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const templateBtnRef = useRef(null);
+
+  // ── new-sheet create modal ──
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createName, setCreateName] = useState('');
+  const [createTemplateId, setCreateTemplateId] = useState(null); // null = blank
+  const [createBusy, setCreateBusy] = useState(false);
 
   // ── add menu ──
   const [showAddMenuTop, setShowAddMenuTop] = useState(false);
@@ -260,15 +291,31 @@ export default function Production() {
   }, [toast]);
 
   // ─── CRUD ───────────────────────────────────────────────────────────────────
-  const createSheet = async () => {
-    const name = prompt('Beat sheet name:');
-    if (!name || !name.trim()) return;
+  const openCreateModal = () => {
+    setCreateName('');
+    setCreateTemplateId(null);
+    setShowCreateModal(true);
+    fetchTemplates();
+  };
+
+  const confirmCreate = async () => {
+    const name = createName.trim();
+    if (!name || createBusy) return;
+    setCreateBusy(true);
+    let initialBeats = [newBeat()];
+    if (createTemplateId) {
+      const tpl = templates.find(t => t.id === createTemplateId);
+      const cloned = cloneBeatsFresh(tpl?.beats || []);
+      if (cloned.length) initialBeats = cloned;
+    }
     const { data, error } = await supabase
       .from('beat_sheets')
-      .insert({ user_id: profile.id, title: name.trim(), beats: [newBeat()] })
+      .insert({ user_id: profile.id, title: name, beats: initialBeats })
       .select()
       .single();
+    setCreateBusy(false);
     if (error) { console.error(error); return; }
+    setShowCreateModal(false);
     openSheet(data);
   };
 
@@ -337,6 +384,19 @@ export default function Production() {
     setTagInputs({});
     setExpandedContexts(new Set(flattenBeats(loadedBeats).filter(b => b.context).map(b => b.id)));
   };
+
+  // Deep link: open a specific sheet when navigated here with a target id
+  // (e.g. the "Start the Beat Sheet" button in My Tasks).
+  useEffect(() => {
+    if (!initialSheetId) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.from('beat_sheets').select('*').eq('id', initialSheetId).single();
+      if (!cancelled && data) openSheet(data);
+      if (onSheetOpened) onSheetOpened();
+    })();
+    return () => { cancelled = true; };
+  }, [initialSheetId]);
 
   const closeEditor = async () => {
     clearTimeout(saveTimer.current);
@@ -713,17 +773,20 @@ export default function Production() {
   };
 
   const loadTemplate = (template) => {
-    // Deep-clone beats with fresh UUIDs
-    const cloneItem = (item) => {
-      if (isSegment(item)) {
-        return { ...item, id: crypto.randomUUID(), children: item.children.map(b => ({ ...b, id: crypto.randomUUID(), graphics: [...(b.graphics || [])], videos: [...(b.videos || [])] })) };
-      }
-      return { ...item, id: crypto.randomUUID(), graphics: [...(item.graphics || [])], videos: [...(item.videos || [])] };
-    };
-    const cloned = (template.beats || []).map(cloneItem);
+    const cloned = cloneBeatsFresh(template.beats || []);
     setBeats(prev => [...prev, ...cloned]);
     setShowTemplates(false);
     setToast({ type: 'success', message: `Template "${template.name}" loaded.` });
+  };
+
+  const renameTemplate = async (id, currentName) => {
+    const next = window.prompt('Rename template:', currentName);
+    if (next == null) return;
+    const name = next.trim();
+    if (!name || name === currentName) return;
+    setTemplates(prev => prev.map(t => (t.id === id ? { ...t, name } : t)));
+    const { error } = await supabase.from('beat_sheet_templates').update({ name }).eq('id', id);
+    if (error) { console.error('Rename template error:', error); fetchTemplates(); }
   };
 
   const deleteTemplate = async (id, name) => {
@@ -1634,15 +1697,76 @@ export default function Production() {
     );
   };
 
+  // ── create-sheet modal (blank or from template) ──
+  const renderCreateModal = () => {
+    if (!showCreateModal) return null;
+    return (
+      <div style={styles.modalOverlay} onMouseDown={(e) => { if (e.target === e.currentTarget) setShowCreateModal(false); }}>
+        <div style={styles.modal} onClick={e => e.stopPropagation()}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <h3 style={{ margin: 0, color: 'rgba(255,255,255,0.9)', fontSize: 16 }}>New Beat Sheet</h3>
+            <button onClick={() => setShowCreateModal(false)} style={styles.iconBtn}>&times;</button>
+          </div>
+
+          <label style={styles.createLabel}>Name</label>
+          <input
+            autoFocus
+            value={createName}
+            onChange={e => setCreateName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') confirmCreate(); }}
+            placeholder="Beat sheet name..."
+            style={{ ...styles.input, width: '100%', boxSizing: 'border-box', marginBottom: 16 }}
+          />
+
+          <label style={styles.createLabel}>Start from</label>
+          <div style={styles.createOptionList}>
+            <button
+              onClick={() => setCreateTemplateId(null)}
+              style={{ ...styles.createOption, ...(createTemplateId === null ? styles.createOptionActive : {}) }}
+            >
+              <span style={styles.createRadio(createTemplateId === null)} />
+              <span style={{ flex: 1 }}>Blank</span>
+            </button>
+            {templatesLoading ? (
+              <div style={{ padding: '8px 12px', fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>Loading templates...</div>
+            ) : templates.map(t => (
+              <button
+                key={t.id}
+                onClick={() => setCreateTemplateId(t.id)}
+                style={{ ...styles.createOption, ...(createTemplateId === t.id ? styles.createOptionActive : {}) }}
+              >
+                <span style={styles.createRadio(createTemplateId === t.id)} />
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
+                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>{countBeats(t.beats || [])} beats</span>
+              </button>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
+            <button onClick={() => setShowCreateModal(false)} style={styles.btnSecondary}>Cancel</button>
+            <button
+              onClick={confirmCreate}
+              disabled={!createName.trim() || createBusy}
+              style={{ ...styles.btnPrimary, opacity: !createName.trim() || createBusy ? 0.5 : 1, cursor: !createName.trim() || createBusy ? 'default' : 'pointer' }}
+            >
+              {createBusy ? 'Creating...' : 'Create'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // ── landing page ──
   if (!activeSheet) {
     return (
       <div style={styles.page}>
+        {renderCreateModal()}
         <div style={styles.header}>
           <h1 style={styles.pageTitle}>Beat Sheet</h1>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={() => { setShowNewFolderInput(true); setNewFolderInputValue(''); }} style={styles.btnSecondary}>+ Folder</button>
-            <button onClick={createSheet} style={styles.btnPrimary}>+ New Beat Sheet</button>
+            <button onClick={openCreateModal} style={styles.btnPrimary}>+ New Beat Sheet</button>
           </div>
         </div>
 
@@ -2068,7 +2192,7 @@ export default function Production() {
           {showTemplates && (
             <div style={styles.templatesDropdown}>
               <button onClick={saveAsTemplate} style={styles.templatesSaveBtn}>
-                Save Current as Template
+                Save as Template
               </button>
               <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '4px 0' }} />
               {templatesLoading ? (
@@ -2082,7 +2206,8 @@ export default function Production() {
                       <span>{t.name}</span>
                       <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>{countBeats(t.beats || [])} beats</span>
                     </button>
-                    <button onClick={() => deleteTemplate(t.id, t.name)} style={styles.templateDelete}>&times;</button>
+                    <button onClick={() => renameTemplate(t.id, t.name)} style={styles.templateDelete} title="Rename template">&#9998;</button>
+                    <button onClick={() => deleteTemplate(t.id, t.name)} style={styles.templateDelete} title="Delete template">&times;</button>
                   </div>
                 ))
               )}
@@ -3002,9 +3127,54 @@ const styles = {
     color: 'rgba(255,255,255,0.3)',
     fontSize: 16,
     cursor: 'pointer',
-    padding: '4px 12px 4px 0',
+    padding: '4px 8px',
     flexShrink: 0,
   },
+
+  // ── create modal ──
+  createLabel: {
+    display: 'block',
+    fontSize: 12,
+    fontWeight: 600,
+    color: 'rgba(255,255,255,0.5)',
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+  },
+  createOptionList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 4,
+    maxHeight: 240,
+    overflowY: 'auto',
+  },
+  createOption: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    width: '100%',
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid transparent',
+    borderRadius: 8,
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 13,
+    fontFamily: "'DM Sans', sans-serif",
+    padding: '10px 12px',
+    textAlign: 'left',
+    cursor: 'pointer',
+  },
+  createOptionActive: {
+    background: 'rgba(99,102,241,0.15)',
+    border: '1px solid rgba(99,102,241,0.4)',
+  },
+  createRadio: (active) => ({
+    width: 14,
+    height: 14,
+    borderRadius: '50%',
+    flexShrink: 0,
+    border: active ? '4px solid #6366f1' : '2px solid rgba(255,255,255,0.25)',
+    boxSizing: 'border-box',
+  }),
 
   // ── context menu ──
   contextMenuBackdrop: {
