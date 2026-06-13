@@ -3,45 +3,12 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
-
-const FN_URL = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/google-drive-research`;
-
-// Fields collected in the create modal. `key` matches the {{token}} in the
-// template doc. The Big Question doubles as the document's name in Drive.
-const FIELDS = [
-  {
-    key: 'big_question',
-    label: 'Big Question / Working Title',
-    help: 'The central question we are seeking to answer. Often this is the title, or directly maps to it. Everything in the research serves this.',
-    multiline: false,
-    required: true,
-  },
-  {
-    key: 'scope',
-    label: 'Scope',
-    help: "The boundaries of the research: time period, specific players/teams, stat categories, era, etc. What's in bounds and what's out of bounds.",
-    multiline: true,
-  },
-  {
-    key: 'key_sources',
-    label: 'Key Sources / Where to Look',
-    help: "Direction on where to dig (Statcast, MLB Stats API, specific outlets, historical records, etc.) so researchers don't waste time hunting.",
-    multiline: true,
-  },
-  {
-    key: 'expected_output',
-    label: 'Expected Output / Format',
-    help: 'What "done" looks like: annotated notes, a structured doc with sections, key takeaways, supporting data/links. Be explicit so the handoff to the video team is smooth.',
-    multiline: true,
-  },
-];
-
-// Template tokens not collected in the modal (filled in by the researcher
-// directly in the doc). We still clear them on create so no raw {{token}}
-// text is left behind in the document.
-const CLEARED_TOKENS = ['anomalies', 'sources'];
-
-const emptyForm = () => FIELDS.reduce((acc, f) => { acc[f.key] = ''; return acc; }, {});
+import {
+  RESEARCH_FN_URL as FN_URL,
+  RESEARCH_FIELDS as FIELDS,
+  RESEARCH_CLEARED_TOKENS as CLEARED_TOKENS,
+  emptyResearchForm,
+} from '../lib/researchDocs';
 
 export default function ResearchDocs() {
   const { profile } = useAuth();
@@ -51,7 +18,7 @@ export default function ResearchDocs() {
   const [error, setError] = useState(null);
 
   const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState(emptyResearchForm);
   const [busy, setBusy] = useState(false);
 
   const [renamingId, setRenamingId] = useState(null);
@@ -97,7 +64,7 @@ export default function ResearchDocs() {
   useVisibilityRefresh(() => fetchItems());
 
   function openCreate() {
-    setForm(emptyForm());
+    setForm(emptyResearchForm());
     setShowCreate(true);
   }
 
@@ -115,7 +82,7 @@ export default function ResearchDocs() {
         fields,
       });
       setShowCreate(false);
-      setForm(emptyForm());
+      setForm(emptyResearchForm());
       fetchItems();
       if (result.url) window.open(result.url, '_blank', 'noopener,noreferrer');
     } catch (err) {

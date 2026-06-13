@@ -629,6 +629,7 @@ export default function MyTasks({ onNavigate }) {
           const isReviewProposal = task.step_key === 'review_proposal';
           const isConfirmAutomation = task.step_key === 'confirm_automation';
           const isWriteAdRead = action.type === 'write_ad_read';
+          const isBackgroundResearch = task.step_key === 'background_research';
 
           return (
             <div
@@ -660,7 +661,7 @@ export default function MyTasks({ onNavigate }) {
                       {new Date(task.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                     </span>
                   )}
-                  {task.link_url && (
+                  {task.link_url && !isBackgroundResearch && (
                     <a href={task.link_url} target="_blank" rel="noopener noreferrer" style={styles.linkBtn}>
                       {'🔗'} Open link
                     </a>
@@ -771,7 +772,7 @@ export default function MyTasks({ onNavigate }) {
                       }}
                       disabled={isCompleting}
                     >
-                      {task.link_url ? 'Go To Work' : action.label}
+                      {isBackgroundResearch ? 'Start the Research' : (task.link_url ? 'Go To Work' : action.label)}
                     </button>
                 ) : !isReviewProposal && task.nav_target && onNavigate && (
                     <button

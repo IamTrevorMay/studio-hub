@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
+import { RESEARCH_FIELDS, emptyResearchForm, listResearchDocs, createResearchDoc } from '../lib/researchDocs';
 
 const TEAM_ROLES = ['admin', 'assistant', 'member', 'partner'];
+
+const RESEARCH_NOTE = 'Fill out a research brief for an upcoming project.';
 
 const PAGES = [
   { key: 'dashboard', label: 'Dashboard' },
@@ -30,6 +33,7 @@ const TASK_TEMPLATES = [
   { key: 'write_ad_reads', label: 'Write Ad Read', entity: 'deliverable', titlePrefix: 'Write ad read' },
   { key: 'collect_brief', label: 'Add Brief', entity: 'campaign', titlePrefix: 'Add brief' },
   { key: 'connect_to_video', label: 'Connect to Video', entity: 'deliverable', titlePrefix: 'Connect to video' },
+  { key: 'background_research', label: 'Background Research', research: true, titlePrefix: 'Background Research' },
 ];
 
 // Modal version of the old Assignments page form. Hands out one-off tasks
@@ -49,6 +53,13 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
   const [recordSearch, setRecordSearch] = useState('');
   const [deliverables, setDeliverables] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
+
+  // Background Research template: link an existing research doc or create one.
+  const [researchMode, setResearchMode] = useState('existing'); // 'existing' | 'new'
+  const [researchDocs, setResearchDocs] = useState([]);
+  const [researchLoading, setResearchLoading] = useState(false);
+  const [selectedDocUrl, setSelectedDocUrl] = useState('');
+  const [researchForm, setResearchForm] = useState(emptyResearchForm);
 
   const fetchData = useCallback(async () => {
     try {
@@ -113,10 +124,32 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
     return q ? list.filter(r => r.label.toLowerCase().includes(q)) : list;
   }, [activeTemplate, campaigns, deliverables, recordSearch]);
 
+  const fetchResearchDocs = useCallback(async () => {
+    setResearchLoading(true);
+    try {
+      const data = await listResearchDocs();
+      setResearchDocs(data.items || []);
+    } catch (err) {
+      console.error('Fetch research docs error:', err);
+      if (showToast) showToast('Failed to load research docs', 'error');
+    } finally {
+      setResearchLoading(false);
+    }
+  }, [showToast]);
+
   const onPickTemplate = (key) => {
     setTemplate(key);
     setRecordId('');
     setRecordSearch('');
+    const tpl = TASK_TEMPLATES.find(t => t.key === key);
+    if (tpl?.research) {
+      setNotes(RESEARCH_NOTE);
+      setTitle(prev => prev.trim() ? prev : 'Background Research');
+      setResearchMode('existing');
+      setSelectedDocUrl('');
+      setResearchForm(emptyResearchForm());
+      fetchResearchDocs();
+    }
   };
   const onPickRecord = (rec) => {
     setRecordId(rec.id);
@@ -124,16 +157,38 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
     if (activeTemplate) setTitle(`${activeTemplate.titlePrefix}: ${rec.label}`);
   };
 
+  const isResearch = !!activeTemplate?.research;
+  const researchReady = !isResearch || (researchMode === 'existing'
+    ? !!selectedDocUrl
+    : !!researchForm.big_question.trim());
+
   const resetForm = () => {
     setTitle(''); setAssignees([]); setDueDate(''); setNotes(''); setLink(''); setNavTarget('');
     setTemplate(''); setRecordId(''); setRecordSearch('');
+    setResearchMode('existing'); setSelectedDocUrl(''); setResearchForm(emptyResearchForm());
   };
 
   const handleAssign = async () => {
     if (!title.trim() || assignees.length === 0) return;
-    if (activeTemplate && !recordId) return;
+    if (activeTemplate && !isResearch && !recordId) return;
+    if (isResearch && !researchReady) return;
     setSubmitting(true);
     try {
+      let linkUrl = link.trim() || null;
+
+      // Background Research: resolve the doc URL (create one if needed).
+      if (isResearch) {
+        if (researchMode === 'new') {
+          const doc = await createResearchDoc({
+            name: researchForm.big_question.trim(),
+            form: researchForm,
+          });
+          linkUrl = doc.url;
+        } else {
+          linkUrl = selectedDocUrl;
+        }
+      }
+
       const { data, error } = await supabase.functions.invoke('assign-task', {
         body: {
           op: 'create',
@@ -141,13 +196,15 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
           assignee_ids: assignees,
           due_date: dueDate || null,
           notes: notes.trim() || null,
-          link_url: link.trim() || null,
+          link_url: linkUrl,
           nav_target: navTarget || null,
-          ...(activeTemplate ? {
+          ...(activeTemplate ? (isResearch ? {
+            step_key: activeTemplate.key,
+          } : {
             step_key: activeTemplate.key,
             related_entity_type: activeTemplate.entity,
             related_entity_id: recordId,
-          } : {}),
+          }) : {}),
         },
       });
       if (error || data?.error) throw new Error(error?.message || data?.error);
@@ -163,7 +220,9 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
     }
   };
 
-  const canAssign = title.trim() && assignees.length > 0 && (!activeTemplate || recordId) && !submitting;
+  const canAssign = title.trim() && assignees.length > 0
+    && (!activeTemplate || isResearch || recordId)
+    && researchReady && !submitting;
 
   if (!open) return null;
 
@@ -193,7 +252,7 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
             {TASK_TEMPLATES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
           </select>
 
-          {activeTemplate && (
+          {activeTemplate && !isResearch && (
             <div style={{ marginTop: 10 }}>
               <div style={styles.fieldLabel}>
                 {activeTemplate.entity === 'campaign' ? 'Campaign' : 'Deliverable'}
@@ -220,6 +279,64 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
                 <div style={styles.recordPicked}>
                   ✓ {recordSearch}
                   <button style={styles.recordClear} onClick={() => { setRecordId(''); setRecordSearch(''); }}>change</button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {isResearch && (
+            <div style={{ marginTop: 10 }}>
+              <div style={styles.fieldLabel}>
+                Research document
+                {!researchReady && <span style={{ color: '#f87171', marginLeft: 6 }}>required</span>}
+              </div>
+              <div style={styles.segmentRow}>
+                <button
+                  type="button"
+                  style={{ ...styles.segmentBtn, ...(researchMode === 'existing' ? styles.segmentBtnOn : {}) }}
+                  onClick={() => setResearchMode('existing')}
+                >Use existing</button>
+                <button
+                  type="button"
+                  style={{ ...styles.segmentBtn, ...(researchMode === 'new' ? styles.segmentBtnOn : {}) }}
+                  onClick={() => setResearchMode('new')}
+                >Create new</button>
+              </div>
+
+              {researchMode === 'existing' ? (
+                <select
+                  style={{ ...styles.input, marginTop: 8 }}
+                  value={selectedDocUrl}
+                  onChange={e => setSelectedDocUrl(e.target.value)}
+                >
+                  <option value="">{researchLoading ? 'Loading…' : 'Select a research doc…'}</option>
+                  {researchDocs.map(d => <option key={d.id} value={d.url}>{d.name}</option>)}
+                </select>
+              ) : (
+                <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {RESEARCH_FIELDS.map(f => (
+                    <div key={f.key}>
+                      <div style={styles.fieldLabel}>
+                        {f.label}
+                        {f.required && !researchForm[f.key].trim() && <span style={{ color: '#f87171', marginLeft: 6 }}>required</span>}
+                      </div>
+                      <p style={styles.researchHelp}>{f.help}</p>
+                      {f.multiline ? (
+                        <textarea
+                          style={styles.textarea}
+                          rows={2}
+                          value={researchForm[f.key]}
+                          onChange={e => setResearchForm(prev => ({ ...prev, [f.key]: e.target.value }))}
+                        />
+                      ) : (
+                        <input
+                          style={styles.input}
+                          value={researchForm[f.key]}
+                          onChange={e => setResearchForm(prev => ({ ...prev, [f.key]: e.target.value }))}
+                        />
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -374,4 +491,12 @@ const styles = {
     marginLeft: 'auto', background: 'none', border: 'none', color: '#a5b4fc',
     fontSize: 11, cursor: 'pointer', textDecoration: 'underline', fontFamily: 'inherit',
   },
+  segmentRow: { display: 'flex', gap: 6 },
+  segmentBtn: {
+    flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)',
+    color: 'rgba(255,255,255,0.7)', borderRadius: 8, padding: '7px 10px', fontSize: 12.5,
+    cursor: 'pointer', fontFamily: 'inherit',
+  },
+  segmentBtnOn: { background: 'rgba(99,102,241,0.25)', border: '1px solid rgba(99,102,241,0.6)', color: '#c7d2fe', fontWeight: 600 },
+  researchHelp: { fontSize: 11, fontStyle: 'italic', color: 'rgba(255,255,255,0.4)', margin: '0 0 6px', lineHeight: 1.4 },
 };
