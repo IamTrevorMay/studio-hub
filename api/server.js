@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
+const path = require('path');
 
 const nasRouter = require('./routes/nas');
 
@@ -16,7 +17,7 @@ const app = express();
 const PORT = process.env.PORT || 4400;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 
 // Health check
 app.get('/health', (req, res) => {
@@ -28,6 +29,22 @@ if (driveRouter) app.use('/api/drive', driveRouter);
 if (discordRouter) app.use('/api/discord', discordRouter);
 if (kanbanRouter) app.use('/api/kanban', kanbanRouter);
 app.use('/api/nas', nasRouter);
+
+// Vercel-style serverless handlers live in api/broadcast/*.js as
+// `module.exports = async (req, res) => {...}`. Mount each one at
+// /api/broadcast/<name> so local dev exercises the same code path that
+// runs in production. Add new files here and they show up
+// automatically — no manual route table needed.
+const broadcastDir = path.join(__dirname, 'broadcast');
+if (fs.existsSync(broadcastDir)) {
+  for (const file of fs.readdirSync(broadcastDir)) {
+    if (!file.endsWith('.js')) continue;
+    const slug = file.replace(/\.js$/, '');
+    const handler = require(path.join(broadcastDir, file));
+    if (typeof handler !== 'function') continue;
+    app.all(`/api/broadcast/${slug}`, (req, res) => handler(req, res));
+  }
+}
 
 // Global error handler
 app.use((err, req, res, next) => {
