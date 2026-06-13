@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import KanbanPanel from './workflows/KanbanPanel';
+import MemberAssignmentModal from '../components/MemberAssignmentModal';
+import ContractorAssignmentModal from '../components/ContractorAssignmentModal';
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -47,6 +49,11 @@ export default function Workflows() {
   const [showNewAutoModal, setShowNewAutoModal] = useState(false);
   const [newAutoName, setNewAutoName] = useState('');
   const [newAutoTriggerType, setNewAutoTriggerType] = useState('schedule');
+
+  // ── Assignment modals ──
+  const [assignMenuOpen, setAssignMenuOpen] = useState(false);
+  const [memberAssignOpen, setMemberAssignOpen] = useState(false);
+  const [contractorAssignOpen, setContractorAssignOpen] = useState(false);
 
   // ── Context menu (right-click) ──
   const [ctxMenu, setCtxMenu] = useState(null); // { x, y, type: 'board'|'automation', item }
@@ -641,6 +648,19 @@ export default function Workflows() {
         </div>
       )}
 
+      {/* Assignment modals */}
+      <MemberAssignmentModal
+        open={memberAssignOpen}
+        onClose={() => setMemberAssignOpen(false)}
+        showToast={showToast}
+      />
+      <ContractorAssignmentModal
+        open={contractorAssignOpen}
+        onClose={() => setContractorAssignOpen(false)}
+        showToast={showToast}
+        currentUserId={profile?.id}
+      />
+
       {/* ── Drilled into a Flow ── */}
       {drilledView?.type === 'flow' && (
         <KanbanPanel
@@ -1061,6 +1081,44 @@ export default function Workflows() {
       {/* ── GRID OVERVIEW ── */}
       {!drilledView && (
       <>
+      {/* Page header: title + Assignment dropdown */}
+      <div style={styles.pageHeader}>
+        <h1 style={styles.pageTitle}>Workflows</h1>
+        <div style={{ position: 'relative' }}>
+          <button
+            style={styles.assignBtn}
+            onClick={() => setAssignMenuOpen(v => !v)}
+          >
+            + Assignment
+            <span style={{ fontSize: 10, marginLeft: 4, opacity: 0.7 }}>▾</span>
+          </button>
+          {assignMenuOpen && (
+            <>
+              <div
+                style={styles.assignMenuBackdrop}
+                onClick={() => setAssignMenuOpen(false)}
+              />
+              <div style={styles.assignMenu}>
+                <button
+                  style={styles.assignMenuItem}
+                  onClick={() => { setAssignMenuOpen(false); setMemberAssignOpen(true); }}
+                >
+                  <div style={styles.assignMenuLabel}>Member</div>
+                  <div style={styles.assignMenuDesc}>Team/assistant/partner — one-off task</div>
+                </button>
+                <button
+                  style={styles.assignMenuItem}
+                  onClick={() => { setAssignMenuOpen(false); setContractorAssignOpen(true); }}
+                >
+                  <div style={styles.assignMenuLabel}>Contractor</div>
+                  <div style={styles.assignMenuDesc}>Freelancer — paid assignment</div>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
       {/* Top row: Flows (75%) + Automations (25%) */}
       <div style={styles.gridRow}>
         {/* ── Flows section ── */}
@@ -1311,6 +1369,73 @@ const styles = {
     padding: '24px 32px',
     minHeight: '100vh',
     position: 'relative',
+  },
+
+  // Page header (above grid)
+  pageHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 18,
+  },
+  pageTitle: {
+    fontSize: 22,
+    fontWeight: 800,
+    color: '#fff',
+    margin: 0,
+  },
+  assignBtn: {
+    background: '#6366f1',
+    color: '#fff',
+    border: 'none',
+    borderRadius: 8,
+    padding: '8px 16px',
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    display: 'flex',
+    alignItems: 'center',
+  },
+  assignMenuBackdrop: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 998,
+  },
+  assignMenu: {
+    position: 'absolute',
+    top: '100%',
+    right: 0,
+    marginTop: 6,
+    minWidth: 260,
+    background: '#1e1e2e',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: 10,
+    padding: 6,
+    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+    zIndex: 999,
+  },
+  assignMenuItem: {
+    display: 'block',
+    width: '100%',
+    textAlign: 'left',
+    background: 'none',
+    border: 'none',
+    borderRadius: 6,
+    padding: '10px 12px',
+    color: '#fff',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  assignMenuLabel: {
+    fontSize: 14,
+    fontWeight: 700,
+    color: '#fff',
+  },
+  assignMenuDesc: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.45)',
+    marginTop: 2,
   },
 
   // Grid overview

@@ -42,7 +42,6 @@ import FreelancerDocuments from './FreelancerDocuments';
 import Freelancers from './Freelancers';
 import Ideas from './Ideas';
 import MyTasks from './MyTasks';
-import Assignments from './Assignments';
 import Jobs from './Jobs';
 import Workflows from './Workflows';
 import Ops from './Ops';
@@ -57,7 +56,6 @@ import PageErrorBoundary from '../components/PageErrorBoundary';
 const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard', icon: DashboardIcon },
   { key: 'my_tasks', label: 'My Tasks', icon: MyTasksIcon },
-  { key: 'assignments', label: 'Assignments', icon: AssignmentsIcon, adminOnly: true },
   { key: 'projects', label: 'Projects', icon: ProjectsIcon },
   { key: 'ideas', label: 'Ideas', icon: ResourcesIcon },
   { key: 'production', label: 'Beat Sheet', icon: ProductionIcon },
@@ -94,7 +92,7 @@ const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', '
 
 // ─── Modes ──────────────────────────────────────────────────
 // Admin-only pages that live in Admin Mode and are hidden from the Work View.
-const ADMIN_PAGE_KEYS = ['assignments', 'payroll', 'analytics', 'tracking', 'accounting', 'business_dev', 'freelancers', 'workflows', 'jobs', 'invoicing', 'ops'];
+const ADMIN_PAGE_KEYS = ['payroll', 'analytics', 'tracking', 'accounting', 'business_dev', 'freelancers', 'workflows', 'jobs', 'invoicing', 'ops'];
 // Everyday anchors kept at the top of the Admin Mode sidebar.
 const ADMIN_ESSENTIAL_KEYS = ['dashboard', 'my_tasks', 'projects', 'calendar', 'messages'];
 // Admin Mode sidebar: essentials, a divider, then the admin pages + settings.
@@ -105,7 +103,6 @@ const ADMIN_MODE_NAV = [
   { type: 'item', key: 'calendar', label: 'Calendar' },
   { type: 'item', key: 'messages', label: 'Messages' },
   { type: 'divider' },
-  { type: 'item', key: 'assignments', label: 'Assignments' },
   { type: 'item', key: 'payroll', label: 'Payroll' },
   { type: 'item', key: 'analytics', label: 'Analytics' },
   { type: 'item', key: 'tracking', label: 'Tracking' },
@@ -165,7 +162,6 @@ function openTritonTool(targetPath) {
 const NAV_ICON_MAP = {
   dashboard: DashboardIcon,
   my_tasks: MyTasksIcon,
-  assignments: AssignmentsIcon,
   write: ResourcesIcon,
   production: ProductionIcon,
   screenwriter: IdeationIcon,
@@ -209,7 +205,13 @@ export default function AppLayout() {
   const { profile, signOut, isAdmin, isAssistant, isPartner, isFreelancer, restrictedNavKeys } = useAuth();
   const { unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, newAssignmentCount, myTaskCount, stuckCommentCount, refreshNotifications } = useNotifications();
   const { getResolvedNav, saveConfig, saving } = useNavConfig();
-  const [activeTab, setActiveTab] = useState(() => getTabFromPath() || localStorage.getItem('studio-hub-tab') || 'dashboard');
+  const [activeTab, setActiveTab] = useState(() => {
+    const fromPath = getTabFromPath();
+    if (fromPath) return fromPath;
+    const stored = localStorage.getItem('studio-hub-tab');
+    if (stored && VALID_TAB_KEYS.has(stored)) return stored;
+    return 'dashboard';
+  });
   const [mode, setMode] = useState(() => localStorage.getItem('studio-hub-mode') === 'admin' ? 'admin' : 'work');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [navTarget, setNavTarget] = useState(null);
@@ -243,7 +245,7 @@ export default function AppLayout() {
   // On load (and when mode flips), keep the open page consistent with the mode.
   useEffect(() => {
     if (mode === 'admin' && isAdmin) {
-      if (!ADMIN_MODE_KEYS.has(activeTab)) setActiveTab('assignments');
+      if (!ADMIN_MODE_KEYS.has(activeTab)) setActiveTab('workflows');
     } else if (ADMIN_PAGE_KEYS.includes(activeTab)) {
       setActiveTab('dashboard');
     }
@@ -272,7 +274,7 @@ export default function AppLayout() {
   function toggleMode() {
     if (mode === 'work') {
       setMode('admin');
-      if (!ADMIN_MODE_KEYS.has(activeTab)) setActiveTab('assignments');
+      if (!ADMIN_MODE_KEYS.has(activeTab)) setActiveTab('workflows');
     } else {
       setMode('work');
       if (ADMIN_PAGE_KEYS.includes(activeTab)) setActiveTab('dashboard');
@@ -753,7 +755,6 @@ export default function AppLayout() {
         <div ref={mainContentRef} style={styles.mainContent}>
           {activeTab === 'dashboard' && <PageErrorBoundary key="dashboard"><Dashboard onNavigate={navigateTo} /></PageErrorBoundary>}
           {activeTab === 'my_tasks' && <PageErrorBoundary key="my_tasks"><MyTasks onNavigate={navigateTo} /></PageErrorBoundary>}
-          {isAdmin && activeTab === 'assignments' && <PageErrorBoundary key="assignments"><Assignments /></PageErrorBoundary>}
           {activeTab === 'projects' && <PageErrorBoundary key="projects"><Projects onNavigate={navigateTo} /></PageErrorBoundary>}
           {activeTab === 'deliverables' && <PageErrorBoundary key="deliverables"><Deliverables initialCampaignId={navTarget} onCampaignOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {activeTab === 'calendar' && <PageErrorBoundary key="calendar"><Calendar onNavigate={navigateTo} /></PageErrorBoundary>}
@@ -1176,16 +1177,6 @@ function WorkflowsIcon({ active }) {
       <circle cx="15" cy="10" r="2" />
       <circle cx="10" cy="17" r="2" />
       <path d="M10 5v3M8 9l-1.5-1M12 9l1.5-1M7 11l1.5 4.5M13 11l-1.5 4.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function AssignmentsIcon({ active }) {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
-      <rect x="4" y="3" width="12" height="14" rx="2" />
-      <path d="M7.5 3.5h5v2h-5z" fill={active ? '#a5b4fc' : '#6b7280'} stroke="none" />
-      <path d="M7 9.5l1.3 1.3L11 8.2M7 13.5h4" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
