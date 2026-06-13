@@ -1,4 +1,4 @@
-// Thin fetch wrapper for the broadcast routes. Mirrors mailer/api.js.
+// Thin fetch wrapper for the broadcast routes.
 
 import { supabase } from '../../../supabaseClient';
 

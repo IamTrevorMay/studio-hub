@@ -66,7 +66,7 @@ const NAV_ITEMS = [
   { key: 'post_show', label: 'Clipping Tool', icon: ToolsIcon },
   { key: 'timeline', label: 'Timeline', icon: ToolsIcon },
   { key: 'report_cards', label: 'Report Cards', icon: ToolsIcon, adminOnly: true, hidden: true },
-  { key: 'mailer', label: 'Mailer', icon: ToolsIcon, adminOnly: true, hidden: true },
+  { key: 'mailer', label: 'Mailer', icon: ToolsIcon, adminOnly: true },
   { key: 'graphics', label: 'Graphics', icon: ToolsIcon },
   { key: 'assets', label: 'Assets Library', icon: ResourcesIcon, external: { url: 'https://www.mayday.systems/' } },
   { key: 'reviews', label: 'Reviews', icon: ReviewsIcon },
