@@ -48,7 +48,7 @@ const NAV_ITEMS = [
   { key: 'projects', label: 'Projects' },
   { key: 'resources', label: 'Resources' },
   { key: 'analytics', label: 'Analytics', adminOnly: true },
-  { key: 'research', label: 'Research' },
+  { key: 'research', label: 'News' },
   { key: 'calendar', label: 'Calendar' },
   { key: 'goals', label: 'Goals' },
   { key: 'business_dev', label: 'Business Dev', adminOnly: true },

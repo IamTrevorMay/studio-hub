@@ -19,6 +19,7 @@ import Analytics from './analytics/Analytics';
 import Tracking from './Tracking';
 import Accounting from './Accounting';
 import Research from './Research';
+import ResearchDocs from './ResearchDocs';
 import BusinessDev from './BusinessDev';
 import Invoicing from './Invoicing';
 import Payroll from './Payroll';
@@ -59,6 +60,7 @@ const NAV_ITEMS = [
   { key: 'projects', label: 'Projects', icon: ProjectsIcon },
   { key: 'ideas', label: 'Ideas', icon: ResourcesIcon },
   { key: 'production', label: 'Beat Sheet', icon: ProductionIcon },
+  { key: 'research_docs', label: 'Research', icon: ResourcesIcon },
   { key: 'screenwriter', label: 'Screenwriter', icon: IdeationIcon },
   { key: 'teleprompter', label: 'Teleprompter', icon: ToolsIcon },
   { key: 'broadcast', label: 'Broadcast', icon: ToolsIcon, adminOnly: true, hidden: true },
@@ -76,7 +78,7 @@ const NAV_ITEMS = [
   { key: 'analytics', label: 'Analytics', icon: AnalyticsIcon, adminOnly: true },
   { key: 'tracking', label: 'Tracking', icon: AnalyticsIcon, adminOnly: true },
   { key: 'accounting', label: 'Accounting', icon: ExpensesIcon, adminOnly: true },
-  { key: 'research', label: 'Research', icon: ResearchIcon },
+  { key: 'research', label: 'News', icon: ResearchIcon },
   { key: 'calendar', label: 'Calendar', icon: CalendarIcon },
   { key: 'business_dev', label: 'Business Dev', icon: BusinessDevIcon, adminOnly: true },
   { key: 'payroll', label: 'Payroll', icon: PayrollIcon, adminOnly: true },
@@ -164,6 +166,7 @@ const NAV_ICON_MAP = {
   my_tasks: MyTasksIcon,
   write: ResourcesIcon,
   production: ProductionIcon,
+  research_docs: ResourcesIcon,
   screenwriter: IdeationIcon,
   teleprompter: ToolsIcon,
   broadcast: ToolsIcon,
@@ -776,6 +779,7 @@ export default function AppLayout() {
           {isAdmin && activeTab === 'tracking' && <PageErrorBoundary key="tracking"><Tracking /></PageErrorBoundary>}
           {isAdmin && activeTab === 'accounting' && <PageErrorBoundary key="accounting"><Accounting /></PageErrorBoundary>}
           {activeTab === 'research' && <PageErrorBoundary key="research"><Research /></PageErrorBoundary>}
+          {activeTab === 'research_docs' && <PageErrorBoundary key="research_docs"><ResearchDocs /></PageErrorBoundary>}
           {activeTab === 'reviews' && <PageErrorBoundary key="reviews"><Reviews /></PageErrorBoundary>}
           {(isAdmin || isPartner) && activeTab === 'business_dev' && <PageErrorBoundary key="business_dev"><BusinessDev /></PageErrorBoundary>}
           {isAdmin && activeTab === 'payroll' && <PageErrorBoundary key="payroll"><Payroll /></PageErrorBoundary>}
