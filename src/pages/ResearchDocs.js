@@ -6,6 +6,43 @@ import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 const FN_URL = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/google-drive-research`;
 
+// Fields collected in the create modal. `key` matches the {{token}} in the
+// template doc. The Big Question doubles as the document's name in Drive.
+const FIELDS = [
+  {
+    key: 'big_question',
+    label: 'Big Question / Working Title',
+    help: 'The central question we are seeking to answer. Often this is the title, or directly maps to it. Everything in the research serves this.',
+    multiline: false,
+    required: true,
+  },
+  {
+    key: 'scope',
+    label: 'Scope',
+    help: "The boundaries of the research: time period, specific players/teams, stat categories, era, etc. What's in bounds and what's out of bounds.",
+    multiline: true,
+  },
+  {
+    key: 'key_sources',
+    label: 'Key Sources / Where to Look',
+    help: "Direction on where to dig (Statcast, MLB Stats API, specific outlets, historical records, etc.) so researchers don't waste time hunting.",
+    multiline: true,
+  },
+  {
+    key: 'expected_output',
+    label: 'Expected Output / Format',
+    help: 'What "done" looks like: annotated notes, a structured doc with sections, key takeaways, supporting data/links. Be explicit so the handoff to the video team is smooth.',
+    multiline: true,
+  },
+];
+
+// Template tokens not collected in the modal (filled in by the researcher
+// directly in the doc). We still clear them on create so no raw {{token}}
+// text is left behind in the document.
+const CLEARED_TOKENS = ['anomalies', 'sources'];
+
+const emptyForm = () => FIELDS.reduce((acc, f) => { acc[f.key] = ''; return acc; }, {});
+
 export default function ResearchDocs() {
   const { profile } = useAuth();
   const confirm = useConfirm();
@@ -14,7 +51,7 @@ export default function ResearchDocs() {
   const [error, setError] = useState(null);
 
   const [showCreate, setShowCreate] = useState(false);
-  const [newTitle, setNewTitle] = useState('');
+  const [form, setForm] = useState(emptyForm);
   const [busy, setBusy] = useState(false);
 
   const [renamingId, setRenamingId] = useState(null);
@@ -59,17 +96,26 @@ export default function ResearchDocs() {
 
   useVisibilityRefresh(() => fetchItems());
 
+  function openCreate() {
+    setForm(emptyForm());
+    setShowCreate(true);
+  }
+
   async function handleCreate(e) {
     e.preventDefault();
-    if (!newTitle.trim() || busy) return;
+    const name = form.big_question.trim();
+    if (!name || busy) return;
     setBusy(true);
     try {
+      const fields = FIELDS.reduce((acc, f) => { acc[f.key] = form[f.key].trim(); return acc; }, {});
+      CLEARED_TOKENS.forEach((k) => { fields[k] = ''; });
       const result = await callFn('POST', {
         action: 'create-from-template',
-        name: newTitle.trim(),
+        name,
+        fields,
       });
-      setNewTitle('');
       setShowCreate(false);
+      setForm(emptyForm());
       fetchItems();
       if (result.url) window.open(result.url, '_blank', 'noopener,noreferrer');
     } catch (err) {
@@ -110,28 +156,53 @@ export default function ResearchDocs() {
     <div style={styles.page}>
       <div style={styles.topBar}>
         <h1 style={styles.pageTitle}>Research</h1>
-        <button
-          onClick={() => { setShowCreate(v => !v); setNewTitle(''); }}
-          style={styles.addBtn}
-        >
-          {showCreate ? '✕ Cancel' : '+ New Research Document'}
+        <button onClick={openCreate} style={styles.addBtn}>
+          + New Research Document
         </button>
       </div>
 
       {showCreate && (
-        <form onSubmit={handleCreate} style={styles.createForm}>
-          <input
-            autoFocus
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-            placeholder="Document title..."
-            required
-            style={styles.input}
-          />
-          <button type="submit" disabled={busy} style={styles.submitBtn}>
-            {busy ? 'Creating...' : 'Create'}
-          </button>
-        </form>
+        <div
+          style={styles.modalOverlay}
+          onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) setShowCreate(false); }}
+        >
+          <form onSubmit={handleCreate} style={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h2 style={styles.modalTitle}>New Research Document</h2>
+              <button type="button" onClick={() => !busy && setShowCreate(false)} style={styles.modalClose}>✕</button>
+            </div>
+            <div style={styles.modalBody}>
+              {FIELDS.map((f) => (
+                <div key={f.key} style={styles.field}>
+                  <label style={styles.fieldLabel}>{f.label}</label>
+                  <p style={styles.fieldHelp}>{f.help}</p>
+                  {f.multiline ? (
+                    <textarea
+                      value={form[f.key]}
+                      onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                      rows={3}
+                      style={{ ...styles.input, resize: 'vertical', minHeight: 64 }}
+                    />
+                  ) : (
+                    <input
+                      autoFocus
+                      value={form[f.key]}
+                      onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                      required={f.required}
+                      style={styles.input}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+            <div style={styles.modalFooter}>
+              <button type="button" onClick={() => !busy && setShowCreate(false)} style={styles.cancelBtn}>Cancel</button>
+              <button type="submit" disabled={busy || !form.big_question.trim()} style={styles.submitBtn}>
+                {busy ? 'Creating...' : 'Create'}
+              </button>
+            </div>
+          </form>
+        </div>
       )}
 
       {error && (
@@ -202,9 +273,19 @@ const styles = {
   topBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', gap: '16px' },
   pageTitle: { fontSize: '28px', fontWeight: 700, color: '#ffffff', margin: 0, letterSpacing: '-0.5px' },
   addBtn: { padding: '10px 20px', background: 'linear-gradient(135deg, #6366f1, #818cf8)', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' },
-  createForm: { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', padding: '20px', marginBottom: '24px', display: 'flex', gap: '12px' },
-  input: { flex: 1, padding: '10px 14px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', fontFamily: 'inherit', outline: 'none' },
+  input: { width: '100%', boxSizing: 'border-box', padding: '10px 14px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', fontFamily: 'inherit', outline: 'none' },
   submitBtn: { padding: '10px 20px', background: '#6366f1', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' },
+  cancelBtn: { padding: '10px 20px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#e2e8f0', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  modalOverlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '24px' },
+  modal: { background: '#15151f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', width: '640px', maxWidth: '100%', maxHeight: '88vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 64px rgba(0,0,0,0.5)' },
+  modalHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px', borderBottom: '1px solid rgba(255,255,255,0.07)' },
+  modalTitle: { fontSize: '18px', fontWeight: 700, color: '#fff', margin: 0 },
+  modalClose: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', fontSize: '16px', cursor: 'pointer', padding: '4px 8px' },
+  modalBody: { padding: '20px 24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '18px' },
+  modalFooter: { display: 'flex', justifyContent: 'flex-end', gap: '10px', padding: '16px 24px', borderTop: '1px solid rgba(255,255,255,0.07)' },
+  field: { display: 'flex', flexDirection: 'column', gap: '6px' },
+  fieldLabel: { fontSize: '14px', fontWeight: 600, color: '#fff' },
+  fieldHelp: { fontSize: '12px', fontStyle: 'italic', color: 'rgba(255,255,255,0.45)', margin: 0, lineHeight: 1.4 },
   list: { display: 'flex', flexDirection: 'column', gap: '8px' },
   row: { display: 'flex', alignItems: 'center', gap: '14px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', padding: '14px 18px', cursor: 'pointer' },
   rowIcon: { fontSize: '18px', flexShrink: 0 },

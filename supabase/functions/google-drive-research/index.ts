@@ -110,9 +110,10 @@ Deno.serve(async (req: Request) => {
       const body = await req.json();
       const action = body.action;
 
-      // ── Create a new research doc by copying the template ──
+      // ── Create a new research doc by copying the template, then merge
+      //    the submitted field values into the {{token}} placeholders. ──
       if (action === "create-from-template") {
-        const { name } = body;
+        const { name, fields } = body;
         if (!name?.trim()) throw new Error("name is required");
 
         const res = await fetch(
@@ -135,6 +136,30 @@ Deno.serve(async (req: Request) => {
         );
         const data = await res.json();
         if (!res.ok) throw new Error(data.error?.message || "Drive API error");
+
+        // Merge fields → template tokens. Every {{key}} is replaced (optional
+        // fields collapse to empty so no stray tokens remain in the doc).
+        const requests = Object.entries(fields || {}).map(([key, value]) => ({
+          replaceAllText: {
+            containsText: { text: `{{${key}}}`, matchCase: true },
+            replaceText: (value ?? "").toString(),
+          },
+        }));
+        if (requests.length > 0) {
+          const upd = await fetch(
+            `https://docs.googleapis.com/v1/documents/${data.id}:batchUpdate`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ requests }),
+            }
+          );
+          const updData = await upd.json();
+          if (!upd.ok) throw new Error(updData.error?.message || "Docs API error");
+        }
 
         return new Response(JSON.stringify({
           id: data.id,
