@@ -2,6 +2,67 @@
 
 ## Recently Completed
 
+### Mailer Phase 4 (2026-06-13)
+
+Full Phase 4 port of the Mailer tool from Triton. Admin-only newsletter
+system: block-based editor with live preview, audiences, scheduled sends,
+open/click tracking, Resend webhooks, sender domain verification, CSV
+subscriber import, suppression list, per-campaign stats.
+
+**Phase 4a — Foundation** (commit `619b5542`)
+- 8 tables (`mailer_audiences`, `mailer_subscribers`, `mailer_audience_subscribers`, `mailer_campaigns` w/ jsonb `blocks`, `mailer_sends`, `mailer_events`, `mailer_suppressions`, `mailer_sender_domains`) + admin-only RLS + `is_admin()` helper + `mailer_bump_stat()` RPC for atomic counter updates
+- Edge functions: `mailer-send-now` (batch via Resend, suppression filter, per-recipient audit rows), `mailer-webhook` (Svix signature verify, status mapping, auto-suppress on bounce/complaint), `mailer-track-open` (1×1 gif w/ dedup), `mailer-track-click` (302 redirect w/ http/https allowlist), `mailer-unsubscribe` (GET confirm page so antivirus scanners don't auto-unsubscribe + POST one-click for Gmail List-Unsubscribe), `mailer-cron-tick` (atomic claim of due scheduled campaigns)
+- Shared: `resend.ts` REST wrapper + `mailer-render.ts` block-tree → HTML/text renderer
+- UI shell: 4-tab admin page (Campaigns / Audiences / Subscribers / Sends), CRUD wired to tables, status pills, modal editor (initially with raw-JSON blocks textarea)
+
+**Phase 4b — Block editor, CSV, stats, settings** (commit `<pending>`)
+- `BlockEditor.js` — visual block list with per-type inline forms (heading / paragraph / image / button / divider / spacer / html), reorder ↑↓, delete, add-block palette
+- `CampaignPreview.js` — sandboxed iframe live preview via `srcDoc`
+- `blockRenderer.js` — client-side JS mirror of the Deno renderer (kept in sync)
+- `CampaignStats.js` — tile dashboard (recipients/delivered/opened/clicked/bounced/complained with %), top clicked URLs leaderboard, recent events log, cohort table
+- `CsvImportModal.js` — small RFC4180-ish CSV parser, audience attach, upsert preserves existing subscriber status (re-import never un-suppresses)
+- `SettingsPane.js` (new tab) — sender domains CRUD w/ DNS record display + verify, suppression list w/ remove
+- Campaign editor rewrite: 3-pane modal (content / settings / stats), datetime-local scheduler, Schedule button flips status to `scheduled`
+- `mailer-domain` edge fn — Resend `/domains` proxy (add/verify/remove)
+- `cron_mailer_tick` migration — pg_cron `mailer-tick` job every minute, reads `CRON_SECRET` from Vault, POSTs to `mailer-cron-tick`
+
+**Deploys / env still needed**
+- `supabase functions deploy mailer-send-now mailer-webhook mailer-track-open mailer-track-click mailer-unsubscribe mailer-cron-tick mailer-domain --no-verify-jwt`
+- Secrets: `RESEND_API_KEY`, `MAILER_DEFAULT_FROM`, `MAILER_WEBHOOK_SECRET` (Svix `whsec_…`), `MAILER_PUBLIC_URL` (Supabase project URL)
+- Resend dashboard: create webhook → POST to `<project>/functions/v1/mailer-webhook`, subscribe `email.*`
+- Confirm `CRON_SECRET` is in Vault (already used by other cron jobs)
+
+### Broadcast hardening (2026-06-12 → 2026-06-13)
+
+Full review pass on the Broadcast page (`src/pages/tools/Broadcast.js` + `src/pages/tools/broadcast/*` + `api/broadcast/*`). 5 critical / 17 high / 6 medium / 5 verify findings closed across commits `c7a24bc8`, `26d171a8`, `29ae8eea`, `379341e0`.
+
+**Security**
+- OBS WebSocket password no longer persisted to localStorage (leak grants remote control of user's OBS) — kept in component state only; one-time scrub of legacy entries.
+- `api/broadcast/upload`: stopped echoing caller's own JWT back; client attaches Authorization locally.
+- `api/broadcast/sessions`: bumped `randomSlug` 6 → 16 base36 chars (~82 bits) so overlay URL isn't brute-forceable.
+- `api/broadcast/assets` + `sessions`: explicit security comments confirming public GET is intentional (overlay runs inside OBS browser source with no auth).
+- `LivePreview.js` iframe sandboxed (`allow-scripts` only, opaque origin) so overlay can't reach producer console DOM/cookies.
+- `OBSSettings.js` inputs: `autoComplete="off"` so browser credential managers don't save the OBS WebSocket password.
+
+**Correctness**
+- Realtime channels now `channel.unsubscribe()` before `removeChannel` (was leaking handlers).
+- `api.js` `request()` + `trigger()` accept `opts.signal`; `trigger()` now checks `response.ok` instead of silently parsing error JSON.
+- `useObs`: `connectTokenRef` invalidates in-flight `connect()` on cred change / unmount.
+- `AssetLibrary`: capture `project.id` at dispatch time so uploads can't land in the wrong project; per-upload AbortController + mountedRef guard.
+- `TemplateDataPanel`: 400ms debounce + AbortController per save; asset switch and unmount cancel pending PATCHes.
+- `api/broadcast/trigger`: state update guarded `.eq('is_live', true)` + row-count check → 409 if session went offline mid-flight.
+- `ScenesPanel` / `ClipMarkerPanel` / `MembersPanel`: explicit snapshot rollback on optimistic update failures.
+- `LiveControlGrid:35`: wrapped `(a.hotkey_color || on)` (precedence bug — unselected no-color tiles were grabbing `colors.text`).
+- `useStreamDeck`: track + remove device `.on('down'/'up'/'error')` listeners on re-attach + close + unmount.
+- `OBSSettings`: scoped effect deps to `obs.status` + memoized `obs.call` (was re-running every parent render).
+- `AssetProperties`: replace `JSON.stringify` equality with `EDITABLE_KEYS` shallow compare; gate post-PATCH state update on `activeAssetIdRef` so a save started for asset X can't paint a "Saved" badge against asset Y.
+- `AssetsPanel`: snapshot selection before `load()` in both `onCreated` and `onSaved` — user's manual selection mid-flight isn't clobbered by the freshly-uploaded/saved row.
+- `tusUpload`: detach the AbortController `abort` listener once the upload settles.
+
+**Dev infrastructure** (commit `c028f966`)
+- `api/server.js` auto-mounts every Vercel-style handler in `api/broadcast/*` at `/api/broadcast/<file>` so local dev hits the same code path Vercel runs in prod.
+- `src/setupProxy.js` (new) forwards `/api/*` from CRA dev (`:3000`) to the Express backend (`:4400`). Local 404s on broadcast routes were caused by both gaps.
+
 ### Contractor Assignment UX Enhancements (2026-05-29)
 Added three new capabilities to FreelancerDashboard.js for in-progress assignments:
 

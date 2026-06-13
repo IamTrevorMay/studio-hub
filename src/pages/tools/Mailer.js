@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
+import BlockEditor from './mailer/BlockEditor';
+import CampaignPreview from './mailer/CampaignPreview';
+import CsvImportModal from './mailer/CsvImportModal';
+import CampaignStats from './mailer/CampaignStats';
+import SettingsPane from './mailer/SettingsPane';
 
 // Mailer — admin-only newsletter tool. Phase 4 buildout.
 //
@@ -21,7 +26,7 @@ import { useAuth } from '../../contexts/AuthContext';
 //   • Per-campaign stats panel + opens/clicks timeline.
 //   • Sender domain verification UI (Resend addDomain flow).
 
-const TABS = ['Campaigns', 'Audiences', 'Subscribers', 'Sends'];
+const TABS = ['Campaigns', 'Audiences', 'Subscribers', 'Sends', 'Settings'];
 
 export default function Mailer({ onBack }) {
   const { isAdmin } = useAuth();
@@ -66,6 +71,7 @@ export default function Mailer({ onBack }) {
         {tab === 'Audiences' && <AudiencesPane />}
         {tab === 'Subscribers' && <SubscribersPane />}
         {tab === 'Sends' && <SendsPane />}
+        {tab === 'Settings' && <SettingsPane />}
       </div>
     </div>
   );
@@ -190,17 +196,17 @@ function CampaignEditor({ campaign, audiences, onClose, onSaved }) {
     from_email: campaign.from_email || '',
     reply_to: campaign.reply_to || '',
     audience_id: campaign.audience_id || '',
-    blocks: JSON.stringify(campaign.blocks || [], null, 2),
+    blocks: Array.isArray(campaign.blocks) ? campaign.blocks : [],
+    scheduled_at: campaign.scheduled_at ? toLocalInput(campaign.scheduled_at) : '',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [pane, setPane] = useState('content'); // 'content' | 'settings' | 'stats'
 
-  async function save() {
+  function patch(p) { setForm((f) => ({ ...f, ...p })); }
+
+  async function save(extra = {}) {
     setSaving(true); setError(null);
-    let parsedBlocks;
-    try { parsedBlocks = JSON.parse(form.blocks || '[]'); }
-    catch (e) { setError('Blocks JSON invalid: ' + e.message); setSaving(false); return; }
-    if (!Array.isArray(parsedBlocks)) { setError('Blocks must be an array.'); setSaving(false); return; }
     const { error } = await supabase.from('mailer_campaigns').update({
       name: form.name.trim() || 'Untitled',
       subject: form.subject,
@@ -209,55 +215,124 @@ function CampaignEditor({ campaign, audiences, onClose, onSaved }) {
       from_email: form.from_email || null,
       reply_to: form.reply_to || null,
       audience_id: form.audience_id || null,
-      blocks: parsedBlocks,
+      blocks: Array.isArray(form.blocks) ? form.blocks : [],
+      ...extra,
     }).eq('id', campaign.id);
     setSaving(false);
-    if (error) { setError(error.message); return; }
+    if (error) { setError(error.message); return false; }
     onSaved();
+    return true;
+  }
+
+  async function schedule() {
+    if (!form.scheduled_at) { setError('Pick a date/time first.'); return; }
+    const iso = new Date(form.scheduled_at).toISOString();
+    if (Date.now() >= new Date(iso).getTime()) {
+      setError('Scheduled time must be in the future.');
+      return;
+    }
+    const ok = await save({ scheduled_at: iso, status: 'scheduled' });
+    if (ok) onClose();
   }
 
   return (
     <div style={styles.overlay} onClick={onClose}>
-      <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+      <div style={{ ...styles.modal, width: 'min(1100px, 96vw)', height: 'min(820px, 92vh)' }} onClick={(e) => e.stopPropagation()}>
         <div style={styles.modalHeader}>
-          <h2 style={styles.modalTitle}>Edit campaign</h2>
+          <h2 style={styles.modalTitle}>
+            {campaign.status === 'sent' ? 'Sent campaign' : 'Edit campaign'} · {form.name || 'Untitled'}
+          </h2>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {['content', 'settings', 'stats'].map((p) => (
+              <button
+                key={p}
+                onClick={() => setPane(p)}
+                style={{ ...styles.modalTab, ...(pane === p ? styles.modalTabActive : {}) }}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
           <button style={styles.closeBtn} onClick={onClose}>×</button>
         </div>
-        <div style={styles.modalBody}>
-          <Field label="Name"><Text value={form.name} onChange={(v) => setForm({ ...form, name: v })} /></Field>
-          <Field label="Subject *"><Text value={form.subject} onChange={(v) => setForm({ ...form, subject: v })} /></Field>
-          <Field label="Preheader"><Text value={form.preheader} onChange={(v) => setForm({ ...form, preheader: v })} /></Field>
-          <Row>
-            <Field label="From name"><Text value={form.from_name} onChange={(v) => setForm({ ...form, from_name: v })} /></Field>
-            <Field label="From email"><Text value={form.from_email} onChange={(v) => setForm({ ...form, from_email: v })} placeholder="noreply@maydaystudio.net" /></Field>
-          </Row>
-          <Field label="Reply-to"><Text value={form.reply_to} onChange={(v) => setForm({ ...form, reply_to: v })} /></Field>
-          <Field label="Audience">
-            <select value={form.audience_id} onChange={(e) => setForm({ ...form, audience_id: e.target.value })} style={styles.input}>
-              <option value="">— None —</option>
-              {audiences.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
-          </Field>
-          <Field label="Blocks (JSON)">
-            <textarea
-              value={form.blocks}
-              onChange={(e) => setForm({ ...form, blocks: e.target.value })}
-              style={{ ...styles.input, minHeight: 200, fontFamily: 'monospace', fontSize: 12 }}
-              spellCheck={false}
-            />
-            <div style={styles.helpText}>
-              Block types: <code>heading</code>, <code>paragraph</code>, <code>image</code>, <code>button</code>, <code>divider</code>, <code>spacer</code>, <code>html</code>. A real block editor lands in Phase 4b.
+
+        <div style={{ ...styles.modalBody, display: 'flex', gap: 16, minHeight: 0, padding: 0 }}>
+          {pane === 'content' && (
+            <>
+              <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: '16px 24px' }}>
+                <BlockEditor
+                  blocks={form.blocks}
+                  onChange={(blocks) => patch({ blocks })}
+                />
+              </div>
+              <div style={{ flex: 1, minWidth: 0, padding: '16px 24px 16px 0', display: 'flex', flexDirection: 'column' }}>
+                <CampaignPreview
+                  subject={form.subject}
+                  preheader={form.preheader}
+                  blocks={form.blocks}
+                />
+              </div>
+            </>
+          )}
+
+          {pane === 'settings' && (
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
+              <Field label="Name"><Text value={form.name} onChange={(v) => patch({ name: v })} /></Field>
+              <Field label="Subject *"><Text value={form.subject} onChange={(v) => patch({ subject: v })} /></Field>
+              <Field label="Preheader"><Text value={form.preheader} onChange={(v) => patch({ preheader: v })} /></Field>
+              <Row>
+                <Field label="From name"><Text value={form.from_name} onChange={(v) => patch({ from_name: v })} /></Field>
+                <Field label="From email"><Text value={form.from_email} onChange={(v) => patch({ from_email: v })} placeholder="noreply@maydaystudio.net" /></Field>
+              </Row>
+              <Field label="Reply-to"><Text value={form.reply_to} onChange={(v) => patch({ reply_to: v })} /></Field>
+              <Field label="Audience">
+                <select value={form.audience_id} onChange={(e) => patch({ audience_id: e.target.value })} style={styles.input}>
+                  <option value="">— None —</option>
+                  {audiences.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              </Field>
+              <Field label="Schedule send (optional)">
+                <input
+                  type="datetime-local"
+                  value={form.scheduled_at}
+                  onChange={(e) => patch({ scheduled_at: e.target.value })}
+                  style={styles.input}
+                />
+                <div style={styles.helpText}>
+                  Setting this and clicking "Schedule" flips the campaign to scheduled. The mailer-cron-tick job will dispatch it once the time hits.
+                </div>
+              </Field>
             </div>
-          </Field>
-          {error && <div style={styles.error}>{error}</div>}
+          )}
+
+          {pane === 'stats' && (
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
+              <CampaignStats campaignId={campaign.id} />
+            </div>
+          )}
         </div>
+
+        {error && <div style={{ ...styles.error, margin: '0 24px 8px' }}>{error}</div>}
+
         <div style={styles.modalFooter}>
-          <button style={styles.cancelBtn} onClick={onClose}>Cancel</button>
-          <button style={styles.primaryBtn} onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+          {pane === 'settings' && (
+            <button style={styles.secondaryBtn} onClick={schedule} disabled={saving || !form.scheduled_at}>
+              Schedule
+            </button>
+          )}
+          <button style={styles.cancelBtn} onClick={onClose}>Close</button>
+          <button style={styles.primaryBtn} onClick={() => save()} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
         </div>
       </div>
     </div>
   );
+}
+
+// `datetime-local` wants `YYYY-MM-DDTHH:mm` in local time; convert from ISO.
+function toLocalInput(iso) {
+  const d = new Date(iso);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 // ─── Audiences ─────────────────────────────────────────────────
@@ -375,6 +450,7 @@ function SubscribersPane() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [draft, setDraft] = useState({ email: '', name: '', audience_id: '' });
 
   const load = useCallback(async () => {
@@ -424,7 +500,10 @@ function SubscribersPane() {
             <button style={styles.cancelBtn} onClick={() => { setAdding(false); setDraft({ email: '', name: '', audience_id: '' }); }}>Cancel</button>
           </div>
         ) : (
-          <button style={styles.primaryBtn} onClick={() => setAdding(true)}>+ Add subscriber</button>
+          <>
+            <button style={styles.primaryBtn} onClick={() => setAdding(true)}>+ Add subscriber</button>
+            <button style={styles.secondaryBtn} onClick={() => setImporting(true)}>Import CSV</button>
+          </>
         )}
       </div>
       {error && <div style={styles.error}>{error}</div>}
@@ -451,6 +530,12 @@ function SubscribersPane() {
           </tbody>
         </table>
       )}
+      <CsvImportModal
+        open={importing}
+        onClose={() => setImporting(false)}
+        audiences={audiences}
+        onImported={load}
+      />
     </div>
   );
 }
@@ -549,7 +634,10 @@ const styles = {
   body: {},
   toolbar: { display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' },
   primaryBtn: { background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  secondaryBtn: { background: 'rgba(99,102,241,0.15)', color: '#c7d2fe', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   cancelBtn: { background: 'transparent', color: 'rgba(255,255,255,0.6)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  modalTab: { background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 4, color: 'rgba(255,255,255,0.5)', padding: '4px 10px', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, cursor: 'pointer', fontFamily: 'inherit' },
+  modalTabActive: { background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.4)', color: '#c7d2fe' },
   smallBtn: { background: 'transparent', color: 'rgba(255,255,255,0.7)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginLeft: 6 },
   linkBtn: { background: 'transparent', color: '#a5b4fc', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600 },
   empty: { padding: 40, textAlign: 'center', color: 'rgba(255,255,255,0.35)', fontSize: 13 },
