@@ -110,7 +110,7 @@ const SOURCE_LABELS = { mlb: 'MLB', youtube: 'YouTube', espn: 'ESPN', yahoo: 'Ya
 
 // ─── component ─────────────────────────────────────────────────────────────────
 
-export default function Production() {
+export default function Production({ initialSheetId, onSheetOpened }) {
   const { profile } = useAuth();
   const confirm = useConfirm();
 
@@ -384,6 +384,19 @@ export default function Production() {
     setTagInputs({});
     setExpandedContexts(new Set(flattenBeats(loadedBeats).filter(b => b.context).map(b => b.id)));
   };
+
+  // Deep link: open a specific sheet when navigated here with a target id
+  // (e.g. the "Start the Beat Sheet" button in My Tasks).
+  useEffect(() => {
+    if (!initialSheetId) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.from('beat_sheets').select('*').eq('id', initialSheetId).single();
+      if (!cancelled && data) openSheet(data);
+      if (onSheetOpened) onSheetOpened();
+    })();
+    return () => { cancelled = true; };
+  }, [initialSheetId]);
 
   const closeEditor = async () => {
     clearTimeout(saveTimer.current);
