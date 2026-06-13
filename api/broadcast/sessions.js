@@ -7,6 +7,14 @@
 //   POST   /api/broadcast/sessions  { project_id, channel_name?, is_live? }
 //   PATCH  /api/broadcast/sessions?id=<id>  { is_live?, active_state?, ... }
 //   DELETE /api/broadcast/sessions?id=<id>
+//
+// Security model: lookups by `id` (UUID) or `channel_name` (slug) are
+// intentionally public so the overlay page can boot inside OBS without
+// auth. The session row acts as its own capability token — anyone who
+// holds the id/channel_name can read the active_state needed to render
+// the overlay. Listing by project_id (which would let a caller
+// enumerate sessions for a project) requires JWT + project access.
+// Treat active_state as public — do not stuff sensitive data into it.
 
 const {
   json, applyCors, requireUser,

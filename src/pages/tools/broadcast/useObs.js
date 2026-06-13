@@ -1,6 +1,12 @@
 // React hook for obs-websocket-js v5. Connects to a local OBS Studio
-// instance over the OBS WebSocket protocol. Persists connection params
+// instance over the OBS WebSocket protocol. Persists the WebSocket URL
 // to localStorage so reconnecting between page loads is one click.
+//
+// Security: the OBS WebSocket password is NEVER persisted. A leaked
+// password effectively grants control of the user's local OBS Studio
+// (including scene/source manipulation and remote shell via custom
+// browser docks), so we keep it in-memory only and require re-entry
+// after each page load.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import OBSWebSocket from 'obs-websocket-js';
@@ -8,11 +14,18 @@ import OBSWebSocket from 'obs-websocket-js';
 const STORAGE_KEY = 'mayday-broadcast-obs';
 
 function loadStored() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); }
-  catch { return {}; }
+  try {
+    const v = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    // Strip any legacy persisted password from older builds.
+    if (v && typeof v === 'object') delete v.password;
+    return v || {};
+  } catch { return {}; }
 }
 function saveStored(v) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(v || {}));
+  if (!v) return;
+  // Persist URL only; password lives in component state for the session.
+  const { password: _ignored, ...safe } = v;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(safe));
 }
 
 export function useObs() {
@@ -24,6 +37,16 @@ export function useObs() {
     ...loadStored(),
   }));
   const obsRef = useRef(null);
+
+  // One-time scrub of any password persisted by older builds.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw && raw.includes('"password"')) {
+        saveStored(JSON.parse(raw));
+      }
+    } catch { /* ignore */ }
+  }, []);
 
   useEffect(() => () => { if (obsRef.current) obsRef.current.disconnect().catch(() => null); }, []);
 

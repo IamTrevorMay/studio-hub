@@ -7,6 +7,14 @@
 //   POST   /api/broadcast/assets  { project_id, name, asset_type, storage_path?, ... }
 //   PATCH  /api/broadcast/assets?id=<id>  { partial update }
 //   DELETE /api/broadcast/assets?id=<id>  → DB row + storage object (if any)
+//
+// Security model: GET is intentionally public — the overlay page runs
+// inside OBS's browser source with no auth context, and the live overlay
+// must be able to fetch its own assets. Project IDs are UUIDs, which
+// gives the same capability-token protection used by the trigger and
+// sessions endpoints. Mutations (POST/PATCH/DELETE) require a JWT and
+// project edit access. Do NOT store anything sensitive on broadcast
+// assets — treat the table as public-by-design.
 
 const {
   json, applyCors, requireUser,
