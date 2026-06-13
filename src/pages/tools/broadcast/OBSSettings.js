@@ -41,12 +41,27 @@ export default function OBSSettings({ obs, onClose }) {
         <div style={styles.title}>OBS WebSocket</div>
 
         <Field label="WebSocket URL">
-          <input value={obs.config.url} onChange={(e) => obs.updateConfig({ url: e.target.value })} style={styles.input} />
+          <input
+            value={obs.config.url}
+            onChange={(e) => obs.updateConfig({ url: e.target.value })}
+            autoComplete="off"
+            spellCheck={false}
+            style={styles.input}
+          />
         </Field>
         <Field label="Password (optional)">
-          <input type="password" value={obs.config.password || ''}
+          {/* Keep browser credential managers from offering to save the OBS
+              password alongside web logins — it controls the user's local
+              OBS process, not a web account. */}
+          <input
+            type="password"
+            value={obs.config.password || ''}
             onChange={(e) => obs.updateConfig({ password: e.target.value })}
-            style={styles.input} />
+            autoComplete="off"
+            spellCheck={false}
+            name="obs-ws-password"
+            style={styles.input}
+          />
         </Field>
 
         <div style={styles.statusRow}>

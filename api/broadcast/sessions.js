@@ -125,6 +125,11 @@ module.exports = async (req, res) => {
   }
 };
 
+// Slug doubles as the public capability token for the overlay URL, so
+// use enough entropy that brute-forcing the namespace is impractical.
+// 16 base36 chars ≈ 82 bits, comfortably past guess-resistant.
 function randomSlug() {
-  return 'show-' + Math.random().toString(36).slice(2, 8);
+  let s = '';
+  while (s.length < 16) s += Math.random().toString(36).slice(2);
+  return 'show-' + s.slice(0, 16);
 }

@@ -4,6 +4,7 @@
 // finishes; progress is reported through onProgress.
 
 import * as tus from 'tus-js-client';
+import { supabase } from '../../../supabaseClient';
 import { requestUpload } from './api';
 
 export async function uploadAssetTus({ projectId, file, onProgress, signal }) {
@@ -14,11 +15,21 @@ export async function uploadAssetTus({ projectId, file, onProgress, signal }) {
     content_type: file.type || null,
   });
 
+  // The upload endpoint no longer echoes the user's JWT back to us —
+  // attach it here from the current Supabase session so the tus client
+  // can talk directly to Storage. If the session expired between the
+  // /upload call and the tus PUT, this throws and the caller surfaces it.
+  const { data: { session: authSession } } = await supabase.auth.getSession();
+  if (!authSession) throw new Error('Not signed in');
+
   return new Promise((resolve, reject) => {
     const upload = new tus.Upload(file, {
       endpoint: init.endpoint,
       retryDelays: [0, 1000, 3000, 5000],
-      headers: init.headers,
+      headers: {
+        ...(init.headers || {}),
+        Authorization: `Bearer ${authSession.access_token}`,
+      },
       uploadDataDuringCreation: true,
       removeFingerprintOnSuccess: true,
       metadata: {

@@ -51,11 +51,13 @@ module.exports = async (req, res) => {
     });
   }
 
-  // The client uses the session's user JWT for the Bearer; the Vercel
-  // function passes through the same auth header so it stays attached
-  // to the storage call. The anon key is required as x-apikey.
+  // Don't echo the client's own Bearer token back to them — the browser
+  // already holds the JWT, so it can attach Authorization itself. We
+  // only return the upload destination + the anon apikey + the upsert
+  // flag. Resumable tus uploads against Supabase Storage do not have a
+  // signed-URL flow today, so the JWT remains the auth mechanism; that
+  // call is made directly from the browser to Storage.
   const headers = {
-    Authorization: req.headers['authorization'],
     apikey: SUPABASE_ANON_KEY,
     'x-upsert': 'true',
   };

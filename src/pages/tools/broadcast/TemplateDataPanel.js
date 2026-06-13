@@ -27,7 +27,7 @@ export default function TemplateDataPanel({ asset, onChanged }) {
     setSaving('idle'); setError(null);
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     if (inflightCtrlRef.current) inflightCtrlRef.current.abort();
-  }, [asset && asset.id]);
+  }, [asset?.id]);
 
   useEffect(() => () => {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);

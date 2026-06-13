@@ -16,7 +16,18 @@ export default function LivePreview({ session }) {
         <a href={url} target="_blank" rel="noopener noreferrer" style={styles.openLink}>open ↗</a>
       </div>
       {iframeOk ? (
-        <iframe title="live preview" src={url} style={styles.frame} />
+        // Sandbox without allow-same-origin → opaque origin, so the
+        // overlay can't reach the producer console's DOM, cookies, or
+        // localStorage. The overlay is public (no auth needed) and only
+        // talks to Supabase via Realtime/fetch, both of which still work
+        // from an opaque-origin frame.
+        <iframe
+          title="live preview"
+          src={url}
+          sandbox="allow-scripts"
+          referrerPolicy="no-referrer"
+          style={styles.frame}
+        />
       ) : (
         <div style={styles.placeholder}>
           Public overlay route ships in 5L. For OBS, use the URL above as a Browser Source

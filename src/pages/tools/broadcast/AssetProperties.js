@@ -12,12 +12,11 @@ export default function AssetProperties({ project, asset, onSaved }) {
   const [saving, setSaving] = useState('idle');
   const [error, setError] = useState(null);
 
-  useEffect(() => { setDraft(asset); setSaving('idle'); setError(null); }, [asset && asset.id]);
+  useEffect(() => { setDraft(asset); setSaving('idle'); setError(null); }, [asset?.id]);
 
   useEffect(() => {
     if (!draft || !asset) return;
-    const same = sameAsset(draft, asset);
-    if (same) return;
+    if (sameAsset(draft, asset)) return;
     const t = setTimeout(async () => {
       setSaving('saving');
       try {
@@ -97,8 +96,35 @@ export default function AssetProperties({ project, asset, onSaved }) {
   );
 }
 
+// Compare only the fields the editor can mutate. JSON.stringify equality
+// is fragile against key-order and date-string drift; a shallow key
+// compare over EDITABLE_KEYS is both faster and reliable.
+const EDITABLE_KEYS = [
+  'name', 'asset_type', 'storage_path',
+  'template_id', 'template_data', 'slideshow_config', 'scene_config', 'ad_config',
+  'canvas_x', 'canvas_y', 'canvas_width', 'canvas_height',
+  'layer', 'opacity',
+  'enter_transition', 'exit_transition',
+  'hotkey_key', 'hotkey_color', 'hotkey_label',
+  'trigger_duration', 'sort_order',
+];
+function shallowEqValue(a, b) {
+  if (a === b) return true;
+  if (a == null || b == null) return false;
+  if (typeof a === 'object' && typeof b === 'object') {
+    // Fall back to stringify for nested config blobs (template_data,
+    // slideshow_config, etc.) — they're small and shape-stable.
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+  return false;
+}
 function sameAsset(a, b) {
-  return JSON.stringify(sanitize(a)) === JSON.stringify(sanitize(b));
+  if (a === b) return true;
+  if (!a || !b) return false;
+  for (const k of EDITABLE_KEYS) {
+    if (!shallowEqValue(a[k], b[k])) return false;
+  }
+  return true;
 }
 function sanitize(a) {
   if (!a) return null;
