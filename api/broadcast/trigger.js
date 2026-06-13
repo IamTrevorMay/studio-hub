@@ -140,9 +140,20 @@ module.exports = async (req, res) => {
     visibleAssets: [...visible],
     slideshowIndexes: indexes,
   };
-  const { error: updErr } = await admin
-    .from('broadcast_sessions').update({ active_state: newState }).eq('id', sid);
+  // Guard the update on is_live=true so a session that went dark between
+  // our read above and this write doesn't have its active_state silently
+  // mutated. Returns no rows if the session is no longer live, which we
+  // surface as a 409 to the caller.
+  const { data: updated, error: updErr } = await admin
+    .from('broadcast_sessions')
+    .update({ active_state: newState })
+    .eq('id', sid)
+    .eq('is_live', true)
+    .select('id');
   if (updErr) return json(res, 500, { error: updErr.message });
+  if (!updated || updated.length === 0) {
+    return json(res, 409, { error: 'session went offline; state not updated' });
+  }
 
   return json(res, 200, { ok: true, action, aid, visible: resultVisible, index: resultIndex });
 };

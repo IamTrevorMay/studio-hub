@@ -16,7 +16,7 @@ async function request(method, path, body, opts = {}) {
     headers['Content-Type'] = 'application/json';
     bodyText = JSON.stringify(body);
   }
-  const res = await fetch(path, { method, headers, body: bodyText });
+  const res = await fetch(path, { method, headers, body: bodyText, signal: opts.signal });
   const text = await res.text();
   let data = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
@@ -59,8 +59,8 @@ export const deleteSceneAsset   = (id)         => request('DELETE', `/api/broadc
 // Assets
 export const listAssets    = (projectId)  => request('GET', `/api/broadcast/assets?project_id=${encodeURIComponent(projectId)}`);
 export const getAsset      = (id)         => request('GET', `/api/broadcast/assets?id=${encodeURIComponent(id)}`);
-export const createAsset   = (data)       => request('POST', '/api/broadcast/assets', data);
-export const updateAsset   = (id, data)   => request('PATCH', `/api/broadcast/assets?id=${encodeURIComponent(id)}`, data);
+export const createAsset   = (data, opts) => request('POST', '/api/broadcast/assets', data, opts);
+export const updateAsset   = (id, data, opts) => request('PATCH', `/api/broadcast/assets?id=${encodeURIComponent(id)}`, data, opts);
 export const deleteAsset   = (id)         => request('DELETE', `/api/broadcast/assets?id=${encodeURIComponent(id)}`);
 
 // Sessions
@@ -90,9 +90,20 @@ export const listChat      = (sessionId)  => request('GET', `/api/broadcast/chat
 export const postChat      = (data)       => request('POST', '/api/broadcast/chat-messages', data);
 
 // Trigger (capability via sid; can be called unauth too)
-export const trigger = (params) => {
+export const trigger = async (params, opts = {}) => {
   const qs = new URLSearchParams(params).toString();
-  return fetch(`/api/broadcast/trigger?${qs}`).then((r) => r.json());
+  const res = await fetch(`/api/broadcast/trigger?${qs}`, { signal: opts.signal });
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+  if (!res.ok) {
+    const msg = (data && data.error) || `HTTP ${res.status}`;
+    const err = new Error(msg);
+    err.status = res.status;
+    err.body = data;
+    throw err;
+  }
+  return data;
 };
 
 // Upload helper — returns endpoint + headers for tus client

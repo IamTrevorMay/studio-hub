@@ -46,9 +46,15 @@ export default function ClipMarkerPanel({ session }) {
   }
 
   async function patch(m, p) {
+    // Snapshot so an optimistic patch reverts cleanly if the server rejects.
+    const prev = markers.find((x) => x.id === m.id);
     setMarkers(markers.map((x) => (x.id === m.id ? { ...x, ...p } : x)));
     try { await updateMarker(m.id, p); }
-    catch (e) { setError(e.message); await load(); }
+    catch (e) {
+      setError(e.message);
+      if (prev) setMarkers((cur) => cur.map((x) => (x.id === m.id ? prev : x)));
+      load().catch(() => null);
+    }
   }
   async function del(m) {
     try { await deleteMarker(m.id); await load(); }

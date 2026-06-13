@@ -37,6 +37,10 @@ export function useObs() {
     ...loadStored(),
   }));
   const obsRef = useRef(null);
+  // Token used to invalidate in-flight connects when creds change or
+  // the component unmounts. The latest connect bumps the token; an
+  // older attempt that resolves later sees the mismatch and bails.
+  const connectTokenRef = useRef(0);
 
   // One-time scrub of any password persisted by older builds.
   useEffect(() => {
@@ -48,7 +52,10 @@ export function useObs() {
     } catch { /* ignore */ }
   }, []);
 
-  useEffect(() => () => { if (obsRef.current) obsRef.current.disconnect().catch(() => null); }, []);
+  useEffect(() => () => {
+    connectTokenRef.current += 1; // invalidate any pending connect
+    if (obsRef.current) obsRef.current.disconnect().catch(() => null);
+  }, []);
 
   const updateConfig = useCallback((patch) => {
     setConfig((prev) => {
@@ -60,17 +67,26 @@ export function useObs() {
 
   const connect = useCallback(async () => {
     if (status === 'connecting' || status === 'connected') return;
+    const token = ++connectTokenRef.current;
     setStatus('connecting'); setError(null);
     if (!obsRef.current) obsRef.current = new OBSWebSocket();
     try {
       await obsRef.current.connect(config.url, config.password || undefined);
+      if (connectTokenRef.current !== token) {
+        // Superseded by a newer connect or invalidated by unmount; drop this
+        // connection rather than letting it sit with stale credentials.
+        obsRef.current.disconnect().catch(() => null);
+        return;
+      }
       setStatus('connected');
     } catch (e) {
+      if (connectTokenRef.current !== token) return;
       setStatus('error'); setError(String((e && e.message) || e));
     }
   }, [config.url, config.password, status]);
 
   const disconnect = useCallback(async () => {
+    connectTokenRef.current += 1; // invalidate any pending connect
     if (!obsRef.current) return;
     try { await obsRef.current.disconnect(); }
     finally { setStatus('disconnected'); }

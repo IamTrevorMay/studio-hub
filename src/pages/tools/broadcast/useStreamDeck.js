@@ -15,8 +15,36 @@ export function useStreamDeck() {
   const [status, setStatus] = useState('disconnected'); // disconnected | requesting | connected | unsupported | error
   const [error, setError] = useState(null);
   const keyCb = useRef(null);
+  // Track listeners we add to a device so we can take them off again on
+  // re-attach / unmount. Otherwise each .on() call leaves a handler behind
+  // on the underlying HID instance.
+  const listenersRef = useRef(null);
 
   const supported = typeof navigator !== 'undefined' && navigator.hid;
+
+  const detachListeners = useCallback(() => {
+    const entry = listenersRef.current;
+    if (!entry) return;
+    const { device: d, down, up, err } = entry;
+    try { d.off ? d.off('down', down)  : d.removeListener && d.removeListener('down', down); } catch { /* ignore */ }
+    try { d.off ? d.off('up', up)      : d.removeListener && d.removeListener('up', up); } catch { /* ignore */ }
+    try { d.off ? d.off('error', err)  : d.removeListener && d.removeListener('error', err); } catch { /* ignore */ }
+    listenersRef.current = null;
+  }, []);
+
+  const attach = useCallback((d) => {
+    // If a device was previously attached, drop its handlers first.
+    detachListeners();
+    const down = (key) => { if (keyCb.current) keyCb.current(key, 'down'); };
+    const up   = (key) => { if (keyCb.current) keyCb.current(key, 'up'); };
+    const err  = (e)   => setError(String((e && e.message) || e));
+    d.on('down', down);
+    d.on('up', up);
+    d.on('error', err);
+    listenersRef.current = { device: d, down, up, err };
+    setDevice(d);
+    setStatus('connected');
+  }, [detachListeners]);
 
   useEffect(() => {
     if (!supported) { setStatus('unsupported'); return; }
@@ -29,16 +57,9 @@ export function useStreamDeck() {
       } catch { /* ignore */ }
     })();
     return () => { active = false; };
-    // eslint-disable-next-line
-  }, [supported]);
+  }, [supported, attach]);
 
-  function attach(d) {
-    setDevice(d);
-    setStatus('connected');
-    d.on('down', (key) => { if (keyCb.current) keyCb.current(key, 'down'); });
-    d.on('up',   (key) => { if (keyCb.current) keyCb.current(key, 'up'); });
-    d.on('error', (e) => setError(String(e && e.message || e)));
-  }
+  useEffect(() => () => { detachListeners(); }, [detachListeners]);
 
   const request = useCallback(async () => {
     if (!supported) { setStatus('unsupported'); return; }
@@ -50,12 +71,13 @@ export function useStreamDeck() {
     } catch (e) {
       setStatus('error'); setError(String(e && e.message || e));
     }
-  }, [supported]);
+  }, [supported, attach]);
 
   const close = useCallback(async () => {
+    detachListeners();
     if (device) try { await device.close(); } catch { /* ignore */ }
     setDevice(null); setStatus('disconnected');
-  }, [device]);
+  }, [device, detachListeners]);
 
   const onKey = useCallback((cb) => { keyCb.current = cb; }, []);
 

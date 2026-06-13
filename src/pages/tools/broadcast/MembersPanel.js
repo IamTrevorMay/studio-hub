@@ -35,9 +35,14 @@ export default function MembersPanel({ project }) {
   }
 
   async function handleRoleChange(m, role) {
+    const prev = members.find((x) => x.id === m.id);
     setMembers(members.map((x) => (x.id === m.id ? { ...x, role } : x)));
     try { await updateMember(m.id, { role }); }
-    catch (e) { setError(e.message); await load(); }
+    catch (e) {
+      setError(e.message);
+      if (prev) setMembers((cur) => cur.map((x) => (x.id === m.id ? prev : x)));
+      load().catch(() => null);
+    }
   }
 
   async function handleRemove(m) {

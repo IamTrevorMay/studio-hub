@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { colors, spacing, radii, fontSizes, fontWeights } from '../../../lib/styleTokens';
 import { updateAsset } from './api';
 
@@ -7,43 +7,72 @@ import { updateAsset } from './api';
 // We surface every top-level scalar in template_data as a text input so
 // the producer can swap copy mid-show.
 
+const SAVE_DEBOUNCE_MS = 400;
+
 export default function TemplateDataPanel({ asset, onChanged }) {
   const [draft, setDraft] = useState(() => normalize(asset && asset.template_data));
   const [saving, setSaving] = useState('idle');
   const [error, setError] = useState(null);
 
+  // Debounce + cancellation of in-flight saves so a fast typist doesn't
+  // generate one PATCH per keystroke and so stale responses can't clobber
+  // newer state.
+  const debounceTimerRef = useRef(null);
+  const inflightCtrlRef = useRef(null);
+  const assetIdRef = useRef(asset && asset.id);
+
   useEffect(() => {
+    assetIdRef.current = asset && asset.id;
     setDraft(normalize(asset && asset.template_data));
     setSaving('idle'); setError(null);
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    if (inflightCtrlRef.current) inflightCtrlRef.current.abort();
   }, [asset && asset.id]);
+
+  useEffect(() => () => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    if (inflightCtrlRef.current) inflightCtrlRef.current.abort();
+  }, []);
 
   if (!asset) {
     return <div style={styles.empty}>Pick a widget asset to edit live data.</div>;
   }
 
-  async function save(next) {
-    setDraft(next);
+  async function flushSave(next, assetId) {
+    if (inflightCtrlRef.current) inflightCtrlRef.current.abort();
+    const ctrl = new AbortController();
+    inflightCtrlRef.current = ctrl;
     setSaving('saving');
     try {
-      await updateAsset(asset.id, { template_data: next });
+      await updateAsset(assetId, { template_data: next }, { signal: ctrl.signal });
+      if (ctrl.signal.aborted || assetIdRef.current !== assetId) return;
       setSaving('saved');
       onChanged && onChanged();
     } catch (e) {
+      if (ctrl.signal.aborted) return;
       setSaving('error'); setError(e.message);
     }
   }
 
-  function setKey(k, v) { save({ ...draft, [k]: v }); }
+  function scheduleSave(next) {
+    setDraft(next);
+    setSaving('saving');
+    const assetId = assetIdRef.current;
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => flushSave(next, assetId), SAVE_DEBOUNCE_MS);
+  }
+
+  function setKey(k, v) { scheduleSave({ ...draft, [k]: v }); }
   function addKey() {
     const key = window.prompt('New field name?');
     if (!key) return;
     if (key in draft) return;
-    save({ ...draft, [key]: '' });
+    scheduleSave({ ...draft, [key]: '' });
   }
   function delKey(k) {
     const next = { ...draft };
     delete next[k];
-    save(next);
+    scheduleSave(next);
   }
 
   const entries = Object.entries(draft);

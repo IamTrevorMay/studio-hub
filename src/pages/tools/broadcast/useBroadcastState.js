@@ -49,7 +49,10 @@ export function useBroadcastState({ project, session }) {
         if (payload && payload.new) setLatestSession(payload.new);
       })
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      channel.unsubscribe().catch(() => null);
+      supabase.removeChannel(channel);
+    };
   }, [session.id]);
 
   // Initial fetch of session (in case it was stale)

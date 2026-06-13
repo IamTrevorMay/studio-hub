@@ -8,14 +8,15 @@ export default function OBSSettings({ obs, onClose }) {
   const [sceneList, setSceneList] = useState([]);
   const [streamStatus, setStreamStatus] = useState(null);
 
+  const obsCall = obs.call;
   useEffect(() => {
     if (obs.status !== 'connected') return;
     let active = true;
     (async () => {
       try {
         const [scenes, stream] = await Promise.all([
-          obs.call('GetSceneList'),
-          obs.call('GetStreamStatus').catch(() => null),
+          obsCall('GetSceneList'),
+          obsCall('GetStreamStatus').catch(() => null),
         ]);
         if (!active) return;
         setSceneList(scenes.scenes || []);
@@ -23,7 +24,7 @@ export default function OBSSettings({ obs, onClose }) {
       } catch { /* ignore */ }
     })();
     return () => { active = false; };
-  }, [obs.status, obs]);
+  }, [obs.status, obsCall]);
 
   async function setScene(name) {
     try { await obs.call('SetCurrentProgramScene', { sceneName: name }); }

@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { colors, spacing, radii, fontSizes, fontWeights } from '../../../lib/styleTokens';
 import { createAsset } from './api';
 import { uploadAssetTus, inferAssetType } from './tusUpload';
@@ -23,6 +23,15 @@ export default function AssetLibrary({ project, assets, selectedId, loading, err
   const [draggingOver, setDraggingOver] = useState(false);
   const [createMode, setCreateMode] = useState(null); // 'widget' | 'slideshow' | 'template'
   const [createName, setCreateName] = useState('');
+  // AbortControllers per in-flight upload, plus a mounted flag so we
+  // don't setState after unmount or after the project switches.
+  const abortControllersRef = useRef(new Map());
+  const mountedRef = useRef(true);
+  useEffect(() => () => {
+    mountedRef.current = false;
+    for (const ctrl of abortControllersRef.current.values()) ctrl.abort();
+    abortControllersRef.current.clear();
+  }, []);
 
   async function handleFiles(files) {
     if (!files || files.length === 0) return;
@@ -30,32 +39,41 @@ export default function AssetLibrary({ project, assets, selectedId, loading, err
     for (const file of files) {
       const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
       fresh.push({ id, name: file.name, sent: 0, total: file.size });
-      runOneUpload(id, file);
+      // Capture project.id at dispatch time so a later project switch
+      // can't redirect this upload into the wrong project.
+      runOneUpload(id, file, project.id);
     }
     setUploads((prev) => [...fresh, ...prev]);
   }
 
-  async function runOneUpload(id, file) {
+  async function runOneUpload(id, file, projectId) {
+    const ctrl = new AbortController();
+    abortControllersRef.current.set(id, ctrl);
     try {
       const result = await uploadAssetTus({
-        projectId: project.id,
+        projectId,
         file,
+        signal: ctrl.signal,
         onProgress: (sent, total) => {
+          if (!mountedRef.current) return;
           setUploads((prev) => prev.map((u) => (u.id === id ? { ...u, sent, total } : u)));
         },
       });
-      // Persist the asset row now that the storage object exists.
       const inserted = await createAsset({
-        project_id: project.id,
+        project_id: projectId,
         name: file.name,
         asset_type: inferAssetType(file),
         storage_path: result.storage_path,
-      });
+      }, { signal: ctrl.signal });
+      if (!mountedRef.current) return;
       setUploads((prev) => prev.filter((u) => u.id !== id));
       if (onCreated) onCreated(inserted.asset);
       else if (onUploaded) onUploaded();
     } catch (e) {
+      if (!mountedRef.current || ctrl.signal.aborted) return;
       setUploads((prev) => prev.map((u) => (u.id === id ? { ...u, error: e.message } : u)));
+    } finally {
+      abortControllersRef.current.delete(id);
     }
   }
 

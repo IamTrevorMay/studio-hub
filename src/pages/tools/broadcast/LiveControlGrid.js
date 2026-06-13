@@ -32,7 +32,11 @@ export default function LiveControlGrid({ session, assets, visibleAssetIds }) {
             style={{
               ...styles.tile,
               background: a.hotkey_color || (on ? colors.accent : colors.bgInput),
-              color: a.hotkey_color || on ? '#fff' : colors.text,
+              // Parens matter: without them this parses as
+              // `(a.hotkey_color) || (on ? '#fff' : colors.text)`, so an
+              // unselected button with no hotkey_color silently picks up
+              // colors.text and tinted buttons get the wrong contrast.
+              color: (a.hotkey_color || on) ? '#fff' : colors.text,
               border: on ? `2px solid ${colors.accentFg}` : `1px solid ${colors.border}`,
             }}
           >

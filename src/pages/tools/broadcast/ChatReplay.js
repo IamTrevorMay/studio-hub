@@ -35,7 +35,10 @@ export default function ChatReplay({ session }) {
         }
       })
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      channel.unsubscribe().catch(() => null);
+      supabase.removeChannel(channel);
+    };
   }, [session.id]);
 
   useEffect(() => {

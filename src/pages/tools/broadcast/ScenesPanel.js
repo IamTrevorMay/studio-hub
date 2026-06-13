@@ -32,9 +32,17 @@ export default function ScenesPanel({ project }) {
   }
 
   async function handleUpdate(scene, patch) {
+    // Snapshot the row so we can revert immediately if the server rejects
+    // the change; a follow-up load() reconciles with the authoritative state
+    // but the user shouldn't keep seeing the unsaved value in the meantime.
+    const prev = scenes.find((s) => s.id === scene.id);
     setScenes(scenes.map((s) => (s.id === scene.id ? { ...s, ...patch } : s)));
     try { await updateScene(scene.id, patch); }
-    catch (e) { setError(e.message); await load(); }
+    catch (e) {
+      setError(e.message);
+      if (prev) setScenes((cur) => cur.map((s) => (s.id === scene.id ? prev : s)));
+      load().catch(() => null);
+    }
   }
 
   async function handleDelete(scene) {
