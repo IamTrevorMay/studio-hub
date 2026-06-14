@@ -48,15 +48,20 @@ export default function SprintBoardMobile({ profile }) {
   const tasksRef = useRef(tasks);
   tasksRef.current = tasks;
 
-  // Drag state
+  // Drag state — use refs for values needed in non-passive listeners
   const [dragTaskId, setDragTaskId] = useState(null);
   const [dragPos, setDragPos] = useState(null); // { x, y } screen position
   const [dropTargetId, setDropTargetId] = useState(null);
+  const dragActiveRef = useRef(false);
   const longPressTimer = useRef(null);
   const touchStartPos = useRef(null);
   const groupRefs = useRef({}); // id -> DOM element
   const dragTaskSnapshot = useRef(null);
   const listRef = useRef(null);
+  const setDragPosRef = useRef(setDragPos);
+  setDragPosRef.current = setDragPos;
+  const setDropTargetRef = useRef(setDropTargetId);
+  setDropTargetRef.current = setDropTargetId;
 
   const fetchTasks = useCallback(async () => {
     if (!profile?.id) return;
@@ -151,6 +156,40 @@ export default function SprintBoardMobile({ profile }) {
   }
 
   // ─── Long-press drag-and-drop ─────────────────────────────────
+  // Uses document-level non-passive listeners so preventDefault() actually
+  // blocks scrolling while dragging.
+
+  // Attach/detach document-level touchmove + touchend when drag starts/stops
+  useEffect(() => {
+    if (!dragTaskId) return;
+    dragActiveRef.current = true;
+
+    function onDocTouchMove(e) {
+      if (!dragActiveRef.current) return;
+      e.preventDefault(); // block scrolling — works because { passive: false }
+      const touch = e.touches[0];
+      setDragPosRef.current({ x: touch.clientX, y: touch.clientY });
+
+      // Determine which group the finger is over
+      let target = null;
+      for (const g of STATUS_GROUPS) {
+        const el = groupRefs.current[g.id];
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        if (touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
+          target = g.id;
+          break;
+        }
+      }
+      setDropTargetRef.current(target);
+    }
+
+    document.addEventListener('touchmove', onDocTouchMove, { passive: false });
+    return () => {
+      dragActiveRef.current = false;
+      document.removeEventListener('touchmove', onDocTouchMove);
+    };
+  }, [dragTaskId]);
 
   function handleTouchStart(e, task) {
     const touch = e.touches[0];
@@ -159,42 +198,23 @@ export default function SprintBoardMobile({ profile }) {
     longPressTimer.current = setTimeout(() => {
       setDragTaskId(task.id);
       setDragPos({ x: touch.clientX, y: touch.clientY });
-      // Haptic feedback if available
       if (navigator.vibrate) navigator.vibrate(30);
     }, LONG_PRESS_MS);
   }
 
-  function handleTouchMove(e, task) {
-    const touch = e.touches[0];
-    // If not yet dragging, check if moved too much (cancel long press, allow scroll)
-    if (!dragTaskId) {
-      if (touchStartPos.current) {
-        const dx = Math.abs(touch.clientX - touchStartPos.current.x);
-        const dy = Math.abs(touch.clientY - touchStartPos.current.y);
-        if (dx > DRAG_MOVE_THRESHOLD || dy > DRAG_MOVE_THRESHOLD) {
-          clearTimeout(longPressTimer.current);
-          longPressTimer.current = null;
-          touchStartPos.current = null;
-        }
-      }
-      return;
-    }
-    // Prevent scrolling while dragging
-    e.preventDefault();
-    setDragPos({ x: touch.clientX, y: touch.clientY });
-
-    // Determine which group the finger is over
-    let target = null;
-    for (const g of STATUS_GROUPS) {
-      const el = groupRefs.current[g.id];
-      if (!el) continue;
-      const rect = el.getBoundingClientRect();
-      if (touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
-        target = g.id;
-        break;
+  function handleTouchMove(e) {
+    // Before drag is active: cancel long-press if finger moves (allow normal scroll)
+    if (!dragActiveRef.current && touchStartPos.current) {
+      const touch = e.touches[0];
+      const dx = Math.abs(touch.clientX - touchStartPos.current.x);
+      const dy = Math.abs(touch.clientY - touchStartPos.current.y);
+      if (dx > DRAG_MOVE_THRESHOLD || dy > DRAG_MOVE_THRESHOLD) {
+        clearTimeout(longPressTimer.current);
+        longPressTimer.current = null;
+        touchStartPos.current = null;
       }
     }
-    setDropTargetId(target);
+    // Once drag is active, the document-level listener handles everything
   }
 
   function handleTouchEnd() {
@@ -202,7 +222,7 @@ export default function SprintBoardMobile({ profile }) {
     longPressTimer.current = null;
     touchStartPos.current = null;
 
-    if (dragTaskId && dropTargetId) {
+    if (dragActiveRef.current && dropTargetId) {
       const task = dragTaskSnapshot.current;
       if (task && task.status !== dropTargetId) {
         const updates = { status: dropTargetId };
@@ -215,6 +235,7 @@ export default function SprintBoardMobile({ profile }) {
       }
     }
 
+    dragActiveRef.current = false;
     setDragTaskId(null);
     setDragPos(null);
     setDropTargetId(null);
@@ -243,7 +264,7 @@ export default function SprintBoardMobile({ profile }) {
         </svg>
       </button>
 
-      <div style={styles.list} ref={listRef}>
+      <div style={{ ...styles.list, ...(dragTaskId ? { overflowY: 'hidden' } : {}) }} ref={listRef}>
         {loading ? (
           <p style={styles.empty}>Loading…</p>
         ) : tasks.length === 0 ? (
@@ -285,7 +306,7 @@ export default function SprintBoardMobile({ profile }) {
                     onTap={() => !dragTaskId && setEditingTask(task)}
                     isDragging={dragTaskId === task.id}
                     onTouchStart={(e) => handleTouchStart(e, task)}
-                    onTouchMove={(e) => handleTouchMove(e, task)}
+                    onTouchMove={(e) => handleTouchMove(e)}
                     onTouchEnd={handleTouchEnd}
                   />
                 ))}
