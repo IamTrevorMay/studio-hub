@@ -86,7 +86,6 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
           .filter(d =>
             d.delivered !== true
             && (d.status || '').toLowerCase() !== 'archived'
-            && !(d.notes && d.notes.trim())
             && !!(d.campaign && d.campaign.brief_url)
           )
           .map(d => ({
