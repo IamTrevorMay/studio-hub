@@ -17,30 +17,30 @@ update public.profiles
 set route_tasks_to_sprint = true
 where id = (select id from auth.users where lower(email) = 'trevormayofficial@gmail.com');
 
--- 4. Backfill: create sprint cards for Trevor's existing active workflow/project tasks.
---    Places them in "in_progress" status with a generic position.
-insert into public.personal_tasks (created_by, content, status, position, task_id)
+-- 4. Backfill: create sprint cards for opted-in users' existing active tasks.
+--    Places them in "in_progress" in the user's current active sprint.
+insert into public.personal_tasks (created_by, content, status, position, task_id, sprint_id)
 select
   t.assignee_id,
   t.title,
   'in_progress',
   row_number() over (order by t.created_at) * 10,
-  t.id
+  t.id,
+  (select s.id from public.sprints s where s.user_id = t.assignee_id and s.status = 'active' limit 1)
 from public.tasks t
 join public.profiles p on p.id = t.assignee_id
 where p.route_tasks_to_sprint = true
   and t.status in ('active', 'pending')
   and t.assignee_id is not null
   and not exists (select 1 from public.personal_tasks pt where pt.task_id = t.id)
--- Include project tasks (have related_entity_type = 'project')
--- and tasks without a direct assignee but with sign-off rows
 union all
 select
   tso.user_id,
   t.title,
   'in_progress',
   row_number() over (order by t.created_at) * 10 + 1000,
-  t.id
+  t.id,
+  (select s.id from public.sprints s where s.user_id = tso.user_id and s.status = 'active' limit 1)
 from public.tasks t
 join public.task_sign_offs tso on tso.task_id = t.id
 join public.profiles p on p.id = tso.user_id
