@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import SprintBoardMobile from '../components/SprintBoardMobile';
+import MyTasks from './MyTasks';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
 
 const EVENT_TYPE_COLORS = {
@@ -36,7 +37,8 @@ function greet() {
 }
 
 const TABS = [
-  { key: 'tasks', label: 'My tasks' },
+  { key: 'tasks', label: 'Sprint' },
+  { key: 'mytasks', label: 'My Tasks' },
   { key: 'todo', label: 'To-do' },
   { key: 'today', label: 'Today' },
   { key: 'checkin', label: 'Check-in' },
@@ -74,6 +76,7 @@ export default function DashboardMobile({ onNavigate }) {
       </div>
 
       {activeTab === 'tasks' && <SprintBoardMobile profile={profile} />}
+      {activeTab === 'mytasks' && <MyTasks onNavigate={onNavigate} embedded />}
       {activeTab === 'todo' && <TodoTab profile={profile} />}
       {activeTab === 'today' && <TodayTab profile={profile} isAdmin={isAdmin} onNavigate={onNavigate} />}
       {activeTab === 'checkin' && <CheckinTab profile={profile} />}
@@ -437,11 +440,14 @@ function CheckinTab({ profile }) {
               }}
               aria-label={`Rate ${opt.label}`}
             >
-              {active && (
-                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#fff" strokeWidth="2.5">
-                  <path d="M5 10l3 3 7-7" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              )}
+              <span style={{
+                fontSize: 18,
+                fontWeight: 700,
+                color: '#fff',
+                opacity: active ? 1 : 0.45,
+              }}>
+                {opt.rating}
+              </span>
             </button>
           );
         })}
@@ -485,6 +491,33 @@ function CheckinTab({ profile }) {
           />
         ))}
       </div>
+
+      {/* Average rating */}
+      {(() => {
+        const validRatings = grid.filter(c => c.rating !== null).map(c => c.rating);
+        if (validRatings.length === 0) {
+          return (
+            <div style={styles.avgRow}>
+              <span style={{ fontSize: mobileTokens.font.sm, color: 'rgba(255,255,255,0.35)' }}>
+                No check-ins yet
+              </span>
+            </div>
+          );
+        }
+        const avg = (validRatings.reduce((a, b) => a + b, 0) / validRatings.length).toFixed(1);
+        const avgColor = CHECKIN_OPTIONS[Math.round(avg) - 1]?.color || '#6366f1';
+        return (
+          <div style={styles.avgRow}>
+            <span style={{ ...styles.avgDot, background: avgColor }} />
+            <span style={{ fontSize: mobileTokens.font.sm, color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>
+              Avg {avg}
+            </span>
+            <span style={{ fontSize: mobileTokens.font.xs, color: 'rgba(255,255,255,0.35)', marginLeft: 4 }}>
+              ({validRatings.length} {validRatings.length === 1 ? 'day' : 'days'})
+            </span>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -767,5 +800,17 @@ const styles = {
   heatmapCell: {
     aspectRatio: '1 / 1',
     borderRadius: 4,
+  },
+  avgRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: mobileTokens.space.sm,
+    marginTop: mobileTokens.space.sm,
+  },
+  avgDot: {
+    width: 10,
+    height: 10,
+    borderRadius: '50%',
+    flexShrink: 0,
   },
 };

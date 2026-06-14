@@ -3,14 +3,14 @@ import { supabase } from '../supabaseClient';
 import BottomSheet from './mobile/BottomSheet';
 import { mobileTokens } from '../utils/mobileTokens';
 
-// Simplified SprintBoard for mobile. Skips sprints, retros, drag-drop, week-nav.
-// Focus: see tasks, add tasks, complete tasks, edit a task. Same `personal_tasks`
-// table as the desktop component.
+// Simplified SprintBoard for mobile. Same `personal_tasks` table as desktop.
+// Supports: see tasks, add tasks (top-right [+]), complete tasks, edit a task,
+// long-press drag-and-drop between status groups.
 
 const STATUS_GROUPS = [
   { id: 'in_progress', label: 'In progress', accent: '#f59e0b', statuses: ['in_progress'] },
   { id: 'ready', label: 'Up next', accent: '#3b82f6', statuses: ['ready'] },
-  { id: 'holding', label: 'Holding', accent: '#f97316', statuses: ['holding'] },
+  { id: 'holding', label: 'On Hold', accent: '#f97316', statuses: ['holding'] },
   { id: 'inbox', label: 'Inbox', accent: '#a78bfa', statuses: ['inbox'] },
   { id: 'backlog', label: 'Backlog', accent: '#64748b', statuses: ['backlog'] },
   { id: 'done', label: 'Done', accent: '#22c55e', statuses: ['done'] },
@@ -35,14 +35,28 @@ const STATUS_OPTIONS = [
   { value: 'done', label: 'Done' },
 ];
 
+const LONG_PRESS_MS = 400;
+const DRAG_MOVE_THRESHOLD = 10;
+
 export default function SprintBoardMobile({ profile }) {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [newTaskText, setNewTaskText] = useState('');
   const [editingTask, setEditingTask] = useState(null);
   const [collapsed, setCollapsed] = useState(() => ({ done: true, backlog: true }));
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [quickAddText, setQuickAddText] = useState('');
   const tasksRef = useRef(tasks);
   tasksRef.current = tasks;
+
+  // Drag state
+  const [dragTaskId, setDragTaskId] = useState(null);
+  const [dragPos, setDragPos] = useState(null); // { x, y } screen position
+  const [dropTargetId, setDropTargetId] = useState(null);
+  const longPressTimer = useRef(null);
+  const touchStartPos = useRef(null);
+  const groupRefs = useRef({}); // id -> DOM element
+  const dragTaskSnapshot = useRef(null);
+  const listRef = useRef(null);
 
   const fetchTasks = useCallback(async () => {
     if (!profile?.id) return;
@@ -58,12 +72,11 @@ export default function SprintBoardMobile({ profile }) {
 
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
 
-  async function addTask() {
-    if (!newTaskText.trim() || !profile?.id) return;
-    const content = newTaskText.trim();
+  async function addTask(text) {
+    const content = (text || '').trim();
+    if (!content || !profile?.id) return;
     const inboxTasks = tasks.filter((t) => t.status === 'inbox');
     const maxPos = inboxTasks.length ? Math.max(...inboxTasks.map((t) => t.position || 0)) : 0;
-    setNewTaskText('');
     const optimistic = {
       id: `temp-${Date.now()}`,
       created_by: profile.id,
@@ -87,7 +100,6 @@ export default function SprintBoardMobile({ profile }) {
     } catch (err) {
       console.error('Add task failed:', err);
       setTasks((prev) => prev.filter((t) => t.id !== optimistic.id));
-      setNewTaskText(content);
     }
   }
 
@@ -130,27 +142,134 @@ export default function SprintBoardMobile({ profile }) {
     setCollapsed((prev) => ({ ...prev, [id]: !prev[id] }));
   }
 
+  // Quick-add handler
+  function handleQuickAdd() {
+    if (!quickAddText.trim()) return;
+    addTask(quickAddText);
+    setQuickAddText('');
+    setShowQuickAdd(false);
+  }
+
+  // ─── Long-press drag-and-drop ─────────────────────────────────
+
+  function handleTouchStart(e, task) {
+    const touch = e.touches[0];
+    touchStartPos.current = { x: touch.clientX, y: touch.clientY };
+    dragTaskSnapshot.current = task;
+    longPressTimer.current = setTimeout(() => {
+      setDragTaskId(task.id);
+      setDragPos({ x: touch.clientX, y: touch.clientY });
+      // Haptic feedback if available
+      if (navigator.vibrate) navigator.vibrate(30);
+    }, LONG_PRESS_MS);
+  }
+
+  function handleTouchMove(e, task) {
+    const touch = e.touches[0];
+    // If not yet dragging, check if moved too much (cancel long press, allow scroll)
+    if (!dragTaskId) {
+      if (touchStartPos.current) {
+        const dx = Math.abs(touch.clientX - touchStartPos.current.x);
+        const dy = Math.abs(touch.clientY - touchStartPos.current.y);
+        if (dx > DRAG_MOVE_THRESHOLD || dy > DRAG_MOVE_THRESHOLD) {
+          clearTimeout(longPressTimer.current);
+          longPressTimer.current = null;
+          touchStartPos.current = null;
+        }
+      }
+      return;
+    }
+    // Prevent scrolling while dragging
+    e.preventDefault();
+    setDragPos({ x: touch.clientX, y: touch.clientY });
+
+    // Determine which group the finger is over
+    let target = null;
+    for (const g of STATUS_GROUPS) {
+      const el = groupRefs.current[g.id];
+      if (!el) continue;
+      const rect = el.getBoundingClientRect();
+      if (touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
+        target = g.id;
+        break;
+      }
+    }
+    setDropTargetId(target);
+  }
+
+  function handleTouchEnd() {
+    clearTimeout(longPressTimer.current);
+    longPressTimer.current = null;
+    touchStartPos.current = null;
+
+    if (dragTaskId && dropTargetId) {
+      const task = dragTaskSnapshot.current;
+      if (task && task.status !== dropTargetId) {
+        const updates = { status: dropTargetId };
+        if (dropTargetId === 'done') {
+          updates.completed_at = new Date().toISOString();
+        } else if (task.status === 'done') {
+          updates.completed_at = null;
+        }
+        updateTask(task.id, updates);
+      }
+    }
+
+    setDragTaskId(null);
+    setDragPos(null);
+    setDropTargetId(null);
+    dragTaskSnapshot.current = null;
+  }
+
+  // Always show all groups so drag targets are available
   const grouped = STATUS_GROUPS.map((g) => ({
     ...g,
     items: tasks.filter((t) => g.statuses.includes(t.status)),
-  })).filter((g) => g.items.length > 0 || ['in_progress', 'ready', 'inbox'].includes(g.id));
+  })).filter((g) => g.items.length > 0 || ['in_progress', 'ready', 'inbox', 'holding', 'done'].includes(g.id));
+
+  const dragTask = dragTaskId ? tasksRef.current.find((t) => t.id === dragTaskId) : null;
 
   return (
     <div style={styles.root}>
-      <div style={styles.list}>
+      {/* Floating [+] add button */}
+      <button
+        type="button"
+        onClick={() => setShowQuickAdd(true)}
+        style={styles.fabAdd}
+        aria-label="Add task"
+      >
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <path d="M11 4v14M4 11h14" strokeLinecap="round" />
+        </svg>
+      </button>
+
+      <div style={styles.list} ref={listRef}>
         {loading ? (
           <p style={styles.empty}>Loading…</p>
         ) : tasks.length === 0 ? (
           <div style={styles.emptyState}>
             <p style={styles.empty}>No tasks yet.</p>
-            <p style={styles.emptyHint}>Add one below to get started.</p>
+            <p style={styles.emptyHint}>Tap + to add one.</p>
           </div>
         ) : (
           grouped.map((group) => {
             const isCollapsed = collapsed[group.id];
+            const isDropTarget = dragTaskId && dropTargetId === group.id;
             return (
-              <section key={group.id} style={styles.group}>
-                <button onClick={() => toggleGroup(group.id)} style={styles.groupHeader}>
+              <section
+                key={group.id}
+                ref={(el) => { groupRefs.current[group.id] = el; }}
+                style={{
+                  ...styles.group,
+                  ...(isDropTarget ? {
+                    background: `${group.accent}18`,
+                    borderRadius: mobileTokens.radius.md,
+                    outline: `2px solid ${group.accent}60`,
+                    outlineOffset: -2,
+                  } : {}),
+                }}
+              >
+                <button onClick={() => !dragTaskId && toggleGroup(group.id)} style={styles.groupHeader}>
                   <span style={{ ...styles.groupDot, background: group.accent }} />
                   <span style={styles.groupLabel}>{group.label}</span>
                   <span style={styles.groupCount}>{group.items.length}</span>
@@ -163,29 +282,58 @@ export default function SprintBoardMobile({ profile }) {
                     key={task.id}
                     task={task}
                     onToggleDone={() => toggleDone(task)}
-                    onTap={() => setEditingTask(task)}
+                    onTap={() => !dragTaskId && setEditingTask(task)}
+                    isDragging={dragTaskId === task.id}
+                    onTouchStart={(e) => handleTouchStart(e, task)}
+                    onTouchMove={(e) => handleTouchMove(e, task)}
+                    onTouchEnd={handleTouchEnd}
                   />
                 ))}
+                {/* Empty group placeholder */}
+                {!isCollapsed && group.items.length === 0 && (
+                  <div style={styles.emptyGroup}>
+                    <span style={{ fontSize: mobileTokens.font.xs, color: 'rgba(255,255,255,0.25)' }}>
+                      {dragTaskId ? 'Drop here' : 'Empty'}
+                    </span>
+                  </div>
+                )}
               </section>
             );
           })
         )}
       </div>
 
+      {/* Drag ghost */}
+      {dragTaskId && dragPos && dragTask && (
+        <div style={{
+          position: 'fixed',
+          left: 16,
+          right: 16,
+          top: dragPos.y - 28,
+          zIndex: 9999,
+          pointerEvents: 'none',
+        }}>
+          <div style={styles.dragGhost}>
+            <span style={styles.rowText}>{dragTask.content}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Bottom add bar (kept for inline quick entry) */}
       <form
-        onSubmit={(e) => { e.preventDefault(); addTask(); }}
+        onSubmit={(e) => { e.preventDefault(); handleQuickAdd(); }}
         style={{ ...styles.addBar, paddingBottom: `calc(${mobileTokens.space.md}px + ${mobileTokens.safeBottom})` }}
       >
         <input
-          value={newTaskText}
-          onChange={(e) => setNewTaskText(e.target.value)}
+          value={quickAddText}
+          onChange={(e) => setQuickAddText(e.target.value)}
           placeholder="Add a task…"
           style={styles.addInput}
         />
         <button
           type="submit"
-          disabled={!newTaskText.trim()}
-          style={{ ...styles.addBtn, opacity: newTaskText.trim() ? 1 : 0.4 }}
+          disabled={!quickAddText.trim()}
+          style={{ ...styles.addBtn, opacity: quickAddText.trim() ? 1 : 0.4 }}
           aria-label="Add task"
         >
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -194,6 +342,35 @@ export default function SprintBoardMobile({ profile }) {
         </button>
       </form>
 
+      {/* Quick-add bottom sheet */}
+      <BottomSheet
+        open={showQuickAdd}
+        onClose={() => { setShowQuickAdd(false); setQuickAddText(''); }}
+        title="Add task"
+        maxHeight="50vh"
+      >
+        <div style={editStyles.form}>
+          <textarea
+            value={quickAddText}
+            onChange={(e) => setQuickAddText(e.target.value)}
+            placeholder="What needs to be done?"
+            rows={2}
+            style={editStyles.textarea}
+            autoFocus
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleQuickAdd(); } }}
+          />
+          <button
+            type="button"
+            onClick={handleQuickAdd}
+            disabled={!quickAddText.trim()}
+            style={{ ...editStyles.saveBtn, opacity: quickAddText.trim() ? 1 : 0.5 }}
+          >
+            Add to Inbox
+          </button>
+        </div>
+      </BottomSheet>
+
+      {/* Edit task bottom sheet */}
       <BottomSheet
         open={!!editingTask}
         onClose={() => setEditingTask(null)}
@@ -213,11 +390,20 @@ export default function SprintBoardMobile({ profile }) {
   );
 }
 
-function TaskRow({ task, onToggleDone, onTap }) {
+function TaskRow({ task, onToggleDone, onTap, isDragging, onTouchStart, onTouchMove, onTouchEnd }) {
   const isDone = task.status === 'done';
   const priorityColor = task.priority ? POINT_COLORS[task.priority] : null;
   return (
-    <div style={{ ...styles.row, borderLeft: priorityColor ? `3px solid ${priorityColor}` : '3px solid transparent' }}>
+    <div
+      style={{
+        ...styles.row,
+        borderLeft: priorityColor ? `3px solid ${priorityColor}` : '3px solid transparent',
+        ...(isDragging ? { opacity: 0.3, transform: 'scale(0.97)' } : {}),
+      }}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+    >
       <button
         type="button"
         onClick={onToggleDone}
@@ -326,6 +512,25 @@ const styles = {
     flexDirection: 'column',
     minHeight: '100%',
     background: '#0f0f1a',
+    position: 'relative',
+  },
+  fabAdd: {
+    position: 'absolute',
+    top: mobileTokens.space.sm,
+    right: mobileTokens.space.md,
+    zIndex: 10,
+    width: 40,
+    height: 40,
+    borderRadius: '50%',
+    border: 'none',
+    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    color: '#fff',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 2px 8px rgba(99,102,241,0.4)',
+    WebkitTapHighlightColor: 'transparent',
   },
   list: {
     flex: 1,
@@ -340,6 +545,8 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     gap: 4,
+    transition: 'background 0.15s, outline 0.15s',
+    padding: 2,
   },
   groupHeader: {
     display: 'flex',
@@ -370,6 +577,15 @@ const styles = {
     color: 'rgba(255,255,255,0.4)',
     fontWeight: 500,
   },
+  emptyGroup: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: `${mobileTokens.space.md}px`,
+    borderRadius: mobileTokens.radius.md,
+    border: '1px dashed rgba(255,255,255,0.1)',
+    minHeight: 40,
+  },
   row: {
     display: 'flex',
     alignItems: 'flex-start',
@@ -378,6 +594,8 @@ const styles = {
     borderRadius: mobileTokens.radius.md,
     padding: mobileTokens.space.md,
     minHeight: mobileTokens.tap,
+    transition: 'opacity 0.15s, transform 0.15s',
+    touchAction: 'auto',
   },
   checkbox: {
     minWidth: 24,
@@ -419,6 +637,7 @@ const styles = {
     fontSize: mobileTokens.font.md,
     lineHeight: 1.4,
     wordBreak: 'break-word',
+    color: '#e2e8f0',
   },
   dueChip: {
     display: 'inline-block',
@@ -429,6 +648,15 @@ const styles = {
     padding: '2px 8px',
     borderRadius: mobileTokens.radius.pill,
     fontWeight: 500,
+  },
+  dragGhost: {
+    background: 'rgba(99,102,241,0.2)',
+    border: '1.5px solid rgba(99,102,241,0.5)',
+    borderRadius: mobileTokens.radius.md,
+    padding: `${mobileTokens.space.md}px`,
+    backdropFilter: 'blur(8px)',
+    WebkitBackdropFilter: 'blur(8px)',
+    boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
   },
   empty: {
     color: 'rgba(255,255,255,0.4)',

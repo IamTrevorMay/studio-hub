@@ -178,7 +178,7 @@ function ReviewProposalCard({ task }) {
 
 // ─── Component ────────────────────────────────────────────────
 
-export default function MyTasks({ onNavigate }) {
+export default function MyTasks({ onNavigate, embedded = false }) {
   const { profile } = useAuth();
   const { refreshNotifications } = useNotifications();
   const [tasks, setTasks] = useState([]);
@@ -670,10 +670,12 @@ export default function MyTasks({ onNavigate }) {
 
   if (loading) {
     return (
-      <div style={styles.page}>
-        <div style={styles.header}>
-          <h1 style={styles.title}>My Tasks</h1>
-        </div>
+      <div style={embedded ? styles.pageEmbedded : styles.page}>
+        {!embedded && (
+          <div style={styles.header}>
+            <h1 style={styles.title}>My Tasks</h1>
+          </div>
+        )}
         <div style={styles.loadingContainer}>
           <div style={styles.spinner} />
         </div>
@@ -682,13 +684,15 @@ export default function MyTasks({ onNavigate }) {
   }
 
   return (
-    <div style={styles.page}>
-      <div style={styles.header}>
-        <h1 style={styles.title}>My Tasks</h1>
-        <span style={styles.subtitle}>
-          {activeTasks.length} active{snoozedTasks.length > 0 ? ` \u00B7 ${snoozedTasks.length} snoozed` : ''}
-        </span>
-      </div>
+    <div style={embedded ? styles.pageEmbedded : styles.page}>
+      {!embedded && (
+        <div style={styles.header}>
+          <h1 style={styles.title}>My Tasks</h1>
+          <span style={styles.subtitle}>
+            {activeTasks.length} active{snoozedTasks.length > 0 ? ` \u00B7 ${snoozedTasks.length} snoozed` : ''}
+          </span>
+        </div>
+      )}
 
       {activeTasks.length === 0 && snoozedTasks.length === 0 && (
         <div style={styles.emptyState}>
@@ -1194,6 +1198,10 @@ const styles = {
     padding: '32px 40px',
     maxWidth: 800,
     margin: '0 auto',
+  },
+  pageEmbedded: {
+    padding: 0,
+    maxWidth: '100%',
   },
   header: {
     marginBottom: 24,
