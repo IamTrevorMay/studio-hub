@@ -52,10 +52,7 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
   const [recordId, setRecordId] = useState('');
   const [recordSearch, setRecordSearch] = useState('');
   const [deliverables, setDeliverables] = useState([]);
-  const [allDeliverables, setAllDeliverables] = useState([]); // raw deliverables with campaign_id
   const [campaigns, setCampaigns] = useState([]);
-  const [briefDeliverableId, setBriefDeliverableId] = useState('');
-  const [briefDeliverableSearch, setBriefDeliverableSearch] = useState('');
 
   // Background Research template: link an existing research doc or create one.
   const [researchMode, setResearchMode] = useState('existing'); // 'existing' | 'new'
@@ -73,7 +70,7 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
           .order('full_name', { ascending: true, nullsFirst: false }),
         supabase
           .from('sponsor_deliverables')
-          .select('id, title, due_date, channel, delivered, status, notes, campaign_id, campaign:sponsor_campaigns(name, brief_url)')
+          .select('id, title, due_date, channel, delivered, status, notes, campaign:sponsor_campaigns(name, brief_url)')
           .order('due_date', { ascending: true }),
         supabase
           .from('sponsor_campaigns')
@@ -84,9 +81,8 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
 
       const today = new Date().toISOString().slice(0, 10);
       const monthOf = (d) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short' }) : '';
-      const rawDelivs = delivRes.data || [];
       setDeliverables(
-        rawDelivs
+        (delivRes.data || [])
           .filter(d =>
             d.delivered !== true
             && (d.status || '').toLowerCase() !== 'archived'
@@ -96,16 +92,6 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
           .map(d => ({
             id: d.id,
             label: `${d.campaign?.name ? `${d.campaign.name}: ` : ''}${d.title || 'Untitled'}${d.channel ? ` · ${d.channel}` : ''}${d.due_date ? ` (${monthOf(d.due_date)})` : ''}`,
-          })),
-      );
-      // Keep all incomplete deliverables with campaign_id for the brief→deliverable picker
-      setAllDeliverables(
-        rawDelivs
-          .filter(d => d.delivered !== true && (d.status || '').toLowerCase() !== 'archived')
-          .map(d => ({
-            id: d.id,
-            campaign_id: d.campaign_id,
-            label: `${d.title || 'Untitled'}${d.channel ? ` · ${d.channel}` : ''}${d.due_date ? ` (${monthOf(d.due_date)})` : ''}`,
           })),
       );
       setCampaigns(
@@ -155,8 +141,6 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
     setTemplate(key);
     setRecordId('');
     setRecordSearch('');
-    setBriefDeliverableId('');
-    setBriefDeliverableSearch('');
     const tpl = TASK_TEMPLATES.find(t => t.key === key);
     if (tpl?.research) {
       setNotes(RESEARCH_NOTE);
@@ -171,25 +155,6 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
     setRecordId(rec.id);
     setRecordSearch(rec.label);
     if (activeTemplate) setTitle(`${activeTemplate.titlePrefix}: ${rec.label}`);
-    // Reset deliverable when campaign changes (for collect_brief flow)
-    setBriefDeliverableId('');
-    setBriefDeliverableSearch('');
-  };
-
-  // Deliverables for the selected campaign (collect_brief flow)
-  const isBriefWithCampaign = template === 'collect_brief' && !!recordId;
-  const campaignDeliverableOptions = useMemo(() => {
-    if (!isBriefWithCampaign) return [];
-    const list = allDeliverables.filter(d => d.campaign_id === recordId);
-    const q = briefDeliverableSearch.trim().toLowerCase();
-    return q ? list.filter(r => r.label.toLowerCase().includes(q)) : list;
-  }, [isBriefWithCampaign, allDeliverables, recordId, briefDeliverableSearch]);
-
-  const onPickBriefDeliverable = (rec) => {
-    setBriefDeliverableId(rec.id);
-    setBriefDeliverableSearch(rec.label);
-    // Update title to reflect the deliverable
-    setTitle(`Write ad read: ${rec.label}`);
   };
 
   const isResearch = !!activeTemplate?.research;
@@ -200,14 +165,12 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
   const resetForm = () => {
     setTitle(''); setAssignees([]); setDueDate(''); setNotes(''); setLink(''); setNavTarget('');
     setTemplate(''); setRecordId(''); setRecordSearch('');
-    setBriefDeliverableId(''); setBriefDeliverableSearch('');
     setResearchMode('existing'); setSelectedDocUrl(''); setResearchForm(emptyResearchForm());
   };
 
   const handleAssign = async () => {
     if (!title.trim() || assignees.length === 0) return;
     if (activeTemplate && !isResearch && !recordId) return;
-    if (isBriefWithCampaign && !briefDeliverableId) return;
     if (isResearch && !researchReady) return;
     setSubmitting(true);
     try {
@@ -237,10 +200,6 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
           nav_target: navTarget || null,
           ...(activeTemplate ? (isResearch ? {
             step_key: activeTemplate.key,
-          } : isBriefWithCampaign ? {
-            step_key: 'write_ad_reads',
-            related_entity_type: 'deliverable',
-            related_entity_id: briefDeliverableId,
           } : {
             step_key: activeTemplate.key,
             related_entity_type: activeTemplate.entity,
@@ -263,7 +222,6 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
 
   const canAssign = title.trim() && assignees.length > 0
     && (!activeTemplate || isResearch || recordId)
-    && (!isBriefWithCampaign || briefDeliverableId)
     && researchReady && !submitting;
 
   if (!open) return null;
@@ -320,40 +278,7 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
               {recordId && (
                 <div style={styles.recordPicked}>
                   ✓ {recordSearch}
-                  <button style={styles.recordClear} onClick={() => { setRecordId(''); setRecordSearch(''); setBriefDeliverableId(''); setBriefDeliverableSearch(''); }}>change</button>
-                </div>
-              )}
-
-              {/* Deliverable picker for Add Brief template */}
-              {isBriefWithCampaign && (
-                <div style={{ marginTop: 10 }}>
-                  <div style={styles.fieldLabel}>
-                    Deliverable
-                    {!briefDeliverableId && <span style={{ color: '#f87171', marginLeft: 6 }}>required</span>}
-                  </div>
-                  <input
-                    style={styles.input}
-                    value={briefDeliverableSearch}
-                    onChange={e => { setBriefDeliverableSearch(e.target.value); setBriefDeliverableId(''); }}
-                    placeholder="Search deliverables…"
-                  />
-                  {!briefDeliverableId && (
-                    <div style={styles.recordList}>
-                      {campaignDeliverableOptions.length === 0 ? (
-                        <div style={styles.recordEmpty}>No incomplete deliverables in this campaign</div>
-                      ) : campaignDeliverableOptions.slice(0, 50).map(rec => (
-                        <div key={rec.id} style={styles.recordRow} onClick={() => onPickBriefDeliverable(rec)}>
-                          {rec.label}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {briefDeliverableId && (
-                    <div style={styles.recordPicked}>
-                      ✓ {briefDeliverableSearch}
-                      <button style={styles.recordClear} onClick={() => { setBriefDeliverableId(''); setBriefDeliverableSearch(''); }}>change</button>
-                    </div>
-                  )}
+                  <button style={styles.recordClear} onClick={() => { setRecordId(''); setRecordSearch(''); }}>change</button>
                 </div>
               )}
             </div>
