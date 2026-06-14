@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
+import { callWorkflowFn } from '../lib/workflowApi';
 import BottomSheet from './mobile/BottomSheet';
 import { mobileTokens } from '../utils/mobileTokens';
 
@@ -67,7 +68,7 @@ export default function SprintBoardMobile({ profile }) {
     if (!profile?.id) return;
     const { data, error } = await supabase
       .from('personal_tasks')
-      .select('*')
+      .select('*, linked_task:tasks(id, step_key, requires_sign_off, status, related_entity_type, related_entity_id, workflow_instance:workflow_instances(id, workflow_id, status))')
       .eq('created_by', profile.id)
       .neq('status', 'archived')
       .order('position', { ascending: true });
@@ -140,6 +141,13 @@ export default function SprintBoardMobile({ profile }) {
       updateTask(task.id, { status: 'ready', completed_at: null });
     } else {
       updateTask(task.id, { status: 'done', completed_at: new Date().toISOString() });
+      // Workflow/project task completion on checkbox toggle to done.
+      if (task.task_id && task.linked_task && task.linked_task.status === 'active') {
+        const action = task.linked_task.requires_sign_off ? 'sign_off' : undefined;
+        callWorkflowFn('workflow-complete-task', { task_id: task.task_id, action }).catch(err =>
+          console.error('Sprint done → workflow-complete-task failed:', err)
+        );
+      }
     }
   }
 
@@ -232,6 +240,17 @@ export default function SprintBoardMobile({ profile }) {
           updates.completed_at = null;
         }
         updateTask(task.id, updates);
+
+        // Workflow/project task completion when moved to done.
+        if (dropTargetId === 'done' && task.task_id && task.linked_task) {
+          const lt = task.linked_task;
+          if (lt.status === 'active') {
+            const action = lt.requires_sign_off ? 'sign_off' : undefined;
+            callWorkflowFn('workflow-complete-task', { task_id: task.task_id, action }).catch(err =>
+              console.error('Sprint done → workflow-complete-task failed:', err)
+            );
+          }
+        }
       }
     }
 
@@ -441,9 +460,17 @@ function TaskRow({ task, onToggleDone, onTap, isDragging, onTouchStart, onTouchM
         <span style={{ ...styles.rowText, textDecoration: isDone ? 'line-through' : 'none', color: isDone ? 'rgba(255,255,255,0.4)' : '#e2e8f0' }}>
           {task.content}
         </span>
-        {task.due_date && (
-          <span style={styles.dueChip}>{formatDue(task.due_date)}</span>
-        )}
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+          {task.due_date && (
+            <span style={styles.dueChip}>{formatDue(task.due_date)}</span>
+          )}
+          {task.linked_task && task.linked_task.workflow_instance && (
+            <span style={{ fontSize: 9, color: '#fbbf24', background: 'rgba(251,191,36,0.15)', padding: '1px 4px', borderRadius: 3, fontWeight: 600 }}>WF</span>
+          )}
+          {task.linked_task && task.linked_task.related_entity_type === 'project' && !task.linked_task.workflow_instance && (
+            <span style={{ fontSize: 9, color: '#a5b4fc', background: 'rgba(99,102,241,0.15)', padding: '1px 4px', borderRadius: 3, fontWeight: 600 }}>Proj</span>
+          )}
+        </div>
       </button>
     </div>
   );

@@ -124,6 +124,43 @@ export async function logEvent(
   });
 }
 
+// ─── Sprint card routing ──────────────────────────────────────────
+
+async function maybeCreateSprintCards(
+  admin: SupabaseClient,
+  userIds: string[],
+  taskId: string,
+  taskTitle: string,
+) {
+  if (userIds.length === 0) return;
+  // Check which users have route_tasks_to_sprint enabled.
+  const { data: profiles } = await admin
+    .from("profiles")
+    .select("id")
+    .in("id", userIds)
+    .eq("route_tasks_to_sprint", true);
+  if (!profiles || profiles.length === 0) return;
+
+  for (const p of profiles) {
+    // Find user's active sprint to assign sprint_id.
+    const { data: sprint } = await admin
+      .from("sprints")
+      .select("id")
+      .eq("user_id", p.id)
+      .eq("status", "active")
+      .maybeSingle();
+
+    await admin.from("personal_tasks").insert({
+      created_by: p.id,
+      content: taskTitle,
+      status: "in_progress",
+      position: Date.now() % 100000,
+      task_id: taskId,
+      sprint_id: sprint?.id || null,
+    });
+  }
+}
+
 // ─── Column lookups ────────────────────────────────────────────
 
 export async function loadColumns(
@@ -246,6 +283,9 @@ export async function enterColumn(
   for (const uid of assignees) {
     await notifyUser(admin, uid, "New task assigned", created.title, created.id, instance.test_mode);
   }
+
+  // Route to Sprint Board for opted-in users.
+  await maybeCreateSprintCards(admin, assignees, created.id, created.title);
 
   return { taskIds: [created.id], blocked: false };
 }

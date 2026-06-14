@@ -36,7 +36,7 @@ function greet() {
   return 'Good evening';
 }
 
-const TABS = [
+const ALL_TABS = [
   { key: 'tasks', label: 'Sprint' },
   { key: 'mytasks', label: 'My Tasks' },
   { key: 'todo', label: 'To-do' },
@@ -47,6 +47,8 @@ const TABS = [
 export default function DashboardMobile({ onNavigate }) {
   const { profile, isAdmin } = useAuth();
   const [activeTab, setActiveTab] = useState('tasks');
+
+  const visibleTabs = isAdmin ? ALL_TABS.filter(t => t.key !== 'mytasks') : ALL_TABS;
 
   return (
     <div style={styles.root}>
@@ -59,7 +61,7 @@ export default function DashboardMobile({ onNavigate }) {
       </header>
 
       <div style={styles.tabBar} role="tablist">
-        {TABS.map((t) => (
+        {visibleTabs.map((t) => (
           <button
             key={t.key}
             onClick={() => setActiveTab(t.key)}

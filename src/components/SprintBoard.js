@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { callWorkflowFn } from '../lib/workflowApi';
 import SprintGoals from './SprintGoals';
 import SprintRetroModal from './SprintRetroModal';
 
@@ -158,6 +159,16 @@ function TaskCard({ task, index, onClick, projectsMap, campaignsMap, bucketMap, 
             {task.mayday_video && MAYDAY_STAGE_LABELS[task.mayday_video.stage] && (
               <span style={{ fontSize: '10px', color: MAYDAY_STAGE_COLORS[task.mayday_video.stage], background: `${MAYDAY_STAGE_COLORS[task.mayday_video.stage]}15`, padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
                 {MAYDAY_STAGE_LABELS[task.mayday_video.stage]}
+              </span>
+            )}
+            {task.linked_task && task.linked_task.workflow_instance && (
+              <span style={{ fontSize: '10px', color: '#fbbf24', background: 'rgba(251,191,36,0.15)', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
+                Workflow
+              </span>
+            )}
+            {task.linked_task && task.linked_task.related_entity_type === 'project' && !task.linked_task.workflow_instance && (
+              <span style={{ fontSize: '10px', color: '#a5b4fc', background: 'rgba(99,102,241,0.15)', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
+                Project
               </span>
             )}
           </div>
@@ -643,7 +654,7 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
       const sprintId = sprintForWeek?.id;
       let query = supabase
         .from('personal_tasks')
-        .select('*, mayday_video:mayday_videos(id, title, stage)')
+        .select('*, mayday_video:mayday_videos(id, title, stage), linked_task:tasks(id, step_key, requires_sign_off, status, related_entity_type, related_entity_id, workflow_instance:workflow_instances(id, workflow_id, context, status, workflow:workflows(id, name)))')
         .eq('created_by', profile.id)
         .order('position', { ascending: true });
 
@@ -1053,6 +1064,17 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
         supabase.from('bd_tasks').update({ completed_at: new Date().toISOString() }).eq('id', task.bd_task_id);
       } else if (task.status === 'done') {
         supabase.from('bd_tasks').update({ completed_at: null }).eq('id', task.bd_task_id);
+      }
+    }
+
+    // Workflow/project task completion: fire sign-off or complete when moved to done.
+    if (task.task_id && newStatus === 'done' && task.linked_task) {
+      const lt = task.linked_task;
+      if (lt.status === 'active') {
+        const action = lt.requires_sign_off ? 'sign_off' : undefined;
+        callWorkflowFn('workflow-complete-task', { task_id: task.task_id, action }).catch(err =>
+          console.error('Sprint done → workflow-complete-task failed:', err)
+        );
       }
     }
 
