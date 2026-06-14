@@ -652,9 +652,12 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
     if (!profile?.id) return;
     try {
       const sprintId = sprintForWeek?.id;
+      const selectWithLinked = '*, mayday_video:mayday_videos(id, title, stage), linked_task:tasks(id, step_key, requires_sign_off, status, related_entity_type, related_entity_id, workflow_instance:workflow_instances(id, workflow_id, context, status, workflow:workflows(id, name)))';
+      const selectFallback = '*, mayday_video:mayday_videos(id, title, stage)';
+
       let query = supabase
         .from('personal_tasks')
-        .select('*, mayday_video:mayday_videos(id, title, stage), linked_task:tasks(id, step_key, requires_sign_off, status, related_entity_type, related_entity_id, workflow_instance:workflow_instances(id, workflow_id, context, status, workflow:workflows(id, name)))')
+        .select(selectWithLinked)
         .eq('created_by', profile.id)
         .order('position', { ascending: true });
 
@@ -664,8 +667,25 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
         query = query.neq('status', 'archived');
       }
 
-      const { data, error } = await query;
-      if (error) throw error;
+      let { data, error } = await query;
+
+      // Fallback if linked_task join fails (task_id column not yet migrated)
+      if (error) {
+        let fallbackQuery = supabase
+          .from('personal_tasks')
+          .select(selectFallback)
+          .eq('created_by', profile.id)
+          .order('position', { ascending: true });
+        if (sprintId) {
+          fallbackQuery = fallbackQuery.or(`status.neq.archived,sprint_id.eq.${sprintId}`);
+        } else {
+          fallbackQuery = fallbackQuery.neq('status', 'archived');
+        }
+        const res = await fallbackQuery;
+        if (res.error) throw res.error;
+        data = res.data;
+      }
+
       setTasks(data || []);
     } catch (err) {
       console.error('Error fetching personal tasks:', err);

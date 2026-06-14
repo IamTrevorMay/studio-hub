@@ -66,12 +66,23 @@ export default function SprintBoardMobile({ profile }) {
 
   const fetchTasks = useCallback(async () => {
     if (!profile?.id) return;
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('personal_tasks')
       .select('*, linked_task:tasks(id, step_key, requires_sign_off, status, related_entity_type, related_entity_id, workflow_instance:workflow_instances(id, workflow_id, status))')
       .eq('created_by', profile.id)
       .neq('status', 'archived')
       .order('position', { ascending: true });
+    // Fallback if linked_task join fails (task_id column not yet migrated)
+    if (error) {
+      const res = await supabase
+        .from('personal_tasks')
+        .select('*')
+        .eq('created_by', profile.id)
+        .neq('status', 'archived')
+        .order('position', { ascending: true });
+      data = res.data;
+      error = res.error;
+    }
     if (!error) setTasks(data || []);
     setLoading(false);
   }, [profile?.id]);
