@@ -79,6 +79,7 @@ export default function FreelancerDashboard({ onNavigate }) {
   const [stuckAssignment, setStuckAssignment] = useState(null);
   const [stuckText, setStuckText] = useState('');
   const [stuckSending, setStuckSending] = useState(false);
+  const [completeConfirmAssignment, setCompleteConfirmAssignment] = useState(null);
   const [myDriveFolderId, setMyDriveFolderId] = useState(null);
 
   // Notifications + announcements
@@ -716,28 +717,39 @@ export default function FreelancerDashboard({ onNavigate }) {
                           ● In Progress
                         </span>
 
-                        {uploadedFileUrls[a.id] ? (
-                          <button
-                            style={styles.submitButtonGreen}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (myPaymentType === 'hourly') {
-                                setHoursModalAssignment(a);
-                                setHoursInput('');
-                              } else {
-                                handleStatusChange(a, 'completed');
-                              }
-                            }}
-                          >
-                            &#10003; Submit
-                          </button>
-                        ) : (
+                        {a.content_type === 'podcast' ? (
                           <button
                             style={styles.actionButton}
-                            onClick={(e) => { e.stopPropagation(); setSubmitModalAssignment(a); }}
+                            onClick={(e) => { e.stopPropagation(); setCompleteConfirmAssignment(a); }}
                           >
-                            Submit
+                            Mark Complete
                           </button>
+                        ) : (
+                          <>
+                            {uploadedFileUrls[a.id] ? (
+                              <button
+                                style={styles.submitButtonGreen}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (myPaymentType === 'hourly') {
+                                    setHoursModalAssignment(a);
+                                    setHoursInput('');
+                                  } else {
+                                    handleStatusChange(a, 'completed');
+                                  }
+                                }}
+                              >
+                                &#10003; Submit
+                              </button>
+                            ) : (
+                              <button
+                                style={styles.actionButton}
+                                onClick={(e) => { e.stopPropagation(); setSubmitModalAssignment(a); }}
+                              >
+                                Submit
+                              </button>
+                            )}
+                          </>
                         )}
 
                         <button
@@ -861,6 +873,34 @@ export default function FreelancerDashboard({ onNavigate }) {
       )}
 
       {/* Hours Modal */}
+      {completeConfirmAssignment && (
+        <div style={styles.modalOverlay} onClick={() => setCompleteConfirmAssignment(null)}>
+          <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <h3 style={styles.modalTitle}>Mark Complete</h3>
+            <p style={styles.modalSubtitle}>Are you sure you want to mark "{completeConfirmAssignment.title}" as complete?</p>
+            <div style={styles.modalActions}>
+              <button style={styles.modalCancelBtn} onClick={() => setCompleteConfirmAssignment(null)}>
+                Cancel
+              </button>
+              <button
+                style={styles.modalConfirmBtn}
+                onClick={() => {
+                  if (myPaymentType === 'hourly') {
+                    setHoursModalAssignment(completeConfirmAssignment);
+                    setHoursInput('');
+                  } else {
+                    handleStatusChange(completeConfirmAssignment, 'completed');
+                  }
+                  setCompleteConfirmAssignment(null);
+                }}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {hoursModalAssignment && (
         <div style={styles.modalOverlay} onClick={() => setHoursModalAssignment(null)}>
           <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>

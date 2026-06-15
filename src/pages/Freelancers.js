@@ -73,7 +73,7 @@ function Freelancers() {
   // New assignment form
   const [newAssign, setNewAssign] = useState({
     freelancer_id: '', title: '', description: '', asset_url: '',
-    due_date: '', pay_amount: '',
+    due_date: '', pay_amount: '', content_type: 'video',
   });
 
   /* ── Hours state ── */
@@ -317,6 +317,7 @@ function Freelancers() {
       asset_url: newAssign.asset_url.trim() || null,
       due_date: newAssign.due_date || null,
       pay_amount: newAssign.pay_amount ? parseFloat(newAssign.pay_amount) : null,
+      content_type: newAssign.content_type,
       created_by: profile.id,
     };
     const { error } = await supabase.from('freelancer_assignments').insert(row);
@@ -332,18 +333,19 @@ function Freelancers() {
       link_target: null,
     });
 
-    setNewAssign({ freelancer_id: '', title: '', description: '', asset_url: '', due_date: '', pay_amount: '' });
+    setNewAssign({ freelancer_id: '', title: '', description: '', asset_url: '', due_date: '', pay_amount: '', content_type: 'video' });
     setShowNewAssignment(false);
     fetchAssignments();
   };
 
   const handleUpdateAssignment = async () => {
     if (!editingAssignment) return;
-    const { id, title, description, asset_url, assignment_type, due_date, pay_amount, status } = editingAssignment;
+    const { id, title, description, asset_url, assignment_type, content_type, due_date, pay_amount, status } = editingAssignment;
     const updates = {
       title, description: description || null,
       asset_url: (asset_url || '').trim() || null,
-      assignment_type, due_date: due_date || null,
+      assignment_type, content_type: content_type || 'video',
+      due_date: due_date || null,
       pay_amount: pay_amount ? parseFloat(pay_amount) : null,
       status,
       completed_at: status === 'completed' ? new Date().toISOString() : null,
@@ -1240,6 +1242,17 @@ function Freelancers() {
                     placeholder="Assignment title"
                   />
                 </div>
+                <div style={styles.formField}>
+                  <label style={styles.label}>Content Type</label>
+                  <select
+                    value={newAssign.content_type}
+                    onChange={e => setNewAssign(p => ({ ...p, content_type: e.target.value }))}
+                    style={styles.select}
+                  >
+                    <option value="video">Video</option>
+                    <option value="podcast">Podcast</option>
+                  </select>
+                </div>
                 <div style={{ ...styles.formField, gridColumn: '1 / -1' }}>
                   <label style={styles.label}>Description</label>
                   <textarea
@@ -1492,6 +1505,7 @@ function Freelancers() {
                                 description: a.description || '',
                                 asset_url: a.asset_url || '',
                                 assignment_type: a.assignment_type,
+                                content_type: a.content_type || 'video',
                                 due_date: a.due_date || '',
                                 pay_amount: a.pay_amount || '',
                                 status: a.status,
@@ -1521,6 +1535,17 @@ function Freelancers() {
                                   {TYPE_OPTIONS.map(t => (
                                     <option key={t} value={t}>{TYPE_LABELS[t]}</option>
                                   ))}
+                                </select>
+                              </div>
+                              <div style={styles.formField}>
+                                <label style={styles.label}>Content Type</label>
+                                <select
+                                  value={editingAssignment.content_type || 'video'}
+                                  onChange={e => setEditingAssignment(p => ({ ...p, content_type: e.target.value }))}
+                                  style={styles.select}
+                                >
+                                  <option value="video">Video</option>
+                                  <option value="podcast">Podcast</option>
                                 </select>
                               </div>
                               <div style={{ ...styles.formField, gridColumn: '1 / -1' }}>
