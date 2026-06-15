@@ -42,6 +42,10 @@ export default function Workflows() {
   const [editingTask, setEditingTask] = useState(null);
   const [editingContractorAssign, setEditingContractorAssign] = useState(null);
 
+  // Set of tasks.id whose admin assignee has the linked sprint card in
+  // the "In Progress" column. Forces the "active" pill in ProgressTable.
+  const [sprintActiveTaskIds, setSprintActiveTaskIds] = useState(() => new Set());
+
   // ── Context menu (right-click) ──
   const [ctxMenu, setCtxMenu] = useState(null); // { x, y, type: 'board'|'automation', item }
 
@@ -437,6 +441,18 @@ export default function Workflows() {
     // grouping logic doesn't need a special case for contractors.
     setFlPending((flPend || []).map((a) => ({ ...a, assignee_id: a.freelancer_id })));
     setFlDone((flDoneData || []).map((a) => ({ ...a, assignee_id: a.freelancer_id })));
+
+    // Sprint-In-Progress overlay: pull personal_tasks rows that are
+    // linked back to a tasks row AND whose owner is an admin AND whose
+    // sprint status is 'in_progress'. We feed the resulting task ids
+    // into ProgressTable so those tasks always render as "active".
+    const { data: sprintRows } = await supabase
+      .from('personal_tasks')
+      .select('task_id, profiles!personal_tasks_created_by_fkey!inner(role)')
+      .eq('status', 'in_progress')
+      .not('task_id', 'is', null)
+      .eq('profiles.role', 'admin');
+    setSprintActiveTaskIds(new Set((sprintRows || []).map((r) => r.task_id)));
   }, [isAdmin]);
 
   useEffect(() => { fetchProgress(); }, [fetchProgress]);
@@ -1120,6 +1136,7 @@ export default function Workflows() {
           { key: 'team', label: 'Team', profiles: teamProfiles, byAssignee: teamByAssignee },
           { key: 'contractors', label: 'Contractors', profiles: contractorProfiles, byAssignee: contractorByAssignee },
         ]}
+        sprintActiveTaskIds={sprintActiveTaskIds}
         onTaskClick={(task, person, groupKey) => {
           if (groupKey === 'contractors') {
             // Contractor rows store freelancer_assignments shape — the row

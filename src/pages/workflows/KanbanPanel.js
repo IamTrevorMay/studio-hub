@@ -580,6 +580,9 @@ export default function KanbanPanel({ boardId, onBack, showToast }) {
   const [teamPending, setTeamPending] = useState([]);
   const [teamDone, setTeamDone] = useState([]);
   const [editingTask, setEditingTask] = useState(null);
+  // tasks.id Set whose admin assignee has the linked sprint card in
+  // their "In Progress" column → force-active pill in ProgressTable.
+  const [sprintActiveTaskIds, setSprintActiveTaskIds] = useState(() => new Set());
 
   const [showNewCard, setShowNewCard] = useState(false);
   const [newCardTitle, setNewCardTitle] = useState('');
@@ -644,6 +647,14 @@ export default function KanbanPanel({ boardId, onBack, showToast }) {
     ]);
     setTeamPending(pend || []);
     setTeamDone(completed || []);
+
+    const { data: sprintRows } = await supabase
+      .from('personal_tasks')
+      .select('task_id, profiles!personal_tasks_created_by_fkey!inner(role)')
+      .eq('status', 'in_progress')
+      .not('task_id', 'is', null)
+      .eq('profiles.role', 'admin');
+    setSprintActiveTaskIds(new Set((sprintRows || []).map((r) => r.task_id)));
   }, []);
 
   useEffect(() => { fetchTeamTasks(); }, [fetchTeamTasks]);
@@ -1129,6 +1140,7 @@ export default function KanbanPanel({ boardId, onBack, showToast }) {
       {/* Progress section (matches main Workflows view formatting) */}
       <ProgressTable
         groups={[{ key: 'team', label: 'Team', profiles: scopedTeam, byAssignee }]}
+        sprintActiveTaskIds={sprintActiveTaskIds}
         onTaskClick={(task) => setEditingTask(task)}
       />
 
