@@ -16,25 +16,59 @@ const json = (body: Record<string, unknown>, status = 200) =>
 
 const TRITON_MCP = "https://mcp.tritonapex.io/mcp";
 
-const SYSTEM_PROMPT = `You are a SQL assistant for a baseball Statcast database (PostgreSQL).
+const SYSTEM_PROMPT = `You are a SQL assistant for a baseball Statcast database (PostgreSQL, Triton).
 The user asks natural-language questions about baseball stats. You MUST reply with ONLY a single SELECT query — no explanation, no markdown fences, no commentary. Just raw SQL.
 
-Key tables and columns you can use:
-- statcast_pitches: pitch-level data (pitcher_id, batter_id, game_date, pitch_type, release_speed, release_spin_rate, pfx_x, pfx_z, plate_x, plate_z, launch_speed, launch_angle, hit_distance_sc, events, description, zone, balls, strikes, stand, p_throws, type, bb_type, woba_value, estimated_woba_using_speedangle, barrel)
-- statcast_batting: aggregated batter season stats
-- statcast_pitching: aggregated pitcher season stats
-- players: player_id, name_first, name_last, birth_year, throws, bats, debut, final_game, primary_position
+Tables and key columns:
 
-Common metrics:
-- K/9 = (strikeouts / innings_pitched) * 9
-- ERA, WHIP, batting average, OPS, wOBA, barrel%, exit velocity, etc.
-- Use current year for "this season" unless specified
+1. pitches (7.4M+ rows, 2015–2026, one row per pitch)
+   Identity: pitcher (int, MLB ID), batter (int), player_name (text), game_pk (bigint), game_date (date), game_year (int), game_type (text: R/S/P/D/L/W/F/E), inning, inning_topbot (Top/Bot), at_bat_number, home_team, away_team, p_throws (L/R), stand (L/R)
+   Pitch type: pitch_type (FF=4-Seam, SI=Sinker, FC=Cutter, SL=Slider, CU=Curveball, CH=Changeup, SW=Swiper, KC=Knuckle Curve, FS=Splitter, ST=Sweeper)
+   Release/movement: release_speed (mph), release_spin_rate (rpm), release_extension (ft), arm_angle (deg), pfx_x (horizontal break ft), pfx_z (vertical break ft)
+   Location: plate_x (ft, 0=center), plate_z (ft), sz_bot, sz_top, zone (1-9 strike zone, 11-14 out of zone)
+   Outcome: type (B=Ball, S=Strike, X=In play), description (swinging_strike, called_strike, ball, foul, hit_into_play, etc.), events (strikeout, walk, single, double, triple, home_run, field_out, etc.)
+   Batted ball: launch_speed (exit velo mph), launch_angle (deg), launch_speed_angle (1-6, 6=barrel), bb_type (ground_ball, fly_ball, line_drive, popup), hit_distance_sc (ft)
+   Swing tracking: bat_speed (mph), swing_length (ft), attack_angle (deg)
+   Expected stats: estimated_ba_using_speedangle (xBA), estimated_woba_using_speedangle (xwOBA), estimated_slg_using_speedangle (xSLG), woba_value, delta_run_exp (RE24)
+   Advanced: stuff_plus, location_plus
+
+2. milb_pitches (MiLB, 2023+, same columns as pitches)
+   NOTE: events uses Title Case (Strikeout, Home Run) vs MLB lowercase
+
+3. players (~4000 rows)
+   id (int, MLB ID), name (text, full name), position (text: RHP, LHP, C, INF, OF, etc.)
+
+4. pitcher_season_command (one row per pitcher × pitch_type × year)
+   pitcher, game_year, pitch_type, pitch_name, pitches (count)
+   Raw: avg_brink, avg_cluster, avg_cluster_r, avg_cluster_l, avg_hdev, avg_vdev, avg_missfire, close_pct, waste_pct
+   Plus (normalized to 100): cmd_plus, rpcom_plus, brink_plus, cluster_plus, cluster_r_plus, cluster_l_plus, hdev_plus, vdev_plus, missfire_plus, close_pct_plus
+
+5. pitcher_season_deception (2017+, one row per pitcher × pitch_type × year)
+   pitcher, game_year, pitch_type, pitch_name, pitches, deception_score, unique_score, avg_vaa, avg_haa, avg_vb, avg_hb, avg_ext, z_vaa, z_haa, z_vb, z_hb, z_ext
+
+6. league_averages (50th percentile benchmarks)
+   season, level (mlb/milb), role (sp/rp/hitter), metric (text), value (float)
+
+7. player_season_stats (traditional stats, 2015+)
+   player_id, season, stat_group, era, w, l, sv, hld, ip, er, r, rbi, sb
+
+8. game_umpires
+   game_pk, game_date, hp_umpire (text)
 
 Rules:
 - Output ONLY the SELECT statement. Nothing else.
+- Do NOT end with a semicolon.
+- Do NOT wrap in markdown code fences.
+- Do NOT use table aliases. Always use full table names (e.g. pitches.pitcher, players.name — never p.pitcher or pl.name).
 - Always LIMIT results (default 25 unless the user specifies).
-- Use double quotes for column names only if they contain special characters.
-- JOIN players table when the user asks for player names.`;
+- JOIN players table (players.id = pitches.pitcher or pitches.batter) when the user asks for player names.
+- Use game_year for season filtering, not EXTRACT from game_date.
+- Use current year (2026) for "this season" unless specified.
+- For pitcher name lookups, JOIN players ON players.id = pitches.pitcher.
+- Exclude pitch_type IN ('PO','IN') for pitching analysis (pitchouts, intentional balls).
+- PERFORMANCE: The pitches table has 7.4M+ rows. ALWAYS filter by game_year and/or pitcher/batter to avoid full table scans. Never query pitches without a WHERE clause that narrows the dataset.
+- When comparing across many players (leaderboards), use a subquery or CTE that filters pitches by game_year first, then aggregate.
+- Prefer pitcher_season_command, pitcher_season_deception, player_season_stats, or league_averages for season-level stats instead of aggregating raw pitches when possible.`;
 
 function parseSSE(text: string) {
   const lines = text.split("\n");
@@ -55,7 +89,7 @@ Deno.serve(async (req: Request) => {
   try {
     // ── Auth ──
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) return json({ ok: false, error: "Unauthorized" }, 401);
+    if (!authHeader) return json({ ok: false, error: "Unauthorized" });
 
     const sb = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -63,17 +97,17 @@ Deno.serve(async (req: Request) => {
       { global: { headers: { Authorization: authHeader } } }
     );
     const { data, error: userError } = await sb.auth.getUser();
-    if (userError || !data?.user) return json({ ok: false, error: "Not authenticated" }, 401);
+    if (userError || !data?.user) return json({ ok: false, error: "Not authenticated" });
 
     // ── Parse body ──
     const body = await req.json();
     const question = (body.question || "").trim();
-    if (!question) return json({ ok: false, error: "Missing question" }, 400);
+    if (!question) return json({ ok: false, error: "Missing question" });
 
-    // ── Step 1: Claude NL → SQL ──
     const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");
     if (!anthropicKey) return json({ ok: false, error: "ANTHROPIC_API_KEY not configured" });
 
+    // ── Step 1: Claude NL → SQL ──
     const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -95,7 +129,11 @@ Deno.serve(async (req: Request) => {
     }
 
     const claudeData = await claudeRes.json();
-    const sql = (claudeData.content?.[0]?.text || "").trim();
+    let sql = (claudeData.content?.[0]?.text || "").trim();
+
+    // Strip markdown fences and trailing semicolons
+    sql = sql.replace(/^```(?:sql)?\n?/i, "").replace(/\n?```$/g, "").trim();
+    sql = sql.replace(/;\s*$/, "").trim();
 
     if (!sql || !sql.toUpperCase().startsWith("SELECT")) {
       return json({ ok: false, error: "Failed to generate valid SQL", generated: sql });
@@ -126,8 +164,13 @@ Deno.serve(async (req: Request) => {
       const initText = await initRes.text();
       return json({ ok: false, error: "MCP session failed", detail: initText.slice(0, 500) });
     }
+    // consume init body
+    await initRes.text();
 
     // ── Step 3: Triton MCP — execute SQL ──
+    // Always use long timeout — pitches table is 7.4M+ rows
+    const queryArgs: Record<string, unknown> = { sql, long: true };
+
     const queryRes = await fetch(TRITON_MCP, {
       method: "POST",
       headers: {
@@ -139,17 +182,31 @@ Deno.serve(async (req: Request) => {
         jsonrpc: "2.0",
         id: ++msgId,
         method: "tools/call",
-        params: { name: "query_database", arguments: { sql } },
+        params: { name: "query_database", arguments: queryArgs },
       }),
     });
 
     const queryText = await queryRes.text();
     const parsed = parseSSE(queryText);
+
+    // Check for JSON-RPC level error
     if (parsed.error) {
-      return json({ ok: false, error: parsed.error.message || "Triton query failed", detail: JSON.stringify(parsed.error) });
+      return json({
+        ok: false,
+        error: parsed.error.message || "Triton query failed",
+        sql,
+        detail: JSON.stringify(parsed.error),
+      });
     }
 
-    return json({ ok: true, sql, result: parsed.result || parsed });
+    // Check for MCP tool-level error (isError in result)
+    const result = parsed.result || parsed;
+    if (result.isError) {
+      const errText = result.content?.map((c: { text?: string }) => c.text).join(" ") || "Query execution failed";
+      return json({ ok: false, error: `Query failed: ${errText}`, sql });
+    }
+
+    return json({ ok: true, sql, result });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return json({ ok: false, error: message });

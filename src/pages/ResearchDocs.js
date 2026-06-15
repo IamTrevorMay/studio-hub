@@ -255,7 +255,10 @@ export default function ResearchDocs() {
 
       const resData = await res.json().catch(() => ({}));
       if (!res.ok || resData.ok === false) {
-        throw new Error(resData.error || `Stats query failed (${res.status})`);
+        const errMsg = resData.error || `Stats query failed (${res.status})`;
+        const err = new Error(errMsg);
+        err.sql = resData.sql || null;
+        throw err;
       }
 
       const { sql, result } = resData;
@@ -285,9 +288,12 @@ export default function ResearchDocs() {
         }).then(() => { if (showHistory) fetchHistory(); });
       }
     } catch (err) {
+      const errorText = err.sql
+        ? `${err.message || 'Query failed'}\n\nGenerated SQL:\n${err.sql}`
+        : (err.message || 'Query failed');
       setThread(prev => prev.map(e =>
         e.id === entryId + 1
-          ? { ...e, type: 'error', text: err.message || 'Query failed' }
+          ? { ...e, type: 'error', text: errorText }
           : e
       ));
 
@@ -297,7 +303,7 @@ export default function ResearchDocs() {
           user_id: profile.id,
           query_text: trimmed,
           tool_name: 'query_database',
-          tool_args: { question: trimmed },
+          tool_args: err.sql ? { sql: err.sql } : { question: trimmed },
           error_message: err.message || 'Query failed',
         }).then(() => { if (showHistory) fetchHistory(); });
       }
