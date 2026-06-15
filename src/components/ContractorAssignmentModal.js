@@ -1,14 +1,39 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 
-// Modal for creating a freelancer_assignments row. Mirrors the
-// "Create Assignment" form on the Contractors page.
-export default function ContractorAssignmentModal({ open, onClose, onCreated, showToast, currentUserId }) {
+// Create / edit a freelancer_assignments row. The Workflows Progress
+// table opens this in edit mode when a contractor row is clicked; the
+// `+ Assignment` button on Workflows opens it in create mode.
+//
+// Create: insert + notify the contractor.
+// Edit:   update only (we do NOT re-notify on edits — only on creation).
+// Both: contractor list comes from profiles where role='freelancer'.
+
+const EDIT_STATUSES = [
+  { value: 'assigned',    label: 'Assigned' },
+  { value: 'in_progress', label: 'In progress' },
+  { value: 'completed',   label: 'Completed' },
+];
+
+function toDateInput(v) {
+  if (!v) return '';
+  // freelancer_assignments.due_date is a `date` column → 'YYYY-MM-DD'.
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+export default function ContractorAssignmentModal({
+  open, onClose, onCreated, onSaved, showToast, currentUserId, existing,
+}) {
+  const isEdit = !!existing;
   const [freelancers, setFreelancers] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     freelancer_id: '', title: '', description: '', asset_url: '',
-    due_date: '', pay_amount: '',
+    due_date: '', pay_amount: '', status: 'assigned',
   });
 
   const fetchFreelancers = useCallback(async () => {
@@ -21,48 +46,93 @@ export default function ContractorAssignmentModal({ open, onClose, onCreated, sh
   }, []);
 
   useEffect(() => {
-    if (open) fetchFreelancers();
-  }, [open, fetchFreelancers]);
+    if (!open) return;
+    fetchFreelancers();
+    if (isEdit) {
+      setForm({
+        freelancer_id: existing.freelancer_id || '',
+        title: existing.title || '',
+        description: existing.description || '',
+        asset_url: existing.asset_url || '',
+        due_date: toDateInput(existing.due_date),
+        pay_amount: existing.pay_amount != null ? String(existing.pay_amount) : '',
+        status: existing.status || 'assigned',
+      });
+    } else {
+      setForm({
+        freelancer_id: '', title: '', description: '', asset_url: '',
+        due_date: '', pay_amount: '', status: 'assigned',
+      });
+    }
+  }, [open, isEdit, existing, fetchFreelancers]);
 
-  const resetForm = () => setForm({
-    freelancer_id: '', title: '', description: '', asset_url: '',
-    due_date: '', pay_amount: '',
-  });
+  const canSubmit = form.freelancer_id && form.title.trim() && !submitting;
 
-  const canCreate = form.freelancer_id && form.title.trim() && !submitting;
-
-  const handleCreate = async () => {
-    if (!canCreate) return;
+  const handleSubmit = async () => {
+    if (!canSubmit) return;
     setSubmitting(true);
     try {
-      const row = {
+      const base = {
         freelancer_id: form.freelancer_id,
         title: form.title.trim(),
         description: form.description.trim() || null,
         asset_url: form.asset_url.trim() || null,
         due_date: form.due_date || null,
         pay_amount: form.pay_amount ? parseFloat(form.pay_amount) : null,
-        created_by: currentUserId || null,
       };
-      const { error } = await supabase.from('freelancer_assignments').insert(row);
-      if (error) throw error;
 
-      await supabase.from('notifications').insert({
-        user_id: form.freelancer_id,
-        type: 'assignment',
-        title: 'New Assignment',
-        body: `You have been assigned "${form.title.trim()}"`,
-        link_tab: 'fl_dashboard',
-        link_target: null,
-      });
-
-      if (showToast) showToast('Assignment created');
-      resetForm();
-      if (onCreated) onCreated();
+      if (isEdit) {
+        const updates = { ...base, status: form.status };
+        // Mark/un-mark completion timestamp on status flips.
+        if (form.status === 'completed' && existing.status !== 'completed') {
+          updates.completed_at = new Date().toISOString();
+        } else if (form.status !== 'completed' && existing.status === 'completed') {
+          updates.completed_at = null;
+        }
+        updates.updated_at = new Date().toISOString();
+        const { error } = await supabase
+          .from('freelancer_assignments')
+          .update(updates)
+          .eq('id', existing.id);
+        if (error) throw error;
+        if (showToast) showToast('Assignment updated');
+        if (onSaved) onSaved();
+      } else {
+        const row = { ...base, created_by: currentUserId || null };
+        const { error } = await supabase.from('freelancer_assignments').insert(row);
+        if (error) throw error;
+        await supabase.from('notifications').insert({
+          user_id: form.freelancer_id,
+          type: 'assignment',
+          title: 'New Assignment',
+          body: `You have been assigned "${form.title.trim()}"`,
+          link_tab: 'fl_dashboard',
+          link_target: null,
+        });
+        if (showToast) showToast('Assignment created');
+        if (onCreated) onCreated();
+      }
       if (onClose) onClose();
     } catch (err) {
       console.error(err);
-      if (showToast) showToast('Create failed: ' + err.message, 'error');
+      if (showToast) showToast((isEdit ? 'Save' : 'Create') + ' failed: ' + err.message, 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!isEdit) return;
+    if (!window.confirm(`Delete assignment "${existing.title}"? This cannot be undone.`)) return;
+    setSubmitting(true);
+    try {
+      const { error } = await supabase.from('freelancer_assignments').delete().eq('id', existing.id);
+      if (error) throw error;
+      if (showToast) showToast('Assignment deleted');
+      if (onSaved) onSaved();
+      if (onClose) onClose();
+    } catch (err) {
+      if (showToast) showToast('Delete failed: ' + err.message, 'error');
     } finally {
       setSubmitting(false);
     }
@@ -75,8 +145,12 @@ export default function ContractorAssignmentModal({ open, onClose, onCreated, sh
       <div style={styles.modal} onClick={e => e.stopPropagation()}>
         <div style={styles.header}>
           <div>
-            <h2 style={styles.h2}>Assign Contractor Work</h2>
-            <p style={styles.subtitle}>Create a paid assignment for a freelancer.</p>
+            <h2 style={styles.h2}>{isEdit ? 'Edit Contractor Assignment' : 'Assign Contractor Work'}</h2>
+            <p style={styles.subtitle}>
+              {isEdit
+                ? `Created ${existing.created_at ? new Date(existing.created_at).toLocaleString() : 'recently'}`
+                : 'Create a paid assignment for a freelancer.'}
+            </p>
           </div>
           <button style={styles.closeBtn} onClick={onClose}>×</button>
         </div>
@@ -89,6 +163,7 @@ export default function ContractorAssignmentModal({ open, onClose, onCreated, sh
                 value={form.freelancer_id}
                 onChange={e => setForm(p => ({ ...p, freelancer_id: e.target.value }))}
                 style={styles.select}
+                disabled={isEdit}
               >
                 <option value="">Select...</option>
                 {freelancers.map(fl => (
@@ -107,6 +182,18 @@ export default function ContractorAssignmentModal({ open, onClose, onCreated, sh
                 placeholder="Assignment title"
               />
             </div>
+            {isEdit && (
+              <div style={styles.formField}>
+                <label style={styles.label}>Status</label>
+                <select
+                  value={form.status}
+                  onChange={e => setForm(p => ({ ...p, status: e.target.value }))}
+                  style={styles.select}
+                >
+                  {EDIT_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                </select>
+              </div>
+            )}
             <div style={{ ...styles.formField, gridColumn: '1 / -1' }}>
               <label style={styles.label}>Description</label>
               <textarea
@@ -150,13 +237,19 @@ export default function ContractorAssignmentModal({ open, onClose, onCreated, sh
         </div>
 
         <div style={styles.footer}>
+          {isEdit && (
+            <button style={styles.deleteBtn} onClick={handleDelete} disabled={submitting}>
+              Delete
+            </button>
+          )}
+          <span style={{ flex: 1 }} />
           <button style={styles.cancelBtn} onClick={onClose}>Cancel</button>
           <button
-            style={{ ...styles.primaryBtn, opacity: canCreate ? 1 : 0.45, cursor: canCreate ? 'pointer' : 'default' }}
-            onClick={handleCreate}
-            disabled={!canCreate}
+            style={{ ...styles.primaryBtn, opacity: canSubmit ? 1 : 0.45, cursor: canSubmit ? 'pointer' : 'default' }}
+            onClick={handleSubmit}
+            disabled={!canSubmit}
           >
-            {submitting ? 'Creating…' : 'Create'}
+            {submitting ? (isEdit ? 'Saving…' : 'Creating…') : (isEdit ? 'Save' : 'Create')}
           </button>
         </div>
       </div>
@@ -185,7 +278,7 @@ const styles = {
   },
   body: { padding: '16px 24px', overflowY: 'auto', flex: 1 },
   footer: {
-    display: 'flex', justifyContent: 'flex-end', gap: 10,
+    display: 'flex', justifyContent: 'flex-end', gap: 10, alignItems: 'center',
     padding: '14px 24px', borderTop: '1px solid rgba(255,255,255,0.06)',
   },
   formGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 16px' },
@@ -209,5 +302,10 @@ const styles = {
   primaryBtn: {
     background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6,
     padding: '8px 16px', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
+  },
+  deleteBtn: {
+    background: 'transparent', border: '1px solid rgba(239,68,68,0.4)',
+    color: '#f87171', borderRadius: 6, padding: '8px 16px',
+    fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
   },
 };

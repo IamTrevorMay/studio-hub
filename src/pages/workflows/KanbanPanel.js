@@ -6,12 +6,13 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../../supabaseClient';
 import { WORKFLOWS_CREATION_DISABLED } from '../../lib/workflowApi';
+import ProgressTable from '../../components/workflows/ProgressTable';
+import TaskEditModal from '../../components/TaskEditModal';
 
 // ─── Constants ───────────────────────────────────────────────
 
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL || '';
 const TEAM_ROLES = ['admin', 'assistant', 'member', 'partner'];
-const ROLE_LABEL = { admin: 'Admin', assistant: 'Assistant', member: 'Member', partner: 'Partner', freelancer: 'Contractor' };
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const CARD_STATUS_TONES = {
   active: '#6366f1',
@@ -565,86 +566,6 @@ function KanbanColumn({
 
 // ─── Team section ────────────────────────────────────────────
 
-function PersonCard({ person, data }) {
-  const pending = data.pending || [];
-  const done = data.done || [];
-  const doneShown = done.slice(0, 6);
-  return (
-    <div style={teamStyles.card}>
-      <div style={teamStyles.cardHead}>
-        <span style={teamStyles.cardName}>{person.name || 'Unknown'}</span>
-        <span style={teamStyles.roleChip}>{ROLE_LABEL[person.role] || person.role}</span>
-      </div>
-      <div style={teamStyles.subhead}>PENDING ({pending.length})</div>
-      {pending.length === 0 ? (
-        <div style={teamStyles.emptyLine}>Nothing pending</div>
-      ) : pending.map(t => (
-        <div key={t.id} style={teamStyles.taskLine}>
-          <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>○</span>
-          <span style={teamStyles.taskTitle}>{t.title}</span>
-          {t.due_date && (
-            <span style={{
-              fontSize: 10.5, whiteSpace: 'nowrap',
-              color: (t.due_date && new Date(t.due_date) < new Date()) ? '#f87171' : 'rgba(255,255,255,0.4)',
-            }}>
-              {new Date(t.due_date) < new Date() ? 'overdue ' : 'due '}
-              {new Date(t.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-            </span>
-          )}
-          <span style={{
-            fontSize: 9, fontWeight: 700, borderRadius: 3, padding: '1px 5px',
-            textTransform: 'uppercase', letterSpacing: 0.3,
-            ...(t.workflow_instance_id
-              ? { background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.45)' }
-              : { background: 'rgba(99,102,241,0.18)', color: '#a5b4fc' }),
-          }}>
-            {t.workflow_instance_id ? 'workflow' : 'direct'}
-          </span>
-        </div>
-      ))}
-      <div style={{ ...teamStyles.subhead, marginTop: 10 }}>DONE · 7d ({done.length})</div>
-      {done.length === 0 ? (
-        <div style={teamStyles.emptyLine}>None this week</div>
-      ) : (
-        <>
-          {doneShown.map(t => (
-            <div key={t.id} style={teamStyles.taskLine}>
-              <span style={{ color: '#22c55e', fontSize: 12 }}>✓</span>
-              <span style={{ ...teamStyles.taskTitle, color: 'rgba(255,255,255,0.55)' }}>{t.title}</span>
-            </div>
-          ))}
-          {done.length > doneShown.length && (
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', padding: '3px 0 0 18px' }}>
-              +{done.length - doneShown.length} more
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-const teamStyles = {
-  card: {
-    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
-    borderRadius: 12, padding: 14, minWidth: 0,
-  },
-  cardHead: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  cardName: { fontSize: 14, fontWeight: 700, color: '#fff' },
-  roleChip: {
-    fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.5)',
-    background: 'rgba(255,255,255,0.06)', borderRadius: 4, padding: '2px 7px',
-    textTransform: 'uppercase', letterSpacing: 0.4,
-  },
-  subhead: { fontSize: 10, fontWeight: 800, color: 'rgba(255,255,255,0.4)', letterSpacing: 0.5, marginBottom: 6 },
-  taskLine: { display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', fontSize: 12.5 },
-  taskTitle: {
-    color: 'rgba(255,255,255,0.85)', overflow: 'hidden', textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap', flex: 1, minWidth: 0,
-  },
-  emptyLine: { fontSize: 12, color: 'rgba(255,255,255,0.3)', fontStyle: 'italic', padding: '2px 0' },
-};
-
 // ─── Main panel ──────────────────────────────────────────────
 
 export default function KanbanPanel({ boardId, onBack, showToast }) {
@@ -658,6 +579,7 @@ export default function KanbanPanel({ boardId, onBack, showToast }) {
   const [profiles, setProfiles] = useState([]);
   const [teamPending, setTeamPending] = useState([]);
   const [teamDone, setTeamDone] = useState([]);
+  const [editingTask, setEditingTask] = useState(null);
 
   const [showNewCard, setShowNewCard] = useState(false);
   const [newCardTitle, setNewCardTitle] = useState('');
@@ -703,37 +625,58 @@ export default function KanbanPanel({ boardId, onBack, showToast }) {
     return () => { cancelled = true; };
   }, [boardId]);
 
-  // ─── Load team tasks ────────────────────────────────────────
+  // ─── Load team tasks (refetchable so save→update cycles refresh) ───
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const cutoff = new Date(Date.now() - SEVEN_DAYS_MS).toISOString();
-      const [{ data: pend }, { data: completed }] = await Promise.all([
-        supabase.from('tasks').select('id, title, assignee_id, due_date, workflow_instance_id, status')
-          .in('status', ['active', 'pending', 'on_hold'])
-          .not('assignee_id', 'is', null),
-        supabase.from('tasks').select('id, title, assignee_id, due_date, workflow_instance_id, status, completed_at')
-          .eq('status', 'complete')
-          .gte('completed_at', cutoff)
-          .not('assignee_id', 'is', null),
-      ]);
-      if (cancelled) return;
-      setTeamPending(pend || []);
-      setTeamDone(completed || []);
-    })();
-    return () => { cancelled = true; };
+  const fetchTeamTasks = useCallback(async () => {
+    const cutoff = new Date(Date.now() - SEVEN_DAYS_MS).toISOString();
+    // Same column set as the main Workflows Progress fetch so the
+    // shared TaskEditModal has everything it needs without a re-query.
+    const TASK_COLS = 'id, title, description, assignee_id, due_date, status, snoozed_until, hold_reason, planned_date, workflow_instance_id, automation_id, created_at';
+    const TASK_DONE_COLS = TASK_COLS + ', completed_at';
+    const [{ data: pend }, { data: completed }] = await Promise.all([
+      supabase.from('tasks').select(TASK_COLS)
+        .in('status', ['active', 'pending', 'on_hold'])
+        .not('assignee_id', 'is', null),
+      supabase.from('tasks').select(TASK_DONE_COLS)
+        .eq('status', 'complete')
+        .gte('completed_at', cutoff)
+        .not('assignee_id', 'is', null),
+    ]);
+    setTeamPending(pend || []);
+    setTeamDone(completed || []);
   }, []);
 
+  useEffect(() => { fetchTeamTasks(); }, [fetchTeamTasks]);
+
   const team = useMemo(() => profiles.filter((p) => TEAM_ROLES.includes(p.role)), [profiles]);
+
+  // Drilled-into-a-workflow view: only show tasks tied to this
+  // workflow's instances (the cards array == workflow_instances).
+  // Direct (non-workflow) tasks live in the main Workflows view, not
+  // here, so they get filtered out.
+  const instanceIdSet = useMemo(() => new Set((cards || []).map((c) => c.id)), [cards]);
+  const scopedPending = useMemo(
+    () => teamPending.filter((t) => t.workflow_instance_id && instanceIdSet.has(t.workflow_instance_id)),
+    [teamPending, instanceIdSet],
+  );
+  const scopedDone = useMemo(
+    () => teamDone.filter((t) => t.workflow_instance_id && instanceIdSet.has(t.workflow_instance_id)),
+    [teamDone, instanceIdSet],
+  );
 
   const byAssignee = useMemo(() => {
     const map = {};
     const ensure = (id) => (map[id] || (map[id] = { pending: [], done: [] }));
-    for (const t of teamPending) if (t.assignee_id) ensure(t.assignee_id).pending.push(t);
-    for (const t of teamDone) if (t.assignee_id) ensure(t.assignee_id).done.push(t);
+    for (const t of scopedPending) if (t.assignee_id) ensure(t.assignee_id).pending.push(t);
+    for (const t of scopedDone) if (t.assignee_id) ensure(t.assignee_id).done.push(t);
     return map;
-  }, [teamPending, teamDone]);
+  }, [scopedPending, scopedDone]);
+
+  // Only show people who actually have a task on this workflow.
+  const scopedTeam = useMemo(
+    () => team.filter((p) => byAssignee[p.id] && (byAssignee[p.id].pending.length > 0 || byAssignee[p.id].done.length > 0)),
+    [team, byAssignee],
+  );
 
   // ─── Load board detail (columns + cards + sign-offs) ────
 
@@ -1183,21 +1126,20 @@ export default function KanbanPanel({ boardId, onBack, showToast }) {
         </>
       )}
 
-      {/* Team section */}
-      {team.length > 0 && (
-        <div style={{ marginTop: 32 }}>
-          <h2 style={{ fontSize: 15, fontWeight: 700, color: '#ffffff', margin: '0 0 12px' }}>Team</h2>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(6, 1fr)',
-            gap: 14,
-          }}>
-            {team.map((p) => (
-              <PersonCard key={p.id} person={p} data={byAssignee[p.id] || { pending: [], done: [] }} />
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Progress section (matches main Workflows view formatting) */}
+      <ProgressTable
+        groups={[{ key: 'team', label: 'Team', profiles: scopedTeam, byAssignee }]}
+        onTaskClick={(task) => setEditingTask(task)}
+      />
+
+      {/* Task edit modal */}
+      <TaskEditModal
+        open={!!editingTask}
+        task={editingTask}
+        profiles={profiles}
+        onClose={() => setEditingTask(null)}
+        onSaved={fetchTeamTasks}
+      />
 
       {/* New card modal */}
       {showNewCard && (

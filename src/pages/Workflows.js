@@ -4,25 +4,8 @@ import { useAuth } from '../contexts/AuthContext';
 import KanbanPanel from './workflows/KanbanPanel';
 import MemberAssignmentModal from '../components/MemberAssignmentModal';
 import ContractorAssignmentModal from '../components/ContractorAssignmentModal';
-
-// ─── Helpers ────────────────────────────────────────────────
-
-function fmtSnoozeEnd(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  const now = new Date();
-  const diffMs = d.getTime() - now.getTime();
-  if (diffMs <= 0) return 'now';
-  const sameDay = d.toDateString() === now.toDateString();
-  const tomorrow = new Date(now); tomorrow.setDate(now.getDate() + 1);
-  const isTomorrow = d.toDateString() === tomorrow.toDateString();
-  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  if (sameDay) return `til ${time}`;
-  if (isTomorrow) return `til tmrw ${time}`;
-  const within7 = diffMs < 7 * 24 * 3600 * 1000;
-  if (within7) return `til ${d.toLocaleDateString([], { weekday: 'short' })} ${time}`;
-  return `til ${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
-}
+import TaskEditModal from '../components/TaskEditModal';
+import ProgressTable from '../components/workflows/ProgressTable';
 
 // ─── Component ───────────────────────────────────────────────
 export default function Workflows() {
@@ -54,6 +37,10 @@ export default function Workflows() {
   const [assignMenuOpen, setAssignMenuOpen] = useState(false);
   const [memberAssignOpen, setMemberAssignOpen] = useState(false);
   const [contractorAssignOpen, setContractorAssignOpen] = useState(false);
+
+  // ── Progress edit modals ──
+  const [editingTask, setEditingTask] = useState(null);
+  const [editingContractorAssign, setEditingContractorAssign] = useState(null);
 
   // ── Context menu (right-click) ──
   const [ctxMenu, setCtxMenu] = useState(null); // { x, y, type: 'board'|'automation', item }
@@ -413,41 +400,46 @@ export default function Workflows() {
     return () => { cancelled = true; };
   }, [isAdmin]);
 
-  useEffect(() => {
+  const fetchProgress = useCallback(async () => {
     if (!isAdmin) return;
-    let cancelled = false;
     const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
-    (async () => {
-      const cutoff = new Date(Date.now() - SEVEN_DAYS_MS).toISOString();
-      const [
-        { data: pend },
-        { data: completed },
-        { data: flPend },
-        { data: flDoneData },
-      ] = await Promise.all([
-        supabase.from('tasks').select('id, title, assignee_id, due_date, status, snoozed_until, hold_reason, planned_date')
-          .in('status', ['active', 'pending', 'on_hold'])
-          .not('assignee_id', 'is', null),
-        supabase.from('tasks').select('id, title, assignee_id, due_date, status, completed_at')
-          .eq('status', 'complete')
-          .gte('completed_at', cutoff)
-          .not('assignee_id', 'is', null),
-        supabase.from('freelancer_assignments')
-          .select('id, title, freelancer_id, status, due_date, completed_at')
-          .in('status', ['assigned', 'in_progress']),
-        supabase.from('freelancer_assignments')
-          .select('id, title, freelancer_id, status, due_date, completed_at')
-          .eq('status', 'completed')
-          .gte('completed_at', cutoff),
-      ]);
-      if (cancelled) return;
-      setTeamPending(pend || []);
-      setTeamDone(completed || []);
-      setFlPending((flPend || []).map(a => ({ ...a, assignee_id: a.freelancer_id })));
-      setFlDone((flDoneData || []).map(a => ({ ...a, assignee_id: a.freelancer_id })));
-    })();
-    return () => { cancelled = true; };
+    const cutoff = new Date(Date.now() - SEVEN_DAYS_MS).toISOString();
+    // Task selects pull the columns TaskEditModal needs (description,
+    // workflow_instance_id, automation_id, created_at) so click-to-edit
+    // doesn't have to round-trip a second time.
+    const TASK_COLS = 'id, title, description, assignee_id, due_date, status, snoozed_until, hold_reason, planned_date, workflow_instance_id, automation_id, created_at';
+    const TASK_DONE_COLS = TASK_COLS + ', completed_at';
+    const FL_COLS = 'id, title, description, freelancer_id, status, due_date, pay_amount, asset_url, completed_at, created_at, created_by';
+    const [
+      { data: pend },
+      { data: completed },
+      { data: flPend },
+      { data: flDoneData },
+    ] = await Promise.all([
+      supabase.from('tasks').select(TASK_COLS)
+        .in('status', ['active', 'pending', 'on_hold'])
+        .not('assignee_id', 'is', null),
+      supabase.from('tasks').select(TASK_DONE_COLS)
+        .eq('status', 'complete')
+        .gte('completed_at', cutoff)
+        .not('assignee_id', 'is', null),
+      supabase.from('freelancer_assignments')
+        .select(FL_COLS)
+        .in('status', ['assigned', 'in_progress']),
+      supabase.from('freelancer_assignments')
+        .select(FL_COLS)
+        .eq('status', 'completed')
+        .gte('completed_at', cutoff),
+    ]);
+    setTeamPending(pend || []);
+    setTeamDone(completed || []);
+    // Alias freelancer_id → assignee_id so the shared ProgressTable
+    // grouping logic doesn't need a special case for contractors.
+    setFlPending((flPend || []).map((a) => ({ ...a, assignee_id: a.freelancer_id })));
+    setFlDone((flDoneData || []).map((a) => ({ ...a, assignee_id: a.freelancer_id })));
   }, [isAdmin]);
+
+  useEffect(() => { fetchProgress(); }, [fetchProgress]);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -511,129 +503,6 @@ export default function Workflows() {
 
   // ─── Render helpers ─────────────────────────────────────────
 
-  const renderPersonRow = (p, d) => {
-    const data = d || { pending: [], done: [] };
-    const pending = data.pending || [];
-    const done = data.done || [];
-    const nowMs = Date.now();
-
-    // Categorize pending tasks
-    const activeTasks = pending.filter(t => {
-      const snoozed = t.snoozed_until && new Date(t.snoozed_until).getTime() > nowMs;
-      return !snoozed && t.status !== 'on_hold' && !t.planned_date;
-    });
-    const plannedTasks = pending.filter(t => {
-      const snoozed = t.snoozed_until && new Date(t.snoozed_until).getTime() > nowMs;
-      return !snoozed && t.planned_date;
-    });
-    const snoozedTasks = pending.filter(t => t.snoozed_until && new Date(t.snoozed_until).getTime() > nowMs);
-    const holdTasks = pending.filter(t => {
-      const snoozed = t.snoozed_until && new Date(t.snoozed_until).getTime() > nowMs;
-      return !snoozed && t.status === 'on_hold';
-    });
-
-    const doneShown = done.slice(0, 4);
-
-    const tdBase = { padding: '10px 12px', verticalAlign: 'top', borderBottom: '1px solid rgba(255,255,255,0.04)' };
-
-    return (
-      <tr key={p.id}>
-        {/* Name */}
-        <td style={{ ...tdBase, whiteSpace: 'nowrap' }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{p.name}</span>
-        </td>
-        {/* Role */}
-        <td style={{ ...tdBase, whiteSpace: 'nowrap' }}>
-          <span style={{
-            fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.5)',
-            background: 'rgba(255,255,255,0.06)', borderRadius: 4, padding: '2px 7px',
-            textTransform: 'uppercase', letterSpacing: 0.4,
-          }}>{p.role}</span>
-        </td>
-        {/* Pending */}
-        <td style={tdBase}>
-          {pending.length === 0 ? (
-            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)', fontStyle: 'italic' }}>—</span>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-              {/* Status summary badges */}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: pending.length > 0 ? 4 : 0 }}>
-                {activeTasks.length > 0 && (
-                  <span style={{ fontSize: 10, fontWeight: 700, color: '#facc15', background: 'rgba(250,204,21,0.1)', borderRadius: 3, padding: '1px 6px' }}>
-                    {activeTasks.length} active
-                  </span>
-                )}
-                {plannedTasks.length > 0 && (
-                  <span style={{ fontSize: 10, fontWeight: 700, color: '#facc15', background: 'rgba(250,204,21,0.1)', borderRadius: 3, padding: '1px 6px' }}>
-                    {plannedTasks.length} planned
-                  </span>
-                )}
-                {snoozedTasks.length > 0 && (
-                  <span style={{ fontSize: 10, fontWeight: 700, color: '#c084fc', background: 'rgba(168,85,247,0.1)', borderRadius: 3, padding: '1px 6px' }}>
-                    {snoozedTasks.length} snoozed
-                  </span>
-                )}
-                {holdTasks.length > 0 && (
-                  <span style={{ fontSize: 10, fontWeight: 700, color: '#fdba74', background: 'rgba(251,146,60,0.1)', borderRadius: 3, padding: '1px 6px' }}>
-                    {holdTasks.length} on hold
-                  </span>
-                )}
-              </div>
-              {/* Task list */}
-              {pending.map(t => {
-                const snoozed = t.snoozed_until && new Date(t.snoozed_until).getTime() > nowMs;
-                const onHold = !snoozed && t.status === 'on_hold';
-                const color = snoozed ? '#a855f7' : onHold ? '#fb923c' : '#facc15';
-                const glow = snoozed ? 'rgba(168,85,247,0.7)' : onHold ? 'rgba(251,146,60,0.7)' : 'rgba(250,204,21,0.7)';
-                return (
-                  <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12 }}>
-                    <span style={{
-                      display: 'inline-block', width: 7, height: 7, borderRadius: '50%',
-                      background: color, boxShadow: `0 0 5px ${glow}`,
-                      animation: 'wf-blink 1.2s ease-in-out infinite', flexShrink: 0,
-                    }} />
-                    <span style={{ color: 'rgba(255,255,255,0.8)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>{t.title}</span>
-                    {snoozed && (
-                      <span style={{ fontSize: 9, fontWeight: 600, color: '#c084fc', flexShrink: 0 }}>
-                        💤 {fmtSnoozeEnd(t.snoozed_until)}
-                      </span>
-                    )}
-                    {onHold && (
-                      <span title={t.hold_reason || ''} style={{ fontSize: 9, fontWeight: 600, color: '#fdba74', flexShrink: 0 }}>hold</span>
-                    )}
-                    {t.planned_date && !snoozed && (
-                      <span style={{ fontSize: 9, fontWeight: 600, color: '#facc15', flexShrink: 0 }}>
-                        {new Date(t.planned_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </td>
-        {/* Done · 7d */}
-        <td style={tdBase}>
-          {done.length === 0 ? (
-            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)', fontStyle: 'italic' }}>—</span>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {doneShown.map(t => (
-                <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12 }}>
-                  <span style={{ color: '#22c55e', fontSize: 11, flexShrink: 0 }}>✓</span>
-                  <span style={{ color: 'rgba(255,255,255,0.5)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>{t.title}</span>
-                </div>
-              ))}
-              {done.length > doneShown.length && (
-                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', paddingLeft: 16 }}>+{done.length - doneShown.length} more</div>
-              )}
-            </div>
-          )}
-        </td>
-      </tr>
-    );
-  };
-
   // ─── Render ─────────────────────────────────────────────────
 
   return (
@@ -653,12 +522,24 @@ export default function Workflows() {
         open={memberAssignOpen}
         onClose={() => setMemberAssignOpen(false)}
         showToast={showToast}
+        onCreated={fetchProgress}
       />
       <ContractorAssignmentModal
-        open={contractorAssignOpen}
-        onClose={() => setContractorAssignOpen(false)}
+        open={contractorAssignOpen || !!editingContractorAssign}
+        existing={editingContractorAssign || undefined}
+        onClose={() => { setContractorAssignOpen(false); setEditingContractorAssign(null); }}
+        onCreated={fetchProgress}
+        onSaved={fetchProgress}
         showToast={showToast}
         currentUserId={profile?.id}
+      />
+      <TaskEditModal
+        open={!!editingTask}
+        task={editingTask}
+        profiles={profiles}
+        onClose={() => setEditingTask(null)}
+        onSaved={fetchProgress}
+        showToast={showToast}
       />
 
       {/* ── Drilled into a Flow ── */}
@@ -1234,53 +1115,21 @@ export default function Workflows() {
       </div>
 
       {/* ── Team section (Team + Contractors table) ── */}
-      {(teamProfiles.length > 0 || contractorProfiles.length > 0) && (
-        <div style={{ marginTop: 32 }}>
-          <style>{`@keyframes wf-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }`}</style>
-          <h2 style={{ fontSize: 15, fontWeight: 700, color: '#ffffff', margin: '0 0 12px' }}>Progress</h2>
-          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  {['Name', 'Role', 'Pending', 'Done · 7d'].map(h => (
-                    <th key={h} style={{
-                      textAlign: 'left', padding: '8px 12px', fontSize: 10, fontWeight: 800,
-                      color: 'rgba(255,255,255,0.4)', letterSpacing: 0.5, textTransform: 'uppercase',
-                      borderBottom: '1px solid rgba(255,255,255,0.06)',
-                    }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {teamProfiles.length > 0 && (
-                  <>
-                    <tr>
-                      <td colSpan={4} style={{
-                        padding: '6px 12px', fontSize: 10, fontWeight: 800,
-                        color: 'rgba(255,255,255,0.35)', letterSpacing: 0.6, textTransform: 'uppercase',
-                        background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.04)',
-                      }}>Team</td>
-                    </tr>
-                    {teamProfiles.map(p => renderPersonRow(p, teamByAssignee[p.id]))}
-                  </>
-                )}
-                {contractorProfiles.length > 0 && (
-                  <>
-                    <tr>
-                      <td colSpan={4} style={{
-                        padding: '6px 12px', fontSize: 10, fontWeight: 800,
-                        color: 'rgba(255,255,255,0.35)', letterSpacing: 0.6, textTransform: 'uppercase',
-                        background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.04)',
-                      }}>Contractors</td>
-                    </tr>
-                    {contractorProfiles.map(p => renderPersonRow(p, contractorByAssignee[p.id]))}
-                  </>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      <ProgressTable
+        groups={[
+          { key: 'team', label: 'Team', profiles: teamProfiles, byAssignee: teamByAssignee },
+          { key: 'contractors', label: 'Contractors', profiles: contractorProfiles, byAssignee: contractorByAssignee },
+        ]}
+        onTaskClick={(task, person, groupKey) => {
+          if (groupKey === 'contractors') {
+            // Contractor rows store freelancer_assignments shape — the row
+            // already has the columns ContractorAssignmentModal expects.
+            setEditingContractorAssign(task);
+          } else {
+            setEditingTask(task);
+          }
+        }}
+      />
       </>
       )}
 
