@@ -28,6 +28,7 @@ import Production from './ProductionMobile';
 import FreelancerDashboard from './FreelancerDashboardMobile';
 import Deliverables from './DeliverablesMobile';
 import Ideas from './IdeasMobile';
+import Workflows from './WorkflowsMobile';
 // Goals page is sunset on desktop; mobile mirrors that — import + nav
 // entry + route case removed. Re-add when goals comes back, if ever.
 
@@ -49,6 +50,7 @@ const NAV_ITEMS = [
   { key: 'projects', label: 'Projects' },
   { key: 'resources', label: 'Resources' },
   { key: 'analytics', label: 'Analytics', adminOnly: true },
+  { key: 'workflows', label: 'Workflows', adminOnly: true },
   { key: 'research', label: 'News' },
   { key: 'calendar', label: 'Calendar' },
   { key: 'business_dev', label: 'Business Dev', adminOnly: true },
@@ -69,7 +71,7 @@ const VALID_TAB_KEYS = new Set(NAV_ITEMS.map((i) => i.key).concat('admin', 'fl_d
 // workflows/jobs/ops) get omitted entirely instead of stubbed.
 //
 // Keep this list in sync as new *Mobile pages ship.
-const MOBILE_ADMIN_PAGE_KEYS = ['analytics', 'business_dev', 'invoicing'];
+const MOBILE_ADMIN_PAGE_KEYS = ['workflows', 'analytics', 'business_dev', 'invoicing'];
 // Full desktop admin-only set so Work View can hide every key that's
 // considered admin, even ones without a mobile build (so a non-mobile
 // admin page never sneaks into the Work drawer via NAV_ITEMS).
@@ -344,6 +346,7 @@ function renderActiveTab({ activeTab, isAdmin, isAssistant, isPartner, isFreelan
     case 'invoicing': return <Invoicing />;
     case 'deliverables': return <Deliverables />;
     case 'ideas': return <Ideas />;
+    case 'workflows': return <Workflows />;
     case 'channels': return <Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} />;
     case 'messages': return <Messages onNavigate={navigateTo} />;
     case 'admin': return <AdminPanel />;

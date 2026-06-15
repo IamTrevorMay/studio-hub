@@ -31,6 +31,8 @@ export const MOBILE_SUPPORT = {
   resources: 'readonly',
   // Invoicing has full create/edit on mobile
   invoicing: 'full',
+  // Admin pages with mobile builds
+  workflows: 'full',
 
   // Excluded — show DesktopOnlyScreen if visited
   analytics: 'excluded',
