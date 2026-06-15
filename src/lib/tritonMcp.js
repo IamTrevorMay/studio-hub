@@ -26,9 +26,10 @@ function parseSSEResponse(text) {
   const lines = text.split('\n');
   let lastData = null;
   for (const line of lines) {
-    if (line.startsWith('data:')) {
-      lastData = line.slice(5).trim();
-    }
+    const trimmed = line.startsWith('data: ') ? line.slice(6).trim()
+      : line.startsWith('data:') ? line.slice(5).trim()
+      : null;
+    if (trimmed) lastData = trimmed;
   }
   if (lastData) {
     return JSON.parse(lastData);
@@ -44,19 +45,31 @@ async function rpcCall(method, params) {
     method,
     params: params || {},
   };
-  if (sessionId) {
-    payload.params._meta = { ...(payload.params._meta || {}), sessionId };
-  }
   const auth = await getAuthHeader();
+
+  // Send sessionId alongside the payload so the proxy can forward it
+  // as the mcp-session-id header to the upstream MCP server.
+  const reqBody = { action: 'rpc', payload };
+  if (sessionId) {
+    reqBody.sessionId = sessionId;
+  }
+
   const res = await fetch(PROXY_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: auth },
-    body: JSON.stringify({ action: 'rpc', payload }),
+    body: JSON.stringify(reqBody),
   });
   if (!res.ok) {
     const errText = await res.text().catch(() => '');
     throw new Error(`MCP request failed (${res.status}): ${errText}`);
   }
+
+  // Capture session ID from the proxy's response header
+  const returnedSession = res.headers.get('x-mcp-session-id');
+  if (returnedSession) {
+    sessionId = returnedSession;
+  }
+
   const text = await res.text();
   const parsed = parseSSEResponse(text);
   if (parsed.error) {
@@ -71,13 +84,6 @@ async function initSession() {
     capabilities: {},
     clientInfo: { name: 'mayday-studio', version: '1.0.0' },
   });
-  if (result.result?.sessionId) {
-    sessionId = result.result.sessionId;
-  }
-  // Also try session ID from the response-level meta
-  if (result._meta?.sessionId) {
-    sessionId = result._meta.sessionId;
-  }
   return result;
 }
 
@@ -138,7 +144,7 @@ export async function callTool(name, args) {
  * Convenience: query_database tool
  */
 export async function queryDatabase(queryText) {
-  return callTool('query_database', { query: queryText });
+  return callTool('query_database', { sql: queryText });
 }
 
 /**
@@ -151,8 +157,8 @@ export async function searchPlayers(name) {
 /**
  * Convenience: get_player_stats tool
  */
-export async function getPlayerStats(playerId, season) {
-  const args = { player_id: playerId };
+export async function getPlayerStats(playerId, type, season) {
+  const args = { player_id: playerId, type: type || 'hitter' };
   if (season) args.season = season;
   return callTool('get_player_stats', args);
 }

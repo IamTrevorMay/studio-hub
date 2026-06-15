@@ -6,8 +6,12 @@
 // valid Mayday JWT — any authenticated user can query.
 //
 // Request body:
-//   { action: 'health' }                              → GET /health
-//   { action: 'rpc', payload: { jsonrpc, id, ... } }  → POST /mcp
+//   { action: 'health' }                                          → GET /health
+//   { action: 'rpc', payload: { jsonrpc, id, ... }, sessionId? }  → POST /mcp
+//
+// The proxy relays the mcp-session-id header in both directions:
+//   - Forwards client-supplied sessionId to upstream as mcp-session-id header
+//   - Returns upstream's mcp-session-id header back to the client
 //
 // Required Vercel env vars:
 //   SUPABASE_URL + SUPABASE_ANON_KEY — Mayday creds for JWT validation
@@ -73,11 +77,20 @@ module.exports = async (req, res) => {
       return res.status(400).json({ error: 'Missing payload for rpc action' });
     }
 
+    // Build upstream headers — forward mcp-session-id if the client sent one
+    const upstreamHeaders = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json, text/event-stream',
+    };
+    if (body.sessionId) {
+      upstreamHeaders['mcp-session-id'] = body.sessionId;
+    }
+
     let upstream;
     try {
       upstream = await fetch(`${mcpOrigin}/mcp`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+        headers: upstreamHeaders,
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(30_000),
       });
@@ -86,8 +99,16 @@ module.exports = async (req, res) => {
     }
 
     const text = await upstream.text();
+
+    // Relay mcp-session-id from upstream back to client
+    const mcpSessionId = upstream.headers.get('mcp-session-id');
+
     res.status(upstream.status);
     res.setHeader('Content-Type', upstream.headers.get('content-type') || 'text/event-stream');
+    if (mcpSessionId) {
+      res.setHeader('x-mcp-session-id', mcpSessionId);
+      res.setHeader('Access-Control-Expose-Headers', 'x-mcp-session-id');
+    }
     res.end(text);
     return;
   }
