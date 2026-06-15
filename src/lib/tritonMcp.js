@@ -1,6 +1,6 @@
-const MCP_BASE = process.env.REACT_APP_TRITON_MCP_URL || 'https://mcp.tritonapex.io';
-const MCP_ENDPOINT = `${MCP_BASE}/mcp`;
-const HEALTH_ENDPOINT = `${MCP_BASE}/health`;
+import { supabase } from '../supabaseClient';
+
+const PROXY_URL = '/api/triton-mcp';
 
 let sessionId = null;
 let msgId = 0;
@@ -8,6 +8,12 @@ let msgId = 0;
 function nextId() {
   msgId += 1;
   return msgId;
+}
+
+async function getAuthHeader() {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error('Not authenticated');
+  return `Bearer ${session.access_token}`;
 }
 
 /**
@@ -32,19 +38,20 @@ function parseSSEResponse(text) {
 }
 
 async function rpcCall(method, params) {
-  const body = {
+  const payload = {
     jsonrpc: '2.0',
     id: nextId(),
     method,
     params: params || {},
   };
   if (sessionId) {
-    body.params._meta = { ...(body.params._meta || {}), sessionId };
+    payload.params._meta = { ...(payload.params._meta || {}), sessionId };
   }
-  const res = await fetch(MCP_ENDPOINT, {
+  const auth = await getAuthHeader();
+  const res = await fetch(PROXY_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-    body: JSON.stringify(body),
+    headers: { 'Content-Type': 'application/json', Authorization: auth },
+    body: JSON.stringify({ action: 'rpc', payload }),
   });
   if (!res.ok) {
     const errText = await res.text().catch(() => '');
@@ -80,12 +87,19 @@ function isSessionError(err) {
 }
 
 /**
- * GET /health — returns true if MCP server is reachable.
+ * Health check via proxy — returns true if MCP server is reachable.
  */
 export async function checkHealth() {
   try {
-    const res = await fetch(HEALTH_ENDPOINT, { method: 'GET' });
-    return res.ok;
+    const auth = await getAuthHeader();
+    const res = await fetch(PROXY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: auth },
+      body: JSON.stringify({ action: 'health' }),
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data.ok === true;
   } catch {
     return false;
   }
