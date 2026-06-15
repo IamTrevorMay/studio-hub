@@ -82,27 +82,38 @@ const DESKTOP_ADMIN_PAGE_KEYS = new Set([
   'payroll', 'analytics', 'tracking', 'accounting', 'business_dev',
   'freelancers', 'workflows', 'jobs', 'invoicing', 'ops',
 ]);
-const ADMIN_ESSENTIAL_KEYS = ['dashboard', 'projects', 'calendar', 'messages'];
-const ADMIN_MODE_KEY_SET = new Set([
-  ...ADMIN_ESSENTIAL_KEYS, ...MOBILE_ADMIN_PAGE_KEYS, 'admin',
-]);
+const ADMIN_ESSENTIAL_KEYS = new Set(['dashboard', 'projects', 'calendar', 'deliverables']);
+const ADMIN_ESSENTIAL_FOLDER_IDS = new Set(['pre_production', 'filming', 'post_production']);
 
-// Build the Admin View nav list from NAV_ITEMS, preserving labels.
-// Order: essentials → admin pages → Admin Settings. Anything outside
-// ADMIN_MODE_KEY_SET is dropped.
-function buildAdminModeNav(navItems) {
-  const itemMap = new Map(navItems.map((i) => [i.key, i]));
-  const out = [];
-  for (const key of ADMIN_ESSENTIAL_KEYS) {
-    const item = itemMap.get(key);
-    if (item) out.push({ type: 'item', key: item.key, label: item.label });
+// Build the Admin View nav list from resolved nav + hardcoded admin pages.
+// Essential items/folders pulled from resolvedNav, then admin pages appended.
+function buildAdminModeNav(resolvedNav) {
+  const top = [];
+  for (const entry of resolvedNav) {
+    if (entry.type === 'item' && ADMIN_ESSENTIAL_KEYS.has(entry.key)) {
+      top.push(entry);
+    } else if (entry.type === 'folder' && ADMIN_ESSENTIAL_FOLDER_IDS.has(entry.id)) {
+      top.push(entry);
+    } else if (entry.type === 'item' && entry.folderId && ADMIN_ESSENTIAL_FOLDER_IDS.has(entry.folderId)) {
+      top.push(entry);
+    }
   }
   for (const key of MOBILE_ADMIN_PAGE_KEYS) {
-    const item = itemMap.get(key);
-    if (item) out.push({ type: 'item', key: item.key, label: item.label });
+    const item = NAV_ITEMS.find((i) => i.key === key);
+    if (item) top.push({ type: 'item', key: item.key, label: item.label });
   }
-  out.push({ type: 'item', key: 'admin', label: 'Admin Settings' });
-  return out;
+  top.push({ type: 'item', key: 'admin', label: 'Admin Settings' });
+  return top;
+}
+
+function getAdminModeKeySet(resolvedNav) {
+  const keys = new Set([...ADMIN_ESSENTIAL_KEYS, ...MOBILE_ADMIN_PAGE_KEYS, 'admin']);
+  for (const entry of resolvedNav) {
+    if (entry.type === 'item' && entry.folderId && ADMIN_ESSENTIAL_FOLDER_IDS.has(entry.folderId)) {
+      keys.add(entry.key);
+    }
+  }
+  return keys;
 }
 
 function getTabFromPath() {
@@ -167,24 +178,26 @@ export default function AppLayoutMobile() {
   useEffect(() => { if (!isAdmin && mode !== 'work') setMode('work'); }, [isAdmin, mode]);
   useEffect(() => { localStorage.setItem('studio-hub-mode', mode); }, [mode]);
 
+  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isFreelancer, profile);
+  const adminModeKeySet = getAdminModeKeySet(resolvedNav);
+
   // When the user flips to a mode their current tab doesn't belong to,
   // bounce them somewhere sensible (Workflows isn't mobile yet so admin
   // mode lands on Analytics; work mode falls back to Dashboard).
   useEffect(() => {
     if (mode === 'admin' && isAdmin) {
-      if (!ADMIN_MODE_KEY_SET.has(activeTab)) setActiveTab('analytics');
+      if (!adminModeKeySet.has(activeTab)) setActiveTab('analytics');
     } else if (DESKTOP_ADMIN_PAGE_KEYS.has(activeTab)) {
       setActiveTab('dashboard');
     }
     // eslint-disable-next-line
   }, [mode, isAdmin]);
 
-  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isFreelancer, profile);
   // Work View strips every desktop-admin key so admin-only pages are
   // siloed into Admin View. Admin View builds its own short list.
   const baseNav = filterNavForMobile(resolvedNav);
   const mobileNav = (mode === 'admin' && isAdmin)
-    ? buildAdminModeNav(NAV_ITEMS)
+    ? buildAdminModeNav(resolvedNav)
     : baseNav.filter((e) => !(e.type === 'item' && DESKTOP_ADMIN_PAGE_KEYS.has(e.key)));
 
   function toggleMode() {

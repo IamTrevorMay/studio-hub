@@ -95,15 +95,11 @@ const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', '
 // ─── Modes ──────────────────────────────────────────────────
 // Admin-only pages that live in Admin Mode and are hidden from the Work View.
 const ADMIN_PAGE_KEYS = ['payroll', 'analytics', 'tracking', 'accounting', 'business_dev', 'freelancers', 'workflows', 'jobs', 'invoicing', 'ops'];
-// Everyday anchors kept at the top of the Admin Mode sidebar.
-const ADMIN_ESSENTIAL_KEYS = ['dashboard', 'projects', 'calendar', 'messages'];
-// Admin Mode sidebar: essentials, a divider, then the admin pages + settings.
-const ADMIN_MODE_NAV = [
-  { type: 'item', key: 'dashboard', label: 'Dashboard' },
-  { type: 'item', key: 'projects', label: 'Projects' },
-  { type: 'item', key: 'calendar', label: 'Calendar' },
-  { type: 'item', key: 'messages', label: 'Messages' },
-  { type: 'divider' },
+// Everyday anchors kept at the top of the Admin Mode sidebar (items + folders).
+const ADMIN_ESSENTIAL_KEYS = ['dashboard', 'projects', 'calendar', 'deliverables'];
+const ADMIN_ESSENTIAL_FOLDER_IDS = new Set(['pre_production', 'filming', 'post_production']);
+// Admin-only page entries appended after a divider.
+const ADMIN_PAGE_NAV = [
   { type: 'item', key: 'workflows', label: 'Workflows' },
   { type: 'item', key: 'freelancers', label: 'Contractors' },
   { type: 'item', key: 'tracking', label: 'Tracking' },
@@ -116,7 +112,32 @@ const ADMIN_MODE_NAV = [
   { type: 'item', key: 'ops', label: 'Ops' },
   { type: 'item', key: 'admin', label: 'Admin Settings' },
 ];
-const ADMIN_MODE_KEYS = new Set([...ADMIN_ESSENTIAL_KEYS, ...ADMIN_PAGE_KEYS, 'admin']);
+// Build Admin Mode sidebar: essential items/folders from resolved nav, divider, admin pages.
+function buildAdminNav(resolvedNav) {
+  const essentialKeySet = new Set(ADMIN_ESSENTIAL_KEYS);
+  const top = [];
+  // Pull essential items and folders (with their children) from resolved nav
+  for (const entry of resolvedNav) {
+    if (entry.type === 'item' && essentialKeySet.has(entry.key)) {
+      top.push(entry);
+    } else if (entry.type === 'folder' && ADMIN_ESSENTIAL_FOLDER_IDS.has(entry.id)) {
+      top.push(entry);
+    } else if (entry.type === 'item' && entry.folderId && ADMIN_ESSENTIAL_FOLDER_IDS.has(entry.folderId)) {
+      top.push(entry);
+    }
+  }
+  return [...top, { type: 'divider' }, ...ADMIN_PAGE_NAV];
+}
+// Collect all valid tab keys for admin mode (essential items + folder children + admin pages).
+function getAdminModeKeys(resolvedNav) {
+  const keys = new Set([...ADMIN_ESSENTIAL_KEYS, ...ADMIN_PAGE_KEYS, 'admin']);
+  for (const entry of resolvedNav) {
+    if (entry.type === 'item' && entry.folderId && ADMIN_ESSENTIAL_FOLDER_IDS.has(entry.folderId)) {
+      keys.add(entry.key);
+    }
+  }
+  return keys;
+}
 
 // Work View nav: strip the admin pages, retire the (now-empty) "Core Team"
 // folder by promoting its remaining items to top level, and drop empty folders.
@@ -246,10 +267,13 @@ export default function AppLayout() {
     localStorage.setItem('studio-hub-mode', mode);
   }, [mode]);
 
+  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isFreelancer, profile, restrictedNavKeys);
+  const adminModeKeys = getAdminModeKeys(resolvedNav);
+
   // On load (and when mode flips), keep the open page consistent with the mode.
   useEffect(() => {
     if (mode === 'admin' && isAdmin) {
-      if (!ADMIN_MODE_KEYS.has(activeTab)) setActiveTab('workflows');
+      if (!adminModeKeys.has(activeTab)) setActiveTab('workflows');
     } else if (ADMIN_PAGE_KEYS.includes(activeTab)) {
       setActiveTab('dashboard');
     }
@@ -265,20 +289,18 @@ export default function AppLayout() {
     // eslint-disable-next-line
   }, [activeTab, restrictedNavKeys]);
 
-  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isFreelancer, profile, restrictedNavKeys);
-
   // Mode-filtered nav. Admin-only pages live in Admin Mode and disappear from
   // the default Work View; flipping the bottom button swaps the sidebar.
-  const filteredAdminModeNav = ADMIN_MODE_NAV.filter(
+  const adminNav = buildAdminNav(resolvedNav).filter(
     (e) => e.type !== 'item' || !restrictedNavKeys?.has(e.key),
   );
-  const displayNav = ((mode === 'admin' && isAdmin) ? filteredAdminModeNav : buildWorkNav(resolvedNav))
+  const displayNav = ((mode === 'admin' && isAdmin) ? adminNav : buildWorkNav(resolvedNav))
     .filter(e => !e.hidden);
 
   function toggleMode() {
     if (mode === 'work') {
       setMode('admin');
-      if (!ADMIN_MODE_KEYS.has(activeTab)) setActiveTab('workflows');
+      if (!adminModeKeys.has(activeTab)) setActiveTab('workflows');
     } else {
       setMode('work');
       if (ADMIN_PAGE_KEYS.includes(activeTab)) setActiveTab('dashboard');

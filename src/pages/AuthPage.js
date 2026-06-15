@@ -85,18 +85,14 @@ export default function AuthPage() {
           .maybeSingle();
 
         const assignedRole = invitation?.role || 'member';
-        const assignedTitle = invitation?.title || null;
 
         // Update the profile that was already created by the handle_new_user trigger.
-        // Must use update (not upsert) — profiles has no INSERT RLS policy.
+        // Admin-controlled fields (role, title, drive folders) are set server-side
+        // by handle_new_user from invite metadata — only set user-editable fields here.
         const { error: profileError } = await supabase.from('profiles')
           .update({
             full_name: fullName.trim(),
             nickname: nickname.trim(),
-            role: assignedRole,
-            title: assignedTitle,
-            assigned_drive_folder_id: invitation?.assigned_drive_folder_id || null,
-            assigned_drive_folder_name: invitation?.assigned_drive_folder_name || null,
             updated_at: new Date().toISOString(),
           })
           .eq('id', user.id);

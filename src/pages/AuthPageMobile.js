@@ -76,16 +76,13 @@ export default function AuthPageMobile() {
           .maybeSingle();
 
         const assignedRole = invitation?.role || 'member';
-        const assignedTitle = invitation?.title || null;
 
+        // Admin-controlled fields (role, title, drive folders) are set server-side
+        // by handle_new_user from invite metadata — only set user-editable fields here.
         const { error: profileError } = await supabase.from('profiles')
           .update({
             full_name: fullName.trim(),
             nickname: nickname.trim(),
-            role: assignedRole,
-            title: assignedTitle,
-            assigned_drive_folder_id: invitation?.assigned_drive_folder_id || null,
-            assigned_drive_folder_name: invitation?.assigned_drive_folder_name || null,
             updated_at: new Date().toISOString(),
           })
           .eq('id', user.id);

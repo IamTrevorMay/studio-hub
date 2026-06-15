@@ -75,6 +75,8 @@ Deno.serve(async (req: Request) => {
         title: title || null,
         payment_type: payment_type || null,
         rate: rate != null ? Number(rate) : null,
+        assigned_drive_folder_id: assigned_drive_folder_id || null,
+        assigned_drive_folder_name: assigned_drive_folder_name || null,
       },
       redirectTo: Deno.env.get("SITE_URL") || "https://studio-hub-fawn.vercel.app",
     });
