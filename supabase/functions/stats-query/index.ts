@@ -206,7 +206,40 @@ Deno.serve(async (req: Request) => {
       return json({ ok: false, error: `Query failed: ${errText}`, sql });
     }
 
-    return json({ ok: true, sql, result });
+    // Extract raw data from MCP result
+    let dataText = "";
+    const content = result.content || [];
+    for (const block of content) {
+      if (block.type === "text") dataText += block.text + "\n";
+    }
+
+    // ── Step 4: Claude summarizes results in plain language ──
+    const summarizeRes = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": anthropicKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: Deno.env.get("CLAUDE_MODEL") || "claude-haiku-4-5",
+        max_tokens: 1024,
+        system: `You are a knowledgeable baseball analyst. The user asked a question about baseball stats, a SQL query was run, and you are given the results. Summarize the data in plain, conversational language. Be concise but informative. Use player names, round numbers nicely, and highlight interesting findings. Do not mention SQL or databases — just answer the question naturally as if you looked it up yourself.`,
+        messages: [{
+          role: "user",
+          content: `Question: ${question}\n\nQuery results:\n${dataText}`,
+        }],
+      }),
+    });
+
+    let answer = dataText; // fallback to raw data if summarization fails
+    if (summarizeRes.ok) {
+      const sumData = await summarizeRes.json();
+      const sumText = (sumData.content?.[0]?.text || "").trim();
+      if (sumText) answer = sumText;
+    }
+
+    return json({ ok: true, sql, answer, result });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return json({ ok: false, error: message });

@@ -274,13 +274,13 @@ export default function ResearchDocs() {
         throw err;
       }
 
-      const { sql, result } = resData;
-      const { summary, columns, rows } = parseMcpResult(result);
+      const { sql, answer, result } = resData;
+      const { columns, rows } = parseMcpResult(result);
 
-      // Replace loading with result
+      // Replace loading with result — show plain language answer
       setThread(prev => prev.map(e =>
         e.id === entryId + 1
-          ? { ...e, type: 'result', text: summary || 'Query completed.', summary: summary || '', columns, rows, sql }
+          ? { ...e, type: 'result', text: answer || 'Query completed.', summary: answer || '', columns, rows, sql }
           : e
       ));
 
@@ -291,7 +291,7 @@ export default function ResearchDocs() {
           query_text: trimmed,
           tool_name: 'query_database',
           tool_args: { sql },
-          summary: summary || null,
+          summary: answer || null,
           result_data: rows.length > 0 ? rows.map(r => {
             const obj = {};
             columns.forEach((c, i) => { obj[c] = r[i] ?? null; });
