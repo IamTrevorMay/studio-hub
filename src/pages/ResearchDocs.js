@@ -9,7 +9,7 @@ import {
   RESEARCH_CLEARED_TOKENS as CLEARED_TOKENS,
   emptyResearchForm,
 } from '../lib/researchDocs';
-import { checkHealth, queryDatabase } from '../lib/tritonMcp';
+import { checkHealth } from '../lib/tritonMcp';
 
 const PRESET_QUERIES = [
   'Top 10 K/9 starters this season',
@@ -238,13 +238,33 @@ export default function ResearchDocs() {
 
     setQueryLoading(true);
     try {
-      const result = await queryDatabase(trimmed);
+      // Call stats-query edge function: NL → Claude SQL → Triton MCP
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error('Not authenticated');
+
+      const fnUrl = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/stats-query`;
+      const res = await fetch(fnUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ question: trimmed }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Stats query failed (${res.status})`);
+      }
+
+      const { sql, result } = await res.json();
       const { summary, columns, rows } = parseMcpResult(result);
 
       // Replace loading with result
       setThread(prev => prev.map(e =>
         e.id === entryId + 1
-          ? { ...e, type: 'result', text: summary || 'Query completed.', summary: summary || '', columns, rows }
+          ? { ...e, type: 'result', text: summary || 'Query completed.', summary: summary || '', columns, rows, sql }
           : e
       ));
 
@@ -254,7 +274,7 @@ export default function ResearchDocs() {
           user_id: profile.id,
           query_text: trimmed,
           tool_name: 'query_database',
-          tool_args: { query: trimmed },
+          tool_args: { sql },
           summary: summary || null,
           result_data: rows.length > 0 ? rows.map(r => {
             const obj = {};
@@ -277,7 +297,7 @@ export default function ResearchDocs() {
           user_id: profile.id,
           query_text: trimmed,
           tool_name: 'query_database',
-          tool_args: { query: trimmed },
+          tool_args: { question: trimmed },
           error_message: err.message || 'Query failed',
         }).then(() => { if (showHistory) fetchHistory(); });
       }
