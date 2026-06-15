@@ -97,7 +97,7 @@ Deno.serve(
       return jsonRes({ error: "BRAVE_SEARCH_API_KEY not configured" }, 500);
     }
 
-    const model = Deno.env.get("CLAUDE_MODEL") || "claude-sonnet-4-20250514";
+    const model = Deno.env.get("CLAUDE_MODEL") || "claude-sonnet-4-6";
 
     // ── Step 1: Claude analysis ──
     let subjects: string[] = [];

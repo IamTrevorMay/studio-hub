@@ -129,7 +129,7 @@ If no matches, respond with []`;
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: Deno.env.get("CLAUDE_MODEL") || "claude-sonnet-4-20250514",
+        model: Deno.env.get("CLAUDE_MODEL") || "claude-sonnet-4-6",
         max_tokens: 2048,
         messages: [{ role: "user", content: prompt }],
       }),

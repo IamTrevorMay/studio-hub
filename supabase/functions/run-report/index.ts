@@ -48,7 +48,7 @@ async function runSectionPrompt(prompt: string): Promise<string> {
       },
       signal: controller.signal,
       body: JSON.stringify({
-        model: Deno.env.get("CLAUDE_MODEL") || "claude-sonnet-4-20250514",
+        model: Deno.env.get("CLAUDE_MODEL") || "claude-sonnet-4-6",
         max_tokens: 4096,
         messages: [{
           role: "user",
@@ -330,7 +330,7 @@ async function legacyCallClaude(prompt: string): Promise<{ title: string; summar
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: Deno.env.get("CLAUDE_MODEL") || "claude-sonnet-4-20250514",
+      model: Deno.env.get("CLAUDE_MODEL") || "claude-sonnet-4-6",
       max_tokens: 4096,
       messages: [{
         role: "user",
