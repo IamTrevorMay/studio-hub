@@ -28,7 +28,7 @@ import Invoicing from './InvoicingMobile';
 import Production from './ProductionMobile';
 import FreelancerDashboard from './FreelancerDashboardMobile';
 import Deliverables from './DeliverablesMobile';
-import Ideas from './Ideas';
+import Ideas from './IdeasMobile';
 
 // Same NAV_ITEMS source-of-truth as desktop. Kept in sync intentionally — desktop
 // AppLayout owns the canonical list; this is a slimmed mirror used to feed the

@@ -44,7 +44,7 @@ function fmtTime(iso, allDay) {
 }
 
 export default function CalendarMobile() {
-  const { profile } = useAuth(); // eslint-disable-line no-unused-vars
+  const { profile } = useAuth();
   const [view, setView] = useState('agenda'); // 'agenda' | 'month'
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -54,6 +54,15 @@ export default function CalendarMobile() {
     const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d;
   });
   const [selectedDay, setSelectedDay] = useState(null); // for month view tap
+
+  // Event create (mobile-friendly subset of the desktop modal — title/
+  // type/date/time/all-day/location). Recurrence + guests are desktop-
+  // only for now; the row inserts via supabase directly to mirror
+  // Calendar.js handleSaveEvent's payload shape.
+  const [showCreate, setShowCreate] = useState(false);
+  const [createForm, setCreateForm] = useState(null);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState(null);
 
   const fetchEvents = useCallback(async () => {
     setLoading(true);
@@ -79,6 +88,61 @@ export default function CalendarMobile() {
   }, []);
 
   useEffect(() => { fetchEvents(); }, [fetchEvents]);
+
+  function openCreate(day) {
+    const base = day || new Date();
+    const next = new Date(base.getTime() + 60 * 60 * 1000);
+    setCreateError(null);
+    setCreateForm({
+      title: '',
+      event_type: 'meeting',
+      start_date: ymd(base),
+      start_time: hm(base),
+      end_date: ymd(next),
+      end_time: hm(next),
+      all_day: false,
+      location: '',
+      description: '',
+    });
+    setShowCreate(true);
+  }
+
+  async function handleCreate() {
+    if (!createForm) return;
+    const f = createForm;
+    if (!f.title.trim() || !f.start_date) { setCreateError('Title + start date required.'); return; }
+    if (!profile?.id) { setCreateError('Not signed in.'); return; }
+    setCreating(true); setCreateError(null);
+    try {
+      const startDate = f.all_day
+        ? new Date(`${f.start_date}T00:00:00`)
+        : new Date(`${f.start_date}T${f.start_time || '09:00'}:00`);
+      const endDateStr = f.end_date || f.start_date;
+      const endDate = f.all_day
+        ? new Date(`${endDateStr}T23:59:59`)
+        : new Date(`${endDateStr}T${f.end_time || '10:00'}:00`);
+      const { error } = await supabase.from('calendar_events').insert({
+        title: f.title.trim(),
+        description: f.description.trim(),
+        event_type: f.event_type,
+        start_date: startDate.toISOString(),
+        end_date: endDate.toISOString(),
+        all_day: f.all_day,
+        location: f.location.trim(),
+        guests: [],
+        recurrence_rule: null,
+        created_by: profile.id,
+      });
+      if (error) throw error;
+      setShowCreate(false);
+      setCreateForm(null);
+      fetchEvents();
+    } catch (e) {
+      setCreateError(e.message);
+    } finally {
+      setCreating(false);
+    }
+  }
 
   return (
     <div style={styles.root}>
@@ -118,10 +182,169 @@ export default function CalendarMobile() {
           <DayEvents
             events={eventsForDay(events, selectedDay)}
             onSelect={(ev) => { setSelectedDay(null); setTimeout(() => setSelectedEvent(ev), 220); }}
+            onAddForDay={() => {
+              const day = selectedDay;
+              setSelectedDay(null);
+              setTimeout(() => openCreate(day), 220);
+            }}
           />
         )}
       </BottomSheet>
+
+      <BottomSheet
+        open={showCreate}
+        onClose={() => { setShowCreate(false); setCreateForm(null); }}
+        title="New event"
+        maxHeight="90vh"
+      >
+        {createForm && (
+          <CreateEventForm
+            form={createForm}
+            onChange={(patch) => setCreateForm((f) => ({ ...f, ...patch }))}
+            onSave={handleCreate}
+            onCancel={() => { setShowCreate(false); setCreateForm(null); }}
+            saving={creating}
+            error={createError}
+          />
+        )}
+      </BottomSheet>
+
+      <button
+        onClick={() => openCreate(view === 'month' ? monthCursor : null)}
+        style={styles.fab}
+        aria-label="New event"
+      >
+        +
+      </button>
     </div>
+  );
+}
+
+function ymd(d) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+function hm(d) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function CreateEventForm({ form, onChange, onSave, onCancel, saving, error }) {
+  return (
+    <div style={createStyles.root}>
+      <Field label="Title">
+        <input
+          autoFocus
+          value={form.title}
+          onChange={(e) => onChange({ title: e.target.value })}
+          placeholder="What's happening?"
+          style={createStyles.input}
+        />
+      </Field>
+
+      <Field label="Type">
+        <select
+          value={form.event_type}
+          onChange={(e) => onChange({ event_type: e.target.value })}
+          style={createStyles.input}
+        >
+          {Object.entries(EVENT_TYPE_LABELS).map(([k, v]) => (
+            <option key={k} value={k}>{v}</option>
+          ))}
+        </select>
+      </Field>
+
+      <label style={createStyles.toggleRow}>
+        <input
+          type="checkbox"
+          checked={form.all_day}
+          onChange={(e) => onChange({ all_day: e.target.checked })}
+        />
+        <span>All day</span>
+      </label>
+
+      <div style={createStyles.row}>
+        <Field label="Start date">
+          <input
+            type="date"
+            value={form.start_date}
+            onChange={(e) => onChange({ start_date: e.target.value })}
+            style={createStyles.input}
+          />
+        </Field>
+        {!form.all_day && (
+          <Field label="Start time">
+            <input
+              type="time"
+              value={form.start_time}
+              onChange={(e) => onChange({ start_time: e.target.value })}
+              style={createStyles.input}
+            />
+          </Field>
+        )}
+      </div>
+
+      <div style={createStyles.row}>
+        <Field label="End date">
+          <input
+            type="date"
+            value={form.end_date}
+            onChange={(e) => onChange({ end_date: e.target.value })}
+            style={createStyles.input}
+          />
+        </Field>
+        {!form.all_day && (
+          <Field label="End time">
+            <input
+              type="time"
+              value={form.end_time}
+              onChange={(e) => onChange({ end_time: e.target.value })}
+              style={createStyles.input}
+            />
+          </Field>
+        )}
+      </div>
+
+      <Field label="Location">
+        <input
+          value={form.location}
+          onChange={(e) => onChange({ location: e.target.value })}
+          placeholder="Optional"
+          style={createStyles.input}
+        />
+      </Field>
+
+      <Field label="Description">
+        <textarea
+          value={form.description}
+          onChange={(e) => onChange({ description: e.target.value })}
+          rows={3}
+          style={{ ...createStyles.input, resize: 'vertical', fontFamily: 'inherit' }}
+        />
+      </Field>
+
+      {error && <div style={createStyles.error}>{error}</div>}
+
+      <div style={createStyles.actions}>
+        <button onClick={onCancel} style={createStyles.cancelBtn}>Cancel</button>
+        <button
+          onClick={onSave}
+          disabled={saving || !form.title.trim() || !form.start_date}
+          style={{ ...createStyles.saveBtn, opacity: saving || !form.title.trim() || !form.start_date ? 0.5 : 1 }}
+        >
+          {saving ? 'Creating…' : 'Create'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <label style={createStyles.field}>
+      <span style={createStyles.fieldLabel}>{label}</span>
+      {children}
+    </label>
   );
 }
 
@@ -294,11 +517,12 @@ function buildMonthCells(cursor, events) {
   return cells;
 }
 
-function DayEvents({ events, onSelect }) {
-  if (events.length === 0) return <p style={styles.empty}>No events this day.</p>;
+function DayEvents({ events, onSelect, onAddForDay }) {
   return (
     <div style={styles.eventList}>
-      {events.map((ev) => (
+      {events.length === 0 ? (
+        <p style={styles.empty}>No events this day.</p>
+      ) : events.map((ev) => (
         <button key={ev.id} onClick={() => onSelect(ev)} style={{ ...styles.eventRow, borderLeft: `3px solid ${EVENT_TYPE_COLORS[ev.event_type] || '#6366f1'}` }}>
           <div style={styles.eventTime}>{fmtTime(ev.start_date, ev.all_day)}</div>
           <div style={styles.eventBody}>
@@ -307,6 +531,9 @@ function DayEvents({ events, onSelect }) {
           </div>
         </button>
       ))}
+      {onAddForDay && (
+        <button onClick={onAddForDay} style={styles.addForDayBtn}>+ Add event this day</button>
+      )}
     </div>
   );
 }
@@ -494,6 +721,67 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     padding: 0,
+  },
+  fab: {
+    position: 'fixed', right: 18, bottom: 86,
+    width: 56, height: 56, borderRadius: '50%',
+    background: '#6366f1', color: '#fff', border: 'none',
+    fontSize: 30, lineHeight: 1, cursor: 'pointer', fontFamily: 'inherit',
+    boxShadow: '0 8px 22px rgba(99,102,241,0.45)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    zIndex: 50,
+  },
+  addForDayBtn: {
+    marginTop: 6, padding: '10px 14px',
+    background: 'rgba(99,102,241,0.12)',
+    border: '1px dashed rgba(99,102,241,0.35)',
+    color: '#a5b4fc',
+    borderRadius: mobileTokens.radius.md,
+    fontSize: mobileTokens.font.sm, fontWeight: 600,
+    cursor: 'pointer', fontFamily: 'inherit',
+  },
+};
+
+const createStyles = {
+  root: { display: 'flex', flexDirection: 'column', gap: mobileTokens.space.md },
+  field: { display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 },
+  fieldLabel: {
+    fontSize: mobileTokens.font.xs, color: 'rgba(255,255,255,0.5)',
+    textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600,
+  },
+  input: {
+    width: '100%', boxSizing: 'border-box',
+    background: 'rgba(0,0,0,0.25)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: mobileTokens.radius.sm,
+    padding: '10px 12px', color: '#fff', fontSize: mobileTokens.font.md,
+    fontFamily: 'inherit', outline: 'none',
+  },
+  row: { display: 'flex', gap: mobileTokens.space.sm },
+  toggleRow: {
+    display: 'flex', alignItems: 'center', gap: 8,
+    fontSize: mobileTokens.font.md, color: '#e2e8f0',
+  },
+  error: {
+    padding: 10, background: 'rgba(239,68,68,0.1)',
+    border: '1px solid rgba(239,68,68,0.3)',
+    color: '#f87171', borderRadius: mobileTokens.radius.sm,
+    fontSize: mobileTokens.font.sm,
+  },
+  actions: { display: 'flex', justifyContent: 'flex-end', gap: 8 },
+  cancelBtn: {
+    padding: '10px 16px', background: 'transparent',
+    border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)',
+    borderRadius: mobileTokens.radius.sm,
+    fontSize: mobileTokens.font.md, fontWeight: 600,
+    cursor: 'pointer', fontFamily: 'inherit',
+  },
+  saveBtn: {
+    padding: '10px 18px', background: '#6366f1',
+    border: 'none', color: '#fff',
+    borderRadius: mobileTokens.radius.sm,
+    fontSize: mobileTokens.font.md, fontWeight: 700,
+    cursor: 'pointer', fontFamily: 'inherit',
   },
 };
 
