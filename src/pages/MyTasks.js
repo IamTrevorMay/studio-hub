@@ -1234,7 +1234,7 @@ const styles = {
   },
   emptyState: {
     textAlign: 'center',
-    padding: '60px 20px',
+    padding: '29px 20px',
   },
   emptyIcon: {
     fontSize: 48,

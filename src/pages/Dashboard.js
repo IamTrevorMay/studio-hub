@@ -1644,7 +1644,9 @@ export default function Dashboard({ onNavigate }) {
       <div style={styles.section}>
         <h2 style={styles.sectionTitle}>Today</h2>
         <div style={styles.itineraryCard}>
+          <h3 style={styles.subSectionTitle}>My Tasks</h3>
           <MyTasks embedded onNavigate={onNavigate} />
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', margin: '16px 0' }} />
           {renderTodaySchedule()}
           {(isAdmin || isAssistant) && (
             <>
