@@ -42,7 +42,7 @@ import FreelancerNotifications from './FreelancerNotifications';
 import FreelancerDocuments from './FreelancerDocuments';
 import Freelancers from './Freelancers';
 import Ideas from './Ideas';
-import MyTasks from './MyTasks';
+
 import Jobs from './Jobs';
 import Workflows from './Workflows';
 import Ops from './Ops';
@@ -56,7 +56,7 @@ import PageErrorBoundary from '../components/PageErrorBoundary';
 // keys stay stable to keep existing deep links working.
 const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard', icon: DashboardIcon },
-  { key: 'my_tasks', label: 'My Tasks', icon: MyTasksIcon },
+
   { key: 'projects', label: 'Projects', icon: ProjectsIcon },
   { key: 'ideas', label: 'Ideas', icon: ResourcesIcon },
   { key: 'production', label: 'Beat Sheet', icon: ProductionIcon },
@@ -96,11 +96,10 @@ const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', '
 // Admin-only pages that live in Admin Mode and are hidden from the Work View.
 const ADMIN_PAGE_KEYS = ['payroll', 'analytics', 'tracking', 'accounting', 'business_dev', 'freelancers', 'workflows', 'jobs', 'invoicing', 'ops'];
 // Everyday anchors kept at the top of the Admin Mode sidebar.
-const ADMIN_ESSENTIAL_KEYS = ['dashboard', 'my_tasks', 'projects', 'calendar', 'messages'];
+const ADMIN_ESSENTIAL_KEYS = ['dashboard', 'projects', 'calendar', 'messages'];
 // Admin Mode sidebar: essentials, a divider, then the admin pages + settings.
 const ADMIN_MODE_NAV = [
   { type: 'item', key: 'dashboard', label: 'Dashboard' },
-  { type: 'item', key: 'my_tasks', label: 'My Tasks' },
   { type: 'item', key: 'projects', label: 'Projects' },
   { type: 'item', key: 'calendar', label: 'Calendar' },
   { type: 'item', key: 'messages', label: 'Messages' },
@@ -163,7 +162,7 @@ function openTritonTool(targetPath) {
 
 const NAV_ICON_MAP = {
   dashboard: DashboardIcon,
-  my_tasks: MyTasksIcon,
+
   write: ResourcesIcon,
   production: ProductionIcon,
   research_docs: ResourcesIcon,
@@ -210,8 +209,10 @@ export default function AppLayout() {
   const { getResolvedNav, saveConfig, saving } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => {
     const fromPath = getTabFromPath();
+    if (fromPath === 'my_tasks') return 'dashboard';
     if (fromPath) return fromPath;
     const stored = localStorage.getItem('studio-hub-tab');
+    if (stored === 'my_tasks') return 'dashboard';
     if (stored && VALID_TAB_KEYS.has(stored)) return stored;
     return 'dashboard';
   });
@@ -348,7 +349,7 @@ export default function AppLayout() {
       .eq('id', profile.id);
   }
 
-  const dashboardNotifCount = unreadAnnouncementCount + (isAdmin ? newItineraryCount : 0);
+  const dashboardNotifCount = unreadAnnouncementCount + (isAdmin ? newItineraryCount : 0) + myTaskCount;
 
   function handleNavClick(key) {
     if (key === 'fl_assignments' && profile?.assigned_drive_folder_id) {
@@ -373,8 +374,9 @@ export default function AppLayout() {
   }
 
   function navigateTo(tab, target) {
+    const resolved = tab === 'my_tasks' ? 'dashboard' : tab;
     setNavTarget(target || null);
-    setActiveTab(tab);
+    setActiveTab(resolved);
   }
 
   const fetchNotifications = useCallback(async () => {
@@ -512,9 +514,6 @@ export default function AppLayout() {
                             {child.key === 'dashboard' && dashboardNotifCount > 0 && (
                               <span style={styles.navBadge}>{dashboardNotifCount}</span>
                             )}
-                            {child.key === 'my_tasks' && myTaskCount > 0 && (
-                              <span style={styles.navBadge}>{myTaskCount}</span>
-                            )}
                             {child.key === 'channels' && unreadMentionChannelIds.length > 0 && (
                               <span style={styles.navBadge}>{unreadMentionChannelIds.length}</span>
                             )}
@@ -561,9 +560,6 @@ export default function AppLayout() {
                               {child.key === 'dashboard' && dashboardNotifCount > 0 && (
                                 <span style={styles.navBadge}>{dashboardNotifCount}</span>
                               )}
-                              {child.key === 'my_tasks' && myTaskCount > 0 && (
-                                <span style={styles.navBadge}>{myTaskCount}</span>
-                              )}
                               {child.key === 'channels' && unreadMentionChannelIds.length > 0 && (
                                 <span style={styles.navBadge}>{unreadMentionChannelIds.length}</span>
                               )}
@@ -596,9 +592,6 @@ export default function AppLayout() {
                       {!sidebarCollapsed && <span>{entry.label}</span>}
                       {entry.key === 'dashboard' && dashboardNotifCount > 0 && (
                         <span style={styles.navBadge}>{dashboardNotifCount}</span>
-                      )}
-                      {entry.key === 'my_tasks' && myTaskCount > 0 && (
-                        <span style={styles.navBadge}>{myTaskCount}</span>
                       )}
                       {entry.key === 'channels' && unreadMentionChannelIds.length > 0 && (
                         <span style={styles.navBadge}>{unreadMentionChannelIds.length}</span>
@@ -757,7 +750,7 @@ export default function AppLayout() {
         </div>
         <div ref={mainContentRef} style={styles.mainContent}>
           {activeTab === 'dashboard' && <PageErrorBoundary key="dashboard"><Dashboard onNavigate={navigateTo} /></PageErrorBoundary>}
-          {activeTab === 'my_tasks' && <PageErrorBoundary key="my_tasks"><MyTasks onNavigate={navigateTo} /></PageErrorBoundary>}
+
           {activeTab === 'projects' && <PageErrorBoundary key="projects"><Projects onNavigate={navigateTo} /></PageErrorBoundary>}
           {activeTab === 'deliverables' && <PageErrorBoundary key="deliverables"><Deliverables initialCampaignId={navTarget} onCampaignOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {activeTab === 'calendar' && <PageErrorBoundary key="calendar"><Calendar onNavigate={navigateTo} /></PageErrorBoundary>}

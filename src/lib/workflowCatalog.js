@@ -63,7 +63,7 @@ export const NAVIGATE_TARGETS = [
   { value: 'calendar', label: 'Calendar' },
   { value: 'projects', label: 'Projects' },
   { value: 'analytics', label: 'Analytics' },
-  { value: 'my_tasks', label: 'My Tasks' },
+  { value: 'dashboard', label: 'Dashboard' },
   { value: 'freelancers', label: 'Freelancers' },
   { value: 'business_dev', label: 'Business Dev' },
 ];

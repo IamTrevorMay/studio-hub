@@ -10,6 +10,7 @@ import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 import SprintBoard from '../components/SprintBoard';
 import SprintPanel from '../components/SprintPanel';
+import MyTasks from './MyTasks';
 
 const STATUS_COLORS = {
   concept: '#8b5cf6',
@@ -1639,83 +1640,86 @@ export default function Dashboard({ onNavigate }) {
         {renderAnnouncements({ showInput: isAdmin || isAssistant })}
       </div>
 
-      {/* Admin: Pending OOO Requests */}
-      {isAdmin && pendingOooRequests.length > 0 && (
-        <div style={styles.section}>
-          <h2 style={styles.sectionTitle}>Pending Requests</h2>
-          <div style={{
-            background: 'rgba(255,255,255,0.02)',
-            border: '1px solid rgba(255,255,255,0.06)',
-            borderRadius: '12px',
-            padding: '16px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '10px',
-          }}>
-            {pendingOooRequests.map(req => {
-              const startFmt = new Date(req.start_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-              const endFmt = new Date(req.end_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-              return (
-                <div key={req.id} style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  padding: '10px 12px',
-                  background: 'rgba(249,115,22,0.06)',
-                  border: '1px solid rgba(249,115,22,0.15)',
-                  borderRadius: '8px',
-                }}>
-                  <div style={{
-                    width: '32px', height: '32px', borderRadius: '50%',
-                    background: 'rgba(249,115,22,0.15)', color: '#f97316',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '13px', fontWeight: 700, flexShrink: 0,
-                  }}>
-                    {req.requester?.full_name?.charAt(0)?.toUpperCase() || '?'}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '13px', fontWeight: 600, color: '#e2e8f0' }}>
-                      {req.requester?.full_name || 'Unknown'}
-                    </div>
-                    <div style={{ fontSize: '11px', color: '#f97316', fontWeight: 600, marginTop: '2px' }}>
-                      Out of Office
-                    </div>
-                    <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)' }}>
-                      {startFmt} {'\u2013'} {endFmt}
-                    </div>
-                  </div>
+      {/* Today */}
+      <div style={styles.section}>
+        <h2 style={styles.sectionTitle}>Today</h2>
+        <div style={styles.itineraryCard}>
+          <MyTasks embedded onNavigate={onNavigate} />
+          {renderTodaySchedule()}
+          {(isAdmin || isAssistant) && (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <h3 style={styles.subSectionTitle}>Itinerary</h3>
+                {!showItineraryInput && (
                   <button
-                    onClick={() => handleOooDecision(req, 'approved')}
-                    disabled={!!oooProcessingId}
-                    style={{
-                      padding: '5px 12px', borderRadius: '6px',
-                      border: '1px solid rgba(34,197,94,0.3)',
-                      background: 'rgba(34,197,94,0.1)', color: '#22c55e',
-                      fontSize: '11px', fontWeight: 600, cursor: oooProcessingId ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
-                      opacity: oooProcessingId ? 0.5 : 1,
-                    }}
+                    onClick={() => setShowItineraryInput(true)}
+                    style={styles.postAnnouncementBtn}
                   >
-                    {oooProcessingId === req.id ? 'Approving...' : 'Approve'}
+                    + Add
                   </button>
-                  <button
-                    onClick={() => handleOooDecision(req, 'rejected')}
-                    disabled={!!oooProcessingId}
-                    style={{
-                      padding: '5px 12px', borderRadius: '6px',
-                      border: '1px solid rgba(239,68,68,0.3)',
-                      background: 'rgba(239,68,68,0.1)', color: '#ef4444',
-                      fontSize: '11px', fontWeight: 600, cursor: oooProcessingId ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
-                      opacity: oooProcessingId ? 0.5 : 1,
-                    }}
-                  >
-                    Decline
-                  </button>
+                )}
+              </div>
+              {showItineraryInput && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={styles.itineraryAddRow}>
+                    <input
+                      value={newItemText}
+                      onChange={(e) => setNewItemText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && newItemPriority !== null) addItineraryItem();
+                        if (e.key === 'Escape') { setShowItineraryInput(false); setNewItemText(''); setNewItemPriority(null); }
+                      }}
+                      placeholder="Add an itinerary item..."
+                      style={styles.itineraryInput}
+                      autoFocus
+                    />
+                    <button
+                      onClick={addItineraryItem}
+                      disabled={!newItemText.trim() || newItemPriority === null}
+                      style={{
+                        ...styles.itineraryAddBtn,
+                        opacity: (newItemText.trim() && newItemPriority !== null) ? 1 : 0.4,
+                      }}
+                    >
+                      Add
+                    </button>
+                    <button
+                      onClick={() => { setShowItineraryInput(false); setNewItemText(''); setNewItemPriority(null); }}
+                      style={styles.cancelTitleBtn}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
+                    {PRIORITY_OPTIONS.map(p => (
+                      <button
+                        key={p}
+                        onClick={() => setNewItemPriority(p)}
+                        style={{
+                          width: 26, height: 26, borderRadius: '4px', border: newItemPriority === p ? `2px solid ${PRIORITY_COLORS[p]}` : '1px solid rgba(255,255,255,0.12)',
+                          background: newItemPriority === p ? `${PRIORITY_COLORS[p]}22` : 'rgba(255,255,255,0.04)',
+                          color: newItemPriority === p ? PRIORITY_COLORS[p] : 'rgba(255,255,255,0.5)',
+                          fontSize: '11px', fontWeight: 700, cursor: 'pointer', padding: 0,
+                        }}
+                      >{p}</button>
+                    ))}
+                  </div>
                 </div>
-              );
-            })}
-          </div>
+              )}
+              {itineraryLoading ? (
+                <p style={styles.emptyText}>Loading...</p>
+              ) : itineraryItems.length === 0 ? (
+                <p style={{ ...styles.emptyText, marginTop: '8px' }}>No itinerary items for today</p>
+              ) : (
+                <div style={styles.itineraryList}>
+                  {itineraryItems.map(item => renderItineraryItem(item))}
+                </div>
+              )}
+            </>
+          )}
+          {renderTodoList()}
         </div>
-      )}
+      </div>
 
       {/* Team + Check In */}
       <div style={styles.section}>
@@ -2019,6 +2023,84 @@ export default function Dashboard({ onNavigate }) {
         </div>
       </div>
 
+      {/* Admin: Pending OOO Requests */}
+      {isAdmin && pendingOooRequests.length > 0 && (
+        <div style={styles.section}>
+          <h2 style={styles.sectionTitle}>Pending Requests</h2>
+          <div style={{
+            background: 'rgba(255,255,255,0.02)',
+            border: '1px solid rgba(255,255,255,0.06)',
+            borderRadius: '12px',
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px',
+          }}>
+            {pendingOooRequests.map(req => {
+              const startFmt = new Date(req.start_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              const endFmt = new Date(req.end_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              return (
+                <div key={req.id} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '10px 12px',
+                  background: 'rgba(249,115,22,0.06)',
+                  border: '1px solid rgba(249,115,22,0.15)',
+                  borderRadius: '8px',
+                }}>
+                  <div style={{
+                    width: '32px', height: '32px', borderRadius: '50%',
+                    background: 'rgba(249,115,22,0.15)', color: '#f97316',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '13px', fontWeight: 700, flexShrink: 0,
+                  }}>
+                    {req.requester?.full_name?.charAt(0)?.toUpperCase() || '?'}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: '#e2e8f0' }}>
+                      {req.requester?.full_name || 'Unknown'}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#f97316', fontWeight: 600, marginTop: '2px' }}>
+                      Out of Office
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)' }}>
+                      {startFmt} {'\u2013'} {endFmt}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleOooDecision(req, 'approved')}
+                    disabled={!!oooProcessingId}
+                    style={{
+                      padding: '5px 12px', borderRadius: '6px',
+                      border: '1px solid rgba(34,197,94,0.3)',
+                      background: 'rgba(34,197,94,0.1)', color: '#22c55e',
+                      fontSize: '11px', fontWeight: 600, cursor: oooProcessingId ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
+                      opacity: oooProcessingId ? 0.5 : 1,
+                    }}
+                  >
+                    {oooProcessingId === req.id ? 'Approving...' : 'Approve'}
+                  </button>
+                  <button
+                    onClick={() => handleOooDecision(req, 'rejected')}
+                    disabled={!!oooProcessingId}
+                    style={{
+                      padding: '5px 12px', borderRadius: '6px',
+                      border: '1px solid rgba(239,68,68,0.3)',
+                      background: 'rgba(239,68,68,0.1)', color: '#ef4444',
+                      fontSize: '11px', fontWeight: 600, cursor: oooProcessingId ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
+                      opacity: oooProcessingId ? 0.5 : 1,
+                    }}
+                  >
+                    Decline
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Admin: Upcoming Out of Office */}
       {isAdmin && (
         <div style={styles.section}>
@@ -2102,173 +2184,6 @@ export default function Dashboard({ onNavigate }) {
                 </div>
               );
             })}
-          </div>
-        </div>
-      )}
-
-      {/* Admin: Today section */}
-      {isAdmin && (
-        <div style={styles.section}>
-          <h2 style={styles.sectionTitle}>Today</h2>
-          <div style={styles.itineraryCard}>
-            {renderTodaySchedule()}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <h3 style={styles.subSectionTitle}>Itinerary</h3>
-              {!showItineraryInput && (
-                <button
-                  onClick={() => setShowItineraryInput(true)}
-                  style={styles.postAnnouncementBtn}
-                >
-                  + Add
-                </button>
-              )}
-            </div>
-            {showItineraryInput && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <div style={styles.itineraryAddRow}>
-                  <input
-                    value={newItemText}
-                    onChange={(e) => setNewItemText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && newItemPriority !== null) addItineraryItem();
-                      if (e.key === 'Escape') { setShowItineraryInput(false); setNewItemText(''); setNewItemPriority(null); }
-                    }}
-                    placeholder="Add an itinerary item..."
-                    style={styles.itineraryInput}
-                    autoFocus
-                  />
-                  <button
-                    onClick={addItineraryItem}
-                    disabled={!newItemText.trim() || newItemPriority === null}
-                    style={{
-                      ...styles.itineraryAddBtn,
-                      opacity: (newItemText.trim() && newItemPriority !== null) ? 1 : 0.4,
-                    }}
-                  >
-                    Add
-                  </button>
-                  <button
-                    onClick={() => { setShowItineraryInput(false); setNewItemText(''); setNewItemPriority(null); }}
-                    style={styles.cancelTitleBtn}
-                  >
-                    Cancel
-                  </button>
-                </div>
-                <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
-                  {PRIORITY_OPTIONS.map(p => (
-                    <button
-                      key={p}
-                      onClick={() => setNewItemPriority(p)}
-                      style={{
-                        width: 26, height: 26, borderRadius: '4px', border: newItemPriority === p ? `2px solid ${PRIORITY_COLORS[p]}` : '1px solid rgba(255,255,255,0.12)',
-                        background: newItemPriority === p ? `${PRIORITY_COLORS[p]}22` : 'rgba(255,255,255,0.04)',
-                        color: newItemPriority === p ? PRIORITY_COLORS[p] : 'rgba(255,255,255,0.5)',
-                        fontSize: '11px', fontWeight: 700, cursor: 'pointer', padding: 0,
-                      }}
-                    >{p}</button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {itineraryLoading ? (
-              <p style={styles.emptyText}>Loading...</p>
-            ) : itineraryItems.length === 0 ? (
-              <p style={{ ...styles.emptyText, marginTop: '8px' }}>No itinerary items for today</p>
-            ) : (
-              <div style={styles.itineraryList}>
-                {itineraryItems.map(item => renderItineraryItem(item))}
-              </div>
-            )}
-            {renderTodoList()}
-          </div>
-        </div>
-      )}
-
-      {/* Assistant: Today section */}
-      {isAssistant && (
-        <div style={styles.section}>
-          <h2 style={styles.sectionTitle}>Today</h2>
-          <div style={styles.itineraryCard}>
-            {renderTodaySchedule()}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <h3 style={styles.subSectionTitle}>Itinerary</h3>
-              {!showItineraryInput && (
-                <button
-                  onClick={() => setShowItineraryInput(true)}
-                  style={styles.postAnnouncementBtn}
-                >
-                  + Add
-                </button>
-              )}
-            </div>
-            {showItineraryInput && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <div style={styles.itineraryAddRow}>
-                  <input
-                    value={newItemText}
-                    onChange={(e) => setNewItemText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && newItemPriority !== null) addItineraryItem();
-                      if (e.key === 'Escape') { setShowItineraryInput(false); setNewItemText(''); setNewItemPriority(null); }
-                    }}
-                    placeholder="Add an itinerary item..."
-                    style={styles.itineraryInput}
-                    autoFocus
-                  />
-                  <button
-                    onClick={addItineraryItem}
-                    disabled={!newItemText.trim() || newItemPriority === null}
-                    style={{
-                      ...styles.itineraryAddBtn,
-                      opacity: (newItemText.trim() && newItemPriority !== null) ? 1 : 0.4,
-                    }}
-                  >
-                    Add
-                  </button>
-                  <button
-                    onClick={() => { setShowItineraryInput(false); setNewItemText(''); setNewItemPriority(null); }}
-                    style={styles.cancelTitleBtn}
-                  >
-                    Cancel
-                  </button>
-                </div>
-                <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
-                  {PRIORITY_OPTIONS.map(p => (
-                    <button
-                      key={p}
-                      onClick={() => setNewItemPriority(p)}
-                      style={{
-                        width: 26, height: 26, borderRadius: '4px', border: newItemPriority === p ? `2px solid ${PRIORITY_COLORS[p]}` : '1px solid rgba(255,255,255,0.12)',
-                        background: newItemPriority === p ? `${PRIORITY_COLORS[p]}22` : 'rgba(255,255,255,0.04)',
-                        color: newItemPriority === p ? PRIORITY_COLORS[p] : 'rgba(255,255,255,0.5)',
-                        fontSize: '11px', fontWeight: 700, cursor: 'pointer', padding: 0,
-                      }}
-                    >{p}</button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {itineraryLoading ? (
-              <p style={styles.emptyText}>Loading...</p>
-            ) : itineraryItems.length === 0 ? (
-              <p style={{ ...styles.emptyText, marginTop: '12px' }}>No items yet</p>
-            ) : (
-              <div style={styles.itineraryList}>
-                {itineraryItems.map(item => renderItineraryItem(item))}
-              </div>
-            )}
-            {renderTodoList()}
-          </div>
-        </div>
-      )}
-
-      {/* Regular member: Today section */}
-      {isMember && (
-        <div style={styles.section}>
-          <h2 style={styles.sectionTitle}>Today</h2>
-          <div style={styles.itineraryCard}>
-            {renderTodaySchedule()}
-            {renderTodoList()}
           </div>
         </div>
       )}
