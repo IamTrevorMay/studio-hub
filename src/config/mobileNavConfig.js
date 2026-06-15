@@ -34,6 +34,7 @@ export const MOBILE_SUPPORT = {
   // Admin pages with mobile builds
   workflows: 'full',
   freelancers: 'full',
+  ops: 'full',
 
   // Excluded — show DesktopOnlyScreen if visited
   analytics: 'excluded',
