@@ -253,12 +253,12 @@ export default function ResearchDocs() {
         body: JSON.stringify({ question: trimmed }),
       });
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || `Stats query failed (${res.status})`);
+      const resData = await res.json().catch(() => ({}));
+      if (!res.ok || resData.ok === false) {
+        throw new Error(resData.error || `Stats query failed (${res.status})`);
       }
 
-      const { sql, result } = await res.json();
+      const { sql, result } = resData;
       const { summary, columns, rows } = parseMcpResult(result);
 
       // Replace loading with result

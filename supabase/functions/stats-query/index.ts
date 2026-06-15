@@ -8,6 +8,12 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+const json = (body: Record<string, unknown>, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+
 const TRITON_MCP = "https://mcp.tritonapex.io/mcp";
 
 const SYSTEM_PROMPT = `You are a SQL assistant for a baseball Statcast database (PostgreSQL).
@@ -30,11 +36,7 @@ Rules:
 - Use double quotes for column names only if they contain special characters.
 - JOIN players table when the user asks for player names.`;
 
-// ─── MCP session management ───
-let mcpSessionId: string | null = null;
-let mcpMsgId = 0;
-
-function parseSSE(text: string): any {
+function parseSSE(text: string) {
   const lines = text.split("\n");
   let lastData: string | null = null;
   for (const line of lines) {
@@ -45,95 +47,32 @@ function parseSSE(text: string): any {
   return JSON.parse(text);
 }
 
-async function mcpRpc(method: string, params: Record<string, any> = {}) {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json, text/event-stream",
-  };
-  if (mcpSessionId) headers["mcp-session-id"] = mcpSessionId;
-
-  const res = await fetch(TRITON_MCP, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: ++mcpMsgId,
-      method,
-      params,
-    }),
-  });
-
-  const sid = res.headers.get("mcp-session-id");
-  if (sid) mcpSessionId = sid;
-
-  const text = await res.text();
-  return parseSSE(text);
-}
-
-async function ensureSession() {
-  if (mcpSessionId) return;
-  await mcpRpc("initialize", {
-    protocolVersion: "2025-03-26",
-    capabilities: {},
-    clientInfo: { name: "mayday-stats-query", version: "1.0" },
-  });
-}
-
-async function callTritonSQL(sql: string) {
-  await ensureSession();
-  const result = await mcpRpc("tools/call", {
-    name: "query_database",
-    arguments: { sql },
-  });
-  if (result.error) throw new Error(result.error.message || JSON.stringify(result.error));
-  return result.result || result;
-}
-
-// ─── Main handler ───
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
-    // Auth
+    // ── Auth ──
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    if (!authHeader) return json({ ok: false, error: "Unauthorized" }, 401);
+
     const sb = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
       { global: { headers: { Authorization: authHeader } } }
     );
-    const { data: { user }, error: userError } = await sb.auth.getUser();
-    if (userError || !user) {
-      return new Response(
-        JSON.stringify({ error: "Not authenticated" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    const { data, error: userError } = await sb.auth.getUser();
+    if (userError || !data?.user) return json({ ok: false, error: "Not authenticated" }, 401);
 
+    // ── Parse body ──
     const body = await req.json();
     const question = (body.question || "").trim();
-    if (!question) {
-      return new Response(
-        JSON.stringify({ error: "Missing question" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    if (!question) return json({ ok: false, error: "Missing question" }, 400);
 
-    // Step 1: Ask Claude to generate SQL
+    // ── Step 1: Claude NL → SQL ──
     const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");
-    if (!anthropicKey) {
-      return new Response(
-        JSON.stringify({ error: "ANTHROPIC_API_KEY not configured" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    if (!anthropicKey) return json({ ok: false, error: "ANTHROPIC_API_KEY not configured" });
 
     const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -152,33 +91,67 @@ Deno.serve(async (req: Request) => {
 
     if (!claudeRes.ok) {
       const errText = await claudeRes.text();
-      return new Response(
-        JSON.stringify({ error: `Claude API error: ${claudeRes.status}`, detail: errText }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return json({ ok: false, error: `Claude API error: ${claudeRes.status}`, detail: errText });
     }
 
     const claudeData = await claudeRes.json();
     const sql = (claudeData.content?.[0]?.text || "").trim();
 
     if (!sql || !sql.toUpperCase().startsWith("SELECT")) {
-      return new Response(
-        JSON.stringify({ error: "Failed to generate valid SQL", generated: sql }),
-        { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return json({ ok: false, error: "Failed to generate valid SQL", generated: sql });
     }
 
-    // Step 2: Execute SQL via Triton MCP
-    const tritonResult = await callTritonSQL(sql);
+    // ── Step 2: Triton MCP — init session ──
+    let msgId = 0;
+    const initRes = await fetch(TRITON_MCP, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: ++msgId,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "mayday-stats-query", version: "1.0" },
+        },
+      }),
+    });
 
-    return new Response(
-      JSON.stringify({ sql, result: tritonResult }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    const sessionId = initRes.headers.get("mcp-session-id");
+    if (!sessionId) {
+      const initText = await initRes.text();
+      return json({ ok: false, error: "MCP session failed", detail: initText.slice(0, 500) });
+    }
+
+    // ── Step 3: Triton MCP — execute SQL ──
+    const queryRes = await fetch(TRITON_MCP, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        "mcp-session-id": sessionId,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: ++msgId,
+        method: "tools/call",
+        params: { name: "query_database", arguments: { sql } },
+      }),
+    });
+
+    const queryText = await queryRes.text();
+    const parsed = parseSSE(queryText);
+    if (parsed.error) {
+      return json({ ok: false, error: parsed.error.message || "Triton query failed", detail: JSON.stringify(parsed.error) });
+    }
+
+    return json({ ok: true, sql, result: parsed.result || parsed });
   } catch (err) {
-    return new Response(
-      JSON.stringify({ error: err.message || "Internal error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    const message = err instanceof Error ? err.message : String(err);
+    return json({ ok: false, error: message });
   }
 });
