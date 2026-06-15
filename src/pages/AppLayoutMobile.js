@@ -22,13 +22,14 @@ import AdminPanel from './AdminPanelMobile';
 import Ideation from './IdeationMobile';
 import Resources from './ResourcesMobile';
 import Research from './ResearchMobile';
-import Goals from './GoalsMobile';
 import BusinessDev from './BusinessDevMobile';
 import Invoicing from './InvoicingMobile';
 import Production from './ProductionMobile';
 import FreelancerDashboard from './FreelancerDashboardMobile';
 import Deliverables from './DeliverablesMobile';
 import Ideas from './IdeasMobile';
+// Goals page is sunset on desktop; mobile mirrors that — import + nav
+// entry + route case removed. Re-add when goals comes back, if ever.
 
 // Same NAV_ITEMS source-of-truth as desktop. Kept in sync intentionally — desktop
 // AppLayout owns the canonical list; this is a slimmed mirror used to feed the
@@ -50,7 +51,6 @@ const NAV_ITEMS = [
   { key: 'analytics', label: 'Analytics', adminOnly: true },
   { key: 'research', label: 'News' },
   { key: 'calendar', label: 'Calendar' },
-  { key: 'goals', label: 'Goals' },
   { key: 'business_dev', label: 'Business Dev', adminOnly: true },
   { key: 'invoicing', label: 'Invoicing' },
   { key: 'freelancers', label: 'Contractors', adminOnly: true },
@@ -61,6 +61,44 @@ const NAV_ITEMS = [
 ];
 
 const VALID_TAB_KEYS = new Set(NAV_ITEMS.map((i) => i.key).concat('admin', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_assignments', 'fl_submit'));
+
+// Admin Mode (mirrors desktop AppLayout pattern). Mode flips the drawer
+// between an everyday "Work View" and an admin-focused list. Mobile
+// only surfaces admin pages that have a *Mobile build today — the
+// other desktop admin pages (payroll/tracking/accounting/freelancers/
+// workflows/jobs/ops) get omitted entirely instead of stubbed.
+//
+// Keep this list in sync as new *Mobile pages ship.
+const MOBILE_ADMIN_PAGE_KEYS = ['analytics', 'business_dev', 'invoicing'];
+// Full desktop admin-only set so Work View can hide every key that's
+// considered admin, even ones without a mobile build (so a non-mobile
+// admin page never sneaks into the Work drawer via NAV_ITEMS).
+const DESKTOP_ADMIN_PAGE_KEYS = new Set([
+  'payroll', 'analytics', 'tracking', 'accounting', 'business_dev',
+  'freelancers', 'workflows', 'jobs', 'invoicing', 'ops',
+]);
+const ADMIN_ESSENTIAL_KEYS = ['dashboard', 'projects', 'calendar', 'messages'];
+const ADMIN_MODE_KEY_SET = new Set([
+  ...ADMIN_ESSENTIAL_KEYS, ...MOBILE_ADMIN_PAGE_KEYS, 'admin',
+]);
+
+// Build the Admin View nav list from NAV_ITEMS, preserving labels.
+// Order: essentials → admin pages → Admin Settings. Anything outside
+// ADMIN_MODE_KEY_SET is dropped.
+function buildAdminModeNav(navItems) {
+  const itemMap = new Map(navItems.map((i) => [i.key, i]));
+  const out = [];
+  for (const key of ADMIN_ESSENTIAL_KEYS) {
+    const item = itemMap.get(key);
+    if (item) out.push({ type: 'item', key: item.key, label: item.label });
+  }
+  for (const key of MOBILE_ADMIN_PAGE_KEYS) {
+    const item = itemMap.get(key);
+    if (item) out.push({ type: 'item', key: item.key, label: item.label });
+  }
+  out.push({ type: 'item', key: 'admin', label: 'Admin Settings' });
+  return out;
+}
 
 function getTabFromPath() {
   const path = window.location.pathname.replace(/^\/+/, '').split('/')[0];
@@ -83,6 +121,9 @@ export default function AppLayoutMobile() {
   const { unreadNotificationCount, markDashboardSeen, refreshNotifications } = useNotifications();
   const { getResolvedNav } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => getTabFromPath() || localStorage.getItem('studio-hub-tab') || 'dashboard');
+  // Mode mirrors desktop's localStorage key. Non-admins are pinned to
+  // 'work' below (admins still see whichever mode they last used).
+  const [mode, setMode] = useState(() => localStorage.getItem('studio-hub-mode') === 'admin' ? 'admin' : 'work');
   const [navTarget, setNavTarget] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -117,8 +158,34 @@ export default function AppLayoutMobile() {
     }
   }, [isFreelancer]); // eslint-disable-line
 
+  // Pin non-admins to Work View; persist mode across reloads.
+  useEffect(() => { if (!isAdmin && mode !== 'work') setMode('work'); }, [isAdmin, mode]);
+  useEffect(() => { localStorage.setItem('studio-hub-mode', mode); }, [mode]);
+
+  // When the user flips to a mode their current tab doesn't belong to,
+  // bounce them somewhere sensible (Workflows isn't mobile yet so admin
+  // mode lands on Analytics; work mode falls back to Dashboard).
+  useEffect(() => {
+    if (mode === 'admin' && isAdmin) {
+      if (!ADMIN_MODE_KEY_SET.has(activeTab)) setActiveTab('analytics');
+    } else if (DESKTOP_ADMIN_PAGE_KEYS.has(activeTab)) {
+      setActiveTab('dashboard');
+    }
+    // eslint-disable-next-line
+  }, [mode, isAdmin]);
+
   const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isFreelancer, profile);
-  const mobileNav = filterNavForMobile(resolvedNav);
+  // Work View strips every desktop-admin key so admin-only pages are
+  // siloed into Admin View. Admin View builds its own short list.
+  const baseNav = filterNavForMobile(resolvedNav);
+  const mobileNav = (mode === 'admin' && isAdmin)
+    ? buildAdminModeNav(NAV_ITEMS)
+    : baseNav.filter((e) => !(e.type === 'item' && DESKTOP_ADMIN_PAGE_KEYS.has(e.key)));
+
+  function toggleMode() {
+    setMode((m) => (m === 'admin' ? 'work' : 'admin'));
+    setDrawerOpen(false);
+  }
 
   function navigateTo(tab, target) {
     setNavTarget(target || null);
@@ -224,6 +291,8 @@ export default function AppLayoutMobile() {
         profile={profile}
         onSignOut={signOut}
         isAdmin={isAdmin}
+        mode={mode}
+        onToggleMode={toggleMode}
       />
 
       <BottomSheet
@@ -271,7 +340,6 @@ function renderActiveTab({ activeTab, isAdmin, isAssistant, isPartner, isFreelan
     case 'ideation': return <Ideation initialConceptId={navTarget} onConceptOpened={() => setNavTarget(null)} />;
     case 'resources': return <Resources />;
     case 'research': return <Research />;
-    case 'goals': return <Goals />;
     case 'business_dev': return <BusinessDev />;
     case 'invoicing': return <Invoicing />;
     case 'deliverables': return <Deliverables />;

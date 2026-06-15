@@ -23,6 +23,8 @@ export default function MobileDrawer({
   profile,
   onSignOut,
   isAdmin,
+  mode,
+  onToggleMode,
 }) {
   const [folderState, setFolderState] = useState(() =>
     JSON.parse(localStorage.getItem('nav-folder-state') || '{}')
@@ -119,15 +121,36 @@ export default function MobileDrawer({
             );
           })}
 
-          {isAdmin && (
-            <NavItemBtn
-              label="Admin"
-              active={activeTab === 'admin'}
-              onClick={() => handleSelect('admin')}
-              style={{ marginTop: mobileTokens.space.sm }}
-            />
-          )}
         </nav>
+
+        {isAdmin && onToggleMode && (
+          <div style={styles.modeToggleArea}>
+            <div style={styles.modeToggle} role="tablist">
+              <button
+                onClick={mode === 'admin' ? onToggleMode : undefined}
+                role="tab"
+                aria-selected={mode === 'work'}
+                style={{
+                  ...styles.modeBtn,
+                  ...(mode === 'work' ? styles.modeBtnActive : {}),
+                }}
+              >
+                Work
+              </button>
+              <button
+                onClick={mode === 'work' ? onToggleMode : undefined}
+                role="tab"
+                aria-selected={mode === 'admin'}
+                style={{
+                  ...styles.modeBtn,
+                  ...(mode === 'admin' ? styles.modeBtnActive : {}),
+                }}
+              >
+                Admin
+              </button>
+            </div>
+          </div>
+        )}
 
         <div style={{ ...styles.userArea, paddingBottom: `calc(${mobileTokens.space.md}px + ${mobileTokens.safeBottom})` }}>
           <div style={styles.avatar}>{getDisplayInitial(profile)}</div>
@@ -269,5 +292,35 @@ const styles = {
   signOutBtn: {
     color: 'rgba(255,255,255,0.5)',
     borderRadius: mobileTokens.radius.sm,
+  },
+  modeToggleArea: {
+    padding: `${mobileTokens.space.sm}px ${mobileTokens.space.lg}px`,
+    borderTop: '1px solid rgba(255,255,255,0.06)',
+    flexShrink: 0,
+  },
+  modeToggle: {
+    display: 'flex',
+    background: 'rgba(255,255,255,0.05)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: mobileTokens.radius.pill,
+    padding: 3,
+    gap: 2,
+  },
+  modeBtn: {
+    ...mobileTapButton,
+    flex: 1,
+    minHeight: 36,
+    padding: '6px 12px',
+    background: 'transparent',
+    border: 'none',
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: mobileTokens.font.sm,
+    fontWeight: 600,
+    borderRadius: mobileTokens.radius.pill,
+    fontFamily: 'inherit',
+  },
+  modeBtnActive: {
+    background: 'rgba(99,102,241,0.18)',
+    color: '#a5b4fc',
   },
 };
