@@ -33,6 +33,7 @@ export const MOBILE_SUPPORT = {
   invoicing: 'full',
   // Admin pages with mobile builds
   workflows: 'full',
+  freelancers: 'full',
 
   // Excluded — show DesktopOnlyScreen if visited
   analytics: 'excluded',
@@ -41,7 +42,6 @@ export const MOBILE_SUPPORT = {
   write: 'excluded',
   tools: 'excluded',
   screenwriter: 'excluded',
-  freelancers: 'excluded',
   fl_hours: 'excluded',
   fl_notifications: 'excluded',
   fl_profile: 'excluded',
