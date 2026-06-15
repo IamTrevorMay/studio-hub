@@ -291,6 +291,34 @@ Deno.serve(async (req: Request) => {
     : (stageDesc || `Moved from ${prevLabel}.`);
 
   for (const userId of assigneeIds) {
+    // Check if user routes project tasks directly to Sprint Board.
+    const { data: userProfile } = await admin
+      .from("profiles")
+      .select("route_tasks_to_sprint")
+      .eq("id", userId)
+      .single();
+
+    if (userProfile?.route_tasks_to_sprint) {
+      // Sprint-routed: create personal_tasks entry only, skip My Tasks + notification.
+      const { data: sprint } = await admin
+        .from("sprints")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("status", "active")
+        .maybeSingle();
+      await admin.from("personal_tasks").insert({
+        created_by: userId,
+        content: taskTitle,
+        status: "in_progress",
+        position: Date.now() % 100000,
+        task_id: null,
+        project_id: project.id,
+        sprint_id: sprint?.id || null,
+      });
+      continue;
+    }
+
+    // Default path: create tasks row + notification.
     const { data: task, error: taskErr } = await admin
       .from("tasks")
       .insert({
@@ -311,7 +339,7 @@ Deno.serve(async (req: Request) => {
       continue;
     }
     newTaskIds.push(task.id);
-    // Notification.
+
     await admin.from("notifications").insert({
       user_id: userId,
       type: "task_assigned",
@@ -321,30 +349,6 @@ Deno.serve(async (req: Request) => {
       link_target: task.id,
       is_read: false,
     });
-
-    // Route to Sprint Board if user opted in.
-    const { data: userProfile } = await admin
-      .from("profiles")
-      .select("route_tasks_to_sprint")
-      .eq("id", userId)
-      .single();
-    if (userProfile?.route_tasks_to_sprint) {
-      const { data: sprint } = await admin
-        .from("sprints")
-        .select("id")
-        .eq("user_id", userId)
-        .eq("status", "active")
-        .maybeSingle();
-      await admin.from("personal_tasks").insert({
-        created_by: userId,
-        content: taskTitle,
-        status: "in_progress",
-        position: Date.now() % 100000,
-        task_id: task.id,
-        project_id: project.id,
-        sprint_id: sprint?.id || null,
-      });
-    }
   }
 
   return jsonResp({
