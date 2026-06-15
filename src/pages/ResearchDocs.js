@@ -27,26 +27,39 @@ function parseMcpResult(result) {
 
   const content = result?.content || [];
   for (const block of content) {
-    if (block.type === 'text') {
-      // Check if the text looks like a markdown table
-      const lines = (block.text || '').trim().split('\n');
-      const pipeLines = lines.filter(l => l.includes('|'));
-      if (pipeLines.length > 2 && lines[1] && /^[\s|:-]+$/.test(lines[1])) {
-        // Parse markdown table
-        const headerLine = pipeLines[0];
-        columns = headerLine.split('|').map(c => c.trim()).filter(Boolean);
-        for (let i = 2; i < lines.length; i++) {
-          if (!lines[i].includes('|')) continue;
-          const cells = lines[i].split('|').map(c => c.trim()).filter(Boolean);
-          if (cells.length > 0) rows.push(cells);
+    if (block.type !== 'text' || !block.text) continue;
+    const text = block.text.trim();
+
+    // Try parsing as JSON array of row objects (Triton MCP format)
+    if (text.startsWith('[')) {
+      try {
+        const data = JSON.parse(text);
+        if (Array.isArray(data) && data.length > 0 && typeof data[0] === 'object') {
+          columns = Object.keys(data[0]);
+          rows = data.map(r => columns.map(c => r[c] ?? ''));
+          continue;
         }
-      } else {
-        summary += (summary ? '\n\n' : '') + block.text;
+      } catch { /* not JSON, fall through */ }
+    }
+
+    // Check if the text looks like a markdown table
+    const lines = text.split('\n');
+    const pipeLines = lines.filter(l => l.includes('|'));
+    if (pipeLines.length > 2 && lines[1] && /^[\s|:-]+$/.test(lines[1])) {
+      const headerLine = pipeLines[0];
+      columns = headerLine.split('|').map(c => c.trim()).filter(Boolean);
+      for (let i = 2; i < lines.length; i++) {
+        if (!lines[i].includes('|')) continue;
+        const cells = lines[i].split('|').map(c => c.trim()).filter(Boolean);
+        if (cells.length > 0) rows.push(cells);
       }
+    } else {
+      // Summary text (e.g. "Summary: Query returned 25 rows...")
+      summary += (summary ? '\n\n' : '') + text;
     }
   }
 
-  // If we got rows from a JSON-style result_data instead
+  // Fallback: result_data from history
   if (rows.length === 0 && result?.result_data) {
     const rd = result.result_data;
     if (Array.isArray(rd) && rd.length > 0) {
