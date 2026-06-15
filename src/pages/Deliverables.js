@@ -1262,12 +1262,11 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                 <tr>
                   <th style={thStyle} onClick={() => handleSort('due')}>Due{sortArrow('due')}</th>
                   <th style={thStyle} onClick={() => handleSort('sponsor')}>Sponsor{sortArrow('sponsor')}</th>
-                  <th style={thStyle} onClick={() => handleSort('type')}>Type{sortArrow('type')}</th>
+                  <th style={styles.tableTh}>Brief</th>
                   <th style={thStyle} onClick={() => handleSort('channel')}>Channel{sortArrow('channel')}</th>
                   <th style={thStyle} onClick={() => handleSort('schedule')}>Schedule{sortArrow('schedule')}</th>
                   <th style={styles.tableTh}>Beat Sheet</th>
                   <th style={{ ...thStyle, textAlign: 'right' }} onClick={() => handleSort('pay')}>Pay{sortArrow('pay')}</th>
-                  <th style={styles.tableTh}>Brief</th>
                   <th style={styles.tableTh}>Delivered</th>
                 </tr>
               </thead>
@@ -1297,11 +1296,27 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                           {d.sponsor_name}{d.campaign_name ? ` / ${d.campaign_name}` : ''}
                         </span>
                       </td>
-                      {/* Type */}
+                      {/* Brief (link to the parent campaign's brief) */}
                       <td style={styles.tableTd}>
-                        <span title={DELIVERABLE_TYPES[d.deliverable_type]?.label || d.deliverable_type} style={{ fontSize: '16px' }}>
-                          {DELIVERABLE_TYPES[d.deliverable_type]?.icon || '📋'}
-                        </span>
+                        {d.brief_url ? (
+                          <a
+                            href={d.brief_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              color: '#a5b4fc', textDecoration: 'underline',
+                              fontSize: '12px', maxWidth: 240, display: 'inline-block',
+                              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                              verticalAlign: 'middle',
+                            }}
+                            title={d.brief_name || d.brief_url}
+                          >
+                            {d.brief_name || 'Open brief'}
+                          </a>
+                        ) : (
+                          <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 12 }}>—</span>
+                        )}
                       </td>
                       {/* Channel */}
                       <td style={styles.tableTd}>
@@ -1375,14 +1390,6 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                           <span style={{ fontWeight: 700, color: '#22c55e', fontSize: '13px' }}>
                             ${parseFloat(d.pay).toLocaleString()}
                           </span>
-                        )}
-                      </td>
-                      {/* Brief */}
-                      <td style={styles.tableTd}>
-                        {d.brief_url && (
-                          <a href={d.brief_url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ color: '#a5b4fc', textDecoration: 'none', fontSize: '14px' }} title={d.brief_name || 'Brief'}>
-                            📄
-                          </a>
                         )}
                       </td>
                       {/* Delivered */}
