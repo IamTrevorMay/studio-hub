@@ -68,6 +68,36 @@ const registry = {
     description: 'Inject raw HTML',
     defaults: { html: '<p>Raw HTML…</p>' },
   },
+  header: {
+    type: 'header',
+    label: 'Header',
+    category: 'content',
+    icon: 'PanelTop',
+    description: 'Email header with logo/banner/title',
+    defaults: {
+      style: 'logo',
+      logoUrl: '',
+      bannerUrl: '',
+      title: '',
+      subtitle: '',
+      bg: '#0f0f1a',
+      fg: '#ffffff',
+    },
+  },
+  footer: {
+    type: 'footer',
+    label: 'Footer',
+    category: 'content',
+    icon: 'PanelBottom',
+    description: 'Footer with unsubscribe + branding',
+    defaults: {
+      text: '',
+      showUnsubscribe: true,
+      showBranding: true,
+      bg: '#f5f5f7',
+      fg: '#666666',
+    },
+  },
 };
 
 export function getBlockDef(type) {

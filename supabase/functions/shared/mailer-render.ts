@@ -20,6 +20,8 @@ export type Block = BlockChrome & (
   | { type: "divider" }
   | { type: "spacer"; size?: number }
   | { type: "html"; html: string }
+  | { type: "header"; style?: "logo" | "banner" | "text"; logoUrl?: string; bannerUrl?: string; title?: string; subtitle?: string; bg?: string; fg?: string }
+  | { type: "footer"; text?: string; showUnsubscribe?: boolean; showBranding?: boolean; bg?: string; fg?: string }
 );
 
 export interface RenderContext {
@@ -97,6 +99,29 @@ function renderInner(b: Block, ctx: RenderContext): string {
       // an advanced control so non-technical users don't inject markup
       // they don't understand. Renderer trusts the stored value.
       return b.html;
+    case "header": {
+      const bg = b.bg || "#0f0f1a";
+      const fg = b.fg || "#ffffff";
+      if (b.style === "banner" && b.bannerUrl) {
+        return `<div style="background:${bg};text-align:center;"><img src="${escapeHtml(b.bannerUrl)}" alt="" style="max-width:100%;height:auto;display:block;border:0;" /></div>`;
+      }
+      const logo = (b.style === "logo" || b.style === "text") && b.logoUrl
+        ? `<img src="${escapeHtml(b.logoUrl)}" alt="" style="max-height:48px;display:block;margin:0 auto 8px;border:0;" />`
+        : "";
+      const title = b.title ? `<h1 style="margin:0;font-size:24px;font-weight:700;color:${fg};">${escapeHtml(b.title)}</h1>` : "";
+      const sub = b.subtitle ? `<p style="margin:6px 0 0;font-size:14px;color:${fg};opacity:0.75;">${escapeHtml(b.subtitle)}</p>` : "";
+      return `<div style="background:${bg};padding:24px;text-align:center;">${logo}${title}${sub}</div>`;
+    }
+    case "footer": {
+      const bg = b.bg || "#f5f5f7";
+      const fg = b.fg || "#666666";
+      const showUnsub = b.showUnsubscribe !== false && ctx.unsubscribeUrl;
+      const showBrand = b.showBranding !== false;
+      const text = b.text ? `<div style="font-size:12px;color:${fg};line-height:1.5;margin-bottom:8px;">${escapeHtml(b.text)}</div>` : "";
+      const unsub = showUnsub ? `<div style="font-size:12px;color:${fg};margin-bottom:4px;">You're receiving this because you subscribed. <a href="${escapeHtml(ctx.unsubscribeUrl!)}" style="color:${fg};text-decoration:underline;">Unsubscribe</a>.</div>` : "";
+      const brand = showBrand ? `<div style="font-size:11px;color:${fg};opacity:0.6;">sent via Mayday Studio</div>` : "";
+      return `<div style="background:${bg};padding:20px;text-align:center;">${text}${unsub}${brand}</div>`;
+    }
   }
   return "";
 }

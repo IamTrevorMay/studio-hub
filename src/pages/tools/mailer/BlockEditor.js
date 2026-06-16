@@ -210,6 +210,71 @@ function BlockFields({ block, onChange }) {
           />
         </Field>
       );
+    case 'header':
+      return (
+        <>
+          <Field label="Style">
+            <Select
+              value={block.style || 'logo'}
+              onChange={(v) => onChange({ style: v })}
+              options={[['logo', 'Logo'], ['banner', 'Banner image'], ['text', 'Text only']]}
+            />
+          </Field>
+          {block.style === 'banner' && (
+            <Field label="Banner image URL">
+              <Input value={block.bannerUrl} onChange={(v) => onChange({ bannerUrl: v })} placeholder="https://…/banner.jpg" />
+            </Field>
+          )}
+          {(block.style === 'logo' || block.style === 'text') && (
+            <Field label="Logo image URL (optional)">
+              <Input value={block.logoUrl} onChange={(v) => onChange({ logoUrl: v })} placeholder="https://…/logo.png" />
+            </Field>
+          )}
+          <Row>
+            <Field label="Title"><Input value={block.title} onChange={(v) => onChange({ title: v })} /></Field>
+            <Field label="Subtitle"><Input value={block.subtitle} onChange={(v) => onChange({ subtitle: v })} /></Field>
+          </Row>
+          <Row>
+            <Field label="Background"><Input value={block.bg} onChange={(v) => onChange({ bg: v })} placeholder="#0f0f1a" /></Field>
+            <Field label="Text color"><Input value={block.fg} onChange={(v) => onChange({ fg: v })} placeholder="#ffffff" /></Field>
+          </Row>
+        </>
+      );
+    case 'footer':
+      return (
+        <>
+          <Field label="Footer text (optional)">
+            <textarea
+              value={block.text || ''}
+              onChange={(e) => onChange({ text: e.target.value })}
+              style={{ ...styles.input, minHeight: 60 }}
+              placeholder="© 2026 Mayday Studio. All rights reserved."
+            />
+          </Field>
+          <Row>
+            <Field label="Background"><Input value={block.bg} onChange={(v) => onChange({ bg: v })} placeholder="#f5f5f7" /></Field>
+            <Field label="Text color"><Input value={block.fg} onChange={(v) => onChange({ fg: v })} placeholder="#666666" /></Field>
+          </Row>
+          <Row>
+            <label style={{ ...styles.fieldWrap, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <input
+                type="checkbox"
+                checked={block.showUnsubscribe !== false}
+                onChange={(e) => onChange({ showUnsubscribe: e.target.checked })}
+              />
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.85)' }}>Show unsubscribe link</span>
+            </label>
+            <label style={{ ...styles.fieldWrap, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <input
+                type="checkbox"
+                checked={block.showBranding !== false}
+                onChange={(e) => onChange({ showBranding: e.target.checked })}
+              />
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.85)' }}>Show "sent via Mayday Studio"</span>
+            </label>
+          </Row>
+        </>
+      );
     default:
       return <div style={styles.note}>Unknown block type: {block.type}</div>;
   }
