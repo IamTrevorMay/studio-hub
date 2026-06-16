@@ -16,7 +16,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { GripVertical, Trash2 } from 'lucide-react';
-import { getBlockDef } from './blockRegistry';
+import { getBlockDef, SOCIAL_PLATFORMS } from './blockRegistry';
 import BlockPalette from './BlockPalette';
 import BlockProperties from './BlockProperties';
 
@@ -240,6 +240,8 @@ function BlockFields({ block, onChange }) {
           </Row>
         </>
       );
+    case 'social-links':
+      return <SocialLinksFields block={block} onChange={onChange} />;
     case 'footer':
       return (
         <>
@@ -278,6 +280,53 @@ function BlockFields({ block, onChange }) {
     default:
       return <div style={styles.note}>Unknown block type: {block.type}</div>;
   }
+}
+
+function SocialLinksFields({ block, onChange }) {
+  const links = Array.isArray(block.links) ? block.links : [];
+  function update(i, patch) {
+    onChange({ links: links.map((l, idx) => (idx === i ? { ...l, ...patch } : l)) });
+  }
+  function remove(i) {
+    onChange({ links: links.filter((_, idx) => idx !== i) });
+  }
+  function add() {
+    onChange({ links: [...links, { platform: 'instagram', url: '' }] });
+  }
+  return (
+    <>
+      <Row>
+        <Field label="Align">
+          <Select value={block.align || 'center'} onChange={(v) => onChange({ align: v })} options={[['left', 'Left'], ['center', 'Center'], ['right', 'Right']]} />
+        </Field>
+        <Field label="Icon size (px)">
+          <Input type="number" value={block.iconSize || 28} onChange={(v) => onChange({ iconSize: Number(v) || 28 })} />
+        </Field>
+        <Field label="Color"><Input value={block.color} onChange={(v) => onChange({ color: v })} placeholder="#6366f1" /></Field>
+      </Row>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {links.map((l, i) => (
+          <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <select
+              value={l.platform}
+              onChange={(e) => update(i, { platform: e.target.value })}
+              style={{ ...styles.input, width: 140 }}
+            >
+              {SOCIAL_PLATFORMS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+            </select>
+            <input
+              value={l.url || ''}
+              onChange={(e) => update(i, { url: e.target.value })}
+              placeholder="https://…"
+              style={{ ...styles.input, flex: 1 }}
+            />
+            <button onClick={() => remove(i)} style={{ ...styles.iconBtn, color: '#f87171' }}>×</button>
+          </div>
+        ))}
+        <button onClick={add} style={{ ...styles.addBtn, padding: '6px', fontSize: 11 }}>+ Add link</button>
+      </div>
+    </>
+  );
 }
 
 function Row({ children }) { return <div style={{ display: 'flex', gap: 8 }}>{children}</div>; }

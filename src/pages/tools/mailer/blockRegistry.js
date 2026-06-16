@@ -98,7 +98,35 @@ const registry = {
       fg: '#666666',
     },
   },
+  'social-links': {
+    type: 'social-links',
+    label: 'Social Links',
+    category: 'content',
+    icon: 'Share2',
+    description: 'Row of social media icon links',
+    defaults: {
+      align: 'center',
+      iconSize: 28,
+      color: '#6366f1',
+      links: [
+        { platform: 'instagram', url: '' },
+        { platform: 'youtube', url: '' },
+        { platform: 'twitter', url: '' },
+      ],
+    },
+  },
 };
+
+export const SOCIAL_PLATFORMS = [
+  { key: 'instagram', label: 'Instagram' },
+  { key: 'youtube',   label: 'YouTube' },
+  { key: 'twitter',   label: 'X / Twitter' },
+  { key: 'tiktok',    label: 'TikTok' },
+  { key: 'twitch',    label: 'Twitch' },
+  { key: 'linkedin',  label: 'LinkedIn' },
+  { key: 'facebook',  label: 'Facebook' },
+  { key: 'website',   label: 'Website' },
+];
 
 export function getBlockDef(type) {
   return registry[type] || null;

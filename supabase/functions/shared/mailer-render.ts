@@ -22,6 +22,7 @@ export type Block = BlockChrome & (
   | { type: "html"; html: string }
   | { type: "header"; style?: "logo" | "banner" | "text"; logoUrl?: string; bannerUrl?: string; title?: string; subtitle?: string; bg?: string; fg?: string }
   | { type: "footer"; text?: string; showUnsubscribe?: boolean; showBranding?: boolean; bg?: string; fg?: string }
+  | { type: "social-links"; align?: "left" | "center" | "right"; iconSize?: number; color?: string; links?: { platform: string; url: string }[] }
 );
 
 export interface RenderContext {
@@ -111,6 +112,21 @@ function renderInner(b: Block, ctx: RenderContext): string {
       const title = b.title ? `<h1 style="margin:0;font-size:24px;font-weight:700;color:${fg};">${escapeHtml(b.title)}</h1>` : "";
       const sub = b.subtitle ? `<p style="margin:6px 0 0;font-size:14px;color:${fg};opacity:0.75;">${escapeHtml(b.subtitle)}</p>` : "";
       return `<div style="background:${bg};padding:24px;text-align:center;">${logo}${title}${sub}</div>`;
+    }
+    case "social-links": {
+      const align = b.align || "center";
+      const size = Number(b.iconSize) || 28;
+      const color = b.color || "#6366f1";
+      const labels: Record<string, string> = { instagram:"IG", youtube:"YT", twitter:"X", tiktok:"TT", twitch:"TW", linkedin:"IN", facebook:"FB", website:"WEB" };
+      const icons = (b.links || [])
+        .filter((l) => l && l.url)
+        .map((l) => {
+          const label = labels[l.platform] || (l.platform || "?").slice(0, 2).toUpperCase();
+          const href = ctx.rewriteHref ? ctx.rewriteHref(l.url) : l.url;
+          return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener" style="display:inline-block;width:${size}px;height:${size}px;line-height:${size}px;background:${color};color:#fff;border-radius:${size}px;text-decoration:none;font-size:${Math.round(size * 0.42)}px;font-weight:700;text-align:center;margin:0 4px;">${label}</a>`;
+        })
+        .join("");
+      return `<div style="text-align:${align};margin:16px 0;">${icons}</div>`;
     }
     case "footer": {
       const bg = b.bg || "#f5f5f7";
