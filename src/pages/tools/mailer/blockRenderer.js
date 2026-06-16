@@ -19,6 +19,23 @@ function alignStyle(a) {
 // Replace {{token}} occurrences using a subscriber-like object.
 // Lookup order: name/email at top level, then anything in custom_fields.
 // Tokens with no value fall back to `fallback`.
+function renderRssCard(b, item) {
+  const img = b.showImage !== false && item.image
+    ? `<img src="${escapeHtml(item.image)}" alt="" style="max-width:100%;height:auto;display:block;border-radius:6px;margin-bottom:12px;" />`
+    : '';
+  const title = `<h3 style="margin:0 0 6px;font-size:18px;color:#111;font-weight:700;"><a href="${escapeHtml(item.link || '#')}" style="color:#111;text-decoration:none;">${escapeHtml(item.title || '')}</a></h3>`;
+  const author = b.showAuthor !== false && item.author
+    ? `<div style="font-size:12px;color:#888;margin-bottom:8px;">by ${escapeHtml(item.author)}</div>`
+    : '';
+  const desc = b.showDescription !== false && item.description
+    ? `<p style="margin:0 0 12px;font-size:14px;color:#444;line-height:1.5;">${escapeHtml(item.description).slice(0, 240)}…</p>`
+    : '';
+  const cta = item.link
+    ? `<a href="${escapeHtml(item.link)}" style="display:inline-block;padding:8px 14px;background:#6366f1;color:#fff;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600;">${escapeHtml(b.ctaText || 'Read more →')}</a>`
+    : '';
+  return `<div style="border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin:8px 0;">${img}${title}${author}${desc}${cta}</div>`;
+}
+
 function substituteTokens(tmpl, sub, fallback) {
   return String(tmpl || '').replace(/\{\{\s*(\w+)\s*\}\}/g, (_m, key) => {
     if (sub[key] != null && sub[key] !== '') return String(sub[key]);
@@ -84,6 +101,15 @@ function renderInner(b, ctx) {
       // Tiptap output is already semantic HTML. Wrap in a div so any
       // padding/background props from the chrome wrapper apply cleanly.
       return `<div style="font-size:15px;line-height:1.6;color:#333;">${b.html || ''}</div>`;
+    case 'rss-card': {
+      // Editor preview shows a placeholder. Real fetch happens server-side
+      // at send time inside mailer-send-now using the same renderer.
+      const fetched = ctx?.rssData?.[b.id];
+      if (!fetched) {
+        return `<div style="border:1px dashed #ccc;border-radius:8px;padding:16px;margin:8px 0;color:#888;font-size:13px;text-align:center;">RSS card · feed: <em>${escapeHtml(b.rssUrl || '(none)')}</em><br/><small>Latest item fetched at send time.</small></div>`;
+      }
+      return renderRssCard(b, fetched);
+    }
     case 'personalization': {
       // Preview-time substitution. ctx.subscriber populated at send;
       // empty in editor preview so tokens display with fallback value.

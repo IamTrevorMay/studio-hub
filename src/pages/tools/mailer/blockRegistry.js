@@ -117,6 +117,21 @@ const registry = {
   },
 };
 
+registry['rss-card'] = {
+  type: 'rss-card',
+  label: 'RSS Card',
+  category: 'data',
+  icon: 'Rss',
+  description: 'Latest post from an RSS feed — fetched at send time',
+  defaults: {
+    rssUrl: '',
+    ctaText: 'Read more →',
+    showImage: true,
+    showAuthor: true,
+    showDescription: true,
+  },
+};
+
 registry.personalization = {
   type: 'personalization',
   label: 'Personalization',

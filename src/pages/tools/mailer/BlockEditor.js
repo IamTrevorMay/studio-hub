@@ -217,6 +217,32 @@ function BlockFields({ block, onChange }) {
           <RichTextBlockEditor html={block.html} onChange={(html) => onChange({ html })} />
         </Field>
       );
+    case 'rss-card':
+      return (
+        <>
+          <Field label="RSS feed URL">
+            <Input value={block.rssUrl} onChange={(v) => onChange({ rssUrl: v })} placeholder="https://example.com/feed.xml" />
+          </Field>
+          <Field label="CTA text"><Input value={block.ctaText} onChange={(v) => onChange({ ctaText: v })} placeholder="Read more →" /></Field>
+          <Row>
+            <label style={{ ...styles.fieldWrap, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <input type="checkbox" checked={block.showImage !== false} onChange={(e) => onChange({ showImage: e.target.checked })} />
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.85)' }}>Image</span>
+            </label>
+            <label style={{ ...styles.fieldWrap, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <input type="checkbox" checked={block.showAuthor !== false} onChange={(e) => onChange({ showAuthor: e.target.checked })} />
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.85)' }}>Author</span>
+            </label>
+            <label style={{ ...styles.fieldWrap, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <input type="checkbox" checked={block.showDescription !== false} onChange={(e) => onChange({ showDescription: e.target.checked })} />
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.85)' }}>Description</span>
+            </label>
+          </Row>
+          <div style={styles.note}>
+            The latest RSS item is fetched at send time. Preview shows a placeholder card.
+          </div>
+        </>
+      );
     case 'personalization':
       return (
         <>

@@ -22,6 +22,7 @@ export type Block = BlockChrome & (
   | { type: "html"; html: string }
   | { type: "rich-text"; html: string }
   | { type: "personalization"; template: string; field?: string; fallback?: string }
+  | { type: "rss-card"; rssUrl: string; ctaText?: string; showImage?: boolean; showAuthor?: boolean; showDescription?: boolean }
   | { type: "header"; style?: "logo" | "banner" | "text"; logoUrl?: string; bannerUrl?: string; title?: string; subtitle?: string; bg?: string; fg?: string }
   | { type: "footer"; text?: string; showUnsubscribe?: boolean; showBranding?: boolean; bg?: string; fg?: string }
   | { type: "social-links"; align?: "left" | "center" | "right"; iconSize?: number; color?: string; links?: { platform: string; url: string }[] }
@@ -35,6 +36,14 @@ export interface SubscriberContext {
   custom_fields?: Record<string, unknown> | null;
 }
 
+export interface RssItem {
+  title?: string;
+  link?: string;
+  description?: string;
+  author?: string;
+  image?: string;
+}
+
 export interface RenderContext {
   subject: string;
   preheader?: string;
@@ -42,6 +51,9 @@ export interface RenderContext {
   unsubscribeUrl?: string;
   rewriteHref?: (href: string) => string;
   subscriber?: SubscriberContext;
+  // Per-block id → fetched RSS item. Populated once per campaign send
+  // and passed to every recipient render so we don't re-fetch per email.
+  rssData?: Record<string, RssItem | undefined>;
 }
 
 function substituteTokens(tmpl: string, sub: SubscriberContext, fallback: string): string {
@@ -124,6 +136,29 @@ function renderInner(b: Block, ctx: RenderContext): string {
       return b.html;
     case "rich-text":
       return `<div style="font-size:15px;line-height:1.6;color:#333;">${b.html || ""}</div>`;
+    case "rss-card": {
+      const item = ctx.rssData?.[b.id || ""];
+      if (!item) {
+        // Send-time fetch returned nothing — render an empty fallback
+        // rather than dropping the block silently, so the operator sees
+        // it failed.
+        return `<div style="border:1px dashed #ccc;border-radius:8px;padding:16px;margin:8px 0;color:#888;font-size:13px;">RSS feed unavailable.</div>`;
+      }
+      const img = b.showImage !== false && item.image
+        ? `<img src="${escapeHtml(item.image)}" alt="" style="max-width:100%;height:auto;display:block;border-radius:6px;margin-bottom:12px;" />`
+        : "";
+      const title = `<h3 style="margin:0 0 6px;font-size:18px;color:#111;font-weight:700;"><a href="${escapeHtml(item.link || "#")}" style="color:#111;text-decoration:none;">${escapeHtml(item.title || "")}</a></h3>`;
+      const author = b.showAuthor !== false && item.author
+        ? `<div style="font-size:12px;color:#888;margin-bottom:8px;">by ${escapeHtml(item.author)}</div>`
+        : "";
+      const desc = b.showDescription !== false && item.description
+        ? `<p style="margin:0 0 12px;font-size:14px;color:#444;line-height:1.5;">${escapeHtml(String(item.description).slice(0, 240))}…</p>`
+        : "";
+      const cta = item.link
+        ? `<a href="${escapeHtml(item.link)}" style="display:inline-block;padding:8px 14px;background:#6366f1;color:#fff;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600;">${escapeHtml(b.ctaText || "Read more →")}</a>`
+        : "";
+      return `<div style="border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin:8px 0;">${img}${title}${author}${desc}${cta}</div>`;
+    }
     case "personalization": {
       const sub = ctx.subscriber || {};
       const rendered = substituteTokens(b.template || "", sub, b.fallback || "");
