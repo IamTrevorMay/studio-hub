@@ -34,14 +34,21 @@ function fmtSnoozeEnd(iso) {
 
 const tdBase = { padding: '10px 12px', verticalAlign: 'top', borderBottom: '1px solid rgba(255,255,255,0.04)' };
 
-// Optional `sprintActiveTaskIds` is a Set of tasks.id values whose
-// linked personal_task is in the assignee admin's Sprint board "In
-// Progress" column. Those tasks get forced into the "active" bucket
-// regardless of planned_date / snoozed_until / on_hold status so the
-// summary pill reflects what the admin is actually working on right
-// now. See callers in Workflows.js + workflows/KanbanPanel.js for how
-// the set is computed.
-export default function ProgressTable({ groups, onTaskClick, sprintActiveTaskIds, showHeader = true }) {
+// Optional `sprintActiveTaskIds` / `sprintHoldingTaskIds` / `sprintDoneTaskIds`
+// are Sets of tasks.id values whose linked personal_task is in the
+// assignee admin's Sprint board "In Progress" / "Holding" / "Done"
+// column. Sprint state overrides tasks.status so the summary pill +
+// bucket reflect what the admin is actually doing on their sprint
+// board right now. See Workflows.js for how the sets are computed.
+// Precedence: Done > Holding > Active.
+export default function ProgressTable({
+  groups,
+  onTaskClick,
+  sprintActiveTaskIds,
+  sprintHoldingTaskIds,
+  sprintDoneTaskIds,
+  showHeader = true,
+}) {
   const visibleGroups = (groups || []).filter((g) => (g.profiles || []).length > 0);
   if (visibleGroups.length === 0) return null;
 
@@ -79,6 +86,8 @@ export default function ProgressTable({ groups, onTaskClick, sprintActiveTaskIds
                     groupKey={g.key}
                     onTaskClick={onTaskClick}
                     sprintActiveTaskIds={sprintActiveTaskIds}
+                    sprintHoldingTaskIds={sprintHoldingTaskIds}
+                    sprintDoneTaskIds={sprintDoneTaskIds}
                   />
                 ))}
               </React.Fragment>
@@ -98,31 +107,48 @@ export default function ProgressTable({ groups, onTaskClick, sprintActiveTaskIds
   );
 }
 
-function PersonRow({ person, data, groupKey, onTaskClick, sprintActiveTaskIds }) {
+function PersonRow({ person, data, groupKey, onTaskClick, sprintActiveTaskIds, sprintHoldingTaskIds, sprintDoneTaskIds }) {
   const d = data || { pending: [], done: [] };
-  const pending = d.pending || [];
-  const done = d.done || [];
+  const rawPending = d.pending || [];
+  const rawDone = d.done || [];
   const nowMs = Date.now();
-  const inSprintActive = (t) => !!(sprintActiveTaskIds && sprintActiveTaskIds.has(t.id));
+  const inSprintDone = (t) => !!(sprintDoneTaskIds && sprintDoneTaskIds.has(t.id));
+  const inSprintHolding = (t) => !!(sprintHoldingTaskIds && sprintHoldingTaskIds.has(t.id));
+  // Precedence: Done > Holding > Active. A sprint-done row never shows
+  // as in-progress, and a sprint-holding row never shows as active.
+  const inSprintActive = (t) => !!(sprintActiveTaskIds && sprintActiveTaskIds.has(t.id))
+    && !inSprintDone(t) && !inSprintHolding(t);
+
+  // Sprint board Done → move the row out of Pending into Done · 7d.
+  const sprintDonePromoted = rawPending.filter(inSprintDone);
+  const pending = rawPending.filter((t) => !inSprintDone(t));
+  // Merge promoted rows into the done bucket, de-duping by id in case
+  // tasks.status is already 'complete' on the same row.
+  const doneIds = new Set(rawDone.map((t) => t.id));
+  const done = rawDone.concat(sprintDonePromoted.filter((t) => !doneIds.has(t.id)));
 
   // Sprint board "In Progress" wins over planned/snoozed/on_hold so the
   // summary pill matches what the user is actually working on right now.
+  // Sprint board "Holding" forces the on-hold pill regardless of
+  // tasks.status, snooze, or planned_date.
   const activeTasks = pending.filter((t) => {
     if (inSprintActive(t)) return true;
+    if (inSprintHolding(t)) return false;
     const snoozed = t.snoozed_until && new Date(t.snoozed_until).getTime() > nowMs;
     return !snoozed && t.status !== 'on_hold' && !t.planned_date;
   });
   const plannedTasks = pending.filter((t) => {
-    if (inSprintActive(t)) return false;
+    if (inSprintActive(t) || inSprintHolding(t)) return false;
     const snoozed = t.snoozed_until && new Date(t.snoozed_until).getTime() > nowMs;
     return !snoozed && t.planned_date;
   });
   const snoozedTasks = pending.filter((t) => {
-    if (inSprintActive(t)) return false;
+    if (inSprintActive(t) || inSprintHolding(t)) return false;
     return t.snoozed_until && new Date(t.snoozed_until).getTime() > nowMs;
   });
   const holdTasks = pending.filter((t) => {
     if (inSprintActive(t)) return false;
+    if (inSprintHolding(t)) return true;
     const snoozed = t.snoozed_until && new Date(t.snoozed_until).getTime() > nowMs;
     return !snoozed && t.status === 'on_hold';
   });
@@ -134,6 +160,7 @@ function PersonRow({ person, data, groupKey, onTaskClick, sprintActiveTaskIds })
     // aren't editable through the normal task editor; skip the click.
     if (!task || typeof task.id !== 'string') return false;
     if (task.id.startsWith('progress-')) return false;
+    if (task.id.startsWith('sprint-')) return false;
     return !!onTaskClick;
   }
 
@@ -182,12 +209,13 @@ function PersonRow({ person, data, groupKey, onTaskClick, sprintActiveTaskIds })
               )}
             </div>
             {pending.map((t) => {
-              // Sprint "In Progress" overrides every other per-row state
-              // so the dot reads as active (yellow) instead of staying
-              // purple/orange for an old snooze/hold flag.
+              // Sprint state overrides every other per-row signal so the
+              // dot matches the sprint board column. Holding wins over
+              // snooze/planned, Active wins over hold flags.
               const sprintActive = inSprintActive(t);
-              const snoozed = !sprintActive && t.snoozed_until && new Date(t.snoozed_until).getTime() > nowMs;
-              const onHold = !sprintActive && !snoozed && t.status === 'on_hold';
+              const sprintHold = inSprintHolding(t);
+              const snoozed = !sprintActive && !sprintHold && t.snoozed_until && new Date(t.snoozed_until).getTime() > nowMs;
+              const onHold = sprintHold || (!sprintActive && !snoozed && t.status === 'on_hold');
               const color = snoozed ? '#a855f7' : onHold ? '#fb923c' : '#facc15';
               const glow = snoozed ? 'rgba(168,85,247,0.7)' : onHold ? 'rgba(251,146,60,0.7)' : 'rgba(250,204,21,0.7)';
               const isClickable = clickable(t);

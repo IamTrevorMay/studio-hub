@@ -45,6 +45,12 @@ export default function Workflows() {
   // Set of tasks.id whose admin assignee has the linked sprint card in
   // the "In Progress" column. Forces the "active" pill in ProgressTable.
   const [sprintActiveTaskIds, setSprintActiveTaskIds] = useState(() => new Set());
+  // Sprint "Holding" column → force the row's pill/dot to "on hold".
+  const [sprintHoldingTaskIds, setSprintHoldingTaskIds] = useState(() => new Set());
+  // Sprint "Done" column → move the row out of Pending into the Done · 7d
+  // bucket, regardless of underlying tasks.status. Limited to cards moved
+  // within the last 7 days so the Done column stays consistent.
+  const [sprintDoneTaskIds, setSprintDoneTaskIds] = useState(() => new Set());
 
   // ── Context menu (right-click) ──
   const [ctxMenu, setCtxMenu] = useState(null); // { x, y, type: 'board'|'automation', item }
@@ -435,25 +441,66 @@ export default function Workflows() {
         .eq('status', 'completed')
         .gte('completed_at', cutoff),
     ]);
-    setTeamPending(pend || []);
-    setTeamDone(completed || []);
     // Alias freelancer_id → assignee_id so the shared ProgressTable
     // grouping logic doesn't need a special case for contractors.
     setFlPending((flPend || []).map((a) => ({ ...a, assignee_id: a.freelancer_id })));
     setFlDone((flDoneData || []).map((a) => ({ ...a, assignee_id: a.freelancer_id })));
 
-    // Sprint-In-Progress overlay: pull personal_tasks rows that are
-    // linked back to a tasks row AND whose owner is an admin AND whose
-    // sprint status is 'in_progress'. We feed the resulting task ids
-    // into ProgressTable so those tasks always render as "active".
-    const { data: sprintRows } = await supabase
+    // Sprint overlay: keep the existing per-admin in_progress overlay for
+    // tasks-linked sprint cards (drives the yellow "active" dot on rows
+    // whose tasks.id matches a personal_tasks.task_id). The Holding/Done
+    // overrides are folded into the project-card synthesis below so we
+    // don't double-paint.
+    const { data: sprintActiveRows } = await supabase
       .from('personal_tasks')
       .select('task_id, profiles!personal_tasks_created_by_fkey!inner(role)')
       .eq('status', 'in_progress')
       .not('task_id', 'is', null)
       .eq('profiles.role', 'admin');
-    setSprintActiveTaskIds(new Set((sprintRows || []).map((r) => r.task_id)));
-  }, [isAdmin]);
+    const sprintActiveIds = new Set((sprintActiveRows || []).map((r) => r.task_id));
+
+    // My-project-card overlay: surface MY sprint cards that originated
+    // from a project (project_id not null). Each card is synthesized as
+    // a pseudo-task pinned to my own row so the existing Progress table
+    // renders it without needing a real tasks row. In Progress / Holding
+    // / Done map to active / on-hold / done buckets respectively. Done
+    // window matches the rest of the table (7d).
+    const sprintHoldIds = new Set();
+    const sprintDoneIds = new Set();
+    if (profile?.id) {
+      const { data: myCards } = await supabase
+        .from('personal_tasks')
+        .select('id, content, status, updated_at')
+        .eq('created_by', profile.id)
+        .not('project_id', 'is', null)
+        .in('status', ['in_progress', 'holding', 'done']);
+      const cutoffMs = Date.now() - SEVEN_DAYS_MS;
+      const synthPending = [];
+      const synthDone = [];
+      for (const c of myCards || []) {
+        const synthId = `sprint-${c.id}`;
+        const title = c.content || '(untitled card)';
+        if (c.status === 'done') {
+          const tMs = c.updated_at ? new Date(c.updated_at).getTime() : 0;
+          if (tMs < cutoffMs) continue;
+          synthDone.push({ id: synthId, title, assignee_id: profile.id, status: 'complete', completed_at: c.updated_at });
+        } else {
+          synthPending.push({ id: synthId, title, assignee_id: profile.id, status: 'active' });
+          if (c.status === 'in_progress') sprintActiveIds.add(synthId);
+          else if (c.status === 'holding') sprintHoldIds.add(synthId);
+        }
+      }
+      setTeamPending([...(pend || []), ...synthPending]);
+      setTeamDone([...(completed || []), ...synthDone]);
+    } else {
+      setTeamPending(pend || []);
+      setTeamDone(completed || []);
+    }
+
+    setSprintActiveTaskIds(sprintActiveIds);
+    setSprintHoldingTaskIds(sprintHoldIds);
+    setSprintDoneTaskIds(sprintDoneIds);
+  }, [isAdmin, profile?.id]);
 
   useEffect(() => { fetchProgress(); }, [fetchProgress]);
 
@@ -1137,6 +1184,8 @@ export default function Workflows() {
           { key: 'contractors', label: 'Contractors', profiles: contractorProfiles, byAssignee: contractorByAssignee },
         ]}
         sprintActiveTaskIds={sprintActiveTaskIds}
+        sprintHoldingTaskIds={sprintHoldingTaskIds}
+        sprintDoneTaskIds={sprintDoneTaskIds}
         onTaskClick={(task, person, groupKey) => {
           if (groupKey === 'contractors') {
             // Contractor rows store freelancer_assignments shape — the row
