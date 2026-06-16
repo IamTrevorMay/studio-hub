@@ -17,7 +17,7 @@ const TYPE_ICONS = {
   file: 'FILE',
 };
 
-export default function AssetLibrary({ project, assets, selectedId, loading, error, onSelect, onDelete, onUploaded, onCreated }) {
+export default function AssetLibrary({ project, assets, selectedId, loading, error, onSelect, onDelete, onUploaded, onCreated, embedded }) {
   const inputRef = useRef();
   const [uploads, setUploads] = useState([]); // { id, name, sent, total, error? }
   const [draggingOver, setDraggingOver] = useState(false);
@@ -97,7 +97,7 @@ export default function AssetLibrary({ project, assets, selectedId, loading, err
   }
 
   return (
-    <div style={styles.wrap}>
+    <div style={embedded ? styles.wrapEmbedded : styles.wrap}>
       <div
         style={{ ...styles.dropZone, ...(draggingOver ? styles.dropZoneActive : {}) }}
         onDragOver={(e) => { e.preventDefault(); setDraggingOver(true); }}
@@ -189,6 +189,10 @@ const styles = {
     width: 320, flexShrink: 0, overflow: 'auto',
     padding: spacing.md, borderRight: `1px solid ${colors.border}`,
     background: colors.bgRaised,
+    display: 'flex', flexDirection: 'column', gap: spacing.sm,
+  },
+  wrapEmbedded: {
+    padding: spacing.sm, background: 'transparent',
     display: 'flex', flexDirection: 'column', gap: spacing.sm,
   },
   dropZone: {

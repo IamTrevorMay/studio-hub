@@ -3,38 +3,45 @@ import { colors, spacing, radii, fontSizes, fontWeights } from '../../../lib/sty
 import {
   listScenes,
   listAssets,
+  deleteAsset,
   listSceneAssets,
   createSceneAsset,
   updateSceneAsset,
   deleteSceneAsset,
 } from './api';
 import { supabase } from '../../../supabaseClient';
+import AssetLibrary from './AssetLibrary';
+import AssetProperties from './AssetProperties';
 
-// Per-scene canvas editor. Each scene gets its own placement of assets
-// via broadcast_scene_assets rows — position/size/layer/opacity are
-// per-scene overrides on top of the asset's defaults (null = fall back
-// to asset). Drag to move, corner handles to resize, click to select,
-// delete to remove from the scene. Debounced auto-save keeps every
-// edit in sync without a separate Save button.
-//
-// Coordinate system: a 1920×1080 base canvas, scaled to fit the
-// editor pane via a CSS transform. All persisted coords are in base
-// canvas units so the overlay can render them 1:1 inside OBS.
+// Merged Layout + Assets panel.
+// Top bar: scene picker.
+// Left:    AssetLibrary (top) + placed-scene-asset list (bottom).
+// Center:  1920×1080 canvas with drag/resize.
+// Right:   selection-driven — asset defaults when a library asset is selected,
+//          scene-asset overrides when a placed canvas item is selected.
 
 const CANVAS_W = 1920;
 const CANVAS_H = 1080;
 const SAVE_DEBOUNCE_MS = 300;
 
-export default function SceneEditor({ project }) {
+export default function StudioPanel({ project }) {
   const [scenes, setScenes] = useState([]);
   const [assets, setAssets] = useState([]);
-  const [sceneAssets, setSceneAssets] = useState([]); // rows for the currently-selected scene
+  const [sceneAssets, setSceneAssets] = useState([]);
   const [sceneId, setSceneId] = useState(null);
-  const [selectedSceneAssetId, setSelectedSceneAssetId] = useState(null);
+  // Selection: either a library asset or a placed scene asset, never both.
+  const [selection, setSelection] = useState({ kind: null, id: null });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // ─── Load scenes + assets + (selected) scene_assets ─────────
+  // Track latest library-asset selection in a ref so async post-upload
+  // handlers don't clobber the user's current choice.
+  const selectedAssetIdRef = useRef(null);
+  useEffect(() => {
+    selectedAssetIdRef.current = selection.kind === 'asset' ? selection.id : null;
+  }, [selection]);
+
+  // ─── Loaders ────────────────────────────────────────────────
   const loadProject = useCallback(async () => {
     setLoading(true); setError(null);
     try {
@@ -50,6 +57,11 @@ export default function SceneEditor({ project }) {
     setLoading(false);
   }, [project.id, sceneId]);
 
+  const reloadAssets = useCallback(async () => {
+    try { const res = await listAssets(project.id); setAssets(res.assets || []); }
+    catch (e) { setError(e.message); }
+  }, [project.id]);
+
   const loadSceneAssets = useCallback(async () => {
     if (!sceneId) { setSceneAssets([]); return; }
     try {
@@ -61,8 +73,6 @@ export default function SceneEditor({ project }) {
   useEffect(() => { loadProject(); /* eslint-disable-next-line */ }, [project.id]);
   useEffect(() => { loadSceneAssets(); }, [loadSceneAssets]);
 
-  // Live-refresh on scene_assets writes so a producer editing on another
-  // device (or the live overlay updating itself) reflects here.
   useEffect(() => {
     if (!sceneId) return;
     const ch = supabase
@@ -79,23 +89,27 @@ export default function SceneEditor({ project }) {
     };
   }, [sceneId, loadSceneAssets]);
 
-  // ─── Asset palette: which assets aren't yet in this scene ───
+  // ─── Derived ────────────────────────────────────────────────
   const assetsById = useMemo(() => {
     const m = new Map();
     for (const a of assets) m.set(a.id, a);
     return m;
   }, [assets]);
-  const placedAssetIds = useMemo(
-    () => new Set(sceneAssets.map((sa) => sa.asset_id)),
-    [sceneAssets],
-  );
-  const palette = useMemo(
-    () => assets.filter((a) => !placedAssetIds.has(a.id)),
-    [assets, placedAssetIds],
-  );
 
-  // ─── Debounced PATCH per row ────────────────────────────────
-  const pendingTimers = useRef(new Map()); // id → timeout
+  const selectedAsset = useMemo(() => {
+    if (selection.kind !== 'asset') return null;
+    return assets.find((a) => a.id === selection.id) || null;
+  }, [selection, assets]);
+
+  const selectedSceneRow = useMemo(() => {
+    if (selection.kind !== 'sceneAsset') return null;
+    return sceneAssets.find((sa) => sa.id === selection.id) || null;
+  }, [selection, sceneAssets]);
+
+  const selectedSceneRowAsset = selectedSceneRow ? assetsById.get(selectedSceneRow.asset_id) : null;
+
+  // ─── Scene asset CRUD ───────────────────────────────────────
+  const pendingTimers = useRef(new Map());
   const queueSave = useCallback((rowId, patch) => {
     setSceneAssets((prev) => prev.map((sa) => sa.id === rowId ? { ...sa, ...patch } : sa));
     const existing = pendingTimers.current.get(rowId);
@@ -112,12 +126,9 @@ export default function SceneEditor({ project }) {
     for (const t of pendingTimers.current.values()) clearTimeout(t);
   }, []);
 
-  // ─── Palette → add to scene ─────────────────────────────────
   async function addAssetToScene(asset) {
+    if (!sceneId) return;
     try {
-      // Seed the override position from the asset's own canvas_* so the
-      // first placement isn't (0,0). Producer can then drag/resize from
-      // a reasonable starting point.
       const { sceneAsset } = await createSceneAsset({
         scene_id: sceneId,
         asset_id: asset.id,
@@ -130,7 +141,7 @@ export default function SceneEditor({ project }) {
         override_opacity: asset.opacity ?? null,
       });
       setSceneAssets((prev) => [...prev, sceneAsset]);
-      setSelectedSceneAssetId(sceneAsset.id);
+      setSelection({ kind: 'sceneAsset', id: sceneAsset.id });
     } catch (e) { setError(e.message); }
   }
 
@@ -138,79 +149,218 @@ export default function SceneEditor({ project }) {
     try {
       await deleteSceneAsset(rowId);
       setSceneAssets((prev) => prev.filter((sa) => sa.id !== rowId));
-      if (selectedSceneAssetId === rowId) setSelectedSceneAssetId(null);
+      if (selection.kind === 'sceneAsset' && selection.id === rowId) {
+        setSelection({ kind: null, id: null });
+      }
     } catch (e) { setError(e.message); }
   }
 
-  const selectedRow = useMemo(
-    () => sceneAssets.find((sa) => sa.id === selectedSceneAssetId) || null,
-    [sceneAssets, selectedSceneAssetId],
-  );
-  const selectedAsset = selectedRow ? assetsById.get(selectedRow.asset_id) : null;
+  // ─── Library asset handlers ─────────────────────────────────
+  async function handleDeleteAsset(asset) {
+    if (!window.confirm(`Delete asset "${asset.name}"?`)) return;
+    try {
+      await deleteAsset(asset.id);
+      if (selection.kind === 'asset' && selection.id === asset.id) {
+        setSelection({ kind: null, id: null });
+      }
+      await reloadAssets();
+    } catch (e) { setError(e.message); }
+  }
 
-  // Keyboard: Delete removes selected, Esc deselects.
+  // ─── Keyboard ───────────────────────────────────────────────
   useEffect(() => {
     function onKey(e) {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
-      if (e.key === 'Escape') setSelectedSceneAssetId(null);
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedSceneAssetId) {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+      if (e.key === 'Escape') setSelection({ kind: null, id: null });
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selection.kind === 'sceneAsset') {
         e.preventDefault();
-        removeFromScene(selectedSceneAssetId);
+        removeFromScene(selection.id);
       }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectedSceneAssetId]); // eslint-disable-line
+  }, [selection]); // eslint-disable-line
 
   if (loading) return <div style={styles.empty}>Loading…</div>;
-  if (scenes.length === 0) {
-    return <div style={styles.empty}>No scenes yet. Add one in the Scenes tab first.</div>;
-  }
 
   return (
     <div style={styles.wrap}>
       {error && <div style={styles.error}>{error}</div>}
 
       <div style={styles.topBar}>
-        <label style={styles.label}>Scene</label>
+        <label style={styles.topLabel}>Scene</label>
         <select
           value={sceneId || ''}
-          onChange={(e) => { setSceneId(e.target.value); setSelectedSceneAssetId(null); }}
+          onChange={(e) => { setSceneId(e.target.value); setSelection({ kind: null, id: null }); }}
           style={styles.select}
+          disabled={scenes.length === 0}
         >
-          {scenes.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          {scenes.length === 0
+            ? <option value="">No scenes — add one in Scenes tab</option>
+            : scenes.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
-        <span style={styles.canvasHint}>{CANVAS_W}×{CANVAS_H} · {sceneAssets.length} asset{sceneAssets.length === 1 ? '' : 's'}</span>
+        <span style={styles.hint}>
+          {CANVAS_W}×{CANVAS_H} · {sceneAssets.length} placed · {assets.length} in library
+        </span>
       </div>
 
       <div style={styles.body}>
-        <CanvasPane
-          rows={sceneAssets}
-          assetsById={assetsById}
-          selectedId={selectedSceneAssetId}
-          onSelect={setSelectedSceneAssetId}
-          onChange={queueSave}
-        />
-        <PalettePane
-          palette={palette}
-          selectedAsset={selectedAsset}
-          selectedRow={selectedRow}
-          onAdd={addAssetToScene}
-          onChange={queueSave}
-          onRemove={removeFromScene}
-        />
+        {/* LEFT: library (top) + placed list (bottom) */}
+        <div style={styles.leftCol}>
+          <div style={styles.leftSection}>
+            <div style={styles.sectionHeader}>Asset library</div>
+            <div style={styles.leftSectionBody}>
+              <AssetLibrary
+                embedded
+                project={project}
+                assets={assets}
+                selectedId={selection.kind === 'asset' ? selection.id : null}
+                loading={false}
+                error={null}
+                onSelect={(a) => setSelection({ kind: 'asset', id: a.id })}
+                onDelete={handleDeleteAsset}
+                onUploaded={reloadAssets}
+                onCreated={async (created) => {
+                  const selBefore = selectedAssetIdRef.current;
+                  await reloadAssets();
+                  if (selectedAssetIdRef.current === selBefore) {
+                    setSelection({ kind: 'asset', id: created.id });
+                  }
+                }}
+              />
+            </div>
+          </div>
+
+          <div style={styles.leftSection}>
+            <div style={styles.sectionHeader}>
+              In this scene ({sceneAssets.length})
+            </div>
+            <div style={styles.leftSectionBody}>
+              <PlacedList
+                sceneAssets={sceneAssets}
+                assetsById={assetsById}
+                selectedId={selection.kind === 'sceneAsset' ? selection.id : null}
+                onSelect={(id) => setSelection({ kind: 'sceneAsset', id })}
+                onRemove={removeFromScene}
+                palette={assets.filter((a) => !new Set(sceneAssets.map((sa) => sa.asset_id)).has(a.id))}
+                onAdd={addAssetToScene}
+                canAdd={!!sceneId}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* CENTER: canvas */}
+        {sceneId ? (
+          <CanvasPane
+            rows={sceneAssets}
+            assetsById={assetsById}
+            selectedId={selection.kind === 'sceneAsset' ? selection.id : null}
+            onSelect={(id) => setSelection(id ? { kind: 'sceneAsset', id } : { kind: null, id: null })}
+            onChange={queueSave}
+          />
+        ) : (
+          <div style={styles.canvasEmpty}>
+            No scene selected. Add a scene in the Scenes tab to start building a layout.
+          </div>
+        )}
+
+        {/* RIGHT: selection-driven */}
+        <div style={styles.rightCol}>
+          {selection.kind === 'asset' && selectedAsset ? (
+            <AssetProperties
+              project={project}
+              asset={selectedAsset}
+              onSaved={async () => {
+                const targetId = selectedAssetIdRef.current;
+                await reloadAssets();
+                if (selectedAssetIdRef.current !== targetId) return;
+              }}
+            />
+          ) : selection.kind === 'sceneAsset' && selectedSceneRow ? (
+            <ScenePropertiesPanel
+              row={selectedSceneRow}
+              asset={selectedSceneRowAsset}
+              onChange={(patch) => queueSave(selectedSceneRow.id, patch)}
+              onRemove={() => removeFromScene(selectedSceneRow.id)}
+            />
+          ) : (
+            <div style={styles.rightEmpty}>
+              Select an asset from the library to edit defaults,
+              or click an item on the canvas to edit its placement in this scene.
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-// ─── Canvas pane (drag + resize) ────────────────────────────────
+// ─── Left-bottom: placed list + add-from-palette ────────────────
+
+function PlacedList({ sceneAssets, assetsById, selectedId, onSelect, onRemove, palette, onAdd, canAdd }) {
+  return (
+    <div style={listStyles.wrap}>
+      {sceneAssets.length === 0 ? (
+        <div style={listStyles.hint}>Nothing placed yet. Add from below.</div>
+      ) : (
+        <div style={listStyles.list}>
+          {sceneAssets
+            .slice()
+            .sort((a, b) => (a.override_layer ?? 0) - (b.override_layer ?? 0))
+            .map((row) => {
+              const asset = assetsById.get(row.asset_id);
+              const isSelected = row.id === selectedId;
+              return (
+                <div
+                  key={row.id}
+                  onClick={() => onSelect(row.id)}
+                  style={{ ...listStyles.row, ...(isSelected ? listStyles.rowActive : {}) }}
+                >
+                  <span style={listStyles.typeBadge}>
+                    {(asset?.asset_type || '?').slice(0, 3).toUpperCase()}
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={listStyles.name}>{asset?.name || '(missing)'}</div>
+                    <div style={listStyles.meta}>
+                      {row.is_visible ? 'visible' : 'hidden'} · layer {row.override_layer ?? asset?.layer ?? 0}
+                    </div>
+                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onRemove(row.id); }}
+                    style={listStyles.removeBtn}
+                    title="Remove from scene"
+                  >×</button>
+                </div>
+              );
+            })}
+        </div>
+      )}
+
+      {canAdd && palette.length > 0 && (
+        <>
+          <div style={listStyles.subHeader}>Add to scene</div>
+          <div style={listStyles.list}>
+            {palette.map((a) => (
+              <button key={a.id} onClick={() => onAdd(a)} style={listStyles.addItem}>
+                <span style={listStyles.typeBadge}>{(a.asset_type || '?').slice(0, 3).toUpperCase()}</span>
+                <span style={listStyles.name}>{a.name}</span>
+                <span style={listStyles.plus}>+</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Canvas pane ────────────────────────────────────────────────
 
 function CanvasPane({ rows, assetsById, selectedId, onSelect, onChange }) {
   const wrapRef = useRef(null);
   const [scale, setScale] = useState(1);
 
-  // Fit the 1920×1080 base canvas inside the pane on resize.
   useEffect(() => {
     function measure() {
       const el = wrapRef.current;
@@ -228,7 +378,11 @@ function CanvasPane({ rows, assetsById, selectedId, onSelect, onChange }) {
   }, []);
 
   return (
-    <div ref={wrapRef} style={styles.canvasWrap} onMouseDown={(e) => { if (e.target === e.currentTarget) onSelect(null); }}>
+    <div
+      ref={wrapRef}
+      style={styles.canvasWrap}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onSelect(null); }}
+    >
       <div
         style={{
           ...styles.canvas,
@@ -264,7 +418,6 @@ function CanvasItem({ row, asset, isSelected, scale, onSelect, onChange }) {
   const h = row.override_height ?? asset?.canvas_height ?? 270;
   const opacity = (row.override_opacity ?? asset?.opacity ?? 1);
 
-  // Pointer drag → updates override_x/y. Use a ref to track start.
   function onPointerDown(e) {
     if (e.button !== 0) return;
     e.stopPropagation();
@@ -325,12 +478,8 @@ function CanvasItem({ row, asset, isSelected, scale, onSelect, onChange }) {
       style={{
         position: 'absolute',
         left: x, top: y, width: w, height: h,
-        background: asset?.asset_type === 'image' && asset.storage_path
-          ? '#000'
-          : 'rgba(99,102,241,0.18)',
-        border: isSelected
-          ? '2px solid #818cf8'
-          : '1px solid rgba(255,255,255,0.25)',
+        background: asset?.asset_type === 'image' && asset.storage_path ? '#000' : 'rgba(99,102,241,0.18)',
+        border: isSelected ? '2px solid #818cf8' : '1px solid rgba(255,255,255,0.25)',
         outline: dim ? '2px dashed rgba(239,68,68,0.5)' : 'none',
         opacity: dim ? 0.45 : opacity,
         boxSizing: 'border-box',
@@ -387,41 +536,9 @@ function CanvasItemPreview({ asset }) {
   );
 }
 
-// ─── Right sidebar: palette + properties ────────────────────────
+// ─── Right pane: scene-asset override editor ────────────────────
 
-function PalettePane({ palette, selectedAsset, selectedRow, onAdd, onChange, onRemove }) {
-  return (
-    <div style={styles.sidebar}>
-      {selectedRow ? (
-        <PropertiesPanel
-          row={selectedRow}
-          asset={selectedAsset}
-          onChange={(patch) => onChange(selectedRow.id, patch)}
-          onRemove={() => onRemove(selectedRow.id)}
-        />
-      ) : (
-        <div style={styles.hint}>Select an asset on the canvas to edit its placement.</div>
-      )}
-
-      <div style={styles.paletteHeader}>Asset palette</div>
-      <div style={styles.paletteList}>
-        {palette.length === 0 ? (
-          <div style={styles.hint}>All assets already placed.</div>
-        ) : (
-          palette.map((a) => (
-            <button key={a.id} onClick={() => onAdd(a)} style={styles.paletteItem}>
-              <span style={styles.paletteType}>{(a.asset_type || '?').slice(0, 3).toUpperCase()}</span>
-              <span style={styles.paletteName}>{a.name}</span>
-              <span style={styles.paletteAdd}>+</span>
-            </button>
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
-
-function PropertiesPanel({ row, asset, onChange, onRemove }) {
+function ScenePropertiesPanel({ row, asset, onChange, onRemove }) {
   const get = (key, defaultKey) =>
     row[`override_${key}`] != null
       ? row[`override_${key}`]
@@ -433,13 +550,14 @@ function PropertiesPanel({ row, asset, onChange, onRemove }) {
   }
 
   return (
-    <div style={styles.props}>
-      <div style={styles.propsTitle}>
+    <div style={propStyles.wrap}>
+      <div style={propStyles.title}>
         {asset?.name || '(missing asset)'}
-        <button onClick={onRemove} style={styles.removeBtn} title="Remove from scene">×</button>
+        <span style={propStyles.subtitle}>scene override</span>
+        <button onClick={onRemove} style={propStyles.removeBtn} title="Remove from scene">×</button>
       </div>
 
-      <label style={styles.toggleRow}>
+      <label style={propStyles.toggleRow}>
         <input
           type="checkbox"
           checked={!!row.is_visible}
@@ -448,15 +566,15 @@ function PropertiesPanel({ row, asset, onChange, onRemove }) {
         Visible in this scene
       </label>
 
-      <div style={styles.row}>
+      <div style={propStyles.row}>
         <NumField label="X" value={get('x', 'canvas_x')} onChange={(v) => setNum('x', v)} />
         <NumField label="Y" value={get('y', 'canvas_y')} onChange={(v) => setNum('y', v)} />
       </div>
-      <div style={styles.row}>
+      <div style={propStyles.row}>
         <NumField label="W" value={get('width', 'canvas_width')} onChange={(v) => setNum('width', v)} />
         <NumField label="H" value={get('height', 'canvas_height')} onChange={(v) => setNum('height', v)} />
       </div>
-      <div style={styles.row}>
+      <div style={propStyles.row}>
         <NumField label="Layer" value={get('layer', 'layer')} onChange={(v) => setNum('layer', v)} />
         <NumField label="Opacity (0–1)" value={get('opacity', 'opacity')} onChange={(v) => setNum('opacity', v)} step="0.05" />
       </div>
@@ -467,7 +585,7 @@ function PropertiesPanel({ row, asset, onChange, onRemove }) {
           override_width: null, override_height: null,
           override_layer: null, override_opacity: null,
         })}
-        style={styles.resetBtn}
+        style={propStyles.resetBtn}
       >
         Reset to asset defaults
       </button>
@@ -477,14 +595,14 @@ function PropertiesPanel({ row, asset, onChange, onRemove }) {
 
 function NumField({ label, value, onChange, step }) {
   return (
-    <label style={styles.numFieldWrap}>
-      <span style={styles.numLabel}>{label}</span>
+    <label style={propStyles.numFieldWrap}>
+      <span style={propStyles.numLabel}>{label}</span>
       <input
         type="number"
         value={value == null ? '' : value}
         step={step || 1}
         onChange={(e) => onChange(e.target.value)}
-        style={styles.numInput}
+        style={propStyles.numInput}
       />
     </label>
   );
@@ -496,20 +614,37 @@ const styles = {
   wrap: { flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, background: colors.bg },
   empty: { padding: 40, textAlign: 'center', color: colors.textSubtle, fontSize: fontSizes.sm },
   error: { padding: spacing.sm, background: colors.danger.bg, color: colors.danger.fg, fontSize: fontSizes.xs, borderBottom: `1px solid ${colors.danger.border}` },
+
   topBar: {
     display: 'flex', alignItems: 'center', gap: spacing.sm,
     padding: `${spacing.sm}px ${spacing.lg}px`,
     borderBottom: `1px solid ${colors.border}`, background: colors.bgRaised,
   },
-  label: { fontSize: fontSizes.xs, fontWeight: fontWeights.semibold, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
+  topLabel: { fontSize: fontSizes.xs, fontWeight: fontWeights.semibold, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
   select: {
     background: colors.bgInput, color: colors.text,
     border: `1px solid ${colors.border}`, borderRadius: radii.sm,
     padding: `${spacing.xs}px ${spacing.sm}px`, fontSize: fontSizes.sm,
     fontFamily: 'inherit', outline: 'none', minWidth: 220,
   },
-  canvasHint: { marginLeft: 'auto', fontSize: fontSizes.xs, color: colors.textSubtle },
+  hint: { marginLeft: 'auto', fontSize: fontSizes.xs, color: colors.textSubtle },
+
   body: { flex: 1, minHeight: 0, display: 'flex' },
+
+  leftCol: {
+    width: 340, flexShrink: 0, display: 'flex', flexDirection: 'column',
+    borderRight: `1px solid ${colors.border}`, background: colors.bgRaised,
+    minHeight: 0,
+  },
+  leftSection: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' },
+  sectionHeader: {
+    padding: `${spacing.sm}px ${spacing.md}px`,
+    fontSize: fontSizes.xxs, fontWeight: fontWeights.bold,
+    color: colors.textSubtle, letterSpacing: 0.5, textTransform: 'uppercase',
+    background: colors.bg, borderTop: `1px solid ${colors.border}`,
+    borderBottom: `1px solid ${colors.border}`,
+  },
+  leftSectionBody: { flex: 1, minHeight: 0, overflow: 'auto' },
 
   canvasWrap: {
     flex: 1, minWidth: 0, position: 'relative',
@@ -523,47 +658,78 @@ const styles = {
     boxShadow: '0 0 0 1px rgba(255,255,255,0.1)',
     flexShrink: 0,
   },
-
-  sidebar: {
-    width: 320, flexShrink: 0, padding: spacing.md,
-    borderLeft: `1px solid ${colors.border}`, background: colors.bgRaised,
-    display: 'flex', flexDirection: 'column', gap: spacing.md, overflowY: 'auto',
+  canvasEmpty: {
+    flex: 1, minWidth: 0,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    padding: spacing.lg, textAlign: 'center',
+    color: colors.textSubtle, fontSize: fontSizes.sm, background: '#0a0a14',
   },
-  hint: { fontSize: fontSizes.xs, color: colors.textSubtle, fontStyle: 'italic' },
 
-  paletteHeader: {
+  rightCol: {
+    width: 360, flexShrink: 0,
+    borderLeft: `1px solid ${colors.border}`, background: colors.bg,
+    display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden',
+  },
+  rightEmpty: { padding: spacing.lg, color: colors.textSubtle, fontSize: fontSizes.xs, fontStyle: 'italic' },
+};
+
+const listStyles = {
+  wrap: { display: 'flex', flexDirection: 'column', padding: spacing.sm, gap: spacing.sm },
+  hint: { padding: spacing.sm, fontSize: fontSizes.xs, color: colors.textSubtle, fontStyle: 'italic' },
+  list: { display: 'flex', flexDirection: 'column', gap: 4 },
+  subHeader: {
     fontSize: fontSizes.xxs, fontWeight: fontWeights.bold,
     color: colors.textSubtle, letterSpacing: 0.5, textTransform: 'uppercase',
-    paddingBottom: spacing.xs, borderBottom: `1px solid ${colors.border}`,
+    paddingTop: spacing.sm, borderTop: `1px solid ${colors.border}`,
   },
-  paletteList: { display: 'flex', flexDirection: 'column', gap: spacing.xs },
-  paletteItem: {
+  row: {
+    display: 'flex', alignItems: 'center', gap: spacing.sm,
+    padding: spacing.xs, background: colors.bgInput,
+    border: `1px solid ${colors.border}`, borderRadius: radii.sm,
+    cursor: 'pointer',
+  },
+  rowActive: { background: colors.accentSoft, borderColor: colors.accentBorder },
+  typeBadge: {
+    padding: '2px 6px', fontSize: 9, fontWeight: fontWeights.bold,
+    color: colors.accentFg, background: colors.accentSoft,
+    border: `1px solid ${colors.accentBorder}`, borderRadius: radii.xs,
+    flexShrink: 0,
+  },
+  name: { fontSize: fontSizes.sm, color: colors.text, fontWeight: fontWeights.medium, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  meta: { fontSize: fontSizes.xxs, color: colors.textSubtle },
+  removeBtn: {
+    width: 22, height: 22, borderRadius: radii.sm,
+    background: 'transparent', border: `1px solid ${colors.border}`,
+    color: colors.textMuted, cursor: 'pointer', fontSize: 12,
+  },
+  addItem: {
     display: 'flex', alignItems: 'center', gap: spacing.sm,
     padding: `${spacing.xs}px ${spacing.sm}px`,
     background: colors.bgInput, border: `1px solid ${colors.border}`,
     borderRadius: radii.sm, color: colors.text, fontSize: fontSizes.xs,
     fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left',
   },
-  paletteType: {
-    padding: '2px 6px', fontSize: 9, fontWeight: fontWeights.bold,
-    color: colors.accentFg, background: colors.accentSoft,
-    border: `1px solid ${colors.accentBorder}`, borderRadius: radii.xs,
-    flexShrink: 0,
-  },
-  paletteName: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  paletteAdd: { color: colors.accentFg, fontWeight: fontWeights.bold },
+  plus: { color: colors.accentFg, fontWeight: fontWeights.bold },
+};
 
-  props: {
+const propStyles = {
+  wrap: {
+    flex: 1, minHeight: 0, overflow: 'auto',
     display: 'flex', flexDirection: 'column', gap: spacing.sm,
-    padding: spacing.sm, background: colors.bgInput,
-    border: `1px solid ${colors.border}`, borderRadius: radii.sm,
+    padding: spacing.lg,
   },
-  propsTitle: {
+  title: {
     display: 'flex', alignItems: 'center', gap: spacing.sm,
-    fontSize: fontSizes.sm, fontWeight: fontWeights.semibold, color: colors.text,
+    fontSize: fontSizes.lg, fontWeight: fontWeights.semibold, color: colors.text,
+    paddingBottom: spacing.sm, borderBottom: `1px solid ${colors.border}`,
+  },
+  subtitle: {
+    fontSize: fontSizes.xxs, color: colors.accentFg,
+    background: colors.accentSoft, border: `1px solid ${colors.accentBorder}`,
+    borderRadius: radii.pill, padding: `2px 8px`, textTransform: 'uppercase', letterSpacing: 0.4,
   },
   removeBtn: {
-    marginLeft: 'auto', width: 22, height: 22,
+    marginLeft: 'auto', width: 24, height: 24,
     background: 'transparent', border: `1px solid ${colors.border}`,
     color: colors.danger.fg, borderRadius: radii.sm,
     cursor: 'pointer', fontSize: 14, lineHeight: 1, fontFamily: 'inherit',
@@ -573,7 +739,7 @@ const styles = {
   numFieldWrap: { display: 'flex', flexDirection: 'column', gap: 2, flex: 1 },
   numLabel: { fontSize: 10, color: colors.textSubtle, textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: fontWeights.bold },
   numInput: {
-    background: colors.bgRaised, color: colors.text,
+    background: colors.bgInput, color: colors.text,
     border: `1px solid ${colors.border}`, borderRadius: radii.sm,
     padding: `${spacing.xs}px ${spacing.sm}px`, fontSize: fontSizes.xs,
     fontFamily: 'inherit', outline: 'none', width: '100%', boxSizing: 'border-box',

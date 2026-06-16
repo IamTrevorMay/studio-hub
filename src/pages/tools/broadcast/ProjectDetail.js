@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { colors, spacing, radii, fontSizes, fontWeights, fontFamily } from '../../../lib/styleTokens';
 import ScenesPanel from './ScenesPanel';
-import SceneEditor from './SceneEditor';
-import AssetsPanel from './AssetsPanel';
+import StudioPanel from './StudioPanel';
 import MembersPanel from './MembersPanel';
 import SessionsPanel from './SessionsPanel';
 import { createSession, listSessions } from './api';
@@ -12,8 +11,7 @@ import { createSession, listSessions } from './api';
 
 const TABS = [
   { k: 'scenes',   label: 'Scenes' },
-  { k: 'layout',   label: 'Layout' },
-  { k: 'assets',   label: 'Assets' },
+  { k: 'studio',   label: 'Layout & Assets' },
   { k: 'members',  label: 'Members' },
   { k: 'sessions', label: 'Sessions' },
 ];
@@ -68,8 +66,7 @@ export default function ProjectDetail({ project, onChangeProject, onBack, onGoLi
 
       <div style={styles.body}>
         {mode === 'scenes'   && <ScenesPanel project={project} onChangeProject={onChangeProject} />}
-        {mode === 'layout'   && <SceneEditor project={project} />}
-        {mode === 'assets'   && <AssetsPanel project={project} />}
+        {mode === 'studio'   && <StudioPanel project={project} />}
         {mode === 'members'  && <MembersPanel project={project} />}
         {mode === 'sessions' && <SessionsPanel project={project} onResume={onGoLive} />}
       </div>

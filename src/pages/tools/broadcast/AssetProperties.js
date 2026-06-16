@@ -170,7 +170,7 @@ function Select({ value, onChange, options }) {
 
 const styles = {
   wrap: {
-    flex: 1, minWidth: 0, overflow: 'auto', padding: spacing.lg,
+    flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', padding: spacing.lg,
     background: colors.bg, display: 'flex', flexDirection: 'column', gap: spacing.xs,
   },
   empty: { padding: spacing.huge, textAlign: 'center', color: colors.textSubtle, fontSize: fontSizes.sm },
