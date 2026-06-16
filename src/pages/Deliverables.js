@@ -1570,8 +1570,8 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
     ];
 
     return (
-      <div style={styles.modalOverlay} onClick={() => setScheduleModalDeliverable(null)}>
-        <div style={{ ...styles.modalBox, maxWidth: 1060, padding: '28px 32px' }} onClick={e => e.stopPropagation()}>
+      <div style={styles.modalOverlay} onMouseDown={(e) => { if (e.target === e.currentTarget) setScheduleModalDeliverable(null); }}>
+        <div style={{ ...styles.modalBox, maxWidth: 1060, padding: '28px 32px' }}>
           <div style={styles.modalHeader}>
             <div>
               <h3 style={styles.modalTitle}>{d.sponsor_name}{d.campaign_name ? ` — ${d.campaign_name}` : ''}</h3>
@@ -1642,8 +1642,8 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
 
       {/* ── Proposals drawer (slides in from the right) ── */}
           {proposalsDrawerOpen && (
-            <div style={styles.drawerOverlay} onClick={() => setProposalsDrawerOpen(false)}>
-              <div style={styles.drawerPanel} onClick={e => e.stopPropagation()}>
+            <div style={styles.drawerOverlay} onMouseDown={(e) => { if (e.target === e.currentTarget) setProposalsDrawerOpen(false); }}>
+              <div style={styles.drawerPanel}>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '4px' }}>
                   <button onClick={() => setProposalsDrawerOpen(false)} style={styles.drawerClose}>{'✕'}</button>
                 </div>
@@ -2239,8 +2239,8 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
 
       {/* ====== ADD BRIEF MODAL ====== */}
       {briefModalCampaign && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }} onClick={() => setBriefModalCampaign(null)}>
-          <div style={{ background: '#1a1a2e', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '440px', border: '1px solid rgba(255,255,255,0.1)' }} onClick={e => e.stopPropagation()}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }} onMouseDown={(e) => { if (e.target === e.currentTarget) setBriefModalCampaign(null); }}>
+          <div style={{ background: '#1a1a2e', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '440px', border: '1px solid rgba(255,255,255,0.1)' }}>
             <h3 style={{ margin: '0 0 4px', fontSize: '16px', fontWeight: 600, color: '#fff' }}>Add Brief</h3>
             <p style={{ margin: '0 0 16px', fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>{briefModalCampaign.name}</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -2279,7 +2279,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
       {cardContextMenu && (
         <div
           style={{ position: 'fixed', inset: 0, zIndex: 9998 }}
-          onClick={() => setCardContextMenu(null)}
+          onMouseDown={() => setCardContextMenu(null)}
           onContextMenu={(e) => { e.preventDefault(); setCardContextMenu(null); }}
         >
           <div style={{ ...styles.contextMenu, top: cardContextMenu.y, left: cardContextMenu.x }} onClick={e => e.stopPropagation()}>
@@ -2321,13 +2321,13 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
       {beatSheetDropdownId && (
         <div
           style={{ position: 'fixed', inset: 0, zIndex: 49 }}
-          onClick={() => setBeatSheetDropdownId(null)}
+          onMouseDown={() => setBeatSheetDropdownId(null)}
         />
       )}
       {reviewDropdownId && (
         <div
           style={{ position: 'fixed', inset: 0, zIndex: 49 }}
-          onClick={() => setReviewDropdownId(null)}
+          onMouseDown={() => setReviewDropdownId(null)}
         />
       )}
     </div>
@@ -2336,8 +2336,8 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
 
 function Modal({ title, subtitle, onClose, maxWidth = 640, children }) {
   return (
-    <div style={styles.modalOverlay} onClick={onClose}>
-      <div style={{ ...styles.modalBox, maxWidth }} onClick={e => e.stopPropagation()}>
+    <div style={styles.modalOverlay} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ ...styles.modalBox, maxWidth }}>
         <div style={styles.modalHeader}>
           <div>
             <h3 style={styles.modalTitle}>{title}</h3>
