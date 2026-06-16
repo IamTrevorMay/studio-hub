@@ -73,8 +73,8 @@ Deno.serve(async (req: Request) => {
       });
     }
     const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-    if (profile?.role !== "admin" && profile?.role !== "freelancer") {
-      return new Response(JSON.stringify({ error: "Admin access required" }), {
+    if (!["admin", "freelancer", "member"].includes(profile?.role)) {
+      return new Response(JSON.stringify({ error: "Access required" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
