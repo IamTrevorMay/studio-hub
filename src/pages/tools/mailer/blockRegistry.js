@@ -117,6 +117,15 @@ const registry = {
   },
 };
 
+registry['rich-text'] = {
+  type: 'rich-text',
+  label: 'Rich Text',
+  category: 'content',
+  icon: 'Type',
+  description: 'WYSIWYG formatted text (bold, italic, links, lists)',
+  defaults: { html: '<p>Type something…</p>' },
+};
+
 // Layout blocks — these contain `children: Block[]`.
 registry.columns = {
   type: 'columns',

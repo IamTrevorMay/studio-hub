@@ -20,6 +20,7 @@ export type Block = BlockChrome & (
   | { type: "divider" }
   | { type: "spacer"; size?: number }
   | { type: "html"; html: string }
+  | { type: "rich-text"; html: string }
   | { type: "header"; style?: "logo" | "banner" | "text"; logoUrl?: string; bannerUrl?: string; title?: string; subtitle?: string; bg?: string; fg?: string }
   | { type: "footer"; text?: string; showUnsubscribe?: boolean; showBranding?: boolean; bg?: string; fg?: string }
   | { type: "social-links"; align?: "left" | "center" | "right"; iconSize?: number; color?: string; links?: { platform: string; url: string }[] }
@@ -102,6 +103,8 @@ function renderInner(b: Block, ctx: RenderContext): string {
       // an advanced control so non-technical users don't inject markup
       // they don't understand. Renderer trusts the stored value.
       return b.html;
+    case "rich-text":
+      return `<div style="font-size:15px;line-height:1.6;color:#333;">${b.html || ""}</div>`;
     case "header": {
       const bg = b.bg || "#0f0f1a";
       const fg = b.fg || "#ffffff";

@@ -19,6 +19,7 @@ import { GripVertical, Trash2 } from 'lucide-react';
 import { getBlockDef, SOCIAL_PLATFORMS } from './blockRegistry';
 import BlockPalette from './BlockPalette';
 import BlockProperties from './BlockProperties';
+import RichTextBlockEditor from './RichTextBlockEditor';
 
 // Block list editor. Drag handle reorders via @dnd-kit; per-type fields
 // rendered inline. Each block needs a stable id to play nicely with
@@ -208,6 +209,12 @@ function BlockFields({ block, onChange }) {
             style={{ ...styles.input, minHeight: 120, fontFamily: 'monospace', fontSize: 12 }}
             spellCheck={false}
           />
+        </Field>
+      );
+    case 'rich-text':
+      return (
+        <Field label="Content">
+          <RichTextBlockEditor html={block.html} onChange={(html) => onChange({ html })} />
         </Field>
       );
     case 'header':

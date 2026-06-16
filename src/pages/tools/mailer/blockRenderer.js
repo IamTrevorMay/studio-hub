@@ -68,6 +68,10 @@ function renderInner(b, ctx) {
       return `<div style="height:${b.size || 16}px;line-height:${b.size || 16}px;">&nbsp;</div>`;
     case 'html':
       return b.html || '';
+    case 'rich-text':
+      // Tiptap output is already semantic HTML. Wrap in a div so any
+      // padding/background props from the chrome wrapper apply cleanly.
+      return `<div style="font-size:15px;line-height:1.6;color:#333;">${b.html || ''}</div>`;
     case 'header': {
       const bg = b.bg || '#0f0f1a';
       const fg = b.fg || '#ffffff';
