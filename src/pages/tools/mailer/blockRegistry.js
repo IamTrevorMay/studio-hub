@@ -117,6 +117,26 @@ const registry = {
   },
 };
 
+// Layout blocks — these contain `children: Block[]`.
+registry.columns = {
+  type: 'columns',
+  label: 'Columns',
+  category: 'layout',
+  icon: 'Columns',
+  description: '2- or 3-column layout',
+  defaults: { columnCount: 2, gap: 16, children: [[], []] },
+  hasChildren: true,
+};
+registry.section = {
+  type: 'section',
+  label: 'Section',
+  category: 'layout',
+  icon: 'SquareDashedBottom',
+  description: 'Grouped section with optional title',
+  defaults: { title: '', showTitle: false, children: [] },
+  hasChildren: true,
+};
+
 export const SOCIAL_PLATFORMS = [
   { key: 'instagram', label: 'Instagram' },
   { key: 'youtube',   label: 'YouTube' },

@@ -23,6 +23,8 @@ export type Block = BlockChrome & (
   | { type: "header"; style?: "logo" | "banner" | "text"; logoUrl?: string; bannerUrl?: string; title?: string; subtitle?: string; bg?: string; fg?: string }
   | { type: "footer"; text?: string; showUnsubscribe?: boolean; showBranding?: boolean; bg?: string; fg?: string }
   | { type: "social-links"; align?: "left" | "center" | "right"; iconSize?: number; color?: string; links?: { platform: string; url: string }[] }
+  | { type: "columns"; columnCount?: 2 | 3; gap?: number; children?: Block[][] }
+  | { type: "section"; title?: string; showTitle?: boolean; children?: Block[] }
 );
 
 export interface RenderContext {
@@ -127,6 +129,23 @@ function renderInner(b: Block, ctx: RenderContext): string {
         })
         .join("");
       return `<div style="text-align:${align};margin:16px 0;">${icons}</div>`;
+    }
+    case "columns": {
+      const cols = Array.isArray(b.children) ? b.children : [[], []];
+      const gap = Number(b.gap) || 16;
+      const width = Math.floor((100 - (cols.length - 1) * 2) / cols.length);
+      const cells = cols.map((colBlocks) => {
+        const inner = (colBlocks || []).map((cb: Block) => renderBlock(cb, ctx)).join("\n");
+        return `<td valign="top" style="width:${width}%;padding-right:${gap / 2}px;padding-left:${gap / 2}px;">${inner}</td>`;
+      }).join("");
+      return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0;"><tr>${cells}</tr></table>`;
+    }
+    case "section": {
+      const title = b.showTitle && b.title
+        ? `<h2 style="margin:0 0 12px;font-size:20px;color:#111;font-weight:700;">${escapeHtml(b.title)}</h2>`
+        : "";
+      const children = (b.children || []).map((cb: Block) => renderBlock(cb, ctx)).join("\n");
+      return `<div style="margin:12px 0;">${title}${children}</div>`;
     }
     case "footer": {
       const bg = b.bg || "#f5f5f7";

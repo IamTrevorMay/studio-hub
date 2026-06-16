@@ -242,6 +242,10 @@ function BlockFields({ block, onChange }) {
       );
     case 'social-links':
       return <SocialLinksFields block={block} onChange={onChange} />;
+    case 'columns':
+      return <ColumnsFields block={block} onChange={onChange} />;
+    case 'section':
+      return <SectionFields block={block} onChange={onChange} />;
     case 'footer':
       return (
         <>
@@ -280,6 +284,132 @@ function BlockFields({ block, onChange }) {
     default:
       return <div style={styles.note}>Unknown block type: {block.type}</div>;
   }
+}
+
+function ColumnsFields({ block, onChange }) {
+  const cols = Array.isArray(block.children) ? block.children : [[], []];
+  const colCount = Number(block.columnCount) || cols.length || 2;
+  // Reshape children to match colCount if user toggled
+  React.useEffect(() => {
+    if (cols.length === colCount) return;
+    const next = Array.from({ length: colCount }, (_, i) => cols[i] || []);
+    onChange({ children: next });
+    // eslint-disable-next-line
+  }, [colCount]);
+
+  function updateCol(idx, nextBlocks) {
+    const nextCols = cols.map((c, i) => (i === idx ? nextBlocks : c));
+    onChange({ children: nextCols });
+  }
+
+  return (
+    <>
+      <Row>
+        <Field label="Column count">
+          <Select
+            value={String(colCount)}
+            onChange={(v) => onChange({ columnCount: Number(v) })}
+            options={[['2', '2'], ['3', '3']]}
+          />
+        </Field>
+        <Field label="Gap (px)">
+          <Input type="number" value={block.gap || 16} onChange={(v) => onChange({ gap: Number(v) || 0 })} />
+        </Field>
+      </Row>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${colCount}, 1fr)`, gap: 8 }}>
+        {Array.from({ length: colCount }).map((_, idx) => (
+          <div key={idx} style={styles.colWrap}>
+            <div style={styles.colLabel}>Column {idx + 1}</div>
+            <ChildList blocks={cols[idx] || []} onChange={(b) => updateCol(idx, b)} />
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function SectionFields({ block, onChange }) {
+  const children = Array.isArray(block.children) ? block.children : [];
+  return (
+    <>
+      <Row>
+        <Field label="Title (optional)"><Input value={block.title} onChange={(v) => onChange({ title: v })} /></Field>
+        <label style={{ ...styles.fieldWrap, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <input
+            type="checkbox"
+            checked={block.showTitle !== false}
+            onChange={(e) => onChange({ showTitle: e.target.checked })}
+          />
+          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.85)' }}>Show title</span>
+        </label>
+      </Row>
+      <div style={styles.colWrap}>
+        <div style={styles.colLabel}>Children</div>
+        <ChildList blocks={children} onChange={(b) => onChange({ children: b })} />
+      </div>
+    </>
+  );
+}
+
+// Nested list of child blocks with arrow reorder + delete + add menu.
+// Drag isn't supported inside nested lists — keeps things simple and
+// avoids @dnd-kit nested-context overlap headaches.
+function ChildList({ blocks, onChange }) {
+  const [adding, setAdding] = React.useState(false);
+
+  function backfillIds(list) {
+    return list.map((b) => (b && b.id ? b : { ...b, id: `b_${Math.random().toString(36).slice(2, 10)}` }));
+  }
+  const items = backfillIds(blocks);
+
+  function updateChild(id, patch) {
+    onChange(items.map((b) => (b.id === id ? { ...b, ...patch } : b)));
+  }
+  function removeChild(id) {
+    onChange(items.filter((b) => b.id !== id));
+  }
+  function moveChild(id, dir) {
+    const idx = items.findIndex((b) => b.id === id);
+    if (idx < 0) return;
+    const target = idx + dir;
+    if (target < 0 || target >= items.length) return;
+    const next = items.slice();
+    [next[idx], next[target]] = [next[target], next[idx]];
+    onChange(next);
+  }
+  function addChild(type) {
+    const def = getBlockDef(type);
+    if (!def) return;
+    onChange([...items, { id: `b_${Math.random().toString(36).slice(2, 10)}`, type, ...def.defaults }]);
+    setAdding(false);
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {items.length === 0 && (
+        <div style={{ ...styles.empty, padding: 12, fontSize: 11 }}>Empty</div>
+      )}
+      {items.map((b, i) => (
+        <div key={b.id} style={styles.card}>
+          <div style={styles.cardHeader}>
+            <span style={styles.cardType}>{b.type}</span>
+            <span style={{ flex: 1 }} />
+            <button disabled={i === 0} onClick={() => moveChild(b.id, -1)} style={styles.iconBtn} title="Up">↑</button>
+            <button disabled={i === items.length - 1} onClick={() => moveChild(b.id, 1)} style={styles.iconBtn} title="Down">↓</button>
+            <button onClick={() => removeChild(b.id)} style={{ ...styles.iconBtn, color: '#f87171' }} title="Delete">×</button>
+          </div>
+          <div style={styles.cardBody}>
+            <BlockFields block={b} onChange={(patch) => updateChild(b.id, patch)} />
+          </div>
+        </div>
+      ))}
+      {adding ? (
+        <BlockPalette onAdd={addChild} onCancel={() => setAdding(false)} />
+      ) : (
+        <button onClick={() => setAdding(true)} style={{ ...styles.addBtn, padding: 8, fontSize: 11 }}>+ Add child block</button>
+      )}
+    </div>
+  );
 }
 
 function SocialLinksFields({ block, onChange }) {
@@ -369,4 +499,6 @@ const styles = {
   note: { fontSize: 12, color: 'rgba(255,255,255,0.4)', fontStyle: 'italic' },
   addRow: { paddingTop: 4 },
   addBtn: { width: '100%', padding: '10px', background: 'transparent', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: 8, color: 'rgba(255,255,255,0.55)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  colWrap: { background: 'rgba(0,0,0,0.15)', border: '1px dashed rgba(255,255,255,0.08)', borderRadius: 8, padding: 8, display: 'flex', flexDirection: 'column', gap: 6 },
+  colLabel: { fontSize: 10, color: 'rgba(255,255,255,0.45)', fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' },
 };
