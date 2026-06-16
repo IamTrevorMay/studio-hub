@@ -148,9 +148,6 @@ export default function Dashboard({ onNavigate }) {
   // Stage tasks state
 
   // Stats counters
-  const [teamActiveCount, setTeamActiveCount] = useState(0);
-  const [teamCompletedCount, setTeamCompletedCount] = useState(0);
-  const [dueSoonCount, setDueSoonCount] = useState(0);
 
   // Sponsor deliverables state
   const [sponsorDeliverables, setSponsorDeliverables] = useState([]);
@@ -342,39 +339,6 @@ export default function Dashboard({ onNavigate }) {
   }, [profile?.id, todayStr]);
 
 
-  const fetchStatsCounts = useCallback(async () => {
-    try {
-      // Team-wide active projects (not published)
-      const { count: activeCount } = await supabase
-        .from('projects')
-        .select('id', { count: 'exact', head: true })
-        .neq('status', 'published');
-      setTeamActiveCount(activeCount || 0);
-
-      // Team-wide completed projects
-      const { count: completedCount } = await supabase
-        .from('projects')
-        .select('id', { count: 'exact', head: true })
-        .eq('status', 'published');
-      setTeamCompletedCount(completedCount || 0);
-
-      // Deadlines due within 3 days
-      const now = new Date();
-      const threeDaysOut = new Date(now);
-      threeDaysOut.setDate(threeDaysOut.getDate() + 3);
-      const { count: deadlineCount } = await supabase
-        .from('calendar_events')
-        .select('id', { count: 'exact', head: true })
-        .eq('event_type', 'deadline')
-        .gte('start_date', now.toISOString())
-        .lte('start_date', threeDaysOut.toISOString());
-      setDueSoonCount(deadlineCount || 0);
-    } catch (err) {
-      console.error('Error fetching stats counts:', err);
-    }
-  }, []);
-
-
   const fetchSponsorDeliverables = useCallback(async () => {
     if (!profile?.id) return;
     setSponsorDelLoading(true);
@@ -493,9 +457,8 @@ export default function Dashboard({ onNavigate }) {
     if (!isPartner) {
       fetchAssignments();
       fetchSponsorDeliverables();
-      fetchStatsCounts();
     }
-  }, [profile?.id, isPartner, fetchAssignments, fetchSponsorDeliverables, fetchStatsCounts]);
+  }, [profile?.id, isPartner, fetchAssignments, fetchSponsorDeliverables]);
 
   useEffect(() => {
     if ((isAdmin || isAssistant) && profile?.id) {
@@ -557,14 +520,13 @@ export default function Dashboard({ onNavigate }) {
     if (!isPartner) {
       fetchAssignments();
       fetchSponsorDeliverables();
-      fetchStatsCounts();
     }
     if (isAdmin || isAssistant) fetchItinerary();
     fetchAnnouncements();
     fetchTeamProfiles();
     fetchOooRequests();
     fetchUpcomingOoo();
-  }, [profile?.id, isAdmin, isAssistant, isPartner, fetchAssignments, fetchSponsorDeliverables, fetchStatsCounts, fetchItinerary, fetchAnnouncements, fetchTeamProfiles, fetchOooRequests, fetchUpcomingOoo]));
+  }, [profile?.id, isAdmin, isAssistant, isPartner, fetchAssignments, fetchSponsorDeliverables, fetchItinerary, fetchAnnouncements, fetchTeamProfiles, fetchOooRequests, fetchUpcomingOoo]));
 
   useEffect(() => {
     if (profile?.id) fetchCheckins();
@@ -1612,22 +1574,6 @@ export default function Dashboard({ onNavigate }) {
           )}
           <p style={styles.profileEmail}>{profile?.email}</p>
         </div>
-        {!isPartner && (
-        <div style={styles.statsRow}>
-          <div style={styles.stat}>
-            <div style={styles.statValue}>{teamActiveCount}</div>
-            <div style={styles.statLabel}>Active Projects</div>
-          </div>
-          <div style={styles.stat}>
-            <div style={styles.statValue}>{teamCompletedCount}</div>
-            <div style={styles.statLabel}>Completed</div>
-          </div>
-          <div style={styles.stat}>
-            <div style={styles.statValue}>{dueSoonCount}</div>
-            <div style={styles.statLabel}>Due Soon</div>
-          </div>
-        </div>
-        )}
       </div>
 
       {/* Two-column layout */}
