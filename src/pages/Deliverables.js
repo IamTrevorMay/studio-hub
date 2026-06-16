@@ -1319,7 +1319,6 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                           tabIndex={0}
                           onClick={(e) => {
                             e.stopPropagation();
-                            if (d.campaign_id) setExpandedCampaignId(d.campaign_id);
                             startEditDeliverable(d);
                           }}
                           style={{
@@ -2074,109 +2073,6 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                       >
                         + Add Deliverable
                       </button>
-                      {showDeliverableForm === campaign.id && (
-                        <Modal title={editingDeliverable ? 'Edit Deliverable' : 'Add Deliverable'} subtitle={campaign.name} onClose={() => { resetDeliverableForm(); setShowDeliverableForm(null); }} maxWidth={680}>
-                        <form onSubmit={(e) => handleSaveDeliverable(e, campaign.sponsor_id, campaign.id)}>
-                          <div style={styles.formGrid}>
-                            <div style={styles.field}>
-                              <label style={styles.label}>Type</label>
-                              <select value={deliverableType} onChange={e => setDeliverableType(e.target.value)} style={styles.select}>
-                                {Object.entries(DELIVERABLE_TYPES).map(([k, v]) => (
-                                  <option key={k} value={k}>{v.icon} {v.label}</option>
-                                ))}
-                              </select>
-                            </div>
-                            <div style={styles.field}>
-                              <label style={styles.label}>Channel</label>
-                              <select value={deliverableChannel} onChange={e => setDeliverableChannel(e.target.value)} style={styles.select}>
-                                <option value="">— Select channel —</option>
-                                <option value="mayday">Mayday</option>
-                                <option value="tmb">Trevor May Baseball</option>
-                                <option value="socials">Socials</option>
-                              </select>
-                            </div>
-                            <div style={styles.field}>
-                              <label style={styles.label}>Due Month</label>
-                              <input type="month" value={dueDate} onChange={e => setDueDate(e.target.value)} style={styles.input} />
-                            </div>
-                            <div style={styles.field}>
-                              <label style={styles.label}>Platforms</label>
-                              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                                {DELIVERABLE_PLATFORMS.map(p => (
-                                  <button key={p} type="button" onClick={() => setDeliverablePlatforms(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p])} style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', background: deliverablePlatforms.includes(p) ? 'rgba(99,102,241,0.2)' : 'transparent', color: deliverablePlatforms.includes(p) ? '#a5b4fc' : 'rgba(255,255,255,0.35)', borderColor: deliverablePlatforms.includes(p) ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.08)' }}>{p}</button>
-                                ))}
-                              </div>
-                            </div>
-                            <div style={styles.field}>
-                              <label style={styles.label}>Needs Review</label>
-                              <select value={deliverableNeedsReview ? 'yes' : 'no'} onChange={e => setDeliverableNeedsReview(e.target.value === 'yes')} style={styles.select}>
-                                <option value="no">No</option>
-                                <option value="yes">Yes</option>
-                              </select>
-                            </div>
-                            <div style={styles.field}>
-                              <label style={styles.label}>Review Status</label>
-                              <select value={deliverableReviewStatus} onChange={e => setDeliverableReviewStatus(e.target.value)} style={styles.select}>
-                                {REVIEW_STATUS_OPTIONS.map(o => (
-                                  <option key={o.value} value={o.value}>{o.label}</option>
-                                ))}
-                              </select>
-                            </div>
-                            <div style={styles.field}>
-                              <label style={styles.label}>Pay ($)</label>
-                              <input type="number" step="0.01" value={deliverablePay} onChange={e => setDeliverablePay(e.target.value)} placeholder="0.00" style={styles.input} />
-                            </div>
-                            <div style={styles.field}>
-                              <label style={styles.label}>Beat Sheet</label>
-                              <select value={deliverableBeatSheetId} onChange={e => setDeliverableBeatSheetId(e.target.value)} style={styles.select}>
-                                <option value="">None</option>
-                                {beatSheets.map(bs => (
-                                  <option key={bs.id} value={bs.id}>{bs.title}</option>
-                                ))}
-                              </select>
-                            </div>
-                            <div style={styles.field}>
-                              <label style={styles.label}>Attached Video</label>
-                              <select value={deliverableVideoEventId} onChange={e => setDeliverableVideoEventId(e.target.value)} style={styles.select}>
-                                <option value="">None</option>
-                                {videoEvents.map(ev => (
-                                  <option key={ev.id} value={ev.id}>
-                                    {'\uD83D\uDCF9'} {new Date(ev.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — {ev.title}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          </div>
-                          <div style={styles.field}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                              <label style={styles.label}>Ad Copy</label>
-                              <button
-                                type="button"
-                                disabled={!deliverableBeatSheetId || !deliverableNotes || pushingAdCopy}
-                                onClick={handlePushAdCopyToBeatSheet}
-                                style={{
-                                  padding: '4px 10px',
-                                  fontSize: '11px',
-                                  borderRadius: '6px',
-                                  border: '1px solid',
-                                  borderColor: (!deliverableBeatSheetId || !deliverableNotes) ? 'rgba(255,255,255,0.1)' : 'rgba(99,102,241,0.4)',
-                                  background: (!deliverableBeatSheetId || !deliverableNotes) ? 'rgba(255,255,255,0.03)' : 'rgba(99,102,241,0.15)',
-                                  color: (!deliverableBeatSheetId || !deliverableNotes) ? 'rgba(255,255,255,0.25)' : '#a5b4fc',
-                                  cursor: (!deliverableBeatSheetId || !deliverableNotes) ? 'not-allowed' : 'pointer',
-                                  fontFamily: 'DM Sans, sans-serif',
-                                  fontWeight: 500,
-                                  transition: 'all 0.15s ease',
-                                }}
-                              >
-                                {pushAdCopyDone ? 'Pushed!' : pushingAdCopy ? 'Pushing...' : 'Push to Beat Sheet'}
-                              </button>
-                            </div>
-                            <textarea value={deliverableNotes} onChange={e => setDeliverableNotes(e.target.value)} placeholder="Ad copy, talking points, key messaging..." rows={2} style={{ ...styles.input, resize: 'vertical' }} />
-                          </div>
-                          <button type="submit" style={styles.submitBtn}>{editingDeliverable ? 'Update Deliverable' : 'Add Deliverable'}</button>
-                        </form>
-                        </Modal>
-                      )}
 
                       {/* Campaign Actions */}
                       <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
@@ -2184,6 +2080,112 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                         <button onClick={() => handleDeleteCampaign(campaign.id)} style={{ ...styles.filterBtn, fontSize: '12px', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}>Delete</button>
                       </div>
                     </div>
+                  )}
+                  {/* Edit modal lives outside the isExpanded gate so it can
+                      open from the Upcoming Deliverables table without
+                      forcing the parent campaign card to expand. */}
+                  {showDeliverableForm === campaign.id && (
+                    <Modal title={editingDeliverable ? 'Edit Deliverable' : 'Add Deliverable'} subtitle={campaign.name} onClose={() => { resetDeliverableForm(); setShowDeliverableForm(null); }} maxWidth={680}>
+                      <form onSubmit={(e) => handleSaveDeliverable(e, campaign.sponsor_id, campaign.id)}>
+                        <div style={styles.formGrid}>
+                          <div style={styles.field}>
+                            <label style={styles.label}>Type</label>
+                            <select value={deliverableType} onChange={e => setDeliverableType(e.target.value)} style={styles.select}>
+                              {Object.entries(DELIVERABLE_TYPES).map(([k, v]) => (
+                                <option key={k} value={k}>{v.icon} {v.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div style={styles.field}>
+                            <label style={styles.label}>Channel</label>
+                            <select value={deliverableChannel} onChange={e => setDeliverableChannel(e.target.value)} style={styles.select}>
+                              <option value="">— Select channel —</option>
+                              <option value="mayday">Mayday</option>
+                              <option value="tmb">Trevor May Baseball</option>
+                              <option value="socials">Socials</option>
+                            </select>
+                          </div>
+                          <div style={styles.field}>
+                            <label style={styles.label}>Due Month</label>
+                            <input type="month" value={dueDate} onChange={e => setDueDate(e.target.value)} style={styles.input} />
+                          </div>
+                          <div style={styles.field}>
+                            <label style={styles.label}>Platforms</label>
+                            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                              {DELIVERABLE_PLATFORMS.map(p => (
+                                <button key={p} type="button" onClick={() => setDeliverablePlatforms(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p])} style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', background: deliverablePlatforms.includes(p) ? 'rgba(99,102,241,0.2)' : 'transparent', color: deliverablePlatforms.includes(p) ? '#a5b4fc' : 'rgba(255,255,255,0.35)', borderColor: deliverablePlatforms.includes(p) ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.08)' }}>{p}</button>
+                              ))}
+                            </div>
+                          </div>
+                          <div style={styles.field}>
+                            <label style={styles.label}>Needs Review</label>
+                            <select value={deliverableNeedsReview ? 'yes' : 'no'} onChange={e => setDeliverableNeedsReview(e.target.value === 'yes')} style={styles.select}>
+                              <option value="no">No</option>
+                              <option value="yes">Yes</option>
+                            </select>
+                          </div>
+                          <div style={styles.field}>
+                            <label style={styles.label}>Review Status</label>
+                            <select value={deliverableReviewStatus} onChange={e => setDeliverableReviewStatus(e.target.value)} style={styles.select}>
+                              {REVIEW_STATUS_OPTIONS.map(o => (
+                                <option key={o.value} value={o.value}>{o.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div style={styles.field}>
+                            <label style={styles.label}>Pay ($)</label>
+                            <input type="number" step="0.01" value={deliverablePay} onChange={e => setDeliverablePay(e.target.value)} placeholder="0.00" style={styles.input} />
+                          </div>
+                          <div style={styles.field}>
+                            <label style={styles.label}>Beat Sheet</label>
+                            <select value={deliverableBeatSheetId} onChange={e => setDeliverableBeatSheetId(e.target.value)} style={styles.select}>
+                              <option value="">None</option>
+                              {beatSheets.map(bs => (
+                                <option key={bs.id} value={bs.id}>{bs.title}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div style={styles.field}>
+                            <label style={styles.label}>Attached Video</label>
+                            <select value={deliverableVideoEventId} onChange={e => setDeliverableVideoEventId(e.target.value)} style={styles.select}>
+                              <option value="">None</option>
+                              {videoEvents.map(ev => (
+                                <option key={ev.id} value={ev.id}>
+                                  {'📹'} {new Date(ev.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — {ev.title}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        <div style={styles.field}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <label style={styles.label}>Ad Copy</label>
+                            <button
+                              type="button"
+                              disabled={!deliverableBeatSheetId || !deliverableNotes || pushingAdCopy}
+                              onClick={handlePushAdCopyToBeatSheet}
+                              style={{
+                                padding: '4px 10px',
+                                fontSize: '11px',
+                                borderRadius: '6px',
+                                border: '1px solid',
+                                borderColor: (!deliverableBeatSheetId || !deliverableNotes) ? 'rgba(255,255,255,0.1)' : 'rgba(99,102,241,0.4)',
+                                background: (!deliverableBeatSheetId || !deliverableNotes) ? 'rgba(255,255,255,0.03)' : 'rgba(99,102,241,0.15)',
+                                color: (!deliverableBeatSheetId || !deliverableNotes) ? 'rgba(255,255,255,0.25)' : '#a5b4fc',
+                                cursor: (!deliverableBeatSheetId || !deliverableNotes) ? 'not-allowed' : 'pointer',
+                                fontFamily: 'DM Sans, sans-serif',
+                                fontWeight: 500,
+                                transition: 'all 0.15s ease',
+                              }}
+                            >
+                              {pushAdCopyDone ? 'Pushed!' : pushingAdCopy ? 'Pushing...' : 'Push to Beat Sheet'}
+                            </button>
+                          </div>
+                          <textarea value={deliverableNotes} onChange={e => setDeliverableNotes(e.target.value)} placeholder="Ad copy, talking points, key messaging..." rows={2} style={{ ...styles.input, resize: 'vertical' }} />
+                        </div>
+                        <button type="submit" style={styles.submitBtn}>{editingDeliverable ? 'Update Deliverable' : 'Add Deliverable'}</button>
+                      </form>
+                    </Modal>
                   )}
                 </div>
               );
