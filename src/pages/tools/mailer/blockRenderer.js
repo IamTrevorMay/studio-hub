@@ -71,12 +71,6 @@ ${ctx.unsubscribeUrl ? `<p style="margin:24px 0 0;font-size:12px;color:#888;text
   return { html };
 }
 
-export const BLOCK_TYPES = [
-  { type: 'heading',   label: 'Heading',   defaults: { text: 'Heading', level: 2, align: 'left' } },
-  { type: 'paragraph', label: 'Paragraph', defaults: { text: 'Body copy.', align: 'left' } },
-  { type: 'image',     label: 'Image',     defaults: { src: '', alt: '', href: '', width: 600 } },
-  { type: 'button',    label: 'Button',    defaults: { text: 'Click here', href: '', align: 'center' } },
-  { type: 'divider',   label: 'Divider',   defaults: {} },
-  { type: 'spacer',    label: 'Spacer',    defaults: { size: 24 } },
-  { type: 'html',      label: 'Raw HTML',  defaults: { html: '<p>Raw HTML…</p>' } },
-];
+// Block-type catalog has moved to ./blockRegistry.js. Re-exported here
+// to keep older imports of `BLOCK_TYPES` working without churn.
+export { BLOCK_TYPES } from './blockRegistry';

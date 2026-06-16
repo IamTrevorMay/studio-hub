@@ -1,0 +1,91 @@
+// Centralized block-type registry for the Mailer.
+// Every block type lives here with its defaults, category, label, and
+// (optionally) child-support flag. The BlockPalette + BlockEditor read
+// from this. Server renderer (supabase/functions/shared/mailer-render.ts)
+// must mirror any new type.
+
+export const CATEGORIES = [
+  { key: 'content',     label: 'Content' },
+  { key: 'layout',      label: 'Layout' },
+  { key: 'interactive', label: 'Interactive' },
+  { key: 'data',        label: 'Data' },
+];
+
+const registry = {
+  heading: {
+    type: 'heading',
+    label: 'Heading',
+    category: 'content',
+    icon: 'Heading',
+    description: 'Section title',
+    defaults: { text: 'Heading', level: 2, align: 'left' },
+  },
+  paragraph: {
+    type: 'paragraph',
+    label: 'Paragraph',
+    category: 'content',
+    icon: 'AlignLeft',
+    description: 'Plain text paragraph',
+    defaults: { text: 'Body copy.', align: 'left' },
+  },
+  image: {
+    type: 'image',
+    label: 'Image',
+    category: 'content',
+    icon: 'Image',
+    description: 'Image with optional link',
+    defaults: { src: '', alt: '', href: '', width: 600 },
+  },
+  button: {
+    type: 'button',
+    label: 'Button',
+    category: 'content',
+    icon: 'MousePointer',
+    description: 'Call-to-action button',
+    defaults: { text: 'Click here', href: '', align: 'center' },
+  },
+  divider: {
+    type: 'divider',
+    label: 'Divider',
+    category: 'content',
+    icon: 'Minus',
+    description: 'Horizontal rule',
+    defaults: {},
+  },
+  spacer: {
+    type: 'spacer',
+    label: 'Spacer',
+    category: 'content',
+    icon: 'Move',
+    description: 'Vertical whitespace',
+    defaults: { size: 24 },
+  },
+  html: {
+    type: 'html',
+    label: 'Raw HTML',
+    category: 'content',
+    icon: 'Code',
+    description: 'Inject raw HTML',
+    defaults: { html: '<p>Raw HTML…</p>' },
+  },
+};
+
+export function getBlockDef(type) {
+  return registry[type] || null;
+}
+
+export function getAllBlocks() {
+  return Object.values(registry);
+}
+
+export function getBlocksByCategory(category) {
+  return Object.values(registry).filter((b) => b.category === category);
+}
+
+// Legacy export — old code referenced BLOCK_TYPES as a flat array.
+// Kept here so blockRenderer.js + any other consumer keeps working.
+export const BLOCK_TYPES = Object.values(registry).map((b) => ({
+  type: b.type, label: b.label, defaults: b.defaults,
+}));
+
+export default registry;

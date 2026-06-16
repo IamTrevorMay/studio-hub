@@ -1,66 +1,103 @@
 import React, { useState } from 'react';
-import { BLOCK_TYPES } from './blockRenderer';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { GripVertical, Trash2 } from 'lucide-react';
+import { getBlockDef } from './blockRegistry';
+import BlockPalette from './BlockPalette';
 
-// Block-based editor. Renders a vertical list of block cards with per-
-// type inline forms. Reorder via ↑/↓, delete via ×, add via the picker
-// row at the bottom. The blocks array is fully controlled by the parent
-// so undo/redo + autosave stay simple to wire later.
+// Block list editor. Drag handle reorders via @dnd-kit; per-type fields
+// rendered inline. Each block needs a stable id to play nicely with
+// SortableContext — backfill one if the campaign was saved before id was
+// part of the schema.
+
+function ensureIds(blocks) {
+  let changed = false;
+  const out = (blocks || []).map((b) => {
+    if (b && b.id) return b;
+    changed = true;
+    return { ...b, id: `b_${Math.random().toString(36).slice(2, 10)}` };
+  });
+  return { blocks: out, changed };
+}
 
 export default function BlockEditor({ blocks, onChange }) {
   const [adding, setAdding] = useState(false);
 
-  function updateBlock(idx, patch) {
-    const next = blocks.slice();
-    next[idx] = { ...next[idx], ...patch };
-    onChange(next);
+  // Backfill ids on first render of a legacy campaign.
+  React.useEffect(() => {
+    const { blocks: next, changed } = ensureIds(blocks);
+    if (changed) onChange(next);
+  }, []); // eslint-disable-line
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  function updateBlock(id, patch) {
+    onChange(blocks.map((b) => (b.id === id ? { ...b, ...patch } : b)));
   }
-  function removeBlock(idx) {
-    const next = blocks.slice();
-    next.splice(idx, 1);
-    onChange(next);
-  }
-  function moveBlock(idx, dir) {
-    const target = idx + dir;
-    if (target < 0 || target >= blocks.length) return;
-    const next = blocks.slice();
-    const [moved] = next.splice(idx, 1);
-    next.splice(target, 0, moved);
-    onChange(next);
+  function removeBlock(id) {
+    onChange(blocks.filter((b) => b.id !== id));
   }
   function addBlock(type) {
-    const spec = BLOCK_TYPES.find((b) => b.type === type);
-    if (!spec) return;
-    onChange([...(blocks || []), { type, ...spec.defaults }]);
+    const def = getBlockDef(type);
+    if (!def) return;
+    const next = {
+      id: `b_${Math.random().toString(36).slice(2, 10)}`,
+      type,
+      ...def.defaults,
+    };
+    onChange([...(blocks || []), next]);
     setAdding(false);
   }
+  function handleDragEnd(event) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIdx = blocks.findIndex((b) => b.id === active.id);
+    const newIdx = blocks.findIndex((b) => b.id === over.id);
+    if (oldIdx < 0 || newIdx < 0) return;
+    onChange(arrayMove(blocks, oldIdx, newIdx));
+  }
+
+  const ids = (blocks || []).map((b) => b.id);
 
   return (
     <div style={styles.wrap}>
       {(blocks || []).length === 0 && (
         <div style={styles.empty}>No blocks yet. Pick one below to start.</div>
       )}
-      {(blocks || []).map((b, i) => (
-        <BlockCard
-          key={i}
-          block={b}
-          index={i}
-          isFirst={i === 0}
-          isLast={i === blocks.length - 1}
-          onChange={(patch) => updateBlock(i, patch)}
-          onRemove={() => removeBlock(i)}
-          onMove={(dir) => moveBlock(i, dir)}
-        />
-      ))}
+
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+          {(blocks || []).map((b) => (
+            <SortableBlockCard
+              key={b.id}
+              block={b}
+              onChange={(patch) => updateBlock(b.id, patch)}
+              onRemove={() => removeBlock(b.id)}
+            />
+          ))}
+        </SortableContext>
+      </DndContext>
+
       <div style={styles.addRow}>
         {adding ? (
-          <div style={styles.addPalette}>
-            {BLOCK_TYPES.map((t) => (
-              <button key={t.type} onClick={() => addBlock(t.type)} style={styles.addPickBtn}>
-                + {t.label}
-              </button>
-            ))}
-            <button onClick={() => setAdding(false)} style={styles.cancelAddBtn}>Cancel</button>
-          </div>
+          <BlockPalette onAdd={addBlock} onCancel={() => setAdding(false)} />
         ) : (
           <button onClick={() => setAdding(true)} style={styles.addBtn}>+ Add block</button>
         )}
@@ -69,15 +106,29 @@ export default function BlockEditor({ blocks, onChange }) {
   );
 }
 
-function BlockCard({ block, index, isFirst, isLast, onChange, onRemove, onMove }) {
+function SortableBlockCard({ block, onChange, onRemove }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: block.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
   return (
-    <div style={styles.card}>
+    <div ref={setNodeRef} style={{ ...styles.card, ...style }}>
       <div style={styles.cardHeader}>
+        <button
+          {...attributes}
+          {...listeners}
+          style={styles.dragHandle}
+          title="Drag to reorder"
+        >
+          <GripVertical size={14} />
+        </button>
         <span style={styles.cardType}>{block.type}</span>
         <span style={{ flex: 1 }} />
-        <button title="Move up" disabled={isFirst} onClick={() => onMove(-1)} style={styles.iconBtn}>↑</button>
-        <button title="Move down" disabled={isLast} onClick={() => onMove(1)} style={styles.iconBtn}>↓</button>
-        <button title="Delete" onClick={onRemove} style={{ ...styles.iconBtn, color: '#f87171' }}>×</button>
+        <button title="Delete" onClick={onRemove} style={{ ...styles.iconBtn, color: '#f87171' }}>
+          <Trash2 size={13} />
+        </button>
       </div>
       <div style={styles.cardBody}>
         <BlockFields block={block} onChange={onChange} />
@@ -162,8 +213,6 @@ function BlockFields({ block, onChange }) {
   }
 }
 
-// ─── Small primitives ──────────────────────────────────────────
-
 function Row({ children }) { return <div style={{ display: 'flex', gap: 8 }}>{children}</div>; }
 function Field({ label, children }) {
   return (
@@ -190,15 +239,18 @@ const styles = {
   card: { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10 },
   cardHeader: { display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' },
   cardType: { fontSize: 10, fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', color: '#a5b4fc' },
-  cardBody: { padding: 12, display: 'flex', flexDirection: 'column', gap: 10 },
+  dragHandle: {
+    background: 'transparent', border: 'none',
+    color: 'rgba(255,255,255,0.4)',
+    width: 22, height: 22, cursor: 'grab', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    padding: 0,
+  },
   iconBtn: { background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)', borderRadius: 4, width: 24, height: 24, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  cardBody: { padding: 12, display: 'flex', flexDirection: 'column', gap: 10 },
   fieldWrap: { display: 'flex', flexDirection: 'column', gap: 3, flex: 1 },
   fieldLabel: { fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.45)', letterSpacing: 0.4, textTransform: 'uppercase' },
   input: { background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '7px 10px', color: '#fff', fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', width: '100%', resize: 'vertical' },
   note: { fontSize: 12, color: 'rgba(255,255,255,0.4)', fontStyle: 'italic' },
   addRow: { paddingTop: 4 },
   addBtn: { width: '100%', padding: '10px', background: 'transparent', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: 8, color: 'rgba(255,255,255,0.55)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
-  addPalette: { display: 'flex', flexWrap: 'wrap', gap: 6, padding: 8, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 8 },
-  addPickBtn: { background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.4)', color: '#c7d2fe', borderRadius: 6, padding: '6px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
-  cancelAddBtn: { background: 'transparent', border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.5)', borderRadius: 6, padding: '6px 10px', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' },
 };
