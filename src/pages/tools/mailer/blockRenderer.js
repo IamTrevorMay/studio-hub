@@ -16,8 +16,34 @@ function alignStyle(a) {
   return a ? `text-align:${a};` : 'text-align:left;';
 }
 
+function wrapperStyle(b) {
+  const parts = [];
+  if (b.background) parts.push(`background:${b.background};`);
+  const p = b.padding || {};
+  const pTop = p.top != null ? p.top : 0;
+  const pRight = p.right != null ? p.right : 0;
+  const pBot = p.bottom != null ? p.bottom : 0;
+  const pLeft = p.left != null ? p.left : 0;
+  if (pTop || pRight || pBot || pLeft) {
+    parts.push(`padding:${pTop}px ${pRight}px ${pBot}px ${pLeft}px;`);
+  }
+  return parts.join('');
+}
+
+function maybeWrap(b, inner) {
+  const style = wrapperStyle(b);
+  if (!style) return inner;
+  return `<div style="${style}">${inner}</div>`;
+}
+
 function renderBlock(b, ctx) {
   if (!b || typeof b !== 'object') return '';
+  if (b.visible === false) return '';
+  const inner = renderInner(b, ctx);
+  return maybeWrap(b, inner);
+}
+
+function renderInner(b, ctx) {
   switch (b.type) {
     case 'heading': {
       const level = b.level || 2;

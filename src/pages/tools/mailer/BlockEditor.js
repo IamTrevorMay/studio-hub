@@ -18,6 +18,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { GripVertical, Trash2 } from 'lucide-react';
 import { getBlockDef } from './blockRegistry';
 import BlockPalette from './BlockPalette';
+import BlockProperties from './BlockProperties';
 
 // Block list editor. Drag handle reorders via @dnd-kit; per-type fields
 // rendered inline. Each block needs a stable id to play nicely with
@@ -132,6 +133,7 @@ function SortableBlockCard({ block, onChange, onRemove }) {
       </div>
       <div style={styles.cardBody}>
         <BlockFields block={block} onChange={onChange} />
+        <BlockProperties block={block} onChange={onChange} />
       </div>
     </div>
   );

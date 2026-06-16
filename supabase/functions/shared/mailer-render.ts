@@ -4,14 +4,23 @@
 // additive — old campaigns must keep rendering after new block types
 // land.
 
-export type Block =
+// Shared visual chrome props every block can carry.
+export interface BlockChrome {
+  id?: string;
+  visible?: boolean;
+  padding?: { top?: number | null; right?: number | null; bottom?: number | null; left?: number | null };
+  background?: string | null;
+}
+
+export type Block = BlockChrome & (
   | { type: "heading"; level?: 1 | 2 | 3; text: string; align?: "left" | "center" | "right" }
   | { type: "paragraph"; text: string; align?: "left" | "center" | "right" }
   | { type: "image"; src: string; alt?: string; href?: string; width?: number }
   | { type: "button"; text: string; href: string; align?: "left" | "center" | "right" }
   | { type: "divider" }
   | { type: "spacer"; size?: number }
-  | { type: "html"; html: string };
+  | { type: "html"; html: string }
+);
 
 export interface RenderContext {
   subject: string;
@@ -34,7 +43,33 @@ function alignStyle(a: string | undefined): string {
   return a ? `text-align:${a};` : "text-align:left;";
 }
 
+function wrapperStyle(b: BlockChrome): string {
+  const parts: string[] = [];
+  if (b.background) parts.push(`background:${b.background};`);
+  const p = b.padding || {};
+  const pTop = p.top != null ? p.top : 0;
+  const pRight = p.right != null ? p.right : 0;
+  const pBot = p.bottom != null ? p.bottom : 0;
+  const pLeft = p.left != null ? p.left : 0;
+  if (pTop || pRight || pBot || pLeft) {
+    parts.push(`padding:${pTop}px ${pRight}px ${pBot}px ${pLeft}px;`);
+  }
+  return parts.join("");
+}
+
+function maybeWrap(b: BlockChrome, inner: string): string {
+  const style = wrapperStyle(b);
+  if (!style) return inner;
+  return `<div style="${style}">${inner}</div>`;
+}
+
 function renderBlock(b: Block, ctx: RenderContext): string {
+  if (b.visible === false) return "";
+  const inner = renderInner(b, ctx);
+  return maybeWrap(b, inner);
+}
+
+function renderInner(b: Block, ctx: RenderContext): string {
   switch (b.type) {
     case "heading": {
       const level = b.level ?? 2;
