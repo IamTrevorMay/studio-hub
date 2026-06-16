@@ -18,6 +18,12 @@ const CHANNEL_COLORS = {
   tmb: { bg: 'rgba(239,68,68,0.12)', color: '#fca5a5', label: 'TM Baseball' },
   socials: { bg: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)', label: 'Social' },
 };
+const REVIEW_STATUS_OPTIONS = [
+  { value: 'not_submitted', label: 'Not Submitted', bg: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.55)' },
+  { value: 'pending', label: 'Pending', bg: 'rgba(245,158,11,0.15)', color: '#fbbf24' },
+  { value: 'accepted', label: 'Accepted', bg: 'rgba(34,197,94,0.15)', color: '#22c55e' },
+];
+const REVIEW_STATUS_BY_VALUE = REVIEW_STATUS_OPTIONS.reduce((acc, o) => { acc[o.value] = o; return acc; }, {});
 
 export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
   const { profile, isAdmin, refreshKey } = useAuth();
@@ -41,6 +47,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
   const [deliverableBeatSheetId, setDeliverableBeatSheetId] = useState('');
   const [deliverableVideoEventId, setDeliverableVideoEventId] = useState('');
   const [deliverableChannel, setDeliverableChannel] = useState('');
+  const [deliverableReviewStatus, setDeliverableReviewStatus] = useState('not_submitted');
 
   // Video events for deliverable linking
   const [videoEvents, setVideoEvents] = useState([]);
@@ -81,6 +88,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
   // Context menu + inline dropdowns for upcoming cards
   const [cardContextMenu, setCardContextMenu] = useState(null); // { x, y, deliverable }
   const [beatSheetDropdownId, setBeatSheetDropdownId] = useState(null); // deliverable id showing beat sheet picker
+  const [reviewDropdownId, setReviewDropdownId] = useState(null); // deliverable id showing review-status picker
 
   // Table sorting + delivered toggle
   const [sortCol, setSortCol] = useState('schedule'); // default sort by schedule date
@@ -565,6 +573,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
     setDeliverablePlatforms([]); setDeliverableNeedsReview(false); setDeliverableCampaignId('');
     setDeliverablePay(''); setDeliverableBeatSheetId(''); setDeliverableVideoEventId('');
     setDeliverableChannel('');
+    setDeliverableReviewStatus('not_submitted');
     setEditingDeliverable(null); setShowDeliverableForm(null);
   }
 
@@ -579,6 +588,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
     setDeliverableBeatSheetId(d.beat_sheet_id || '');
     setDeliverableVideoEventId(d.video_event_id || '');
     setDeliverableChannel(d.channel || '');
+    setDeliverableReviewStatus(d.review_status || 'not_submitted');
     setEditingDeliverable(d.id);
     setShowDeliverableForm(d.campaign_id);
   }
@@ -601,6 +611,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
         beat_sheet_id: deliverableBeatSheetId || null,
         video_event_id: deliverableVideoEventId || null,
         channel: deliverableChannel || null,
+        review_status: deliverableReviewStatus || 'not_submitted',
         updated_at: new Date().toISOString(),
       }).eq('id', editingDeliverable);
       if (error) { alert('Error updating deliverable: ' + error.message); return; }
@@ -642,6 +653,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
         beat_sheet_id: deliverableBeatSheetId || null,
         video_event_id: deliverableVideoEventId || null,
         channel: deliverableChannel || null,
+        review_status: deliverableReviewStatus || 'not_submitted',
       }).select().single();
       if (error) { alert('Error creating deliverable: ' + error.message); return; }
 
@@ -740,6 +752,15 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
     setBeatSheetDropdownId(null);
     await supabase.from('sponsor_deliverables').update({
       beat_sheet_id: beatSheetId || null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', deliverableId);
+    fetchSponsors();
+  }
+
+  async function handleInlineSetReviewStatus(deliverableId, status) {
+    setReviewDropdownId(null);
+    await supabase.from('sponsor_deliverables').update({
+      review_status: status,
       updated_at: new Date().toISOString(),
     }).eq('id', deliverableId);
     fetchSponsors();
@@ -1264,6 +1285,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                   <th style={thStyle} onClick={() => handleSort('sponsor')}>Sponsor{sortArrow('sponsor')}</th>
                   <th style={styles.tableTh}>Brief</th>
                   <th style={thStyle} onClick={() => handleSort('channel')}>Channel{sortArrow('channel')}</th>
+                  <th style={styles.tableTh}>Review</th>
                   <th style={thStyle} onClick={() => handleSort('schedule')}>Schedule{sortArrow('schedule')}</th>
                   <th style={styles.tableTh}>Beat Sheet</th>
                   <th style={{ ...thStyle, textAlign: 'right' }} onClick={() => handleSort('pay')}>Pay{sortArrow('pay')}</th>
@@ -1292,7 +1314,23 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                       </td>
                       {/* Sponsor */}
                       <td style={styles.tableTd}>
-                        <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (d.campaign_id) setExpandedCampaignId(d.campaign_id);
+                            startEditDeliverable(d);
+                          }}
+                          style={{
+                            fontSize: '12px',
+                            color: 'rgba(255,255,255,0.6)',
+                            cursor: 'pointer',
+                            textDecoration: 'underline dotted rgba(255,255,255,0.2)',
+                            textUnderlineOffset: 3,
+                          }}
+                          title="Edit deliverable"
+                        >
                           {d.sponsor_name}{d.campaign_name ? ` / ${d.campaign_name}` : ''}
                         </span>
                       </td>
@@ -1325,6 +1363,42 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                             {CHANNEL_COLORS[d.channel].label}
                           </span>
                         )}
+                      </td>
+                      {/* Review Status */}
+                      <td style={{ ...styles.tableTd, position: 'relative' }}>
+                        {(() => {
+                          const r = REVIEW_STATUS_BY_VALUE[d.review_status] || REVIEW_STATUS_BY_VALUE.not_submitted;
+                          const isOpen = reviewDropdownId === d.id;
+                          return (
+                            <>
+                              <span
+                                role="button"
+                                tabIndex={0}
+                                onClick={(e) => { e.stopPropagation(); setReviewDropdownId(isOpen ? null : d.id); }}
+                                style={{ ...styles.chip, fontWeight: 600, background: r.bg, color: r.color, cursor: 'pointer' }}
+                              >
+                                {r.label}
+                              </span>
+                              {isOpen && (
+                                <div style={styles.inlineDropdown}>
+                                  {REVIEW_STATUS_OPTIONS.map(o => (
+                                    <button
+                                      key={o.value}
+                                      style={{
+                                        ...styles.inlineDropdownItem,
+                                        color: o.color,
+                                        fontWeight: d.review_status === o.value ? 700 : 500,
+                                      }}
+                                      onClick={(e) => { e.stopPropagation(); handleInlineSetReviewStatus(d.id, o.value); }}
+                                    >
+                                      {o.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
                       </td>
                       {/* Schedule */}
                       <td style={styles.tableTd}>
@@ -2041,6 +2115,14 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                               </select>
                             </div>
                             <div style={styles.field}>
+                              <label style={styles.label}>Review Status</label>
+                              <select value={deliverableReviewStatus} onChange={e => setDeliverableReviewStatus(e.target.value)} style={styles.select}>
+                                {REVIEW_STATUS_OPTIONS.map(o => (
+                                  <option key={o.value} value={o.value}>{o.label}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div style={styles.field}>
                               <label style={styles.label}>Pay ($)</label>
                               <input type="number" step="0.01" value={deliverablePay} onChange={e => setDeliverablePay(e.target.value)} placeholder="0.00" style={styles.input} />
                             </div>
@@ -2238,6 +2320,12 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
         <div
           style={{ position: 'fixed', inset: 0, zIndex: 49 }}
           onClick={() => setBeatSheetDropdownId(null)}
+        />
+      )}
+      {reviewDropdownId && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 49 }}
+          onClick={() => setReviewDropdownId(null)}
         />
       )}
     </div>
