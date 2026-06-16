@@ -21,6 +21,7 @@ export type Block = BlockChrome & (
   | { type: "spacer"; size?: number }
   | { type: "html"; html: string }
   | { type: "rich-text"; html: string }
+  | { type: "personalization"; template: string; field?: string; fallback?: string }
   | { type: "header"; style?: "logo" | "banner" | "text"; logoUrl?: string; bannerUrl?: string; title?: string; subtitle?: string; bg?: string; fg?: string }
   | { type: "footer"; text?: string; showUnsubscribe?: boolean; showBranding?: boolean; bg?: string; fg?: string }
   | { type: "social-links"; align?: "left" | "center" | "right"; iconSize?: number; color?: string; links?: { platform: string; url: string }[] }
@@ -28,12 +29,30 @@ export type Block = BlockChrome & (
   | { type: "section"; title?: string; showTitle?: boolean; children?: Block[] }
 );
 
+export interface SubscriberContext {
+  name?: string | null;
+  email?: string | null;
+  custom_fields?: Record<string, unknown> | null;
+}
+
 export interface RenderContext {
   subject: string;
   preheader?: string;
   openTrackerUrl?: string;
   unsubscribeUrl?: string;
   rewriteHref?: (href: string) => string;
+  subscriber?: SubscriberContext;
+}
+
+function substituteTokens(tmpl: string, sub: SubscriberContext, fallback: string): string {
+  return String(tmpl || "").replace(/\{\{\s*(\w+)\s*\}\}/g, (_m, key) => {
+    const top = (sub as unknown as Record<string, unknown>)[key];
+    if (top != null && top !== "") return String(top);
+    const cf = sub.custom_fields || {};
+    const v = (cf as Record<string, unknown>)[key];
+    if (v != null && v !== "") return String(v);
+    return fallback || "";
+  });
 }
 
 function escapeHtml(s: string): string {
@@ -105,6 +124,11 @@ function renderInner(b: Block, ctx: RenderContext): string {
       return b.html;
     case "rich-text":
       return `<div style="font-size:15px;line-height:1.6;color:#333;">${b.html || ""}</div>`;
+    case "personalization": {
+      const sub = ctx.subscriber || {};
+      const rendered = substituteTokens(b.template || "", sub, b.fallback || "");
+      return `<p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#333;">${escapeHtml(rendered)}</p>`;
+    }
     case "header": {
       const bg = b.bg || "#0f0f1a";
       const fg = b.fg || "#ffffff";

@@ -217,6 +217,22 @@ function BlockFields({ block, onChange }) {
           <RichTextBlockEditor html={block.html} onChange={(html) => onChange({ html })} />
         </Field>
       );
+    case 'personalization':
+      return (
+        <>
+          <Field label="Template (use {{name}} / {{email}} / {{any_custom_field}})">
+            <Input value={block.template} onChange={(v) => onChange({ template: v })} placeholder="Hey {{name}}," />
+          </Field>
+          <Row>
+            <Field label="Primary field"><Input value={block.field} onChange={(v) => onChange({ field: v })} placeholder="name" /></Field>
+            <Field label="Fallback value"><Input value={block.fallback} onChange={(v) => onChange({ fallback: v })} placeholder="there" /></Field>
+          </Row>
+          <div style={styles.note}>
+            At send time, {'{{token}}'} is replaced from the subscriber's name/email/custom_fields.
+            If the primary field is missing, the fallback is substituted.
+          </div>
+        </>
+      );
     case 'header':
       return (
         <>

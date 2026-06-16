@@ -117,6 +117,19 @@ const registry = {
   },
 };
 
+registry.personalization = {
+  type: 'personalization',
+  label: 'Personalization',
+  category: 'interactive',
+  icon: 'UserCheck',
+  description: 'Dynamic text using subscriber fields (e.g. "Hey {{name}}")',
+  defaults: {
+    template: 'Hey {{name}},',
+    fallback: 'there',
+    field: 'name',
+  },
+};
+
 registry['rich-text'] = {
   type: 'rich-text',
   label: 'Rich Text',

@@ -16,6 +16,18 @@ function alignStyle(a) {
   return a ? `text-align:${a};` : 'text-align:left;';
 }
 
+// Replace {{token}} occurrences using a subscriber-like object.
+// Lookup order: name/email at top level, then anything in custom_fields.
+// Tokens with no value fall back to `fallback`.
+function substituteTokens(tmpl, sub, fallback) {
+  return String(tmpl || '').replace(/\{\{\s*(\w+)\s*\}\}/g, (_m, key) => {
+    if (sub[key] != null && sub[key] !== '') return String(sub[key]);
+    const cf = sub.custom_fields || {};
+    if (cf[key] != null && cf[key] !== '') return String(cf[key]);
+    return fallback || '';
+  });
+}
+
 function wrapperStyle(b) {
   const parts = [];
   if (b.background) parts.push(`background:${b.background};`);
@@ -72,6 +84,13 @@ function renderInner(b, ctx) {
       // Tiptap output is already semantic HTML. Wrap in a div so any
       // padding/background props from the chrome wrapper apply cleanly.
       return `<div style="font-size:15px;line-height:1.6;color:#333;">${b.html || ''}</div>`;
+    case 'personalization': {
+      // Preview-time substitution. ctx.subscriber populated at send;
+      // empty in editor preview so tokens display with fallback value.
+      const sub = ctx?.subscriber || {};
+      const rendered = substituteTokens(b.template || '', sub, b.fallback || '');
+      return `<p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#333;">${escapeHtml(rendered)}</p>`;
+    }
     case 'header': {
       const bg = b.bg || '#0f0f1a';
       const fg = b.fg || '#ffffff';

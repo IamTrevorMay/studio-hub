@@ -39,7 +39,12 @@ interface Campaign {
   blocks: Block[];
 }
 
-interface Subscriber { id: string; email: string; name: string | null }
+interface Subscriber {
+  id: string;
+  email: string;
+  name: string | null;
+  custom_fields?: Record<string, unknown> | null;
+}
 
 const DEFAULT_FROM = Deno.env.get("MAILER_DEFAULT_FROM") || "noreply@maydaystudio.net";
 
@@ -83,7 +88,7 @@ Deno.serve(async (req) => {
   //    log isn't polluted with sends that never had a chance to fire.
   const { data: members } = await admin
     .from("mailer_audience_subscribers")
-    .select("mailer_subscribers(id, email, name, status)")
+    .select("mailer_subscribers(id, email, name, status, custom_fields)")
     .eq("audience_id", campaign.audience_id);
 
   // deno-lint-ignore no-explicit-any
@@ -151,6 +156,11 @@ Deno.serve(async (req) => {
         u.searchParams.set("s", sendId);
         u.searchParams.set("u", href);
         return u.toString();
+      },
+      subscriber: {
+        name: s.name,
+        email: s.email,
+        custom_fields: s.custom_fields || null,
       },
     });
     return {
