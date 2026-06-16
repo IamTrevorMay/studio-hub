@@ -6,25 +6,17 @@ import CampaignPreview from './mailer/CampaignPreview';
 import CsvImportModal from './mailer/CsvImportModal';
 import CampaignStats from './mailer/CampaignStats';
 import SettingsPane from './mailer/SettingsPane';
+import SendDialog from './mailer/SendDialog';
 
-// Mailer — admin-only newsletter tool. Phase 4 buildout.
+// Mailer — admin-only newsletter tool.
 //
-// Foundation shipped:
-//   • DB: mailer_audiences, mailer_subscribers, mailer_audience_subscribers,
-//     mailer_campaigns (with `blocks` jsonb), mailer_sends, mailer_events,
-//     mailer_suppressions, mailer_sender_domains.
-//   • Edge fns: mailer-send-now, mailer-webhook, mailer-track-open,
-//     mailer-track-click, mailer-unsubscribe, mailer-cron-tick.
-//   • Renderer: supabase/functions/shared/mailer-render.ts walks the
-//     block tree → HTML/text. Block types: heading, paragraph, image,
-//     button, divider, spacer, html.
-//
-// Still to do (later phases):
-//   • Block editor (this page currently exposes the campaign metadata
-//     + a raw JSON blocks textarea — usable, not pretty).
-//   • Subscriber CSV import.
-//   • Per-campaign stats panel + opens/clicks timeline.
-//   • Sender domain verification UI (Resend addDomain flow).
+// Schema: mailer_audiences, mailer_subscribers, mailer_audience_subscribers,
+//   mailer_campaigns (with `blocks` jsonb), mailer_sends, mailer_events,
+//   mailer_suppressions, mailer_sender_domains.
+// Edge fns: mailer-send-now, mailer-webhook, mailer-track-open,
+//   mailer-track-click, mailer-unsubscribe, mailer-cron-tick, mailer-domain.
+// Renderer: supabase/functions/shared/mailer-render.ts + client mirror
+//   src/pages/tools/mailer/blockRenderer.js — block schema is the contract.
 
 const TABS = ['Campaigns', 'Audiences', 'Subscribers', 'Sends', 'Settings'];
 
@@ -85,6 +77,7 @@ function CampaignsPane() {
   const [error, setError] = useState(null);
   const [editing, setEditing] = useState(null); // campaign object or { __new: true }
   const [audiences, setAudiences] = useState([]);
+  const [sending, setSending] = useState(null); // campaign object
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -116,19 +109,8 @@ function CampaignsPane() {
     load();
   }
 
-  async function sendNow(c) {
-    if (!c.audience_id) { window.alert('Pick an audience first.'); return; }
-    if (!c.subject?.trim()) { window.alert('Subject is required.'); return; }
-    if (!window.confirm(`Send "${c.name}" to its audience right now?`)) return;
-    const { data, error } = await supabase.functions.invoke('mailer-send-now', {
-      body: { campaign_id: c.id },
-    });
-    if (error || data?.error) {
-      window.alert('Send failed: ' + (error?.message || data?.error));
-      return;
-    }
-    window.alert(`Sent to ${data?.sent ?? 0} recipients.`);
-    load();
+  function openSendDialog(c) {
+    setSending(c);
   }
 
   return (
@@ -164,9 +146,7 @@ function CampaignsPane() {
                   <td style={styles.td}>{c.stats?.recipients ?? 0}</td>
                   <td style={styles.td}>{c.sent_at ? new Date(c.sent_at).toLocaleString() : <span style={styles.muted}>—</span>}</td>
                   <td style={{ ...styles.td, textAlign: 'right' }}>
-                    {c.status === 'draft' && (
-                      <button style={styles.smallBtn} onClick={() => sendNow(c)}>Send</button>
-                    )}
+                    <button style={styles.smallBtn} onClick={() => openSendDialog(c)}>Send</button>
                     <button style={{ ...styles.smallBtn, color: '#f87171' }} onClick={() => remove(c)}>Delete</button>
                   </td>
                 </tr>
@@ -181,6 +161,14 @@ function CampaignsPane() {
           audiences={audiences}
           onClose={() => setEditing(null)}
           onSaved={() => { load(); setEditing(null); }}
+        />
+      )}
+      {sending && (
+        <SendDialog
+          campaign={sending}
+          audience={audiences.find((a) => a.id === sending.audience_id)}
+          onClose={() => setSending(null)}
+          onSent={() => { load(); setSending(null); }}
         />
       )}
     </div>

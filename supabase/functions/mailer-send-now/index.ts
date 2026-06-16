@@ -51,19 +51,30 @@ Deno.serve(async (req) => {
   if (!auth) return jsonResp({ error: "Unauthorized" }, 401);
   if (!auth.isAdmin) return jsonResp({ error: "Admin only" }, 403);
 
-  let body: { campaign_id?: string };
+  let body: { campaign_id?: string; test_recipients?: string[] };
   try { body = await req.json(); } catch { return jsonResp({ error: "Invalid JSON" }, 400); }
   if (!body.campaign_id) return jsonResp({ error: "campaign_id required" }, 400);
 
   const admin = getAdminClient();
 
-  // 1. Pull the campaign. Reject states that shouldn't trigger a send.
+  // 1. Pull the campaign. Test sends are allowed against draft and
+  //    already-sent campaigns; audience sends require a fresh state.
   const { data: campaign, error: cErr } = await admin
     .from("mailer_campaigns")
     .select("*")
     .eq("id", body.campaign_id)
     .single<Campaign>();
   if (cErr || !campaign) return jsonResp({ error: cErr?.message || "campaign not found" }, 404);
+
+  // Test-send branch: skip audience + queue, fire to explicit recipients.
+  const testRecipients = (body.test_recipients || [])
+    .map((e) => String(e || "").trim().toLowerCase())
+    .filter((e) => e.includes("@"));
+  if (testRecipients.length > 0) {
+    if (testRecipients.length > 5) return jsonResp({ error: "max 5 test recipients" }, 400);
+    return await runTestSend(admin, campaign, testRecipients);
+  }
+
   if (campaign.status === "sending") return jsonResp({ error: "already sending" }, 409);
   if (!campaign.audience_id) return jsonResp({ error: "no audience" }, 400);
 
@@ -187,3 +198,34 @@ Deno.serve(async (req) => {
 
   return jsonResp({ ok: true, sent: targets.length });
 });
+
+// Test sends: render once with a TEST prefix and no tracking. Doesn't
+// touch campaign status, doesn't seed mailer_sends — purely a preview
+// to verify rendering in a real inbox before going to the real list.
+// deno-lint-ignore no-explicit-any
+async function runTestSend(_admin: any, campaign: Campaign, recipients: string[]): Promise<Response> {
+  const from = campaign.from_email || DEFAULT_FROM;
+  const fromHeader = campaign.from_name ? `${campaign.from_name} <${from}>` : from;
+  const { html, text } = renderCampaign(campaign.blocks || [], {
+    subject: `[TEST] ${campaign.subject}`,
+    preheader: campaign.preheader || undefined,
+  });
+  const items: SendEmailInput[] = recipients.map((to) => ({
+    from: fromHeader,
+    to,
+    subject: `[TEST] ${campaign.subject}`,
+    html,
+    text,
+    reply_to: campaign.reply_to || undefined,
+    tags: [
+      { name: "campaign_id", value: campaign.id },
+      { name: "test", value: "true" },
+    ],
+  }));
+  try {
+    await resendBatch(items);
+  } catch (e) {
+    return jsonResp({ error: String((e as Error)?.message || e) }, 500);
+  }
+  return jsonResp({ ok: true, test: true, sent: recipients.length });
+}
