@@ -1193,6 +1193,8 @@ export default function Production({ initialSheetId, onSheetOpened }) {
       ref={provided.innerRef}
       {...provided.draggableProps}
       onContextMenu={e => {
+        const tag = e.target.tagName;
+        if (tag === 'TEXTAREA' || tag === 'INPUT') return; // let browser show native menu (copy/paste/undo/spelling)
         e.preventDefault();
         setContextMenu({ x: e.clientX, y: e.clientY, beatId: beat.id, segmentId: parentSegmentId });
       }}
@@ -2268,6 +2270,8 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                           <div
                             style={styles.segmentHeader}
                             onContextMenu={e => {
+                              const tag = e.target.tagName;
+                              if (tag === 'TEXTAREA' || tag === 'INPUT') return;
                               e.preventDefault();
                               setContextMenu({ x: e.clientX, y: e.clientY, segmentId: item.id, isSegmentHeader: true });
                             }}
