@@ -12,10 +12,13 @@ const POINT_OPTIONS = [
 ];
 const CATEGORY_OPTIONS = [
   { value: 'administration', label: 'Admin', color: '#3b82f6' },
-  { value: 'business_development', label: 'Biz Dev', color: '#f97316' },
-  { value: 'communication', label: 'Comms', color: '#f59e0b' },
   { value: 'creative', label: 'Creative', color: '#ec4899' },
   { value: 'production', label: 'Production', color: '#22c55e' },
+  { value: 'business_development', label: 'Biz Dev', color: '#f97316' },
+  { value: 'communication', label: 'Comms', color: '#f59e0b' },
+  { value: 'software', label: 'Software', color: '#8b5cf6' },
+  { value: 'ad', label: 'Ad', color: '#f59e0b' },
+  { value: 'social', label: 'Social', color: '#06b6d4' },
 ];
 const CATEGORY_COLORS = {};
 CATEGORY_OPTIONS.forEach(c => { CATEGORY_COLORS[c.value] = c.color; });

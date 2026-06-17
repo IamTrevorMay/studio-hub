@@ -21,11 +21,14 @@ const BUCKET_COLUMNS = [
 const ALL_COLUMNS = [...SPRINT_COLUMNS, ...BUCKET_COLUMNS];
 
 const CATEGORY_OPTIONS = [
-  { value: 'administration', label: 'Administration', color: '#3b82f6' },
-  { value: 'business_development', label: 'Business Dev', color: '#f97316' },
-  { value: 'communication', label: 'Communication', color: '#f59e0b' },
+  { value: 'administration', label: 'Admin', color: '#3b82f6' },
   { value: 'creative', label: 'Creative', color: '#ec4899' },
   { value: 'production', label: 'Production', color: '#22c55e' },
+  { value: 'business_development', label: 'Business Dev', color: '#f97316' },
+  { value: 'communication', label: 'Communication', color: '#f59e0b' },
+  { value: 'software', label: 'Software', color: '#8b5cf6' },
+  { value: 'ad', label: 'Ad', color: '#f59e0b' },
+  { value: 'social', label: 'Social', color: '#06b6d4' },
 ];
 
 const SUBCATEGORY_OPTIONS = [
