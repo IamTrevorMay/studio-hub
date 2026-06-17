@@ -1,7 +1,7 @@
 // supabase/functions/find-broll/index.ts
 // Deploy with: supabase functions deploy find-broll --no-verify-jwt
 // Analyzes beat text via Claude, then searches Brave for B-Roll suggestions.
-// Returns videos and articles separately (up to 4 each), baseball-focused.
+// Returns results from Baseball Savant, MLB.com, and YouTube only.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createHandler } from "../shared/handler.ts";
@@ -21,21 +21,17 @@ function jsonRes(data: unknown, status = 200) {
 
 // Domain priority for sorting results (lower = better)
 const DOMAIN_PRIORITY: Record<string, number> = {
-  "mlb.com": 0,
-  "youtube.com": 1,
-  "espn.com": 2,
-  "sports.yahoo.com": 3,
-  "theathletic.com": 4,
+  "baseballsavant.mlb.com": 0,
+  "mlb.com": 1,
+  "youtube.com": 2,
 };
 
 function getDomainLabel(url: string): string {
   try {
     const host = new URL(url).hostname.replace(/^www\./, "");
+    if (host.includes("baseballsavant.mlb.com")) return "savant";
     if (host.includes("mlb.com")) return "mlb";
     if (host.includes("youtube.com") || host.includes("youtu.be")) return "youtube";
-    if (host.includes("espn.com")) return "espn";
-    if (host.includes("yahoo.com")) return "yahoo";
-    if (host.includes("theathletic.com")) return "athletic";
     return "other";
   } catch {
     return "other";
@@ -45,6 +41,8 @@ function getDomainLabel(url: string): string {
 function getDomainPriority(url: string): number {
   try {
     const host = new URL(url).hostname.replace(/^www\./, "");
+    // Check savant first (it's a subdomain of mlb.com)
+    if (host.includes("baseballsavant.mlb.com")) return 0;
     for (const [domain, priority] of Object.entries(DOMAIN_PRIORITY)) {
       if (host.includes(domain)) return priority;
     }
@@ -54,29 +52,11 @@ function getDomainPriority(url: string): number {
   return 99;
 }
 
-/** Classify a result as video or article based on URL patterns */
-function classifyResult(url: string, source: string): "video" | "article" {
-  try {
-    const path = new URL(url).pathname.toLowerCase();
-
-    // YouTube is always video
-    if (source === "youtube") return "video";
-
-    // MLB.com video paths
-    if (source === "mlb" && (path.includes("/video") || path.includes("/gameday"))) return "video";
-
-    // ESPN video paths
-    if (source === "espn" && (path.includes("/video") || path.includes("/watch"))) return "video";
-
-    // Yahoo video paths
-    if (source === "yahoo" && path.includes("/video")) return "video";
-
-    // Generic video indicators in URL
-    if (/\/(video|watch|clip|highlight|play)s?\b/.test(path)) return "video";
-  } catch {
-    // ignore
-  }
-  return "article";
+/** Classify a result by source — savant=pitch, mlb/youtube=video, other=null (discard) */
+function classifyResult(source: string): "pitch" | "video" | null {
+  if (source === "savant") return "pitch";
+  if (source === "mlb" || source === "youtube") return "video";
+  return null;
 }
 
 Deno.serve(
@@ -119,10 +99,13 @@ Deno.serve(
           model,
           max_tokens: 1024,
           system: `You extract key subjects and generate search queries from baseball video script beats.
-Given a beat (a short script segment about baseball/MLB), identify the key subjects (players, teams, plays, games) and generate 3-5 targeted search queries.
-ALL queries MUST be baseball/MLB focused. Always include "baseball" or "MLB" in queries when not already obvious.
-Generate a mix of queries: some targeting video highlights (include "highlights", "video", or "clip") and some targeting articles/analysis.
-Prioritize MLB.com, YouTube, ESPN, and The Athletic as sources.
+Given a beat (a short script segment about baseball/MLB), identify the key subjects (players, teams, plays, games) and generate exactly 6 targeted search queries.
+ALL queries MUST be baseball/MLB focused.
+Generate exactly 2 queries for each of these 3 sources:
+1. Baseball Savant pitch data: use "site:baseballsavant.mlb.com" + player name + terms like "pitch mix", "statcast", "pitch arsenal", or "spin rate"
+2. MLB.com video highlights: use "site:mlb.com" + player name + terms like "highlights", "video", or "home run"
+3. YouTube videos: use "site:youtube.com" + player name + specific terms like "highlights", "breakdown", or the play described in the beat
+Make queries specific to the subjects mentioned. Include player names and specific events when possible.
 Return ONLY valid JSON with no markdown formatting: { "subjects": ["..."], "queries": ["..."] }`,
           messages: [{ role: "user", content: beat_text.trim() }],
         }),
@@ -141,10 +124,10 @@ Return ONLY valid JSON with no markdown formatting: { "subjects": ["..."], "quer
       const cleaned = rawText.replace(/^```json?\s*/i, "").replace(/\s*```$/i, "").trim();
       const parsed = JSON.parse(cleaned);
       subjects = parsed.subjects || [];
-      queries = (parsed.queries || []).slice(0, 5);
+      queries = (parsed.queries || []).slice(0, 6);
 
       if (!queries.length) {
-        return jsonRes({ videos: [], articles: [], subjects, message: "No search queries generated" });
+        return jsonRes({ results: [], subjects, message: "No search queries generated" });
       }
     } catch (err) {
       clearTimeout(claudeTimeout);
@@ -189,10 +172,9 @@ Return ONLY valid JSON with no markdown formatting: { "subjects": ["..."], "quer
       })
     );
 
-    // ── Step 3: Deduplicate, classify, and prioritize ──
+    // ── Step 3: Deduplicate, classify, and filter to savant/mlb/youtube only ──
     const seenUrls = new Set<string>();
-    const videoResults: { title: string; url: string; source: string; description: string; priority: number }[] = [];
-    const articleResults: { title: string; url: string; source: string; description: string; priority: number }[] = [];
+    const allResults: { title: string; url: string; source: string; category: string; description: string; priority: number }[] = [];
 
     for (const result of searchResults) {
       if (result.status !== "fulfilled") continue;
@@ -200,32 +182,34 @@ Return ONLY valid JSON with no markdown formatting: { "subjects": ["..."], "quer
         if (seenUrls.has(item.url)) continue;
         seenUrls.add(item.url);
         const source = getDomainLabel(item.url);
-        const category = classifyResult(item.url, source);
-        const entry = {
+        const category = classifyResult(source);
+        if (!category) continue; // discard non-savant/mlb/youtube results
+        allResults.push({
           title: item.title,
           url: item.url,
           source,
+          category,
           description: item.description,
           priority: getDomainPriority(item.url),
-        };
-        if (category === "video") {
-          videoResults.push(entry);
-        } else {
-          articleResults.push(entry);
-        }
+        });
       }
     }
 
-    // Sort each by domain priority, take top 4
-    videoResults.sort((a, b) => a.priority - b.priority);
-    articleResults.sort((a, b) => a.priority - b.priority);
-    const videos = videoResults.slice(0, 4).map(({ priority: _, ...rest }) => rest);
-    const articles = articleResults.slice(0, 4).map(({ priority: _, ...rest }) => rest);
+    // Sort by domain priority, then pick up to 2 per source (6 max)
+    allResults.sort((a, b) => a.priority - b.priority);
+    const counts: Record<string, number> = {};
+    const results = allResults
+      .filter(r => {
+        counts[r.source] = (counts[r.source] || 0) + 1;
+        return counts[r.source] <= 2;
+      })
+      .slice(0, 6)
+      .map(({ priority: _, ...rest }) => rest);
 
-    if (!videos.length && !articles.length) {
-      return jsonRes({ videos: [], articles: [], subjects, message: "No results found" });
+    if (!results.length) {
+      return jsonRes({ results: [], subjects, message: "No results found" });
     }
 
-    return jsonRes({ videos, articles, subjects });
+    return jsonRes({ results, subjects });
   })
 );

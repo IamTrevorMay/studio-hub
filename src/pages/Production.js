@@ -99,14 +99,11 @@ const ARCHIVE_FOLDER = { id: 'archive', label: 'Archive' };
 
 // ─── B-Roll source styling ────────────────────────────────────────────────────
 const SOURCE_COLORS = {
+  savant: { bg: 'rgba(0,120,215,0.2)', fg: '#5bb8ff' },
   mlb: { bg: 'rgba(0,45,114,0.25)', fg: '#6d9eeb' },
   youtube: { bg: 'rgba(255,0,0,0.12)', fg: '#ff6b6b' },
-  espn: { bg: 'rgba(204,0,0,0.15)', fg: '#ff8a8a' },
-  yahoo: { bg: 'rgba(75,0,130,0.15)', fg: '#b794f4' },
-  athletic: { bg: 'rgba(200,150,50,0.15)', fg: '#f0c674' },
-  other: { bg: 'rgba(255,255,255,0.06)', fg: 'rgba(255,255,255,0.5)' },
 };
-const SOURCE_LABELS = { mlb: 'MLB', youtube: 'YouTube', espn: 'ESPN', yahoo: 'Yahoo Sports', athletic: 'The Athletic', other: 'Web' };
+const SOURCE_LABELS = { savant: 'Savant', mlb: 'MLB', youtube: 'YouTube' };
 
 // ─── component ─────────────────────────────────────────────────────────────────
 
@@ -1117,27 +1114,19 @@ export default function Production({ initialSheetId, onSheetOpened }) {
         setToast({ type: 'error', message: data?.error || error?.message || 'B-Roll search failed' });
         return;
       }
-      if (!data.videos?.length && !data.articles?.length) {
+      if (!data.results?.length) {
         setToast({ type: 'error', message: 'No B-Roll suggestions found.' });
         return;
       }
-      const newItems = [
-        ...(data.videos || []).map(s => ({
-          type: 'broll_video', title: s.title, source: s.source,
-          url: s.url, description: s.description
-        })),
-        ...(data.articles || []).map(s => ({
-          type: 'broll_article', title: s.title, source: s.source,
-          url: s.url, description: s.description
-        })),
-      ];
+      const newItems = data.results.map(s => ({
+        type: s.category === 'pitch' ? 'broll_pitch' : 'broll_video',
+        title: s.title, source: s.source,
+        url: s.url, description: s.description
+      }));
       setBeats(prev => mapBeatsDeep(prev, b =>
         b.id === beatId ? { ...b, videos: [...b.videos, ...newItems] } : b
       ));
-      const parts = [];
-      if (data.videos?.length) parts.push(`${data.videos.length} video${data.videos.length > 1 ? 's' : ''}`);
-      if (data.articles?.length) parts.push(`${data.articles.length} article${data.articles.length > 1 ? 's' : ''}`);
-      setToast({ type: 'success', message: `Found ${parts.join(' and ')}.` });
+      setToast({ type: 'success', message: `Found ${data.results.length} result${data.results.length > 1 ? 's' : ''}.` });
     } catch (err) {
       console.error('findBroll error:', err);
       setToast({ type: 'error', message: 'B-Roll search failed.' });
@@ -1163,17 +1152,12 @@ export default function Production({ initialSheetId, onSheetOpened }) {
         const { data, error } = await supabase.functions.invoke('find-broll', {
           body: { beat_text: beat.title }
         });
-        if (!error && (data?.videos?.length || data?.articles?.length)) {
-          const newItems = [
-            ...(data.videos || []).map(s => ({
-              type: 'broll_video', title: s.title, source: s.source,
-              url: s.url, description: s.description
-            })),
-            ...(data.articles || []).map(s => ({
-              type: 'broll_article', title: s.title, source: s.source,
-              url: s.url, description: s.description
-            })),
-          ];
+        if (!error && data?.results?.length) {
+          const newItems = data.results.map(s => ({
+            type: s.category === 'pitch' ? 'broll_pitch' : 'broll_video',
+            title: s.title, source: s.source,
+            url: s.url, description: s.description
+          }));
           setBeats(prev => mapBeatsDeep(prev, b =>
             b.id === beat.id ? { ...b, videos: [...b.videos, ...newItems] } : b
           ));
@@ -1377,18 +1361,18 @@ export default function Production({ initialSheetId, onSheetOpened }) {
         }}
       >
         {beat.videos.map((v, i) => {
-          if (typeof v === 'object' && (v.type === 'broll_video' || v.type === 'broll_article')) {
-            const sc = SOURCE_COLORS[v.source] || SOURCE_COLORS.other;
-            const isVideo = v.type === 'broll_video';
+          if (typeof v === 'object' && (v.type === 'broll_video' || v.type === 'broll_pitch')) {
+            const sc = SOURCE_COLORS[v.source] || { bg: 'rgba(255,255,255,0.06)', fg: 'rgba(255,255,255,0.5)' };
+            const isPitch = v.type === 'broll_pitch';
             return (
-              <div key={i} style={{ ...styles.brollCard, borderColor: isVideo ? 'rgba(99,102,241,0.15)' : 'rgba(251,191,36,0.15)' }}>
+              <div key={i} style={{ ...styles.brollCard, borderColor: isPitch ? 'rgba(0,120,215,0.2)' : 'rgba(99,102,241,0.15)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <div style={{ ...styles.brollCategory, background: isVideo ? 'rgba(99,102,241,0.15)' : 'rgba(251,191,36,0.12)', color: isVideo ? '#a5b4fc' : '#fbbf24' }}>
-                    {isVideo ? 'Video' : 'Article'}
+                  <div style={{ ...styles.brollCategory, background: isPitch ? 'rgba(0,120,215,0.15)' : 'rgba(99,102,241,0.15)', color: isPitch ? '#5bb8ff' : '#a5b4fc' }}>
+                    {isPitch ? 'Pitch Data' : 'Video'}
                   </div>
                   <div style={{ ...styles.brollSource, background: sc.bg, color: sc.fg }}>{SOURCE_LABELS[v.source] || v.source}</div>
                 </div>
-                <a href={v.url} target="_blank" rel="noopener noreferrer" style={{ ...styles.brollTitle, color: isVideo ? '#a5b4fc' : '#fbbf24' }}>
+                <a href={v.url} target="_blank" rel="noopener noreferrer" style={{ ...styles.brollTitle, color: isPitch ? '#5bb8ff' : '#a5b4fc' }}>
                   {v.title}
                 </a>
                 {v.description && <div style={styles.brollDesc}>{v.description}</div>}
