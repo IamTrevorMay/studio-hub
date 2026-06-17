@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
+import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 // ─── Column config ───────────────────────────────────────────
@@ -44,6 +45,7 @@ function archiveCountdown(movedAt) {
 // ─── Component ───────────────────────────────────────────────
 
 export default function ProgressKanban() {
+  const { isAdmin } = useAuth();
   const [cards, setCards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -175,7 +177,7 @@ export default function ProgressKanban() {
                     <div style={styles.emptyState}>No items</div>
                   ) : (
                     items.map(card => (
-                      <div key={card.id} style={styles.card} onContextMenu={e => handleContextMenu(e, card)}>
+                      <div key={card.id} style={styles.card} onContextMenu={isAdmin ? e => handleContextMenu(e, card) : undefined}>
                         <div style={styles.cardTitle}>{card.title}</div>
                         <div style={styles.cardMeta}>
                           <span style={{
