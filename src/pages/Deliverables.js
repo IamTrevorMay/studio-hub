@@ -56,13 +56,12 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
   const [showCampaignForm, setShowCampaignForm] = useState(false);
   const [editingCampaign, setEditingCampaign] = useState(null);
   const [campaignForm, setCampaignForm] = useState({ name: '', brand: '', description: '', start_date: '', end_date: '', contact_name: '', contact_email: '', payment_status: 'unpaid' });
-  const [briefFile, setBriefFile] = useState(null);
-  const [briefMode, setBriefMode] = useState('upload');
-  const [briefLinkUrl, setBriefLinkUrl] = useState('');
-  const [briefLinkLabel, setBriefLinkLabel] = useState('');
+  const [campaignBriefs, setCampaignBriefs] = useState([]); // multi-brief list for campaign form
   const [briefModalCampaign, setBriefModalCampaign] = useState(null);
+  const [briefModalType, setBriefModalType] = useState('link');
   const [briefModalUrl, setBriefModalUrl] = useState('');
   const [briefModalLabel, setBriefModalLabel] = useState('');
+  const [briefModalFile, setBriefModalFile] = useState(null);
   const [briefModalSaving, setBriefModalSaving] = useState(false);
 
   const [allDeliverables, setAllDeliverables] = useState([]);
@@ -114,7 +113,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
     try {
       const { data, error } = await supabase
         .from('sponsors')
-        .select('*, sponsor_deliverables(*, deliverable_stage_assignments(*, profile:profiles(id, full_name))), sponsor_campaigns(*)')
+        .select('*, sponsor_deliverables(*, deliverable_stage_assignments(*, profile:profiles(id, full_name))), sponsor_campaigns(*, campaign_briefs(*))')
         .order('created_at', { ascending: false });
       if (error) throw error;
       setSponsors(data || []);
@@ -122,7 +121,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
       (data || []).forEach(s => {
         (s.sponsor_deliverables || []).forEach(d => {
           const campaign = (s.sponsor_campaigns || []).find(c => c.id === d.campaign_id);
-          flat.push({ ...d, sponsor_name: s.name, sponsor_id: s.id, campaign_name: campaign?.name || null, brief_url: campaign?.brief_url || null, brief_name: campaign?.brief_name || null });
+          flat.push({ ...d, sponsor_name: s.name, sponsor_id: s.id, campaign_name: campaign?.name || null, campaign_briefs: campaign?.campaign_briefs || [] });
         });
       });
       setAllDeliverables(flat);
@@ -835,10 +834,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
   // --- Campaign handlers ---
   function resetCampaignForm() {
     setCampaignForm({ name: '', brand: '', description: '', start_date: '', end_date: '', contact_name: '', contact_email: '', payment_status: 'unpaid' });
-    setBriefFile(null);
-    setBriefMode('upload');
-    setBriefLinkUrl('');
-    setBriefLinkLabel('');
+    setCampaignBriefs([]);
     setEditingCampaign(null); setShowCampaignForm(false);
   }
 
@@ -853,6 +849,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
       contact_email: campaign.contact_email || '',
       payment_status: campaign.payment_status || 'unpaid',
     });
+    setCampaignBriefs((campaign.campaign_briefs || []).sort((a, b) => a.position - b.position).map(b => ({ id: b.id, type: b.type, label: b.label, url: b.url })));
     setEditingCampaign(campaign.id);
     setShowCampaignForm(true);
   }
@@ -899,21 +896,48 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
       if (error) { alert('Error creating campaign: ' + error.message); return; }
       campaignId = data.id;
     }
+    // Sync campaign_briefs
     if (campaignId) {
-      if (briefMode === 'upload' && briefFile) {
-        const filePath = `${campaignId}/${Date.now()}_${briefFile.name}`;
-        const { error: uploadError } = await supabase.storage.from('campaign-briefs').upload(filePath, briefFile);
-        if (uploadError) { alert('Brief upload failed: ' + uploadError.message); } else {
-          const { data: urlData } = supabase.storage.from('campaign-briefs').getPublicUrl(filePath);
-          await supabase.from('sponsor_campaigns').update({ brief_url: urlData.publicUrl, brief_name: briefFile.name }).eq('id', campaignId);
+      // Fetch existing brief IDs for this campaign
+      const { data: existingBriefs } = await supabase.from('campaign_briefs').select('id').eq('campaign_id', campaignId);
+      const existingIds = new Set((existingBriefs || []).map(b => b.id));
+      const keptIds = new Set(campaignBriefs.filter(b => b.id).map(b => b.id));
+      // Delete removed briefs
+      const toDelete = [...existingIds].filter(id => !keptIds.has(id));
+      if (toDelete.length > 0) {
+        // Clean up storage for doc-type briefs being removed
+        const { data: removedBriefs } = await supabase.from('campaign_briefs').select('type, url').in('id', toDelete);
+        for (const rb of (removedBriefs || [])) {
+          if (rb.type === 'doc') {
+            const pathMatch = rb.url.match(/campaign-briefs\/(.+)$/);
+            if (pathMatch) await supabase.storage.from('campaign-briefs').remove([decodeURIComponent(pathMatch[1])]);
+          }
         }
-      } else if (briefMode === 'link' && briefLinkUrl.trim()) {
-        const url = briefLinkUrl.trim();
-        let label = briefLinkLabel.trim();
+        await supabase.from('campaign_briefs').delete().in('id', toDelete);
+      }
+      // Upsert briefs
+      for (let i = 0; i < campaignBriefs.length; i++) {
+        const b = campaignBriefs[i];
+        let url = b.url;
+        let label = b.label.trim();
+        // Upload doc file if present
+        if (b.type === 'doc' && b.file) {
+          const filePath = `${campaignId}/${Date.now()}_${b.file.name}`;
+          const { error: uploadError } = await supabase.storage.from('campaign-briefs').upload(filePath, b.file);
+          if (uploadError) { alert('Brief upload failed: ' + uploadError.message); continue; }
+          const { data: urlData } = supabase.storage.from('campaign-briefs').getPublicUrl(filePath);
+          url = urlData.publicUrl;
+          if (!label) label = b.file.name;
+        }
+        if (!url) continue;
         if (!label) {
           try { label = new URL(url).hostname.replace(/^www\./, ''); } catch { label = 'Brief'; }
         }
-        await supabase.from('sponsor_campaigns').update({ brief_url: url, brief_name: label }).eq('id', campaignId);
+        if (b.id) {
+          await supabase.from('campaign_briefs').update({ type: b.type, label, url, position: i }).eq('id', b.id);
+        } else {
+          await supabase.from('campaign_briefs').insert({ campaign_id: campaignId, type: b.type, label, url, position: i });
+        }
       }
     }
     await syncCampaignRevenue(campaignId);
@@ -956,32 +980,46 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
     }
   }
 
-  async function handleRemoveBrief(campaignId, briefUrl) {
-    if (!(await confirm('Remove this brief file?'))) return;
-    const pathMatch = briefUrl.match(/campaign-briefs\/(.+)$/);
-    if (pathMatch) {
-      await supabase.storage.from('campaign-briefs').remove([decodeURIComponent(pathMatch[1])]);
+  async function handleRemoveBrief(brief) {
+    if (!(await confirm('Remove this brief?'))) return;
+    if (brief.type === 'doc') {
+      const pathMatch = brief.url.match(/campaign-briefs\/(.+)$/);
+      if (pathMatch) {
+        await supabase.storage.from('campaign-briefs').remove([decodeURIComponent(pathMatch[1])]);
+      }
     }
-    await supabase.from('sponsor_campaigns').update({ brief_url: null, brief_name: null }).eq('id', campaignId);
+    await supabase.from('campaign_briefs').delete().eq('id', brief.id);
     fetchSponsors();
   }
 
   function openBriefModal(campaign) {
     setBriefModalCampaign(campaign);
-    setBriefModalUrl(campaign.brief_url || '');
-    setBriefModalLabel(campaign.brief_name || '');
+    setBriefModalType('link');
+    setBriefModalUrl('');
+    setBriefModalLabel('');
+    setBriefModalFile(null);
   }
 
   async function saveBriefModal() {
     if (!briefModalCampaign) return;
-    const url = briefModalUrl.trim();
-    if (!url) { alert('Please enter a URL'); return; }
     setBriefModalSaving(true);
-    let label = briefModalLabel.trim();
-    if (!label) {
-      try { label = new URL(url).hostname.replace(/^www\./, ''); } catch { label = 'Brief'; }
+    const nextPos = (briefModalCampaign.campaign_briefs || []).length;
+    if (briefModalType === 'doc' && briefModalFile) {
+      const filePath = `${briefModalCampaign.id}/${Date.now()}_${briefModalFile.name}`;
+      const { error: uploadError } = await supabase.storage.from('campaign-briefs').upload(filePath, briefModalFile);
+      if (uploadError) { alert('Brief upload failed: ' + uploadError.message); setBriefModalSaving(false); return; }
+      const { data: urlData } = supabase.storage.from('campaign-briefs').getPublicUrl(filePath);
+      const label = briefModalLabel.trim() || briefModalFile.name;
+      await supabase.from('campaign_briefs').insert({ campaign_id: briefModalCampaign.id, type: 'doc', label, url: urlData.publicUrl, position: nextPos });
+    } else {
+      const url = briefModalUrl.trim();
+      if (!url) { alert('Please enter a URL'); setBriefModalSaving(false); return; }
+      let label = briefModalLabel.trim();
+      if (!label) {
+        try { label = new URL(url).hostname.replace(/^www\./, ''); } catch { label = 'Brief'; }
+      }
+      await supabase.from('campaign_briefs').insert({ campaign_id: briefModalCampaign.id, type: 'link', label, url, position: nextPos });
     }
-    await supabase.from('sponsor_campaigns').update({ brief_url: url, brief_name: label }).eq('id', briefModalCampaign.id);
     fetchSponsors();
     setBriefModalCampaign(null);
     setBriefModalSaving(false);
@@ -1333,24 +1371,29 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                           {d.sponsor_name}{d.campaign_name ? ` / ${d.campaign_name}` : ''}
                         </span>
                       </td>
-                      {/* Brief (link to the parent campaign's brief) */}
+                      {/* Brief (links to the parent campaign's briefs) */}
                       <td style={styles.tableTd}>
-                        {d.brief_url ? (
-                          <a
-                            href={d.brief_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            style={{
-                              color: '#a5b4fc', textDecoration: 'underline',
-                              fontSize: '12px', maxWidth: 240, display: 'inline-block',
-                              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                              verticalAlign: 'middle',
-                            }}
-                            title={d.brief_name || d.brief_url}
-                          >
-                            {d.brief_name || 'Open brief'}
-                          </a>
+                        {d.campaign_briefs && d.campaign_briefs.length > 0 ? (
+                          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                            {d.campaign_briefs.map(brief => (
+                              <a
+                                key={brief.id}
+                                href={brief.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                style={{
+                                  color: '#a5b4fc', textDecoration: 'underline',
+                                  fontSize: '12px', maxWidth: 240, display: 'inline-block',
+                                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                  verticalAlign: 'middle',
+                                }}
+                                title={brief.label || brief.url}
+                              >
+                                {brief.label || 'Open brief'}
+                              </a>
+                            ))}
+                          </div>
                         ) : (
                           <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 12 }}>—</span>
                         )}
@@ -1941,32 +1984,32 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
               </div>
             )}
             <div style={styles.field}>
-              <label style={styles.label}>Brief</label>
-              <div style={{ display: 'flex', gap: '4px', marginBottom: '6px' }}>
-                {['upload', 'link'].map(m => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setBriefMode(m)}
-                    style={{
-                      flex: 1, padding: '4px 8px', borderRadius: '6px', border: '1px solid',
-                      fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-                      background: briefMode === m ? 'rgba(99,102,241,0.2)' : 'transparent',
-                      color: briefMode === m ? '#a5b4fc' : 'rgba(255,255,255,0.35)',
-                      borderColor: briefMode === m ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.08)',
-                      textTransform: 'capitalize',
-                    }}
-                  >{m}</button>
-                ))}
-              </div>
-              {briefMode === 'upload' ? (
-                <input type="file" accept=".pdf,.docx,.doc" onChange={e => setBriefFile(e.target.files[0] || null)} style={{ ...styles.input, padding: '6px 8px' }} />
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <input type="url" value={briefLinkUrl} onChange={e => setBriefLinkUrl(e.target.value)} placeholder="https://..." style={styles.input} />
-                  <input value={briefLinkLabel} onChange={e => setBriefLinkLabel(e.target.value)} placeholder="Label (optional)" style={styles.input} />
+              <label style={styles.label}>Briefs</label>
+              {campaignBriefs.map((brief, idx) => (
+                <div key={idx} style={{ display: 'flex', gap: '4px', alignItems: 'flex-start', marginBottom: '6px', padding: '8px', background: 'rgba(255,255,255,0.03)', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      {['doc', 'link'].map(t => (
+                        <button key={t} type="button" onClick={() => { const updated = [...campaignBriefs]; updated[idx] = { ...updated[idx], type: t, file: t === 'link' ? null : updated[idx].file }; setCampaignBriefs(updated); }}
+                          style={{ padding: '2px 8px', borderRadius: '4px', border: '1px solid', fontSize: '10px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', background: brief.type === t ? 'rgba(99,102,241,0.2)' : 'transparent', color: brief.type === t ? '#a5b4fc' : 'rgba(255,255,255,0.35)', borderColor: brief.type === t ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.08)', textTransform: 'capitalize' }}
+                        >{t}</button>
+                      ))}
+                    </div>
+                    {brief.type === 'doc' ? (
+                      brief.url && !brief.file ? (
+                        <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}>{brief.label || 'Uploaded doc'}</span>
+                      ) : (
+                        <input type="file" accept=".pdf,.docx,.doc" onChange={e => { const updated = [...campaignBriefs]; updated[idx] = { ...updated[idx], file: e.target.files[0] || null, label: updated[idx].label || (e.target.files[0]?.name || '') }; setCampaignBriefs(updated); }} style={{ ...styles.input, padding: '4px 6px', fontSize: '11px' }} />
+                      )
+                    ) : (
+                      <input type="url" value={brief.url} onChange={e => { const updated = [...campaignBriefs]; updated[idx] = { ...updated[idx], url: e.target.value }; setCampaignBriefs(updated); }} placeholder="https://..." style={{ ...styles.input, fontSize: '11px' }} />
+                    )}
+                    <input value={brief.label} onChange={e => { const updated = [...campaignBriefs]; updated[idx] = { ...updated[idx], label: e.target.value }; setCampaignBriefs(updated); }} placeholder="Label (optional)" style={{ ...styles.input, fontSize: '11px' }} />
+                  </div>
+                  <button type="button" onClick={() => setCampaignBriefs(campaignBriefs.filter((_, i) => i !== idx))} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '14px', padding: '2px 4px', lineHeight: 1 }} title="Remove brief">{'\u2715'}</button>
                 </div>
-              )}
+              ))}
+              <button type="button" onClick={() => setCampaignBriefs([...campaignBriefs, { type: 'link', label: '', url: '' }])} style={{ background: 'rgba(99,102,241,0.1)', color: '#a5b4fc', border: '1px dashed rgba(99,102,241,0.3)', borderRadius: '6px', padding: '6px 12px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', width: '100%' }}>+ Add Brief</button>
             </div>
           </div>
           <div style={styles.field}>
@@ -2018,7 +2061,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                           {campaign.payment_status}
                         </span>
                       )}
-                      {!campaign.brief_url && (
+                      {(!campaign.campaign_briefs || campaign.campaign_briefs.length === 0) && (
                         <span
                           onClick={(e) => { e.stopPropagation(); openBriefModal(campaign); }}
                           style={{ ...styles.statusTag, background: 'rgba(245,158,11,0.12)', color: '#f59e0b', fontSize: '10px', fontWeight: 600, cursor: 'pointer' }}
@@ -2046,14 +2089,14 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                             {campaign.contact_name}{campaign.contact_email && ` (${campaign.contact_email})`}
                           </span>
                         )}
-                        {campaign.brief_url && (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                            <a href={campaign.brief_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '11px', color: '#a5b4fc', textDecoration: 'none' }}>
-                              {'\u{1F4C4}'} {campaign.brief_name || 'Brief'}
+                        {(campaign.campaign_briefs || []).map(brief => (
+                          <span key={brief.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                            <a href={brief.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '11px', color: '#a5b4fc', textDecoration: 'none' }}>
+                              {brief.type === 'doc' ? '\u{1F4C4}' : '\u{1F517}'} {brief.label || 'Brief'}
                             </a>
-                            <button onClick={() => handleRemoveBrief(campaign.id, campaign.brief_url)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '10px', padding: '0 2px' }} title="Remove brief">{'\u2715'}</button>
+                            <button onClick={() => handleRemoveBrief(brief)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '10px', padding: '0 2px' }} title="Remove brief">{'\u2715'}</button>
                           </span>
-                        )}
+                        ))}
                       </div>
                       {campaign.description && (
                         <p style={{ margin: '0 0 8px', fontSize: '13px', color: 'rgba(255,255,255,0.5)', whiteSpace: 'pre-wrap' }}>{campaign.description}</p>
@@ -2243,26 +2286,32 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
           <div style={{ background: '#1a1a2e', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '440px', border: '1px solid rgba(255,255,255,0.1)' }}>
             <h3 style={{ margin: '0 0 4px', fontSize: '16px', fontWeight: 600, color: '#fff' }}>Add Brief</h3>
             <p style={{ margin: '0 0 16px', fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>{briefModalCampaign.name}</p>
+            <div style={{ display: 'flex', gap: '4px', marginBottom: '12px' }}>
+              {['doc', 'link'].map(t => (
+                <button key={t} type="button" onClick={() => { setBriefModalType(t); if (t === 'link') setBriefModalFile(null); }}
+                  style={{ flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', background: briefModalType === t ? 'rgba(99,102,241,0.2)' : 'transparent', color: briefModalType === t ? '#a5b4fc' : 'rgba(255,255,255,0.35)', borderColor: briefModalType === t ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.08)', textTransform: 'capitalize' }}
+                >{t === 'doc' ? 'Upload' : 'Link'}</button>
+              ))}
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '4px', fontWeight: 600 }}>URL</label>
-                <input
-                  value={briefModalUrl}
-                  onChange={e => setBriefModalUrl(e.target.value)}
-                  placeholder="https://docs.google.com/..."
-                  style={{ width: '100%', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px', boxSizing: 'border-box' }}
-                  autoFocus
-                />
-              </div>
+              {briefModalType === 'doc' ? (
+                <div>
+                  <label style={{ display: 'block', fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '4px', fontWeight: 600 }}>File</label>
+                  <input type="file" accept=".pdf,.docx,.doc" onChange={e => setBriefModalFile(e.target.files[0] || null)}
+                    style={{ width: '100%', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px', boxSizing: 'border-box' }} />
+                </div>
+              ) : (
+                <div>
+                  <label style={{ display: 'block', fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '4px', fontWeight: 600 }}>URL</label>
+                  <input value={briefModalUrl} onChange={e => setBriefModalUrl(e.target.value)} placeholder="https://docs.google.com/..."
+                    style={{ width: '100%', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px', boxSizing: 'border-box' }} autoFocus />
+                </div>
+              )}
               <div>
                 <label style={{ display: 'block', fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '4px', fontWeight: 600 }}>Label (optional)</label>
-                <input
-                  value={briefModalLabel}
-                  onChange={e => setBriefModalLabel(e.target.value)}
-                  placeholder="e.g. AG1 Brief"
+                <input value={briefModalLabel} onChange={e => setBriefModalLabel(e.target.value)} placeholder="e.g. AG1 Brief"
                   style={{ width: '100%', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '8px 10px', color: '#fff', fontSize: '13px', boxSizing: 'border-box' }}
-                  onKeyDown={e => { if (e.key === 'Enter') saveBriefModal(); }}
-                />
+                  onKeyDown={e => { if (e.key === 'Enter') saveBriefModal(); }} />
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '18px' }}>
