@@ -79,9 +79,9 @@ Deno.serve(
 
     const model = Deno.env.get("CLAUDE_MODEL") || "claude-sonnet-4-6";
 
-    // ── Step 1: Claude analysis ──
+    // ── Step 1: Claude extracts subjects + search terms ──
     let subjects: string[] = [];
-    let queries: string[] = [];
+    let terms: string[] = [];
 
     const claudeController = new AbortController();
     const claudeTimeout = setTimeout(() => claudeController.abort(), 30000);
@@ -97,16 +97,8 @@ Deno.serve(
         },
         body: JSON.stringify({
           model,
-          max_tokens: 1024,
-          system: `You extract key subjects and generate search queries from baseball video script beats.
-Given a beat (a short script segment about baseball/MLB), identify the key subjects (players, teams, plays, games) and generate exactly 6 targeted search queries.
-ALL queries MUST be baseball/MLB focused.
-Generate exactly 2 queries for each of these 3 sources:
-1. Baseball Savant pitch data: use "site:baseballsavant.mlb.com" + player name + terms like "pitch mix", "statcast", "pitch arsenal", or "spin rate"
-2. MLB.com video highlights: use "site:mlb.com" + player name + terms like "highlights", "video", or "home run"
-3. YouTube videos: use "site:youtube.com" + player name + specific terms like "highlights", "breakdown", or the play described in the beat
-Make queries specific to the subjects mentioned. Include player names and specific events when possible.
-Return ONLY valid JSON with no markdown formatting: { "subjects": ["..."], "queries": ["..."] }`,
+          max_tokens: 512,
+          system: `You extract key subjects and search terms from baseball video script beats. Given a beat (a short script segment about baseball/MLB), identify the key subjects (players, teams, plays, games) and generate 2-3 short search terms that capture the key topics. Each term should be a few words like "Shohei Ohtani pitch mix" or "Aaron Judge home run 2024". Return ONLY valid JSON: { "subjects": ["..."], "terms": ["..."] }`,
           messages: [{ role: "user", content: beat_text.trim() }],
         }),
       });
@@ -124,10 +116,10 @@ Return ONLY valid JSON with no markdown formatting: { "subjects": ["..."], "quer
       const cleaned = rawText.replace(/^```json?\s*/i, "").replace(/\s*```$/i, "").trim();
       const parsed = JSON.parse(cleaned);
       subjects = parsed.subjects || [];
-      queries = (parsed.queries || []).slice(0, 6);
+      terms = (parsed.terms || []).slice(0, 3);
 
-      if (!queries.length) {
-        return jsonRes({ results: [], subjects, message: "No search queries generated" });
+      if (!terms.length) {
+        return jsonRes({ results: [], subjects, message: "No search terms generated" });
       }
     } catch (err) {
       clearTimeout(claudeTimeout);
@@ -138,13 +130,21 @@ Return ONLY valid JSON with no markdown formatting: { "subjects": ["..."], "quer
       return jsonRes({ error: "Claude analysis failed" }, 502);
     }
 
+    // Build site:-scoped queries programmatically (3 terms × 3 sites = up to 9)
+    const queries: string[] = [];
+    for (const term of terms) {
+      queries.push(`site:baseballsavant.mlb.com ${term}`);
+      queries.push(`site:mlb.com ${term} video highlights`);
+      queries.push(`site:youtube.com ${term} highlights`);
+    }
+
     // ── Step 2: Brave Search ──
     const searchResults = await Promise.allSettled(
       queries.map(async (query) => {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 10000);
         try {
-          const params = new URLSearchParams({ q: query, count: "5" });
+          const params = new URLSearchParams({ q: query, count: "10" });
           const resp = await fetch(
             `https://api.search.brave.com/res/v1/web/search?${params}`,
             {
@@ -173,6 +173,12 @@ Return ONLY valid JSON with no markdown formatting: { "subjects": ["..."], "quer
     );
 
     // ── Step 3: Deduplicate, classify, and filter to savant/mlb/youtube only ──
+    let totalRaw = 0;
+    for (const r of searchResults) {
+      if (r.status === "fulfilled") totalRaw += r.value.length;
+    }
+    console.log(`Brave returned ${totalRaw} raw results from ${queries.length} queries`);
+
     const seenUrls = new Set<string>();
     const allResults: { title: string; url: string; source: string; category: string; description: string; priority: number }[] = [];
 
@@ -205,6 +211,20 @@ Return ONLY valid JSON with no markdown formatting: { "subjects": ["..."], "quer
       })
       .slice(0, 6)
       .map(({ priority: _, ...rest }) => rest);
+
+    console.log(`After filtering: ${allResults.length} matched domains, returning ${results.length}`);
+    if (allResults.length === 0 && totalRaw > 0) {
+      // Log sample URLs so we can see what Brave actually returned
+      const sampleUrls: string[] = [];
+      for (const r of searchResults) {
+        if (r.status === "fulfilled") {
+          for (const item of r.value) {
+            if (sampleUrls.length < 5) sampleUrls.push(item.url);
+          }
+        }
+      }
+      console.log("Sample URLs from Brave (all filtered out):", sampleUrls);
+    }
 
     if (!results.length) {
       return jsonRes({ results: [], subjects, message: "No results found" });
