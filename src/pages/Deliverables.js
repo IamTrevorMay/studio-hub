@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -24,6 +24,12 @@ const REVIEW_STATUS_OPTIONS = [
   { value: 'accepted', label: 'Accepted', bg: 'rgba(34,197,94,0.15)', color: '#22c55e' },
 ];
 const REVIEW_STATUS_BY_VALUE = REVIEW_STATUS_OPTIONS.reduce((acc, o) => { acc[o.value] = o; return acc; }, {});
+
+const FILM_STATUS_OPTIONS = [
+  { value: 'not_ready', label: 'Not Ready', bg: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.55)' },
+  { value: 'ready', label: 'Ready', bg: 'rgba(34,197,94,0.15)', color: '#22c55e' },
+];
+const FILM_STATUS_BY_VALUE = FILM_STATUS_OPTIONS.reduce((acc, o) => { acc[o.value] = o; return acc; }, {});
 
 export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
   const { profile, isAdmin, refreshKey } = useAuth();
@@ -88,6 +94,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
   const [cardContextMenu, setCardContextMenu] = useState(null); // { x, y, deliverable }
   const [beatSheetDropdownId, setBeatSheetDropdownId] = useState(null); // deliverable id showing beat sheet picker
   const [reviewDropdownId, setReviewDropdownId] = useState(null); // deliverable id showing review-status picker
+  const [filmDropdownId, setFilmDropdownId] = useState(null); // deliverable id showing film-status picker
 
   // Table sorting + delivered toggle
   const [sortCol, setSortCol] = useState('schedule'); // default sort by schedule date
@@ -765,6 +772,15 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
     fetchSponsors();
   }
 
+  async function handleInlineSetFilmStatus(deliverableId, status) {
+    setFilmDropdownId(null);
+    await supabase.from('sponsor_deliverables').update({
+      film_status: status,
+      updated_at: new Date().toISOString(),
+    }).eq('id', deliverableId);
+    fetchSponsors();
+  }
+
   // Push ad copy to linked beat sheet (manual button in form)
   const [pushingAdCopy, setPushingAdCopy] = useState(false);
   const [pushAdCopyDone, setPushAdCopyDone] = useState(false);
@@ -797,6 +813,20 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
       setPushingAdCopy(false);
     }
   }
+
+  // Auto-save ad copy (debounced) when editing an existing deliverable
+  const adCopyTimerRef = useRef(null);
+  useEffect(() => {
+    if (!editingDeliverable) return;
+    if (adCopyTimerRef.current) clearTimeout(adCopyTimerRef.current);
+    adCopyTimerRef.current = setTimeout(async () => {
+      await supabase.from('sponsor_deliverables').update({
+        notes: deliverableNotes || null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', editingDeliverable);
+    }, 600);
+    return () => { if (adCopyTimerRef.current) clearTimeout(adCopyTimerRef.current); };
+  }, [deliverableNotes, editingDeliverable]);
 
   // Duplicate a deliverable
   async function handleDuplicateDeliverable(d) {
@@ -1323,6 +1353,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                   <th style={thStyle} onClick={() => handleSort('sponsor')}>Sponsor{sortArrow('sponsor')}</th>
                   <th style={styles.tableTh}>Brief</th>
                   <th style={thStyle} onClick={() => handleSort('channel')}>Channel{sortArrow('channel')}</th>
+                  <th style={styles.tableTh}>Film</th>
                   <th style={styles.tableTh}>Review</th>
                   <th style={thStyle} onClick={() => handleSort('schedule')}>Schedule{sortArrow('schedule')}</th>
                   <th style={styles.tableTh}>Beat Sheet</th>
@@ -1405,6 +1436,42 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                             {CHANNEL_COLORS[d.channel].label}
                           </span>
                         )}
+                      </td>
+                      {/* Film Status */}
+                      <td style={{ ...styles.tableTd, position: 'relative' }}>
+                        {(() => {
+                          const f = FILM_STATUS_BY_VALUE[d.film_status] || FILM_STATUS_BY_VALUE.not_ready;
+                          const isOpen = filmDropdownId === d.id;
+                          return (
+                            <>
+                              <span
+                                role="button"
+                                tabIndex={0}
+                                onClick={(e) => { e.stopPropagation(); setFilmDropdownId(isOpen ? null : d.id); }}
+                                style={{ ...styles.chip, fontWeight: 600, background: f.bg, color: f.color, cursor: 'pointer' }}
+                              >
+                                {f.label}
+                              </span>
+                              {isOpen && (
+                                <div style={styles.inlineDropdown}>
+                                  {FILM_STATUS_OPTIONS.map(o => (
+                                    <button
+                                      key={o.value}
+                                      style={{
+                                        ...styles.inlineDropdownItem,
+                                        color: o.color,
+                                        fontWeight: d.film_status === o.value ? 700 : 500,
+                                      }}
+                                      onClick={(e) => { e.stopPropagation(); handleInlineSetFilmStatus(d.id, o.value); }}
+                                    >
+                                      {o.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
                       </td>
                       {/* Review Status */}
                       <td style={{ ...styles.tableTd, position: 'relative' }}>
@@ -2377,6 +2444,12 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
         <div
           style={{ position: 'fixed', inset: 0, zIndex: 49 }}
           onMouseDown={() => setReviewDropdownId(null)}
+        />
+      )}
+      {filmDropdownId && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 49 }}
+          onMouseDown={() => setFilmDropdownId(null)}
         />
       )}
     </div>
