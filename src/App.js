@@ -91,8 +91,12 @@ function LayoutFallback() {
 
 // Public careers board — served before the auth gate so visitors never log in.
 const PublicCareers = React.lazy(() => import('./pages/public/PublicCareers'));
+const PublicBrief = React.lazy(() => import('./pages/public/PublicBrief'));
 function isCareersPath() {
   return /^\/careers(\/|$)/.test(window.location.pathname);
+}
+function isBriefPath() {
+  return /^\/brief\/[^/]+/.test(window.location.pathname);
 }
 
 export default function App() {
@@ -100,6 +104,13 @@ export default function App() {
     return (
       <Suspense fallback={<LayoutFallback />}>
         <PublicCareers />
+      </Suspense>
+    );
+  }
+  if (isBriefPath()) {
+    return (
+      <Suspense fallback={<LayoutFallback />}>
+        <PublicBrief />
       </Suspense>
     );
   }
