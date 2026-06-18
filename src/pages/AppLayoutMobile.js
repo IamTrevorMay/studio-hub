@@ -100,6 +100,9 @@ function buildAdminModeNav(resolvedNav) {
     }
   }
   for (const key of MOBILE_ADMIN_PAGE_KEYS) {
+    // Skip desktop-only pages (they route to DesktopOnlyScreen) — no point
+    // surfacing a tab whose only content is "use desktop instead".
+    if (isExcludedOnMobile(key)) continue;
     const item = NAV_ITEMS.find((i) => i.key === key);
     if (item) top.push({ type: 'item', key: item.key, label: item.label });
   }
@@ -108,7 +111,11 @@ function buildAdminModeNav(resolvedNav) {
 }
 
 function getAdminModeKeySet(resolvedNav) {
-  const keys = new Set([...ADMIN_ESSENTIAL_KEYS, ...MOBILE_ADMIN_PAGE_KEYS, 'admin']);
+  const keys = new Set([
+    ...ADMIN_ESSENTIAL_KEYS,
+    ...MOBILE_ADMIN_PAGE_KEYS.filter((k) => !isExcludedOnMobile(k)),
+    'admin',
+  ]);
   for (const entry of resolvedNav) {
     if (entry.type === 'item' && entry.folderId && ADMIN_ESSENTIAL_FOLDER_IDS.has(entry.folderId)) {
       keys.add(entry.key);
@@ -183,11 +190,11 @@ export default function AppLayoutMobile() {
   const adminModeKeySet = getAdminModeKeySet(resolvedNav);
 
   // When the user flips to a mode their current tab doesn't belong to,
-  // bounce them somewhere sensible (Workflows isn't mobile yet so admin
-  // mode lands on Analytics; work mode falls back to Dashboard).
+  // bounce them somewhere sensible. Dashboard is the safe admin landing —
+  // it has a mobile build and lives in every admin keyset.
   useEffect(() => {
     if (mode === 'admin' && isAdmin) {
-      if (!adminModeKeySet.has(activeTab)) setActiveTab('analytics');
+      if (!adminModeKeySet.has(activeTab)) setActiveTab('dashboard');
     } else if (DESKTOP_ADMIN_PAGE_KEYS.has(activeTab)) {
       setActiveTab('dashboard');
     }

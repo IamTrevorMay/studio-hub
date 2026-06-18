@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
-import ProgressTable from '../components/workflows/ProgressTable';
 import TaskEditModal from '../components/TaskEditModal';
 import MemberAssignmentModal from '../components/MemberAssignmentModal';
 import ContractorAssignmentModal from '../components/ContractorAssignmentModal';
@@ -115,13 +114,24 @@ export default function WorkflowsMobile() {
     return <div style={styles.empty}>Admin access required.</div>;
   }
 
+  const groups = [
+    { key: 'team', label: 'Team', profiles: teamProfiles, byAssignee: teamByAssignee },
+    { key: 'contractors', label: 'Contractors', profiles: contractorProfiles, byAssignee: contractorByAssignee },
+  ];
+
+  function handleTaskClick(task, groupKey) {
+    if (!task || typeof task.id !== 'string') return;
+    if (task.id.startsWith('progress-') || task.id.startsWith('sprint-')) return;
+    if (groupKey === 'contractors') setEditingContractorAssign(task);
+    else setEditingTask(task);
+  }
+
   return (
     <div style={styles.root}>
       <div style={styles.header}>
-        <h1 style={styles.title}>Workflows</h1>
+        <h1 style={styles.title}>Progress</h1>
         <p style={styles.hint}>
-          Flows + automations live on desktop. Use this view to glance at
-          team progress and create assignments on the go.
+          What everyone's working on right now. Flows + automations live on desktop.
         </p>
       </div>
 
@@ -131,17 +141,23 @@ export default function WorkflowsMobile() {
         <div style={styles.empty}>Loading…</div>
       ) : (
         <div style={styles.progressWrap}>
-          <ProgressTable
-            groups={[
-              { key: 'team', label: 'Team', profiles: teamProfiles, byAssignee: teamByAssignee },
-              { key: 'contractors', label: 'Contractors', profiles: contractorProfiles, byAssignee: contractorByAssignee },
-            ]}
-            sprintActiveTaskIds={sprintActiveTaskIds}
-            onTaskClick={(task, person, groupKey) => {
-              if (groupKey === 'contractors') setEditingContractorAssign(task);
-              else setEditingTask(task);
-            }}
-          />
+          <style>{`@keyframes wfm-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }`}</style>
+          {groups
+            .filter((g) => g.profiles.length > 0)
+            .map((g) => (
+              <div key={g.key} style={styles.group}>
+                <div style={styles.groupLabel}>{g.label}</div>
+                {g.profiles.map((p) => (
+                  <PersonCard
+                    key={p.id}
+                    person={p}
+                    data={g.byAssignee[p.id]}
+                    sprintActiveTaskIds={sprintActiveTaskIds}
+                    onTaskClick={(t) => handleTaskClick(t, g.key)}
+                  />
+                ))}
+              </div>
+            ))}
         </div>
       )}
 
@@ -196,6 +212,83 @@ export default function WorkflowsMobile() {
   );
 }
 
+// Active = being worked right now: sprint "In Progress", or not snoozed /
+// on-hold / planned-for-later. Planned/snoozed/on-hold are intentionally
+// dropped on mobile — the ask is "what's in progress", not the full queue.
+function activeOf(pending, sprintActiveTaskIds) {
+  const now = Date.now();
+  return (pending || []).filter((t) => {
+    if (sprintActiveTaskIds && sprintActiveTaskIds.has(t.id)) return true;
+    const snoozed = t.snoozed_until && new Date(t.snoozed_until).getTime() > now;
+    return !snoozed && t.status !== 'on_hold' && !t.planned_date;
+  });
+}
+
+function PersonCard({ person, data, sprintActiveTaskIds, onTaskClick }) {
+  const d = data || { pending: [], done: [] };
+  const active = activeOf(d.pending, sprintActiveTaskIds);
+  const allDone = d.done || [];
+  const doneShown = allDone.slice(0, 4);
+
+  const clickable = (t) => typeof t.id === 'string' && !t.id.startsWith('progress-') && !t.id.startsWith('sprint-');
+
+  return (
+    <div style={styles.card}>
+      <div style={styles.cardHead}>
+        <span style={styles.personName}>{person.name}</span>
+        <span style={styles.roleBadge}>{person.role}</span>
+        {active.length > 0 && (
+          <span style={styles.activePill}>{active.length} active</span>
+        )}
+      </div>
+
+      {active.length === 0 ? (
+        <div style={styles.nothing}>Nothing in progress</div>
+      ) : (
+        <div style={styles.taskList}>
+          {active.map((t) => {
+            const can = clickable(t);
+            return (
+              <button
+                key={t.id}
+                onClick={() => can && onTaskClick(t)}
+                disabled={!can}
+                style={{ ...styles.taskRow, cursor: can ? 'pointer' : 'default' }}
+              >
+                <span style={styles.dot} />
+                <span style={styles.taskTitle}>{t.title}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {doneShown.length > 0 && (
+        <div style={styles.doneWrap}>
+          <div style={styles.doneLabel}>Done · 7d</div>
+          {doneShown.map((t) => {
+            const can = clickable(t);
+            return (
+              <button
+                key={t.id}
+                onClick={() => can && onTaskClick(t)}
+                disabled={!can}
+                style={{ ...styles.doneRow, cursor: can ? 'pointer' : 'default' }}
+              >
+                <span style={styles.check}>✓</span>
+                <span style={styles.doneTitle}>{t.title}</span>
+              </button>
+            );
+          })}
+          {allDone.length > doneShown.length && (
+            <div style={styles.doneMore}>+{allDone.length - doneShown.length} more</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const styles = {
   root: {
     display: 'flex', flexDirection: 'column', minHeight: '100%',
@@ -208,9 +301,70 @@ const styles = {
   error: { margin: `0 ${mobileTokens.space.lg}px`, padding: 10, background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)', borderRadius: mobileTokens.radius.sm, fontSize: mobileTokens.font.sm },
   progressWrap: {
     padding: `0 ${mobileTokens.space.lg}px ${mobileTokens.space.xxxl}px`,
-    overflowX: 'auto',
-    WebkitOverflowScrolling: 'touch',
+    display: 'flex', flexDirection: 'column', gap: 20,
   },
+  group: { display: 'flex', flexDirection: 'column', gap: 10 },
+  groupLabel: {
+    fontSize: 10, fontWeight: 800, letterSpacing: 0.6, textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.35)', padding: '4px 2px 0',
+  },
+  card: {
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.07)',
+    borderRadius: mobileTokens.radius.md,
+    padding: `${mobileTokens.space.md}px`,
+    display: 'flex', flexDirection: 'column', gap: 8,
+  },
+  cardHead: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  personName: { fontSize: mobileTokens.font.md, fontWeight: 700, color: '#fff' },
+  roleBadge: {
+    fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.5)',
+    background: 'rgba(255,255,255,0.06)', borderRadius: 4, padding: '2px 6px',
+    textTransform: 'uppercase', letterSpacing: 0.4,
+  },
+  activePill: {
+    marginLeft: 'auto', fontSize: 10, fontWeight: 700, color: '#facc15',
+    background: 'rgba(250,204,21,0.1)', borderRadius: 4, padding: '2px 7px',
+  },
+  nothing: { fontSize: mobileTokens.font.sm, color: 'rgba(255,255,255,0.3)', fontStyle: 'italic' },
+  taskList: { display: 'flex', flexDirection: 'column', gap: 6 },
+  taskRow: {
+    ...mobileTapButton,
+    width: '100%', minHeight: 36, display: 'flex', alignItems: 'center',
+    justifyContent: 'flex-start', gap: 8,
+    background: 'transparent', border: 'none', padding: '4px 0', margin: 0,
+    textAlign: 'left', fontFamily: 'inherit',
+  },
+  dot: {
+    width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+    background: '#facc15', boxShadow: '0 0 5px rgba(250,204,21,0.7)',
+    animation: 'wfm-blink 1.2s ease-in-out infinite',
+  },
+  taskTitle: {
+    flex: 1, minWidth: 0, fontSize: mobileTokens.font.sm, color: 'rgba(255,255,255,0.85)',
+    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+  },
+  doneWrap: {
+    display: 'flex', flexDirection: 'column', gap: 4,
+    borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 8,
+  },
+  doneLabel: {
+    fontSize: 9, fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.3)',
+  },
+  doneRow: {
+    ...mobileTapButton,
+    width: '100%', minHeight: 30, display: 'flex', alignItems: 'center',
+    justifyContent: 'flex-start', gap: 8,
+    background: 'transparent', border: 'none', padding: '2px 0', margin: 0,
+    textAlign: 'left', fontFamily: 'inherit',
+  },
+  check: { color: '#22c55e', fontSize: 11, flexShrink: 0 },
+  doneTitle: {
+    flex: 1, minWidth: 0, fontSize: mobileTokens.font.sm, color: 'rgba(255,255,255,0.45)',
+    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+  },
+  doneMore: { fontSize: 10, color: 'rgba(255,255,255,0.3)', paddingLeft: 19 },
   fab: {
     position: 'fixed', right: 18, bottom: 86,
     width: 56, height: 56, borderRadius: '50%',
