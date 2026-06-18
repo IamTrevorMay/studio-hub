@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import useNavConfig from '../hooks/useNavConfig';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
+import { logUploadError } from '../lib/uploadErrors';
 import SidebarEditMode from '../components/SidebarEditMode';
 import Dashboard from './Dashboard';
 import Projects from './Projects';
@@ -844,6 +845,8 @@ function SubmitModal({ onClose }) {
     setUploading(true);
     setProgress(0);
     setResult(null);
+    let phase = 'init';
+    let statusCode = null;
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const initRes = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/drive-upload-init`, {
@@ -859,10 +862,12 @@ function SubmitModal({ onClose }) {
           sizeBytes: file.size,
         }),
       });
+      statusCode = initRes.status;
       const initJson = await initRes.json();
       if (!initRes.ok) throw new Error(initJson.error || 'Failed to init upload');
 
       // Upload file bytes directly to Drive via XHR for progress tracking
+      phase = 'put';
       await new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open('PUT', initJson.uploadUrl, true);
@@ -872,7 +877,7 @@ function SubmitModal({ onClose }) {
         };
         xhr.onload = () => {
           if (xhr.status >= 200 && xhr.status < 300) resolve();
-          else reject(new Error(`Upload failed (${xhr.status})`));
+          else { statusCode = xhr.status; reject(new Error(`Upload failed (${xhr.status})`)); }
         };
         xhr.onerror = () => reject(new Error('Upload failed'));
         xhr.send(file);
@@ -882,6 +887,7 @@ function SubmitModal({ onClose }) {
       setFile(null);
     } catch (err) {
       setResult({ type: 'error', text: err.message });
+      logUploadError({ phase, file, statusCode, error: err, context: { folder_id: SUBMISSIONS_FOLDER_ID } });
     } finally {
       setUploading(false);
     }

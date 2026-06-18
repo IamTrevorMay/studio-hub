@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
+import { logUploadError } from '../lib/uploadErrors';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import useNavConfig from '../hooks/useNavConfig';
@@ -441,6 +442,8 @@ function SubmitModalMobile({ onClose }) {
     setUploading(true);
     setProgress(0);
     setResult(null);
+    let phase = 'init';
+    let statusCode = null;
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const initRes = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/drive-upload-init`, {
@@ -456,9 +459,11 @@ function SubmitModalMobile({ onClose }) {
           sizeBytes: file.size,
         }),
       });
+      statusCode = initRes.status;
       const initJson = await initRes.json();
       if (!initRes.ok) throw new Error(initJson.error || 'Failed to init upload');
 
+      phase = 'put';
       await new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open('PUT', initJson.uploadUrl, true);
@@ -468,7 +473,7 @@ function SubmitModalMobile({ onClose }) {
         };
         xhr.onload = () => {
           if (xhr.status >= 200 && xhr.status < 300) resolve();
-          else reject(new Error(`Upload failed (${xhr.status})`));
+          else { statusCode = xhr.status; reject(new Error(`Upload failed (${xhr.status})`)); }
         };
         xhr.onerror = () => reject(new Error('Upload failed'));
         xhr.send(file);
@@ -478,6 +483,7 @@ function SubmitModalMobile({ onClose }) {
       setFile(null);
     } catch (err) {
       setResult({ type: 'error', text: err.message });
+      logUploadError({ phase, file, statusCode, error: err, context: { folder_id: SUBMISSIONS_FOLDER_ID } });
     } finally {
       setUploading(false);
     }

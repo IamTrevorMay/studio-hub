@@ -20,6 +20,20 @@ const corsHeaders = {
   "Access-Control-Expose-Headers": "Location",
 };
 
+// Best-effort server-side log of an upload-init failure. Uses the service role
+// to bypass RLS so we capture the verbose Drive error the browser never sees.
+async function logServerError(row: Record<string, unknown>): Promise<void> {
+  try {
+    const admin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+    await admin.from("upload_errors").insert({ source: "server", phase: "init", ...row });
+  } catch (_e) {
+    // never let logging mask the real error
+  }
+}
+
 async function getDriveAccessToken(): Promise<string> {
   const clientId = Deno.env.get("GOOGLE_CLIENT_ID")!;
   const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")!;
@@ -51,6 +65,8 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  // Populated as we go so the catch can log whatever context we reached.
+  const logRow: Record<string, unknown> = {};
   try {
     // Verify the caller is signed in to Studio
     const authHeader = req.headers.get("Authorization");
@@ -66,6 +82,7 @@ Deno.serve(async (req: Request) => {
       { global: { headers: { Authorization: authHeader } } },
     );
     const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (user) logRow.user_id = user.id;
     if (authError || !user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
@@ -81,6 +98,10 @@ Deno.serve(async (req: Request) => {
     }
 
     const { filename, parentFolderId, mimeType, sizeBytes } = await req.json();
+    logRow.filename = filename ?? null;
+    logRow.mime_type = mimeType ?? null;
+    logRow.size_bytes = sizeBytes ?? null;
+    logRow.context = { parent_folder_id: parentFolderId ?? null };
     if (!filename || !parentFolderId || !mimeType) {
       return new Response(JSON.stringify({ error: "filename, parentFolderId, and mimeType are required" }), {
         status: 400,
@@ -125,7 +146,11 @@ Deno.serve(async (req: Request) => {
     );
     if (!initRes.ok) {
       const errText = await initRes.text();
-      throw new Error(`Drive init failed: ${initRes.status} ${errText}`);
+      await logServerError({ ...logRow, status_code: initRes.status, error: `Drive init failed: ${errText}` });
+      return new Response(JSON.stringify({ error: `Drive init failed: ${initRes.status} ${errText}` }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
     const uploadUrl = initRes.headers.get("Location");
     if (!uploadUrl) {
@@ -136,6 +161,7 @@ Deno.serve(async (req: Request) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
+    await logServerError({ ...logRow, error: (err as Error).message });
     return new Response(JSON.stringify({ error: (err as Error).message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

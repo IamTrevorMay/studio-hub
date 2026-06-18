@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import useRealtimeTable from '../hooks/useRealtimeTable';
+import { logUploadError } from '../lib/uploadErrors';
 
 const SUBMISSIONS_FOLDER_ID = '1r1dENUCjNSs57MjidYbE2rWrbMKXpLM0';
 
@@ -950,6 +951,8 @@ function AssignmentSubmitModal({ assignment, folderId, onUploadSuccess, onClose 
     setUploading(true);
     setProgress(0);
     setResult(null);
+    let phase = 'init';
+    let statusCode = null;
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const initRes = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/drive-upload-init`, {
@@ -965,9 +968,11 @@ function AssignmentSubmitModal({ assignment, folderId, onUploadSuccess, onClose 
           sizeBytes: file.size,
         }),
       });
+      statusCode = initRes.status;
       const initJson = await initRes.json();
       if (!initRes.ok) throw new Error(initJson.error || 'Failed to init upload');
 
+      phase = 'put';
       const driveFileId = await new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open('PUT', initJson.uploadUrl, true);
@@ -984,6 +989,7 @@ function AssignmentSubmitModal({ assignment, folderId, onUploadSuccess, onClose 
               resolve(null);
             }
           } else {
+            statusCode = xhr.status;
             reject(new Error(`Upload failed (${xhr.status})`));
           }
         };
@@ -1002,6 +1008,7 @@ function AssignmentSubmitModal({ assignment, folderId, onUploadSuccess, onClose 
       }
     } catch (err) {
       setResult({ type: 'error', text: err.message });
+      logUploadError({ phase, file, statusCode, error: err, context: { assignment_id: assignment?.id, folder_id: folderId } });
     } finally {
       setUploading(false);
     }
