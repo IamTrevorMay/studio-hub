@@ -145,10 +145,14 @@ Deno.serve(async (req: Request) => {
     if (!id) return json({ error: "application_id required" }, 400);
     const { data: app } = await admin
       .from("job_applications")
-      .select("applicant_name, applicant_email")
+      .select("applicant_name, applicant_email, listing:job_listings(onboarding_checklist)")
       .eq("id", id)
       .single();
     if (!app) return json({ error: "Application not found" }, 404);
+    const templateRaw = (app as { listing?: { onboarding_checklist?: Array<{ label: string }> } }).listing?.onboarding_checklist;
+    const template = Array.isArray(templateRaw) && templateRaw.length
+      ? templateRaw.map((c) => ({ label: String(c.label || ''), done: false })).filter((c) => c.label)
+      : null;
 
     await admin
       .from("job_applications")
@@ -184,9 +188,9 @@ Deno.serve(async (req: Request) => {
       .eq("application_id", id)
       .maybeSingle();
     if (!existing) {
-      const checklist = inviteError
+      const checklist = template ?? (inviteError
         ? DEFAULT_CHECKLIST
-        : DEFAULT_CHECKLIST.map((c, i) => (i === 0 ? { ...c, done: false } : c));
+        : DEFAULT_CHECKLIST.map((c, i) => (i === 0 ? { ...c, done: false } : c)));
       await admin.from("job_onboarding").insert({
         application_id: id,
         invitation_id: invitationId,

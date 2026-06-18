@@ -75,7 +75,7 @@ export default function Jobs({ initialApplicationId, onApplicationOpened }) {
 
       {loading ? <p style={st.muted}>Loading…</p> : (
         <>
-          {tab === 'listings' && <ListingsTab listings={listings} onChange={fetchAll} showToast={showToast} />}
+          {tab === 'listings' && <ListingsTab listings={listings} applications={applications} onChange={fetchAll} showToast={showToast} />}
           {tab === 'applications' && <ApplicationsTab applications={applications} listings={listings} onChange={fetchAll} showToast={showToast} initialApplicationId={initialApplicationId} onApplicationOpened={onApplicationOpened} />}
           {tab === 'onboarding' && <OnboardingTab onboarding={onboarding} onChange={fetchAll} showToast={showToast} />}
         </>
@@ -93,7 +93,7 @@ function Badge({ children }) {
 
 // ─── Listings ───────────────────────────────────────────────
 const LISTING_STATUSES = ['all', 'draft', 'open', 'closed'];
-function ListingsTab({ listings, onChange, showToast }) {
+function ListingsTab({ listings, applications, onChange, showToast }) {
   const [editing, setEditing] = useState(null); // listing obj or {} for new
   const [fStatus, setFStatus] = useState('open');
   const filtered = fStatus === 'all' ? listings : listings.filter(l => l.status === fStatus);
@@ -101,6 +101,25 @@ function ListingsTab({ listings, onChange, showToast }) {
     acc[s] = s === 'all' ? listings.length : listings.filter(l => l.status === s).length;
     return acc;
   }, {});
+  const appCountByListing = useMemo(() => {
+    const m = {};
+    for (const a of (applications || [])) {
+      if (!a.listing_id) continue;
+      m[a.listing_id] = (m[a.listing_id] || 0) + 1;
+    }
+    return m;
+  }, [applications]);
+
+  const move = async (idx, dir) => {
+    if (!filtered[idx + dir]) return;
+    const reordered = filtered.slice();
+    [reordered[idx], reordered[idx + dir]] = [reordered[idx + dir], reordered[idx]];
+    const results = await Promise.all(
+      reordered.map((l, i) => supabase.from('job_listings').update({ position: i }).eq('id', l.id))
+    );
+    const firstErr = results.find(r => r.error);
+    if (firstErr?.error) showToast(firstErr.error.message, 'error'); else onChange();
+  };
 
   const copyLink = (l) => {
     const url = `${window.location.origin}/careers/${l.slug || l.id}`;
@@ -134,27 +153,35 @@ function ListingsTab({ listings, onChange, showToast }) {
         <div style={st.empty}>No {fStatus === 'all' ? '' : fStatus} listings.</div>
       ) : (
         <div style={st.cards}>
-          {filtered.map(l => (
-            <div key={l.id} style={st.listingCard}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={st.listingTitle}>
-                  {l.title}
-                  <span style={{ ...st.statusPill, ...statusPillStyle(l.status) }}>{l.status}</span>
+          {filtered.map((l, idx) => {
+            const appCount = appCountByListing[l.id] || 0;
+            return (
+              <div key={l.id} style={st.listingCard}>
+                <div style={st.reorderCol}>
+                  <button style={{ ...st.reorderBtn, opacity: idx === 0 ? 0.25 : 1, cursor: idx === 0 ? 'default' : 'pointer' }} onClick={() => move(idx, -1)} disabled={idx === 0} title="Move up">▲</button>
+                  <button style={{ ...st.reorderBtn, opacity: idx === filtered.length - 1 ? 0.25 : 1, cursor: idx === filtered.length - 1 ? 'default' : 'pointer' }} onClick={() => move(idx, 1)} disabled={idx === filtered.length - 1} title="Move down">▼</button>
                 </div>
-                <div style={st.listingMeta}>
-                  {(() => { const p = parseStructured(l.description); return p?.subtitle || [l.department, l.employment_type && TYPE_OPTS.find(t => t.v === l.employment_type)?.l, l.work_mode && MODE_OPTS.find(m => m.v === l.work_mode)?.l, l.comp_range].filter(Boolean).join('  ·  '); })()}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={st.listingTitle}>
+                    {l.title}
+                    <span style={{ ...st.statusPill, ...statusPillStyle(l.status) }}>{l.status}</span>
+                    {appCount > 0 && <span style={st.appCountPill}>{appCount} app{appCount === 1 ? '' : 's'}</span>}
+                  </div>
+                  <div style={st.listingMeta}>
+                    {(() => { const p = parseStructured(l.description); return p?.subtitle || [l.department, l.employment_type && TYPE_OPTS.find(t => t.v === l.employment_type)?.l, l.work_mode && MODE_OPTS.find(m => m.v === l.work_mode)?.l, l.comp_range].filter(Boolean).join('  ·  '); })()}
+                  </div>
+                  {(() => { const p = parseStructured(l.description); if (!p?.intro) return null; const t = p.intro.length > 120 ? p.intro.slice(0, 120) + '…' : p.intro; return <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.4)', marginTop: 4, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{t}</div>; })()}
                 </div>
-                {(() => { const p = parseStructured(l.description); if (!p?.intro) return null; const t = p.intro.length > 120 ? p.intro.slice(0, 120) + '…' : p.intro; return <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.4)', marginTop: 4, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{t}</div>; })()}
+                <div style={st.listingActions}>
+                  <button style={st.smallBtn} onClick={() => setEditing(l)}>Edit</button>
+                  {l.status !== 'open' && <button style={st.smallBtn} onClick={() => setStatus(l, 'open')}>Publish</button>}
+                  {l.status === 'open' && <button style={st.smallBtn} onClick={() => setStatus(l, 'closed')}>Close</button>}
+                  {l.status === 'open' && <button style={st.smallBtn} onClick={() => copyLink(l)}>Copy link</button>}
+                  <button style={{ ...st.smallBtn, color: '#fca5a5' }} onClick={() => remove(l)}>Delete</button>
+                </div>
               </div>
-              <div style={st.listingActions}>
-                <button style={st.smallBtn} onClick={() => setEditing(l)}>Edit</button>
-                {l.status !== 'open' && <button style={st.smallBtn} onClick={() => setStatus(l, 'open')}>Publish</button>}
-                {l.status === 'open' && <button style={st.smallBtn} onClick={() => setStatus(l, 'closed')}>Close</button>}
-                {l.status === 'open' && <button style={st.smallBtn} onClick={() => copyLink(l)}>Copy link</button>}
-                <button style={{ ...st.smallBtn, color: '#fca5a5' }} onClick={() => remove(l)}>Delete</button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
       {editing && <ListingModal listing={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); onChange(); }} showToast={showToast} />}
@@ -169,6 +196,9 @@ function parseStructured(raw) {
 
 function ListingModal({ listing, onClose, onSaved, showToast }) {
   const parsed = parseStructured(listing.description);
+  const initialChecklist = Array.isArray(listing.onboarding_checklist) && listing.onboarding_checklist.length
+    ? listing.onboarding_checklist.map(c => ({ label: String(c.label || '') }))
+    : [];
   const [f, setF] = useState({
     title: listing.title || '',
     subtitle: parsed?.subtitle || '',
@@ -185,12 +215,14 @@ function ListingModal({ listing, onClose, onSaved, showToast }) {
     location: listing.location || '', comp_range: listing.comp_range || '',
     department: listing.department || '', status: listing.status || 'draft',
   });
+  const [checklist, setChecklist] = useState(initialChecklist);
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
 
-  const save = async () => {
+  const save = async (forceStatus) => {
     if (!f.title.trim()) { showToast('Title is required', 'error'); return; }
     setSaving(true);
+    const status = forceStatus || f.status;
     const structured = {
       structured: true, subtitle: f.subtitle, intro: f.intro,
       responsibilities: f.responsibilities, requirements: f.requirements,
@@ -198,20 +230,23 @@ function ListingModal({ listing, onClose, onSaved, showToast }) {
       how_to_apply: f.how_to_apply, apply_email: f.apply_email,
       warning: f.warning, subject_line: f.subject_line,
     };
+    const cleanChecklist = checklist.map(c => ({ label: c.label.trim() })).filter(c => c.label);
     const payload = {
       title: f.title.trim(), description: JSON.stringify(structured),
       employment_type: f.employment_type || null, work_mode: f.work_mode || null,
       location: f.location.trim() || null, comp_range: f.comp_range.trim() || null,
-      department: f.department.trim() || null, status: f.status,
+      department: f.department.trim() || null, status,
+      onboarding_checklist: cleanChecklist,
       updated_at: new Date().toISOString(),
     };
     let error;
     if (listing.id) {
+      if (status === 'open' && !listing.published_at) payload.published_at = new Date().toISOString();
       ({ error } = await supabase.from('job_listings').update(payload).eq('id', listing.id));
     } else {
       const base = slugify(f.title) || 'role';
       payload.slug = `${base}-${Math.random().toString(36).slice(2, 6)}`;
-      if (f.status === 'open') payload.published_at = new Date().toISOString();
+      if (status === 'open') payload.published_at = new Date().toISOString();
       ({ error } = await supabase.from('job_listings').insert(payload));
     }
     setSaving(false);
@@ -262,9 +297,23 @@ function ListingModal({ listing, onClose, onSaved, showToast }) {
             </select>
           </L>
         </div>
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '16px 0 12px', paddingTop: 12 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Onboarding checklist template</div>
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 10 }}>Used to seed the onboarding checklist when an applicant is accepted. Leave empty to use the default template.</div>
+          {checklist.map((c, i) => (
+            <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+              <input style={{ ...st.input, flex: 1 }} value={c.label} onChange={e => setChecklist(prev => prev.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} placeholder="Checklist item" />
+              <button style={st.smallBtn} onClick={() => setChecklist(prev => prev.filter((_, j) => j !== i))} title="Remove">✕</button>
+            </div>
+          ))}
+          <button style={{ ...st.smallBtn, marginTop: 4 }} onClick={() => setChecklist(prev => [...prev, { label: '' }])}>+ Add item</button>
+        </div>
         <div style={st.modalActions}>
           <button style={st.cancelBtn} onClick={onClose}>Cancel</button>
-          <button style={st.primaryBtn} onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+          <button style={st.primaryBtn} onClick={() => save()} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+          {f.status !== 'open' && (
+            <button style={{ ...st.primaryBtn, background: '#16a34a' }} onClick={() => save('open')} disabled={saving} title="Save and set status to Open">{saving ? 'Saving…' : 'Save & Publish'}</button>
+          )}
         </div>
       </div>
     </div>
@@ -272,9 +321,12 @@ function ListingModal({ listing, onClose, onSaved, showToast }) {
 }
 
 // ─── Applications ───────────────────────────────────────────
+const APP_PAGE_SIZE = 25;
 function ApplicationsTab({ applications, listings, onChange, showToast, initialApplicationId, onApplicationOpened }) {
   const [fStatus, setFStatus] = useState('all');
   const [fListing, setFListing] = useState('all');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
   const [selected, setSelected] = useState(null);
 
   useEffect(() => {
@@ -286,9 +338,15 @@ function ApplicationsTab({ applications, listings, onChange, showToast, initialA
     }
   }, [initialApplicationId, applications, onApplicationOpened]);
 
+  useEffect(() => { setPage(1); }, [fStatus, fListing, search]);
+
+  const q = search.trim().toLowerCase();
   const filtered = applications.filter(a =>
     (fStatus === 'all' || a.status === fStatus) &&
-    (fListing === 'all' || a.listing_id === fListing));
+    (fListing === 'all' || a.listing_id === fListing) &&
+    (!q || (a.applicant_name || '').toLowerCase().includes(q) || (a.applicant_email || '').toLowerCase().includes(q)));
+  const visible = filtered.slice(0, page * APP_PAGE_SIZE);
+  const hasMore = visible.length < filtered.length;
 
   const review = async (app, action, extra = {}) => {
     const { data, error } = await supabase.functions.invoke('jobs-review', { body: { action, application_id: app.id, ...extra } });
@@ -302,6 +360,7 @@ function ApplicationsTab({ applications, listings, onChange, showToast, initialA
   return (
     <div>
       <div style={st.filters}>
+        <input style={{ ...st.filterSel, flex: 1, minWidth: 200 }} value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or email…" />
         <select style={st.filterSel} value={fStatus} onChange={e => setFStatus(e.target.value)}>
           <option value="all">All statuses</option>{APP_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
@@ -310,21 +369,27 @@ function ApplicationsTab({ applications, listings, onChange, showToast, initialA
         </select>
       </div>
       {filtered.length === 0 ? <div style={st.empty}>No applications.</div> : (
-        <table style={st.table}>
-          <thead><tr>
-            <th style={st.th}>Applicant</th><th style={st.th}>Role</th><th style={st.th}>Applied</th><th style={st.th}>Status</th>
-          </tr></thead>
-          <tbody>
-            {filtered.map(a => (
-              <tr key={a.id} style={st.tr} onClick={() => setSelected(a)}>
-                <td style={st.td}><strong>{a.applicant_name}</strong><div style={st.subEmail}>{a.applicant_email}</div></td>
-                <td style={st.td}>{a.listing?.title || '—'}</td>
-                <td style={st.td}>{fmtDate(a.created_at)}</td>
-                <td style={st.td}><span style={{ ...st.statusPill, ...statusPillStyle(a.status) }}>{a.status}</span></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <>
+          <table style={st.table}>
+            <thead><tr>
+              <th style={st.th}>Applicant</th><th style={st.th}>Role</th><th style={st.th}>Applied</th><th style={st.th}>Status</th>
+            </tr></thead>
+            <tbody>
+              {visible.map(a => (
+                <tr key={a.id} style={st.tr} onClick={() => setSelected(a)}>
+                  <td style={st.td}><strong>{a.applicant_name}</strong><div style={st.subEmail}>{a.applicant_email}</div></td>
+                  <td style={st.td}>{a.listing?.title || '—'}</td>
+                  <td style={st.td}>{fmtDate(a.created_at)}</td>
+                  <td style={st.td}><span style={{ ...st.statusPill, ...statusPillStyle(a.status) }}>{a.status}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 14, fontSize: 12, color: 'rgba(255,255,255,0.45)' }}>
+            <span>Showing {visible.length} of {filtered.length}</span>
+            {hasMore && <button style={st.smallBtn} onClick={() => setPage(p => p + 1)}>Load more</button>}
+          </div>
+        </>
       )}
       {selected && <ApplicationDrawer app={selected} onClose={() => setSelected(null)} onReview={review} showToast={showToast} onChange={onChange} />}
     </div>
@@ -414,42 +479,98 @@ function ApplicationDrawer({ app, onClose, onReview, showToast, onChange }) {
 
 // ─── Onboarding ─────────────────────────────────────────────
 function OnboardingTab({ onboarding, onChange, showToast }) {
-  const toggle = async (row, idx) => {
-    const checklist = row.checklist.map((c, i) => i === idx ? { ...c, done: !c.done } : c);
+  const [showComplete, setShowComplete] = useState(false);
+  const saveChecklist = useCallback(async (row, checklist) => {
     const { data, error } = await supabase.functions.invoke('jobs-review', {
       body: { action: 'onboarding_update', onboarding_id: row.id, checklist },
     });
     if (error || data?.error) showToast(data?.error || error?.message || 'Failed', 'error'); else onChange();
-  };
+  }, [onChange, showToast]);
 
   if (onboarding.length === 0) return <div style={st.empty}>No one in onboarding yet. Accept an application to start.</div>;
+
+  const inProgress = onboarding.filter(r => r.status !== 'complete');
+  const complete = onboarding.filter(r => r.status === 'complete');
+
   return (
-    <div style={st.cards}>
-      {onboarding.map(row => {
-        const done = (row.checklist || []).filter(c => c.done).length;
-        const total = (row.checklist || []).length;
-        return (
-          <div key={row.id} style={st.onbCard}>
-            <div style={st.onbHead}>
-              <div>
-                <div style={st.listingTitle}>{row.application?.applicant_name || 'Hire'}</div>
-                <div style={st.subEmail}>{row.application?.listing?.title || ''} · {row.application?.applicant_email}</div>
-              </div>
-              <span style={{ ...st.statusPill, ...statusPillStyle(row.status === 'complete' ? 'accepted' : 'interview') }}>
-                {done}/{total} {row.status === 'complete' ? '· done' : ''}
-              </span>
+    <div>
+      {inProgress.length === 0 ? (
+        <div style={st.empty}>Nothing in progress.</div>
+      ) : (
+        <div style={st.cards}>
+          {inProgress.map(row => <OnboardingCard key={row.id} row={row} onSave={saveChecklist} />)}
+        </div>
+      )}
+      {complete.length > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <button style={st.expander} onClick={() => setShowComplete(s => !s)}>
+            {showComplete ? '▼' : '▶'} Completed ({complete.length})
+          </button>
+          {showComplete && (
+            <div style={{ ...st.cards, marginTop: 10 }}>
+              {complete.map(row => <OnboardingCard key={row.id} row={row} onSave={saveChecklist} />)}
             </div>
-            <div style={st.checklist}>
-              {(row.checklist || []).map((c, i) => (
-                <label key={i} style={st.checkItem}>
-                  <input type="checkbox" checked={!!c.done} onChange={() => toggle(row, i)} />
-                  <span style={{ textDecoration: c.done ? 'line-through' : 'none', color: c.done ? 'rgba(255,255,255,0.4)' : '#fff' }}>{c.label}</span>
-                </label>
-              ))}
-            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OnboardingCard({ row, onSave }) {
+  const [local, setLocal] = useState(row.checklist || []);
+  useEffect(() => { setLocal(row.checklist || []); }, [row.id, row.checklist, row.updated_at]);
+
+  const done = local.filter(c => c.done).length;
+  const total = local.length;
+
+  const toggle = (idx) => {
+    const next = local.map((c, i) => i === idx ? { ...c, done: !c.done } : c);
+    setLocal(next);
+    onSave(row, next);
+  };
+  const rename = (idx, label) => setLocal(prev => prev.map((c, i) => i === idx ? { ...c, label } : c));
+  const commitRename = (idx) => {
+    if ((local[idx]?.label || '') === (row.checklist?.[idx]?.label || '')) return;
+    onSave(row, local);
+  };
+  const remove = (idx) => {
+    const next = local.filter((_, i) => i !== idx);
+    setLocal(next);
+    onSave(row, next);
+  };
+  const add = () => {
+    const next = [...local, { label: 'New item', done: false }];
+    setLocal(next);
+    onSave(row, next);
+  };
+
+  return (
+    <div style={st.onbCard}>
+      <div style={st.onbHead}>
+        <div>
+          <div style={st.listingTitle}>{row.application?.applicant_name || 'Hire'}</div>
+          <div style={st.subEmail}>{row.application?.listing?.title || ''} · {row.application?.applicant_email}</div>
+        </div>
+        <span style={{ ...st.statusPill, ...statusPillStyle(row.status === 'complete' ? 'accepted' : 'interview') }}>
+          {done}/{total} {row.status === 'complete' ? '· done' : ''}
+        </span>
+      </div>
+      <div style={st.checklist}>
+        {local.map((c, i) => (
+          <div key={i} style={st.checkItemEdit}>
+            <input type="checkbox" checked={!!c.done} onChange={() => toggle(i)} />
+            <input
+              style={{ ...st.checkLabelInput, textDecoration: c.done ? 'line-through' : 'none', color: c.done ? 'rgba(255,255,255,0.4)' : '#fff' }}
+              value={c.label}
+              onChange={e => rename(i, e.target.value)}
+              onBlur={() => commitRename(i)}
+            />
+            <button style={st.checkRemoveBtn} onClick={() => remove(i)} title="Remove">✕</button>
           </div>
-        );
-      })}
+        ))}
+        <button style={{ ...st.smallBtn, alignSelf: 'flex-start', marginTop: 4 }} onClick={add}>+ Add item</button>
+      </div>
     </div>
   );
 }
@@ -521,4 +642,11 @@ const st = {
   onbHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
   checklist: { display: 'flex', flexDirection: 'column', gap: 8 },
   checkItem: { display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, cursor: 'pointer' },
+  checkItemEdit: { display: 'flex', alignItems: 'center', gap: 8 },
+  checkLabelInput: { flex: 1, background: 'transparent', border: '1px solid transparent', borderRadius: 6, padding: '4px 8px', fontSize: 14, outline: 'none', fontFamily: 'inherit' },
+  checkRemoveBtn: { background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.3)', fontSize: 14, cursor: 'pointer', padding: '2px 8px', fontFamily: 'inherit' },
+  expander: { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  reorderCol: { display: 'flex', flexDirection: 'column', gap: 2 },
+  reorderBtn: { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)', borderRadius: 4, padding: '2px 6px', fontSize: 10, fontFamily: 'inherit' },
+  appCountPill: { fontSize: 10, fontWeight: 700, background: 'rgba(99,102,241,0.18)', color: '#c7d2fe', borderRadius: 999, padding: '2px 8px', letterSpacing: 0.3 },
 };
