@@ -13,6 +13,7 @@ import {
   typeLabel,
   typeColors,
   defaultStageConfigForType,
+  defaultAssigneeRowsForType,
 } from '../../lib/kanbanStages';
 
 const SELECT = `
@@ -1034,7 +1035,7 @@ function NewProjectModal({ onClose, onCreated, createdBy }) {
     e.preventDefault();
     if (!name.trim()) return;
     setBusy(true);
-    const { error } = await supabase.from('projects').insert({
+    const { data: created, error } = await supabase.from('projects').insert({
       name: name.trim(),
       type,
       status: startColumn,
@@ -1042,12 +1043,18 @@ function NewProjectModal({ onClose, onCreated, createdBy }) {
       deadline: deadline || null,
       created_by: createdBy,
       stage_config: defaultStageConfigForType(type),
-    });
-    setBusy(false);
+    }).select('id').single();
     if (error) {
+      setBusy(false);
       alert(`Create failed: ${error.message}`);
       return;
     }
+    const assigneeRows = defaultAssigneeRowsForType(type, created.id);
+    if (assigneeRows.length) {
+      const { error: aErr } = await supabase.from('project_stage_assignments').insert(assigneeRows);
+      if (aErr) console.error('Default assignee seed failed:', aErr);
+    }
+    setBusy(false);
     onCreated?.();
     onClose();
   }

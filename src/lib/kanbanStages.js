@@ -90,6 +90,37 @@ export const TYPE_DEFAULT_SKIPS = {
   short_form: ['pre_production', 'review'],
 };
 
+// Default stage assignees seeded into project_stage_assignments on creation, keyed by type → stage → [profile id].
+// Edit these ids when team members change.
+export const TYPE_DEFAULT_ASSIGNEES = {
+  mayday_video: {
+    queue: [],
+    write: ['aff29906-eda8-4c3f-8a1e-a550b5bbe45d'],            // David Korn
+    pre_production: ['c3290048-436b-46c6-b3f0-fdf7923d0c3b'],   // Trevor May
+    film: ['c3290048-436b-46c6-b3f0-fdf7923d0c3b'],             // Trevor May
+    review: [
+      '7b1e50e0-cede-409d-a160-1aa6d1e232a9',                   // Henry Neiman
+      'ed7541f9-213d-4868-9147-5e638cbb6883',                   // Caleb Bartholomae
+    ],
+    edit: ['dc5d43c8-60e2-4721-8b81-aed9aa12aab6'],             // Aaron Diament
+    post_production: ['c3290048-436b-46c6-b3f0-fdf7923d0c3b'],  // Trevor May
+    publish: [],
+  },
+};
+
+// Rows ready for insert into project_stage_assignments for a freshly created project.
+export function defaultAssigneeRowsForType(projectType, projectId) {
+  const map = TYPE_DEFAULT_ASSIGNEES[projectType];
+  if (!map) return [];
+  const rows = [];
+  for (const [stage, userIds] of Object.entries(map)) {
+    for (const userId of userIds) {
+      rows.push({ project_id: projectId, stage, user_id: userId });
+    }
+  }
+  return rows;
+}
+
 export const PROJECT_TYPE_OPTIONS = [
   { value: 'mayday_video',      label: 'Mayday Video',     channel: 'More Mayday' },
   { value: 'tm_baseball_video', label: 'TM Baseball Video', channel: 'Trevor May Baseball' },
