@@ -25,7 +25,7 @@ Promo codes, discount percentages, or links provided. Use "—" if none.
 Restrictions on what the creator can or cannot say, claim, or show. Two bulleted sub-lists labeled **Dos** and **Don'ts**.
 
 ## Assets
-If the brief provides files/links/B-roll: list them as bullets.
+If the brief provides files/links/B-roll: list each as a markdown link bullet — \`- [Label](https://exact-url)\`. Preserve every URL verbatim. Never invent, shorten, or paraphrase URLs. Group by kind if helpful (Logos, B-roll, Product shots, Drive folder, etc.).
 If no provided assets: write "Custom B-Roll" then list any specific filming requests they made (e.g., "film yourself using the product", "show packaging").
 
 HARD RULES:

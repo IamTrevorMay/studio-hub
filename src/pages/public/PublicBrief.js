@@ -9,7 +9,6 @@ function idFromPath() {
 
 export default function PublicBrief() {
   const [brief, setBrief] = useState(null);
-  const [campaign, setCampaign] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -19,16 +18,15 @@ export default function PublicBrief() {
     (async () => {
       const { data, error: dbErr } = await supabase
         .from('campaign_briefs')
-        .select('id, label, url, type, source_type, onepager_md, generated_at, campaign_id, sponsor_campaigns(name, brand)')
+        .select('id, label, url, type, source_type, onepager_md, generated_at, campaign_id')
         .eq('id', id)
-        .single();
+        .maybeSingle();
       if (dbErr || !data) {
-        setError('Brief not found or not yet public');
+        setError(dbErr ? dbErr.message : 'Brief not found or not yet public');
         setLoading(false);
         return;
       }
       setBrief(data);
-      setCampaign(data.sponsor_campaigns || null);
       setLoading(false);
     })();
   }, []);
@@ -43,16 +41,8 @@ export default function PublicBrief() {
     <div style={styles.page}>
       <div style={styles.container}>
         <div style={styles.header}>
-          {campaign && (
-            <>
-              <p style={styles.eyebrow}>{campaign.brand || campaign.name}</p>
-              <h1 style={styles.h1}>{brief.label || 'Brief'}</h1>
-              {campaign.brand && campaign.brand !== campaign.name && (
-                <p style={styles.sub}>{campaign.name}</p>
-              )}
-            </>
-          )}
-          {!campaign && <h1 style={styles.h1}>{brief.label || 'Brief'}</h1>}
+          <p style={styles.eyebrow}>Sponsor Brief</p>
+          <h1 style={styles.h1}>{brief.label || 'Brief'}</h1>
         </div>
 
         {isLinkOnly ? (
