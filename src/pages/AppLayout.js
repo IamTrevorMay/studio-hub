@@ -806,7 +806,7 @@ export default function AppLayout() {
           {isAdmin && activeTab === 'freelancers' && <PageErrorBoundary key="freelancers"><Freelancers /></PageErrorBoundary>}
           {isAdmin && activeTab === 'workflows' && <PageErrorBoundary key="workflows"><Workflows /></PageErrorBoundary>}
           {isAdmin && activeTab === 'ops' && <PageErrorBoundary key="ops"><Ops /></PageErrorBoundary>}
-          {isAdmin && activeTab === 'jobs' && <PageErrorBoundary key="jobs"><Jobs /></PageErrorBoundary>}
+          {isAdmin && activeTab === 'jobs' && <PageErrorBoundary key="jobs"><Jobs initialApplicationId={navTarget} onApplicationOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {isFreelancer && activeTab === 'fl_dashboard' && <PageErrorBoundary key="fl_dashboard"><FreelancerDashboard onNavigate={navigateTo} /></PageErrorBoundary>}
           {isFreelancer && activeTab === 'fl_hours' && <PageErrorBoundary key="fl_hours"><FreelancerHours /></PageErrorBoundary>}
           {isFreelancer && activeTab === 'fl_profile' && <PageErrorBoundary key="fl_profile"><FreelancerProfile /></PageErrorBoundary>}

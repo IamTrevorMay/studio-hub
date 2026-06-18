@@ -25,13 +25,17 @@ function fmtDate(d) {
   return d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
 }
 
-export default function Jobs() {
+export default function Jobs({ initialApplicationId, onApplicationOpened }) {
   const [tab, setTab] = useState('listings');
   const [listings, setListings] = useState([]);
   const [applications, setApplications] = useState([]);
   const [onboarding, setOnboarding] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
+
+  useEffect(() => {
+    if (initialApplicationId) setTab('applications');
+  }, [initialApplicationId]);
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type });
@@ -72,7 +76,7 @@ export default function Jobs() {
       {loading ? <p style={st.muted}>Loading…</p> : (
         <>
           {tab === 'listings' && <ListingsTab listings={listings} onChange={fetchAll} showToast={showToast} />}
-          {tab === 'applications' && <ApplicationsTab applications={applications} listings={listings} onChange={fetchAll} showToast={showToast} />}
+          {tab === 'applications' && <ApplicationsTab applications={applications} listings={listings} onChange={fetchAll} showToast={showToast} initialApplicationId={initialApplicationId} onApplicationOpened={onApplicationOpened} />}
           {tab === 'onboarding' && <OnboardingTab onboarding={onboarding} onChange={fetchAll} showToast={showToast} />}
         </>
       )}
@@ -88,8 +92,15 @@ function Badge({ children }) {
 }
 
 // ─── Listings ───────────────────────────────────────────────
+const LISTING_STATUSES = ['all', 'draft', 'open', 'closed'];
 function ListingsTab({ listings, onChange, showToast }) {
   const [editing, setEditing] = useState(null); // listing obj or {} for new
+  const [fStatus, setFStatus] = useState('open');
+  const filtered = fStatus === 'all' ? listings : listings.filter(l => l.status === fStatus);
+  const counts = LISTING_STATUSES.reduce((acc, s) => {
+    acc[s] = s === 'all' ? listings.length : listings.filter(l => l.status === s).length;
+    return acc;
+  }, {});
 
   const copyLink = (l) => {
     const url = `${window.location.origin}/careers/${l.slug || l.id}`;
@@ -109,12 +120,21 @@ function ListingsTab({ listings, onChange, showToast }) {
 
   return (
     <div>
-      <div style={st.toolbar}>
+      <div style={{ ...st.toolbar, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {LISTING_STATUSES.map(s => (
+            <button key={s} style={{ ...st.statusFilterPill, ...(fStatus === s ? st.statusFilterPillOn : {}) }} onClick={() => setFStatus(s)}>
+              {s} {counts[s] ? <span style={st.statusFilterCount}>{counts[s]}</span> : null}
+            </button>
+          ))}
+        </div>
         <button style={st.primaryBtn} onClick={() => setEditing({})}>+ New listing</button>
       </div>
-      {listings.length === 0 ? <div style={st.empty}>No listings yet. Create one to post a role.</div> : (
+      {listings.length === 0 ? <div style={st.empty}>No listings yet. Create one to post a role.</div> : filtered.length === 0 ? (
+        <div style={st.empty}>No {fStatus === 'all' ? '' : fStatus} listings.</div>
+      ) : (
         <div style={st.cards}>
-          {listings.map(l => (
+          {filtered.map(l => (
             <div key={l.id} style={st.listingCard}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={st.listingTitle}>
@@ -252,10 +272,19 @@ function ListingModal({ listing, onClose, onSaved, showToast }) {
 }
 
 // ─── Applications ───────────────────────────────────────────
-function ApplicationsTab({ applications, listings, onChange, showToast }) {
+function ApplicationsTab({ applications, listings, onChange, showToast, initialApplicationId, onApplicationOpened }) {
   const [fStatus, setFStatus] = useState('all');
   const [fListing, setFListing] = useState('all');
   const [selected, setSelected] = useState(null);
+
+  useEffect(() => {
+    if (!initialApplicationId) return;
+    const app = applications.find(a => a.id === initialApplicationId);
+    if (app) {
+      setSelected(app);
+      onApplicationOpened?.();
+    }
+  }, [initialApplicationId, applications, onApplicationOpened]);
 
   const filtered = applications.filter(a =>
     (fStatus === 'all' || a.status === fStatus) &&
@@ -297,19 +326,33 @@ function ApplicationsTab({ applications, listings, onChange, showToast }) {
           </tbody>
         </table>
       )}
-      {selected && <ApplicationDrawer app={selected} onClose={() => setSelected(null)} onReview={review} showToast={showToast} />}
+      {selected && <ApplicationDrawer app={selected} onClose={() => setSelected(null)} onReview={review} showToast={showToast} onChange={onChange} />}
     </div>
   );
 }
 
-function ApplicationDrawer({ app, onClose, onReview, showToast }) {
+function ApplicationDrawer({ app, onClose, onReview, showToast, onChange }) {
   const links = Array.isArray(app.portfolio_links) ? app.portfolio_links : [];
+  const [notes, setNotes] = useState(app.reviewer_notes || '');
+  const [savingNotes, setSavingNotes] = useState(false);
+  useEffect(() => { setNotes(app.reviewer_notes || ''); }, [app.id, app.reviewer_notes]);
   const openResume = async () => {
     if (!app.resume_path) return;
     const { data, error } = await supabase.storage.from('job-resumes').createSignedUrl(app.resume_path, 3600);
     if (error || !data?.signedUrl) { showToast('Could not open résumé', 'error'); return; }
     window.open(data.signedUrl, '_blank', 'noopener');
   };
+  const saveNotes = async () => {
+    setSavingNotes(true);
+    const { data, error } = await supabase.functions.invoke('jobs-review', {
+      body: { action: 'save_notes', application_id: app.id, reviewer_notes: notes },
+    });
+    setSavingNotes(false);
+    if (error || data?.error) { showToast(data?.error || error?.message || 'Failed', 'error'); return; }
+    showToast('Notes saved');
+    onChange?.();
+  };
+  const notesDirty = (notes || '') !== (app.reviewer_notes || '');
   const terminal = app.status === 'accepted' || app.status === 'declined';
 
   return (
@@ -337,6 +380,16 @@ function ApplicationDrawer({ app, onClose, onReview, showToast }) {
             <div style={st.coverNote}>{app.cover_note}</div>
           </div>
         )}
+
+        <div style={st.section}>
+          <div style={st.sectionLabel}>Reviewer notes (internal)</div>
+          <textarea style={st.textarea} rows={4} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Private notes — not visible to applicant" />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+            <button style={{ ...st.smallBtn, opacity: notesDirty && !savingNotes ? 1 : 0.5, cursor: notesDirty && !savingNotes ? 'pointer' : 'default' }} onClick={saveNotes} disabled={!notesDirty || savingNotes}>
+              {savingNotes ? 'Saving…' : 'Save notes'}
+            </button>
+          </div>
+        </div>
 
         {!terminal && (
           <div style={st.drawerActions}>
@@ -420,6 +473,9 @@ const st = {
   muted: { color: 'rgba(255,255,255,0.4)' },
   empty: { padding: 30, textAlign: 'center', background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: 12, color: 'rgba(255,255,255,0.4)' },
   toolbar: { marginBottom: 14 },
+  statusFilterPill: { padding: '5px 11px', borderRadius: 999, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', textTransform: 'capitalize', display: 'inline-flex', alignItems: 'center', gap: 6 },
+  statusFilterPillOn: { background: 'rgba(99,102,241,0.22)', border: '1px solid rgba(99,102,241,0.5)', color: '#c7d2fe' },
+  statusFilterCount: { fontSize: 10, fontWeight: 700, background: 'rgba(0,0,0,0.3)', borderRadius: 999, padding: '1px 7px' },
   primaryBtn: { background: '#6366f1', border: 'none', color: '#fff', borderRadius: 9, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' },
   cancelBtn: { background: 'transparent', border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.7)', borderRadius: 9, padding: '9px 16px', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' },
   cards: { display: 'flex', flexDirection: 'column', gap: 10 },

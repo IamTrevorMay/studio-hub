@@ -86,6 +86,18 @@ Deno.serve(async (req: Request) => {
   const action = String(body.action || "");
   const now = new Date().toISOString();
 
+  if (action === "save_notes") {
+    const id = body.application_id as string;
+    const reviewer_notes = (body.reviewer_notes as string | null) ?? null;
+    if (!id) return json({ error: "application_id required" }, 400);
+    const { error } = await admin
+      .from("job_applications")
+      .update({ reviewer_notes, reviewer_id: user.id })
+      .eq("id", id);
+    if (error) return json({ error: error.message }, 500);
+    return json({ ok: true });
+  }
+
   if (action === "set_status") {
     const id = body.application_id as string;
     const status = body.status as string;
