@@ -227,7 +227,7 @@ const NAV_ICON_MAP = {
 
 export default function AppLayout() {
   const { profile, signOut, isAdmin, isAssistant, isPartner, isFreelancer, restrictedNavKeys } = useAuth();
-  const { unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, newAssignmentCount, myTaskCount, stuckCommentCount, refreshNotifications } = useNotifications();
+  const { unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, newAssignmentCount, myTaskCount, stuckCommentCount, flCommentCount, refreshNotifications } = useNotifications();
   const { getResolvedNav, saveConfig, saving } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => {
     const fromPath = getTabFromPath();
@@ -372,7 +372,7 @@ export default function AppLayout() {
       .eq('id', profile.id);
   }
 
-  const dashboardNotifCount = unreadAnnouncementCount + (isAdmin ? newItineraryCount : 0) + myTaskCount;
+  const dashboardNotifCount = unreadAnnouncementCount + (isAdmin ? newItineraryCount + flCommentCount : 0) + myTaskCount;
 
   function handleNavClick(key) {
     if (key === 'fl_assignments' && profile?.assigned_drive_folder_id) {
@@ -804,7 +804,7 @@ export default function AppLayout() {
           {activeTab === 'channels' && <PageErrorBoundary key="channels"><Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {activeTab === 'messages' && <PageErrorBoundary key="messages"><Messages onNavigate={navigateTo} /></PageErrorBoundary>}
           {isAdmin && activeTab === 'admin' && <PageErrorBoundary key="admin"><AdminPanel initialTab={adminInitialTab} /></PageErrorBoundary>}
-          {isAdmin && activeTab === 'freelancers' && <PageErrorBoundary key="freelancers"><Freelancers /></PageErrorBoundary>}
+          {isAdmin && activeTab === 'freelancers' && <PageErrorBoundary key="freelancers"><Freelancers initialAssignmentId={navTarget} onAssignmentOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {isAdmin && activeTab === 'workflows' && <PageErrorBoundary key="workflows"><Workflows /></PageErrorBoundary>}
           {isAdmin && activeTab === 'ops' && <PageErrorBoundary key="ops"><Ops /></PageErrorBoundary>}
           {isAdmin && activeTab === 'jobs' && <PageErrorBoundary key="jobs"><Jobs initialApplicationId={navTarget} onApplicationOpened={() => setNavTarget(null)} /></PageErrorBoundary>}

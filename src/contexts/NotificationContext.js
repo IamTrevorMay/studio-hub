@@ -18,6 +18,7 @@ export function NotificationProvider({ children }) {
   const [newAssignmentCount, setNewAssignmentCount] = useState(0);
   const [myTaskCount, setMyTaskCount] = useState(0);
   const [stuckCommentCount, setStuckCommentCount] = useState(0);
+  const [flCommentCount, setFlCommentCount] = useState(0);
 
   // Single RPC call to get all badge counts
   const refreshNotifications = useCallback(async () => {
@@ -37,6 +38,7 @@ export function NotificationProvider({ children }) {
         setPendingProposalCount(data.pending_proposal_count || 0);
         setUnsignedDocCount(data.unsigned_doc_count || 0);
         setStuckCommentCount(data.stuck_comment_count || 0);
+        setFlCommentCount(data.fl_comment_count || 0);
         setMyTaskCount(data.my_task_count || 0);
         setNewAssignmentCount(data.new_assignment_count || 0);
       }
@@ -123,6 +125,7 @@ export function NotificationProvider({ children }) {
     newAssignmentCount,
     myTaskCount,
     stuckCommentCount,
+    flCommentCount,
   };
 
   return <NotificationContext.Provider value={value}>{children}</NotificationContext.Provider>;

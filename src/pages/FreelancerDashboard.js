@@ -5,6 +5,8 @@ import useRealtimeTable from '../hooks/useRealtimeTable';
 import { logUploadError } from '../lib/uploadErrors';
 
 const SUBMISSIONS_FOLDER_ID = '1r1dENUCjNSs57MjidYbE2rWrbMKXpLM0';
+// Studio owner (Trevor) — sole recipient of contractor-comment notifications.
+const STUDIO_OWNER_ID = 'c3290048-436b-46c6-b3f0-fdf7923d0c3b';
 
 const STATUS_LABELS = {
   assigned: 'Assigned',
@@ -267,9 +269,9 @@ export default function FreelancerDashboard({ onNavigate }) {
     });
 
     const assignment = assignments.find(a => a.id === selectedId);
-    if (assignment?.created_by && assignment.created_by !== profile.id) {
+    if (assignment && profile.id !== STUDIO_OWNER_ID) {
       await supabase.from('notifications').insert({
-        user_id: assignment.created_by,
+        user_id: STUDIO_OWNER_ID,
         type: 'fl_comment',
         title: 'New Comment',
         body: `${profile.full_name} commented on "${assignment.title}"`,

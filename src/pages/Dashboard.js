@@ -162,6 +162,36 @@ export default function Dashboard({ onNavigate }) {
   const [checkinHistory, setCheckinHistory] = useState([]);
   const [checkinView, setCheckinView] = useState('week'); // 'week' | 'month'
 
+  // Unread contractor-comment notifications surfaced as cards in My Tasks (admin only)
+  const [assignmentCommentNotifs, setAssignmentCommentNotifs] = useState([]);
+
+  const fetchAssignmentCommentNotifs = useCallback(async () => {
+    if (!isAdmin || !profile?.id) return;
+    const { data } = await supabase
+      .from('notifications')
+      .select('id, body, link_target, created_at')
+      .eq('user_id', profile.id)
+      .eq('type', 'fl_comment')
+      .eq('is_read', false)
+      .order('created_at', { ascending: false });
+    setAssignmentCommentNotifs(data || []);
+  }, [isAdmin, profile?.id]);
+
+  useEffect(() => {
+    if (!isAdmin || !profile?.id) return;
+    fetchAssignmentCommentNotifs();
+    const ch = supabase.channel('dash-fl-comments')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${profile.id}` }, () => fetchAssignmentCommentNotifs())
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [isAdmin, profile?.id, fetchAssignmentCommentNotifs]);
+
+  async function handleGoToAssignmentComment(notif) {
+    setAssignmentCommentNotifs(prev => prev.filter(n => n.id !== notif.id));
+    await supabase.from('notifications').update({ is_read: true }).eq('id', notif.id);
+    if (onNavigate) onNavigate('freelancers', notif.link_target);
+  }
+
   // Tiptap editor for announcement modal
   const announcementEditor = useEditor({
     extensions: [
@@ -1591,6 +1621,21 @@ export default function Dashboard({ onNavigate }) {
         <h2 style={styles.sectionTitle}>Today</h2>
         <div style={styles.itineraryCard}>
           <h3 style={styles.subSectionTitle}>My Tasks</h3>
+          {assignmentCommentNotifs.map(notif => (
+            <div key={notif.id} style={styles.assignmentCommentCard}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: '14px', fontWeight: 600, color: '#fff', marginBottom: '2px' }}>
+                  There's a new comment on an Assignment that needs your attention.
+                </div>
+                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {notif.body}
+                </div>
+              </div>
+              <button onClick={() => handleGoToAssignmentComment(notif)} style={styles.assignmentCommentBtn}>
+                Go There
+              </button>
+            </div>
+          ))}
           <MyTasks embedded onNavigate={onNavigate} />
           <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', margin: '16px 0' }} />
           {renderTodaySchedule()}
@@ -2377,6 +2422,28 @@ const styles = {
   page: {
     padding: '32px 40px',
     maxWidth: 'none',
+  },
+  assignmentCommentCard: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '12px 14px',
+    marginBottom: '12px',
+    background: 'rgba(99,102,241,0.08)',
+    border: '1px solid rgba(99,102,241,0.25)',
+    borderRadius: '10px',
+  },
+  assignmentCommentBtn: {
+    flexShrink: 0,
+    padding: '8px 16px',
+    background: '#6366f1',
+    border: 'none',
+    borderRadius: '8px',
+    color: '#fff',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
   },
   header: {
     marginBottom: '32px',

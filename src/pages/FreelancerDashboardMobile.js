@@ -4,6 +4,9 @@ import { useAuth } from '../contexts/AuthContext';
 import FullScreenSheet from '../components/mobile/FullScreenSheet';
 import { mobileTokens } from '../utils/mobileTokens';
 
+// Studio owner (Trevor) — sole recipient of contractor-comment notifications.
+const STUDIO_OWNER_ID = 'c3290048-436b-46c6-b3f0-fdf7923d0c3b';
+
 const STATUS_LABELS = { assigned: 'Assigned', in_progress: 'In Progress', completed: 'Completed' };
 const STATUS_COLORS = { assigned: '#60a5fa', in_progress: '#fbbf24', completed: '#34d399' };
 
@@ -222,9 +225,9 @@ function AssignmentDetail({ assignmentId, assignment, profile, onChanged }) {
         author_id: profile.id,
         body,
       });
-      if (assignment?.created_by && assignment.created_by !== profile.id) {
+      if (assignment && profile.id !== STUDIO_OWNER_ID) {
         await supabase.from('notifications').insert({
-          user_id: assignment.created_by,
+          user_id: STUDIO_OWNER_ID,
           type: 'fl_comment',
           title: 'New Comment',
           body: `${profile.full_name} commented on "${assignment.title}"`,

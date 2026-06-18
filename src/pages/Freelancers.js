@@ -26,7 +26,7 @@ const FREELANCER_TITLES = [
 /*  Component                                  */
 /* ─────────────────────────────────────────── */
 
-function Freelancers() {
+function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
   const { profile, isAdmin } = useAuth();
   const [activeTab, setActiveTab] = useState('Assignments');
 
@@ -180,7 +180,15 @@ function Freelancers() {
     if (expandedAssignment) fetchComments(expandedAssignment);
   }, [expandedAssignment, fetchComments]);
 
-  // Mark fl_stuck notifications for this assignment as read when expanded.
+  // Deep-link from a notification (bell / dashboard card): open the assignment.
+  useEffect(() => {
+    if (!initialAssignmentId) return;
+    setActiveTab('Assignments');
+    setExpandedAssignment(initialAssignmentId);
+    onAssignmentOpened?.();
+  }, [initialAssignmentId, onAssignmentOpened]);
+
+  // Mark fl_stuck + fl_comment notifications for this assignment as read when expanded.
   useEffect(() => {
     if (!expandedAssignment || !profile?.id) return;
     (async () => {
@@ -188,7 +196,7 @@ function Freelancers() {
         .from('notifications')
         .update({ is_read: true })
         .eq('user_id', profile.id)
-        .eq('type', 'fl_stuck')
+        .in('type', ['fl_stuck', 'fl_comment'])
         .eq('link_target', expandedAssignment)
         .eq('is_read', false);
     })();
