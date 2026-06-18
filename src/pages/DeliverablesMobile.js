@@ -217,10 +217,10 @@ export default function DeliverablesMobile() {
                           <span style={{ ...styles.detailValue, color: '#c084fc' }}>{ev.title}</span>
                         </div>
                       )}
-                      {d.notes && (
+                      {(d.ad_copy || d.notes) && (
                         <div style={{ marginTop: 8 }}>
                           <span style={styles.detailLabel}>Ad Copy</span>
-                          <p style={styles.notesText}>{d.notes}</p>
+                          <p style={styles.notesText}>{d.ad_copy || d.notes}</p>
                         </div>
                       )}
                       {d.brief_url && (

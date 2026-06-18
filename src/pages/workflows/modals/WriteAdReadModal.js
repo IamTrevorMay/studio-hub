@@ -1,32 +1,51 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { marked } from 'marked';
 import { supabase } from '../../../supabaseClient';
 
-const AUTOSAVE_INTERVAL = 5000; // 5 seconds
-const MAX_ROWS = 8;
-const LINE_HEIGHT = 20; // approximate px per row
+const AUTOSAVE_DEBOUNCE_MS = 600;
 
 export default function WriteAdReadModal({ task, onClose }) {
   const deliverableId = task.related_entity_id;
+  const ctx = task.workflow_instance?.context || {};
+
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState(null);
+  const [deliverable, setDeliverable] = useState(null);
+  const [briefs, setBriefs] = useState([]);
+  const [pushing, setPushing] = useState(false);
+  const [pushedAt, setPushedAt] = useState(false);
+
   const dirtyRef = useRef(false);
   const textRef = useRef('');
-  const textareaRef = useRef(null);
+  const saveTimerRef = useRef(null);
 
-  // Load current ad copy from deliverable
+  // Load deliverable + campaign briefs
   useEffect(() => {
     if (!deliverableId) { setLoading(false); return; }
     (async () => {
-      const { data } = await supabase
+      const { data: d } = await supabase
         .from('sponsor_deliverables')
-        .select('notes')
+        .select('id, title, ad_copy, notes, beat_sheet_id, campaign_id, sponsor_id')
         .eq('id', deliverableId)
         .single();
-      const val = data?.notes || '';
-      setText(val);
-      textRef.current = val;
+
+      if (d) {
+        setDeliverable(d);
+        const val = d.ad_copy || d.notes || '';
+        setText(val);
+        textRef.current = val;
+
+        if (d.campaign_id) {
+          const { data: b } = await supabase
+            .from('campaign_briefs')
+            .select('id, label, url, onepager_md')
+            .eq('campaign_id', d.campaign_id)
+            .order('position', { ascending: true });
+          setBriefs(b || []);
+        }
+      }
       setLoading(false);
     })();
   }, [deliverableId]);
@@ -39,7 +58,7 @@ export default function WriteAdReadModal({ task, onClose }) {
     try {
       await supabase
         .from('sponsor_deliverables')
-        .update({ notes: textRef.current || null, updated_at: new Date().toISOString() })
+        .update({ ad_copy: textRef.current || null, updated_at: new Date().toISOString() })
         .eq('id', deliverableId);
       setLastSaved(new Date());
     } catch (err) {
@@ -49,91 +68,158 @@ export default function WriteAdReadModal({ task, onClose }) {
     }
   }, [deliverableId]);
 
-  // Periodic autosave
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (dirtyRef.current) saveToDb();
-    }, AUTOSAVE_INTERVAL);
-    return () => clearInterval(interval);
-  }, [saveToDb]);
-
-  // Auto-resize textarea
-  useEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    const maxHeight = MAX_ROWS * LINE_HEIGHT + 16; // +padding
-    el.style.height = Math.min(el.scrollHeight, maxHeight) + 'px';
-    el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
-  }, [text]);
-
   const handleChange = (e) => {
     const val = e.target.value;
     setText(val);
     textRef.current = val;
     dirtyRef.current = true;
-  };
-
-  const handleSaveAndClose = async () => {
-    await saveToDb();
-    onClose();
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(saveToDb, AUTOSAVE_DEBOUNCE_MS);
   };
 
   // Save on unmount / close
   useEffect(() => {
     return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       if (dirtyRef.current && deliverableId) {
-        // fire-and-forget final save
         supabase
           .from('sponsor_deliverables')
-          .update({ notes: textRef.current || null, updated_at: new Date().toISOString() })
+          .update({ ad_copy: textRef.current || null, updated_at: new Date().toISOString() })
           .eq('id', deliverableId);
       }
     };
   }, [deliverableId]);
 
-  const brandName = task.workflow_instance?.context?.brand_name || '';
-  const deliverableTitle = task.title || '';
+  const handleClose = async () => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    await saveToDb();
+    onClose();
+  };
+
+  const handlePushToBeatSheet = async () => {
+    if (!deliverable?.beat_sheet_id || !textRef.current) return;
+    setPushing(true);
+    try {
+      const { data: sheet } = await supabase
+        .from('beat_sheets')
+        .select('beats')
+        .eq('id', deliverable.beat_sheet_id)
+        .single();
+      if (!sheet) return;
+      const existingBeats = sheet.beats || [];
+      const newBeatTitle = 'Ad Read\n\n' + textRef.current;
+      const idx = existingBeats.findIndex(b => typeof b.title === 'string' && b.title.startsWith('Ad Read'));
+      const updatedBeats = idx >= 0
+        ? existingBeats.map((b, i) => i === idx ? { ...b, title: newBeatTitle } : b)
+        : [...existingBeats, {
+            id: crypto.randomUUID(),
+            title: newBeatTitle,
+            context: '',
+            graphics: [],
+            videos: [],
+          }];
+      await supabase.from('beat_sheets').update({
+        beats: updatedBeats,
+        updated_at: new Date().toISOString(),
+      }).eq('id', deliverable.beat_sheet_id);
+      setPushedAt(true);
+      setTimeout(() => setPushedAt(false), 2000);
+    } catch (err) {
+      console.error('Push to beat sheet failed:', err);
+    } finally {
+      setPushing(false);
+    }
+  };
+
+  const onepagerBriefs = briefs.filter(b => b.onepager_md);
+  const linkBriefs = briefs.filter(b => !b.onepager_md && b.url);
+  const onepagerHtml = onepagerBriefs
+    .map(b => marked.parse(b.onepager_md))
+    .join('<hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;" />');
+
+  const brandName = ctx.brand_name || '';
+  const deliverableTitle = deliverable?.title || task.title || '';
+  const canPush = !!deliverable?.beat_sheet_id && !!text && !pushing;
+  const pushTitle = !deliverable?.beat_sheet_id
+    ? 'Link a beat sheet first'
+    : !text ? 'Write ad copy first' : '';
 
   return (
-    <div style={modalStyles.overlay} onClick={handleSaveAndClose}>
-      <div style={modalStyles.modal} onClick={(e) => e.stopPropagation()}>
-        <div style={modalStyles.header}>
+    <div style={s.overlay} onMouseDown={(e) => { if (e.target === e.currentTarget) handleClose(); }}>
+      <div style={s.modal}>
+        <div style={s.header}>
           <div>
-            <div style={modalStyles.title}>Write Ad Read</div>
-            <div style={modalStyles.subtitle}>
-              {deliverableTitle}{brandName ? ` \u2014 ${brandName}` : ''}
-            </div>
+            <h3 style={s.title}>Ad Copy</h3>
+            <p style={s.subtitle}>
+              {deliverableTitle}{brandName ? ` · ${brandName}` : ''}
+            </p>
           </div>
-          <button style={modalStyles.closeBtn} onClick={handleSaveAndClose}>{'\u2715'}</button>
+          <button onClick={handleClose} style={s.closeBtn}>Close</button>
         </div>
 
         {loading ? (
-          <div style={{ padding: '20px 0', textAlign: 'center', color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>
-            Loading...
-          </div>
+          <div style={s.loading}>Loading…</div>
         ) : (
-          <textarea
-            ref={textareaRef}
-            value={text}
-            onChange={handleChange}
-            placeholder="Write your ad read copy here..."
-            autoFocus
-            style={modalStyles.textarea}
-          />
+          <div style={s.grid}>
+            <div style={s.colLeft}>
+              <div style={s.colHeader}>
+                Editor · {saving ? 'saving…' : lastSaved ? `saved ${lastSaved.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : 'autosaves'}
+              </div>
+              <textarea
+                value={text}
+                onChange={handleChange}
+                placeholder="Write your ad copy here…"
+                style={s.textarea}
+                autoFocus
+              />
+            </div>
+            <div style={s.colRight}>
+              <div style={s.colHeader}>Brief · read-only</div>
+              <div style={s.briefScroll}>
+                {briefs.length === 0 && (
+                  <p style={s.emptyBrief}>No brief attached to this campaign yet.</p>
+                )}
+                {onepagerBriefs.length > 0 && (
+                  <div
+                    className="brief-md"
+                    style={s.briefMd}
+                    dangerouslySetInnerHTML={{ __html: onepagerHtml }}
+                  />
+                )}
+                {linkBriefs.length > 0 && (
+                  <div style={{ marginTop: onepagerBriefs.length > 0 ? 20 : 0 }}>
+                    <p style={s.briefSubhead}>External briefs</p>
+                    {linkBriefs.map(b => (
+                      <a
+                        key={b.id}
+                        href={b.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={s.briefLink}
+                      >
+                        {b.label || b.url}
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         )}
 
-        <div style={modalStyles.footer}>
-          <div style={modalStyles.saveStatus}>
-            {saving && <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11 }}>Saving...</span>}
-            {!saving && lastSaved && (
-              <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11 }}>
-                Saved {lastSaved.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-              </span>
-            )}
-          </div>
-          <button style={modalStyles.saveBtn} onClick={handleSaveAndClose}>
-            Save &amp; Close
+        <div style={s.footer}>
+          <button
+            onClick={async () => { await handlePushToBeatSheet(); }}
+            disabled={!canPush}
+            title={pushTitle}
+            style={{
+              ...s.pushBtn,
+              background: !canPush ? 'rgba(255,255,255,0.05)' : 'linear-gradient(135deg, #6366f1, #818cf8)',
+              color: !canPush ? 'rgba(255,255,255,0.3)' : '#fff',
+              cursor: !canPush ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {pushedAt ? 'Pushed!' : pushing ? 'Pushing…' : 'Push Ad Copy to Beat Sheet'}
           </button>
         </div>
       </div>
@@ -141,43 +227,78 @@ export default function WriteAdReadModal({ task, onClose }) {
   );
 }
 
-const modalStyles = {
+const s = {
   overlay: {
-    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
   },
   modal: {
-    background: '#15151f', border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: 16, padding: 20, width: 520, maxWidth: '90vw',
-    boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
-    fontFamily: 'system-ui, -apple-system, sans-serif',
+    background: '#1a1a2e', borderRadius: 14,
+    width: '95vw', maxWidth: 1100, height: '82vh',
+    border: '1px solid rgba(255,255,255,0.1)',
+    display: 'flex', flexDirection: 'column',
+    fontFamily: 'DM Sans, sans-serif',
   },
   header: {
-    display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16,
+    padding: '18px 22px',
+    borderBottom: '1px solid rgba(255,255,255,0.08)',
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
   },
-  title: { fontSize: 18, fontWeight: 700, color: '#fff' },
-  subtitle: { fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 2 },
+  title: { margin: '0 0 2px', fontSize: 16, fontWeight: 600, color: '#fff' },
+  subtitle: { margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.4)' },
   closeBtn: {
-    background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)',
-    fontSize: 16, cursor: 'pointer', padding: 4,
+    background: 'transparent', border: '1px solid rgba(255,255,255,0.1)',
+    color: 'rgba(255,255,255,0.6)', borderRadius: 6, padding: '6px 12px',
+    fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
+  },
+  loading: {
+    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+    color: 'rgba(255,255,255,0.4)', fontSize: 13,
+  },
+  grid: {
+    flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr', minHeight: 0,
+  },
+  colLeft: {
+    display: 'flex', flexDirection: 'column',
+    borderRight: '1px solid rgba(255,255,255,0.08)',
+  },
+  colRight: {
+    display: 'flex', flexDirection: 'column', minHeight: 0,
+  },
+  colHeader: {
+    padding: '10px 18px', fontSize: 11, textTransform: 'uppercase',
+    letterSpacing: '0.06em', color: 'rgba(255,255,255,0.4)', fontWeight: 600,
+    borderBottom: '1px solid rgba(255,255,255,0.05)',
   },
   textarea: {
-    width: '100%', boxSizing: 'border-box', padding: '10px 12px',
-    background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: 8, color: '#fff', fontSize: 14, lineHeight: '20px',
-    fontFamily: 'inherit', resize: 'none', outline: 'none',
-    minHeight: 60,
+    flex: 1, minHeight: 0,
+    background: 'transparent', border: 'none', outline: 'none',
+    color: '#fff', fontSize: 14, lineHeight: 1.6,
+    padding: '18px 22px', resize: 'none',
+    fontFamily: 'DM Sans, sans-serif',
+  },
+  briefScroll: {
+    flex: 1, minHeight: 0, overflow: 'auto', padding: '18px 22px',
+  },
+  emptyBrief: { margin: 0, fontSize: 13, color: 'rgba(255,255,255,0.4)' },
+  briefMd: { fontSize: 13, lineHeight: 1.6, color: 'rgba(255,255,255,0.85)' },
+  briefSubhead: {
+    margin: '0 0 8px', fontSize: 11, textTransform: 'uppercase',
+    letterSpacing: '0.06em', color: 'rgba(255,255,255,0.4)', fontWeight: 600,
+  },
+  briefLink: {
+    display: 'block', padding: '8px 12px',
+    background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)',
+    borderRadius: 8, color: '#a5b4fc', fontSize: 13,
+    marginBottom: 6, textDecoration: 'none', wordBreak: 'break-all',
   },
   footer: {
-    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-    paddingTop: 14, marginTop: 14, borderTop: '1px solid rgba(255,255,255,0.06)',
+    padding: '14px 22px',
+    borderTop: '1px solid rgba(255,255,255,0.08)',
+    display: 'flex', justifyContent: 'flex-end', gap: 10,
   },
-  saveStatus: {
-    minHeight: 16,
-  },
-  saveBtn: {
-    padding: '8px 18px', borderRadius: 8, background: '#6366f1',
-    border: 'none', color: '#fff', fontWeight: 600, fontSize: 13,
-    cursor: 'pointer', fontFamily: 'inherit',
+  pushBtn: {
+    border: 'none', borderRadius: 8, padding: '10px 18px',
+    fontSize: 13, fontWeight: 600, fontFamily: 'DM Sans, sans-serif',
   },
 };

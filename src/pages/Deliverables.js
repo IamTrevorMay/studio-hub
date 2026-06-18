@@ -873,7 +873,6 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
       title: d.title || '',
       deliverable_type: d.deliverable_type,
       due_date: d.due_date,
-      notes: d.notes,
       ad_copy: d.ad_copy,
       platforms: d.platforms,
       needs_review: d.needs_review,
