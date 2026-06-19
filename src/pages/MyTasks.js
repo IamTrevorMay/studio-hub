@@ -252,6 +252,16 @@ export default function MyTasks({ onNavigate, embedded = false }) {
         .order('created_at', { ascending: true });
       if (assignedErr) throw assignedErr;
 
+      // A task that's surfaced as a Sprint Board card (personal_tasks.task_id)
+      // is worked on the board, not here — don't double-list it in My Tasks.
+      const { data: sprintCardRows } = await supabase
+        .from('personal_tasks')
+        .select('task_id')
+        .eq('created_by', profile.id)
+        .not('task_id', 'is', null);
+      const sprintCardTaskIds = new Set((sprintCardRows || []).map((r) => r.task_id));
+      const assignedFiltered = (assigned || []).filter((t) => !sprintCardTaskIds.has(t.id));
+
       // Fetch sign-off tasks where this user has a pending sign-off.
       const { data: signOffRows } = await supabase
         .from('task_sign_offs')
@@ -275,7 +285,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
       // Merge, dedupe by id.
       const seen = new Set();
       const merged = [];
-      for (const t of [...(assigned || []), ...signOffTasks]) {
+      for (const t of [...assignedFiltered, ...signOffTasks]) {
         if (!seen.has(t.id)) { seen.add(t.id); merged.push(t); }
       }
 

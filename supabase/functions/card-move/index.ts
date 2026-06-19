@@ -157,6 +157,10 @@ Deno.serve(async (req: Request) => {
   if (!["admin", "assistant", "member"].includes(caller.role)) {
     return jsonResp({ error: "Forbidden" }, 403);
   }
+  // Service-role internal calls (auto-advance) have a synthetic "system" userId
+  // that isn't a uuid — fall back to null so created_by/author_id inserts don't
+  // blow up on the uuid columns. created_by is nullable.
+  const actorId = caller.userId === "system" ? null : caller.userId;
 
   let body: { project_id?: string; target_stage?: string; handoff_note?: string };
   try { body = await req.json(); } catch { return jsonResp({ error: "Invalid JSON" }, 400); }
@@ -251,7 +255,7 @@ Deno.serve(async (req: Request) => {
       from_stage: currentStage,
       to_stage: resolvedTargetStage,
       body: handoff_note.trim(),
-      author_id: caller.userId,
+      author_id: actorId,
     });
   }
 
@@ -299,7 +303,37 @@ Deno.serve(async (req: Request) => {
       .single();
 
     if (userProfile?.route_tasks_to_sprint) {
-      // Sprint-routed: create personal_tasks entry only, skip My Tasks + notification.
+      // Sprint-routed: create a REAL tasks row (same as the default path) so
+      // that completing the sprint card advances the project, exactly like a
+      // workflow card. The row is then surfaced as a personal_tasks sprint card
+      // instead of a My Tasks entry (skip notification). MyTasks dedupes any
+      // task that has a sprint card, so the user still sees it in just one place.
+      //
+      // status 'active' (not 'pending') so the Sprint board Done handler's
+      // `linked_task.status === 'active'` gate and workflow-complete-task's
+      // active-only guard both pass. assignee_id is the card owner so the
+      // function's assignee auth check passes when they complete it.
+      const { data: task, error: taskErr } = await admin
+        .from("tasks")
+        .insert({
+          step_key: resolvedTargetStage,
+          title: taskTitle,
+          description,
+          assignee_id: userId,
+          status: "active",
+          related_entity_type: "project",
+          related_entity_id: project.id,
+          due_date: project.deadline,
+          created_by: actorId,
+        })
+        .select("id")
+        .single();
+      if (taskErr || !task) {
+        console.error("Failed to insert sprint-routed task:", taskErr?.message);
+        continue;
+      }
+      newTaskIds.push(task.id);
+
       const { data: sprint } = await admin
         .from("sprints")
         .select("id")
@@ -311,7 +345,7 @@ Deno.serve(async (req: Request) => {
         content: taskTitle,
         status: "in_progress",
         position: Date.now() % 100000,
-        task_id: null,
+        task_id: task.id,
         project_id: project.id,
         sprint_id: sprint?.id || null,
       });
@@ -330,7 +364,7 @@ Deno.serve(async (req: Request) => {
         related_entity_type: "project",
         related_entity_id: project.id,
         due_date: project.deadline,
-        created_by: caller.userId,
+        created_by: actorId,
       })
       .select("id")
       .single();
