@@ -390,35 +390,40 @@ Frontend only; ships on the next Vercel push (no edge/DB changes).
 
 _None — all HIGH findings fixed (deploy/push pending)._
 
+### Fixed — pending deploy/push (2026-06-20, MED batch — all 25)
+
+5 edge functions need deploy: `fetch-daily-graphics`, `google-drive-write`,
+`google-calendar-sync`, `drive-upload-init`, plus `run-report` + `preview-report`
+(they bundle the edited `shared/report-sources.ts`). Rest is frontend (Vercel push).
+
+| Loc | Fix |
+|---|---|
+| `InvoicingMobile.js:275,276` | Re-derive `tax_cents` from edited subtotal; mark-paid records full `total_cents` |
+| `Production.js:1269` | Media thumbs keyed by content; reorderable tag spans keyed by value |
+| `Reviews.js:892` | `createTimer` ref cleared in loadPlayer + unmount |
+| `KanbanPanel.js:879` | Terminal columns re-bumped above reindexed range; refetch on save failure |
+| `drive-upload-init:100` | Non-admins confined to submissions/assigned folder (+descendants) via `isDescendantOf` |
+| `AppLayout.js:286,347` | Route guard redirects adminOnly pages for non-admins; freelancer redirect deps include `activeTab` |
+| `AuthContext.js:246` | `isPasswordRecoveryRef` read in the listener |
+| `google-calendar-sync:154` | Admin gate (matches google-calendar-fetch) |
+| `fetch-daily-graphics:26` | Admin role check |
+| `google-drive-write:96` | `/^[\w\-]+$/` folderId sanitize |
+| `shared/report-sources.ts:70` | `isSafeExternalUrl(endpoint)` SSRF guard |
+| `BusinessDev.js:749,763` | completed_at only stamped on transition to done; position recomputed on phase/workstream move |
+| `CalendarMobile.js:507` | Shared `src/lib/recurrence.js` expansion + fetch includes recurring rows (desktop kept its copy) |
+| `Channels.js:134,199` | DELETE handler (unfiltered, id-match); swap actual `sort_order` values |
+| `ContentHealthDashboard.js:93` | `fetchGenRef` stale-response guard |
+| `Tracking.js:299` | Null-id target guarded; edit recovers real id instead of `.eq('id',null)` |
+| `Telestration.js:62` | Revoke object URLs from refs |
+| `Organize.js:24` | Centralized object-URL revoke via prev-files ref + unmount |
+| `YouTubeStudioAdvanced.js:1117` | `[...rows].sort()`; key by `_key` |
+| `FreelancerDashboard.js:263` | `postingComment` in-flight guard |
+| `Jobs.js:649,662` | Optimistic rollback on save failure; rename compares full list |
+| `Storyboard.js:113,308` | Baseline history pushed in load callback; thumbnail skipped while load in flight |
+
 ### Open — MED
 
-| Loc | Problem | Fix |
-|---|---|---|
-| `src/pages/InvoicingMobile.js:276` | Editing taxed invoice reuses stale `tax_cents` → `total_cents` inconsistent with `tax_rate` | Re-derive tax on mobile |
-| `src/pages/InvoicingMobile.js:275` | "Mark paid" sets `amount_paid_cents` to bare subtotal → paid invoice shows balance-due | Use same `total_cents` expression |
-| `src/pages/Production.js:1269` | Drag-reorderable tag lists keyed by array index → node misassociation | Stable key (tag string/url) |
-| `src/pages/Reviews.js:892` | `setTimeout(create,100)` never cleared → fast version-switch overwrites `ytPlayerRef` | Track + `clearTimeout` |
-| `src/pages/workflows/KanbanPanel.js:879` | `reorderColumns` leaves terminal column position untouched → collision/terminal not last | Re-bump terminal above reindexed range |
-| `supabase/functions/drive-upload-init/index.ts:100` | IDOR: arbitrary `parentFolderId`; freelancer `blocked_folders` never checked | Validate against caller's allowed set |
-| `src/pages/AppLayout.js:286,347` | Route guard + freelancer redirect don't enforce scope on direct-URL/popstate | Add scope check to guard/popstate |
-| `src/contexts/AuthContext.js:246` | `onAuthStateChange` closes over stale `isPasswordRecovery=false` → SIGNED_IN during recovery auto-logs-in | Use a ref |
-| `supabase/functions/google-calendar-sync/index.ts:154` | Any authed user can sync/delete arbitrary `calendar_events` by UUID | Admin check / ownership verify |
-| `supabase/functions/fetch-daily-graphics/index.ts:26` | Any authed user triggers Triton fetch + write (`--no-verify-jwt`) | Role check |
-| `supabase/functions/google-drive-write/index.ts:96` | GET `folderId` not sanitized (sibling does) → `q` injection | Add regex guard |
-| `supabase/functions/shared/report-sources.ts:70` | `fetchTritonSource` fetches user-controlled `endpoint` (preview-report body), reflects raw response | SSRF guard + host allowlist |
-| `src/pages/BusinessDev.js:763` | Editing done initiative re-stamps `completed_at=now()` every save → resets auto-archive + loses real time | Only set on transition to done |
-| `src/pages/BusinessDev.js:749` | Cross-phase move doesn't recompute `position` → collision in destination | Assign `maxPos+1` on phase/workstream change |
-| `src/pages/CalendarMobile.js:507` | Mobile never expands `recurrence_rule` → recurring events vanish from future days | Reuse desktop `expandRecurringEvents` |
-| `src/pages/Channels.js:134` | Realtime ignores DELETE → deleted message stays visible | Add DELETE handler |
-| `src/pages/Channels.js:199` | `handleMoveChannel` writes array index as `sort_order` not actual values → corrupts if non-contiguous | Swap actual `sort_order` values |
-| `src/pages/ContentHealthDashboard.js:93` | No stale-response guard on channel switch → older fetch overwrites newer | Generation/abort token (Tracking's `postsGenRef`) |
-| `src/pages/Tracking.js:299` | Missing `ig_stories` row → `id:null`, `null===null` true, `.eq('id',null)` → target uneditable | Create/upsert the row |
-| `src/pages/tools/Telestration.js:62` | Unmount cleanup `[]` deps capture empty arrays → blob URLs leak | Revoke from refs |
-| `src/pages/tools/Organize.js:24` | `createObjectURL` thumbUrls never revoked → leak per rescan/unmount | Revoke before each `setFiles` + unmount |
-| `src/pages/YouTubeStudioAdvanced.js:1117` | `rows.sort()` mutates state array in render | `[...rows].sort()` |
-| `src/pages/FreelancerDashboard.js:263` | No in-flight guard on comment post → dup comments + notifications | `posting` flag |
-| `src/pages/Jobs.js:649,662` | Onboarding-card optimistic edits no rollback; index-based rename mismatch after add/remove | Rollback on error; compare by stable id |
-| `src/pages/editors/Storyboard.js:113,308` | Baseline history snapshot taken before async `loadFromJSON` (undo → blank); thumbnail captures wrong page mid-load | Push baseline / capture dataURL in load callback |
+_None — all MED findings fixed (deploy/push pending)._
 
 ### Open — LOW
 

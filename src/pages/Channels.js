@@ -158,6 +158,16 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
         ));
         fetchPinnedMessages(activeChannel.id);
       })
+      .on('postgres_changes', {
+        // No channel_id filter: DELETE payloads only carry the PK (default
+        // replica identity), so a channel_id filter would never match. Filter
+        // by id presence instead — removing an id not in this channel is a no-op.
+        event: 'DELETE', schema: 'public', table: 'channel_messages',
+      }, (payload) => {
+        if (!mounted) return;
+        setMessages(prev => prev.filter(m => m.id !== payload.old.id));
+        fetchPinnedMessages(activeChannel.id);
+      })
       .subscribe();
     return () => { mounted = false; supabase.removeChannel(channel); };
   }, [activeChannel, fetchMessages, fetchPinnedMessages, refreshKey]);
@@ -200,9 +210,16 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
     const idx = channels.findIndex(c => c.id === channelId);
     const swapIdx = idx + direction;
     if (swapIdx < 0 || swapIdx >= channels.length) return;
+    const a = channels[idx];
+    const b = channels[swapIdx];
+    // Swap the two channels' actual sort_order values. Writing array indices
+    // here corrupted ordering whenever stored sort_orders weren't a contiguous
+    // 0..n-1 sequence.
+    const aOrder = a.sort_order ?? idx;
+    const bOrder = b.sort_order ?? swapIdx;
     const updates = [
-      { id: channels[idx].id, sort_order: swapIdx },
-      { id: channels[swapIdx].id, sort_order: idx },
+      { id: a.id, sort_order: bOrder },
+      { id: b.id, sort_order: aOrder },
     ];
     for (const u of updates) {
       await supabase.from('channels').update({ sort_order: u.sort_order }).eq('id', u.id);

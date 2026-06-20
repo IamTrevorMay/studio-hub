@@ -120,11 +120,12 @@ export default function Storyboard({ docId, title, onBack, onSaveTemplate }) {
     fc.on('selection:updated', updateLayers);
     fc.on('selection:cleared', updateLayers);
 
-    // Load first page
+    // Load first page. loadPageIntoCanvas pushes the baseline history snapshot
+    // itself once the async load completes (don't push synchronously here — the
+    // canvas isn't populated yet).
     if (pages.length > 0) {
       loadPageIntoCanvas(0);
     }
-    pushHistory();
   }, [loaded]);
 
   // ------- DATA LOADING -------
@@ -172,27 +173,30 @@ export default function Storyboard({ docId, title, onBack, onSaveTemplate }) {
     fc.clear();
     fc.backgroundColor = '#ffffff';
 
-    if (page.canvas_data && Object.keys(page.canvas_data).length > 0) {
-      fc.loadFromJSON(page.canvas_data, () => {
-        fc.renderAll();
-        skipHistory.current = false;
-        updateLayers();
-      });
-    } else {
+    // Reset undo/redo up front; the baseline snapshot is pushed once the page
+    // content has actually loaded. loadFromJSON is async, so pushing the baseline
+    // synchronously captured a blank canvas — making the first undo wipe the page.
+    undoStack.current = [];
+    redoStack.current = [];
+    setUndoLen(0);
+    setRedoLen(0);
+
+    const finishLoad = () => {
       fc.renderAll();
       skipHistory.current = false;
       updateLayers();
+      pushHistory(); // baseline = the loaded page, not an empty canvas
+    };
+
+    if (page.canvas_data && Object.keys(page.canvas_data).length > 0) {
+      fc.loadFromJSON(page.canvas_data, finishLoad);
+    } else {
+      finishLoad();
     }
 
     setAnnotations(page.annotations && Object.keys(page.annotations).length > 0
       ? { ...EMPTY_ANNOTATIONS, ...page.annotations }
       : { ...EMPTY_ANNOTATIONS });
-
-    // Reset undo/redo for new page
-    undoStack.current = [];
-    redoStack.current = [];
-    setUndoLen(0);
-    setRedoLen(0);
   }
 
   async function saveCurrentPage() {
@@ -323,6 +327,10 @@ export default function Storyboard({ docId, title, onBack, onSaveTemplate }) {
   function generateThumbnail(pageIdx) {
     const fc = fabricRef.current;
     if (!fc) return;
+    // Don't snapshot while a page load is in flight (loadFromJSON is async):
+    // the live canvas may hold the previous/partial page, which would get keyed
+    // to pageIdx. Grid view (generateAllThumbnails) regenerates from saved data.
+    if (skipHistory.current) return;
     try {
       const dataUrl = fc.toDataURL({ format: 'jpeg', quality: 0.4, multiplier: 0.15 });
       setThumbnails(prev => ({ ...prev, [pageIdx]: dataUrl }));

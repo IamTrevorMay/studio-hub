@@ -34,6 +34,32 @@ async function logServerError(row: Record<string, unknown>): Promise<void> {
   }
 }
 
+// Shared submissions folder (mirrors the client constant in AppLayout /
+// FreelancerDashboard). Non-admins may upload here or into their own assigned
+// folder, nothing else.
+const SUBMISSIONS_FOLDER_ID = "1r1dENUCjNSs57MjidYbE2rWrbMKXpLM0";
+
+// Walk a folder's parent chain to confirm it lives under one of the allowed
+// roots, so a non-admin can't target an arbitrary Drive folder by id.
+async function isDescendantOf(accessToken: string, fileId: string, rootId: string): Promise<boolean> {
+  if (fileId === rootId) return true;
+  let currentId = fileId;
+  for (let i = 0; i < 10; i++) {
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${currentId}?fields=parents&supportsAllDrives=true`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    const data = await res.json();
+    if (!res.ok) return false;
+    const parents = data.parents || [];
+    if (parents.includes(rootId)) return true;
+    if (!parents.length) return false;
+    currentId = parents[0];
+    if (currentId === "root") return false;
+  }
+  return false;
+}
+
 async function getDriveAccessToken(): Promise<string> {
   const clientId = Deno.env.get("GOOGLE_CLIENT_ID")!;
   const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")!;
@@ -89,7 +115,7 @@ Deno.serve(async (req: Request) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+    const { data: profile } = await supabase.from("profiles").select("role, assigned_drive_folder_id").eq("id", user.id).single();
     if (!["admin", "freelancer", "member"].includes(profile?.role)) {
       return new Response(JSON.stringify({ error: "Access required" }), {
         status: 403,
@@ -110,6 +136,33 @@ Deno.serve(async (req: Request) => {
     }
 
     const accessToken = await getDriveAccessToken();
+
+    // IDOR guard: non-admins may only upload into the shared submissions folder
+    // or their own assigned folder (or a descendant of either). Admins are
+    // trusted to target any folder. Without this, any authenticated user could
+    // initiate an upload into an arbitrary folder by passing its id.
+    if (profile.role !== "admin") {
+      if (!/^[\w\-]+$/.test(parentFolderId)) {
+        return new Response(JSON.stringify({ error: "Invalid parentFolderId" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const roots = [SUBMISSIONS_FOLDER_ID];
+      if (profile.assigned_drive_folder_id) roots.push(profile.assigned_drive_folder_id);
+      let allowed = roots.includes(parentFolderId);
+      for (const root of roots) {
+        if (allowed) break;
+        if (await isDescendantOf(accessToken, parentFolderId, root)) allowed = true;
+      }
+      if (!allowed) {
+        await logServerError({ ...logRow, status_code: 403, error: "parentFolderId outside allowed folders" });
+        return new Response(JSON.stringify({ error: "Folder not permitted" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
 
     // Forward the browser's Origin so Google associates it with the resumable
     // upload URL and returns proper CORS headers on subsequent PUT requests.

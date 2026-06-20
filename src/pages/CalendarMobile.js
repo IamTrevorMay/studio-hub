@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import BottomSheet from '../components/mobile/BottomSheet';
 import { mobileTokens } from '../utils/mobileTokens';
+import { expandRecurringEvents } from '../lib/recurrence';
 
 const EVENT_TYPE_COLORS = {
   deadline: '#ef4444', meeting: '#3b82f6', live_recording: '#22c55e',
@@ -58,6 +59,20 @@ export default function CalendarMobile() {
   });
   const [selectedDay, setSelectedDay] = useState(null); // for month view tap
 
+  // Expand recurring events into concrete occurrences over a range covering both
+  // the agenda horizon and the visible month grid. Without this, recurring events
+  // only showed on their original start_date.
+  const expandedEvents = useMemo(() => {
+    const rangeStart = new Date();
+    rangeStart.setDate(rangeStart.getDate() - 7);
+    rangeStart.setHours(0, 0, 0, 0);
+    const monthEnd = new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 7);
+    const horizonEnd = new Date();
+    horizonEnd.setDate(horizonEnd.getDate() + HORIZON_DAYS + 1);
+    const rangeEnd = monthEnd > horizonEnd ? monthEnd : horizonEnd;
+    return expandRecurringEvents(events, rangeStart, rangeEnd);
+  }, [events, monthCursor]);
+
   // Event create (mobile-friendly subset of the desktop modal — title/
   // type/date/time/all-day/location). Recurrence + guests are desktop-
   // only for now; the row inserts via supabase directly to mirror
@@ -77,8 +92,9 @@ export default function CalendarMobile() {
       const { data, error } = await supabase
         .from('calendar_events')
         .select('*, creator:profiles!created_by(id, full_name)')
-        .gte('end_date', start.toISOString())
-        .lte('start_date', end.toISOString())
+        // Include recurring events regardless of range — their original dates may
+        // predate the window but their occurrences fall inside it (expanded below).
+        .or(`and(end_date.gte.${start.toISOString()},start_date.lte.${end.toISOString()}),recurrence_rule.neq.null`)
         .order('start_date', { ascending: true });
       if (error) throw error;
       setEvents(data || []);
@@ -157,10 +173,10 @@ export default function CalendarMobile() {
       {loading ? (
         <p style={styles.empty}>Loading…</p>
       ) : view === 'agenda' ? (
-        <AgendaView events={events} onSelect={setSelectedEvent} />
+        <AgendaView events={expandedEvents} onSelect={setSelectedEvent} />
       ) : (
         <MonthView
-          events={events}
+          events={expandedEvents}
           monthCursor={monthCursor}
           setMonthCursor={setMonthCursor}
           onSelectDay={setSelectedDay}
@@ -183,7 +199,7 @@ export default function CalendarMobile() {
       >
         {selectedDay && (
           <DayEvents
-            events={eventsForDay(events, selectedDay)}
+            events={eventsForDay(expandedEvents, selectedDay)}
             onSelect={(ev) => { setSelectedDay(null); setTimeout(() => setSelectedEvent(ev), 220); }}
             onAddForDay={() => {
               const day = selectedDay;

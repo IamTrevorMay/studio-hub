@@ -260,6 +260,14 @@ function InvoiceEditor({ existing, contacts, onSaved, onContactsChanged, onCance
     if (saving) return;
     setSaving(true);
     const status = overrideStatus || form.status;
+    // Re-derive tax from the (possibly edited) subtotal — reusing the stored
+    // tax_cents left it inconsistent with tax_rate after a line-item edit.
+    // discount/shipping are absolute amounts, so they carry over unchanged.
+    const taxRate = existing?.tax_rate || 0;
+    const taxCents = Math.round(subtotalCents * taxRate / 100);
+    const discountCents = existing?.discount_cents || 0;
+    const shippingCents = existing?.shipping_cents || 0;
+    const fullTotalCents = subtotalCents + taxCents - discountCents + shippingCents;
     const payload = {
       direction: form.direction,
       status,
@@ -268,12 +276,14 @@ function InvoiceEditor({ existing, contacts, onSaved, onContactsChanged, onCance
       due_date: form.due_date || null,
       paid_date: status === 'paid' ? (form.paid_date || todayStr()) : (form.paid_date || null),
       subtotal_cents: subtotalCents,
-      tax_rate: existing?.tax_rate || 0,
-      tax_cents: existing?.tax_cents || 0,
-      discount_cents: existing?.discount_cents || 0,
-      shipping_cents: existing?.shipping_cents || 0,
-      amount_paid_cents: status === 'paid' ? totalCents : (existing?.amount_paid_cents || 0),
-      total_cents: totalCents + (existing?.tax_cents || 0) - (existing?.discount_cents || 0) + (existing?.shipping_cents || 0),
+      tax_rate: taxRate,
+      tax_cents: taxCents,
+      discount_cents: discountCents,
+      shipping_cents: shippingCents,
+      // Mark-paid records the FULL total (incl. tax/shipping), so the invoice
+      // reads as fully paid on desktop instead of showing a tax-sized balance.
+      amount_paid_cents: status === 'paid' ? fullTotalCents : (existing?.amount_paid_cents || 0),
+      total_cents: fullTotalCents,
       notes: form.notes || null,
     };
 

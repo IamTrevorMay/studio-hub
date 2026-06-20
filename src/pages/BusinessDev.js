@@ -745,7 +745,13 @@ export default function BusinessDev() {
     if (!title || !initForm.phase_id) { alert('Title and phase are required.'); return; }
     const budget_cents = initForm.budget_dollars === '' ? null : Math.round(parseFloat(initForm.budget_dollars) * 100);
     const status = initForm.status;
-    const completed_at = status === 'done' ? new Date().toISOString() : null;
+    const original = editingInitId ? initiatives.find(i => i.id === editingInitId) : null;
+    // Only stamp completed_at on the transition into 'done'. Re-stamping on every
+    // save of an already-done initiative reset the 24h auto-archive timer and
+    // clobbered the real completion time.
+    const completed_at = status === 'done'
+      ? ((original?.status === 'done' && original.completed_at) ? original.completed_at : new Date().toISOString())
+      : null;
     const payload = {
       phase_id: initForm.phase_id,
       workstream: initForm.workstream,
@@ -761,6 +767,13 @@ export default function BusinessDev() {
 
     let savedId = editingInitId;
     if (editingInitId) {
+      // Moved to a different phase or workstream → place at the end of the new
+      // group so its old position can't collide with destination siblings.
+      if (original && (original.phase_id !== payload.phase_id || original.workstream !== payload.workstream)) {
+        const dstSiblings = (initiativesByPhase[payload.phase_id] || [])
+          .filter(i => i.workstream === payload.workstream && i.id !== editingInitId);
+        payload.position = Math.max(0, ...dstSiblings.map(i => i.position || 0)) + 1;
+      }
       const { error } = await supabase.from('bd_initiatives').update(payload).eq('id', editingInitId);
       if (error) { alert(error.message); return; }
     } else {

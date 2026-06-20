@@ -1114,8 +1114,8 @@ function VideoDrilldown({ videoId, channels, dateRange, videoMeta, onClose }) {
                 <th style={{ ...S.th, textAlign: 'right' }}>Watch hrs</th>
               </tr></thead>
               <tbody>
-                {rows.sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 50).map((r, i) => (
-                  <tr key={r._key + i}>
+                {[...rows].sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 50).map((r) => (
+                  <tr key={r._key}>
                     <td style={S.td}>{r._label || r._key}</td>
                     <td style={{ ...S.td, textAlign: 'right' }}>{formatValue(r.views, 'compact')}</td>
                     <td style={{ ...S.td, textAlign: 'right' }}>{formatValue(r.watch_time_minutes, 'hours')}</td>

@@ -774,6 +774,7 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
   const [newVersionLabel, setNewVersionLabel] = useState('');
   const [filterResolved, setFilterResolved] = useState('all'); // all, open, resolved
   const timeInterval = useRef(null);
+  const createTimer = useRef(null); // pending player-create setTimeout
   const commentsListRef = useRef(null);
   const videoColRef = useRef(null);
   const [videoColHeight, setVideoColHeight] = useState(null);
@@ -793,6 +794,7 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
     fetchDetails();
     return () => {
       if (timeInterval.current) clearInterval(timeInterval.current);
+      if (createTimer.current) clearTimeout(createTimer.current);
       if (ytPlayerRef.current?.destroy) {
         ytPlayerRef.current.destroy();
         ytPlayerRef.current = null;
@@ -865,6 +867,9 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
       ytPlayerRef.current = null;
     }
     if (timeInterval.current) clearInterval(timeInterval.current);
+    // Cancel any pending create() from a previous loadPlayer so a stale timer
+    // can't build a player for an old videoId and overwrite ytPlayerRef.
+    if (createTimer.current) clearTimeout(createTimer.current);
     setIsReady(false);
     setCurrentTime(0);
     setDuration(0);
@@ -889,7 +894,7 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
 
     if (window.YT && window.YT.Player) {
       // Small delay to let DOM settle after destroy
-      setTimeout(create, 100);
+      createTimer.current = setTimeout(create, 100);
     } else {
       const existing = document.getElementById('youtube-iframe-api');
       if (!existing) {

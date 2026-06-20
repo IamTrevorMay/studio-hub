@@ -17,7 +17,13 @@ export function AuthProvider({ children }) {
   const initDone = useRef(false);
   const visibilityInFlight = useRef(false);
   const inviteSetupRef = useRef(false); // ref for closure access in listener
+  // Mirror isPasswordRecovery into a ref so the once-registered onAuthStateChange
+  // listener reads the current value, not the stale render-0 `false` it closed
+  // over (which let a SIGNED_IN during recovery auto-log-in / fetch profile).
+  const isPasswordRecoveryRef = useRef(false);
   const authFailureCount = useRef(0);
+
+  useEffect(() => { isPasswordRecoveryRef.current = isPasswordRecovery; }, [isPasswordRecovery]);
 
   // Nuclear option: wipe all auth state from the browser
   const nukeSession = useCallback(async () => {
@@ -243,7 +249,7 @@ export function AuthProvider({ children }) {
           return;
         }
 
-        if (isPasswordRecovery || inviteSetupRef.current) return;
+        if (isPasswordRecoveryRef.current || inviteSetupRef.current) return;
 
         if (session?.user) {
           if (event === 'SIGNED_IN') {

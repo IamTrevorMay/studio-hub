@@ -619,7 +619,9 @@ function OnboardingTab({ onboarding, onChange, showToast }) {
     const { data, error } = await supabase.functions.invoke('jobs-review', {
       body: { action: 'onboarding_update', onboarding_id: row.id, checklist },
     });
-    if (error || data?.error) showToast(data?.error || error?.message || 'Failed', 'error'); else onChange();
+    if (error || data?.error) { showToast(data?.error || error?.message || 'Failed', 'error'); return false; }
+    onChange();
+    return true;
   }, [onChange, showToast]);
 
   if (onboarding.length === 0) return <div style={st.empty}>No one in onboarding yet. Accept an application to start.</div>;
@@ -659,25 +661,34 @@ function OnboardingCard({ row, onSave }) {
   const done = local.filter(c => c.done).length;
   const total = local.length;
 
-  const toggle = (idx) => {
+  // Optimistic update with rollback: revert local if the save fails, otherwise
+  // a failed write silently reverts on the next refetch (looks like a lost click).
+  const toggle = async (idx) => {
+    const prev = local;
     const next = local.map((c, i) => i === idx ? { ...c, done: !c.done } : c);
     setLocal(next);
-    onSave(row, next);
+    if (!(await onSave(row, next))) setLocal(prev);
   };
   const rename = (idx, label) => setLocal(prev => prev.map((c, i) => i === idx ? { ...c, label } : c));
-  const commitRename = (idx) => {
-    if ((local[idx]?.label || '') === (row.checklist?.[idx]?.label || '')) return;
-    onSave(row, local);
+  const commitRename = async () => {
+    // Compare the whole list, not by index — add()/remove() drift the indices
+    // between local and the last-saved row.checklist, so an index compare could
+    // skip a real rename or fire a redundant save.
+    if (JSON.stringify(local) === JSON.stringify(row.checklist || [])) return;
+    const prev = row.checklist || [];
+    if (!(await onSave(row, local))) setLocal(prev);
   };
-  const remove = (idx) => {
+  const remove = async (idx) => {
+    const prev = local;
     const next = local.filter((_, i) => i !== idx);
     setLocal(next);
-    onSave(row, next);
+    if (!(await onSave(row, next))) setLocal(prev);
   };
-  const add = () => {
+  const add = async () => {
+    const prev = local;
     const next = [...local, { label: 'New item', done: false }];
     setLocal(next);
-    onSave(row, next);
+    if (!(await onSave(row, next))) setLocal(prev);
   };
 
   return (

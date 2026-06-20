@@ -151,6 +151,24 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // Google Calendar is an admin-scoped integration (per-admin connections),
+    // matching google-calendar-fetch. Without this gate any authenticated user
+    // could read an arbitrary calendar_events row by UUID and sync it.
+    {
+      const roleClient = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+      );
+      const { data: profile } = await roleClient
+        .from("profiles").select("role").eq("id", user.id).single();
+      if (profile?.role !== "admin") {
+        return new Response(JSON.stringify({ error: "Admin only" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     const { action, event_id } = await req.json();
     if (!action || !event_id) {
       return new Response(JSON.stringify({ error: "action and event_id required" }), {
