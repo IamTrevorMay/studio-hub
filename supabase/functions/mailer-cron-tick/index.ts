@@ -45,6 +45,9 @@ Deno.serve(async (req) => {
         headers: {
           "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
           "Content-Type": "application/json",
+          // Internal auth — send-now skips the user-JWT check + the
+          // 'already sending' guard for calls bearing the cron secret.
+          "X-Cron-Secret": CRON_SECRET,
         },
         body: JSON.stringify({ campaign_id: c.id }),
       });
