@@ -17,6 +17,11 @@ function isPrivacyPath() {
   return window.location.pathname.replace(/\/+$/, '') === '/careers/privacy';
 }
 
+function statusTokenFromPath() {
+  const m = window.location.pathname.match(/^\/careers\/status\/([^/]+)/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
 function slugFromPath() {
   const m = window.location.pathname.match(/^\/careers\/([^/]+)/);
   return m ? decodeURIComponent(m[1]) : null;
@@ -107,6 +112,8 @@ export default function PublicCareers() {
   };
 
   if (isPrivacyPath()) return <CareersPrivacy />;
+  const statusToken = statusTokenFromPath();
+  if (statusToken) return <CareersStatus token={statusToken} />;
 
   return (
     <div style={s.page}>
@@ -209,6 +216,11 @@ function ListingDetail({ listing, onBack }) {
   let structured = null;
   try { const p = JSON.parse(listing.description); if (p && p.structured) structured = p; } catch {}
 
+  // Fire a view beacon once per listing open (best-effort, never blocks).
+  useEffect(() => {
+    supabase.functions.invoke('jobs-view', { body: { listing_id: listing.id, slug: listing.slug } }).catch(() => {});
+  }, [listing.id, listing.slug]);
+
   return (
     <div>
       <button style={s.back} onClick={onBack}>← All roles</button>
@@ -239,12 +251,17 @@ function ApplyForm({ listing }) {
   const [company, setCompany] = useState(''); // honeypot
   const [consent, setConsent] = useState(false);
   const [token, setToken] = useState('');
+  const [answers, setAnswers] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
 
+  const questions = Array.isArray(listing.screening_questions) ? listing.screening_questions : [];
+  const setAnswer = (i, v) => setAnswers(prev => ({ ...prev, [i]: v }));
+  const questionsOk = questions.every((q, i) => !q.required || String(answers[i] || '').trim());
+
   const canSubmit = name.trim() && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
-    && consent && (!TURNSTILE_SITE_KEY || token) && !submitting;
+    && consent && questionsOk && (!TURNSTILE_SITE_KEY || token) && !submitting;
 
   const submit = async () => {
     if (!canSubmit) return;
@@ -273,6 +290,7 @@ function ApplyForm({ listing }) {
           company, // honeypot
           consent: true,
           turnstile_token: token || undefined,
+          answers: questions.map((q, i) => ({ question: q.label, answer: String(answers[i] || '') })),
           resume_base64, resume_filename, resume_content_type,
         },
       });
@@ -311,6 +329,25 @@ function ApplyForm({ listing }) {
       <Field label="Anything else? (cover note)">
         <textarea style={s.textarea} rows={4} value={cover} onChange={e => setCover(e.target.value)} placeholder="Tell us why you'd be a great fit…" />
       </Field>
+
+      {questions.map((q, i) => (
+        <Field key={i} label={`${q.label}${q.required ? ' *' : ''}`}>
+          {q.type === 'long' ? (
+            <textarea style={s.textarea} rows={3} value={answers[i] || ''} onChange={e => setAnswer(i, e.target.value)} />
+          ) : q.type === 'yesno' ? (
+            <select style={s.input} value={answers[i] || ''} onChange={e => setAnswer(i, e.target.value)}>
+              <option value="">—</option><option value="Yes">Yes</option><option value="No">No</option>
+            </select>
+          ) : q.type === 'select' ? (
+            <select style={s.input} value={answers[i] || ''} onChange={e => setAnswer(i, e.target.value)}>
+              <option value="">—</option>
+              {(Array.isArray(q.options) ? q.options : []).map((o, j) => <option key={j} value={o}>{o}</option>)}
+            </select>
+          ) : (
+            <input style={s.input} value={answers[i] || ''} onChange={e => setAnswer(i, e.target.value)} />
+          )}
+        </Field>
+      ))}
       {/* Honeypot — hidden from humans */}
       <input style={{ position: 'absolute', left: '-9999px' }} tabIndex={-1} autoComplete="off" value={company} onChange={e => setCompany(e.target.value)} aria-hidden="true" />
 
@@ -370,6 +407,82 @@ function CareersPrivacy() {
           <a href={`mailto:${PRIVACY_EMAIL}`} style={s.consentLink}>{PRIVACY_EMAIL}</a> and we'll action it promptly.
         </p>
 
+        <footer style={s.footer}>© {new Date().getFullYear()} Mayday</footer>
+      </div>
+    </div>
+  );
+}
+
+function CareersStatus({ token }) {
+  const [state, setState] = useState({ loading: true });
+  useEffect(() => {
+    supabase.functions.invoke('jobs-status', { body: { token } }).then(({ data, error }) => {
+      if (error || data?.error) setState({ loading: false, error: data?.error || 'Could not load your application status.' });
+      else setState({ loading: false, data });
+    });
+  }, [token]);
+
+  const STAGES = [
+    { key: 'new', label: 'Received' },
+    { key: 'reviewing', label: 'Under review' },
+    { key: 'interview', label: 'Interview' },
+    { key: 'accepted', label: 'Offer' },
+  ];
+  const d = state.data;
+  const declined = d?.status === 'declined';
+  const activeIdx = d ? STAGES.findIndex(x => x.key === d.status) : -1;
+
+  return (
+    <div style={s.page}>
+      <div style={s.wrap}>
+        <header style={s.header}>
+          <div style={s.logo}>Mayday</div>
+          <div style={s.headerTag}>Careers</div>
+        </header>
+        <a href="/careers" style={s.back}>← All roles</a>
+
+        {state.loading ? (
+          <p style={s.muted}>Loading your application…</p>
+        ) : state.error ? (
+          <div style={s.emptyCard}>{state.error}</div>
+        ) : (
+          <>
+            <h1 style={s.h1}>Your application</h1>
+            <p style={s.lede}>{d.listing_title} · applied {new Date(d.applied_at).toLocaleDateString()}</p>
+
+            {declined ? (
+              <div style={{ ...s.emptyCard, textAlign: 'left' }}>
+                <div style={{ fontWeight: 700, color: '#fca5a5', marginBottom: 6 }}>{d.stage_label}</div>
+                <div style={s.muted}>{d.stage_note}</div>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', gap: 8, margin: '8px 0 16px', flexWrap: 'wrap' }}>
+                  {STAGES.map((st2, i) => {
+                    const on = i <= activeIdx;
+                    return (
+                      <div key={st2.key} style={{
+                        flex: 1, minWidth: 110, padding: '10px 12px', borderRadius: 10, textAlign: 'center',
+                        background: on ? 'rgba(99,102,241,0.22)' : 'rgba(255,255,255,0.04)',
+                        border: `1px solid ${on ? 'rgba(99,102,241,0.6)' : 'rgba(255,255,255,0.08)'}`,
+                        color: on ? '#c7d2fe' : 'rgba(255,255,255,0.4)', fontSize: 13, fontWeight: 600,
+                      }}>{st2.label}</div>
+                    );
+                  })}
+                </div>
+                <div style={{ ...s.emptyCard, textAlign: 'left' }}>
+                  <div style={{ fontWeight: 700, color: '#fff', marginBottom: 6 }}>{d.stage_label}</div>
+                  <div style={s.muted}>{d.stage_note}</div>
+                  {d.interview_at && (
+                    <div style={{ marginTop: 10, color: '#c7d2fe', fontSize: 14 }}>
+                      Interview: {new Date(d.interview_at).toLocaleString()}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </>
+        )}
         <footer style={s.footer}>© {new Date().getFullYear()} Mayday</footer>
       </div>
     </div>

@@ -18,8 +18,14 @@ const ALLOWED_ORIGINS = [
   "http://localhost:3000",
 ];
 const CONSENT_VERSION = Deno.env.get("JOBS_CONSENT_VERSION") || "2026-06";
+const SITE = Deno.env.get("SITE_URL") || "https://www.mmcreate.io";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_RESUME_BYTES = 5 * 1024 * 1024;
+
+// Fill {{vars}} in a template string.
+function renderTemplate(tpl: string, vars: Record<string, string>): string {
+  return tpl.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? "");
+}
 
 function corsHeaders(origin: string | null) {
   const allow = origin && ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
@@ -119,6 +125,12 @@ Deno.serve(async (req: Request) => {
   const portfolio = Array.isArray(body.portfolio_links)
     ? (body.portfolio_links as string[]).map((s) => String(s).trim()).filter(Boolean).slice(0, 10)
     : [];
+  const answers = Array.isArray(body.answers)
+    ? (body.answers as Array<{ question?: string; answer?: string }>)
+        .map((x) => ({ question: String(x.question || "").slice(0, 300), answer: String(x.answer || "").slice(0, 2000) }))
+        .filter((x) => x.question)
+        .slice(0, 30)
+    : [];
 
   if (!name) return reply({ error: "Name is required" }, 400);
   if (!EMAIL_RE.test(email)) return reply({ error: "A valid email is required" }, 400);
@@ -209,6 +221,7 @@ Deno.serve(async (req: Request) => {
     }
   }
 
+  const statusToken = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "").slice(0, 8);
   const { data: application, error: insErr } = await admin
     .from("job_applications")
     .insert({
@@ -219,7 +232,9 @@ Deno.serve(async (req: Request) => {
       resume_path: resumePath,
       portfolio_links: portfolio,
       cover_note: coverNote,
+      answers,
       status: "new",
+      status_token: statusToken,
       consent_at: new Date().toISOString(),
       consent_version: CONSENT_VERSION,
     })
@@ -229,6 +244,13 @@ Deno.serve(async (req: Request) => {
   if (insErr || !application) {
     return reply({ error: `Could not submit application: ${insErr?.message}` }, 500);
   }
+
+  // Audit trail
+  await admin.from("job_application_events").insert({
+    application_id: application.id,
+    type: "created",
+    to_status: "new",
+  });
 
   // Record rate-limit entries only on successful submission so failed/empty
   // attempts don't lock the legitimate user out.
@@ -253,16 +275,26 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  // Confirmation email to the applicant
-  const firstName = escapeHtml(name.split(" ")[0] || "there");
-  const safeTitle = escapeHtml(listingTitle);
-  await sendEmail(
-    email,
-    `We received your application — ${listingTitle}`,
-    `<p>Hi ${firstName},</p>
-     <p>Thanks for applying for <strong>${safeTitle}</strong>. We've received your application and our team will review it. If it's a fit, we'll be in touch.</p>
-     <p>— The Mayday Team</p>`,
-  );
+  // Confirmation email to the applicant — uses the editable template if present.
+  const statusUrl = `${SITE}/careers/status/${statusToken}`;
+  const vars = {
+    first_name: escapeHtml(name.split(" ")[0] || "there"),
+    listing_title: escapeHtml(listingTitle),
+    status_url: statusUrl,
+  };
+  const { data: tpl } = await admin
+    .from("job_email_templates")
+    .select("subject, body_html")
+    .eq("key", "confirmation")
+    .maybeSingle();
+  const subject = tpl ? renderTemplate(tpl.subject, vars) : `We received your application — ${listingTitle}`;
+  const html = tpl
+    ? renderTemplate(tpl.body_html, vars)
+    : `<p>Hi ${vars.first_name},</p>
+       <p>Thanks for applying for <strong>${vars.listing_title}</strong>. We've received your application and our team will review it. If it's a fit, we'll be in touch.</p>
+       <p>Check your status anytime: <a href="${statusUrl}">${statusUrl}</a></p>
+       <p>— The Mayday Team</p>`;
+  await sendEmail(email, subject, html);
 
-  return reply({ ok: true, application_id: application.id });
+  return reply({ ok: true, application_id: application.id, status_token: statusToken });
 });
