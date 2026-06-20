@@ -37,7 +37,19 @@ export const SearchHighlight = Extension.create({
             const storage = extension.storage as SearchHighlightStorage
             const { searchTerm, matchCase, wholeWord, currentIndex } = storage
 
-            if (!searchTerm) return DecorationSet.empty
+            if (!searchTerm) {
+              ;(storage as any)._lastKey = ''
+              return DecorationSet.empty
+            }
+
+            // Skip the full re-scan when neither the doc nor the search params
+            // changed (e.g. a pure cursor/selection move) — just remap the
+            // existing decorations. Avoids an O(doc) rebuild every keystroke.
+            const key = `${searchTerm}|${matchCase}|${wholeWord}|${currentIndex}`
+            if (!tr.docChanged && (storage as any)._lastKey === key) {
+              return oldSet.map(tr.mapping, tr.doc)
+            }
+            ;(storage as any)._lastKey = key
 
             const decorations: Decoration[] = []
             let matchIdx = 0

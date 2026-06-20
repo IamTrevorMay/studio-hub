@@ -239,7 +239,7 @@ function groupAndAggregate(rows, keyFn, labelFn = (k) => k) {
 }
 
 function monthKey(dateStr) {
-  return dateStr.slice(0, 7);
+  return (dateStr || '').slice(0, 7);
 }
 
 function formatMonth(yyyyMm) {
@@ -812,7 +812,7 @@ export default function YouTubeStudioAdvanced({ accounts }) {
                 const isSelected = selectedRowKeys.includes(r._key);
                 const meta = dimensionDef.isContent ? videoMeta[r._key] : null;
                 return (
-                  <tr key={r._key + ri} style={ri % 2 ? S.trEven : null}>
+                  <tr key={r._key} style={ri % 2 ? S.trEven : null}>
                     <td style={{ ...S.td, ...S.tdSticky, width: 36 }}>
                       <input type="checkbox" checked={isSelected} onChange={() => toggleRowSelect(r._key)} style={{ accentColor: '#6366f1' }} />
                     </td>

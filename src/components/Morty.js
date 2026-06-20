@@ -436,6 +436,7 @@ export default function Morty() {
   const timerRef = useRef(null);
   const idleTimeoutRef = useRef(null);
   const bubbleTimeoutRef = useRef(null);
+  const transientTimers = useRef([]); // untracked one-shot timers, cleared on unmount
   const targetXRef = useRef(null);
 
   // Sync refs
@@ -456,6 +457,8 @@ export default function Morty() {
     if (timerRef.current) clearTimeout(timerRef.current);
     if (idleTimeoutRef.current) clearTimeout(idleTimeoutRef.current);
     if (bubbleTimeoutRef.current) clearTimeout(bubbleTimeoutRef.current);
+    transientTimers.current.forEach(clearTimeout);
+    transientTimers.current = [];
     moveIntervalRef.current = null;
     animIntervalRef.current = null;
     timerRef.current = null;
@@ -470,7 +473,7 @@ export default function Morty() {
     if (bubbleTimeoutRef.current) clearTimeout(bubbleTimeoutRef.current);
     bubbleTimeoutRef.current = setTimeout(() => {
       setBubbleOpacity(0);
-      setTimeout(() => setShowBubble(false), 400);
+      transientTimers.current.push(setTimeout(() => setShowBubble(false), 400));
     }, 5000);
   }, []);
 
@@ -536,24 +539,24 @@ export default function Morty() {
         const danceType = DANCE_TYPES[Math.floor(Math.random() * DANCE_TYPES.length)];
         setState('dancing');
         startAnimation(danceType);
-        setTimeout(() => {
+        transientTimers.current.push(setTimeout(() => {
           if (stateRef.current === 'dancing') setState('idle');
-        }, 3000 + Math.random() * 2000);
+        }, 3000 + Math.random() * 2000));
       } else if (roll < 0.20) {
         startAnimation('jump');
-        setTimeout(() => {
+        transientTimers.current.push(setTimeout(() => {
           if (stateRef.current === 'idle') startWalkToRandom();
-        }, 750);
+        }, 750));
       } else if (roll < 0.35) {
         startAnimation('look');
-        setTimeout(() => {
+        transientTimers.current.push(setTimeout(() => {
           if (stateRef.current === 'idle') startWalkToRandom();
-        }, 1600);
+        }, 1600));
       } else if (roll < 0.45) {
         showSpeechBubble(getRandomSaying());
-        setTimeout(() => {
+        transientTimers.current.push(setTimeout(() => {
           if (stateRef.current === 'idle') startWalkToRandom();
-        }, 5500);
+        }, 5500));
       } else {
         startWalkToRandom();
       }
@@ -568,12 +571,12 @@ export default function Morty() {
     const dismissSaying = DISMISS_SAYINGS[Math.floor(Math.random() * DISMISS_SAYINGS.length)];
     showSpeechBubble(dismissSaying);
     // After showing the disappointed message, walk off
-    setTimeout(() => {
+    transientTimers.current.push(setTimeout(() => {
       if (stateRef.current === 'dismissing') {
         setShowBubble(false);
         setState('exiting');
       }
-    }, 3000);
+    }, 3000));
   }, [startAnimation, showSpeechBubble]);
 
   // State machine transitions

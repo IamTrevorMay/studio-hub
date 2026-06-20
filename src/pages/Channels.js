@@ -520,7 +520,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
                 </div>
               ) : (
                 messageGroups.map((group, gi) => (
-                  <div key={gi} style={msgStyles.group}>
+                  <div key={group.messages[0]?.id || gi} style={msgStyles.group}>
                     <div style={msgStyles.avatar}>
                       {getDisplayInitial(group.user)}
                     </div>

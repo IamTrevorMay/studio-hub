@@ -425,9 +425,23 @@ _None — all HIGH findings fixed (deploy/push pending)._
 
 _None — all MED findings fixed (deploy/push pending)._
 
-### Open — LOW
+### Fixed — LOW batch (2026-06-20)
 
-| Loc | Problem |
+All LOW findings below were fixed **except** the two Deferred items noted here.
+11 edge functions changed (need deploy: sync-metricool, mailer-webhook,
+mailer-send-now, approve-automation, sync-fourthwall, drive-watch-register,
+metricool-stories, google-calendar-sync, twitch-auth-callback, stats-query,
+jobs-view); rest is frontend (Vercel push). Migration `20260620140000_jobs_view_dedup`
+applied.
+
+- **Research IP (1297/1346): verified correct, no change** — Triton stores
+  true-decimal innings (7.333, 5.667), so the `×3` outs conversion is right.
+- **Deferred — `Ideation.js:1182`** — `setTimeout(setActiveDoc,100)` works; a
+  clean fix needs a pending-doc state machine. Low value.
+- **Deferred — `Research.js:386`** — bucket-switch stale-response guard; manual
+  toggle, negligible race.
+
+| Loc | Problem (fixed unless noted above) |
 |---|---|
 | `sync-metricool/index.ts:130`, `src/pages/Accounting.js:312` | No `Number.isFinite`/`||0` guard → one bad row poisons metrics with NaN |
 | `src/pages/Payroll.js:283` | `handleTogglePaid` no disable/await → double-tap duplicate `payroll_paid` rows |

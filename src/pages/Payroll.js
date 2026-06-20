@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -280,20 +280,30 @@ export default function Payroll() {
 
   // ── Paid toggle ───────────────────────────────────────────────────
 
+  const togglingPaid = useRef(new Set());
   async function handleTogglePaid(profileId) {
-    if (paidMap[profileId]) {
-      await supabase.from('payroll_paid')
-        .delete()
-        .eq('profile_id', profileId)
-        .eq('period_start', selectedPeriod.start);
-      setPaidMap(prev => { const next = { ...prev }; delete next[profileId]; return next; });
-    } else {
-      await supabase.from('payroll_paid').insert({
-        profile_id: profileId,
-        period_start: selectedPeriod.start,
-        paid_by: profile.id,
-      });
-      setPaidMap(prev => ({ ...prev, [profileId]: true }));
+    // Guard against a fast double-tap firing two concurrent writes (duplicate
+    // payroll_paid rows) before paidMap updates.
+    const key = `${profileId}|${selectedPeriod.start}`;
+    if (togglingPaid.current.has(key)) return;
+    togglingPaid.current.add(key);
+    try {
+      if (paidMap[profileId]) {
+        await supabase.from('payroll_paid')
+          .delete()
+          .eq('profile_id', profileId)
+          .eq('period_start', selectedPeriod.start);
+        setPaidMap(prev => { const next = { ...prev }; delete next[profileId]; return next; });
+      } else {
+        await supabase.from('payroll_paid').insert({
+          profile_id: profileId,
+          period_start: selectedPeriod.start,
+          paid_by: profile.id,
+        });
+        setPaidMap(prev => ({ ...prev, [profileId]: true }));
+      }
+    } finally {
+      togglingPaid.current.delete(key);
     }
   }
 

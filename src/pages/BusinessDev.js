@@ -1015,7 +1015,8 @@ export default function BusinessDev() {
   async function handleToggleTask(task) {
     const completed_at = task.completed_at ? null : new Date().toISOString();
     const { data, error } = await supabase.from('bd_tasks').update({ completed_at }).eq('id', task.id).select().single();
-    if (!error && data) await syncTaskToBacklog(data);
+    if (error) { alert(`Could not update task: ${error.message}`); return; }
+    if (data) await syncTaskToBacklog(data);
     fetchAll();
   }
   async function handleDeleteTask(id) {

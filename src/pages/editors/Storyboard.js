@@ -24,6 +24,8 @@ export default function Storyboard({ docId, title, onBack, onSaveTemplate }) {
   const canvasElRef = useRef(null);
   const fabricRef = useRef(null);
   const containerRef = useRef(null);
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
 
   // Pages
   const [pages, setPages] = useState([]);
@@ -295,6 +297,7 @@ export default function Storyboard({ docId, title, onBack, onSaveTemplate }) {
         newPages[i] = { ...newPages[i], page_number: i + 1 };
       }
     }
+    if (!mountedRef.current) return; // unmounted mid-await — don't touch state/canvas
     setPages(newPages);
     const newIdx = Math.min(idx, newPages.length - 1);
     setCurrentPage(newIdx);

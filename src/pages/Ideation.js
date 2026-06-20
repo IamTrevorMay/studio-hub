@@ -161,14 +161,16 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
 
   const handleDocDragEnd = useCallback(async (result) => {
     if (!result.destination || result.source.index === result.destination.index) return;
+    const prev = documents;
     const reordered = Array.from(documents);
     const [moved] = reordered.splice(result.source.index, 1);
     reordered.splice(result.destination.index, 0, moved);
     setDocuments(reordered);
 
-    for (let i = 0; i < reordered.length; i++) {
-      await supabase.from('concept_documents').update({ sort_order: i }).eq('id', reordered[i].id);
-    }
+    const results = await Promise.all(
+      reordered.map((d, i) => supabase.from('concept_documents').update({ sort_order: i }).eq('id', d.id))
+    );
+    if (results.some(r => r.error)) setDocuments(prev); // roll back on partial failure
   }, [documents]);
 
   async function handleCreateConcept(e) {
@@ -443,15 +445,16 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
   // ─── Drag-and-Drop Handler ──────────────────────────────────────────
   const handleDragEnd = useCallback(async (result) => {
     if (!result.destination || result.source.index === result.destination.index) return;
+    const prev = concepts;
     const reordered = Array.from(concepts);
     const [moved] = reordered.splice(result.source.index, 1);
     reordered.splice(result.destination.index, 0, moved);
     setConcepts(reordered);
 
-    const updates = reordered.map((c, i) => ({ id: c.id, sort_order: i }));
-    for (const u of updates) {
-      await supabase.from('concepts').update({ sort_order: u.sort_order }).eq('id', u.id);
-    }
+    const results = await Promise.all(
+      reordered.map((c, i) => supabase.from('concepts').update({ sort_order: i }).eq('id', c.id))
+    );
+    if (results.some(r => r.error)) setConcepts(prev); // roll back on partial failure
   }, [concepts]);
 
   // ─── Edit Concept Handler ──────────────────────────────────────────

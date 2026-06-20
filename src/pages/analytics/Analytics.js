@@ -227,8 +227,9 @@ export default function Analytics() {
     if (activeAccountIds.length > 0) q = q.in('platform_account_id', activeAccountIds);
     const rollups = await fetchAllRows(q);
 
-    // Previous period
-    const daysDiff = Math.ceil((new Date(end) - new Date(start)) / 86400000);
+    // Previous period (min 1 day so a same-day range still has a real prev window
+    // instead of an empty query → always +100%/0%).
+    const daysDiff = Math.max(1, Math.ceil((new Date(end) - new Date(start)) / 86400000));
     const prevStart = new Date(new Date(start).getTime() - daysDiff * 86400000).toISOString().split('T')[0];
     let pq = supabase
       .from('daily_platform_rollups')
@@ -238,11 +239,15 @@ export default function Analytics() {
     if (activeAccountIds.length > 0) pq = pq.in('platform_account_id', activeAccountIds);
     const prevRollups = await fetchAllRows(pq);
 
-    // Audience — get the latest snapshot for each active account
-    const { data: latestAudience } = await supabase
+    // Audience — get the latest snapshot for each active account. Apply the same
+    // platform filter as the view/engagement queries, else Net/Total Followers
+    // ignore the filter and disagree with the other KPI cards.
+    let aq = supabase
       .from('audience_snapshots')
       .select('followers_total, followers_gained, platform_account_id')
       .eq('date', end);
+    if (activeAccountIds.length > 0) aq = aq.in('platform_account_id', activeAccountIds);
+    const { data: latestAudience } = await aq;
 
     const totalViews = rollups.reduce((s, r) => s + Number(r.total_views), 0);
     const prevViews = prevRollups.reduce((s, r) => s + Number(r.total_views), 0);

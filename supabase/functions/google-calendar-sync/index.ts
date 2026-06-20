@@ -32,7 +32,7 @@ async function getValidToken(adminClient: any, userId: string) {
     });
 
     const tokens = await res.json();
-    if (!res.ok) return null;
+    if (!res.ok || !tokens.access_token) return null;
 
     const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
     await adminClient

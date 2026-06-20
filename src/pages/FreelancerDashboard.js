@@ -196,8 +196,11 @@ export default function FreelancerDashboard({ onNavigate }) {
 
   useRealtimeTable('fl-comments', {
     table: 'freelancer_assignment_comments',
+    // Scope to the open assignment — refetchComments only loads selectedId's
+    // thread, so an unfiltered subscription just caused needless refetch churn.
+    filter: selectedId ? `assignment_id=eq.${selectedId}` : undefined,
     onAny: refetchComments,
-    enabled: !!profile?.id,
+    enabled: !!profile?.id && !!selectedId,
   });
 
   useRealtimeTable('fl-notifications', {

@@ -803,6 +803,14 @@ export default function Dashboard({ onNavigate }) {
   }
 
   // ── Team status handlers ──
+  // Re-render every 60s so a member whose last_seen_at has aged past the 2-min
+  // threshold flips to "offline" even without an unrelated realtime event.
+  const [, setPresenceTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setPresenceTick(t => t + 1), 60000);
+    return () => clearInterval(id);
+  }, []);
+
   function getEffectiveStatus(member) {
     if (member.status === 'away') return 'busy';
     if (member.status === 'offline') return 'offline';

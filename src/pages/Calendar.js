@@ -247,6 +247,7 @@ export default function Calendar({ onNavigate }) {
   const timeGridRef = useRef(null);
   const dragEventRef = useRef(null);
   const initialEventFormRef = useRef(null);
+  const contextMenuRef = useRef(null);
 
   useEffect(() => {
     try { localStorage.setItem('calendar_filters', JSON.stringify(visibleFilters)); } catch {}
@@ -264,6 +265,9 @@ export default function Calendar({ onNavigate }) {
       if (deliverableDropdownRef.current && !deliverableDropdownRef.current.contains(e.target)) {
         setShowDeliverableDropdown(false);
       }
+      // Don't dismiss the context menu when the click lands inside it, or its
+      // items would unmount on mousedown before their onClick fires.
+      if (contextMenuRef.current && contextMenuRef.current.contains(e.target)) return;
       setContextMenu(null);
     }
     document.addEventListener('mousedown', handleClick);
@@ -1592,6 +1596,7 @@ export default function Calendar({ onNavigate }) {
       {/* Right-click context menu */}
       {contextMenu && (
         <div
+          ref={contextMenuRef}
           style={{
             position: 'fixed',
             top: contextMenu.y,

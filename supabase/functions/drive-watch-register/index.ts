@@ -117,11 +117,13 @@ Deno.serve(async (req: Request) => {
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
     if (!probeRes.ok) {
+      // Log the upstream error server-side; don't reflect raw Drive response text
+      // to the caller.
       const errText = await probeRes.text();
+      console.error(`drive probe failed (${probeRes.status}): ${errText}`);
       return new Response(
         JSON.stringify({
           error: `Service account cannot access folder (${probeRes.status}). Share the folder with the service-account email and retry.`,
-          detail: errText,
         }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );

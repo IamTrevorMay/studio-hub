@@ -771,7 +771,7 @@ function AnalyticsTab({ listings, applications }) {
   const funnel = [
     { label: 'Views', n: views.total, color: '#6366f1' },
     { label: 'Applied', n: total, color: '#38bdf8' },
-    { label: 'Interview', n: byStatus.interview + byStatus.accepted, color: '#fde68a' },
+    { label: 'Interview', n: byStatus.interview, color: '#fde68a' },
     { label: 'Accepted', n: byStatus.accepted, color: '#86efac' },
   ];
   const maxFunnel = Math.max(1, ...funnel.map(f => f.n));

@@ -421,6 +421,7 @@ export default function Reviews() {
   if (activeReview) {
     return (
       <ReviewPlayer
+        key={activeReview.id}
         review={activeReview}
         onBack={() => setActiveReview(null)}
         profile={profile}

@@ -123,6 +123,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   const [driveFolderName, setDriveFolderName] = useState(null);
   const [saveStatus, setSaveStatus] = useState('saved');
   const saveTimer = useRef(null);
+  const justLoadedSheet = useRef(false); // skip the autosave fired by openSheet's state writes
   const tagDragRef = useRef(null);
 
   // ── folder browser state ──
@@ -276,6 +277,8 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   }, [activeSheet, title, beats, driveFolderId, driveFolderName]);
 
   useEffect(() => {
+    // Don't autosave the data openSheet just loaded — only real user edits.
+    if (justLoadedSheet.current) { justLoadedSheet.current = false; return; }
     if (activeSheet) scheduleSave();
     return () => clearTimeout(saveTimer.current);
   }, [title, beats, driveFolderId, driveFolderName]);
@@ -371,6 +374,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   };
 
   const openSheet = (sheet) => {
+    justLoadedSheet.current = true;
     setActiveSheet(sheet);
     setTitle(sheet.title);
     const loadedBeats = sheet.beats || [newBeat()];

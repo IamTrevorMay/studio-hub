@@ -2,6 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 
+// Build YYYY-MM-DD from local parts (m is 0-based). toISOString() converts to
+// UTC, which lands period boundaries on the wrong day for UTC+ users.
+const ymd = (y, m, d) => `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
 function getPayPeriods(count = 6) {
   const periods = [];
   const now = new Date();
@@ -12,15 +16,15 @@ function getPayPeriods(count = 6) {
   for (let i = 0; i < count; i++) {
     if (isFirstHalf) {
       periods.push({
-        start: new Date(year, month, 1).toISOString().split('T')[0],
-        end: new Date(year, month, 15).toISOString().split('T')[0],
+        start: ymd(year, month, 1),
+        end: ymd(year, month, 15),
         label: new Date(year, month, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) + ' 1\u201315',
       });
     } else {
       const lastDay = new Date(year, month + 1, 0).getDate();
       periods.push({
-        start: new Date(year, month, 16).toISOString().split('T')[0],
-        end: new Date(year, month, lastDay).toISOString().split('T')[0],
+        start: ymd(year, month, 16),
+        end: ymd(year, month, lastDay),
         label: new Date(year, month, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) + ` 16\u2013${lastDay}`,
       });
     }

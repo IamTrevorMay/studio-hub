@@ -127,7 +127,8 @@ async function fetchTimeline(
     const values: TimelinePoint[] = bucket?.values || [];
     for (const pt of values) {
       if (pt.dateTime && pt.value != null) {
-        points.push({ date: pt.dateTime.slice(0, 10), value: Number(pt.value) });
+        const num = Number(pt.value);
+        if (Number.isFinite(num)) points.push({ date: pt.dateTime.slice(0, 10), value: num });
       }
     }
   }

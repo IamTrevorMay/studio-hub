@@ -463,10 +463,12 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
   };
 
   const handleReviewHours = async (hourEntry) => {
+    // Already reviewed → no-op, so a second click can't re-stamp + send a dup notification.
+    if (hourEntry.reviewed_at) return;
     await supabase.from('freelancer_hours').update({
       reviewed_by: profile.id,
       reviewed_at: new Date().toISOString(),
-    }).eq('id', hourEntry.id);
+    }).eq('id', hourEntry.id).is('reviewed_at', null);
 
     const periodLabel = `${formatDate(hourEntry.period_start)} - ${formatDate(hourEntry.period_end)}`;
     await supabase.from('notifications').insert({
