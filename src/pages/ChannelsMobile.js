@@ -126,6 +126,7 @@ function ChannelView({ channel, profileId, teamMembers, refreshKey }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState('');
+  const sendingRef = useRef(false);
   const endRef = useRef(null);
 
   useEffect(() => {
@@ -158,7 +159,8 @@ function ChannelView({ channel, profileId, teamMembers, refreshKey }) {
           .select('*, profile:profiles(id, full_name, nickname, title)')
           .eq('id', payload.new.id)
           .single();
-        if (data) setMessages((prev) => [...prev, data]);
+        // Dedup by id — a reconnect/resubscribe can redeliver the same row.
+        if (data) setMessages((prev) => prev.some((m) => m.id === data.id) ? prev : [...prev, data]);
       })
       .subscribe();
     return () => { supabase.removeChannel(sub); };
@@ -168,7 +170,8 @@ function ChannelView({ channel, profileId, teamMembers, refreshKey }) {
 
   async function send(e) {
     e.preventDefault();
-    if (!text.trim()) return;
+    if (!text.trim() || sendingRef.current) return; // guard double-submit (Enter + tap)
+    sendingRef.current = true;
     const content = text.trim();
     setText('');
     // Detect @mentions in the message
@@ -182,12 +185,16 @@ function ChannelView({ channel, profileId, teamMembers, refreshKey }) {
       );
       if (member) mentions.push(member.id);
     }
-    await supabase.from('channel_messages').insert({
-      channel_id: channel.id,
-      user_id: profileId,
-      content,
-      mentions,
-    });
+    try {
+      await supabase.from('channel_messages').insert({
+        channel_id: channel.id,
+        user_id: profileId,
+        content,
+        mentions,
+      });
+    } finally {
+      sendingRef.current = false;
+    }
   }
 
   return (

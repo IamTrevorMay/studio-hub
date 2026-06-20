@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import { supabase } from '../../../supabaseClient';
 
 const AUTOSAVE_DEBOUNCE_MS = 600;
@@ -134,7 +135,7 @@ export default function WriteAdReadModal({ task, onClose }) {
   const onepagerBriefs = briefs.filter(b => b.onepager_md);
   const linkBriefs = briefs.filter(b => !b.onepager_md && b.url);
   const onepagerHtml = onepagerBriefs
-    .map(b => marked.parse(b.onepager_md))
+    .map(b => DOMPurify.sanitize(marked.parse(b.onepager_md)))
     .join('<hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;" />');
 
   const brandName = ctx.brand_name || '';

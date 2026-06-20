@@ -158,7 +158,15 @@ Deno.serve(async (req: Request) => {
             }
           );
           const updData = await upd.json();
-          if (!upd.ok) throw new Error(updData.error?.message || "Docs API error");
+          if (!upd.ok) {
+            // Token-merge failed after the copy succeeded — trash the orphaned
+            // doc (raw {{token}} placeholders) so it doesn't linger in the folder.
+            await fetch(`https://www.googleapis.com/drive/v3/files/${data.id}?supportsAllDrives=true`, {
+              method: "DELETE",
+              headers: { Authorization: `Bearer ${accessToken}` },
+            }).catch(() => {});
+            throw new Error(updData.error?.message || "Docs API error");
+          }
         }
 
         return new Response(JSON.stringify({

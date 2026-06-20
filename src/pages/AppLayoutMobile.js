@@ -353,10 +353,14 @@ function renderActiveTab({ activeTab, isAdmin, isAssistant, isPartner, isFreelan
     );
   }
 
-  // Role gating mirrors desktop AppLayout
+  // Role gating mirrors desktop AppLayout. adminOnly pages reachable via direct
+  // URL / persisted tab must be gated here too, or a non-admin renders them.
   if (activeTab === 'admin' && !isAdmin) return null;
   if (activeTab === 'business_dev' && !(isAdmin || isPartner)) return null;
-  if (activeTab === 'invoicing' && !(isAdmin || isAssistant)) return null;
+  if (activeTab === 'invoicing' && !isAdmin) return null;
+  if (activeTab === 'workflows' && !isAdmin) return null;
+  if (activeTab === 'freelancers' && !isAdmin) return null;
+  if (activeTab === 'ops' && !isAdmin) return null;
 
   switch (activeTab) {
     case 'dashboard': return <Dashboard onNavigate={navigateTo} />;

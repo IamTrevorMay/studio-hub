@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import { supabase } from '../../supabaseClient';
 
 function idFromPath() {
@@ -56,7 +57,7 @@ export default function PublicBrief() {
           <div
             className="brief-md"
             style={styles.markdown}
-            dangerouslySetInnerHTML={{ __html: marked.parse(onepager) }}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(marked.parse(onepager)) }}
           />
         ) : (
           <div style={styles.linkCard}>

@@ -32,6 +32,7 @@ export default function IngestionHealthPanel({ logs, accounts, onRefresh }) {
     try {
       const days = getDaysInRange(log.metadata.date_start, log.metadata.date_end);
       const numDays = days.length;
+      if (numDays === 0) throw new Error('Invalid date range'); // avoid /0 → Infinity/NaN (catch resets saving)
       const perDay = Math.floor(totalCents / numDays);
       const remainder = totalCents - perDay * numDays;
       const rows = days.map((d, i) => ({

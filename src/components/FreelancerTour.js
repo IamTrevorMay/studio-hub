@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 
 const TOUR_STEPS = [
   { key: 'fl_dashboard', title: 'Dashboard', description: 'Your home base. View active assignments, update your status, log hours, and report blockers.' },
@@ -14,20 +14,27 @@ export default function FreelancerTour({ onComplete, onNavigate }) {
   const [step, setStep] = useState(0);
   const [targetRect, setTargetRect] = useState(null);
 
-  const measure = useCallback(() => {
-    const current = TOUR_STEPS[step];
-    if (!current) return;
-    const el = document.querySelector(`[data-nav-key="${current.key}"]`);
-    if (el) {
-      setTargetRect(el.getBoundingClientRect());
-    }
-  }, [step]);
-
   useEffect(() => {
-    measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
-  }, [measure]);
+    // The navigation effect (below) renders the target's sidebar item in the
+    // SAME commit, so a one-shot measure runs before the element exists and
+    // highlights the wrong item. Retry across a few frames until it mounts.
+    let raf; let cancelled = false; let attempts = 0;
+    const current = TOUR_STEPS[step];
+    const tryMeasure = () => {
+      if (cancelled || !current) return;
+      const el = document.querySelector(`[data-nav-key="${current.key}"]`);
+      if (el) setTargetRect(el.getBoundingClientRect());
+      else if (attempts++ < 20) raf = requestAnimationFrame(tryMeasure);
+    };
+    tryMeasure();
+    const onResize = () => tryMeasure();
+    window.addEventListener('resize', onResize);
+    return () => {
+      cancelled = true;
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener('resize', onResize);
+    };
+  }, [step]);
 
   // Navigate to the current step's page so the sidebar item is visible
   useEffect(() => {

@@ -18,10 +18,15 @@ export default function LinkInsertDialog({ editor, onClose }: Props) {
     const href = url.startsWith('http') ? url : `https://${url}`
     if (hasSelection) {
       editor.chain().focus().setLink({ href }).run()
-    } else if (text.trim()) {
-      editor.chain().focus().insertContent(`<a href="${href}">${text}</a>`).run()
     } else {
-      editor.chain().focus().insertContent(`<a href="${href}">${href}</a>`).run()
+      // Insert as a structured text node with a link mark — never interpolate
+      // user text/href into an HTML string (that injects arbitrary markup).
+      const label = text.trim() || href
+      editor.chain().focus().insertContent({
+        type: 'text',
+        text: label,
+        marks: [{ type: 'link', attrs: { href } }],
+      }).run()
     }
     onClose()
   }

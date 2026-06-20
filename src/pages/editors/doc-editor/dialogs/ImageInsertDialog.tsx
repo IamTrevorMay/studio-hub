@@ -29,7 +29,10 @@ export default function ImageInsertDialog({ editor, docId, onClose }: Props) {
     // Try Supabase upload first, fall back to base64
     if (docId) {
       setUploading(true)
-      const ext = file.name.split('.').pop()
+      // Derive ext safely — split('.').pop() returns the whole name when there's
+      // no dot, producing paths like "{docId}/123.screenshot". Fall back to MIME.
+      const dot = file.name.lastIndexOf('.')
+      const ext = (dot > 0 ? file.name.slice(dot + 1) : (file.type.split('/')[1] || 'png')).toLowerCase()
       const filePath = `${docId}/${Date.now()}.${ext}`
       const { error } = await supabase.storage.from('doc-images').upload(filePath, file)
       setUploading(false)

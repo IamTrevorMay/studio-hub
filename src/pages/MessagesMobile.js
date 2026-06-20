@@ -47,7 +47,7 @@ export default function MessagesMobile({ onNavigate }) {
           .eq('conversation_id', convo.id)
           .order('created_at', { ascending: false })
           .limit(1)
-          .single();
+          .maybeSingle(); // empty conversations would 406/PGRST116 with .single()
         return { ...convo, participants: participants || [], lastMessage: lastMsg };
       }));
       enriched.sort((a, b) => {
@@ -242,6 +242,7 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState('');
+  const sendingRef = useRef(false);
   const endRef = useRef(null);
 
   useEffect(() => {
@@ -274,7 +275,8 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
           .select('*, profile:profiles(id, full_name, nickname, title)')
           .eq('id', payload.new.id)
           .single();
-        if (data) setMessages((prev) => [...prev, data]);
+        // Dedup by id — reconnect can redeliver the same row.
+        if (data) setMessages((prev) => prev.some((m) => m.id === data.id) ? prev : [...prev, data]);
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
@@ -284,14 +286,17 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
 
   async function send(e) {
     e.preventDefault();
-    if (!text.trim()) return;
+    if (!text.trim() || sendingRef.current) return; // guard double-submit
+    sendingRef.current = true;
     const content = text.trim();
     setText('');
-    await supabase.from('direct_messages').insert({
+    const { error } = await supabase.from('direct_messages').insert({
       conversation_id: conversation.id,
       user_id: profileId,
       content,
     });
+    if (error) setText(content); // restore the typed message on failure instead of silently losing it
+    sendingRef.current = false;
   }
 
   function renderContent(content) {

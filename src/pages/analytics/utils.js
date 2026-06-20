@@ -145,7 +145,11 @@ export function parseCSV(text) {
     const result = []; let current = ''; let inQ = false;
     for (let i = 0; i < line.length; i++) {
       const ch = line[i];
-      if (ch === '"') inQ = !inQ;
+      if (ch === '"') {
+        // RFC4180 escaped quote: "" inside a quoted field is a literal "
+        if (inQ && line[i + 1] === '"') { current += '"'; i++; }
+        else inQ = !inQ;
+      }
       else if (ch === ',' && !inQ) { result.push(current.trim()); current = ''; }
       else current += ch;
     }

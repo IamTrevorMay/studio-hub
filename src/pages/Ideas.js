@@ -24,7 +24,10 @@ export default function Ideas() {
     const { data, error } = await supabase
       .from('write_ideas')
       .select('id, text, checked, position, category, created_by, created_at, updated_at')
-      .order('position', { ascending: true });
+      // position is reindexed per-category, so add created_at as a deterministic
+      // tiebreak — otherwise within-column order can shuffle between reloads.
+      .order('position', { ascending: true })
+      .order('created_at', { ascending: true });
     if (error) {
       console.error('Error loading ideas:', error);
       return;

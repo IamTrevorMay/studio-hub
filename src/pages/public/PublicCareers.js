@@ -80,7 +80,10 @@ export default function PublicCareers() {
     (async () => {
       const { data } = await supabase
         .from('job_listings')
-        .select('*')
+        // Only the columns this public page renders — RLS filters rows, not
+        // columns, so select('*') would expose internal fields (onboarding_checklist,
+        // created_by, etc.) to anonymous visitors.
+        .select('id, title, slug, description, department, employment_type, work_mode, location, comp_range, screening_questions, position')
         .eq('status', 'open')
         .order('position', { ascending: true })
         .order('created_at', { ascending: false });

@@ -286,7 +286,10 @@ function Column({ category, allCategories, items, onAdd, onToggle, onDelete, onS
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
-                  if (newText.trim()) { onAdd(newText); setNewText(''); }
+                  // Clear before onAdd so a fast second Enter can't re-read the
+                  // same text and insert a duplicate.
+                  const v = newText.trim();
+                  if (v) { setNewText(''); onAdd(v); }
                   // Stay in input so the user can rattle off several ideas.
                 }
                 if (e.key === 'Escape') { setNewText(''); setShowInput(false); }

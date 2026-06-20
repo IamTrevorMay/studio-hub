@@ -478,10 +478,53 @@ applied.
 | `src/pages/Calendar.js:257,155` | Global mousedown dismisses own context menu; `.sort()` mutates live event object |
 | `src/pages/Dashboard.js:806` | Presence "offline" flip not re-rendered on a timer |
 
-### Audit coverage gaps (not swept)
-`AppLayoutMobile.js`, `ProductionMobile.js`, `SprintBoardMobile.js`, other
-`*Mobile.js` variants beyond Calendar/Dashboard/Invoicing; some smaller
-components. Re-sweep before declaring the codebase fully audited.
+### Wave 3 — previously-unswept files (2026-06-20)
+
+8 parallel auditors swept all public pages, standalone desktop pages, ~18 mobile
+variants, shared components, and editor/analytics sub-components. Fixed:
+
+**CRITICAL / security**
+- `AppLayoutMobile.js` — `workflows`/`freelancers`/`ops` had NO `isAdmin` gate
+  (reachable by non-admins via direct URL / persisted tab); `invoicing` allowed
+  assistants (desktop is admin-only). All gated; invoicing tightened to `isAdmin`.
+- `PublicBrief.js` / `Deliverables.js` / `WriteAdReadModal.js` — stored XSS:
+  `marked.parse()` of LLM-generated (attacker-influenceable) markdown rendered raw.
+  Now `DOMPurify.sanitize(marked.parse(...))`.
+- `PublicCareers.js` — `select('*')` exposed internal `job_listings` columns
+  (onboarding_checklist, created_by) to anonymous visitors. Restricted to rendered columns.
+- `LinkInsertDialog.tsx` — raw-HTML interpolation of user href/text → markup injection.
+  Now structured insertContent with a link mark.
+
+**HIGH (data loss / functional)**
+- `SceneNavigator.tsx` — drag-reorder rebuilt from a debounced snapshot + `root.clear()`,
+  dropping nodes added mid-debounce. Now groups live children → no loss.
+- `CharacterManager.tsx` — rename used no word boundaries ("AL" rewrote "ALICE"). Added `\b`.
+- Mobile try/finally leaks (stuck-disabled buttons on error): `FreelancerDashboardMobile.setStatus`,
+  `FreelancersMobile.postComment`/`approve`.
+- `MessagesMobile`/`Messages`/`ChannelsMobile` — send had no in-flight guard / lost message on
+  failure / no realtime id-dedup. All fixed (+ `.maybeSingle()` for empty-convo last-message).
+- `Resources.js` — double-Enter created duplicate folders/Docs (Enter bypassed disabled button).
+- `AnalyticsMobile.js` — UTC date window diverged from desktop PT; now `daysAgoStr(30)`.
+
+**MED** — `google-drive-research` orphan-doc cleanup on token-merge failure; `Ideas`/`IdeationMobile`
+ordering + sort_order; `IdeasMobile` add double-submit; `FreelancerDashboardMobile` channel
+namespacing; `IngestionHealthPanel`/`ManualMetricsForm` divide-by-zero guards; `ImageInsertDialog`
+extension derivation; `SprintGoals` sort mutation; `SprintRetroModal`/`ProgressKanban`/
+`ContractorAssignmentModal`/`SprintBacklog` rollback/guards; `FreelancerTour` measure retry;
+`DocumentEditor` focus-timeout cleanup; analytics CSV escaped-quote; `OpsMobile` unmount guard;
+`SprintBoardMobile` explicit status.
+
+**Verified NOT bugs:** Ops realtime — `ingestion_logs`+`platform_accounts` ARE in
+`supabase_realtime` publication (auditor hypothesis wrong; 60s poll is the fallback).
+PublicCareers resume upload — `jobs-apply` enforces size/MIME/rate-limit server-side (wave-1 verified).
+
+**Deferred LOW polish:** ChannelsMobile mention matching, IdeasMobile menu outside-click,
+Assets sort-during-search, Resources rename double-request, ResourcesMobile double-fetch,
+Messages fetch/subscribe sub-second gap (dedup mitigates), a few dead deps / harmless dangling timers.
+
+### Audit coverage gaps (remaining)
+Editor deep internals (some Lexical/Tiptap plugins) and `broadcast/*` (covered by the
+separate 2026-06-12 hardening pass) not re-swept. Core app is now comprehensively audited.
 
 ## Known Issues
 

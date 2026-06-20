@@ -110,6 +110,7 @@ export default function SprintBoardMobile({ profile }) {
       const { error } = await supabase.from('personal_tasks').insert({
         created_by: profile.id,
         content,
+        status: 'inbox', // match the optimistic row; don't rely on the DB default
         position: maxPos + 10,
       });
       if (error) throw error;
