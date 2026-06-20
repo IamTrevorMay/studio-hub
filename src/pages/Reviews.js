@@ -171,10 +171,19 @@ export default function Reviews() {
     setLoading(true);
     try {
       const { data, error } = await supabase.from('reviews')
-        .select('*, creator:profiles!reviews_profile_fk(full_name)')
+        .select('*, creator:profiles!reviews_profile_fk(full_name), thumbs:review_thumbnails(file_path, created_at)')
         .order('created_at', { ascending: false });
       if (error) throw error;
-      setReviews(data || []);
+      // For reviews with no video yet, surface an uploaded thumbnail (earliest) on the card.
+      const enriched = (data || []).map(r => {
+        const firstThumb = (r.thumbs || []).slice().sort((a, b) =>
+          new Date(a.created_at) - new Date(b.created_at))[0];
+        const thumbUrl = firstThumb
+          ? supabase.storage.from('review-thumbnails').getPublicUrl(firstThumb.file_path).data?.publicUrl
+          : null;
+        return { ...r, thumbUrl };
+      });
+      setReviews(enriched);
     } catch (err) {
       console.error('Error fetching reviews:', err);
       setReviews([]);
@@ -185,28 +194,34 @@ export default function Reviews() {
 
   async function handleCreate(e) {
     e.preventDefault();
-    const videoId = extractVideoId(createForm.url);
-    if (!videoId) { alert('Invalid YouTube URL.'); return; }
     if (!createForm.title.trim()) return;
+
+    // YouTube link is optional at creation — you can pre-set title/description/
+    // thumbnails and add the video later (the first version backfills the URL).
+    const hasUrl = createForm.url.trim().length > 0;
+    const videoId = hasUrl ? extractVideoId(createForm.url) : null;
+    if (hasUrl && !videoId) { alert('Invalid YouTube URL.'); return; }
 
     // Create review
     const { data: review, error } = await supabase.from('reviews').insert({
       title: createForm.title.trim(),
-      youtube_url: createForm.url.trim(),
+      youtube_url: hasUrl ? createForm.url.trim() : null,
       youtube_video_id: videoId,
       created_by: profile.id,
     }).select().single();
     if (error) { console.error(error); return; }
 
-    // Create initial version
-    await supabase.from('review_versions').insert({
-      review_id: review.id,
-      version_number: 1,
-      label: 'Cut 1',
-      youtube_url: createForm.url.trim(),
-      youtube_video_id: videoId,
-      created_by: profile.id,
-    });
+    // Create initial version only when a video link was provided
+    if (hasUrl) {
+      await supabase.from('review_versions').insert({
+        review_id: review.id,
+        version_number: 1,
+        label: 'Cut 1',
+        youtube_url: createForm.url.trim(),
+        youtube_video_id: videoId,
+        created_by: profile.id,
+      });
+    }
 
     setCreateForm({ title: '', url: '' });
     setShowCreate(false);
@@ -438,8 +453,7 @@ export default function Reviews() {
           <input
             value={createForm.url}
             onChange={(e) => setCreateForm({ ...createForm, url: e.target.value })}
-            placeholder="YouTube URL (unlisted or public)"
-            required
+            placeholder="YouTube URL (optional — add after the video is uploaded)"
             style={styles.input}
           />
           {createForm.url && extractVideoId(createForm.url) && (
@@ -467,12 +481,23 @@ export default function Reviews() {
           {reviews.map(review => (
             <div key={review.id} style={styles.reviewCard} onClick={() => setActiveReview(review)}>
               <div style={styles.thumbWrap}>
-                <img
-                  src={`https://img.youtube.com/vi/${review.youtube_video_id}/mqdefault.jpg`}
-                  alt={review.title}
-                  style={styles.thumb}
-                />
-                <div style={styles.playOverlay}>▶</div>
+                {review.youtube_video_id ? (
+                  <>
+                    <img
+                      src={`https://img.youtube.com/vi/${review.youtube_video_id}/mqdefault.jpg`}
+                      alt={review.title}
+                      style={styles.thumb}
+                    />
+                    <div style={styles.playOverlay}>▶</div>
+                  </>
+                ) : review.thumbUrl ? (
+                  <>
+                    <img src={review.thumbUrl} alt={review.title} style={styles.thumb} />
+                    <div style={styles.noVideoBadge}>No video yet</div>
+                  </>
+                ) : (
+                  <div style={styles.thumbPlaceholder}>No video yet</div>
+                )}
               </div>
               <div style={styles.reviewCardBody}>
                 <h3 style={styles.reviewCardTitle}>{review.title}</h3>
@@ -943,6 +968,13 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
       youtube_video_id: videoId,
       created_by: profile.id,
     });
+    // First video added to a review created without one — backfill the parent row
+    // so cards/links point at the video.
+    if (nextNum === 1) {
+      await supabase.from('reviews')
+        .update({ youtube_url: newVersionUrl.trim(), youtube_video_id: videoId })
+        .eq('id', review.id);
+    }
     setNewVersionUrl('');
     setNewVersionLabel('');
     setShowAddVersion(false);
@@ -1071,6 +1103,7 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
       </div>
 
       {/* Version Tabs */}
+      {versions.length > 0 && (
       <div style={styles.versionBar}>
         <div style={styles.versionTabs}>
           {versions.map(v => (
@@ -1091,6 +1124,7 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
           {showAddVersion ? '✕' : '+ New Version'}
         </button>
       </div>
+      )}
 
       {showAddVersion && (
         <form onSubmit={handleAddVersion} style={styles.addVersionForm}>
@@ -1114,9 +1148,27 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
       <div style={styles.playerLayout}>
         {/* Video */}
         <div ref={videoColRef} style={styles.videoCol}>
-          <div style={styles.videoWrap}>
-            <div ref={playerRef} style={styles.videoEmbed} />
-          </div>
+          {versions.length === 0 ? (
+            <div style={styles.noVideoPrompt}>
+              <div style={styles.noVideoIcon}>🎬</div>
+              <p style={styles.noVideoTitle}>No video yet</p>
+              <p style={styles.noVideoSub}>Set up titles, description, and thumbnails below. Paste the YouTube link here once the video is uploaded.</p>
+              <form onSubmit={handleAddVersion} style={styles.noVideoForm}>
+                <input
+                  value={newVersionUrl}
+                  onChange={(e) => setNewVersionUrl(e.target.value)}
+                  placeholder="Paste YouTube URL"
+                  required
+                  style={styles.noVideoInput}
+                />
+                <button type="submit" style={styles.addVersionSubmit}>Add video</button>
+              </form>
+            </div>
+          ) : (
+            <div style={styles.videoWrap}>
+              <div ref={playerRef} style={styles.videoEmbed} />
+            </div>
+          )}
         </div>
 
         {/* Comments Column */}
@@ -3187,6 +3239,8 @@ const styles = {
   thumbWrap: { position: 'relative', width: '100%', aspectRatio: '16/9', overflow: 'hidden', background: '#000' },
   thumb: { width: '100%', height: '100%', objectFit: 'cover' },
   playOverlay: { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '48px', height: '48px', borderRadius: '50%', background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '18px', pointerEvents: 'none' },
+  thumbPlaceholder: { width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.03)', color: 'rgba(255,255,255,0.35)', fontSize: '13px', fontWeight: 500 },
+  noVideoBadge: { position: 'absolute', top: '8px', left: '8px', padding: '3px 8px', borderRadius: '6px', background: 'rgba(0,0,0,0.7)', color: 'rgba(255,255,255,0.85)', fontSize: '11px', fontWeight: 600 },
   reviewCardBody: { padding: '12px 14px' },
   reviewCardTitle: { fontSize: '15px', fontWeight: 700, color: '#e2e8f0', margin: '0 0 4px' },
   reviewCardMeta: { fontSize: '11px', color: 'rgba(255,255,255,0.3)' },
@@ -3210,6 +3264,12 @@ const styles = {
   videoCol: { flex: 1, minWidth: 0 },
   videoWrap: { position: 'relative', width: '100%', aspectRatio: '16/9', background: '#000', borderRadius: '12px', overflow: 'hidden' },
   videoEmbed: { width: '100%', height: '100%' },
+  noVideoPrompt: { width: '100%', aspectRatio: '16/9', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: '8px', padding: '24px', background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.12)', borderRadius: '12px' },
+  noVideoIcon: { fontSize: '32px', opacity: 0.7 },
+  noVideoTitle: { margin: 0, fontSize: '16px', fontWeight: 600, color: 'rgba(255,255,255,0.9)' },
+  noVideoSub: { margin: 0, fontSize: '13px', color: 'rgba(255,255,255,0.45)', maxWidth: '380px', lineHeight: 1.5 },
+  noVideoForm: { display: 'flex', gap: '8px', marginTop: '8px', width: '100%', maxWidth: '420px' },
+  noVideoInput: { flex: 1, padding: '8px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: '#fff', fontSize: '13px', fontFamily: 'inherit' },
   timeline: { position: 'relative', height: '12px', background: 'rgba(255,255,255,0.06)', borderRadius: '6px', marginTop: '8px', cursor: 'pointer', overflow: 'visible' },
   timelineProgress: { position: 'absolute', top: 0, left: 0, height: '100%', background: 'rgba(99,102,241,0.3)', borderRadius: '6px', transition: 'width 0.25s linear', pointerEvents: 'none' },
   timelineMarker: { position: 'absolute', top: '50%', transform: 'translate(-50%, -50%)', width: '10px', height: '10px', borderRadius: '50%', background: '#fbbf24', border: '2px solid #0f0f1a', cursor: 'pointer', zIndex: 2, padding: 0 },
