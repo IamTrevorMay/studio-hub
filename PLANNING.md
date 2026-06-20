@@ -522,9 +522,49 @@ PublicCareers resume upload — `jobs-apply` enforces size/MIME/rate-limit serve
 Assets sort-during-search, Resources rename double-request, ResourcesMobile double-fetch,
 Messages fetch/subscribe sub-second gap (dedup mitigates), a few dead deps / harmless dangling timers.
 
+### Wave 3.5 — editor deep-internals (2026-06-20)
+
+4 auditors swept Tiptap doc-editor (core/store/hooks/menus/extensions) and Lexical
+screenplay-editor (plugins/nodes/export/paginator). Fixed:
+
+**CRITICAL — cross-document data loss**
+- `DocEditor.tsx` / `useAutoSave.ts` / `Ideation.js` — editor wasn't keyed per
+  document and `loaded` never reset on docId change, so editing right after a doc
+  switch (or a slow/failed load) autosaved the PREVIOUS doc's content into the new
+  docId, clobbering it. Fixed: `key={activeDoc.id}` remount + load-effect reset +
+  cancellation + `setContent(html, false)`.
+
+**HIGH**
+- `useAutoSave` — Supabase update resolves `{error}` (doesn't throw); a failed save
+  reported "saved" and silently dropped the edit. Now checks error + re-marks dirty.
+- `extensions.ts` — Link had no protocol allowlist → `javascript:`/`data:` hrefs
+  stored as XSS. Added `protocols: ['http','https','mailto']` + rel.
+- `EditorContextMenu` / `LinkBubble` — validate URL scheme before setLink/setImage.
+- `FindReplace` — replacement inserted via `insertContent(string)` (parsed as HTML →
+  injection); now inserts a plain text node.
+- `NotesPlugin` — highlight-to-note dropped style/detail/mode; now copies all.
+- `exportPDF` — bold/italic silently dropped on multi-line elements; now maps runs
+  onto each wrapped line (same line breaks → no pagination change).
+
+**MED**
+- `paginator` — element taller than a page corrupted `remaining` for all later
+  elements (cascading wrong page count); `bottomHalf` could go negative. Clamped both.
+- `exportFDX` — scene Number attribute now XML-escaped.
+- `CommentPanel` — subscribe to editor transactions so the list/counts don't go stale.
+
+**Deferred LOW/MED (low value or regression risk):** CommentPanel multi-node mark
+delete/scroll; NoteMarkNode importDOM/exportDOM (paste roundtrip; JSON reload fine);
+PageBreakPlugin raw-DOM injection (self-heals); useAutoSave last-write-wins +
+beforeunload beacon (multi-tab rare); FindReplace non-ASCII whole-word; AutocompletePlugin
+rect churn; CommandPalette cross-category scroll; paginator widow blank-line. All noted.
+
+**Verified clean:** all Lexical node serialization (getType/clone/importJSON/exportJSON
+round-trip), plugin disposers, FDX text escaping, editorStore, useRelativeTime.
+
 ### Audit coverage gaps (remaining)
-Editor deep internals (some Lexical/Tiptap plugins) and `broadcast/*` (covered by the
-separate 2026-06-12 hardening pass) not re-swept. Core app is now comprehensively audited.
+Only `broadcast/*` (covered by the separate 2026-06-12 hardening pass) not re-swept.
+**The entire app — pages, mobile variants, components, edge functions, and editor
+internals — is now comprehensively audited.**
 
 ## Known Issues
 

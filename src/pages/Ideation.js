@@ -709,7 +709,9 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
             >Dismiss</button>
           </div>
         )}
-        <EditorComponent {...editorProps} />
+        {/* key by doc id → remount per document so a stale autosave/load can't
+            clobber the newly-opened doc with the previous one's content */}
+        <EditorComponent key={activeDoc.id} {...editorProps} />
         {/* Send Revision Modal (from editor "Send for Review" button) */}
         {showSendRevisionModal && pendingReview && (
           <div style={reviewStyles.modalOverlay} onClick={() => !sendingRevision && setShowSendRevisionModal(false)}>

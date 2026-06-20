@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo, useReducer } from 'react'
 import type { Editor } from '@tiptap/react'
 import { useEditorStore } from './editorStore'
 import {
@@ -27,6 +27,14 @@ export default function CommentPanel({ editor, documentId, onClose }: Props) {
 
   const [showResolved, setShowResolved] = useState(false)
   const [resolvedIds, setResolvedIds] = useState<Set<string>>(new Set())
+
+  // Re-render on editor changes — otherwise the comment list/counts go stale
+  // when comments are added/removed/remapped (the component never re-reads the doc).
+  const [, forceTick] = useReducer((x: number) => x + 1, 0)
+  useEffect(() => {
+    editor.on('transaction', forceTick)
+    return () => { editor.off('transaction', forceTick) }
+  }, [editor])
 
   // Scan editor document to extract comment marks
   const comments = useMemo(() => {

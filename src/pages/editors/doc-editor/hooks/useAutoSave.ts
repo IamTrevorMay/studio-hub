@@ -25,8 +25,15 @@ export function useAutoSave(editor: Editor | null, docId: string, tableName: str
       .from(tableName)
       .update({ content: { html }, updated_at: new Date().toISOString() })
       .eq('id', docId)
-      .then(() => {
+      .then(({ error }) => {
         setSaving(false)
+        if (error) {
+          // Supabase resolves (doesn't reject) on DB/RLS failure. Re-mark dirty
+          // so the next edit/interval retries — never report a failed save as saved.
+          console.error('Doc autosave failed:', error.message)
+          dirtyRef.current = true
+          return
+        }
         setLastSavedAt(Date.now())
       })
   }, [editor, docId, tableName, setSaving, setLastSavedAt])

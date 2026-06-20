@@ -168,7 +168,14 @@ export const editorExtensions = [
   Underline,
   TextAlign.configure({ types: ['heading', 'paragraph'] }),
   ResizableImage.configure({ inline: false, allowBase64: true }),
-  Link.configure({ openOnClick: false, autolink: true }),
+  Link.configure({
+    openOnClick: false,
+    autolink: true,
+    // Restrict link protocols so javascript:/data: hrefs can't be stored in
+    // document content and fire as stored XSS when rendered/exported.
+    protocols: ['http', 'https', 'mailto'],
+    HTMLAttributes: { rel: 'noopener noreferrer nofollow' },
+  }),
   Placeholder.configure({ placeholder: 'Start writing...' }),
   TextStyle,
   FontFamily,

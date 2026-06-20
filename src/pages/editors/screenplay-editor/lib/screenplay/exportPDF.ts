@@ -369,6 +369,14 @@ function renderLines(
 ) {
   doc.setFontSize(FONT_SIZE)
 
+  // For formatted (bold/italic) elements, map runs onto each wrapped line by
+  // character offset so styling survives multi-line elements (previously it was
+  // only rendered for single-line elements and silently dropped otherwise).
+  const formatted = fmt.align !== 'right' && hasFormatting(runs)
+  const styleMap = formatted ? buildStyleMap(runs) : []
+  const full = formatted ? (fmt.uppercase ? plainText(runs).toUpperCase() : plainText(runs)) : ''
+  let searchPos = 0
+
   for (let i = 0; i < lines.length; i++) {
     const y = lineToY(startLine + i)
     const lineText = lines[i]
@@ -378,9 +386,15 @@ function renderLines(
       const rightEdge = PW - MR
       doc.setFont('courier', 'normal')
       doc.text(lineText, rightEdge, y, { align: 'right' })
-    } else if (i === 0 && lines.length === 1 && hasFormatting(runs)) {
-      // Single-line element with formatting — render runs with style changes
-      renderFormattedLine(doc, runs, fmt.x, y, fmt.uppercase)
+    } else if (formatted) {
+      const start = full.indexOf(lineText, searchPos)
+      if (start < 0) {
+        doc.setFont('courier', 'normal')
+        doc.text(lineText, fmt.x, y)
+      } else {
+        renderStyledLine(doc, lineText, styleMap, start, fmt.x, y)
+        searchPos = start + lineText.length
+      }
     } else {
       // Simple text
       doc.setFont('courier', 'normal')
@@ -389,41 +403,42 @@ function renderLines(
   }
 }
 
+// Per-character font style for the concatenated run text.
+function buildStyleMap(runs: TextRun[]): string[] {
+  const map: string[] = []
+  for (const run of runs) {
+    const style = run.bold && run.italic ? 'bolditalic' : run.bold ? 'bold' : run.italic ? 'italic' : 'normal'
+    for (let i = 0; i < run.text.length; i++) map.push(style)
+  }
+  return map
+}
+
+// Render one (already case-correct) wrapped line, switching font per run via the
+// style map, advancing x in monospace character widths.
+function renderStyledLine(doc: jsPDF, lineText: string, styleMap: string[], start: number, x: number, y: number) {
+  let segStart = 0
+  let curStyle = styleMap[start] || 'normal'
+  const emit = (seg: string, style: string, col: number) => {
+    doc.setFont('courier', style)
+    doc.text(seg, x + col * CW, y)
+  }
+  for (let i = 1; i <= lineText.length; i++) {
+    const style = i < lineText.length ? (styleMap[start + i] || 'normal') : null
+    if (style !== curStyle) {
+      emit(lineText.slice(segStart, i), curStyle, segStart)
+      segStart = i
+      curStyle = style as string
+    }
+  }
+  doc.setFont('courier', 'normal')
+}
+
 // ─── Check if runs have any bold/italic formatting ───
 
 function hasFormatting(runs: TextRun[]): boolean {
   return runs.some((r) => r.bold || r.italic)
 }
 
-// ─── Render a single line with mixed bold/italic runs ───
-
-function renderFormattedLine(
-  doc: jsPDF,
-  runs: TextRun[],
-  x: number,
-  y: number,
-  uppercase: boolean
-) {
-  let cursorX = x
-
-  for (const run of runs) {
-    const text = uppercase ? run.text.toUpperCase() : run.text
-    const fontStyle = run.bold && run.italic
-      ? 'bolditalic'
-      : run.bold
-        ? 'bold'
-        : run.italic
-          ? 'italic'
-          : 'normal'
-
-    doc.setFont('courier', fontStyle)
-    doc.text(text, cursorX, y)
-    cursorX += text.length * CW
-  }
-
-  // Reset
-  doc.setFont('courier', 'normal')
-}
 
 // ─── Convert a 0-indexed line number to a Y position in points ───
 

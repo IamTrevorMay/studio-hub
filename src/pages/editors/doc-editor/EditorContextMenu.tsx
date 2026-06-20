@@ -89,6 +89,8 @@ export default function EditorContextMenu({ editor, containerRef, onAddComment }
         const url = prompt('Enter URL:')
         if (url) {
           const href = url.startsWith('http') ? url : `https://${url}`
+          // Reject javascript:/data: etc. (the http prefix only normalizes bare hosts).
+          if (!/^(https?:|mailto:)/i.test(href)) { alert('Invalid URL'); return }
           editor.chain().focus().setLink({ href }).run()
         }
       },
@@ -98,7 +100,9 @@ export default function EditorContextMenu({ editor, containerRef, onAddComment }
       label: 'Insert Image', icon: ImageIcon,
       action: () => {
         const url = prompt('Image URL:')
-        if (url) editor.chain().focus().setImage({ src: url }).run()
+        if (!url) return
+        if (!/^https?:\/\//i.test(url)) { alert('Image URL must start with http(s)'); return }
+        editor.chain().focus().setImage({ src: url }).run()
       },
       show: true,
     },
