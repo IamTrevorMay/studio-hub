@@ -16,6 +16,13 @@ function alignStyle(a) {
   return a ? `text-align:${a};` : 'text-align:left;';
 }
 
+// Editor-preview placeholder for data-bound digest blocks. The browser has
+// no Triton service-role access, so real data (scores, standouts, etc.) is
+// fetched server-side at send time — the preview just shows the slot.
+function dataPlaceholder(label, desc) {
+  return `<div style="border:1px dashed #ccc;border-radius:8px;padding:16px;margin:8px 0;color:#888;font-size:13px;text-align:center;">${escapeHtml(label)}<br/><small>${escapeHtml(desc)}</small><br/><small>Populated at send time.</small></div>`;
+}
+
 // Replace {{token}} occurrences using a subscriber-like object.
 // Lookup order: name/email at top level, then anything in custom_fields.
 // Tokens with no value fall back to `fallback`.
@@ -97,10 +104,23 @@ function renderInner(b, ctx) {
       return `<div style="height:${b.size || 16}px;line-height:${b.size || 16}px;">&nbsp;</div>`;
     case 'html':
       return b.html || '';
-    case 'rich-text':
-      // Tiptap output is already semantic HTML. Wrap in a div so any
-      // padding/background props from the chrome wrapper apply cleanly.
+    case 'rich-text': {
+      // Tiptap output is already semantic HTML. Claude-bound rich-text is
+      // empty in the editor and filled server-side at send.
+      const empty = !b.html || b.html === '' || b.html === '<p></p>';
+      if (empty && b.binding && b.binding.source === 'claude') {
+        return dataPlaceholder('AI section', `${b.binding.claudeField || ''} — written at send time`);
+      }
       return `<div style="font-size:15px;line-height:1.6;color:#333;">${b.html || ''}</div>`;
+    }
+    case 'scores':
+      return dataPlaceholder('Scores', 'Yesterday’s final scores — from Triton briefs');
+    case 'standouts':
+      return dataPlaceholder('Standouts', 'Top Stuff+/Cmd+ performers — from Triton briefs');
+    case 'trend-alerts':
+      return dataPlaceholder('Trend Alerts', 'Surges & concerns — from Triton briefs');
+    case 'starter-card':
+      return dataPlaceholder('Start of the Day', 'Generated starter-card image — from Triton daily cards');
     case 'rss-card': {
       // Editor preview shows a placeholder. Real fetch happens server-side
       // at send time inside mailer-send-now using the same renderer.

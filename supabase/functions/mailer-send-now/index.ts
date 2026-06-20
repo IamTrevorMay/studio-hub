@@ -24,6 +24,7 @@ import {
   getAdminClient,
 } from "../shared/workflow-engine.ts";
 import { renderCampaign, Block, RssItem } from "../shared/mailer-render.ts";
+import { resolveBlockData, digestDateET } from "../shared/mailer-bindings.ts";
 import { resendBatch, SendEmailInput } from "../shared/resend.ts";
 import { isSafeExternalUrl } from "../shared/url-validation.ts";
 
@@ -173,6 +174,9 @@ Deno.serve(async (req) => {
   //     ONCE per unique URL and pass the parsed item to every render
   //     call so 10k recipients don't trigger 10k feed hits.
   const rssData = await collectRssData(campaign.blocks || []);
+  // Resolve data-bound blocks (Mayday Daily digest: scores/standouts/etc.)
+  // once per send from the Triton source data for the digest date.
+  const blockData = await resolveBlockData(campaign.blocks || [], digestDateET());
 
   // 4. Render per recipient + build the send envelope. Tracking URLs
   //    use the deployment public URL so links route back through the
@@ -203,6 +207,7 @@ Deno.serve(async (req) => {
         custom_fields: s.custom_fields || null,
       },
       rssData,
+      blockData,
     });
     return {
       from: fromHeader,
@@ -340,10 +345,12 @@ async function runTestSend(_admin: any, campaign: Campaign, recipients: string[]
   const from = campaign.from_email || DEFAULT_FROM;
   const fromHeader = campaign.from_name ? `${campaign.from_name} <${from}>` : from;
   const rssData = await collectRssData(campaign.blocks || []);
+  const blockData = await resolveBlockData(campaign.blocks || [], digestDateET());
   const { html, text } = renderCampaign(campaign.blocks || [], {
     subject: `[TEST] ${campaign.subject}`,
     preheader: campaign.preheader || undefined,
     rssData,
+    blockData,
   });
   const items: SendEmailInput[] = recipients.map((to) => ({
     from: fromHeader,

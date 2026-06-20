@@ -132,6 +132,43 @@ registry['rss-card'] = {
   },
 };
 
+// Data blocks ported from the Triton "Mayday Daily" digest. Their content
+// is resolved server-side at send time from the Triton briefs/daily_cards
+// (see supabase/functions/shared/mailer-bindings.ts). In the editor they
+// render as placeholders.
+registry.scores = {
+  type: 'scores',
+  label: 'Scores',
+  category: 'data',
+  icon: 'Trophy',
+  description: 'Final scores grid — from Triton briefs at send time',
+  defaults: { columns: 4, showDecisions: true, binding: { source: 'briefs', path: 'metadata.scores' } },
+};
+registry.standouts = {
+  type: 'standouts',
+  label: 'Standouts',
+  category: 'data',
+  icon: 'Star',
+  description: "Top Stuff+/Cmd+ performers — from Triton briefs",
+  defaults: { columns: 2, maxCards: 4, binding: { source: 'briefs', path: 'metadata.daily_highlights' } },
+};
+registry['trend-alerts'] = {
+  type: 'trend-alerts',
+  label: 'Trend Alerts',
+  category: 'data',
+  icon: 'TrendingUp',
+  description: 'Surges & concerns — from Triton briefs',
+  defaults: { maxItems: 5, showSigma: true, binding: { source: 'briefs', path: 'metadata.trend_alerts' } },
+};
+registry['starter-card'] = {
+  type: 'starter-card',
+  label: 'Starter Card',
+  category: 'data',
+  icon: 'Image',
+  description: 'Generated starter-card image — from Triton daily cards',
+  defaults: { cardType: 'ig-starter-card', binding: { source: 'daily_cards' } },
+};
+
 registry.personalization = {
   type: 'personalization',
   label: 'Personalization',

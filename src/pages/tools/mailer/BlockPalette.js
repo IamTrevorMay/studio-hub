@@ -15,6 +15,9 @@ import {
   Type,
   UserCheck,
   Rss,
+  Trophy,
+  Star,
+  TrendingUp,
   X,
 } from 'lucide-react';
 import { CATEGORIES, getBlocksByCategory } from './blockRegistry';
@@ -40,6 +43,9 @@ const ICON_MAP = {
   Type,
   UserCheck,
   Rss,
+  Trophy,
+  Star,
+  TrendingUp,
 };
 
 export default function BlockPalette({ onAdd, onCancel }) {
