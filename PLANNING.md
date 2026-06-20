@@ -355,7 +355,7 @@ Edge functions redeployed (`run-automations`, `workflow-trigger-event`,
 | `sync-stripe:252/276` 100-row cap drops revenue/subs | paginate via `has_more`/`starting_after` + `res.ok`/`error` checks |
 | `sync-metricool:394` follower backfill off-by-one | include anchor day, step running total past its own gain |
 | `backfill-youtube-dimensions:225` no auth (destructive, `--no-verify-jwt`) | CRON_SECRET-or-admin gate (verified live 401) |
-| `AppLayout` `mailer`/`report_cards`/`broadcast` mounted for non-admins | `isAdmin` gate (broadcast → `canAccessBroadcast`); **frontend, needs Vercel deploy** |
+| `AppLayout` `mailer`/`broadcast` mounted for non-admins | `isAdmin` gate (broadcast → `canAccessBroadcast`); **frontend, needs Vercel deploy** |
 
 ### Fixed — pending deploy (2026-06-20, second batch)
 

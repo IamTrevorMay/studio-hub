@@ -33,7 +33,6 @@ import PostShow from './tools/PostShow';
 import Telestration from './tools/Telestration';
 import Timeline from './tools/Timeline';
 import Broadcast from './tools/Broadcast';
-import ReportCards from './tools/ReportCards';
 import Mailer from './tools/Mailer';
 import Graphics from './tools/Graphics';
 
@@ -69,7 +68,6 @@ const NAV_ITEMS = [
   { key: 'telestration', label: 'Telestrator', icon: ToolsIcon },
   { key: 'post_show', label: 'Clipping Tool', icon: ToolsIcon },
   { key: 'timeline', label: 'Timeline', icon: ToolsIcon },
-  { key: 'report_cards', label: 'Report Cards', icon: ToolsIcon, adminOnly: true, hidden: true },
   { key: 'mailer', label: 'Mailer', icon: ToolsIcon, adminOnly: true },
   { key: 'graphics', label: 'Graphics', icon: ToolsIcon },
   { key: 'assets', label: 'Assets Library', icon: ResourcesIcon, external: { url: 'https://www.mayday.systems/' } },
@@ -798,7 +796,6 @@ export default function AppLayout() {
           {activeTab === 'timeline' && <PageErrorBoundary key="timeline"><Timeline /></PageErrorBoundary>}
           {activeTab === 'organize' && <PageErrorBoundary key="organize"><Organize onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {canAccessBroadcast(profile?.role) && activeTab === 'broadcast' && <PageErrorBoundary key="broadcast"><Broadcast onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
-          {isAdmin && activeTab === 'report_cards' && <PageErrorBoundary key="report_cards"><ReportCards onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {isAdmin && activeTab === 'mailer' && <PageErrorBoundary key="mailer"><Mailer onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {activeTab === 'graphics' && <PageErrorBoundary key="graphics"><Graphics onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {isAdmin && activeTab === 'analytics' && <PageErrorBoundary key="analytics"><Analytics /></PageErrorBoundary>}
