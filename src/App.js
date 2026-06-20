@@ -4,6 +4,7 @@ import { PresenceProvider } from './contexts/PresenceContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { isMobileViewport, MOBILE_BREAKPOINT_PX } from './hooks/useIsMobile';
 import { ConfirmProvider } from './contexts/ConfirmContext';
+import { useUsageTracking } from './hooks/useUsageTracking'; // TEMP: front-end usage study, remove after 2026-07-07
 
 // Pick the layout + auth chunks once at boot. Cross-breakpoint resize requires reload.
 // Reload when the viewport crosses the mobile breakpoint after boot
@@ -24,6 +25,8 @@ const AuthPage = isMobileViewport()
 
 function AppContent() {
   const { user, profile, loading, signOut, isPasswordRecovery, isInviteSetup } = useAuth();
+
+  useUsageTracking(user, profile); // TEMP: front-end usage study, no-op outside production
 
   if (loading) {
     return (
