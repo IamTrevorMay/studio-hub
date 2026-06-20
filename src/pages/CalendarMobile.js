@@ -24,7 +24,10 @@ function startOfDay(d) {
 }
 
 function dayKey(d) {
-  return startOfDay(d).toISOString().slice(0, 10);
+  // Build from LOCAL parts. toISOString() converts to UTC, so for UTC+ zones
+  // local midnight maps to the previous UTC day → events bucket on the wrong day.
+  const x = new Date(d);
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
 }
 
 function fmtDayHeader(d) {

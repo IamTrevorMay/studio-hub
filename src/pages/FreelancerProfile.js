@@ -58,7 +58,9 @@ export default function FreelancerProfile() {
     setSaving(true);
     setError(null);
     try {
-      await Promise.all([
+      // Supabase queries resolve with {error} on DB/RLS failures — they don't
+      // throw — so a try/catch alone would report success on a failed save.
+      const results = await Promise.all([
         supabase.from('profiles').update({
           full_name: form.full_name,
           updated_at: new Date().toISOString(),
@@ -71,6 +73,8 @@ export default function FreelancerProfile() {
           updated_at: new Date().toISOString(),
         }).eq('id', profile.id),
       ]);
+      const firstErr = results.find(r => r.error);
+      if (firstErr) throw firstErr.error;
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {

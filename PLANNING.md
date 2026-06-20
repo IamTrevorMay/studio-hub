@@ -373,16 +373,22 @@ redeployed, frontend not yet pushed to Vercel.** Migration
 
 **Deploy still needed:** `supabase functions deploy post-daily-graphics generate-brief-onepager google-drive-folders --no-verify-jwt` + Vercel push for Storyboard/Ideation.
 
+### Fixed — pending deploy (2026-06-20, third batch — remaining HIGH)
+
+Frontend only; ships on the next Vercel push (no edge/DB changes).
+
+| Loc | Fix |
+|---|---|
+| `src/pages/FreelancerProfile.js:60` | Capture `Promise.all` results, throw on first `{error}` → failed save shows the error |
+| `src/pages/Freelancers.js:319` | `creatingAssign` flag + disabled button → no double-submit |
+| `src/pages/Jobs.js:117` | Swap the two listings' actual `position` values (null-safe) instead of reindexing the filtered subset |
+| `src/pages/Calendar.js:124` | Series-termination checks (endDate/endCount) moved before the range cull; separate `iterations` loop guard; `[...days].sort()` no longer mutates the event |
+| `src/pages/CalendarMobile.js:26` | `dayKey` built from local Y-M-D parts |
+| `src/pages/editors/screenplay-editor/.../ScriptEditor.tsx:585` | Named `visibilitychange` handler removed in cleanup |
+
 ### Open — HIGH / security
 
-| Loc | Severity | Problem | Fix |
-|---|---|---|---|
-| `src/pages/FreelancerProfile.js:60` | HIGH | `try/catch` over Supabase calls that resolve `{error}` not throw → failed save shows "Saved successfully" | Check `{error}` on each call |
-| `src/pages/Freelancers.js:319` | HIGH | No in-flight guard on Create Assignment → double-click = duplicate assignments + notifications | `creating` flag + disable button |
-| `src/pages/Jobs.js:117` | HIGH | Reorder writes `position:i` from filtered subset (default `open`) → corrupts global order of hidden listings | Compute vs full list or restrict to `all` |
-| `src/pages/Calendar.js:124` | HIGH | Recurrence "ends after N" counted only within visible window → repeats every month | Count occurrences from series start |
-| `src/pages/CalendarMobile.js:26` | HIGH | `dayKey` uses `toISOString` on local midnight → buckets by UTC date → wrong day | Build key from local parts (like `Calendar.js dk()`) |
-| `src/pages/editors/screenplay-editor/components/editor/ScriptEditor.tsx:585` | HIGH | `visibilitychange` listener added, only `blur` removed → leaks stale-closure handler each remount | Named handler, remove in cleanup |
+_None — all HIGH findings fixed (deploy/push pending)._
 
 ### Open — MED
 

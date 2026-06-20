@@ -115,12 +115,18 @@ function ListingsTab({ listings, applications, onChange, showToast }) {
   }, [applications]);
 
   const move = async (idx, dir) => {
-    if (!filtered[idx + dir]) return;
-    const reordered = filtered.slice();
-    [reordered[idx], reordered[idx + dir]] = [reordered[idx + dir], reordered[idx]];
-    const results = await Promise.all(
-      reordered.map((l, i) => supabase.from('job_listings').update({ position: i }).eq('id', l.id))
-    );
+    const a = filtered[idx];
+    const b = filtered[idx + dir];
+    if (!a || !b) return;
+    // Swap the two listings' actual position values instead of reindexing the
+    // filtered subset — reindexing wrote subset indices over global positions,
+    // corrupting the order of listings hidden by the current status filter.
+    const posA = a.position ?? listings.findIndex(l => l.id === a.id);
+    const posB = b.position ?? listings.findIndex(l => l.id === b.id);
+    const results = await Promise.all([
+      supabase.from('job_listings').update({ position: posB }).eq('id', a.id),
+      supabase.from('job_listings').update({ position: posA }).eq('id', b.id),
+    ]);
     const firstErr = results.find(r => r.error);
     if (firstErr?.error) showToast(firstErr.error.message, 'error'); else onChange();
   };

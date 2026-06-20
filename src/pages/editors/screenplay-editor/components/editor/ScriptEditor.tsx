@@ -580,16 +580,18 @@ function AutoSavePlugin({
     const handleBlur = () => {
       if (dirtyRef.current) saveToSupabase()
     }
-
-    window.addEventListener('blur', handleBlur)
-    document.addEventListener('visibilitychange', () => {
+    const handleVisibility = () => {
       if (document.visibilityState === 'hidden' && dirtyRef.current) {
         saveToSupabase()
       }
-    })
+    }
+
+    window.addEventListener('blur', handleBlur)
+    document.addEventListener('visibilitychange', handleVisibility)
 
     return () => {
       window.removeEventListener('blur', handleBlur)
+      document.removeEventListener('visibilitychange', handleVisibility)
     }
   }, [loaded, saveToSupabase])
 
