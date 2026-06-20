@@ -214,6 +214,7 @@ function ListingModal({ listing, onClose, onSaved, showToast }) {
     employment_type: listing.employment_type || '', work_mode: listing.work_mode || '',
     location: listing.location || '', comp_range: listing.comp_range || '',
     department: listing.department || '', status: listing.status || 'draft',
+    expires_at: listing.expires_at ? listing.expires_at.slice(0, 10) : '',
   });
   const [checklist, setChecklist] = useState(initialChecklist);
   const [saving, setSaving] = useState(false);
@@ -236,6 +237,7 @@ function ListingModal({ listing, onClose, onSaved, showToast }) {
       employment_type: f.employment_type || null, work_mode: f.work_mode || null,
       location: f.location.trim() || null, comp_range: f.comp_range.trim() || null,
       department: f.department.trim() || null, status,
+      expires_at: f.expires_at ? new Date(f.expires_at + 'T23:59:59Z').toISOString() : null,
       onboarding_checklist: cleanChecklist,
       updated_at: new Date().toISOString(),
     };
@@ -297,6 +299,10 @@ function ListingModal({ listing, onClose, onSaved, showToast }) {
             </select>
           </L>
         </div>
+        <div style={st.modalGrid}>
+          <L label="Expires (optional)"><input type="date" style={st.input} value={f.expires_at} onChange={e => set('expires_at', e.target.value)} /></L>
+          <div />
+        </div>
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '16px 0 12px', paddingTop: 12 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Onboarding checklist template</div>
           <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 10 }}>Used to seed the onboarding checklist when an applicant is accepted. Leave empty to use the default template.</div>
@@ -352,6 +358,7 @@ function ApplicationsTab({ applications, listings, onChange, showToast, initialA
     const { data, error } = await supabase.functions.invoke('jobs-review', { body: { action, application_id: app.id, ...extra } });
     if (error || data?.error) { showToast(data?.error || error?.message || 'Failed', 'error'); return; }
     if (data?.invite_warning) showToast('Accepted — invite note: ' + data.invite_warning, 'error');
+    else if (action === 'delete_data') showToast('Applicant data deleted');
     else showToast(`Application ${action === 'set_status' ? extra.status : action}`);
     setSelected(null);
     onChange();
@@ -472,6 +479,16 @@ function ApplicationDrawer({ app, onClose, onReview, showToast, onChange }) {
         )}
         {app.status === 'accepted' && <div style={st.acceptedNote}>Accepted — contractor invite sent. Track setup in the Onboarding tab.</div>}
         {app.status === 'declined' && <div style={st.declinedNote}>Declined — applicant has been emailed.</div>}
+
+        <div style={{ marginTop: 18, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+          <button
+            style={{ background: 'none', border: '1px solid rgba(239,68,68,0.4)', color: '#fca5a5', fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit' }}
+            onClick={() => {
+              if (window.confirm(`Permanently delete ${app.applicant_name}'s application and résumé? This erases their data and cannot be undone.`)) onReview(app, 'delete_data');
+            }}
+          >Delete applicant data</button>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 6 }}>Erases résumé + record (GDPR/CCPA). Use for data-removal requests.</div>
+        </div>
       </div>
     </div>
   );

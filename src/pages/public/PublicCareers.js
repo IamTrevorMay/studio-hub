@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../supabaseClient';
 
 // Public, login-free careers board. Served by App.js for /careers paths.
@@ -10,10 +10,50 @@ const TYPE_LABEL = {
 };
 const MODE_LABEL = { remote: 'Remote', hybrid: 'Hybrid', onsite: 'On-site' };
 const MAX_RESUME_MB = 5;
+const TURNSTILE_SITE_KEY = process.env.REACT_APP_TURNSTILE_SITE_KEY || '';
+const PRIVACY_EMAIL = 'privacy@mmcreate.io';
+
+function isPrivacyPath() {
+  return window.location.pathname.replace(/\/+$/, '') === '/careers/privacy';
+}
 
 function slugFromPath() {
   const m = window.location.pathname.match(/^\/careers\/([^/]+)/);
   return m ? decodeURIComponent(m[1]) : null;
+}
+
+// Cloudflare Turnstile widget — renders only when a site key is configured, so
+// the form stays usable until keys are wired up.
+function Turnstile({ onToken }) {
+  const ref = useRef(null);
+  const widgetId = useRef(null);
+  useEffect(() => {
+    if (!TURNSTILE_SITE_KEY) return undefined;
+    let cancelled = false;
+    const SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+    const render = () => {
+      if (cancelled || !ref.current || !window.turnstile || widgetId.current !== null) return;
+      widgetId.current = window.turnstile.render(ref.current, {
+        sitekey: TURNSTILE_SITE_KEY,
+        theme: 'dark',
+        callback: (t) => onToken(t),
+        'expired-callback': () => onToken(''),
+        'error-callback': () => onToken(''),
+      });
+    };
+    let iv;
+    if (window.turnstile) {
+      render();
+    } else {
+      let sc = document.querySelector(`script[src="${SRC}"]`);
+      if (!sc) { sc = document.createElement('script'); sc.src = SRC; sc.async = true; document.head.appendChild(sc); }
+      sc.addEventListener('load', render);
+      iv = setInterval(() => { if (window.turnstile) { clearInterval(iv); render(); } }, 200);
+    }
+    return () => { cancelled = true; if (iv) clearInterval(iv); };
+  }, [onToken]);
+  if (!TURNSTILE_SITE_KEY) return null;
+  return <div ref={ref} style={{ marginTop: 12 }} />;
 }
 
 function fileToBase64(file) {
@@ -65,6 +105,8 @@ export default function PublicCareers() {
     setSelected(null);
     window.history.pushState({}, '', '/careers');
   };
+
+  if (isPrivacyPath()) return <CareersPrivacy />;
 
   return (
     <div style={s.page}>
@@ -195,11 +237,14 @@ function ApplyForm({ listing }) {
   const [cover, setCover] = useState('');
   const [resume, setResume] = useState(null);
   const [company, setCompany] = useState(''); // honeypot
+  const [consent, setConsent] = useState(false);
+  const [token, setToken] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
 
-  const canSubmit = name.trim() && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) && !submitting;
+  const canSubmit = name.trim() && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+    && consent && (!TURNSTILE_SITE_KEY || token) && !submitting;
 
   const submit = async () => {
     if (!canSubmit) return;
@@ -226,6 +271,8 @@ function ApplyForm({ listing }) {
           portfolio_links,
           cover_note: cover.trim() || null,
           company, // honeypot
+          consent: true,
+          turnstile_token: token || undefined,
           resume_base64, resume_filename, resume_content_type,
         },
       });
@@ -267,10 +314,64 @@ function ApplyForm({ listing }) {
       {/* Honeypot — hidden from humans */}
       <input style={{ position: 'absolute', left: '-9999px' }} tabIndex={-1} autoComplete="off" value={company} onChange={e => setCompany(e.target.value)} aria-hidden="true" />
 
+      <label style={s.consentRow}>
+        <input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} style={{ marginTop: 3 }} />
+        <span style={s.consentText}>
+          I consent to Mayday storing the information in this application for recruiting purposes, as described in the{' '}
+          <a href="/careers/privacy" target="_blank" rel="noopener noreferrer" style={s.consentLink}>privacy notice</a>.
+        </span>
+      </label>
+
+      <Turnstile onToken={setToken} />
+
       {error && <div style={s.error}>{error}</div>}
       <button style={{ ...s.submit, opacity: canSubmit ? 1 : 0.5, cursor: canSubmit ? 'pointer' : 'default' }} onClick={submit} disabled={!canSubmit}>
         {submitting ? 'Submitting…' : 'Submit application'}
       </button>
+    </div>
+  );
+}
+
+function CareersPrivacy() {
+  const head = { fontSize: 17, fontWeight: 700, color: '#fff', margin: '26px 0 8px' };
+  const body = { fontSize: 15, lineHeight: 1.7, color: 'rgba(255,255,255,0.78)' };
+  const li = { ...body, marginBottom: 4 };
+  return (
+    <div style={s.page}>
+      <div style={s.wrap}>
+        <header style={s.header}>
+          <div style={s.logo}>Mayday</div>
+          <div style={s.headerTag}>Careers</div>
+        </header>
+        <button style={s.back} onClick={() => { window.location.href = '/careers'; }}>← All roles</button>
+        <h1 style={s.h1}>Applicant Privacy Notice</h1>
+        <p style={s.lede}>How Mayday Media handles the information you submit through this careers board.</p>
+
+        <div style={head}>What we collect</div>
+        <ul style={{ paddingLeft: 20, margin: 0 }}>
+          <li style={li}>Your name, email, and phone number</li>
+          <li style={li}>Your résumé/CV and any portfolio or work links you provide</li>
+          <li style={li}>Any cover note or message you include</li>
+        </ul>
+
+        <div style={head}>Why we collect it</div>
+        <p style={body}>Solely to review and evaluate your application for the role you applied to, and to contact you about it. We do not sell your data or use it for advertising.</p>
+
+        <div style={head}>How long we keep it</div>
+        <ul style={{ paddingLeft: 20, margin: 0 }}>
+          <li style={li}>Applications that are not selected are deleted within <strong>180 days</strong> of a decision.</li>
+          <li style={li}>Any application is deleted within <strong>365 days</strong> unless you are hired and onboarded.</li>
+          <li style={li}>Résumé files are permanently removed along with the application record.</li>
+        </ul>
+
+        <div style={head}>Your rights</div>
+        <p style={body}>
+          You can request access to, correction of, or deletion of your application data at any time. Email{' '}
+          <a href={`mailto:${PRIVACY_EMAIL}`} style={s.consentLink}>{PRIVACY_EMAIL}</a> and we'll action it promptly.
+        </p>
+
+        <footer style={s.footer}>© {new Date().getFullYear()} Mayday</footer>
+      </div>
     </div>
   );
 }
@@ -316,6 +417,9 @@ const s = {
   textarea: { width: '100%', boxSizing: 'border-box', padding: '10px 12px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 9, color: '#fff', fontSize: 14, outline: 'none', resize: 'vertical', fontFamily: 'inherit' },
   error: { color: '#fca5a5', fontSize: 13, margin: '8px 0', background: 'rgba(239,68,68,0.1)', borderRadius: 8, padding: '8px 12px' },
   submit: { marginTop: 8, width: '100%', padding: '13px', borderRadius: 10, background: 'linear-gradient(135deg, #6366f1, #818cf8)', border: 'none', color: '#fff', fontSize: 15, fontWeight: 700, fontFamily: 'inherit' },
+  consentRow: { display: 'flex', alignItems: 'flex-start', gap: 9, margin: '14px 0 2px', cursor: 'pointer' },
+  consentText: { fontSize: 13, lineHeight: 1.5, color: 'rgba(255,255,255,0.6)' },
+  consentLink: { color: '#a5b4fc', fontWeight: 600 },
   thanks: { background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: 16, padding: 28, textAlign: 'center' },
   thanksTitle: { fontSize: 20, fontWeight: 800, color: '#86efac', marginBottom: 8 },
   thanksBody: { fontSize: 15, color: 'rgba(255,255,255,0.7)', lineHeight: 1.6, margin: 0 },

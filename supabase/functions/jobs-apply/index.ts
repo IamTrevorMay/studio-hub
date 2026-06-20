@@ -3,24 +3,32 @@
 // Uploads an optional résumé (base64) to the private job-resumes bucket,
 // inserts the application, notifies admins in-app, and emails a confirmation.
 //
+// Abuse controls: honeypot, per-IP/email rate limit, Cloudflare Turnstile
+// (active only when TURNSTILE_SECRET is set), duplicate guard, and résumé
+// magic-byte validation. Applicant consent is required and recorded.
+//
 // Deploy: supabase functions deploy jobs-apply --no-verify-jwt
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+const ALLOWED_ORIGINS = [
+  "https://mmcreate.io",
+  "https://www.mmcreate.io",
+  "http://localhost:3000",
+];
+const CONSENT_VERSION = Deno.env.get("JOBS_CONSENT_VERSION") || "2026-06";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_RESUME_BYTES = 5 * 1024 * 1024;
 
-function json(data: unknown, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
+function corsHeaders(origin: string | null) {
+  const allow = origin && ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+  return {
+    "Access-Control-Allow-Origin": allow,
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Vary": "Origin",
+  };
 }
 
 function escapeHtml(s: string): string {
@@ -47,43 +55,90 @@ async function sendEmail(to: string, subject: string, html: string) {
   }
 }
 
+// Cloudflare Turnstile. No-op (returns true) when no secret is configured, so
+// the form keeps working until keys are wired up.
+async function verifyTurnstile(token: string | undefined, ip: string): Promise<boolean> {
+  const secret = Deno.env.get("TURNSTILE_SECRET");
+  if (!secret) return true; // flag off
+  if (!token) return false;
+  try {
+    const form = new URLSearchParams({ secret, response: token, remoteip: ip });
+    const r = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: form,
+    });
+    const out = await r.json();
+    return !!out.success;
+  } catch (e) {
+    console.error("Turnstile verify failed:", (e as Error).message);
+    return false;
+  }
+}
+
+// Sniff the first bytes to confirm an uploaded résumé really is a PDF / DOC /
+// DOCX, not a renamed script or image.
+function looksLikeDocument(bytes: Uint8Array): boolean {
+  const hex = (n: number) => bytes[n];
+  // %PDF
+  if (hex(0) === 0x25 && hex(1) === 0x50 && hex(2) === 0x44 && hex(3) === 0x46) return true;
+  // PK.. (zip → docx/odt)
+  if (hex(0) === 0x50 && hex(1) === 0x4b && (hex(2) === 0x03 || hex(2) === 0x05 || hex(2) === 0x07)) return true;
+  // OLE compound (legacy .doc): D0 CF 11 E0
+  if (hex(0) === 0xd0 && hex(1) === 0xcf && hex(2) === 0x11 && hex(3) === 0xe0) return true;
+  return false;
+}
+
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
+  const cors = corsHeaders(req.headers.get("origin"));
+  const reply = (data: unknown, status = 200) =>
+    new Response(JSON.stringify(data), {
+      status,
+      headers: { ...cors, "Content-Type": "application/json" },
+    });
+
+  if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
+  if (req.method !== "POST") return reply({ error: "Method not allowed" }, 405);
 
   let body: Record<string, unknown>;
   try {
     body = await req.json();
   } catch {
-    return json({ error: "Invalid JSON body" }, 400);
+    return reply({ error: "Invalid JSON body" }, 400);
   }
 
   // Honeypot — bots fill hidden fields. Pretend success, insert nothing.
-  if (body.company) return json({ ok: true });
+  if (body.company) return reply({ ok: true });
 
   const name = String(body.applicant_name || "").trim();
   const email = String(body.applicant_email || "").trim().toLowerCase();
   const phone = String(body.phone || "").trim() || null;
   const coverNote = String(body.cover_note || "").trim() || null;
   const listingId = (body.listing_id as string) || null;
+  const consent = body.consent === true || body.consent === "true";
   const portfolio = Array.isArray(body.portfolio_links)
     ? (body.portfolio_links as string[]).map((s) => String(s).trim()).filter(Boolean).slice(0, 10)
     : [];
 
-  if (!name) return json({ error: "Name is required" }, 400);
-  if (!EMAIL_RE.test(email)) return json({ error: "A valid email is required" }, 400);
+  if (!name) return reply({ error: "Name is required" }, 400);
+  if (!EMAIL_RE.test(email)) return reply({ error: "A valid email is required" }, 400);
+  if (!consent) return reply({ error: "Please accept the data-storage consent to apply." }, 400);
+
+  const ip = (req.headers.get("x-forwarded-for") || "").split(",")[0].trim()
+    || req.headers.get("cf-connecting-ip")
+    || "unknown";
+
+  // Bot challenge (active only when configured).
+  if (!(await verifyTurnstile(body.turnstile_token as string | undefined, ip))) {
+    return reply({ error: "Verification failed. Please retry the challenge." }, 400);
+  }
 
   const admin = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
-  // Rate limit: 5 submissions / hour per IP, 3 / 24h per email. Stops bot
-  // floods (honeypot only catches the laziest scrapers) and Resend/storage
-  // cost abuse.
-  const ip = (req.headers.get("x-forwarded-for") || "").split(",")[0].trim()
-    || req.headers.get("cf-connecting-ip")
-    || "unknown";
+  // Rate limit: 5 submissions / hour per IP, 3 / 24h per email.
   const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { count: ipCount } = await admin
@@ -91,14 +146,14 @@ Deno.serve(async (req: Request) => {
     .select("id", { count: "exact", head: true })
     .eq("bucket", "jobs_apply_ip").eq("key", ip).gte("created_at", hourAgo);
   if ((ipCount || 0) >= 5) {
-    return json({ error: "Too many submissions from this network. Please try again later." }, 429);
+    return reply({ error: "Too many submissions from this network. Please try again later." }, 429);
   }
   const { count: emailCount } = await admin
     .from("public_rate_limits")
     .select("id", { count: "exact", head: true })
     .eq("bucket", "jobs_apply_email").eq("key", email).gte("created_at", dayAgo);
   if ((emailCount || 0) >= 3) {
-    return json({ error: "Too many submissions for this email. Please try again later." }, 429);
+    return reply({ error: "Too many submissions for this email. Please try again later." }, 429);
   }
 
   // Resolve listing (must be open to accept applications)
@@ -110,9 +165,22 @@ Deno.serve(async (req: Request) => {
       .eq("id", listingId)
       .single();
     if (!listing || listing.status !== "open") {
-      return json({ error: "This role is no longer accepting applications" }, 400);
+      return reply({ error: "This role is no longer accepting applications" }, 400);
     }
     listingTitle = listing.title;
+  }
+
+  // Duplicate guard — one application per (listing, email). Idempotent: report
+  // success without inserting again or re-uploading a résumé.
+  if (listingId) {
+    const { data: dupe } = await admin
+      .from("job_applications")
+      .select("id")
+      .eq("listing_id", listingId)
+      .eq("applicant_email", email)
+      .limit(1)
+      .maybeSingle();
+    if (dupe) return reply({ ok: true, duplicate: true });
   }
 
   // Optional résumé upload (base64)
@@ -124,7 +192,10 @@ Deno.serve(async (req: Request) => {
       const raw = b64.includes(",") ? b64.split(",")[1] : b64;
       const bytes = Uint8Array.from(atob(raw), (c) => c.charCodeAt(0));
       if (bytes.length > MAX_RESUME_BYTES) {
-        return json({ error: "Résumé must be under 5MB" }, 400);
+        return reply({ error: "Résumé must be under 5MB" }, 400);
+      }
+      if (!looksLikeDocument(bytes)) {
+        return reply({ error: "Résumé must be a PDF, DOC, or DOCX file." }, 400);
       }
       const path = `${listingId || "general"}/${crypto.randomUUID()}_${fileName}`;
       const { error: upErr } = await admin.storage.from("job-resumes").upload(path, bytes, {
@@ -149,12 +220,14 @@ Deno.serve(async (req: Request) => {
       portfolio_links: portfolio,
       cover_note: coverNote,
       status: "new",
+      consent_at: new Date().toISOString(),
+      consent_version: CONSENT_VERSION,
     })
     .select("id")
     .single();
 
   if (insErr || !application) {
-    return json({ error: `Could not submit application: ${insErr?.message}` }, 500);
+    return reply({ error: `Could not submit application: ${insErr?.message}` }, 500);
   }
 
   // Record rate-limit entries only on successful submission so failed/empty
@@ -191,5 +264,5 @@ Deno.serve(async (req: Request) => {
      <p>— The Mayday Team</p>`,
   );
 
-  return json({ ok: true, application_id: application.id });
+  return reply({ ok: true, application_id: application.id });
 });

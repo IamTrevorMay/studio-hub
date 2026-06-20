@@ -4,6 +4,7 @@
 //   accept       — mark accepted, send contractor invite, start onboarding
 //   decline      — mark declined, email the applicant
 //   onboarding_update — persist checklist changes
+//   delete_data  — permanently erase an applicant's résumé + record (GDPR)
 //
 // Deploy: supabase functions deploy jobs-review --no-verify-jwt
 
@@ -214,6 +215,25 @@ Deno.serve(async (req: Request) => {
       .eq("id", onboardingId);
     if (error) return json({ error: error.message }, 500);
     return json({ ok: true, complete: allDone });
+  }
+
+  // GDPR/CCPA: permanently erase an applicant's data (résumé + row, cascades
+  // onboarding). Used by the "Delete applicant data" admin control.
+  if (action === "delete_data") {
+    const id = body.application_id as string;
+    if (!id) return json({ error: "application_id required" }, 400);
+    const { data: app } = await admin
+      .from("job_applications")
+      .select("resume_path")
+      .eq("id", id)
+      .single();
+    if (app?.resume_path) {
+      const { error: rmErr } = await admin.storage.from("job-resumes").remove([app.resume_path]);
+      if (rmErr) console.error("Résumé delete failed:", rmErr.message);
+    }
+    const { error } = await admin.from("job_applications").delete().eq("id", id);
+    if (error) return json({ error: error.message }, 500);
+    return json({ ok: true, deleted: true });
   }
 
   return json({ error: `Unknown action: ${action}` }, 400);
