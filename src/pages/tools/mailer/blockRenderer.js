@@ -120,15 +120,14 @@ function renderInner(b, ctx) {
     case 'header': {
       const bg = b.bg || '#0f0f1a';
       const fg = b.fg || '#ffffff';
-      const banner = b.style === 'banner' && b.src ? `<img src="${escapeHtml(b.bannerUrl || '')}" alt="" style="max-width:100%;height:auto;display:block;border:0;" />` : '';
+      if (b.style === 'banner' && b.bannerUrl) {
+        return `<div style="background:${bg};text-align:center;"><img src="${escapeHtml(b.bannerUrl)}" alt="" style="max-width:100%;height:auto;display:block;border:0;" /></div>`;
+      }
       const logo = (b.style === 'logo' || b.style === 'text') && b.logoUrl
         ? `<img src="${escapeHtml(b.logoUrl)}" alt="" style="max-height:48px;display:block;margin:0 auto 8px;border:0;" />`
         : '';
       const title = b.title ? `<h1 style="margin:0;font-size:24px;font-weight:700;color:${fg};">${escapeHtml(b.title)}</h1>` : '';
       const sub = b.subtitle ? `<p style="margin:6px 0 0;font-size:14px;color:${fg};opacity:0.75;">${escapeHtml(b.subtitle)}</p>` : '';
-      if (b.style === 'banner' && b.bannerUrl) {
-        return `<div style="background:${bg};text-align:center;">${banner}</div>`;
-      }
       return `<div style="background:${bg};padding:24px;text-align:center;">${logo}${title}${sub}</div>`;
     }
     case 'social-links': {
@@ -140,7 +139,8 @@ function renderInner(b, ctx) {
         .filter((l) => l && l.url)
         .map((l) => {
           const label = labels[l.platform] || (l.platform || '?').slice(0, 2).toUpperCase();
-          return `<a href="${escapeHtml(l.href || l.url)}" target="_blank" rel="noopener" style="display:inline-block;width:${size}px;height:${size}px;line-height:${size}px;background:${color};color:#fff;border-radius:${size}px;text-decoration:none;font-size:${Math.round(size * 0.42)}px;font-weight:700;text-align:center;margin:0 4px;">${label}</a>`;
+          const href = ctx?.rewriteHref ? ctx.rewriteHref(l.url) : l.url;
+          return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener" style="display:inline-block;width:${size}px;height:${size}px;line-height:${size}px;background:${color};color:#fff;border-radius:${size}px;text-decoration:none;font-size:${Math.round(size * 0.42)}px;font-weight:700;text-align:center;margin:0 4px;">${label}</a>`;
         })
         .join('');
       return `<div style="text-align:${align};margin:16px 0;">${icons}</div>`;
