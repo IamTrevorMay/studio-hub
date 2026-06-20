@@ -49,13 +49,17 @@ function cleanFilename(name: string): string {
 
 // Build a dedup key from event + payload.
 function dedupKey(workflowId: string, event: string, payload: Record<string, unknown>): string {
-  const pk = event === "new_drive_file" ? payload.file_id
+  let pk = event === "new_drive_file" ? payload.file_id
     : event === "new_video_published" ? payload.video_id
     : event === "new_project_created" ? payload.project_id
     : event === "new_proposal_created" ? payload.proposal_id
     : event === "new_beat_sheet_mayday" ? payload.beat_sheet_id
     : event === "new_beat_sheet_tm_baseball" ? payload.beat_sheet_id
     : JSON.stringify(payload);
+  // If the expected id field is missing, fall back to the full payload so two
+  // distinct id-less events don't collide on '...:event:undefined' (which would
+  // make the second event get silently skipped as a duplicate).
+  if (pk == null) pk = JSON.stringify(payload);
   return `${workflowId}:${event}:${pk}`;
 }
 

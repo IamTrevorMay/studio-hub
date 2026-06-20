@@ -371,23 +371,33 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
       const { error: uploadErr } = await supabase.storage.from('script-reviews').upload(path, blob);
       if (uploadErr) throw uploadErr;
 
-      const { data: maxVer } = await supabase.from('script_review_versions')
-        .select('version_number')
-        .eq('review_id', pendingReview.review.id)
-        .order('version_number', { ascending: false })
-        .limit(1);
-      const nextNum = (maxVer?.[0]?.version_number || 0) + 1;
+      // Compute next version_number then insert. This races (two concurrent
+      // revisions can read the same max), so a unique (review_id, version_number)
+      // constraint rejects the loser with 23505 and we recompute + retry.
+      let nextNum;
+      let insertErr = null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const { data: maxVer } = await supabase.from('script_review_versions')
+          .select('version_number')
+          .eq('review_id', pendingReview.review.id)
+          .order('version_number', { ascending: false })
+          .limit(1);
+        nextNum = (maxVer?.[0]?.version_number || 0) + 1;
 
-      const { error: insertErr } = await supabase.from('script_review_versions').insert({
-        review_id: pendingReview.review.id,
-        version_number: nextNum,
-        file_url: path,
-        file_type: 'html',
-        uploaded_by: profile.id,
-        source: 'writer',
-        concept_document_id: activeDoc.id,
-        writer_message: sendRevisionMessage.trim() || null,
-      });
+        const { error } = await supabase.from('script_review_versions').insert({
+          review_id: pendingReview.review.id,
+          version_number: nextNum,
+          file_url: path,
+          file_type: 'html',
+          uploaded_by: profile.id,
+          source: 'writer',
+          concept_document_id: activeDoc.id,
+          writer_message: sendRevisionMessage.trim() || null,
+        });
+        if (!error) { insertErr = null; break; }
+        insertErr = error;
+        if (error.code !== '23505') break; // only retry on version-number collision
+      }
       if (insertErr) throw insertErr;
 
       await supabase.from('script_reviews')

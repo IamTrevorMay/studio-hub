@@ -32,6 +32,54 @@ function resolveTemplate(
   });
 }
 
+// Like resolveTemplate but reports whether any referenced variable was absent.
+// Used for dedup keys: a key with an unresolved variable cannot guarantee
+// idempotency, so callers skip the fire rather than collapse it to a colliding
+// partial key (e.g. 'clip_{{video_id}}' -> 'clip_' for every payload).
+function resolveTemplateStrict(
+  template: string,
+  context: Record<string, unknown>,
+): { text: string; missing: boolean } {
+  let missing = false;
+  const text = template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+    const val = context[key];
+    if (val == null) {
+      missing = true;
+      return "";
+    }
+    return String(val);
+  });
+  return { text, missing };
+}
+
+// Hours to ADD to America/Los_Angeles local time to reach UTC: 7 during PDT,
+// 8 during PST. Computed live from the zone so schedules don't drift across DST.
+function laUtcOffsetHours(d: Date): number {
+  const name = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    timeZoneName: "shortOffset",
+  })
+    .formatToParts(d)
+    .find((p) => p.type === "timeZoneName")?.value || "GMT-8";
+  const m = name.match(/GMT([+-]\d+)/);
+  return m ? -parseInt(m[1], 10) : 8;
+}
+
+// Resolve a schedule's target UTC hour. Prefer hour_pt (PT intent, converted
+// live for DST); fall back to legacy time_utc rows. Schedules are hour-granular
+// (cron fires at minute 0), so only the hour is significant.
+function targetUtcHour(
+  config: Record<string, unknown>,
+  nowUtc: Date,
+): number {
+  if (config.hour_pt != null) {
+    const hp = Number(config.hour_pt);
+    return ((hp + laUtcOffsetHours(nowUtc)) % 24 + 24) % 24;
+  }
+  const timeStr = (config.time_utc as string) || "00:00";
+  return Number(String(timeStr).split(":")[0]) || 0;
+}
+
 // Build schedule context variables
 function getScheduleContext(): Record<string, unknown> {
   const now = new Date();
@@ -48,26 +96,21 @@ function shouldFireSchedule(
 ): boolean {
   const currentDay = nowUtc.getUTCDate();
   const currentHour = nowUtc.getUTCHours();
+  const targetHour = targetUtcHour(config, nowUtc);
 
   const type = config.type as string;
 
   if (type === "days_of_month") {
     const days = config.days as number[];
-    const timeStr = (config.time_utc as string) || "00:00";
-    const [targetHour] = timeStr.split(":").map(Number);
     return days.includes(currentDay) && currentHour === targetHour;
   }
 
   if (type === "daily") {
-    const timeStr = (config.time_utc as string) || "00:00";
-    const [targetHour] = timeStr.split(":").map(Number);
     return currentHour === targetHour;
   }
 
   if (type === "weekly") {
     const dayOfWeek = (config.day_of_week as number) ?? 1; // default Monday
-    const timeStr = (config.time_utc as string) || "00:00";
-    const [targetHour] = timeStr.split(":").map(Number);
     return nowUtc.getUTCDay() === dayOfWeek && currentHour === targetHour;
   }
 
@@ -87,10 +130,21 @@ async function executeAutomation(
   const confirmationAdminId = automation.confirmation_admin_id as string | null;
   const actionsTaken: unknown[] = [];
 
-  // Resolve dedup key
+  // Resolve dedup key. If the template references a variable absent from the
+  // payload, the key can't guarantee idempotency (it would collapse to a value
+  // that collides across distinct triggers), so skip the fire entirely rather
+  // than risk firing duplicates on retry or wrongly deduping unrelated events.
   let dedupResolved: string | null = null;
   if (dedupTemplate) {
-    dedupResolved = resolveTemplate(dedupTemplate, triggerPayload);
+    const { text, missing } = resolveTemplateStrict(dedupTemplate, triggerPayload);
+    if (missing) {
+      return {
+        status: "skipped",
+        actions_taken: [],
+        error_message: `Dedup key "${dedupTemplate}" has unresolved variable(s); skipping to avoid duplicate/incorrect fire`,
+      };
+    }
+    dedupResolved = text;
   }
 
   // Check dedup: skip if a previous successful OR pending_confirmation run with
@@ -308,8 +362,21 @@ async function executeCreateTask(
     if (resolvedId) assigneeIds = [String(resolvedId)];
   }
 
-  // Create a task for each assignee
+  // Create a task for each assignee. Idempotent per (automation, dedup_key,
+  // assignee): if a previous run created this assignee's task but failed on a
+  // later assignee, the retry skips the ones already made instead of duplicating.
   for (const aId of assigneeIds) {
+    if (dedupKey) {
+      const { data: existingTask } = await admin
+        .from("tasks")
+        .select("id")
+        .eq("automation_id", automationId)
+        .eq("dedup_key", dedupKey)
+        .eq("assignee_id", aId)
+        .limit(1);
+      if (existingTask && existingTask.length > 0) continue;
+    }
+
     const insertData: Record<string, unknown> = {
       automation_id: automationId,
       step_key: stepKey,

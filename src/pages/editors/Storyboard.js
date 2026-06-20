@@ -30,6 +30,17 @@ export default function Storyboard({ docId, title, onBack, onSaveTemplate }) {
   const [currentPage, setCurrentPage] = useState(0);
   const [annotations, setAnnotations] = useState({ ...EMPTY_ANNOTATIONS });
 
+  // Refs mirror the latest page/annotation state. The fabric event handlers
+  // (object:*, mouse:up) are bound ONCE in the [loaded] init effect, so they
+  // close over render-0 values. Without these refs, autosave triggered by an
+  // edit on page 2+ would read currentPage=0 and overwrite page 1's data.
+  const pagesRef = useRef(pages);
+  const currentPageRef = useRef(currentPage);
+  const annotationsRef = useRef(annotations);
+  useEffect(() => { pagesRef.current = pages; }, [pages]);
+  useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
+  useEffect(() => { annotationsRef.current = annotations; }, [annotations]);
+
   // Tools
   const [activeTool, setActiveTool] = useState('select');
   const [drawColor, setDrawColor] = useState('#000000');
@@ -186,8 +197,12 @@ export default function Storyboard({ docId, title, onBack, onSaveTemplate }) {
 
   async function saveCurrentPage() {
     const fc = fabricRef.current;
-    if (!fc || pages.length === 0) return;
-    const page = pages[currentPage];
+    // Read page/annotation state from refs, not closures — saveCurrentPage runs
+    // from fabric handlers bound at init, whose closures are stale after a page
+    // switch. Using the live refs ensures edits save to the page being viewed.
+    const pagesNow = pagesRef.current;
+    if (!fc || pagesNow.length === 0) return;
+    const page = pagesNow[currentPageRef.current];
     if (!page) return;
 
     const canvasData = fc.toJSON();
@@ -195,7 +210,7 @@ export default function Storyboard({ docId, title, onBack, onSaveTemplate }) {
       .from('storyboard_pages')
       .update({
         canvas_data: canvasData,
-        annotations,
+        annotations: annotationsRef.current,
         updated_at: new Date().toISOString(),
       })
       .eq('id', page.id);

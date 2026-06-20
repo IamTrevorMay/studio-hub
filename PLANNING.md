@@ -334,6 +334,130 @@ Based on inefficiency report review (June 2026). Items are grouped by phase; eac
 | Reduce `drive-watch-poll` frequency | Additional | Runs every minute (1440 API calls/day). Most Drive changes don't need minute-level detection. Evaluate whether 5-minute or 15-minute intervals are sufficient, or switch to push notifications via Drive webhooks where possible. |
 | Add backup/export strategy for Supabase data | Additional | No documented backup or export strategy. Supabase provides point-in-time recovery on Pro plans, but there's no manual export process for critical tables (financials, projects, content). Set up periodic pg_dump or Supabase backup verification. |
 
+## Full-Codebase Bug Audit (2026-06-20)
+
+Two-wave parallel audit across ~90% of pages + nearly all edge functions. The
+HIGH-severity automation/sync/security cluster was fixed, migrated, and deployed
+the same day. Everything below marked **Open** is unaddressed.
+
+### Fixed + deployed (2026-06-20)
+
+Edge functions redeployed (`run-automations`, `workflow-trigger-event`,
+`sync-stripe`, `sync-metricool`, `backfill-youtube-dimensions`); migration
+`20260620120000_automations_time_utc_to_hour_pt.sql` applied.
+
+| Item | Fix |
+|---|---|
+| `run-automations` DST + dead minute picker | `hour_pt` + live `America/Los_Angeles` offset; UI now hour-only PT dropdown |
+| `run-automations` dedup missing-var collapse | `resolveTemplateStrict` → skip fire when a `{{var}}` is absent |
+| `run-automations` partial-insert re-run duplicates | per-(automation, dedup_key, assignee) idempotency check |
+| `workflow-trigger-event:51` `...:event:undefined` dedup collision | fall back to full-payload key when id missing |
+| `sync-stripe:252/276` 100-row cap drops revenue/subs | paginate via `has_more`/`starting_after` + `res.ok`/`error` checks |
+| `sync-metricool:394` follower backfill off-by-one | include anchor day, step running total past its own gain |
+| `backfill-youtube-dimensions:225` no auth (destructive, `--no-verify-jwt`) | CRON_SECRET-or-admin gate (verified live 401) |
+| `AppLayout` `mailer`/`report_cards`/`broadcast` mounted for non-admins | `isAdmin` gate (broadcast → `canAccessBroadcast`); **frontend, needs Vercel deploy** |
+
+### Fixed — pending deploy (2026-06-20, second batch)
+
+The 5 🔴 security/data-loss items. Code committed; **edge functions not yet
+redeployed, frontend not yet pushed to Vercel.** Migration
+`20260620130000_script_review_versions_unique.sql` applied.
+
+| Loc | Fix |
+|---|---|
+| `post-daily-graphics/index.ts:35` | Admin role gate on the authed-user path (cron path unchanged) |
+| `generate-brief-onepager/index.ts:38` | `isSafeExternalUrl(file_url)` SSRF guard before fetch |
+| `google-drive-folders/index.ts:77,124` | `/^[\w\-]+$/` sanitize + `isDescendantOfRoot` check on GET + POST `parentId` |
+| `src/pages/editors/Storyboard.js:106` | `pagesRef`/`currentPageRef`/`annotationsRef`; `saveCurrentPage` reads refs |
+| `src/pages/Ideation.js:374` | unique `(review_id, version_number)` constraint + client retry on 23505 |
+
+**Deploy still needed:** `supabase functions deploy post-daily-graphics generate-brief-onepager google-drive-folders --no-verify-jwt` + Vercel push for Storyboard/Ideation.
+
+### Open — HIGH / security
+
+| Loc | Severity | Problem | Fix |
+|---|---|---|---|
+| `src/pages/FreelancerProfile.js:60` | HIGH | `try/catch` over Supabase calls that resolve `{error}` not throw → failed save shows "Saved successfully" | Check `{error}` on each call |
+| `src/pages/Freelancers.js:319` | HIGH | No in-flight guard on Create Assignment → double-click = duplicate assignments + notifications | `creating` flag + disable button |
+| `src/pages/Jobs.js:117` | HIGH | Reorder writes `position:i` from filtered subset (default `open`) → corrupts global order of hidden listings | Compute vs full list or restrict to `all` |
+| `src/pages/Calendar.js:124` | HIGH | Recurrence "ends after N" counted only within visible window → repeats every month | Count occurrences from series start |
+| `src/pages/CalendarMobile.js:26` | HIGH | `dayKey` uses `toISOString` on local midnight → buckets by UTC date → wrong day | Build key from local parts (like `Calendar.js dk()`) |
+| `src/pages/editors/screenplay-editor/components/editor/ScriptEditor.tsx:585` | HIGH | `visibilitychange` listener added, only `blur` removed → leaks stale-closure handler each remount | Named handler, remove in cleanup |
+
+### Open — MED
+
+| Loc | Problem | Fix |
+|---|---|---|
+| `src/pages/InvoicingMobile.js:276` | Editing taxed invoice reuses stale `tax_cents` → `total_cents` inconsistent with `tax_rate` | Re-derive tax on mobile |
+| `src/pages/InvoicingMobile.js:275` | "Mark paid" sets `amount_paid_cents` to bare subtotal → paid invoice shows balance-due | Use same `total_cents` expression |
+| `src/pages/Production.js:1269` | Drag-reorderable tag lists keyed by array index → node misassociation | Stable key (tag string/url) |
+| `src/pages/Reviews.js:892` | `setTimeout(create,100)` never cleared → fast version-switch overwrites `ytPlayerRef` | Track + `clearTimeout` |
+| `src/pages/workflows/KanbanPanel.js:879` | `reorderColumns` leaves terminal column position untouched → collision/terminal not last | Re-bump terminal above reindexed range |
+| `supabase/functions/drive-upload-init/index.ts:100` | IDOR: arbitrary `parentFolderId`; freelancer `blocked_folders` never checked | Validate against caller's allowed set |
+| `src/pages/AppLayout.js:286,347` | Route guard + freelancer redirect don't enforce scope on direct-URL/popstate | Add scope check to guard/popstate |
+| `src/contexts/AuthContext.js:246` | `onAuthStateChange` closes over stale `isPasswordRecovery=false` → SIGNED_IN during recovery auto-logs-in | Use a ref |
+| `supabase/functions/google-calendar-sync/index.ts:154` | Any authed user can sync/delete arbitrary `calendar_events` by UUID | Admin check / ownership verify |
+| `supabase/functions/fetch-daily-graphics/index.ts:26` | Any authed user triggers Triton fetch + write (`--no-verify-jwt`) | Role check |
+| `supabase/functions/google-drive-write/index.ts:96` | GET `folderId` not sanitized (sibling does) → `q` injection | Add regex guard |
+| `supabase/functions/shared/report-sources.ts:70` | `fetchTritonSource` fetches user-controlled `endpoint` (preview-report body), reflects raw response | SSRF guard + host allowlist |
+| `src/pages/BusinessDev.js:763` | Editing done initiative re-stamps `completed_at=now()` every save → resets auto-archive + loses real time | Only set on transition to done |
+| `src/pages/BusinessDev.js:749` | Cross-phase move doesn't recompute `position` → collision in destination | Assign `maxPos+1` on phase/workstream change |
+| `src/pages/CalendarMobile.js:507` | Mobile never expands `recurrence_rule` → recurring events vanish from future days | Reuse desktop `expandRecurringEvents` |
+| `src/pages/Channels.js:134` | Realtime ignores DELETE → deleted message stays visible | Add DELETE handler |
+| `src/pages/Channels.js:199` | `handleMoveChannel` writes array index as `sort_order` not actual values → corrupts if non-contiguous | Swap actual `sort_order` values |
+| `src/pages/ContentHealthDashboard.js:93` | No stale-response guard on channel switch → older fetch overwrites newer | Generation/abort token (Tracking's `postsGenRef`) |
+| `src/pages/Tracking.js:299` | Missing `ig_stories` row → `id:null`, `null===null` true, `.eq('id',null)` → target uneditable | Create/upsert the row |
+| `src/pages/tools/Telestration.js:62` | Unmount cleanup `[]` deps capture empty arrays → blob URLs leak | Revoke from refs |
+| `src/pages/tools/Organize.js:24` | `createObjectURL` thumbUrls never revoked → leak per rescan/unmount | Revoke before each `setFiles` + unmount |
+| `src/pages/YouTubeStudioAdvanced.js:1117` | `rows.sort()` mutates state array in render | `[...rows].sort()` |
+| `src/pages/FreelancerDashboard.js:263` | No in-flight guard on comment post → dup comments + notifications | `posting` flag |
+| `src/pages/Jobs.js:649,662` | Onboarding-card optimistic edits no rollback; index-based rename mismatch after add/remove | Rollback on error; compare by stable id |
+| `src/pages/editors/Storyboard.js:113,308` | Baseline history snapshot taken before async `loadFromJSON` (undo → blank); thumbnail captures wrong page mid-load | Push baseline / capture dataURL in load callback |
+
+### Open — LOW
+
+| Loc | Problem |
+|---|---|
+| `sync-metricool/index.ts:130`, `src/pages/Accounting.js:312` | No `Number.isFinite`/`||0` guard → one bad row poisons metrics with NaN |
+| `src/pages/Payroll.js:283` | `handleTogglePaid` no disable/await → double-tap duplicate `payroll_paid` rows |
+| `supabase/functions/mailer-webhook/index.ts:47` | Svix sig non-constant-time `===`, no timestamp freshness → replayable |
+| `supabase/functions/mailer-send-now/index.ts:256` | `fetchLatestRssItem` skips `isSafeExternalUrl()` SSRF guard |
+| `supabase/functions/approve-automation/index.ts:184` | Any admin resolves another admin's specifically-assigned confirmation |
+| `supabase/functions/jobs-view/index.ts:49` | Public unauthed unrate-limited insert → analytics bloat |
+| `supabase/functions/stats-query/index.ts:99` | Any authed user; returns raw SQL+result (bounded by Triton read-only) |
+| `src/pages/Production.js:278` | Autosave fires on `openSheet()` → redundant write of just-loaded data |
+| `src/pages/Reviews.js:839` | `<ReviewPlayer>` missing `key={review.id}` → stale `activeVersion` across switch |
+| `src/components/SprintBoard.js:1094` | Sprint done → `workflow-complete-task` uses pre-drag linked-task snapshot |
+| `src/pages/Research.js:1297,1346` | IP-notation conversion `*3` may mis-show every fractional IP — verify Triton storage convention |
+| `src/pages/Research.js:524,386` | `localeCompare` on null `date` throws; bucket-switch has no stale-response guard |
+| `src/pages/Channels.js:505` | Message groups keyed by array index while streaming via realtime |
+| `src/pages/Ideation.js:169,442,1168` | Drag-reorder no rollback; `setTimeout(setActiveDoc,100)` fragile race / unmount setState |
+| `src/pages/FreelancerHours.js:15` | `toISOString` period boundary off-by-one for UTC+ users |
+| `src/pages/Jobs.js:757` | Funnel "Interview" double-counts accepted |
+| `src/pages/Freelancers.js:458` | `handleReviewHours` no double-click guard → re-stamp + dup notification |
+| `src/pages/FreelancerDashboard.js:196` | `useRealtimeTable('fl-comments')` unfiltered → needless refetch churn |
+| `src/pages/analytics/Analytics.js:242` | Net/Total Followers ignore platform filter |
+| `src/pages/analytics/Analytics.js:231` | Single-day range → prev query empty → always +100%/0% |
+| `src/pages/YouTubeStudioAdvanced.js:815,241` | Reorder-dependent row key; `slice(0,7)`/`localeCompare` no null-date guard |
+| `supabase/functions/sync-fourthwall/index.ts:129` | `while(true)` never terminates if `totalPages` undefined (NaN) |
+| `supabase/functions/drive-watch-register/index.ts:119` | Leaks upstream API error text in `detail` |
+| `supabase/functions/metricool-stories/index.ts:53` | `days` param unbounded |
+| `supabase/functions/twitch-auth-callback/index.ts:81` | State user_id not re-checked for admin before overwriting creds |
+| `supabase/functions/google-calendar-sync/index.ts:34` | Post-refresh `access_token` used without null check |
+| `src/components/Morty.js:473+` | Untracked `setTimeout`s not cleared by `clearAllTimers` → setState-after-unmount |
+| `src/pages/DashboardMobile.js:248` | `commitEdit` optimistic update with no rollback on failure |
+| `src/pages/editors/Storyboard.js:266` | Async page ops no unmount guard |
+| `src/pages/editors/screenplay-editor/.../ScriptEditor.tsx:919,50` | Save via synthetic `blur` event fragile; load plugin no abort guard |
+| `src/pages/editors/doc-editor/editor/search-highlight.ts:36` | Rebuilds full DecorationSet every transaction (per-keystroke cost) |
+| `src/pages/BusinessDev.js:1002` | `handleToggleTask` ignores update error → silent revert |
+| `src/pages/Calendar.js:257,155` | Global mousedown dismisses own context menu; `.sort()` mutates live event object |
+| `src/pages/Dashboard.js:806` | Presence "offline" flip not re-rendered on a timer |
+
+### Audit coverage gaps (not swept)
+`AppLayoutMobile.js`, `ProductionMobile.js`, `SprintBoardMobile.js`, other
+`*Mobile.js` variants beyond Calendar/Dashboard/Invoicing; some smaller
+components. Re-sweep before declaring the codebase fully audited.
+
 ## Known Issues
 
 ### Open GitHub Issues

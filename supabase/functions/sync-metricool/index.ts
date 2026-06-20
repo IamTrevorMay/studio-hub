@@ -379,12 +379,15 @@ Deno.serve(async (req: Request) => {
 
       if (!anchor) continue;
 
-      // Get recent youtube daily data (before anchor date)
+      // Get recent youtube daily data up to and INCLUDING the anchor date.
+      // The anchor day's own subscriber gain must be subtracted before assigning
+      // totals to earlier days; excluding it shifted every backfilled day's
+      // follower_total up by one day's gain (off-by-one).
       const { data: ytDaily } = await supabase
         .from("analytics_youtube_daily")
         .select("date, subscribers")
         .eq("platform_account_id", yt.id)
-        .lt("date", anchor.date)
+        .lte("date", anchor.date)
         .gte("date", fromStr.slice(0, 10))
         .order("date", { ascending: false });
 
@@ -402,6 +405,13 @@ Deno.serve(async (req: Request) => {
       }[] = [];
 
       for (const row of ytDaily) {
+        // The anchor date already has an authoritative snapshot; don't overwrite
+        // it — just step the running total back past its own gain so the first
+        // backfilled (earlier) day starts from anchor.total - anchor.gain.
+        if (row.date === anchor.date) {
+          runningTotal -= (row.subscribers || 0);
+          continue;
+        }
         audRows.push({
           platform_account_id: yt.id,
           date: row.date,

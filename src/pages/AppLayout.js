@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import useNavConfig from '../hooks/useNavConfig';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
+import { canAccessBroadcast } from '../lib/rolePermissions';
 import { logUploadError } from '../lib/uploadErrors';
 import SidebarEditMode from '../components/SidebarEditMode';
 import Dashboard from './Dashboard';
@@ -787,9 +788,9 @@ export default function AppLayout() {
           {activeTab === 'post_show' && <PageErrorBoundary key="post_show"><PostShow onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {activeTab === 'timeline' && <PageErrorBoundary key="timeline"><Timeline /></PageErrorBoundary>}
           {activeTab === 'organize' && <PageErrorBoundary key="organize"><Organize onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
-          {activeTab === 'broadcast' && <PageErrorBoundary key="broadcast"><Broadcast onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
-          {activeTab === 'report_cards' && <PageErrorBoundary key="report_cards"><ReportCards onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
-          {activeTab === 'mailer' && <PageErrorBoundary key="mailer"><Mailer onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
+          {canAccessBroadcast(profile?.role) && activeTab === 'broadcast' && <PageErrorBoundary key="broadcast"><Broadcast onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
+          {isAdmin && activeTab === 'report_cards' && <PageErrorBoundary key="report_cards"><ReportCards onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
+          {isAdmin && activeTab === 'mailer' && <PageErrorBoundary key="mailer"><Mailer onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {activeTab === 'graphics' && <PageErrorBoundary key="graphics"><Graphics onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {isAdmin && activeTab === 'analytics' && <PageErrorBoundary key="analytics"><Analytics /></PageErrorBoundary>}
           {isAdmin && activeTab === 'tracking' && <PageErrorBoundary key="tracking"><Tracking /></PageErrorBoundary>}

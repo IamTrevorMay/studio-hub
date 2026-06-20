@@ -45,6 +45,20 @@ Deno.serve(async (req: Request) => {
       if (userError || !user) {
         return jsonRes({ error: "Not authenticated" }, 401);
       }
+      // Publishing to the company Instagram is admin-only. Without this check
+      // any authenticated member/freelancer could trigger a real public post.
+      const roleClient = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+      );
+      const { data: profile } = await roleClient
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .single();
+      if (profile?.role !== "admin") {
+        return jsonRes({ error: "Admin only" }, 403);
+      }
     } else {
       return jsonRes({ error: "Not authorized" }, 401);
     }
