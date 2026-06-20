@@ -59,7 +59,8 @@ Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
   const auth = req.headers.get("Authorization");
   const querySecret = url.searchParams.get("secret");
-  const ok = cronSecret && (auth === `Bearer ${cronSecret}` || querySecret === cronSecret);
+  const headerSecret = req.headers.get("x-cron-secret");
+  const ok = cronSecret && (auth === `Bearer ${cronSecret}` || querySecret === cronSecret || headerSecret === cronSecret);
   if (!ok) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,

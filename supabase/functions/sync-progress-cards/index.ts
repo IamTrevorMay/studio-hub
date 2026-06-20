@@ -172,9 +172,10 @@ Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
   const auth = req.headers.get("Authorization");
   const querySecret = url.searchParams.get("secret");
+  const headerSecret = req.headers.get("x-cron-secret");
   let ok =
     cronSecret &&
-    (auth === `Bearer ${cronSecret}` || querySecret === cronSecret);
+    (auth === `Bearer ${cronSecret}` || querySecret === cronSecret || headerSecret === cronSecret);
 
   // Also allow admin users via JWT
   if (!ok && auth?.startsWith("Bearer ")) {
