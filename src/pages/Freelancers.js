@@ -62,6 +62,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
   const [statusFilter, setStatusFilter] = useState('all');
   const [freelancerFilter, setFreelancerFilter] = useState('all');
   const [showNewAssignment, setShowNewAssignment] = useState(false);
+  const [creatingAssign, setCreatingAssign] = useState(false);
   const [expandedAssignment, setExpandedAssignment] = useState(null);
   const [assignmentComments, setAssignmentComments] = useState([]);
   const [newComment, setNewComment] = useState('');
@@ -318,32 +319,38 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
 
   const handleCreateAssignment = async () => {
     if (!newAssign.freelancer_id || !newAssign.title.trim()) return;
-    const row = {
-      freelancer_id: newAssign.freelancer_id,
-      title: newAssign.title.trim(),
-      description: newAssign.description.trim() || null,
-      asset_url: newAssign.asset_url.trim() || null,
-      due_date: newAssign.due_date || null,
-      pay_amount: newAssign.pay_amount ? parseFloat(newAssign.pay_amount) : null,
-      content_type: newAssign.content_type,
-      created_by: profile.id,
-    };
-    const { error } = await supabase.from('freelancer_assignments').insert(row);
-    if (error) { console.error(error); return; }
+    if (creatingAssign) return; // guard against double-click → duplicate rows + notifications
+    setCreatingAssign(true);
+    try {
+      const row = {
+        freelancer_id: newAssign.freelancer_id,
+        title: newAssign.title.trim(),
+        description: newAssign.description.trim() || null,
+        asset_url: newAssign.asset_url.trim() || null,
+        due_date: newAssign.due_date || null,
+        pay_amount: newAssign.pay_amount ? parseFloat(newAssign.pay_amount) : null,
+        content_type: newAssign.content_type,
+        created_by: profile.id,
+      };
+      const { error } = await supabase.from('freelancer_assignments').insert(row);
+      if (error) { console.error(error); return; }
 
-    // Notify freelancer
-    await supabase.from('notifications').insert({
-      user_id: newAssign.freelancer_id,
-      type: 'assignment',
-      title: 'New Assignment',
-      body: `You have been assigned "${newAssign.title.trim()}"`,
-      link_tab: 'fl_dashboard',
-      link_target: null,
-    });
+      // Notify freelancer
+      await supabase.from('notifications').insert({
+        user_id: newAssign.freelancer_id,
+        type: 'assignment',
+        title: 'New Assignment',
+        body: `You have been assigned "${newAssign.title.trim()}"`,
+        link_tab: 'fl_dashboard',
+        link_target: null,
+      });
 
-    setNewAssign({ freelancer_id: '', title: '', description: '', asset_url: '', due_date: '', pay_amount: '', content_type: 'video' });
-    setShowNewAssignment(false);
-    fetchAssignments();
+      setNewAssign({ freelancer_id: '', title: '', description: '', asset_url: '', due_date: '', pay_amount: '', content_type: 'video' });
+      setShowNewAssignment(false);
+      fetchAssignments();
+    } finally {
+      setCreatingAssign(false);
+    }
   };
 
   const handleUpdateAssignment = async () => {
@@ -456,10 +463,12 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
   };
 
   const handleReviewHours = async (hourEntry) => {
+    // Already reviewed → no-op, so a second click can't re-stamp + send a dup notification.
+    if (hourEntry.reviewed_at) return;
     await supabase.from('freelancer_hours').update({
       reviewed_by: profile.id,
       reviewed_at: new Date().toISOString(),
-    }).eq('id', hourEntry.id);
+    }).eq('id', hourEntry.id).is('reviewed_at', null);
 
     const periodLabel = `${formatDate(hourEntry.period_start)} - ${formatDate(hourEntry.period_end)}`;
     await supabase.from('notifications').insert({
@@ -1302,8 +1311,8 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-                <button style={styles.primaryBtn} onClick={handleCreateAssignment}>
-                  Create
+                <button style={styles.primaryBtn} onClick={handleCreateAssignment} disabled={creatingAssign}>
+                  {creatingAssign ? 'Creating…' : 'Create'}
                 </button>
                 <button style={styles.secondaryBtn} onClick={() => setShowNewAssignment(false)}>
                   Cancel

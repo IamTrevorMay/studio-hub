@@ -46,6 +46,24 @@ Deno.serve(async (req: Request) => {
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
-  await admin.from("job_listing_views").insert({ listing_id: listingId, slug });
+
+  // Coarse viewer hash (IP + UA) for soft dedup — skip if this viewer already
+  // logged this listing in the last 30 min. Limits scriptable analytics bloat.
+  const ip = (req.headers.get("x-forwarded-for") || "").split(",")[0].trim();
+  const ua = req.headers.get("user-agent") || "";
+  let viewerHash: string | null = null;
+  if (ip) {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${ip}|${ua}`));
+    viewerHash = [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 32);
+
+    const since = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    let q = admin.from("job_listing_views").select("id", { count: "exact", head: true })
+      .eq("viewer_hash", viewerHash).gte("created_at", since);
+    q = listingId ? q.eq("listing_id", listingId) : q.eq("slug", slug);
+    const { count } = await q;
+    if (count && count > 0) return reply({ ok: true, deduped: true });
+  }
+
+  await admin.from("job_listing_views").insert({ listing_id: listingId, slug, viewer_hash: viewerHash });
   return reply({ ok: true });
 });

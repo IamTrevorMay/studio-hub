@@ -1,6 +1,7 @@
 // Shared source handlers for report generation (used by run-report and preview-report)
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isSafeExternalUrl } from "./url-validation.ts";
 
 export interface SourceResult {
   variables: Record<string, string>;
@@ -72,6 +73,12 @@ export async function fetchTritonSource(
 ): Promise<SourceResult> {
   if (!config.endpoint) {
     return { variables: { triton_data: "(No endpoint configured)" }, sourceCount: 0 };
+  }
+
+  // SSRF guard: endpoint comes from the report's data_sources config (user-
+  // authored, e.g. via preview-report request body) and is fetched server-side.
+  if (!isSafeExternalUrl(config.endpoint)) {
+    return { variables: { triton_data: "(Invalid or disallowed endpoint)" }, sourceCount: 0 };
   }
 
   const method = config.method || "GET";

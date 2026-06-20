@@ -155,7 +155,8 @@ function AssignmentsPane({ onOpen, onEdit }) {
         <div style={styles.list}>
           {filtered.map((a) => {
             const c = STATUS_COLORS[a.status] || STATUS_COLORS.assigned;
-            const overdue = a.due_date && new Date(a.due_date) < new Date() && a.status !== 'completed';
+            // Parse date-only as LOCAL midnight, else US timezones flag it overdue on the due date itself.
+            const overdue = a.due_date && new Date(a.due_date + 'T00:00:00') < new Date() && a.status !== 'completed';
             return (
               <button key={a.id} onClick={() => onOpen(a)} style={styles.row}>
                 <div style={styles.rowTop}>
@@ -208,29 +209,32 @@ function AssignmentDetail({ assignment, currentUserId, onEdit, onClose }) {
   async function postComment() {
     if (!newComment.trim() || posting) return;
     setPosting(true);
-    await supabase.from('freelancer_assignment_comments').insert({
-      assignment_id: assignment.id,
-      author_id: currentUserId,
-      body: newComment.trim(),
-    });
-    if (assignment.freelancer_id !== currentUserId) {
-      await supabase.from('notifications').insert({
-        user_id: assignment.freelancer_id,
-        type: 'fl_comment',
-        title: 'New Comment',
-        body: `New comment on "${assignment.title}"`,
-        link_tab: 'fl_dashboard',
-        link_target: assignment.id,
+    try {
+      await supabase.from('freelancer_assignment_comments').insert({
+        assignment_id: assignment.id,
+        author_id: currentUserId,
+        body: newComment.trim(),
       });
+      if (assignment.freelancer_id !== currentUserId) {
+        await supabase.from('notifications').insert({
+          user_id: assignment.freelancer_id,
+          type: 'fl_comment',
+          title: 'New Comment',
+          body: `New comment on "${assignment.title}"`,
+          link_tab: 'fl_dashboard',
+          link_target: assignment.id,
+        });
+      }
+      const { data } = await supabase
+        .from('freelancer_assignment_comments')
+        .select('*, author:profiles!freelancer_assignment_comments_author_id_fkey(full_name, avatar_url)')
+        .eq('assignment_id', assignment.id)
+        .order('created_at', { ascending: true });
+      setComments(data || []);
+      setNewComment('');
+    } finally {
+      setPosting(false); // release even on error so the Post button doesn't lock
     }
-    const { data } = await supabase
-      .from('freelancer_assignment_comments')
-      .select('*, author:profiles!freelancer_assignment_comments_author_id_fkey(full_name, avatar_url)')
-      .eq('assignment_id', assignment.id)
-      .order('created_at', { ascending: true });
-    setComments(data || []);
-    setNewComment('');
-    setPosting(false);
   }
 
   return (
@@ -366,22 +370,26 @@ function HoursDetail({ entry, currentUserId, onReviewed }) {
   const [working, setWorking] = useState(false);
 
   async function approve() {
+    if (working || entry.reviewed_at) return;
     setWorking(true);
-    await supabase.from('freelancer_hours').update({
-      reviewed_by: currentUserId,
-      reviewed_at: new Date().toISOString(),
-    }).eq('id', entry.id);
-    const periodLabel = `${fmtDate(entry.period_start)} – ${fmtDate(entry.period_end)}`;
-    await supabase.from('notifications').insert({
-      user_id: entry.freelancer_id,
-      type: 'fl_hours_reviewed',
-      title: 'Hours Reviewed',
-      body: `Your hours for ${periodLabel} have been reviewed.`,
-      link_tab: 'fl_hours',
-      link_target: null,
-    });
-    setWorking(false);
-    onReviewed();
+    try {
+      await supabase.from('freelancer_hours').update({
+        reviewed_by: currentUserId,
+        reviewed_at: new Date().toISOString(),
+      }).eq('id', entry.id).is('reviewed_at', null);
+      const periodLabel = `${fmtDate(entry.period_start)} – ${fmtDate(entry.period_end)}`;
+      await supabase.from('notifications').insert({
+        user_id: entry.freelancer_id,
+        type: 'fl_hours_reviewed',
+        title: 'Hours Reviewed',
+        body: `Your hours for ${periodLabel} have been reviewed.`,
+        link_tab: 'fl_hours',
+        link_target: null,
+      });
+      onReviewed();
+    } finally {
+      setWorking(false); // release even on error so the button doesn't lock
+    }
   }
 
   return (

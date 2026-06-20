@@ -92,6 +92,22 @@ async function removeEmptyDirs(rootHandle, path) {
 export default function Organize({ onBack }) {
   const [dirHandle, setDirHandle] = useState(null);
   const [files, setFiles] = useState([]);
+
+  // scanDirectory mints a thumbnail object URL per file; each rescan replaces
+  // the list with fresh URLs. Revoke the ones that drop out (and all on unmount)
+  // so they don't leak. Centralized here to cover every setFiles call site.
+  const prevFilesRef = useRef([]);
+  useEffect(() => {
+    const prev = prevFilesRef.current;
+    if (prev.length) {
+      const currentUrls = new Set(files.map(f => f.thumbUrl));
+      prev.forEach(f => { if (f.thumbUrl && !currentUrls.has(f.thumbUrl)) URL.revokeObjectURL(f.thumbUrl); });
+    }
+    prevFilesRef.current = files;
+  }, [files]);
+  useEffect(() => () => {
+    prevFilesRef.current.forEach(f => { if (f.thumbUrl) URL.revokeObjectURL(f.thumbUrl); });
+  }, []);
   const [metadata, setMetadata] = useState({});
   const [viewMode, setViewMode] = useState('grid');
   const [previewFile, setPreviewFile] = useState(null);

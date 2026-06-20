@@ -145,7 +145,7 @@ export function exportToFDX(
       // Scene numbers for scene headings
       let sceneNumberAttr = ''
       if (block.type === 'scene-heading' && block.sceneNumber) {
-        sceneNumberAttr = ` Number="${block.sceneNumber}"`
+        sceneNumberAttr = ` Number="${escapeXml(String(block.sceneNumber))}"`
       }
 
       paragraphs += `      <Paragraph Type="${fdxType}"${sceneNumberAttr}>\n${textElements}\n      </Paragraph>\n`

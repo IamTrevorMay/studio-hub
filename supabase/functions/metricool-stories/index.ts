@@ -50,7 +50,8 @@ Deno.serve(async (req: Request) => {
   }
 
   const url = new URL(req.url);
-  const days = parseInt(url.searchParams.get("days") || "7", 10);
+  // Clamp days to a sane range so a large value can't blow up the Metricool window/cost.
+  const days = Math.min(90, Math.max(1, parseInt(url.searchParams.get("days") || "7", 10) || 7));
 
   // Build date range in Pacific time (matches Metricool's response dates)
   const now = new Date();

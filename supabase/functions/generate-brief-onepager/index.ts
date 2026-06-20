@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isSafeExternalUrl } from "../shared/url-validation.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -100,6 +101,15 @@ Deno.serve(async (req: Request) => {
 
     if (!file_url && !text) {
       return new Response(JSON.stringify({ error: "Provide file_url or text" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // SSRF guard: file_url is user-controlled and gets fetched server-side, so
+    // it must not be allowed to target loopback / link-local / private space.
+    if (file_url && !isSafeExternalUrl(file_url)) {
+      return new Response(JSON.stringify({ error: "Invalid or disallowed file_url" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

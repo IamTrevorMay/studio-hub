@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { mobileTokens } from '../utils/mobileTokens';
+import { daysAgoStr } from './analytics/utils';
 
 // Mobile-only summary view of Analytics. Shows headline KPIs per platform account
 // (latest follower count + last-30-days growth). Charts, content tables, and
@@ -42,9 +43,9 @@ export default function AnalyticsMobile() {
       const list = accts || [];
       setAccounts(list);
 
-      const today = new Date();
-      const monthAgo = new Date(today); monthAgo.setDate(monthAgo.getDate() - 30);
-      const start = monthAgo.toISOString().slice(0, 10);
+      // Pacific-time boundary (matches desktop Analytics); toISOString() bucketed
+      // by UTC, shifting the 30-day window by up to a day for PT users.
+      const start = daysAgoStr(30);
 
       const snaps = {};
       await Promise.all(list.map(async (a) => {

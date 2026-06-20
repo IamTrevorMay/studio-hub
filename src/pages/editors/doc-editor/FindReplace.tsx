@@ -133,16 +133,16 @@ export default function FindReplace({ editor, onClose }: Props) {
     setCurrentIndex((prev) => (prev - 1 + matches.length) % matches.length)
   }
 
+  // Insert the replacement as a plain text node — a bare string is parsed as
+  // HTML by insertContent, so "<img onerror=...>" in the field would inject markup.
+  const replaceContent = replace ? { type: 'text', text: replace } : null
+
   const doReplace = () => {
     if (matches.length === 0 || currentIndex >= matches.length) return
     const match = matches[currentIndex]
-    editor
-      .chain()
-      .focus()
-      .setTextSelection(match)
-      .deleteSelection()
-      .insertContent(replace)
-      .run()
+    const chain = editor.chain().focus().setTextSelection(match).deleteSelection()
+    if (replaceContent) chain.insertContent(replaceContent)
+    chain.run()
   }
 
   const doReplaceAll = () => {
@@ -150,7 +150,8 @@ export default function FindReplace({ editor, onClose }: Props) {
     const sorted = [...matches].sort((a, b) => b.from - a.from)
     const chain = editor.chain()
     for (const match of sorted) {
-      chain.setTextSelection(match).deleteSelection().insertContent(replace)
+      chain.setTextSelection(match).deleteSelection()
+      if (replaceContent) chain.insertContent(replaceContent)
     }
     chain.focus().run()
   }

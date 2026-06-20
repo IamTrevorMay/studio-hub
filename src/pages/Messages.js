@@ -17,6 +17,7 @@ export default function Messages({ onNavigate }) {
   const [groupName, setGroupName] = useState('');
   const [searchUsers, setSearchUsers] = useState('');
   const messagesEndRef = useRef(null);
+  const sendingRef = useRef(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -56,7 +57,7 @@ export default function Messages({ onNavigate }) {
           .eq('conversation_id', convo.id)
           .order('created_at', { ascending: false })
           .limit(1)
-          .single();
+          .maybeSingle(); // empty conversations would 406/PGRST116 with .single()
 
         return {
           ...convo,
@@ -135,11 +136,13 @@ export default function Messages({ onNavigate }) {
           .select('*, profile:profiles(id, full_name, nickname, title)')
           .eq('id', payload.new.id)
           .single();
-        if (data) setMessages(prev => [...prev, data]);
+        // Dedup by id — reconnect/resubscribe can redeliver, and the deps below
+        // tear down + re-subscribe on unrelated refreshes.
+        if (data) setMessages(prev => prev.some(m => m.id === data.id) ? prev : [...prev, data]);
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [activeConversation, fetchMessages, refreshKey]);
+  }, [activeConversation]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -147,14 +150,16 @@ export default function Messages({ onNavigate }) {
 
   async function handleSendMessage(e) {
     e.preventDefault();
-    if (!newMessage.trim() || !activeConversation || !profile?.id) return;
-
-    await supabase.from('direct_messages').insert({
+    if (!newMessage.trim() || !activeConversation || !profile?.id || sendingRef.current) return;
+    sendingRef.current = true;
+    const content = newMessage.trim();
+    const { error } = await supabase.from('direct_messages').insert({
       conversation_id: activeConversation.id,
       user_id: profile.id,
-      content: newMessage.trim(),
+      content,
     });
-    setNewMessage('');
+    if (!error) setNewMessage(''); // only clear on success — don't silently drop the message
+    sendingRef.current = false;
   }
 
   async function handleStartConversation() {
@@ -210,7 +215,7 @@ export default function Messages({ onNavigate }) {
   function getConvoDisplayName(convo) {
     if (convo.name) return convo.name;
     const others = convo.participants
-      ?.filter(p => p.user_id !== profile.id)
+      ?.filter(p => p.user_id !== profile?.id)
       .map(p => getDisplayName(p.profile) || 'Unknown');
     return others?.join(', ') || 'Conversation';
   }
@@ -376,7 +381,7 @@ export default function Messages({ onNavigate }) {
                 </div>
               ) : (
                 messages.map((msg, i) => {
-                  const isOwn = msg.user_id === profile.id;
+                  const isOwn = msg.user_id === profile?.id;
                   const showAvatar = i === 0 || messages[i - 1].user_id !== msg.user_id;
                   return (
                     <div key={msg.id} style={{

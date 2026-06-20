@@ -875,14 +875,21 @@ export default function KanbanPanel({ boardId, onBack, showToast }) {
     const [moved] = reordered.splice(srcIdx, 1);
     reordered.splice(dstIdx, 0, moved);
 
-    // Optimistic update.
+    // Optimistic update. Re-bump terminal columns to sit strictly after the
+    // reindexed non-terminal range, otherwise a non-terminal position could
+    // collide with the terminal column's stale position and it would stop
+    // sorting last.
     const updated = reordered.map((c, i) => ({ ...c, position: i }));
-    setColumns([...updated, ...terminal]);
+    const updatedTerminal = terminal.map((c, i) => ({ ...c, position: updated.length + i }));
+    setColumns([...updated, ...updatedTerminal]);
 
-    // Persist new positions.
-    await Promise.all(
-      updated.map((c, i) => supabase.from('workflow_steps').update({ position: i }).eq('id', c.id))
-    );
+    // Persist new positions; refetch on any failure so the board doesn't drift
+    // from the DB.
+    const results = await Promise.all([
+      ...updated.map((c, i) => supabase.from('workflow_steps').update({ position: i }).eq('id', c.id)),
+      ...updatedTerminal.map((c) => supabase.from('workflow_steps').update({ position: c.position }).eq('id', c.id)),
+    ]);
+    if (results.some((r) => r.error)) fetchBoardDetail();
   };
 
   // ─── Card actions ─────────────────────────────────────────

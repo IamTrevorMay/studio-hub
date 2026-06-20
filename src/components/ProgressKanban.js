@@ -93,14 +93,16 @@ export default function ProgressKanban() {
 
   const handleDelete = async () => {
     if (!contextMenu?.card) return;
-    const cardId = contextMenu.card.id;
+    const card = contextMenu.card;
+    const cardId = card.id;
     setContextMenu(null);
     // Optimistic removal
     setCards(prev => prev.filter(c => c.id !== cardId));
-    await supabase
+    const { error } = await supabase
       .from('progress_cards')
       .update({ archived_at: new Date().toISOString() })
       .eq('id', cardId);
+    if (error) { setCards(prev => [...prev, card]); return; } // roll back on failure
     fetchCards();
   };
 

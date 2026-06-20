@@ -30,12 +30,23 @@ const EVENT_MAP: Record<string, { status: string; column: string; stat: string }
   "email.complained": { status: "complained", column: "complained_at", stat: "complained" },
 };
 
+// Constant-time string compare to avoid leaking the signature via timing.
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let r = 0;
+  for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return r === 0;
+}
+
 async function verifySignature(req: Request, raw: string): Promise<boolean> {
   if (!WEBHOOK_SECRET) return true; // Allow unsigned in dev if no secret configured.
   const id = req.headers.get("svix-id");
   const ts = req.headers.get("svix-timestamp");
   const sig = req.headers.get("svix-signature");
   if (!id || !ts || !sig) return false;
+  // Reject stale timestamps (>5 min) so a captured signed webhook can't be replayed.
+  const tsNum = parseInt(ts, 10);
+  if (!Number.isFinite(tsNum) || Math.abs(Date.now() / 1000 - tsNum) > 300) return false;
   // Standard Webhooks signature = HMAC-SHA256(secret, id + '.' + ts + '.' + body) base64.
   const enc = new TextEncoder();
   const secretBytes = WEBHOOK_SECRET.startsWith("whsec_")
@@ -46,8 +57,8 @@ async function verifySignature(req: Request, raw: string): Promise<boolean> {
   );
   const macBytes = new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(`${id}.${ts}.${raw}`)));
   const expected = btoa(String.fromCharCode(...macBytes));
-  // svix-signature is space-separated list of v1,<b64>; compare any match.
-  return sig.split(" ").some((p) => p.split(",")[1] === expected);
+  // svix-signature is space-separated list of v1,<b64>; compare any match (constant-time).
+  return sig.split(" ").some((p) => timingSafeEqual(p.split(",")[1] || "", expected));
 }
 
 Deno.serve(async (req) => {

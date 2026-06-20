@@ -1093,12 +1093,23 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
     // Workflow/project task completion: fire sign-off or complete when moved to done.
     if (task.task_id && newStatus === 'done' && task.linked_task) {
       const lt = task.linked_task;
-      if (lt.status === 'active') {
-        const action = lt.requires_sign_off ? 'sign_off' : undefined;
-        callWorkflowFn('workflow-complete-task', { task_id: task.task_id, action }).catch(err =>
-          console.error('Sprint done → workflow-complete-task failed:', err)
-        );
-      }
+      // Re-read the linked task's current status — the pre-drag snapshot can be
+      // stale (e.g. someone else already signed it off), which would otherwise
+      // fire sign_off on a non-active task (server 400 + console noise).
+      (async () => {
+        let cur = lt;
+        if (lt.id) {
+          const { data: fresh } = await supabase.from('tasks')
+            .select('status, requires_sign_off').eq('id', lt.id).maybeSingle();
+          if (fresh) cur = fresh;
+        }
+        if (cur.status === 'active') {
+          const action = cur.requires_sign_off ? 'sign_off' : undefined;
+          callWorkflowFn('workflow-complete-task', { task_id: task.task_id, action }).catch(err =>
+            console.error('Sprint done → workflow-complete-task failed:', err)
+          );
+        }
+      })();
     }
 
     if (onBoardChange) onBoardChange();

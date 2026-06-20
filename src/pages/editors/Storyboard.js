@@ -24,11 +24,24 @@ export default function Storyboard({ docId, title, onBack, onSaveTemplate }) {
   const canvasElRef = useRef(null);
   const fabricRef = useRef(null);
   const containerRef = useRef(null);
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
 
   // Pages
   const [pages, setPages] = useState([]);
   const [currentPage, setCurrentPage] = useState(0);
   const [annotations, setAnnotations] = useState({ ...EMPTY_ANNOTATIONS });
+
+  // Refs mirror the latest page/annotation state. The fabric event handlers
+  // (object:*, mouse:up) are bound ONCE in the [loaded] init effect, so they
+  // close over render-0 values. Without these refs, autosave triggered by an
+  // edit on page 2+ would read currentPage=0 and overwrite page 1's data.
+  const pagesRef = useRef(pages);
+  const currentPageRef = useRef(currentPage);
+  const annotationsRef = useRef(annotations);
+  useEffect(() => { pagesRef.current = pages; }, [pages]);
+  useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
+  useEffect(() => { annotationsRef.current = annotations; }, [annotations]);
 
   // Tools
   const [activeTool, setActiveTool] = useState('select');
@@ -109,11 +122,12 @@ export default function Storyboard({ docId, title, onBack, onSaveTemplate }) {
     fc.on('selection:updated', updateLayers);
     fc.on('selection:cleared', updateLayers);
 
-    // Load first page
+    // Load first page. loadPageIntoCanvas pushes the baseline history snapshot
+    // itself once the async load completes (don't push synchronously here — the
+    // canvas isn't populated yet).
     if (pages.length > 0) {
       loadPageIntoCanvas(0);
     }
-    pushHistory();
   }, [loaded]);
 
   // ------- DATA LOADING -------
@@ -161,33 +175,40 @@ export default function Storyboard({ docId, title, onBack, onSaveTemplate }) {
     fc.clear();
     fc.backgroundColor = '#ffffff';
 
-    if (page.canvas_data && Object.keys(page.canvas_data).length > 0) {
-      fc.loadFromJSON(page.canvas_data, () => {
-        fc.renderAll();
-        skipHistory.current = false;
-        updateLayers();
-      });
-    } else {
+    // Reset undo/redo up front; the baseline snapshot is pushed once the page
+    // content has actually loaded. loadFromJSON is async, so pushing the baseline
+    // synchronously captured a blank canvas — making the first undo wipe the page.
+    undoStack.current = [];
+    redoStack.current = [];
+    setUndoLen(0);
+    setRedoLen(0);
+
+    const finishLoad = () => {
       fc.renderAll();
       skipHistory.current = false;
       updateLayers();
+      pushHistory(); // baseline = the loaded page, not an empty canvas
+    };
+
+    if (page.canvas_data && Object.keys(page.canvas_data).length > 0) {
+      fc.loadFromJSON(page.canvas_data, finishLoad);
+    } else {
+      finishLoad();
     }
 
     setAnnotations(page.annotations && Object.keys(page.annotations).length > 0
       ? { ...EMPTY_ANNOTATIONS, ...page.annotations }
       : { ...EMPTY_ANNOTATIONS });
-
-    // Reset undo/redo for new page
-    undoStack.current = [];
-    redoStack.current = [];
-    setUndoLen(0);
-    setRedoLen(0);
   }
 
   async function saveCurrentPage() {
     const fc = fabricRef.current;
-    if (!fc || pages.length === 0) return;
-    const page = pages[currentPage];
+    // Read page/annotation state from refs, not closures — saveCurrentPage runs
+    // from fabric handlers bound at init, whose closures are stale after a page
+    // switch. Using the live refs ensures edits save to the page being viewed.
+    const pagesNow = pagesRef.current;
+    if (!fc || pagesNow.length === 0) return;
+    const page = pagesNow[currentPageRef.current];
     if (!page) return;
 
     const canvasData = fc.toJSON();
@@ -195,7 +216,7 @@ export default function Storyboard({ docId, title, onBack, onSaveTemplate }) {
       .from('storyboard_pages')
       .update({
         canvas_data: canvasData,
-        annotations,
+        annotations: annotationsRef.current,
         updated_at: new Date().toISOString(),
       })
       .eq('id', page.id);
@@ -276,6 +297,7 @@ export default function Storyboard({ docId, title, onBack, onSaveTemplate }) {
         newPages[i] = { ...newPages[i], page_number: i + 1 };
       }
     }
+    if (!mountedRef.current) return; // unmounted mid-await — don't touch state/canvas
     setPages(newPages);
     const newIdx = Math.min(idx, newPages.length - 1);
     setCurrentPage(newIdx);
@@ -308,6 +330,10 @@ export default function Storyboard({ docId, title, onBack, onSaveTemplate }) {
   function generateThumbnail(pageIdx) {
     const fc = fabricRef.current;
     if (!fc) return;
+    // Don't snapshot while a page load is in flight (loadFromJSON is async):
+    // the live canvas may hold the previous/partial page, which would get keyed
+    // to pageIdx. Grid view (generateAllThumbnails) regenerates from saved data.
+    if (skipHistory.current) return;
     try {
       const dataUrl = fc.toDataURL({ format: 'jpeg', quality: 0.4, multiplier: 0.15 });
       setThumbnails(prev => ({ ...prev, [pageIdx]: dataUrl }));

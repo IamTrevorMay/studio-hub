@@ -132,42 +132,39 @@ function reorderScenes(
   editor.update(() => {
     const root = $getRoot()
 
-    // Collect every node key grouped by scene
-    const sceneNodeGroups: LexicalNode[][] = scenes.map((scene) =>
-      scene.nodeKeys
-        .map((key) => {
-          const node = root.getChildren().find((c) => c.getKey() === key)
-          return node
-        })
-        .filter(Boolean) as LexicalNode[]
-    )
-
-    // Collect any orphan nodes before the first scene heading
-    const allSceneKeys = new Set(scenes.flatMap((s) => s.nodeKeys))
+    // Group the LIVE children by scene heading (mirrors extractScenes). Building
+    // groups from the live tree — not the debounced `scenes` snapshot — ensures
+    // every current node is captured; otherwise a node added during the 200ms
+    // refresh window is in neither a group nor orphansBefore and gets silently
+    // dropped by root.clear() below (content loss).
     const orphansBefore: LexicalNode[] = []
+    const groups: LexicalNode[][] = []
+    let current: LexicalNode[] | null = null
     for (const child of root.getChildren()) {
-      if (allSceneKeys.has(child.getKey())) break
-      orphansBefore.push(child)
+      if ($isSceneHeadingNode(child)) {
+        current = [child]
+        groups.push(current)
+      } else if (current) {
+        current.push(child)
+      } else {
+        orphansBefore.push(child)
+      }
     }
 
-    // Build the new order
-    const reordered = [...sceneNodeGroups]
+    // Bounds guard — indices come from the rendered (snapshot) list, which can
+    // briefly differ from the live group count after a mid-debounce edit.
+    if (oldIndex < 0 || oldIndex >= groups.length || newIndex < 0 || newIndex >= groups.length) return
+
+    const reordered = [...groups]
     const [moved] = reordered.splice(oldIndex, 1)
     reordered.splice(newIndex, 0, moved)
 
-    // Clear the root and re-append in order
+    // Clear and re-append. Every live node is in orphansBefore or a group, so
+    // nothing is lost regardless of the reorder.
     root.clear()
-
-    // Re-add orphans first
-    for (const node of orphansBefore) {
-      root.append(node)
-    }
-
-    // Re-add scenes in new order
+    for (const node of orphansBefore) root.append(node)
     for (const group of reordered) {
-      for (const node of group) {
-        root.append(node)
-      }
+      for (const node of group) root.append(node)
     }
   })
 }

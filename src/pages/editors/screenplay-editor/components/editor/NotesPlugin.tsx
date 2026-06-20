@@ -213,7 +213,12 @@ function wrapEntireTextNode(
   const text = textNode.getTextContent()
   const mark = $createNoteMarkNode(noteId, color)
   const newText = $createTextNode(text)
+  // Carry over ALL text attributes, not just format — otherwise inline style
+  // (color/font), detail flags, and mode are dropped when highlighting to a note.
   newText.setFormat(textNode.getFormat())
+  newText.setStyle(textNode.getStyle())
+  newText.setDetail(textNode.getDetail())
+  newText.setMode(textNode.getMode())
   mark.append(newText)
   textNode.replace(mark)
 }

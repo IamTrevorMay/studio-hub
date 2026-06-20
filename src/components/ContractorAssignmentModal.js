@@ -101,14 +101,18 @@ export default function ContractorAssignmentModal({
         const row = { ...base, created_by: currentUserId || null };
         const { error } = await supabase.from('freelancer_assignments').insert(row);
         if (error) throw error;
-        await supabase.from('notifications').insert({
-          user_id: form.freelancer_id,
-          type: 'assignment',
-          title: 'New Assignment',
-          body: `You have been assigned "${form.title.trim()}"`,
-          link_tab: 'fl_dashboard',
-          link_target: null,
-        });
+        // Best-effort notification — a failure here must not report the (already
+        // created) assignment as failed.
+        try {
+          await supabase.from('notifications').insert({
+            user_id: form.freelancer_id,
+            type: 'assignment',
+            title: 'New Assignment',
+            body: `You have been assigned "${form.title.trim()}"`,
+            link_tab: 'fl_dashboard',
+            link_target: null,
+          });
+        } catch (_) { /* ignore */ }
         if (showToast) showToast('Assignment created');
         if (onCreated) onCreated();
       }

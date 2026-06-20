@@ -175,9 +175,10 @@ function renameCharacter(
       // Replace mentions in action text
       if ($isActionNode(child)) {
         const text = child.getTextContent()
-        // Case-insensitive word-boundary-ish replace
+        // Case-insensitive, word-boundary replace so renaming "AL" doesn't
+        // rewrite substrings inside "ALICE"/"WALTER".
         const regex = new RegExp(
-          escapeRegex(oldName),
+          `\\b${escapeRegex(oldName)}\\b`,
           'gi'
         )
         if (regex.test(text)) {

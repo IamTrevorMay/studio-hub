@@ -45,6 +45,8 @@ export default function LinkBubble({ editor }: Props) {
   const saveEdit = () => {
     if (!editUrl.trim()) return
     const finalUrl = editUrl.startsWith('http') ? editUrl : `https://${editUrl}`
+    // Reject javascript:/data: schemes (a pasted "javascript:..." passes the http check).
+    if (!/^(https?:|mailto:)/i.test(finalUrl)) { alert('Invalid URL'); return }
     editor.chain().focus().extendMarkRange('link').setLink({ href: finalUrl }).run()
     setEditing(false)
   }

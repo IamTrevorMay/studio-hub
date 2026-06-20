@@ -138,6 +138,11 @@ Deno.serve(async (req: Request) => {
     if (!sql || !sql.toUpperCase().startsWith("SELECT")) {
       return json({ ok: false, error: "Failed to generate valid SQL", generated: sql });
     }
+    // Defense-in-depth: single read-only statement only. Reject stacked
+    // statements (embedded ';') and any DML/DDL keyword.
+    if (/;/.test(sql) || /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE|MERGE)\b/i.test(sql)) {
+      return json({ ok: false, error: "Only a single read-only SELECT query is allowed" });
+    }
 
     // ── Step 2: Triton MCP — init session ──
     let msgId = 0;

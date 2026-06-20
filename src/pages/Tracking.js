@@ -342,6 +342,9 @@ export default function Tracking() {
   }, [isAdmin, profile?.id, fetchInitiativeTargets, fetchStoryCounts]);
 
   async function updateInitiativeTarget(goalId, newTarget) {
+    // Null id means the row wasn't loaded (transient fetch fallback). Don't run
+    // an `.eq('id', null)` no-op update — recover the real id and bail.
+    if (!goalId) { setEditingInitiativeTarget(null); fetchInitiativeTargets(); return; }
     const val = Math.max(1, parseInt(newTarget, 10) || 1);
     await supabase.from('admin_goals').update({ daily_target: val, updated_at: new Date().toISOString() }).eq('id', goalId);
     setInitiativeTargets(prev => {
@@ -611,7 +614,7 @@ export default function Tracking() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
                   <span style={{ fontSize: '14px', fontWeight: 600, color: '#e0e7ff' }}>IG Stories</span>
                   <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.35)' }}>daily goal:</span>
-                  {editingInitiativeTarget === goal.id ? (
+                  {goal.id != null && editingInitiativeTarget === goal.id ? (
                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                       <input
                         type="number"

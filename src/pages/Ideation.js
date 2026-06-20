@@ -161,14 +161,16 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
 
   const handleDocDragEnd = useCallback(async (result) => {
     if (!result.destination || result.source.index === result.destination.index) return;
+    const prev = documents;
     const reordered = Array.from(documents);
     const [moved] = reordered.splice(result.source.index, 1);
     reordered.splice(result.destination.index, 0, moved);
     setDocuments(reordered);
 
-    for (let i = 0; i < reordered.length; i++) {
-      await supabase.from('concept_documents').update({ sort_order: i }).eq('id', reordered[i].id);
-    }
+    const results = await Promise.all(
+      reordered.map((d, i) => supabase.from('concept_documents').update({ sort_order: i }).eq('id', d.id))
+    );
+    if (results.some(r => r.error)) setDocuments(prev); // roll back on partial failure
   }, [documents]);
 
   async function handleCreateConcept(e) {
@@ -371,23 +373,33 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
       const { error: uploadErr } = await supabase.storage.from('script-reviews').upload(path, blob);
       if (uploadErr) throw uploadErr;
 
-      const { data: maxVer } = await supabase.from('script_review_versions')
-        .select('version_number')
-        .eq('review_id', pendingReview.review.id)
-        .order('version_number', { ascending: false })
-        .limit(1);
-      const nextNum = (maxVer?.[0]?.version_number || 0) + 1;
+      // Compute next version_number then insert. This races (two concurrent
+      // revisions can read the same max), so a unique (review_id, version_number)
+      // constraint rejects the loser with 23505 and we recompute + retry.
+      let nextNum;
+      let insertErr = null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const { data: maxVer } = await supabase.from('script_review_versions')
+          .select('version_number')
+          .eq('review_id', pendingReview.review.id)
+          .order('version_number', { ascending: false })
+          .limit(1);
+        nextNum = (maxVer?.[0]?.version_number || 0) + 1;
 
-      const { error: insertErr } = await supabase.from('script_review_versions').insert({
-        review_id: pendingReview.review.id,
-        version_number: nextNum,
-        file_url: path,
-        file_type: 'html',
-        uploaded_by: profile.id,
-        source: 'writer',
-        concept_document_id: activeDoc.id,
-        writer_message: sendRevisionMessage.trim() || null,
-      });
+        const { error } = await supabase.from('script_review_versions').insert({
+          review_id: pendingReview.review.id,
+          version_number: nextNum,
+          file_url: path,
+          file_type: 'html',
+          uploaded_by: profile.id,
+          source: 'writer',
+          concept_document_id: activeDoc.id,
+          writer_message: sendRevisionMessage.trim() || null,
+        });
+        if (!error) { insertErr = null; break; }
+        insertErr = error;
+        if (error.code !== '23505') break; // only retry on version-number collision
+      }
       if (insertErr) throw insertErr;
 
       await supabase.from('script_reviews')
@@ -433,15 +445,16 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
   // ─── Drag-and-Drop Handler ──────────────────────────────────────────
   const handleDragEnd = useCallback(async (result) => {
     if (!result.destination || result.source.index === result.destination.index) return;
+    const prev = concepts;
     const reordered = Array.from(concepts);
     const [moved] = reordered.splice(result.source.index, 1);
     reordered.splice(result.destination.index, 0, moved);
     setConcepts(reordered);
 
-    const updates = reordered.map((c, i) => ({ id: c.id, sort_order: i }));
-    for (const u of updates) {
-      await supabase.from('concepts').update({ sort_order: u.sort_order }).eq('id', u.id);
-    }
+    const results = await Promise.all(
+      reordered.map((c, i) => supabase.from('concepts').update({ sort_order: i }).eq('id', c.id))
+    );
+    if (results.some(r => r.error)) setConcepts(prev); // roll back on partial failure
   }, [concepts]);
 
   // ─── Edit Concept Handler ──────────────────────────────────────────
@@ -696,7 +709,9 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
             >Dismiss</button>
           </div>
         )}
-        <EditorComponent {...editorProps} />
+        {/* key by doc id → remount per document so a stale autosave/load can't
+            clobber the newly-opened doc with the previous one's content */}
+        <EditorComponent key={activeDoc.id} {...editorProps} />
         {/* Send Revision Modal (from editor "Send for Review" button) */}
         {showSendRevisionModal && pendingReview && (
           <div style={reviewStyles.modalOverlay} onClick={() => !sendingRevision && setShowSendRevisionModal(false)}>

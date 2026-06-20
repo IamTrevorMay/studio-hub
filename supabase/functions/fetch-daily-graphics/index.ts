@@ -42,6 +42,25 @@ Deno.serve(async (req: Request) => {
           }
         );
       }
+      // Triggering a Triton fetch + write is admin-only.
+      const roleClient = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+      );
+      const { data: profile } = await roleClient
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .single();
+      if (profile?.role !== "admin") {
+        return new Response(
+          JSON.stringify({ error: "Admin only" }),
+          {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          }
+        );
+      }
     } else {
       return new Response(
         JSON.stringify({ error: "Not authorized" }),

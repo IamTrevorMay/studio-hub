@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
@@ -57,6 +57,8 @@ export default function OpsMobile() {
   const [openLog, setOpenLog] = useState(null);
   const [openAccount, setOpenAccount] = useState(null);
 
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
   const fetchData = useCallback(async () => {
     setRefreshing(true);
     try {
@@ -69,11 +71,12 @@ export default function OpsMobile() {
           .limit(50),
         supabase.rpc('get_cron_status'),
       ]);
+      if (!mountedRef.current) return; // poll/realtime/visibility can resolve after unmount
       if (accountsRes.data) setAccounts(accountsRes.data);
       if (logsRes.data) setLogs(logsRes.data);
       if (cronRes.data) setCronJobs(cronRes.data);
     } catch (err) { console.error('Ops fetch error:', err); }
-    finally { setLoading(false); setRefreshing(false); }
+    finally { if (mountedRef.current) { setLoading(false); setRefreshing(false); } }
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);

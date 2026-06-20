@@ -385,12 +385,17 @@ function LoadContentPlugin({
   const isNative = tableName === 'screenwriter_scripts'
 
   useEffect(() => {
+    let aborted = false
     ;(async () => {
       const { data } = await supabase
         .from(tableName)
         .select('*')
         .eq('id', docId)
         .single()
+
+      // Bail if the doc changed or the component unmounted while the query was
+      // in flight — don't write loaded content into a torn-down/stale editor.
+      if (aborted) return
 
       if (data && (data as any).content) {
         const content = (data as any).content as any
@@ -448,8 +453,10 @@ function LoadContentPlugin({
         }
       }
 
+      if (aborted) return
       onLoaded()
     })()
+    return () => { aborted = true }
   }, [docId, tableName, editor, onLoaded, onTitlePageLoaded, onNotesLoaded, onTitleLoaded, isNative])
 
   return null
@@ -580,16 +587,18 @@ function AutoSavePlugin({
     const handleBlur = () => {
       if (dirtyRef.current) saveToSupabase()
     }
-
-    window.addEventListener('blur', handleBlur)
-    document.addEventListener('visibilitychange', () => {
+    const handleVisibility = () => {
       if (document.visibilityState === 'hidden' && dirtyRef.current) {
         saveToSupabase()
       }
-    })
+    }
+
+    window.addEventListener('blur', handleBlur)
+    document.addEventListener('visibilitychange', handleVisibility)
 
     return () => {
       window.removeEventListener('blur', handleBlur)
+      document.removeEventListener('visibilitychange', handleVisibility)
     }
   }, [loaded, saveToSupabase])
 

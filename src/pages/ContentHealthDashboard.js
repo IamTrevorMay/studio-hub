@@ -89,6 +89,7 @@ export default function ContentHealthDashboard({ accounts }) {
   const [videos, setVideos] = useState([]); // scored video rows
   const [loading, setLoading] = useState(false);
   const [selectedVideoId, setSelectedVideoId] = useState(null);
+  const fetchGenRef = useRef(0); // guards against a stale channel's fetch resolving last
 
   useEffect(() => {
     if (!activeChannelId) return;
@@ -97,6 +98,7 @@ export default function ContentHealthDashboard({ accounts }) {
   }, [activeChannelId]);
 
   async function fetchAndScore() {
+    const gen = ++fetchGenRef.current;
     setLoading(true);
     try {
       // Lifetime aggregate per video from yt_video_daily
@@ -319,11 +321,12 @@ export default function ContentHealthDashboard({ accounts }) {
 
       // Only videos with at least 1 trailing sample for context (still show
       // others but mark "low confidence")
+      if (gen !== fetchGenRef.current) return; // a newer channel switch superseded this fetch
       setVideos(scored);
     } catch (e) {
       console.error('Content Health fetch error:', e);
     } finally {
-      setLoading(false);
+      if (gen === fetchGenRef.current) setLoading(false);
     }
   }
 

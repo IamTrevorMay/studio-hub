@@ -217,8 +217,10 @@ export function paginate(elements: PaginatorElement[]): {
 
           emitPageBreak()
 
-          // Continue the remaining lines on next page
-          const bottomHalf = contentLines - topHalf
+          // Continue the remaining lines on next page. Clamp ≥0 — findActionBreakPoint
+          // can return topHalf ≥ contentLines, which would make bottomHalf negative
+          // and corrupt `remaining` for every later element.
+          const bottomHalf = Math.max(0, contentLines - topHalf)
           lineCount = bottomHalf
           currentPage = {
             pageNumber: currentPage.pageNumber + 1,
@@ -229,13 +231,16 @@ export function paginate(elements: PaginatorElement[]): {
         }
       }
 
-      // Default: push the entire element to the next page
+      // Default: push the entire element to the next page. Cap the running
+      // lineCount at a full page — an element taller than a page would otherwise
+      // leave `remaining` negative, force-breaking (and mis-counting) every
+      // subsequent element for the rest of the document.
       emitPageBreak()
-      lineCount = totalLines
+      lineCount = Math.min(totalLines, LINES_PER_PAGE)
       currentPage = {
         pageNumber: currentPage.pageNumber + 1,
         elementKeys: [el.key],
-        lineCount: totalLines,
+        lineCount: Math.min(totalLines, LINES_PER_PAGE),
       }
     }
   }

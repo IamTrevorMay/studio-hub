@@ -123,6 +123,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   const [driveFolderName, setDriveFolderName] = useState(null);
   const [saveStatus, setSaveStatus] = useState('saved');
   const saveTimer = useRef(null);
+  const justLoadedSheet = useRef(false); // skip the autosave fired by openSheet's state writes
   const tagDragRef = useRef(null);
 
   // ── folder browser state ──
@@ -276,6 +277,8 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   }, [activeSheet, title, beats, driveFolderId, driveFolderName]);
 
   useEffect(() => {
+    // Don't autosave the data openSheet just loaded — only real user edits.
+    if (justLoadedSheet.current) { justLoadedSheet.current = false; return; }
     if (activeSheet) scheduleSave();
     return () => clearTimeout(saveTimer.current);
   }, [title, beats, driveFolderId, driveFolderName]);
@@ -371,6 +374,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   };
 
   const openSheet = (sheet) => {
+    justLoadedSheet.current = true;
     setActiveSheet(sheet);
     setTitle(sheet.title);
     const loadedBeats = sheet.beats || [newBeat()];
@@ -1270,7 +1274,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
           const isMediaItem = typeof g === 'object' && g.url;
           if (isMediaItem) {
             return (
-              <div key={i} style={styles.mediaThumb}>
+              <div key={g.id || g.url || `g${i}`} style={styles.mediaThumb}>
                 {g.type === 'image'
                   ? <img src={g.url} alt={g.name} style={styles.mediaImg} />
                   : (
@@ -1288,7 +1292,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
           }
           return (
             <span
-              key={i}
+              key={`${g}-${i}`}
               style={{ ...styles.tag, cursor: 'grab' }}
               draggable
               onDragStart={() => { tagDragRef.current = { beatId: beat.id, field: 'graphics', fromIndex: i }; }}
@@ -1383,7 +1387,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
           const isMediaItem = typeof v === 'object' && v.url;
           if (isMediaItem) {
             return (
-              <div key={i} style={styles.mediaThumb}>
+              <div key={g.id || g.url || `g${i}`} style={styles.mediaThumb}>
                 {v.type === 'image'
                   ? <img src={v.url} alt={v.name} style={styles.mediaImg} />
                   : (
@@ -1401,7 +1405,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
           }
           return (
             <span
-              key={i}
+              key={`${g}-${i}`}
               style={{ ...styles.tag, cursor: 'grab' }}
               draggable
               onDragStart={() => { tagDragRef.current = { beatId: beat.id, field: 'videos', fromIndex: i }; }}

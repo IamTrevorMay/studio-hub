@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import useNavConfig from '../hooks/useNavConfig';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
+import { canAccessBroadcast } from '../lib/rolePermissions';
 import { logUploadError } from '../lib/uploadErrors';
 import SidebarEditMode from '../components/SidebarEditMode';
 import Dashboard from './Dashboard';
@@ -281,14 +282,22 @@ export default function AppLayout() {
     // eslint-disable-next-line
   }, [mode, isAdmin]);
 
-  // Role-based route guard: if the role doesn't have access to the current
-  // tab (e.g. director_creative on /payroll), redirect to dashboard.
+  // Role-based route guard: if the role doesn't have access to the current tab
+  // (e.g. a member reaching an adminOnly page like /payroll or /mailer via a
+  // direct URL or browser back/forward), bounce them off it. Mirrors the render
+  // gates: adminOnly pages need isAdmin, except broadcast (broadcast tier) and
+  // business_dev (partners).
   useEffect(() => {
-    if (restrictedNavKeys?.has(activeTab)) {
-      setActiveTab('dashboard');
+    const navItem = NAV_ITEMS.find(i => i.key === activeTab);
+    const adminOnlyBlocked = navItem?.adminOnly
+      && !isAdmin
+      && !(activeTab === 'broadcast' && canAccessBroadcast(profile?.role))
+      && !(activeTab === 'business_dev' && isPartner);
+    if (restrictedNavKeys?.has(activeTab) || adminOnlyBlocked) {
+      setActiveTab(isFreelancer ? 'fl_dashboard' : 'dashboard');
     }
     // eslint-disable-next-line
-  }, [activeTab, restrictedNavKeys]);
+  }, [activeTab, restrictedNavKeys, isAdmin, isPartner, isFreelancer, profile]);
 
   // Mode-filtered nav. Admin-only pages live in Admin Mode and disappear from
   // the default Work View; flipping the bottom button swaps the sidebar.
@@ -348,7 +357,8 @@ export default function AppLayout() {
     if (isFreelancer && !activeTab.startsWith('fl_') && activeTab !== 'resources' && activeTab !== 'assets' && activeTab !== 'channels' && activeTab !== 'messages' && activeTab !== 'fl_assignments' && activeTab !== 'fl_submit') {
       setActiveTab('fl_dashboard');
     }
-  }, [isFreelancer]); // eslint-disable-line
+    // activeTab in deps so back/forward (popstate) to a disallowed tab re-redirects
+  }, [isFreelancer, activeTab]); // eslint-disable-line
 
   // Check whether freelancer has completed the onboarding tour
   useEffect(() => {
@@ -787,9 +797,9 @@ export default function AppLayout() {
           {activeTab === 'post_show' && <PageErrorBoundary key="post_show"><PostShow onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {activeTab === 'timeline' && <PageErrorBoundary key="timeline"><Timeline /></PageErrorBoundary>}
           {activeTab === 'organize' && <PageErrorBoundary key="organize"><Organize onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
-          {activeTab === 'broadcast' && <PageErrorBoundary key="broadcast"><Broadcast onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
-          {activeTab === 'report_cards' && <PageErrorBoundary key="report_cards"><ReportCards onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
-          {activeTab === 'mailer' && <PageErrorBoundary key="mailer"><Mailer onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
+          {canAccessBroadcast(profile?.role) && activeTab === 'broadcast' && <PageErrorBoundary key="broadcast"><Broadcast onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
+          {isAdmin && activeTab === 'report_cards' && <PageErrorBoundary key="report_cards"><ReportCards onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
+          {isAdmin && activeTab === 'mailer' && <PageErrorBoundary key="mailer"><Mailer onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {activeTab === 'graphics' && <PageErrorBoundary key="graphics"><Graphics onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {isAdmin && activeTab === 'analytics' && <PageErrorBoundary key="analytics"><Analytics /></PageErrorBoundary>}
           {isAdmin && activeTab === 'tracking' && <PageErrorBoundary key="tracking"><Tracking /></PageErrorBoundary>}

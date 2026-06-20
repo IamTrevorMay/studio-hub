@@ -33,6 +33,19 @@ Deno.serve(async (req: Request) => {
     const userId = state.user_id;
     if (!userId || typeof userId !== "string") throw new Error("No user_id in state");
 
+    // Re-check the state's user is still an admin before overwriting the shared
+    // Twitch credentials — defends against replay of a (signed) state by a now
+    // lower-privileged party within its TTL.
+    {
+      const roleClient = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      );
+      const { data: prof } = await roleClient
+        .from("profiles").select("role").eq("id", userId).single();
+      if (prof?.role !== "admin") throw new Error("Admin required");
+    }
+
     const clientId = Deno.env.get("TWITCH_CLIENT_ID")!;
     const clientSecret = Deno.env.get("TWITCH_CLIENT_SECRET")!;
     const redirectUri = `${Deno.env.get("SUPABASE_URL")}/functions/v1/twitch-auth-callback`;

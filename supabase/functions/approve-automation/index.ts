@@ -220,6 +220,12 @@ Deno.serve(async (req: Request) => {
   if (!task.confirmation_run_id) {
     return jsonResp({ error: "Task missing confirmation_run_id" }, 400);
   }
+  // Each admin resolves their OWN confirmation task. For all_admins gates every
+  // admin gets their own task; for a specific gate only the chosen admin does.
+  // Either way, don't let one admin resolve a confirmation assigned to another.
+  if (task.assignee_id && task.assignee_id !== user.id) {
+    return jsonResp({ error: "Confirmation is assigned to another admin" }, 403);
+  }
 
   // Load the pending run + automation.
   const { data: run, error: runErr } = await admin

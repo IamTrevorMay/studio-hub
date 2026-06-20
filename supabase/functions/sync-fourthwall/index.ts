@@ -195,8 +195,12 @@ Deno.serve(async (req: Request) => {
         totalProcessed++;
       }
 
-      // Check if more pages
-      if (page >= data.totalPages - 1) break;
+      // Check if more pages. Guard against a missing/NaN totalPages (would make
+      // `page >= NaN` always false → infinite loop), an empty page, and a hard cap.
+      const totalPages = Number(data.totalPages);
+      if (!Number.isFinite(totalPages) || page >= totalPages - 1) break;
+      if (!data.results || data.results.length === 0) break;
+      if (page >= 1000) break;
       page++;
     }
 

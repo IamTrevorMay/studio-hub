@@ -82,6 +82,7 @@ export default function FreelancerDashboard({ onNavigate }) {
   const [stuckAssignment, setStuckAssignment] = useState(null);
   const [stuckText, setStuckText] = useState('');
   const [stuckSending, setStuckSending] = useState(false);
+  const [postingComment, setPostingComment] = useState(false);
   const [completeConfirmAssignment, setCompleteConfirmAssignment] = useState(null);
   const [myDriveFolderId, setMyDriveFolderId] = useState(null);
 
@@ -195,8 +196,11 @@ export default function FreelancerDashboard({ onNavigate }) {
 
   useRealtimeTable('fl-comments', {
     table: 'freelancer_assignment_comments',
+    // Scope to the open assignment — refetchComments only loads selectedId's
+    // thread, so an unfiltered subscription just caused needless refetch churn.
+    filter: selectedId ? `assignment_id=eq.${selectedId}` : undefined,
     onAny: refetchComments,
-    enabled: !!profile?.id,
+    enabled: !!profile?.id && !!selectedId,
   });
 
   useRealtimeTable('fl-notifications', {
@@ -261,26 +265,31 @@ export default function FreelancerDashboard({ onNavigate }) {
   }
 
   async function handlePostComment() {
-    if (!newComment.trim()) return;
-    await supabase.from('freelancer_assignment_comments').insert({
-      assignment_id: selectedId,
-      author_id: profile.id,
-      body: newComment.trim(),
-    });
-
-    const assignment = assignments.find(a => a.id === selectedId);
-    if (assignment && profile.id !== STUDIO_OWNER_ID) {
-      await supabase.from('notifications').insert({
-        user_id: STUDIO_OWNER_ID,
-        type: 'fl_comment',
-        title: 'New Comment',
-        body: `${profile.full_name} commented on "${assignment.title}"`,
-        link_tab: 'freelancers',
-        link_target: assignment.id,
+    if (!newComment.trim() || postingComment) return; // guard double-submit (Enter + button)
+    setPostingComment(true);
+    try {
+      await supabase.from('freelancer_assignment_comments').insert({
+        assignment_id: selectedId,
+        author_id: profile.id,
+        body: newComment.trim(),
       });
+
+      const assignment = assignments.find(a => a.id === selectedId);
+      if (assignment && profile.id !== STUDIO_OWNER_ID) {
+        await supabase.from('notifications').insert({
+          user_id: STUDIO_OWNER_ID,
+          type: 'fl_comment',
+          title: 'New Comment',
+          body: `${profile.full_name} commented on "${assignment.title}"`,
+          link_tab: 'freelancers',
+          link_target: assignment.id,
+        });
+      }
+      setNewComment('');
+      fetchComments(selectedId);
+    } finally {
+      setPostingComment(false);
     }
-    setNewComment('');
-    fetchComments(selectedId);
   }
 
   async function handleCompleteWithHours() {

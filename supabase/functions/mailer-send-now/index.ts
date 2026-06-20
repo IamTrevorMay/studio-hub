@@ -25,6 +25,7 @@ import {
 } from "../shared/workflow-engine.ts";
 import { renderCampaign, Block, RssItem } from "../shared/mailer-render.ts";
 import { resendBatch, SendEmailInput } from "../shared/resend.ts";
+import { isSafeExternalUrl } from "../shared/url-validation.ts";
 
 interface Campaign {
   id: string;
@@ -254,6 +255,9 @@ function walkRss(blocks: any[], urls: Map<string, string[]>) {
 }
 
 async function fetchLatestRssItem(url: string): Promise<RssItem | null> {
+  // SSRF guard: rss-card URLs are admin-authored but still user input fetched
+  // server-side, so block loopback/link-local/private targets.
+  if (!isSafeExternalUrl(url)) return null;
   const res = await fetch(url, { headers: { "User-Agent": "MaydayStudio-Mailer/1.0" } });
   if (!res.ok) return null;
   const xml = await res.text();

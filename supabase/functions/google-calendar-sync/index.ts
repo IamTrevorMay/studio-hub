@@ -32,7 +32,7 @@ async function getValidToken(adminClient: any, userId: string) {
     });
 
     const tokens = await res.json();
-    if (!res.ok) return null;
+    if (!res.ok || !tokens.access_token) return null;
 
     const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
     await adminClient
@@ -149,6 +149,24 @@ Deno.serve(async (req: Request) => {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // Google Calendar is an admin-scoped integration (per-admin connections),
+    // matching google-calendar-fetch. Without this gate any authenticated user
+    // could read an arbitrary calendar_events row by UUID and sync it.
+    {
+      const roleClient = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+      );
+      const { data: profile } = await roleClient
+        .from("profiles").select("role").eq("id", user.id).single();
+      if (profile?.role !== "admin") {
+        return new Response(JSON.stringify({ error: "Admin only" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     const { action, event_id } = await req.json();

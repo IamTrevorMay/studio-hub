@@ -64,7 +64,7 @@ export default function FreelancerDashboardMobile() {
 
   useEffect(() => {
     if (!profile?.id) return;
-    const ch = supabase.channel('fl-dashboard-mobile')
+    const ch = supabase.channel(`fl-dashboard-mobile-${profile.id}`)
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'freelancer_assignments',
         filter: `freelancer_id=eq.${profile.id}`,
@@ -243,21 +243,25 @@ function AssignmentDetail({ assignmentId, assignment, profile, onChanged }) {
   async function setStatus(next) {
     if (updating || !assignment) return;
     setUpdating(true);
-    const updates = { status: next, updated_at: new Date().toISOString() };
-    if (next === 'completed') updates.completed_at = new Date().toISOString();
-    await supabase.from('freelancer_assignments').update(updates).eq('id', assignmentId);
-    if (next === 'completed' && assignment.created_by) {
-      await supabase.from('notifications').insert({
-        user_id: assignment.created_by,
-        type: 'fl_assignment_completed',
-        title: 'Assignment Completed',
-        body: `${profile.full_name} completed "${assignment.title}"`,
-        link_tab: 'freelancers',
-        link_target: assignmentId,
-      });
+    try {
+      const updates = { status: next, updated_at: new Date().toISOString() };
+      if (next === 'completed') updates.completed_at = new Date().toISOString();
+      await supabase.from('freelancer_assignments').update(updates).eq('id', assignmentId);
+      if (next === 'completed' && assignment.created_by) {
+        await supabase.from('notifications').insert({
+          user_id: assignment.created_by,
+          type: 'fl_assignment_completed',
+          title: 'Assignment Completed',
+          body: `${profile.full_name} completed "${assignment.title}"`,
+          link_tab: 'freelancers',
+          link_target: assignmentId,
+        });
+      }
+      onChanged && onChanged();
+    } finally {
+      // Always release — a thrown query would otherwise lock the buttons forever.
+      setUpdating(false);
     }
-    setUpdating(false);
-    onChanged && onChanged();
   }
 
   if (!assignment) return null;

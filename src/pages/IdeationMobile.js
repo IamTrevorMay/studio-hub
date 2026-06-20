@@ -67,7 +67,7 @@ export default function IdeationMobile({ initialConceptId, onConceptOpened }) {
   }, [activeConcept]);
 
   async function addConcept() {
-    if (!newName.trim() || !profile?.id) return;
+    if (!newName.trim() || !profile?.id || saving) return;
     setSaving(true);
     const name = newName.trim();
     const description = newDesc.trim();
@@ -78,7 +78,8 @@ export default function IdeationMobile({ initialConceptId, onConceptOpened }) {
         color: '#6366f1',
         category: 'other',
         created_by: profile.id,
-        sort_order: concepts.length,
+        // Use max+1 not length — after deletes, length can collide with an existing sort_order.
+        sort_order: Math.max(0, ...concepts.map(c => c.sort_order || 0)) + 1,
       });
       if (error) throw error;
       setNewName(''); setNewDesc(''); setShowAdd(false);

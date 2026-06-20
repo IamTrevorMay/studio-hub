@@ -521,7 +521,7 @@ export default function Research() {
       });
     }
 
-    items.sort((a, b) => b.date.localeCompare(a.date));
+    items.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
     return items;
   }, [briefs, cardsArchive, trends, inboxState]);
 

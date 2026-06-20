@@ -46,20 +46,27 @@ export default function DocEditor({ docId, title, docType, onBack, onSaveTemplat
     }
   }, [profile?.full_name, setAuthorName])
 
-  // Load document content from Supabase
+  // Load document content from Supabase. Reset loaded + cancel on docId change
+  // so a slow/stale fetch can't setContent the wrong doc, and always setContent
+  // (emitUpdate:false) so the editor never shows a previous doc's content under
+  // the new docId — which autosave would then persist as the new doc (clobber).
   useEffect(() => {
     if (!editor) return
+    let cancelled = false
+    setLoaded(false)
     ;(async () => {
       const { data } = await supabase
         .from(tableName)
         .select('content')
         .eq('id', docId)
         .single()
-      if (data?.content?.html && editor) {
-        editor.commands.setContent(data.content.html)
-      }
+      if (cancelled || !editor) return
+      // setLoaded(false) above already flipped loadedRef off, so useAutoSave's
+      // onUpdate ignores the update this setContent emits (no autosave on load).
+      editor.commands.setContent(data?.content?.html || '')
       setLoaded(true)
     })()
+    return () => { cancelled = true }
   }, [docId, editor, tableName])
 
   // Auto-save to Supabase

@@ -249,14 +249,22 @@ async function handleBatchReconciliation(supabase: any, stripeHeaders: Record<st
   try {
     const since = Math.floor((Date.now() - 48 * 60 * 60 * 1000) / 1000);
 
-    const balRes = await fetchWithRetry(
-      `${STRIPE_API}/balance_transactions?created[gte]=${since}&limit=100&type=charge`,
-      { headers: stripeHeaders }
-    );
-    const balData = await balRes.json();
-
-    for (const txn of balData.data || []) {
-      {
+    // Paginate balance_transactions — Stripe caps each page at 100, so any 48h
+    // window with >100 charges would silently drop revenue rows without this loop.
+    let balStartingAfter: string | null = null;
+    do {
+      const params = new URLSearchParams({ "created[gte]": String(since), limit: "100", type: "charge" });
+      if (balStartingAfter) params.set("starting_after", balStartingAfter);
+      const balRes = await fetchWithRetry(
+        `${STRIPE_API}/balance_transactions?${params.toString()}`,
+        { headers: stripeHeaders }
+      );
+      const balData = await balRes.json();
+      if (!balRes.ok || balData.error) {
+        throw new Error(`Stripe balance_transactions failed: HTTP ${balRes.status} ${balData.error?.message || ""}`);
+      }
+      const batch = balData.data || [];
+      for (const txn of batch) {
         await supabase.from("revenue_events").upsert({
           stripe_event_id: `bal_${txn.id}`,
           event_type: "charge",
@@ -270,34 +278,47 @@ async function handleBatchReconciliation(supabase: any, stripeHeaders: Record<st
         }, { onConflict: "stripe_event_id", ignoreDuplicates: true });
         processed++;
       }
-    }
+      balStartingAfter = balData.has_more && batch.length > 0 ? batch[batch.length - 1].id : null;
+    } while (balStartingAfter);
 
-    const subsRes = await fetchWithRetry(
-      `${STRIPE_API}/subscriptions?status=active&limit=100`,
-      { headers: stripeHeaders }
-    );
-    const subsData = await subsRes.json();
-
-    const mrr = (subsData.data || []).reduce((sum: number, sub: any) => {
-      const price = sub.items?.data?.[0]?.price;
-      if (!price) return sum;
-      const amount = price.unit_amount || 0;
-      const interval = price.recurring?.interval;
-      if (interval === "year") return sum + Math.round(amount / 12);
-      if (interval === "month") return sum + amount;
-      if (interval === "week") return sum + amount * 4;
-      return sum + amount;
-    }, 0);
+    // Paginate active subscriptions for MRR — same 100/page cap as above.
+    let mrr = 0;
+    let activeSubs = 0;
+    let subStartingAfter: string | null = null;
+    do {
+      const params = new URLSearchParams({ status: "active", limit: "100" });
+      if (subStartingAfter) params.set("starting_after", subStartingAfter);
+      const subsRes = await fetchWithRetry(
+        `${STRIPE_API}/subscriptions?${params.toString()}`,
+        { headers: stripeHeaders }
+      );
+      const subsData = await subsRes.json();
+      if (!subsRes.ok || subsData.error) {
+        throw new Error(`Stripe subscriptions failed: HTTP ${subsRes.status} ${subsData.error?.message || ""}`);
+      }
+      const subs = subsData.data || [];
+      for (const sub of subs) {
+        const price = sub.items?.data?.[0]?.price;
+        if (!price) continue;
+        const amount = price.unit_amount || 0;
+        const interval = price.recurring?.interval;
+        if (interval === "year") mrr += Math.round(amount / 12);
+        else if (interval === "week") mrr += amount * 4;
+        else mrr += amount; // month or unknown
+      }
+      activeSubs += subs.length;
+      subStartingAfter = subsData.has_more && subs.length > 0 ? subs[subs.length - 1].id : null;
+    } while (subStartingAfter);
 
     const today = new Date().toISOString().split("T")[0];
     await supabase.from("audience_snapshots").upsert(
       {
         platform_account_id: account.id,
         date: today,
-        followers_total: subsData.data?.length || 0,
+        followers_total: activeSubs,
         metadata: {
           mrr_cents: mrr,
-          active_subscriptions: subsData.data?.length || 0,
+          active_subscriptions: activeSubs,
         },
       },
       { onConflict: "platform_account_id,date" }

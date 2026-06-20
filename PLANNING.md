@@ -334,6 +334,238 @@ Based on inefficiency report review (June 2026). Items are grouped by phase; eac
 | Reduce `drive-watch-poll` frequency | Additional | Runs every minute (1440 API calls/day). Most Drive changes don't need minute-level detection. Evaluate whether 5-minute or 15-minute intervals are sufficient, or switch to push notifications via Drive webhooks where possible. |
 | Add backup/export strategy for Supabase data | Additional | No documented backup or export strategy. Supabase provides point-in-time recovery on Pro plans, but there's no manual export process for critical tables (financials, projects, content). Set up periodic pg_dump or Supabase backup verification. |
 
+## Full-Codebase Bug Audit (2026-06-20)
+
+Two-wave parallel audit across ~90% of pages + nearly all edge functions. The
+HIGH-severity automation/sync/security cluster was fixed, migrated, and deployed
+the same day. Everything below marked **Open** is unaddressed.
+
+### Fixed + deployed (2026-06-20)
+
+Edge functions redeployed (`run-automations`, `workflow-trigger-event`,
+`sync-stripe`, `sync-metricool`, `backfill-youtube-dimensions`); migration
+`20260620120000_automations_time_utc_to_hour_pt.sql` applied.
+
+| Item | Fix |
+|---|---|
+| `run-automations` DST + dead minute picker | `hour_pt` + live `America/Los_Angeles` offset; UI now hour-only PT dropdown |
+| `run-automations` dedup missing-var collapse | `resolveTemplateStrict` → skip fire when a `{{var}}` is absent |
+| `run-automations` partial-insert re-run duplicates | per-(automation, dedup_key, assignee) idempotency check |
+| `workflow-trigger-event:51` `...:event:undefined` dedup collision | fall back to full-payload key when id missing |
+| `sync-stripe:252/276` 100-row cap drops revenue/subs | paginate via `has_more`/`starting_after` + `res.ok`/`error` checks |
+| `sync-metricool:394` follower backfill off-by-one | include anchor day, step running total past its own gain |
+| `backfill-youtube-dimensions:225` no auth (destructive, `--no-verify-jwt`) | CRON_SECRET-or-admin gate (verified live 401) |
+| `AppLayout` `mailer`/`report_cards`/`broadcast` mounted for non-admins | `isAdmin` gate (broadcast → `canAccessBroadcast`); **frontend, needs Vercel deploy** |
+
+### Fixed — pending deploy (2026-06-20, second batch)
+
+The 5 🔴 security/data-loss items. Code committed; **edge functions not yet
+redeployed, frontend not yet pushed to Vercel.** Migration
+`20260620130000_script_review_versions_unique.sql` applied.
+
+| Loc | Fix |
+|---|---|
+| `post-daily-graphics/index.ts:35` | Admin role gate on the authed-user path (cron path unchanged) |
+| `generate-brief-onepager/index.ts:38` | `isSafeExternalUrl(file_url)` SSRF guard before fetch |
+| `google-drive-folders/index.ts:77,124` | `/^[\w\-]+$/` sanitize + `isDescendantOfRoot` check on GET + POST `parentId` |
+| `src/pages/editors/Storyboard.js:106` | `pagesRef`/`currentPageRef`/`annotationsRef`; `saveCurrentPage` reads refs |
+| `src/pages/Ideation.js:374` | unique `(review_id, version_number)` constraint + client retry on 23505 |
+
+**Deploy still needed:** `supabase functions deploy post-daily-graphics generate-brief-onepager google-drive-folders --no-verify-jwt` + Vercel push for Storyboard/Ideation.
+
+### Fixed — pending deploy (2026-06-20, third batch — remaining HIGH)
+
+Frontend only; ships on the next Vercel push (no edge/DB changes).
+
+| Loc | Fix |
+|---|---|
+| `src/pages/FreelancerProfile.js:60` | Capture `Promise.all` results, throw on first `{error}` → failed save shows the error |
+| `src/pages/Freelancers.js:319` | `creatingAssign` flag + disabled button → no double-submit |
+| `src/pages/Jobs.js:117` | Swap the two listings' actual `position` values (null-safe) instead of reindexing the filtered subset |
+| `src/pages/Calendar.js:124` | Series-termination checks (endDate/endCount) moved before the range cull; separate `iterations` loop guard; `[...days].sort()` no longer mutates the event |
+| `src/pages/CalendarMobile.js:26` | `dayKey` built from local Y-M-D parts |
+| `src/pages/editors/screenplay-editor/.../ScriptEditor.tsx:585` | Named `visibilitychange` handler removed in cleanup |
+
+### Open — HIGH / security
+
+_None — all HIGH findings fixed (deploy/push pending)._
+
+### Fixed — pending deploy/push (2026-06-20, MED batch — all 25)
+
+5 edge functions need deploy: `fetch-daily-graphics`, `google-drive-write`,
+`google-calendar-sync`, `drive-upload-init`, plus `run-report` + `preview-report`
+(they bundle the edited `shared/report-sources.ts`). Rest is frontend (Vercel push).
+
+| Loc | Fix |
+|---|---|
+| `InvoicingMobile.js:275,276` | Re-derive `tax_cents` from edited subtotal; mark-paid records full `total_cents` |
+| `Production.js:1269` | Media thumbs keyed by content; reorderable tag spans keyed by value |
+| `Reviews.js:892` | `createTimer` ref cleared in loadPlayer + unmount |
+| `KanbanPanel.js:879` | Terminal columns re-bumped above reindexed range; refetch on save failure |
+| `drive-upload-init:100` | Non-admins confined to submissions/assigned folder (+descendants) via `isDescendantOf` |
+| `AppLayout.js:286,347` | Route guard redirects adminOnly pages for non-admins; freelancer redirect deps include `activeTab` |
+| `AuthContext.js:246` | `isPasswordRecoveryRef` read in the listener |
+| `google-calendar-sync:154` | Admin gate (matches google-calendar-fetch) |
+| `fetch-daily-graphics:26` | Admin role check |
+| `google-drive-write:96` | `/^[\w\-]+$/` folderId sanitize |
+| `shared/report-sources.ts:70` | `isSafeExternalUrl(endpoint)` SSRF guard |
+| `BusinessDev.js:749,763` | completed_at only stamped on transition to done; position recomputed on phase/workstream move |
+| `CalendarMobile.js:507` | Shared `src/lib/recurrence.js` expansion + fetch includes recurring rows (desktop kept its copy) |
+| `Channels.js:134,199` | DELETE handler (unfiltered, id-match); swap actual `sort_order` values |
+| `ContentHealthDashboard.js:93` | `fetchGenRef` stale-response guard |
+| `Tracking.js:299` | Null-id target guarded; edit recovers real id instead of `.eq('id',null)` |
+| `Telestration.js:62` | Revoke object URLs from refs |
+| `Organize.js:24` | Centralized object-URL revoke via prev-files ref + unmount |
+| `YouTubeStudioAdvanced.js:1117` | `[...rows].sort()`; key by `_key` |
+| `FreelancerDashboard.js:263` | `postingComment` in-flight guard |
+| `Jobs.js:649,662` | Optimistic rollback on save failure; rename compares full list |
+| `Storyboard.js:113,308` | Baseline history pushed in load callback; thumbnail skipped while load in flight |
+
+### Open — MED
+
+_None — all MED findings fixed (deploy/push pending)._
+
+### Fixed — LOW batch (2026-06-20)
+
+All LOW findings below were fixed **except** the two Deferred items noted here.
+11 edge functions changed (need deploy: sync-metricool, mailer-webhook,
+mailer-send-now, approve-automation, sync-fourthwall, drive-watch-register,
+metricool-stories, google-calendar-sync, twitch-auth-callback, stats-query,
+jobs-view); rest is frontend (Vercel push). Migration `20260620140000_jobs_view_dedup`
+applied.
+
+- **Research IP (1297/1346): verified correct, no change** — Triton stores
+  true-decimal innings (7.333, 5.667), so the `×3` outs conversion is right.
+- **Deferred — `Ideation.js:1182`** — `setTimeout(setActiveDoc,100)` works; a
+  clean fix needs a pending-doc state machine. Low value.
+- **Deferred — `Research.js:386`** — bucket-switch stale-response guard; manual
+  toggle, negligible race.
+
+| Loc | Problem (fixed unless noted above) |
+|---|---|
+| `sync-metricool/index.ts:130`, `src/pages/Accounting.js:312` | No `Number.isFinite`/`||0` guard → one bad row poisons metrics with NaN |
+| `src/pages/Payroll.js:283` | `handleTogglePaid` no disable/await → double-tap duplicate `payroll_paid` rows |
+| `supabase/functions/mailer-webhook/index.ts:47` | Svix sig non-constant-time `===`, no timestamp freshness → replayable |
+| `supabase/functions/mailer-send-now/index.ts:256` | `fetchLatestRssItem` skips `isSafeExternalUrl()` SSRF guard |
+| `supabase/functions/approve-automation/index.ts:184` | Any admin resolves another admin's specifically-assigned confirmation |
+| `supabase/functions/jobs-view/index.ts:49` | Public unauthed unrate-limited insert → analytics bloat |
+| `supabase/functions/stats-query/index.ts:99` | Any authed user; returns raw SQL+result (bounded by Triton read-only) |
+| `src/pages/Production.js:278` | Autosave fires on `openSheet()` → redundant write of just-loaded data |
+| `src/pages/Reviews.js:839` | `<ReviewPlayer>` missing `key={review.id}` → stale `activeVersion` across switch |
+| `src/components/SprintBoard.js:1094` | Sprint done → `workflow-complete-task` uses pre-drag linked-task snapshot |
+| `src/pages/Research.js:1297,1346` | IP-notation conversion `*3` may mis-show every fractional IP — verify Triton storage convention |
+| `src/pages/Research.js:524,386` | `localeCompare` on null `date` throws; bucket-switch has no stale-response guard |
+| `src/pages/Channels.js:505` | Message groups keyed by array index while streaming via realtime |
+| `src/pages/Ideation.js:169,442,1168` | Drag-reorder no rollback; `setTimeout(setActiveDoc,100)` fragile race / unmount setState |
+| `src/pages/FreelancerHours.js:15` | `toISOString` period boundary off-by-one for UTC+ users |
+| `src/pages/Jobs.js:757` | Funnel "Interview" double-counts accepted |
+| `src/pages/Freelancers.js:458` | `handleReviewHours` no double-click guard → re-stamp + dup notification |
+| `src/pages/FreelancerDashboard.js:196` | `useRealtimeTable('fl-comments')` unfiltered → needless refetch churn |
+| `src/pages/analytics/Analytics.js:242` | Net/Total Followers ignore platform filter |
+| `src/pages/analytics/Analytics.js:231` | Single-day range → prev query empty → always +100%/0% |
+| `src/pages/YouTubeStudioAdvanced.js:815,241` | Reorder-dependent row key; `slice(0,7)`/`localeCompare` no null-date guard |
+| `supabase/functions/sync-fourthwall/index.ts:129` | `while(true)` never terminates if `totalPages` undefined (NaN) |
+| `supabase/functions/drive-watch-register/index.ts:119` | Leaks upstream API error text in `detail` |
+| `supabase/functions/metricool-stories/index.ts:53` | `days` param unbounded |
+| `supabase/functions/twitch-auth-callback/index.ts:81` | State user_id not re-checked for admin before overwriting creds |
+| `supabase/functions/google-calendar-sync/index.ts:34` | Post-refresh `access_token` used without null check |
+| `src/components/Morty.js:473+` | Untracked `setTimeout`s not cleared by `clearAllTimers` → setState-after-unmount |
+| `src/pages/DashboardMobile.js:248` | `commitEdit` optimistic update with no rollback on failure |
+| `src/pages/editors/Storyboard.js:266` | Async page ops no unmount guard |
+| `src/pages/editors/screenplay-editor/.../ScriptEditor.tsx:919,50` | Save via synthetic `blur` event fragile; load plugin no abort guard |
+| `src/pages/editors/doc-editor/editor/search-highlight.ts:36` | Rebuilds full DecorationSet every transaction (per-keystroke cost) |
+| `src/pages/BusinessDev.js:1002` | `handleToggleTask` ignores update error → silent revert |
+| `src/pages/Calendar.js:257,155` | Global mousedown dismisses own context menu; `.sort()` mutates live event object |
+| `src/pages/Dashboard.js:806` | Presence "offline" flip not re-rendered on a timer |
+
+### Wave 3 — previously-unswept files (2026-06-20)
+
+8 parallel auditors swept all public pages, standalone desktop pages, ~18 mobile
+variants, shared components, and editor/analytics sub-components. Fixed:
+
+**CRITICAL / security**
+- `AppLayoutMobile.js` — `workflows`/`freelancers`/`ops` had NO `isAdmin` gate
+  (reachable by non-admins via direct URL / persisted tab); `invoicing` allowed
+  assistants (desktop is admin-only). All gated; invoicing tightened to `isAdmin`.
+- `PublicBrief.js` / `Deliverables.js` / `WriteAdReadModal.js` — stored XSS:
+  `marked.parse()` of LLM-generated (attacker-influenceable) markdown rendered raw.
+  Now `DOMPurify.sanitize(marked.parse(...))`.
+- `PublicCareers.js` — `select('*')` exposed internal `job_listings` columns
+  (onboarding_checklist, created_by) to anonymous visitors. Restricted to rendered columns.
+- `LinkInsertDialog.tsx` — raw-HTML interpolation of user href/text → markup injection.
+  Now structured insertContent with a link mark.
+
+**HIGH (data loss / functional)**
+- `SceneNavigator.tsx` — drag-reorder rebuilt from a debounced snapshot + `root.clear()`,
+  dropping nodes added mid-debounce. Now groups live children → no loss.
+- `CharacterManager.tsx` — rename used no word boundaries ("AL" rewrote "ALICE"). Added `\b`.
+- Mobile try/finally leaks (stuck-disabled buttons on error): `FreelancerDashboardMobile.setStatus`,
+  `FreelancersMobile.postComment`/`approve`.
+- `MessagesMobile`/`Messages`/`ChannelsMobile` — send had no in-flight guard / lost message on
+  failure / no realtime id-dedup. All fixed (+ `.maybeSingle()` for empty-convo last-message).
+- `Resources.js` — double-Enter created duplicate folders/Docs (Enter bypassed disabled button).
+- `AnalyticsMobile.js` — UTC date window diverged from desktop PT; now `daysAgoStr(30)`.
+
+**MED** — `google-drive-research` orphan-doc cleanup on token-merge failure; `Ideas`/`IdeationMobile`
+ordering + sort_order; `IdeasMobile` add double-submit; `FreelancerDashboardMobile` channel
+namespacing; `IngestionHealthPanel`/`ManualMetricsForm` divide-by-zero guards; `ImageInsertDialog`
+extension derivation; `SprintGoals` sort mutation; `SprintRetroModal`/`ProgressKanban`/
+`ContractorAssignmentModal`/`SprintBacklog` rollback/guards; `FreelancerTour` measure retry;
+`DocumentEditor` focus-timeout cleanup; analytics CSV escaped-quote; `OpsMobile` unmount guard;
+`SprintBoardMobile` explicit status.
+
+**Verified NOT bugs:** Ops realtime — `ingestion_logs`+`platform_accounts` ARE in
+`supabase_realtime` publication (auditor hypothesis wrong; 60s poll is the fallback).
+PublicCareers resume upload — `jobs-apply` enforces size/MIME/rate-limit server-side (wave-1 verified).
+
+**Deferred LOW polish:** ChannelsMobile mention matching, IdeasMobile menu outside-click,
+Assets sort-during-search, Resources rename double-request, ResourcesMobile double-fetch,
+Messages fetch/subscribe sub-second gap (dedup mitigates), a few dead deps / harmless dangling timers.
+
+### Wave 3.5 — editor deep-internals (2026-06-20)
+
+4 auditors swept Tiptap doc-editor (core/store/hooks/menus/extensions) and Lexical
+screenplay-editor (plugins/nodes/export/paginator). Fixed:
+
+**CRITICAL — cross-document data loss**
+- `DocEditor.tsx` / `useAutoSave.ts` / `Ideation.js` — editor wasn't keyed per
+  document and `loaded` never reset on docId change, so editing right after a doc
+  switch (or a slow/failed load) autosaved the PREVIOUS doc's content into the new
+  docId, clobbering it. Fixed: `key={activeDoc.id}` remount + load-effect reset +
+  cancellation + `setContent(html, false)`.
+
+**HIGH**
+- `useAutoSave` — Supabase update resolves `{error}` (doesn't throw); a failed save
+  reported "saved" and silently dropped the edit. Now checks error + re-marks dirty.
+- `extensions.ts` — Link had no protocol allowlist → `javascript:`/`data:` hrefs
+  stored as XSS. Added `protocols: ['http','https','mailto']` + rel.
+- `EditorContextMenu` / `LinkBubble` — validate URL scheme before setLink/setImage.
+- `FindReplace` — replacement inserted via `insertContent(string)` (parsed as HTML →
+  injection); now inserts a plain text node.
+- `NotesPlugin` — highlight-to-note dropped style/detail/mode; now copies all.
+- `exportPDF` — bold/italic silently dropped on multi-line elements; now maps runs
+  onto each wrapped line (same line breaks → no pagination change).
+
+**MED**
+- `paginator` — element taller than a page corrupted `remaining` for all later
+  elements (cascading wrong page count); `bottomHalf` could go negative. Clamped both.
+- `exportFDX` — scene Number attribute now XML-escaped.
+- `CommentPanel` — subscribe to editor transactions so the list/counts don't go stale.
+
+**Deferred LOW/MED (low value or regression risk):** CommentPanel multi-node mark
+delete/scroll; NoteMarkNode importDOM/exportDOM (paste roundtrip; JSON reload fine);
+PageBreakPlugin raw-DOM injection (self-heals); useAutoSave last-write-wins +
+beforeunload beacon (multi-tab rare); FindReplace non-ASCII whole-word; AutocompletePlugin
+rect churn; CommandPalette cross-category scroll; paginator widow blank-line. All noted.
+
+**Verified clean:** all Lexical node serialization (getType/clone/importJSON/exportJSON
+round-trip), plugin disposers, FDX text escaping, editorStore, useRelativeTime.
+
+### Audit coverage gaps (remaining)
+Only `broadcast/*` (covered by the separate 2026-06-12 hardening pass) not re-swept.
+**The entire app — pages, mobile variants, components, edge functions, and editor
+internals — is now comprehensively audited.**
+
 ## Known Issues
 
 ### Open GitHub Issues

@@ -72,7 +72,7 @@ export default function Resources() {
 
   async function handleCreateFolder(e) {
     e.preventDefault();
-    if (!folderName.trim()) return;
+    if (!folderName.trim() || busy) return; // busy guard: Enter bypasses the disabled button
     setBusy(true);
     try {
       await callFn('POST', '', {
@@ -92,7 +92,7 @@ export default function Resources() {
 
   async function handleCreateDoc(e) {
     e.preventDefault();
-    if (!docTitle.trim()) return;
+    if (!docTitle.trim() || busy) return; // busy guard: Enter bypasses the disabled button
     setBusy(true);
     try {
       const result = await callFn('POST', '', {

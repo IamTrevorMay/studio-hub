@@ -309,10 +309,10 @@ function OverviewTab({ revenue, revenuePrev, expenses, expensesPrev }) {
   const [ledgerOpen, setLedgerOpen] = useState(false);
   const [trendMode, setTrendMode] = useState('daily');
 
-  const revTotal     = useMemo(() => revenue.reduce((s, t) => s + t.amount_cents, 0), [revenue]);
-  const revPrevTotal = useMemo(() => revenuePrev.reduce((s, t) => s + t.amount_cents, 0), [revenuePrev]);
-  const expTotal     = useMemo(() => expenses.reduce((s, t) => s + t.amount_cents, 0), [expenses]);
-  const expPrevTotal = useMemo(() => expensesPrev.reduce((s, t) => s + t.amount_cents, 0), [expensesPrev]);
+  const revTotal     = useMemo(() => revenue.reduce((s, t) => s + (t.amount_cents || 0), 0), [revenue]);
+  const revPrevTotal = useMemo(() => revenuePrev.reduce((s, t) => s + (t.amount_cents || 0), 0), [revenuePrev]);
+  const expTotal     = useMemo(() => expenses.reduce((s, t) => s + (t.amount_cents || 0), 0), [expenses]);
+  const expPrevTotal = useMemo(() => expensesPrev.reduce((s, t) => s + (t.amount_cents || 0), 0), [expensesPrev]);
   const net      = revTotal - expTotal;
   const prevNet  = revPrevTotal - expPrevTotal;
   const margin     = revTotal > 0 ? (net / revTotal) * 100 : null;
@@ -481,8 +481,8 @@ function LedgerTab({ mode, data, prevData, meta, accentColor, headlineLabel, hea
   const [tableOpen, setTableOpen] = useState(false);
   const [trendMode, setTrendMode] = useState('daily');
 
-  const total     = useMemo(() => data.reduce((s, t) => s + t.amount_cents, 0), [data]);
-  const prevTotal = useMemo(() => prevData.reduce((s, t) => s + t.amount_cents, 0), [prevData]);
+  const total     = useMemo(() => data.reduce((s, t) => s + (t.amount_cents || 0), 0), [data]);
+  const prevTotal = useMemo(() => prevData.reduce((s, t) => s + (t.amount_cents || 0), 0), [prevData]);
   const delta = pctDelta(total, prevTotal);
 
   const byCategory = useMemo(() => groupByCategory(data, meta), [data, meta]);
@@ -788,8 +788,8 @@ function BusinessComparison({ mode, mayday, neptune, maydayMeta, neptuneMeta, ac
   const [view, setView] = useState('comparison');
   const [trendMode, setTrendMode] = useState('daily');
 
-  const maydayTotal  = useMemo(() => mayday.reduce((s, t) => s + t.amount_cents, 0), [mayday]);
-  const neptuneTotal = useMemo(() => neptune.reduce((s, t) => s + t.amount_cents, 0), [neptune]);
+  const maydayTotal  = useMemo(() => mayday.reduce((s, t) => s + (t.amount_cents || 0), 0), [mayday]);
+  const neptuneTotal = useMemo(() => neptune.reduce((s, t) => s + (t.amount_cents || 0), 0), [neptune]);
   const combined = maydayTotal + neptuneTotal;
 
   const maydayByCat  = useMemo(() => groupByCategory(mayday, maydayMeta), [mayday, maydayMeta]);

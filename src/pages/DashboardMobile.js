@@ -252,6 +252,7 @@ function TodoTab({ profile }) {
       setEditingText('');
       return;
     }
+    const prev = items;
     setItems((p) => p.map((i) => (i.id === item.id ? { ...i, text: trimmed } : i)));
     setEditingId(null);
     setEditingText('');
@@ -260,6 +261,7 @@ function TodoTab({ profile }) {
       if (error) throw error;
     } catch (err) {
       console.error('Edit todo failed:', err);
+      setItems(prev); // roll back like toggleChecked/removeItem
     }
   }
 

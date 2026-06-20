@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 
 const POINT_COLORS = { '15': '#ef4444', '10': '#f97316', '6': '#f59e0b', '3': '#3b82f6', '1': '#6b7280' };
@@ -42,18 +42,24 @@ export default function SprintBacklog({ profile, activeSprint, onTasksChanged, b
 
   useEffect(() => { fetchBacklog(); }, [fetchBacklog, boardVersion]);
 
+  const addingRef = useRef(false);
   async function addTask() {
-    if (!newTaskText.trim() || !profile?.id) return;
-    const maxPos = tasks.length > 0 ? Math.max(...tasks.map(t => t.position || 0)) : 0;
-    const { error } = await supabase.from('personal_tasks').insert({
-      created_by: profile.id,
-      content: newTaskText.trim(),
-      status: 'backlog',
-      position: maxPos + 10,
-    });
-    if (!error) {
-      setNewTaskText('');
-      fetchBacklog();
+    if (!newTaskText.trim() || !profile?.id || addingRef.current) return; // guard fast double-Enter
+    addingRef.current = true;
+    try {
+      const maxPos = tasks.length > 0 ? Math.max(...tasks.map(t => t.position || 0)) : 0;
+      const { error } = await supabase.from('personal_tasks').insert({
+        created_by: profile.id,
+        content: newTaskText.trim(),
+        status: 'backlog',
+        position: maxPos + 10,
+      });
+      if (!error) {
+        setNewTaskText('');
+        fetchBacklog();
+      }
+    } finally {
+      addingRef.current = false;
     }
   }
 

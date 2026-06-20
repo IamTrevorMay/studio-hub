@@ -58,11 +58,12 @@ export default function Telestration({ onBack }) {
     saveSettings({ activeTool, drawColor, strokeWidth, mode, exportFormat });
   }, [activeTool, drawColor, strokeWidth, mode, exportFormat]);
 
-  // Cleanup object URLs on unmount
+  // Cleanup object URLs on unmount. Read from refs — the [] deps would otherwise
+  // close over the initial (empty) arrays and revoke nothing, leaking every blob.
   useEffect(() => {
     return () => {
-      staticImages.forEach(img => URL.revokeObjectURL(img.url));
-      videoSources.forEach(v => {
+      staticImagesRef.current.forEach(img => URL.revokeObjectURL(img.url));
+      videoSourcesRef.current.forEach(v => {
         if (v.source.type === 'file' && v.source.url) URL.revokeObjectURL(v.source.url);
       });
     };

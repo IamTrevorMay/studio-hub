@@ -84,7 +84,8 @@ export default function DocumentEditor({
   // Auto-focus editor on load
   useEffect(() => {
     if (editor && loaded) {
-      setTimeout(() => editor.commands.focus('end'), 50)
+      const t = setTimeout(() => editor.commands.focus('end'), 50)
+      return () => clearTimeout(t) // don't focus a possibly-destroyed editor after unmount
     }
   }, [editor, loaded])
 

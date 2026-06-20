@@ -9,15 +9,18 @@ export default function SprintRetroModal({ sprint, completedCount, completedPoin
   const dateRange = `${fmtDate(sprint.start_date)} – ${fmtDate(sprint.end_date)}`;
 
   async function handleSave() {
+    if (saving) return;
     setSaving(true);
-    const { error } = await supabase.from('sprint_retros').insert({
-      sprint_id: sprint.id,
-      went_well: wentWell.trim(),
-      to_improve: toImprove.trim(),
-    });
-    setSaving(false);
-    if (!error) {
+    try {
+      const { error } = await supabase.from('sprint_retros').insert({
+        sprint_id: sprint.id,
+        went_well: wentWell.trim(),
+        to_improve: toImprove.trim(),
+      });
+      if (error) { alert('Failed to save retro: ' + error.message); return; }
       onSaved();
+    } finally {
+      setSaving(false); // release even if the insert throws (network), else button locks
     }
   }
 

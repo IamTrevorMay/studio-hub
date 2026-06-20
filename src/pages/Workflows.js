@@ -160,7 +160,7 @@ export default function Workflows() {
         name: newAutoName.trim(),
         trigger_type: newAutoTriggerType,
         trigger_config: newAutoTriggerType === 'schedule'
-          ? { type: 'days_of_month', days: [], time_utc: '15:00' }
+          ? { type: 'days_of_month', days: [], hour_pt: 8 }
           : { event: '', source: '' },
         actions: [],
         is_enabled: false,
@@ -694,7 +694,7 @@ export default function Workflows() {
                       }}
                       onClick={() => {
                         updateAutoForm('trigger_type', 'schedule');
-                        updateAutoForm('trigger_config', { type: 'days_of_month', days: [], time_utc: '15:00' });
+                        updateAutoForm('trigger_config', { type: 'days_of_month', days: [], hour_pt: 8 });
                       }}
                     >Schedule</button>
                     <button
@@ -748,23 +748,27 @@ export default function Workflows() {
                         </div>
                       )}
                       <div>
-                        <label style={styles.fieldLabel}>Time (PT, HH:MM)</label>
-                        <input
+                        <label style={styles.fieldLabel}>Hour (PT)</label>
+                        <select
                           style={styles.modalInput}
                           value={(() => {
-                            const utc = autoForm.trigger_config?.time_utc || '15:00';
-                            const [h, m] = utc.split(':').map(Number);
-                            const ptH = ((h - 7) % 24 + 24) % 24;
-                            return `${String(ptH).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                            // Prefer hour_pt; migrate legacy time_utc rows for display
+                            // (uses fixed -7, exact value is corrected on save).
+                            if (autoForm.trigger_config?.hour_pt != null) return autoForm.trigger_config.hour_pt;
+                            const utc = autoForm.trigger_config?.time_utc;
+                            if (!utc) return 8;
+                            return ((Number(utc.split(':')[0]) - 7) % 24 + 24) % 24;
                           })()}
-                          onChange={e => {
-                            const [h, m] = e.target.value.split(':').map(Number);
-                            if (isNaN(h) || isNaN(m)) return;
-                            const utcH = ((h + 7) % 24 + 24) % 24;
-                            updateTriggerConfig('time_utc', `${String(utcH).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
-                          }}
-                          placeholder="08:00"
-                        />
+                          onChange={e => updateTriggerConfig('hour_pt', parseInt(e.target.value, 10))}
+                        >
+                          {Array.from({ length: 24 }, (_, h) => {
+                            const ampm = h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM`;
+                            return <option key={h} value={h}>{`${String(h).padStart(2, '0')}:00 — ${ampm}`}</option>;
+                          })}
+                        </select>
+                        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', marginTop: 4 }}>
+                          Runs hourly; fires at the top of this Pacific hour (auto-adjusts for DST).
+                        </div>
                       </div>
                     </div>
                   )}

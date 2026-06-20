@@ -195,6 +195,7 @@ export default function ManualMetricsForm({ platform, fields, accounts }) {
 
       const days = getDaysInRange(startDate, endDate);
       const numDays = days.length;
+      if (numDays === 0) throw new Error('Invalid date range'); // avoid /0 → Infinity/NaN metrics
       let recordsProcessed = 0;
 
       // Views: split total evenly across days, remainder goes to last day

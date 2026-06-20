@@ -51,7 +51,7 @@ export default function SprintGoals({ goals, sprintId, onUpdate }) {
         Sprint Goals
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        {goals.sort((a, b) => a.position - b.position).map(goal => (
+        {[...goals].sort((a, b) => a.position - b.position).map(goal => (
           <div key={goal.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button
               onClick={() => toggleGoal(goal)}

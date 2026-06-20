@@ -33,6 +33,27 @@ async function getDriveAccessToken(): Promise<string> {
   return tokens.access_token;
 }
 
+// Walk a file's parent chain to confirm it lives under ROOT. Prevents callers
+// from passing an arbitrary folder id to list/create outside the allowed tree.
+async function isDescendantOfRoot(accessToken: string, fileId: string, rootId: string): Promise<boolean> {
+  if (fileId === rootId) return true;
+  let currentId = fileId;
+  for (let i = 0; i < 10; i++) {
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${currentId}?fields=parents&supportsAllDrives=true`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    const data = await res.json();
+    if (!res.ok) return false;
+    const parents = data.parents || [];
+    if (parents.includes(rootId)) return true;
+    if (!parents.length) return false;
+    currentId = parents[0];
+    if (currentId === "root") return false;
+  }
+  return false;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -75,6 +96,20 @@ Deno.serve(async (req: Request) => {
     if (req.method === "GET") {
       // List folders in a parent (default to root folder)
       const parentId = url.searchParams.get("parentId") || rootId;
+      // Sanitize (Drive ids are [A-Za-z0-9_-]) to block q-string injection, and
+      // confine listing to the allowed tree.
+      if (!/^[\w\-]+$/.test(parentId)) {
+        return new Response(JSON.stringify({ error: "Invalid parentId" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (!(await isDescendantOfRoot(accessToken, parentId, rootId))) {
+        return new Response(JSON.stringify({ error: "parentId outside allowed root" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
       const query = `'${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
 
       const driveRes = await fetch(
@@ -110,6 +145,21 @@ Deno.serve(async (req: Request) => {
         });
       }
 
+      // Confine new-folder creation to the allowed tree.
+      const targetParent = parentId || rootId;
+      if (!/^[\w\-]+$/.test(targetParent)) {
+        return new Response(JSON.stringify({ error: "Invalid parentId" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (!(await isDescendantOfRoot(accessToken, targetParent, rootId))) {
+        return new Response(JSON.stringify({ error: "parentId outside allowed root" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       const driveRes = await fetch(
         "https://www.googleapis.com/drive/v3/files?supportsAllDrives=true",
         {
@@ -121,7 +171,7 @@ Deno.serve(async (req: Request) => {
           body: JSON.stringify({
             name,
             mimeType: "application/vnd.google-apps.folder",
-            parents: [parentId || rootId],
+            parents: [targetParent],
           }),
         }
       );

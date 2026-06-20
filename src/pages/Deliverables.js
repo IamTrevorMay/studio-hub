@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -2465,7 +2466,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
         const briefs = editingD?.campaign_briefs || [];
         const onepagerBriefs = briefs.filter(b => b.onepager_md);
         const linkBriefs = briefs.filter(b => !b.onepager_md && b.url);
-        const onepagerHtml = onepagerBriefs.map(b => marked.parse(b.onepager_md)).join('<hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;" />');
+        const onepagerHtml = onepagerBriefs.map(b => DOMPurify.sanitize(marked.parse(b.onepager_md))).join('<hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;" />');
         return (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }} onMouseDown={(e) => { if (e.target === e.currentTarget) setAdCopyModalOpen(false); }}>
             <div style={{ background: '#1a1a2e', borderRadius: '14px', width: '95vw', maxWidth: '1100px', height: '82vh', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', flexDirection: 'column' }}>

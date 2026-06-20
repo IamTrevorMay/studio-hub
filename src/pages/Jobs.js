@@ -115,12 +115,18 @@ function ListingsTab({ listings, applications, onChange, showToast }) {
   }, [applications]);
 
   const move = async (idx, dir) => {
-    if (!filtered[idx + dir]) return;
-    const reordered = filtered.slice();
-    [reordered[idx], reordered[idx + dir]] = [reordered[idx + dir], reordered[idx]];
-    const results = await Promise.all(
-      reordered.map((l, i) => supabase.from('job_listings').update({ position: i }).eq('id', l.id))
-    );
+    const a = filtered[idx];
+    const b = filtered[idx + dir];
+    if (!a || !b) return;
+    // Swap the two listings' actual position values instead of reindexing the
+    // filtered subset — reindexing wrote subset indices over global positions,
+    // corrupting the order of listings hidden by the current status filter.
+    const posA = a.position ?? listings.findIndex(l => l.id === a.id);
+    const posB = b.position ?? listings.findIndex(l => l.id === b.id);
+    const results = await Promise.all([
+      supabase.from('job_listings').update({ position: posB }).eq('id', a.id),
+      supabase.from('job_listings').update({ position: posA }).eq('id', b.id),
+    ]);
     const firstErr = results.find(r => r.error);
     if (firstErr?.error) showToast(firstErr.error.message, 'error'); else onChange();
   };
@@ -613,7 +619,9 @@ function OnboardingTab({ onboarding, onChange, showToast }) {
     const { data, error } = await supabase.functions.invoke('jobs-review', {
       body: { action: 'onboarding_update', onboarding_id: row.id, checklist },
     });
-    if (error || data?.error) showToast(data?.error || error?.message || 'Failed', 'error'); else onChange();
+    if (error || data?.error) { showToast(data?.error || error?.message || 'Failed', 'error'); return false; }
+    onChange();
+    return true;
   }, [onChange, showToast]);
 
   if (onboarding.length === 0) return <div style={st.empty}>No one in onboarding yet. Accept an application to start.</div>;
@@ -653,25 +661,34 @@ function OnboardingCard({ row, onSave }) {
   const done = local.filter(c => c.done).length;
   const total = local.length;
 
-  const toggle = (idx) => {
+  // Optimistic update with rollback: revert local if the save fails, otherwise
+  // a failed write silently reverts on the next refetch (looks like a lost click).
+  const toggle = async (idx) => {
+    const prev = local;
     const next = local.map((c, i) => i === idx ? { ...c, done: !c.done } : c);
     setLocal(next);
-    onSave(row, next);
+    if (!(await onSave(row, next))) setLocal(prev);
   };
   const rename = (idx, label) => setLocal(prev => prev.map((c, i) => i === idx ? { ...c, label } : c));
-  const commitRename = (idx) => {
-    if ((local[idx]?.label || '') === (row.checklist?.[idx]?.label || '')) return;
-    onSave(row, local);
+  const commitRename = async () => {
+    // Compare the whole list, not by index — add()/remove() drift the indices
+    // between local and the last-saved row.checklist, so an index compare could
+    // skip a real rename or fire a redundant save.
+    if (JSON.stringify(local) === JSON.stringify(row.checklist || [])) return;
+    const prev = row.checklist || [];
+    if (!(await onSave(row, local))) setLocal(prev);
   };
-  const remove = (idx) => {
+  const remove = async (idx) => {
+    const prev = local;
     const next = local.filter((_, i) => i !== idx);
     setLocal(next);
-    onSave(row, next);
+    if (!(await onSave(row, next))) setLocal(prev);
   };
-  const add = () => {
+  const add = async () => {
+    const prev = local;
     const next = [...local, { label: 'New item', done: false }];
     setLocal(next);
-    onSave(row, next);
+    if (!(await onSave(row, next))) setLocal(prev);
   };
 
   return (
@@ -754,7 +771,7 @@ function AnalyticsTab({ listings, applications }) {
   const funnel = [
     { label: 'Views', n: views.total, color: '#6366f1' },
     { label: 'Applied', n: total, color: '#38bdf8' },
-    { label: 'Interview', n: byStatus.interview + byStatus.accepted, color: '#fde68a' },
+    { label: 'Interview', n: byStatus.interview, color: '#fde68a' },
     { label: 'Accepted', n: byStatus.accepted, color: '#86efac' },
   ];
   const maxFunnel = Math.max(1, ...funnel.map(f => f.n));
