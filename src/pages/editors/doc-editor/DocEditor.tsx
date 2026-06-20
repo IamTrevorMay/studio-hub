@@ -61,7 +61,9 @@ export default function DocEditor({ docId, title, docType, onBack, onSaveTemplat
         .eq('id', docId)
         .single()
       if (cancelled || !editor) return
-      editor.commands.setContent(data?.content?.html || '', false)
+      // setLoaded(false) above already flipped loadedRef off, so useAutoSave's
+      // onUpdate ignores the update this setContent emits (no autosave on load).
+      editor.commands.setContent(data?.content?.html || '')
       setLoaded(true)
     })()
     return () => { cancelled = true }
