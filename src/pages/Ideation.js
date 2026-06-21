@@ -77,7 +77,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
     setLoading(true);
     try {
       const { data, error } = await supabase.from('concepts')
-        .select('*, creator:profiles!concepts_profile_fk(full_name, nickname)')
+        .select('*, creator:profiles!concepts_created_by_fkey(full_name, nickname)')
         .order('sort_order', { ascending: true });
       if (error) throw error;
       setConcepts(data || []);
@@ -501,7 +501,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
 
     if (activeConcept?.id === sourceId) {
       const { data } = await supabase.from('concepts')
-        .select('*, creator:profiles!concepts_profile_fk(full_name, nickname)')
+        .select('*, creator:profiles!concepts_created_by_fkey(full_name, nickname)')
         .eq('id', targetId).single();
       if (data) setActiveConcept(data);
     }

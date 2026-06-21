@@ -171,7 +171,7 @@ export default function Reviews() {
     setLoading(true);
     try {
       const { data, error } = await supabase.from('reviews')
-        .select('*, creator:profiles!reviews_profile_fk(full_name), thumbs:review_thumbnails(file_path, created_at)')
+        .select('*, creator:profiles!reviews_created_by_fkey(full_name), thumbs:review_thumbnails(file_path, created_at)')
         .order('created_at', { ascending: false });
       if (error) throw error;
       // For reviews with no video yet, surface an uploaded thumbnail (earliest) on the card.
@@ -834,7 +834,7 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
 
   async function fetchVersions() {
     const { data } = await supabase.from('review_versions')
-      .select('*, creator:profiles!review_versions_profile_fk(full_name)')
+      .select('*, creator:profiles!review_versions_created_by_fkey(full_name)')
       .eq('review_id', review.id)
       .order('version_number', { ascending: true });
     const vers = data || [];
@@ -847,13 +847,13 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
   async function fetchComments() {
     if (!activeVersion) return;
     const { data } = await supabase.from('review_comments')
-      .select('*, commenter:profiles!review_comments_profile_fk(full_name)')
+      .select('*, commenter:profiles!review_comments_user_id_fkey(full_name)')
       .eq('version_id', activeVersion.id)
       .order('timestamp_seconds', { ascending: true });
     // Also fetch replies for each comment
     const commentsWithReplies = await Promise.all((data || []).map(async (c) => {
       const { data: replies } = await supabase.from('review_replies')
-        .select('*, replier:profiles!review_replies_profile_fk(full_name)')
+        .select('*, replier:profiles!review_replies_user_id_fkey(full_name)')
         .eq('comment_id', c.id)
         .order('created_at', { ascending: true });
       return { ...c, replies: replies || [] };
@@ -985,7 +985,7 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
     setNewVersionLabel('');
     setShowAddVersion(false);
     const { data } = await supabase.from('review_versions')
-      .select('*, creator:profiles!review_versions_profile_fk(full_name)')
+      .select('*, creator:profiles!review_versions_created_by_fkey(full_name)')
       .eq('review_id', review.id)
       .order('version_number', { ascending: true });
     const vers = data || [];
