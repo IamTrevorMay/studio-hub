@@ -73,6 +73,19 @@ export default function TaskEditModal({ open, task, profiles, onClose, onSaved, 
       }
       const { error: upErr } = await supabase.from('tasks').update(patch).eq('id', task.id);
       if (upErr) throw upErr;
+
+      // Reassignment must reconcile sprint routing — a plain assignee_id update
+      // leaves the task in My Tasks even when the new owner routes to Sprint
+      // (and vice-versa). The edge function moves/creates the sprint card and
+      // promotes status as needed. Runs after the patch above so it wins.
+      const assigneeChanged = (form.assignee_id || null) !== (task.assignee_id || null);
+      if (assigneeChanged) {
+        const { error: reErr } = await supabase.functions.invoke('reassign-task', {
+          body: { task_id: task.id, new_assignee_id: form.assignee_id || null },
+        });
+        if (reErr) throw reErr;
+      }
+
       if (showToast) showToast('Task updated');
       if (onSaved) onSaved();
       if (onClose) onClose();
