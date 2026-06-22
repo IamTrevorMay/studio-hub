@@ -116,7 +116,7 @@ Deno.serve(async (req: Request) => {
       });
     }
     const { data: profile } = await supabase.from("profiles").select("role, assigned_drive_folder_id").eq("id", user.id).single();
-    if (!["admin", "freelancer", "member"].includes(profile?.role)) {
+    if (!["admin", "director_creative", "director_comms", "freelancer", "member"].includes(profile?.role)) {
       return new Response(JSON.stringify({ error: "Access required" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -137,11 +137,13 @@ Deno.serve(async (req: Request) => {
 
     const accessToken = await getDriveAccessToken();
 
-    // IDOR guard: non-admins may only upload into the shared submissions folder
-    // or their own assigned folder (or a descendant of either). Admins are
-    // trusted to target any folder. Without this, any authenticated user could
-    // initiate an upload into an arbitrary folder by passing its id.
-    if (profile.role !== "admin") {
+    // IDOR guard: non-admins may only upload into the shared submissions folder,
+    // their own assigned folder, or a configured Clipping Tool recipient folder
+    // (or a descendant of any). Admins are trusted to target any folder. Without
+    // this, any authenticated user could initiate an upload into an arbitrary
+    // folder by passing its id.
+    const adminTier = ["admin", "director_creative", "director_comms"].includes(profile.role);
+    if (!adminTier) {
       if (!/^[\w\-]+$/.test(parentFolderId)) {
         return new Response(JSON.stringify({ error: "Invalid parentFolderId" }), {
           status: 400,
@@ -150,6 +152,17 @@ Deno.serve(async (req: Request) => {
       }
       const roots = [SUBMISSIONS_FOLDER_ID];
       if (profile.assigned_drive_folder_id) roots.push(profile.assigned_drive_folder_id);
+
+      // Include Clipping Tool recipient folders so non-admin clippers can upload.
+      const { data: recipientFolders } = await supabase
+        .from("clipping_tool_recipients")
+        .select("drive_folder_id");
+      if (recipientFolders) {
+        for (const r of recipientFolders) {
+          if (r.drive_folder_id) roots.push(r.drive_folder_id);
+        }
+      }
+
       let allowed = roots.includes(parentFolderId);
       for (const root of roots) {
         if (allowed) break;
