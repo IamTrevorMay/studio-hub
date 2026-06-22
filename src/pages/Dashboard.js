@@ -3152,17 +3152,22 @@ const styles = {
     border: '1px solid rgba(255,255,255,0.06)',
     borderLeft: '3px solid',
     borderRadius: '8px',
+    overflow: 'hidden',
   },
   scheduleItemHeader: {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
     marginBottom: '4px',
+    minWidth: 0,
   },
   scheduleItemTitle: {
     fontSize: '14px',
     fontWeight: 600,
     flex: 1,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
   scheduleItemType: {
     fontSize: '11px',
@@ -3174,12 +3179,21 @@ const styles = {
   scheduleItemMeta: {
     fontSize: '12px',
     color: 'rgba(255,255,255,0.4)',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
   scheduleItemDesc: {
     fontSize: '12px',
     color: 'rgba(255,255,255,0.3)',
     margin: '4px 0 0 0',
     lineHeight: 1.4,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    display: '-webkit-box',
+    WebkitLineClamp: 3,
+    WebkitBoxOrient: 'vertical',
+    wordBreak: 'break-word',
   },
   // Team + Check In layout
   teamCheckinRow: {
