@@ -74,6 +74,22 @@ Deno.serve(async (req: Request) => {
         .update({ status: "on_hold", hold_reason: reason.trim() })
         .eq("id", taskId);
 
+      // Reverse sync: update linked sprint card to holding.
+      const { data: holdCards } = await admin
+        .from("personal_tasks")
+        .select("id, status")
+        .eq("task_id", taskId);
+      if (holdCards) {
+        for (const card of holdCards) {
+          if (card.status !== "holding") {
+            await admin
+              .from("personal_tasks")
+              .update({ status: "holding" })
+              .eq("id", card.id);
+          }
+        }
+      }
+
       await logEvent(admin, taskId, "held", auth.userId, { reason: reason.trim() });
 
       // Notify all admins
@@ -100,6 +116,22 @@ Deno.serve(async (req: Request) => {
         .from("tasks")
         .update({ status: "active", hold_reason: null })
         .eq("id", taskId);
+
+      // Reverse sync: update linked sprint card to in_progress.
+      const { data: resumeCards } = await admin
+        .from("personal_tasks")
+        .select("id, status")
+        .eq("task_id", taskId);
+      if (resumeCards) {
+        for (const card of resumeCards) {
+          if (card.status !== "in_progress") {
+            await admin
+              .from("personal_tasks")
+              .update({ status: "in_progress" })
+              .eq("id", card.id);
+          }
+        }
+      }
 
       await logEvent(admin, taskId, "resumed", auth.userId);
       await notifyUser(admin, task.assignee_id, "Task resumed", task.title, taskId);

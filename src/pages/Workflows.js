@@ -453,10 +453,9 @@ export default function Workflows() {
     // don't double-paint.
     const { data: sprintActiveRows } = await supabase
       .from('personal_tasks')
-      .select('task_id, profiles!personal_tasks_created_by_fkey!inner(role)')
+      .select('task_id')
       .eq('status', 'in_progress')
-      .not('task_id', 'is', null)
-      .eq('profiles.role', 'admin');
+      .not('task_id', 'is', null);
     const sprintActiveIds = new Set((sprintActiveRows || []).map((r) => r.task_id));
 
     // My-project-card overlay: surface MY sprint cards that originated

@@ -254,13 +254,17 @@ export default function MyTasks({ onNavigate, embedded = false }) {
 
       // A task that's surfaced as a Sprint Board card (personal_tasks.task_id)
       // is worked on the board, not here — don't double-list it in My Tasks.
+      // Exception: sprint-created tasks (step_key='sprint', no workflow_instance_id)
+      // SHOULD appear here for bi-directional visibility.
       const { data: sprintCardRows } = await supabase
         .from('personal_tasks')
         .select('task_id')
         .eq('created_by', profile.id)
         .not('task_id', 'is', null);
       const sprintCardTaskIds = new Set((sprintCardRows || []).map((r) => r.task_id));
-      const assignedFiltered = (assigned || []).filter((t) => !sprintCardTaskIds.has(t.id));
+      const assignedFiltered = (assigned || []).filter((t) =>
+        !sprintCardTaskIds.has(t.id) || (!t.workflow_instance_id && t.step_key === 'sprint')
+      );
 
       // Fetch sign-off tasks where this user has a pending sign-off.
       const { data: signOffRows } = await supabase

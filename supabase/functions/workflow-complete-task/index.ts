@@ -43,7 +43,12 @@ Deno.serve(async (req: Request) => {
   if (taskErr || !task) return jsonResp({ error: "Task not found" }, 404);
 
   if (task.status !== "active") {
-    return jsonResp({ error: `Task is ${task.status}, not active` }, 400);
+    // Standalone tasks (no workflow instance) may be "pending" — allow completing them.
+    if (task.status === "pending" && !task.workflow_instance_id) {
+      // ok — treat as completable
+    } else {
+      return jsonResp({ error: `Task is ${task.status}, not active` }, 400);
+    }
   }
 
   // ─── Sign-off path ──────────────────────────────────────────
@@ -112,6 +117,22 @@ Deno.serve(async (req: Request) => {
     .eq("id", task_id);
   if (updErr) return jsonResp({ error: `Update failed: ${updErr.message}` }, 500);
   await logEvent(admin, task_id, "completed", auth.userId, payload || {});
+
+  // Reverse sync: if a sprint card is linked, mark it done.
+  const { data: linkedCards } = await admin
+    .from("personal_tasks")
+    .select("id, status")
+    .eq("task_id", task_id);
+  if (linkedCards && linkedCards.length > 0) {
+    for (const card of linkedCards) {
+      if (card.status !== "done") {
+        await admin
+          .from("personal_tasks")
+          .update({ status: "done", completed_at: new Date().toISOString() })
+          .eq("id", card.id);
+      }
+    }
+  }
 
   // Standalone task — done (possibly auto-advance a project).
   if (!task.workflow_instance_id) {

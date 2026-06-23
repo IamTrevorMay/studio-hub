@@ -994,6 +994,15 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
         .update({ ...updates, updated_at: new Date().toISOString() })
         .eq('id', id);
       if (error) throw error;
+
+      // Sprint ↔ Tasks sync: sync title when card content changes
+      if (updates.content !== undefined && snapshot?.task_id) {
+        callWorkflowFn('sprint-task-sync', {
+          op: 'update_title',
+          task_id: snapshot.task_id,
+          title: updates.content || 'Sprint task',
+        }).catch(err => console.error('Sprint task title sync failed:', err));
+      }
     } catch (err) {
       console.error('Error updating task:', err);
       // Roll back only this task, not the entire array
@@ -1081,12 +1090,40 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
       fetchTasks(); // recover from DB truth
     }
 
+    // Sprint ↔ Tasks sync: create linked task when non-admin moves card to in_progress
+    if (newStatus === 'in_progress' && !task.task_id && profile.role !== 'admin') {
+      callWorkflowFn('sprint-task-sync', {
+        op: 'create',
+        personal_task_id: draggableId,
+        title: task.content || 'Sprint task',
+      }).then(res => {
+        if (res.ok && res.task_id) {
+          setTasks(ts => ts.map(t =>
+            t.id === draggableId
+              ? { ...t, task_id: res.task_id, linked_task: res.task }
+              : t
+          ));
+        }
+      }).catch(err => console.error('Sprint task create failed:', err));
+    }
 
     if (task.bd_task_id) {
       if (newStatus === 'done') {
         supabase.from('bd_tasks').update({ completed_at: new Date().toISOString() }).eq('id', task.bd_task_id);
       } else if (task.status === 'done') {
         supabase.from('bd_tasks').update({ completed_at: null }).eq('id', task.bd_task_id);
+      }
+    }
+
+    // Sprint ↔ Tasks sync: reactivate linked task when card moves FROM done
+    // (only for sprint-created tasks — those with no workflow_instance_id)
+    if (task.task_id && task.status === 'done' && newStatus !== 'done') {
+      const lt = task.linked_task;
+      if (lt && !lt.workflow_instance_id) {
+        callWorkflowFn('sprint-task-sync', {
+          op: 'reactivate',
+          task_id: task.task_id,
+        }).catch(err => console.error('Sprint task reactivate failed:', err));
       }
     }
 
