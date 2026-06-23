@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { SUPPORTED_EXTENSIONS, TYPE_OPTIONS, SUBTYPE_MAP, getFileExtension, getMediaCategory, sanitizeFilename } from './organize/organizeConstants';
 import { readMetadata, writeMetadata, readBackup, writeBackup, deleteBackup } from './organize/organizeStorage';
+import { autotagFiles } from './organize/autotag';
 import OrganizeToolbar from './organize/OrganizeToolbar';
 import OrganizedGroups from './organize/OrganizedGroups';
 import FileGrid from './organize/FileGrid';
@@ -117,7 +118,14 @@ export default function Organize({ onBack }) {
   const [selectedPaths, setSelectedPaths] = useState(new Set());
   const [modifiedPaths, setModifiedPaths] = useState(new Set());
   const [expandedGroups, setExpandedGroups] = useState(new Set());
+  const [autoTagging, setAutoTagging] = useState(false);
+  const [autoTagProgress, setAutoTagProgress] = useState(null);
+  const [aiConfidence, setAiConfidence] = useState({}); // file.path -> 0..1
   const saveTimer = useRef(null);
+
+  // High-confidence AI suggestions auto-fill and count as ready; anything below
+  // this gets a "review" badge so the user eyeballs it before organizing.
+  const CONF_THRESHOLD = 0.8;
 
   // Split files into organized (Type/Subtype/name) and unorganized
   const organizedGroups = useMemo(() => {
@@ -229,6 +237,7 @@ export default function Organize({ onBack }) {
       setSelectedPaths(new Set());
       setModifiedPaths(new Set());
       setExpandedGroups(new Set());
+      setAiConfidence({});
       setLoading(false);
     } catch (err) {
       if (err.name !== 'AbortError') console.error(err);
@@ -281,6 +290,51 @@ export default function Organize({ onBack }) {
       return next;
     });
     setSelectedPaths(new Set());
+  }
+
+  async function handleAutoTag() {
+    if (!dirHandle || autoTagging) return;
+    // Only tag unorganized files that aren't already fully labeled.
+    const targets = unorganizedFiles.filter(f => !isMetaComplete(metadata[f.path]));
+    if (targets.length === 0) return;
+
+    setAutoTagging(true);
+    setAutoTagProgress({ done: 0, total: targets.length });
+    try {
+      const results = await autotagFiles(targets, setAutoTagProgress);
+
+      setMetadata(prev => {
+        const next = { ...prev };
+        for (const file of targets) {
+          const r = results[file.path];
+          if (!r || r.error) continue;
+          const existing = next[file.path] || {};
+          // Don't clobber anything the user already filled in.
+          next[file.path] = {
+            ...existing,
+            title: existing.title || r.title || file.nameNoExt,
+            type: existing.type || r.type || '',
+            subtype: existing.subtype || r.subtype || '',
+            description: existing.description || r.description || '',
+          };
+        }
+        writeMetadata(dirHandle, next).catch(console.error);
+        return next;
+      });
+
+      setAiConfidence(prev => {
+        const next = { ...prev };
+        for (const file of targets) {
+          const r = results[file.path];
+          if (r && !r.error && typeof r.confidence === 'number') next[file.path] = r.confidence;
+        }
+        return next;
+      });
+    } catch (err) {
+      console.error('Auto-tag error:', err);
+    }
+    setAutoTagging(false);
+    setAutoTagProgress(null);
   }
 
   async function handleOrganize() {
@@ -526,6 +580,10 @@ export default function Organize({ onBack }) {
             onRevert={handleRevert}
             hasBackup={hasBackup}
             organizing={organizing}
+            onAutoTag={handleAutoTag}
+            autoTagging={autoTagging}
+            autoTagProgress={autoTagProgress}
+            canAutoTag={unorganizedFiles.some(f => !isMetaComplete(metadata[f.path]))}
           />
           {selectedPaths.size > 0 && (
             <BatchBar
@@ -564,6 +622,8 @@ export default function Organize({ onBack }) {
                 selectedPaths={selectedPaths}
                 onToggleSelect={handleToggleSelect}
                 modifiedPaths={modifiedPaths}
+                aiConfidence={aiConfidence}
+                confThreshold={CONF_THRESHOLD}
               />
             ) : (
               <FileList
@@ -574,6 +634,8 @@ export default function Organize({ onBack }) {
                 selectedPaths={selectedPaths}
                 onToggleSelect={handleToggleSelect}
                 modifiedPaths={modifiedPaths}
+                aiConfidence={aiConfidence}
+                confThreshold={CONF_THRESHOLD}
               />
             )
           )}

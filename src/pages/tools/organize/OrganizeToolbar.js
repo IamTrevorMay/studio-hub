@@ -9,6 +9,10 @@ export default function OrganizeToolbar({
   onRevert,
   hasBackup,
   organizing,
+  onAutoTag,
+  autoTagging,
+  autoTagProgress,
+  canAutoTag,
 }) {
   return (
     <div style={styles.toolbar}>
@@ -56,6 +60,25 @@ export default function OrganizeToolbar({
           </button>
         </div>
 
+        {onAutoTag && (
+          <button
+            onClick={onAutoTag}
+            style={{
+              ...styles.autoTagBtn,
+              opacity: (!canAutoTag && !autoTagging) || organizing ? 0.5 : 1,
+              cursor: autoTagging || organizing || !canAutoTag ? 'default' : 'pointer',
+            }}
+            disabled={autoTagging || organizing || !canAutoTag}
+            title="Suggest labels with AI"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2l1.9 5.1L19 9l-5.1 1.9L12 16l-1.9-5.1L5 9l5.1-1.9L12 2zM19 14l.9 2.6L22 17l-2.1.4L19 20l-.9-2.6L16 17l2.1-.4L19 14z" />
+            </svg>
+            {autoTagging
+              ? (autoTagProgress ? `Tagging ${autoTagProgress.done}/${autoTagProgress.total}...` : 'Tagging...')
+              : 'Auto-tag'}
+          </button>
+        )}
         {hasBackup && (
           <button onClick={onRevert} style={styles.revertBtn} disabled={organizing}>
             Revert
@@ -122,6 +145,19 @@ const styles = {
   viewBtnActive: {
     background: 'rgba(99,102,241,0.15)',
     color: '#a5b4fc',
+  },
+  autoTagBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '6px 14px',
+    background: 'rgba(168,85,247,0.1)',
+    border: '1px solid rgba(168,85,247,0.3)',
+    borderRadius: '8px',
+    color: '#d8b4fe',
+    fontSize: '13px',
+    fontWeight: 600,
+    fontFamily: 'inherit',
   },
   revertBtn: {
     padding: '6px 14px',

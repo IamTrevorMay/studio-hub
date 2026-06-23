@@ -1,8 +1,9 @@
 import React from 'react';
 import MetadataFields from './MetadataFields';
+import AiBadge from './AiBadge';
 import { getMediaCategory } from './organizeConstants';
 
-export default function FileCard({ file, meta, onMetaChange, onPreview, selected, onToggleSelect, modified, onMoveBack }) {
+export default function FileCard({ file, meta, onMetaChange, onPreview, selected, onToggleSelect, modified, onMoveBack, aiConf, confThreshold }) {
   const category = getMediaCategory(file.ext);
 
   return (
@@ -46,6 +47,11 @@ export default function FileCard({ file, meta, onMetaChange, onPreview, selected
             <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z" /></svg>
           )}
         </div>
+        {typeof aiConf === 'number' && (
+          <div style={styles.aiBadgeWrap}>
+            <AiBadge conf={aiConf} threshold={confThreshold} />
+          </div>
+        )}
       </div>
       <div style={styles.info}>
         <div style={styles.fileNameRow}>
@@ -85,6 +91,12 @@ const styles = {
     left: '8px',
     zIndex: 2,
     padding: '2px',
+  },
+  aiBadgeWrap: {
+    position: 'absolute',
+    top: '8px',
+    right: '8px',
+    zIndex: 2,
   },
   checkbox: {
     width: '18px',

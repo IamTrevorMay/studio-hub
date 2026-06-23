@@ -1,8 +1,9 @@
 import React from 'react';
 import MetadataFields from './MetadataFields';
+import AiBadge from './AiBadge';
 import { getMediaCategory } from './organizeConstants';
 
-export default function FileRow({ file, meta, onMetaChange, onPreview, selected, onToggleSelect, modified, onMoveBack }) {
+export default function FileRow({ file, meta, onMetaChange, onPreview, selected, onToggleSelect, modified, onMoveBack, aiConf, confThreshold }) {
   const category = getMediaCategory(file.ext);
 
   return (
@@ -29,6 +30,7 @@ export default function FileRow({ file, meta, onMetaChange, onPreview, selected,
         )}
       </div>
       <div style={styles.nameCol} title={file.name}>{file.name}</div>
+      {typeof aiConf === 'number' && <AiBadge conf={aiConf} threshold={confThreshold} />}
       <MetadataFields meta={meta} onChange={onMetaChange} layout="horizontal" />
       {onMoveBack && (
         <button style={styles.moveBackBtn} onClick={onMoveBack} title="Move back to unorganized">
