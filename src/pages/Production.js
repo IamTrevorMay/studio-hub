@@ -1387,7 +1387,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
           const isMediaItem = typeof v === 'object' && v.url;
           if (isMediaItem) {
             return (
-              <div key={g.id || g.url || `g${i}`} style={styles.mediaThumb}>
+              <div key={v.id || v.url || `v${i}`} style={styles.mediaThumb}>
                 {v.type === 'image'
                   ? <img src={v.url} alt={v.name} style={styles.mediaImg} />
                   : (
@@ -1405,7 +1405,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
           }
           return (
             <span
-              key={`${g}-${i}`}
+              key={`${v}-${i}`}
               style={{ ...styles.tag, cursor: 'grab' }}
               draggable
               onDragStart={() => { tagDragRef.current = { beatId: beat.id, field: 'videos', fromIndex: i }; }}

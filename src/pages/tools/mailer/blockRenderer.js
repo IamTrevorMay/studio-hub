@@ -16,6 +16,13 @@ function alignStyle(a) {
   return a ? `text-align:${a};` : 'text-align:left;';
 }
 
+// Editor-preview placeholder for data-bound digest blocks. The browser has
+// no Triton service-role access, so real data (scores, standouts, etc.) is
+// fetched server-side at send time — the preview just shows the slot.
+function dataPlaceholder(label, desc) {
+  return `<div style="border:1px dashed #ccc;border-radius:8px;padding:16px;margin:8px 0;color:#888;font-size:13px;text-align:center;">${escapeHtml(label)}<br/><small>${escapeHtml(desc)}</small><br/><small>Populated at send time.</small></div>`;
+}
+
 // Replace {{token}} occurrences using a subscriber-like object.
 // Lookup order: name/email at top level, then anything in custom_fields.
 // Tokens with no value fall back to `fallback`.
@@ -97,10 +104,23 @@ function renderInner(b, ctx) {
       return `<div style="height:${b.size || 16}px;line-height:${b.size || 16}px;">&nbsp;</div>`;
     case 'html':
       return b.html || '';
-    case 'rich-text':
-      // Tiptap output is already semantic HTML. Wrap in a div so any
-      // padding/background props from the chrome wrapper apply cleanly.
+    case 'rich-text': {
+      // Tiptap output is already semantic HTML. Claude-bound rich-text is
+      // empty in the editor and filled server-side at send.
+      const empty = !b.html || b.html === '' || b.html === '<p></p>';
+      if (empty && b.binding && b.binding.source === 'claude') {
+        return dataPlaceholder('AI section', `${b.binding.claudeField || ''} — written at send time`);
+      }
       return `<div style="font-size:15px;line-height:1.6;color:#333;">${b.html || ''}</div>`;
+    }
+    case 'scores':
+      return dataPlaceholder('Scores', 'Yesterday’s final scores — from Triton briefs');
+    case 'standouts':
+      return dataPlaceholder('Standouts', 'Top Stuff+/Cmd+ performers — from Triton briefs');
+    case 'trend-alerts':
+      return dataPlaceholder('Trend Alerts', 'Surges & concerns — from Triton briefs');
+    case 'starter-card':
+      return dataPlaceholder('Start of the Day', 'Generated starter-card image — from Triton daily cards');
     case 'rss-card': {
       // Editor preview shows a placeholder. Real fetch happens server-side
       // at send time inside mailer-send-now using the same renderer.
@@ -120,15 +140,14 @@ function renderInner(b, ctx) {
     case 'header': {
       const bg = b.bg || '#0f0f1a';
       const fg = b.fg || '#ffffff';
-      const banner = b.style === 'banner' && b.src ? `<img src="${escapeHtml(b.bannerUrl || '')}" alt="" style="max-width:100%;height:auto;display:block;border:0;" />` : '';
+      if (b.style === 'banner' && b.bannerUrl) {
+        return `<div style="background:${bg};text-align:center;"><img src="${escapeHtml(b.bannerUrl)}" alt="" style="max-width:100%;height:auto;display:block;border:0;" /></div>`;
+      }
       const logo = (b.style === 'logo' || b.style === 'text') && b.logoUrl
         ? `<img src="${escapeHtml(b.logoUrl)}" alt="" style="max-height:48px;display:block;margin:0 auto 8px;border:0;" />`
         : '';
       const title = b.title ? `<h1 style="margin:0;font-size:24px;font-weight:700;color:${fg};">${escapeHtml(b.title)}</h1>` : '';
       const sub = b.subtitle ? `<p style="margin:6px 0 0;font-size:14px;color:${fg};opacity:0.75;">${escapeHtml(b.subtitle)}</p>` : '';
-      if (b.style === 'banner' && b.bannerUrl) {
-        return `<div style="background:${bg};text-align:center;">${banner}</div>`;
-      }
       return `<div style="background:${bg};padding:24px;text-align:center;">${logo}${title}${sub}</div>`;
     }
     case 'social-links': {
@@ -140,7 +159,8 @@ function renderInner(b, ctx) {
         .filter((l) => l && l.url)
         .map((l) => {
           const label = labels[l.platform] || (l.platform || '?').slice(0, 2).toUpperCase();
-          return `<a href="${escapeHtml(l.href || l.url)}" target="_blank" rel="noopener" style="display:inline-block;width:${size}px;height:${size}px;line-height:${size}px;background:${color};color:#fff;border-radius:${size}px;text-decoration:none;font-size:${Math.round(size * 0.42)}px;font-weight:700;text-align:center;margin:0 4px;">${label}</a>`;
+          const href = ctx?.rewriteHref ? ctx.rewriteHref(l.url) : l.url;
+          return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener" style="display:inline-block;width:${size}px;height:${size}px;line-height:${size}px;background:${color};color:#fff;border-radius:${size}px;text-decoration:none;font-size:${Math.round(size * 0.42)}px;font-weight:700;text-align:center;margin:0 4px;">${label}</a>`;
         })
         .join('');
       return `<div style="text-align:${align};margin:16px 0;">${icons}</div>`;

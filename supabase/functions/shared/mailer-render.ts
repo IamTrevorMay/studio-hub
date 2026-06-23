@@ -10,6 +10,14 @@ export interface BlockChrome {
   visible?: boolean;
   padding?: { top?: number | null; right?: number | null; bottom?: number | null; left?: number | null };
   background?: string | null;
+  // Optional data binding. Data-bound blocks (scores, standouts, etc.) and
+  // claude-backed rich-text are resolved at send time into ctx.blockData[id].
+  binding?: {
+    source?: "briefs" | "daily_cards" | "claude" | "rss" | "static";
+    path?: string;
+    claudeField?: string;
+    rssUrl?: string;
+  };
 }
 
 export type Block = BlockChrome & (
@@ -28,6 +36,11 @@ export type Block = BlockChrome & (
   | { type: "social-links"; align?: "left" | "center" | "right"; iconSize?: number; color?: string; links?: { platform: string; url: string }[] }
   | { type: "columns"; columnCount?: 2 | 3; gap?: number; children?: Block[][] }
   | { type: "section"; title?: string; showTitle?: boolean; children?: Block[] }
+  // Data blocks — content comes from ctx.blockData[id] at send time.
+  | { type: "scores"; columns?: number; showDecisions?: boolean }
+  | { type: "standouts"; columns?: number; maxCards?: number }
+  | { type: "trend-alerts"; maxItems?: number; showSigma?: boolean }
+  | { type: "starter-card"; cardType?: string }
 );
 
 export interface SubscriberContext {
@@ -54,6 +67,10 @@ export interface RenderContext {
   // Per-block id → fetched RSS item. Populated once per campaign send
   // and passed to every recipient render so we don't re-fetch per email.
   rssData?: Record<string, RssItem | undefined>;
+  // Per-block id → resolved data for bound data blocks (scores, standouts,
+  // trend-alerts, starter-card) + claude-backed rich-text. Resolved once
+  // per campaign send from the Triton source data.
+  blockData?: Record<string, Record<string, unknown> | undefined>;
 }
 
 function substituteTokens(tmpl: string, sub: SubscriberContext, fallback: string): string {
@@ -78,6 +95,32 @@ function escapeHtml(s: string): string {
 
 function alignStyle(a: string | undefined): string {
   return a ? `text-align:${a};` : "text-align:left;";
+}
+
+// ─── Data-block helpers (Studio light theme) ──────────────────────────
+// The Mayday Daily digest blocks (scores/standouts/trend-alerts/starter-card)
+// were ported from Triton's dark email renderer into Studio's light theme.
+const DB = {
+  card: "#f8f9fb", border: "#e5e7eb", bright: "#111111", text: "#333333",
+  muted: "#888888", green: "#16a34a", red: "#dc2626", amber: "#d97706",
+  blue: "#2563eb", accent: "#6366f1",
+};
+
+function plusColor(val: number): string {
+  if (val >= 130) return DB.green;
+  if (val >= 115) return "#22c55e";
+  if (val >= 100) return DB.text;
+  if (val >= 85) return "#ea580c";
+  return DB.red;
+}
+
+function headshot(playerId: number): string {
+  return `https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_80,q_auto:best/v1/people/${playerId}/headshot/67/current`;
+}
+
+// Uppercase section label with a bottom rule (matches the digest's section heads).
+function sectionLabel(text: string): string {
+  return `<p style="margin:0 0 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:${DB.muted};border-bottom:1px solid ${DB.border};padding-bottom:8px;">${escapeHtml(text)}</p>`;
 }
 
 function wrapperStyle(b: BlockChrome): string {
@@ -134,8 +177,74 @@ function renderInner(b: Block, ctx: RenderContext): string {
       // an advanced control so non-technical users don't inject markup
       // they don't understand. Renderer trusts the stored value.
       return b.html;
-    case "rich-text":
-      return `<div style="font-size:15px;line-height:1.6;color:#333;">${b.html || ""}</div>`;
+    case "rich-text": {
+      // Claude-backed rich-text resolves its HTML from ctx.blockData at send.
+      const bound = ctx.blockData?.[b.id || ""]?.html as string | undefined;
+      const html = (bound != null && bound !== "") ? bound : (b.html || "");
+      return `<div style="font-size:15px;line-height:1.6;color:#333;">${html}</div>`;
+    }
+    case "scores": {
+      const scores = (ctx.blockData?.[b.id || ""]?.scores as Array<Record<string, unknown>>) || [];
+      if (!scores.length) return "";
+      const card = (g: Record<string, unknown>) => {
+        const aw = Number(g.awayScore), hm = Number(g.homeScore);
+        const awayWon = aw > hm;
+        const dec: string[] = [];
+        if (g.winner) dec.push(`<span style="color:${DB.green};font-weight:600;">W</span> ${escapeHtml(String(g.winner))}`);
+        if (g.loser) dec.push(`<span style="color:${DB.red};font-weight:600;">L</span> ${escapeHtml(String(g.loser))}`);
+        if (g.save) dec.push(`<span style="color:${DB.blue};font-weight:600;">SV</span> ${escapeHtml(String(g.save))}`);
+        return `<td width="50%" valign="top" style="padding:4px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${DB.card};border:1px solid ${DB.border};border-radius:6px;"><tr><td style="padding:8px 10px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="font-size:12px;font-weight:700;color:${awayWon ? DB.bright : DB.muted};">${escapeHtml(String(g.away))}</td><td align="right" style="font-size:14px;font-weight:800;color:${awayWon ? DB.bright : DB.muted};">${aw}</td></tr><tr><td style="font-size:12px;font-weight:700;color:${!awayWon ? DB.bright : DB.muted};">${escapeHtml(String(g.home))}</td><td align="right" style="font-size:14px;font-weight:800;color:${!awayWon ? DB.bright : DB.muted};">${hm}</td></tr></table>${dec.length ? `<p style="margin:4px 0 0;font-size:9px;color:${DB.muted};line-height:1.4;">${dec.join(" &middot; ")}</p>` : ""}</td></tr></table></td>`;
+      };
+      const rows: string[] = [];
+      for (let i = 0; i < scores.length; i += 2) {
+        const cells = scores.slice(i, i + 2).map(card);
+        while (cells.length < 2) cells.push(`<td width="50%" style="padding:4px;"></td>`);
+        rows.push(`<tr>${cells.join("")}</tr>`);
+      }
+      return `<div style="margin:0 0 8px;">${sectionLabel("Scores")}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${rows.join("")}</table></div>`;
+    }
+    case "standouts": {
+      const arr = (ctx.blockData?.[b.id || ""]?.standouts as Array<Record<string, unknown>>) || [];
+      if (!arr.length) return "";
+      const card = (s: Record<string, unknown>) => {
+        const gl = s.game_line as Record<string, unknown> | null;
+        const line = gl ? `<p style="margin:4px 0 0;font-size:10px;color:${DB.muted};font-family:monospace;">${escapeHtml(String(gl.ip))} IP, ${escapeHtml(String(gl.h))} H, ${escapeHtml(String(gl.er))} ER, ${escapeHtml(String(gl.bb))} BB, ${escapeHtml(String(gl.k))} K</p>` : "";
+        return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${DB.card};border:1px solid ${DB.border};border-radius:8px;margin-bottom:8px;"><tr><td style="padding:12px 14px;"><p style="margin:0 0 8px;font-size:9px;text-transform:uppercase;letter-spacing:0.08em;color:${DB.muted};"><span style="color:${escapeHtml(String(s.accent_color || DB.amber))};font-weight:700;">${escapeHtml(String(s.plus_label || ""))}</span> ${escapeHtml(String(s.role_label || ""))}</p><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td width="40" valign="middle" style="padding-right:10px;"><img src="${headshot(Number(s.player_id))}" alt="" width="40" height="40" style="border-radius:50%;display:block;" /></td><td valign="middle"><p style="margin:0;font-size:13px;font-weight:600;color:${DB.bright};">${escapeHtml(String(s.player_name || ""))}</p><p style="margin:2px 0 0;font-size:10px;color:${DB.muted};">${escapeHtml(String(s.team || ""))}</p></td><td width="60" align="right" valign="middle"><p style="margin:0;font-size:22px;font-weight:800;font-family:monospace;color:${plusColor(Number(s.plus_value))};">${escapeHtml(String(s.plus_value ?? ""))}</p></td></tr></table>${line}</td></tr></table>`;
+      };
+      const rows: string[] = [];
+      for (let i = 0; i < arr.length; i += 2) {
+        const left = card(arr[i]);
+        const right = arr[i + 1] ? card(arr[i + 1]) : "";
+        rows.push(`<tr><td width="50%" valign="top" style="padding-right:4px;">${left}</td><td width="50%" valign="top" style="padding-left:4px;">${right}</td></tr>`);
+      }
+      return `<div style="margin:0 0 8px;">${sectionLabel("Yesterday's Standouts")}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${rows.join("")}</table></div>`;
+    }
+    case "trend-alerts": {
+      const d = ctx.blockData?.[b.id || ""] || {};
+      const surges = (d.surges as Array<Record<string, unknown>>) || [];
+      const concerns = (d.concerns as Array<Record<string, unknown>>) || [];
+      if (!surges.length && !concerns.length) return "";
+      const list = (alerts: Array<Record<string, unknown>>, kind: "surge" | "concern") => {
+        if (!alerts.length) return `<p style="margin:0;color:${DB.muted};font-size:12px;">No ${kind === "surge" ? "surges" : "concerns"} detected.</p>`;
+        const color = kind === "surge" ? DB.green : DB.red;
+        return alerts.slice(0, 5).map((a, i) => {
+          const sigma = Math.abs(Number(a.sigma)).toFixed(1) + "σ";
+          const arrow = a.direction === "up" ? "↑" : "↓";
+          const delta = Number(a.delta);
+          return `<div style="padding:6px 0;border-bottom:1px solid ${DB.border};"><span style="font-weight:600;color:${DB.bright};font-size:13px;">${i + 1}. ${escapeHtml(String(a.player_name || ""))}</span> <span style="font-size:10px;font-weight:700;color:${color};">${arrow} ${sigma}</span><p style="margin:2px 0 0;font-size:11px;color:${DB.muted};">${escapeHtml(String(a.metric_label || ""))}: ${Number(a.season_val).toFixed(1)} → ${Number(a.recent_val).toFixed(1)} (${delta > 0 ? "+" : ""}${delta.toFixed(1)})</p></div>`;
+        }).join("");
+      };
+      const colS = `<td width="50%" valign="top" style="padding-right:8px;">${sectionLabel("Surges")}<div style="background:${DB.card};border:1px solid ${DB.border};border-radius:8px;padding:8px 14px;">${list(surges, "surge")}</div></td>`;
+      const colC = `<td width="50%" valign="top" style="padding-left:8px;">${sectionLabel("Concerns")}<div style="background:${DB.card};border:1px solid ${DB.border};border-radius:8px;padding:8px 14px;">${list(concerns, "concern")}</div></td>`;
+      return `<div style="margin:0 0 8px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>${colS}${colC}</tr></table></div>`;
+    }
+    case "starter-card": {
+      const date = String(ctx.blockData?.[b.id || ""]?.date || "");
+      if (!date) return "";
+      const cardType = (b as { cardType?: string }).cardType || "ig-starter-card";
+      const url = `https://www.tritonapex.io/api/daily-graphics?date=${encodeURIComponent(date)}&type=${encodeURIComponent(cardType)}`;
+      return `<div style="margin:0 0 8px;">${sectionLabel("Start of the Day")}<a href="${escapeHtml(url)}" target="_blank" rel="noopener" style="display:block;border:1px solid ${DB.border};border-radius:8px;overflow:hidden;"><img src="${escapeHtml(url)}" alt="Start of the Day" width="600" style="width:100%;height:auto;display:block;border:0;" /></a></div>`;
+    }
     case "rss-card": {
       const item = ctx.rssData?.[b.id || ""];
       if (!item) {

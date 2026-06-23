@@ -24,6 +24,7 @@ import {
   getAdminClient,
 } from "../shared/workflow-engine.ts";
 import { renderCampaign, Block, RssItem } from "../shared/mailer-render.ts";
+import { resolveBlockData, digestDateET } from "../shared/mailer-bindings.ts";
 import { resendBatch, SendEmailInput } from "../shared/resend.ts";
 import { isSafeExternalUrl } from "../shared/url-validation.ts";
 
@@ -48,14 +49,21 @@ interface Subscriber {
 }
 
 const DEFAULT_FROM = Deno.env.get("MAILER_DEFAULT_FROM") || "noreply@maydaystudio.net";
+const CRON_SECRET = Deno.env.get("CRON_SECRET");
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return jsonResp({ error: "Method not allowed" }, 405);
 
-  const auth = await getUserFromJwt(req);
-  if (!auth) return jsonResp({ error: "Unauthorized" }, 401);
-  if (!auth.isAdmin) return jsonResp({ error: "Admin only" }, 403);
+  // Internal calls from mailer-cron-tick authenticate with the shared
+  // CRON_SECRET instead of a user JWT — a service-role key is not a user,
+  // so getUserFromJwt would reject it.
+  const isInternal = !!CRON_SECRET && req.headers.get("x-cron-secret") === CRON_SECRET;
+  if (!isInternal) {
+    const auth = await getUserFromJwt(req);
+    if (!auth) return jsonResp({ error: "Unauthorized" }, 401);
+    if (!auth.isAdmin) return jsonResp({ error: "Admin only" }, 403);
+  }
 
   let body: { campaign_id?: string; test_recipients?: string[] };
   try { body = await req.json(); } catch { return jsonResp({ error: "Invalid JSON" }, 400); }
@@ -81,7 +89,10 @@ Deno.serve(async (req) => {
     return await runTestSend(admin, campaign, testRecipients);
   }
 
-  if (campaign.status === "sending") return jsonResp({ error: "already sending" }, 409);
+  // The cron tick pre-claims a due campaign by flipping it to 'sending'
+  // before calling us, so internal calls must pass through. For a
+  // user-triggered send, 'sending' means another send is already in flight.
+  if (!isInternal && campaign.status === "sending") return jsonResp({ error: "already sending" }, 409);
   if (!campaign.audience_id) return jsonResp({ error: "no audience" }, 400);
 
   // 2. Resolve audience → active subscribers, minus suppressions. We
@@ -115,8 +126,9 @@ Deno.serve(async (req) => {
   }
 
   // 3. Flip to 'sending' and seed mailer_sends with queued rows. The
-  //    composite (campaign_id, email) unique index protects against
-  //    accidental double-sends from a retried trigger.
+  //    composite (campaign_id, email) unique index makes this idempotent:
+  //    ignoreDuplicates so a retry after a partial failure does NOT reset
+  //    rows that already went out back to 'queued'.
   await admin.from("mailer_campaigns").update({
     status: "sending",
     stats: { ...((campaign as unknown as { stats?: Record<string, number> }).stats || {}), recipients: targets.length },
@@ -128,26 +140,52 @@ Deno.serve(async (req) => {
     email: s.email,
     status: "queued",
   }));
-  const { data: insertedSends } = await admin
+  await admin
     .from("mailer_sends")
-    .upsert(sendRows, { onConflict: "campaign_id,email" })
-    .select("id, email");
+    .upsert(sendRows, { onConflict: "campaign_id,email", ignoreDuplicates: true });
+
+  // Load the full id + status map for this campaign — not just freshly
+  // inserted rows. On a retry the already-sent rows must be visible so we
+  // can skip them rather than re-mailing those recipients.
+  const { data: allSends } = await admin
+    .from("mailer_sends")
+    .select("id, email, status")
+    .eq("campaign_id", campaign.id);
+  const SENT_STATES = ["sent", "delivered", "opened", "clicked", "bounced", "complained"];
   const idByEmail = new Map<string, string>();
-  for (const r of (insertedSends || [])) idByEmail.set(String(r.email).toLowerCase(), r.id as string);
+  const alreadySent = new Set<string>();
+  for (const r of (allSends || [])) {
+    const email = String(r.email).toLowerCase();
+    idByEmail.set(email, r.id as string);
+    if (SENT_STATES.includes(String(r.status))) alreadySent.add(email);
+  }
+
+  // Idempotency: only (re)send to recipients who haven't already gone out.
+  const pending = targets.filter((s) => !alreadySent.has(s.email.toLowerCase()));
+  if (pending.length === 0) {
+    await admin.from("mailer_campaigns").update({
+      status: "sent",
+      sent_at: new Date().toISOString(),
+    }).eq("id", campaign.id);
+    return jsonResp({ ok: true, sent: 0, note: "all recipients already sent" });
+  }
 
   // 4a. Pre-fetch any RSS feeds referenced by rss-card blocks. We fetch
   //     ONCE per unique URL and pass the parsed item to every render
   //     call so 10k recipients don't trigger 10k feed hits.
   const rssData = await collectRssData(campaign.blocks || []);
+  // Resolve data-bound blocks (Mayday Daily digest: scores/standouts/etc.)
+  // once per send from the Triton source data for the digest date.
+  const blockData = await resolveBlockData(campaign.blocks || [], digestDateET());
 
-  // 4. Render once + build the per-recipient envelope. Tracking URLs
+  // 4. Render per recipient + build the send envelope. Tracking URLs
   //    use the deployment public URL so links route back through the
   //    track-open / track-click endpoints.
   const baseUrl = Deno.env.get("MAILER_PUBLIC_URL") || Deno.env.get("SUPABASE_URL") || "";
   const from = campaign.from_email || DEFAULT_FROM;
   const fromHeader = campaign.from_name ? `${campaign.from_name} <${from}>` : from;
 
-  const items: SendEmailInput[] = targets.map((s) => {
+  const items: SendEmailInput[] = pending.map((s) => {
     const sendId = idByEmail.get(s.email.toLowerCase());
     const openUrl = baseUrl && sendId ? `${baseUrl}/functions/v1/mailer-track-open?s=${sendId}` : undefined;
     const unsub = baseUrl && sendId ? `${baseUrl}/functions/v1/mailer-unsubscribe?s=${sendId}` : undefined;
@@ -169,6 +207,7 @@ Deno.serve(async (req) => {
         custom_fields: s.custom_fields || null,
       },
       rssData,
+      blockData,
     });
     return {
       from: fromHeader,
@@ -182,38 +221,51 @@ Deno.serve(async (req) => {
     };
   });
 
-  // 5. Fire. Resend's batch endpoint returns ids positionally — line
-  //    them up against the original targets list so we can persist
-  //    resend_id per send row.
-  let results;
-  try {
-    results = await resendBatch(items);
-  } catch (e) {
+  // 5. Fire in 100-recipient chunks, persisting each chunk's send rows
+  //    BEFORE moving to the next. If a later chunk fails, the earlier
+  //    chunks are already marked 'sent', so the idempotency filter above
+  //    skips them on retry — no duplicate emails. Resend's batch endpoint
+  //    returns ids positionally, so chunkResults[j] lines up with
+  //    chunkTargets[j].
+  const CHUNK = 100;
+  let sentCount = 0;
+  let firstError: string | null = null;
+  for (let i = 0; i < items.length; i += CHUNK) {
+    const chunkItems = items.slice(i, i + CHUNK);
+    const chunkTargets = pending.slice(i, i + CHUNK);
+    let chunkResults: { id: string }[] = [];
+    try {
+      chunkResults = await resendBatch(chunkItems);
+    } catch (e) {
+      firstError = String((e as Error)?.message || e);
+      break;
+    }
+    const sentAt = new Date().toISOString();
+    for (let j = 0; j < chunkTargets.length; j++) {
+      const sendId = idByEmail.get(chunkTargets[j].email.toLowerCase());
+      if (!sendId) continue;
+      await admin.from("mailer_sends").update({
+        status: "sent",
+        sent_at: sentAt,
+        resend_id: chunkResults[j]?.id || null,
+      }).eq("id", sendId);
+      sentCount++;
+    }
+  }
+
+  // 6. Finalize. Nothing went out at all → failed. Otherwise mark 'sent',
+  //    flagging a partial send so the operator knows some recipients are
+  //    still pending (a retry picks them up without re-mailing the rest).
+  if (sentCount === 0) {
     await admin.from("mailer_campaigns").update({ status: "failed" }).eq("id", campaign.id);
-    return jsonResp({ error: String((e as Error)?.message || e) }, 500);
+    return jsonResp({ error: firstError || "no emails sent" }, 500);
   }
-
-  // Patch send rows with the Resend id + sent_at. The webhook flips the
-  // status from 'sent' → 'delivered'/'opened'/etc. as events arrive.
-  const sentAt = new Date().toISOString();
-  for (let i = 0; i < targets.length; i++) {
-    const sendId = idByEmail.get(targets[i].email.toLowerCase());
-    const resendId = results[i]?.id;
-    if (!sendId) continue;
-    await admin.from("mailer_sends").update({
-      status: "sent",
-      sent_at: sentAt,
-      resend_id: resendId || null,
-    }).eq("id", sendId);
-  }
-
-  // 6. Finalize campaign.
   await admin.from("mailer_campaigns").update({
     status: "sent",
-    sent_at: sentAt,
+    sent_at: new Date().toISOString(),
   }).eq("id", campaign.id);
 
-  return jsonResp({ ok: true, sent: targets.length });
+  return jsonResp({ ok: true, sent: sentCount, partial: !!firstError, error: firstError || undefined });
 });
 
 // Walk blocks (incl. children) and fetch each rss-card's latest item.
@@ -293,10 +345,12 @@ async function runTestSend(_admin: any, campaign: Campaign, recipients: string[]
   const from = campaign.from_email || DEFAULT_FROM;
   const fromHeader = campaign.from_name ? `${campaign.from_name} <${from}>` : from;
   const rssData = await collectRssData(campaign.blocks || []);
+  const blockData = await resolveBlockData(campaign.blocks || [], digestDateET());
   const { html, text } = renderCampaign(campaign.blocks || [], {
     subject: `[TEST] ${campaign.subject}`,
     preheader: campaign.preheader || undefined,
     rssData,
+    blockData,
   });
   const items: SendEmailInput[] = recipients.map((to) => ({
     from: fromHeader,

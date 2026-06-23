@@ -330,6 +330,18 @@ function BlockFields({ block, onChange }) {
           </Row>
         </>
       );
+    case 'scores':
+    case 'standouts':
+    case 'trend-alerts':
+    case 'starter-card':
+      return (
+        <div style={styles.note}>
+          Auto-populated at send time from Triton{' '}
+          {block.binding?.source === 'daily_cards' ? 'daily cards' : 'briefs'}
+          {block.binding?.path ? ` (${block.binding.path})` : ''}.
+          {' '}No manual content — reorder, hide, or remove it with the block controls.
+        </div>
+      );
     default:
       return <div style={styles.note}>Unknown block type: {block.type}</div>;
   }

@@ -33,6 +33,25 @@ function formatRelativeTime(dateStr) {
   return `${days}d ago`;
 }
 
+function formatAbsoluteTime(dateStr) {
+  if (!dateStr) return '';
+  return new Date(dateStr).toLocaleString(undefined, {
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  });
+}
+
+// Relative time on top, absolute timestamp beneath it (muted) so a frozen
+// "9d ago" is self-evidently an old fetch rather than a real outage.
+function TimeCell({ value }) {
+  if (!value) return <span style={styles.cardValue}>Never</span>;
+  return (
+    <span style={styles.timeCell}>
+      <span>{formatRelativeTime(value)}</span>
+      <span style={styles.timeAbsolute}>{formatAbsoluteTime(value)}</span>
+    </span>
+  );
+}
+
 export default function Ops() {
   const [accounts, setAccounts] = useState([]);
   const [logs, setLogs] = useState([]);
@@ -40,6 +59,7 @@ export default function Ops() {
   const [loading, setLoading] = useState(true);
   const [logFilter, setLogFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [lastFetched, setLastFetched] = useState(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -60,6 +80,7 @@ export default function Ops() {
       if (accountsRes.data) setAccounts(accountsRes.data);
       if (logsRes.data) setLogs(logsRes.data);
       if (cronRes.data) setCronJobs(cronRes.data);
+      setLastFetched(new Date());
     } catch (err) {
       console.error('Ops data fetch error:', err);
     } finally {
@@ -109,7 +130,14 @@ export default function Ops() {
     <div style={styles.container}>
       <div style={styles.header}>
         <h1 style={styles.title}>Ops</h1>
-        <button onClick={fetchData} style={styles.refreshBtn}>Refresh</button>
+        <div style={styles.headerRight}>
+          {lastFetched && (
+            <span style={styles.lastFetched}>
+              Data last fetched {formatAbsoluteTime(lastFetched)}
+            </span>
+          )}
+          <button onClick={fetchData} style={styles.refreshBtn}>Refresh</button>
+        </div>
       </div>
 
       {/* Platform Health Cards */}
@@ -145,7 +173,7 @@ export default function Ops() {
                 <div style={styles.cardMeta}>
                   <div style={styles.cardRow}>
                     <span style={styles.cardLabel}>Last success:</span>
-                    <span style={styles.cardValue}>{formatRelativeTime(account.last_success_at)}</span>
+                    <span style={styles.cardValue}><TimeCell value={account.last_success_at} /></span>
                   </div>
                   <div style={styles.cardRow}>
                     <span style={styles.cardLabel}>Token:</span>
@@ -218,7 +246,7 @@ export default function Ops() {
                       {log.status}
                     </span>
                   </td>
-                  <td style={styles.td}>{formatRelativeTime(log.started_at)}</td>
+                  <td style={styles.td}><TimeCell value={log.started_at} /></td>
                   <td style={styles.td}>{log.records_processed ?? '—'}</td>
                   <td style={{ ...styles.td, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {log.error_message ? log.error_message.substring(0, 60) : '—'}
@@ -255,7 +283,7 @@ export default function Ops() {
                   <td style={styles.td}>
                     <span style={{ color: job.active ? '#22c55e' : '#ef4444' }}>{job.active ? 'Yes' : 'No'}</span>
                   </td>
-                  <td style={styles.td}>{formatRelativeTime(job.last_run_at)}</td>
+                  <td style={styles.td}><TimeCell value={job.last_run_at} /></td>
                   <td style={styles.td}>
                     {job.last_status && (
                       <span style={{
@@ -314,6 +342,24 @@ const styles = {
     fontWeight: 500,
     cursor: 'pointer',
     fontFamily: "'DM Sans', sans-serif",
+  },
+  headerRight: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+  },
+  lastFetched: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.4)',
+  },
+  timeCell: {
+    display: 'flex',
+    flexDirection: 'column',
+    lineHeight: 1.3,
+  },
+  timeAbsolute: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.4)',
   },
   section: {
     marginBottom: 40,
