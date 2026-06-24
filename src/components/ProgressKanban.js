@@ -56,6 +56,7 @@ export default function ProgressKanban() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [contextMenu, setContextMenu] = useState(null); // { x, y, card }
+  const [editingTitle, setEditingTitle] = useState(null); // { id, value }
   const menuRef = useRef(null);
 
   const fetchCards = useCallback(async () => {
@@ -166,6 +167,32 @@ export default function ProgressKanban() {
     fetchCards();
   };
 
+  // Inline title edit (admin double-click). Saves to DB + renames the Drive
+  // file to match via the progress-rename edge fn.
+  const startEditTitle = (card) => {
+    if (!isAdmin) return;
+    setEditingTitle({ id: card.id, value: card.title });
+  };
+
+  const commitTitle = async () => {
+    const edit = editingTitle;
+    if (!edit) return;
+    setEditingTitle(null);
+    const newTitle = edit.value.trim();
+    const card = cards.find(c => c.id === edit.id);
+    if (!card || !newTitle || newTitle === card.title) return;
+
+    // Optimistic
+    setCards(prev => prev.map(c => (c.id === edit.id ? { ...c, title: newTitle } : c)));
+    try {
+      await callEdgeFn('progress-rename', { cardId: edit.id, title: newTitle });
+    } catch (err) {
+      console.error('Rename failed:', err);
+      window.alert(err.message || 'Rename failed');
+    }
+    fetchCards();
+  };
+
   // Group cards by status
   const grouped = {};
   for (const col of COLUMNS) grouped[col.key] = [];
@@ -176,7 +203,30 @@ export default function ProgressKanban() {
   // Card contents; `number` is the 1-based priority (null = unnumbered column).
   const renderCardBody = (card, number) => (
     <>
-      <div style={styles.cardTitle}>{card.title}</div>
+      {editingTitle?.id === card.id ? (
+        <input
+          autoFocus
+          style={styles.titleInput}
+          value={editingTitle.value}
+          onChange={e => setEditingTitle({ id: card.id, value: e.target.value })}
+          onKeyDown={e => {
+            if (e.key === 'Enter') { e.preventDefault(); commitTitle(); }
+            else if (e.key === 'Escape') { e.preventDefault(); setEditingTitle(null); }
+          }}
+          onBlur={commitTitle}
+          // Keep clicks/drags from bubbling to the drag handle.
+          onMouseDown={e => e.stopPropagation()}
+          onClick={e => e.stopPropagation()}
+        />
+      ) : (
+        <div
+          style={styles.cardTitle}
+          title={isAdmin ? 'Double-click to rename' : undefined}
+          onDoubleClick={() => startEditTitle(card)}
+        >
+          {card.title}
+        </div>
+      )}
       <div style={styles.cardMeta}>
         {number != null && <span style={styles.priorityBadge}>#{number}</span>}
         <span style={{
@@ -437,6 +487,19 @@ const styles = {
     background: 'rgba(99,102,241,0.06)',
     border: '1px solid rgba(99,102,241,0.25)',
     borderTop: 'none',
+  },
+  titleInput: {
+    width: '100%',
+    boxSizing: 'border-box',
+    background: 'rgba(0,0,0,0.3)',
+    border: '1px solid rgba(99,102,241,0.5)',
+    borderRadius: 4,
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: 600,
+    fontFamily: 'inherit',
+    padding: '4px 6px',
+    outline: 'none',
   },
   priorityBadge: {
     fontSize: 10,
