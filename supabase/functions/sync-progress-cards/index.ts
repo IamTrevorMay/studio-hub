@@ -14,6 +14,17 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { DriveFile } from "../shared/progress-drive.ts";
+import {
+  getDriveAccessToken,
+  listDriveFolder,
+  renameDriveFile,
+  cleanName,
+  hasScheduledPrefix,
+  numberedName,
+  unnumberedName,
+  nameHasNumber,
+} from "../shared/progress-drive.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,71 +36,9 @@ const corsHeaders = {
 const EDITING_FOLDER_ID = "1VXcEe8l7jriA017AM9pBBXzG_NTA2B34";
 const READY_FOLDER_ID = "1vaG8mZiQX1bb6S8tCs7-9BQzr7i3eeWU";
 
-// ── Helpers ──────────────────────────────────────────────────
-
-async function getDriveAccessToken(): Promise<string> {
-  const res = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: Deno.env.get("GOOGLE_CLIENT_ID")!,
-      client_secret: Deno.env.get("GOOGLE_CLIENT_SECRET")!,
-      refresh_token: Deno.env.get("GOOGLE_DRIVE_REFRESH_TOKEN")!,
-      grant_type: "refresh_token",
-    }),
-  });
-  const tokens = await res.json();
-  if (!res.ok)
-    throw new Error(tokens.error_description || "Token refresh failed");
-  return tokens.access_token;
-}
-
-type DriveFile = {
-  id: string;
-  name: string;
-  mimeType: string;
-  trashed?: boolean;
-  createdTime?: string;
-};
-
-async function listDriveFolder(
-  token: string,
-  folderId: string,
-): Promise<DriveFile[]> {
-  const all: DriveFile[] = [];
-  let pageToken: string | undefined;
-  do {
-    const params = new URLSearchParams({
-      q: `'${folderId}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'`,
-      fields: "nextPageToken, files(id, name, mimeType, trashed, createdTime)",
-      pageSize: "1000",
-    });
-    if (pageToken) params.set("pageToken", pageToken);
-    const res = await fetch(
-      `https://www.googleapis.com/drive/v3/files?${params}`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Drive list failed (${folderId}): ${err}`);
-    }
-    const json = await res.json();
-    all.push(...(json.files || []).filter((f: DriveFile) => !f.trashed));
-    pageToken = json.nextPageToken;
-  } while (pageToken);
-  return all;
-}
-
-/** Strip extension + leading "(S)" or "(E)" prefix, trim. */
-function cleanName(filename: string): string {
-  let name = filename.replace(/\.[^/.]+$/, "");
-  name = name.replace(/^\([SE]\)\s*/i, "");
-  return name.trim();
-}
-
-function hasScheduledPrefix(filename: string): boolean {
-  return /^\(S\)\s*/i.test(filename.replace(/\.[^/.]+$/, ""));
-}
+// Drive + filename helpers (getDriveAccessToken, listDriveFolder, cleanName,
+// hasScheduledPrefix, renameDriveFile, numberedName, …) now live in
+// ../shared/progress-drive.ts so progress-reorder stays byte-identical.
 
 // ── AI fuzzy matching ────────────────────────────────────────
 
@@ -247,6 +196,12 @@ Deno.serve(async (req: Request) => {
     const updates: { id: string; data: Record<string, unknown> }[] = [];
     const matchedEditingKeys = new Set<string>();
 
+    // New / newly-advanced cards land at the BOTTOM of their column: give them
+    // positions above any existing card, then the self-heal pass (Phase 6)
+    // recompacts each column to contiguous 1..N order.
+    let bottomSeq = 1_000_000;
+    const nextBottom = () => bottomSeq++;
+
     // ── Phase 1: Exact-match ready files to existing cards ───
 
     const unmatchedReadyFiles: DriveFile[] = [];
@@ -264,6 +219,7 @@ Deno.serve(async (req: Request) => {
             data: {
               status: scheduled ? "scheduled" : "ready",
               ready_drive_file_id: file.id,
+              position: scheduled ? 0 : nextBottom(),
               ...(scheduled ? { moved_to_scheduled_at: now } : {}),
               updated_at: now,
             },
@@ -274,6 +230,7 @@ Deno.serve(async (req: Request) => {
             id: card.id,
             data: {
               status: "scheduled",
+              position: 0,
               moved_to_scheduled_at: now,
               updated_at: now,
             },
@@ -296,6 +253,7 @@ Deno.serve(async (req: Request) => {
       ready_drive_file_id: string | null;
       moved_to_scheduled_at: string | null;
       drive_uploaded_at: string | null;
+      position: number;
       created_at: string;
       updated_at: string;
     };
@@ -319,6 +277,7 @@ Deno.serve(async (req: Request) => {
           drive_file_id: file.id,
           ready_drive_file_id: null,
           moved_to_scheduled_at: null,
+          position: nextBottom(),
           drive_uploaded_at: file.createdTime || null,
           created_at: now,
           updated_at: now,
@@ -380,6 +339,7 @@ Deno.serve(async (req: Request) => {
                 title: readyClean,
                 status: scheduled ? "scheduled" : "ready",
                 ready_drive_file_id: readyFile.id,
+                position: scheduled ? 0 : nextBottom(),
                 ...(scheduled ? { moved_to_scheduled_at: now } : {}),
                 updated_at: now,
               },
@@ -396,6 +356,7 @@ Deno.serve(async (req: Request) => {
               pending.status = scheduled ? "scheduled" : "ready";
               pending.ready_drive_file_id = readyFile.id;
               pending.moved_to_scheduled_at = scheduled ? now : null;
+              pending.position = scheduled ? 0 : nextBottom();
               pendingInserts.set(readyClean.toLowerCase(), pending);
             }
           }
@@ -432,6 +393,7 @@ Deno.serve(async (req: Request) => {
         drive_file_id: null,
         ready_drive_file_id: file.id,
         moved_to_scheduled_at: scheduled ? now : null,
+        position: scheduled ? 0 : nextBottom(),
         drive_uploaded_at: file.createdTime || null,
         created_at: now,
         updated_at: now,
@@ -479,6 +441,66 @@ Deno.serve(async (req: Request) => {
       updatedCount++;
     }
 
+    // ── Phase 6: Self-heal — contiguous positions + Drive numbering ──
+    // Re-read fresh state and assert the invariant: Editing/Ready cards are
+    // numbered 1..N by (position, created_at) in both the DB and the Drive
+    // filename; Scheduled cards carry no number prefix. This corrects drift
+    // from manual Drive renames, failed writes, or gaps left by advances.
+    let renamed = 0;
+    try {
+      const { data: fresh } = await admin
+        .from("progress_cards")
+        .select("*")
+        .is("archived_at", null);
+      const all = fresh || [];
+
+      const nameById = new Map<string, string>();
+      for (const f of [...editingFiles, ...readyFiles]) nameById.set(f.id, f.name);
+
+      const byPos = (a: { position?: number; created_at: string }, b: { position?: number; created_at: string }) =>
+        (a.position ?? 0) - (b.position ?? 0) || (a.created_at < b.created_at ? -1 : 1);
+
+      for (const col of ["editing", "ready"] as const) {
+        const colCards = all.filter((c) => c.status === col).sort(byPos);
+        for (let i = 0; i < colCards.length; i++) {
+          const c = colCards[i];
+          if ((c.position ?? -1) !== i) {
+            await admin.from("progress_cards").update({ position: i }).eq("id", c.id);
+          }
+          const fileId = col === "editing" ? c.drive_file_id : c.ready_drive_file_id;
+          if (!fileId) continue;
+          const cur = nameById.get(fileId);
+          if (!cur) continue;
+          if (!nameHasNumber(cur, i + 1) || cleanName(cur) !== c.title) {
+            try {
+              await renameDriveFile(token, fileId, numberedName(cur, c.title, i + 1));
+              renamed++;
+            } catch (e) {
+              console.error("renumber failed", c.title, e);
+            }
+          }
+        }
+      }
+
+      // Scheduled cards: strip any leftover number prefix (keep "(S)").
+      for (const c of all.filter((c) => c.status === "scheduled")) {
+        const fileId = c.ready_drive_file_id;
+        if (!fileId) continue;
+        const cur = nameById.get(fileId);
+        if (!cur) continue;
+        if (/^\s*\d+\.\s+/.test(cur)) {
+          try {
+            await renameDriveFile(token, fileId, unnumberedName(cur, c.title, true));
+            renamed++;
+          } catch (e) {
+            console.error("scheduled strip failed", c.title, e);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("self-heal failed:", e);
+    }
+
     return new Response(
       JSON.stringify({
         ok: true,
@@ -488,6 +510,7 @@ Deno.serve(async (req: Request) => {
         inserted: insertedCount,
         updated: updatedCount,
         ai_matched: aiMatched,
+        renamed,
       }),
       {
         status: 200,

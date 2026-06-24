@@ -3,9 +3,15 @@
 // based on Google Drive folder contents.
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
+import { callEdgeFn } from '../lib/edgeFn';
 import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+
+// Columns whose order is a manual priority (admin drag-to-reorder + numbered
+// Drive filenames). Other columns render static.
+const NUMBERED_COLUMNS = new Set(['editing', 'ready']);
 
 // ─── Column config ───────────────────────────────────────────
 
@@ -57,7 +63,8 @@ export default function ProgressKanban() {
       .from('progress_cards')
       .select('*')
       .is('archived_at', null)
-      .order('created_at', { ascending: false });
+      .order('position', { ascending: true })
+      .order('created_at', { ascending: true });
     if (!error) setCards(data || []);
     setLoading(false);
   }, []);
@@ -132,12 +139,62 @@ export default function ProgressKanban() {
     }
   };
 
+  // Admin drag-to-reorder within Editing / Ready. Position = priority (top = #1);
+  // persisted + Drive files renamed by the progress-reorder edge fn.
+  const onDragEnd = async (result) => {
+    const { source, destination } = result;
+    if (!destination) return;
+    const col = source.droppableId;
+    if (destination.droppableId !== col) return; // within-column only
+    if (!NUMBERED_COLUMNS.has(col)) return;
+    if (source.index === destination.index) return;
+
+    const colItems = cards.filter(c => c.status === col);
+    const reordered = colItems.slice();
+    const [moved] = reordered.splice(source.index, 1);
+    reordered.splice(destination.index, 0, moved);
+
+    // Optimistic: rebuild card list with the new column order.
+    const rest = cards.filter(c => c.status !== col);
+    setCards([...rest, ...reordered]);
+
+    try {
+      await callEdgeFn('progress-reorder', { column: col, orderedIds: reordered.map(c => c.id) });
+    } catch (err) {
+      console.error('Reorder failed:', err);
+    }
+    fetchCards();
+  };
+
   // Group cards by status
   const grouped = {};
   for (const col of COLUMNS) grouped[col.key] = [];
   for (const card of cards) {
     if (grouped[card.status]) grouped[card.status].push(card);
   }
+
+  // Card contents; `number` is the 1-based priority (null = unnumbered column).
+  const renderCardBody = (card, number) => (
+    <>
+      <div style={styles.cardTitle}>{card.title}</div>
+      <div style={styles.cardMeta}>
+        {number != null && <span style={styles.priorityBadge}>#{number}</span>}
+        <span style={{
+          ...styles.typeBadge,
+          background: CONTENT_TYPE_COLORS[card.content_type]?.bg,
+          color: CONTENT_TYPE_COLORS[card.content_type]?.text,
+        }}>
+          {card.content_type === 'short' ? 'Short' : 'Long'}
+        </span>
+        <span style={styles.timeAgo}>{relativeTime(card.created_at)}</span>
+      </div>
+      {card.status === 'scheduled' && card.moved_to_scheduled_at && (
+        <div style={styles.archiveNote}>
+          {archiveCountdown(card.moved_to_scheduled_at)}
+        </div>
+      )}
+    </>
+  );
 
   return (
     <div style={styles.wrapper}>
@@ -162,48 +219,97 @@ export default function ProgressKanban() {
         </button>
       </div>
 
-      <div style={styles.columns}>
-        {COLUMNS.map(col => {
+      <DragDropContext onDragEnd={onDragEnd}>
+        <div style={styles.columns}>
+          {COLUMNS.map(col => {
             const items = grouped[col.key];
-            return (
-              <div key={col.key} style={styles.column}>
-                <div style={{ ...styles.colHeader, background: col.color }}>
-                  <span style={{ ...styles.colLabel, color: col.textColor }}>{col.label}</span>
-                  {items.length > 0 && (
-                    <span style={{ ...styles.colCount, color: col.textColor }}>{items.length}</span>
-                  )}
-                </div>
+            const numbered = NUMBERED_COLUMNS.has(col.key);
+            const dragEnabled = isAdmin && numbered;
 
-                <div style={styles.colBody}>
-                  {items.length === 0 ? (
-                    <div style={styles.emptyState}>No items</div>
-                  ) : (
-                    items.map(card => (
-                      <div key={card.id} style={styles.card} onContextMenu={isAdmin ? e => handleContextMenu(e, card) : undefined}>
-                        <div style={styles.cardTitle}>{card.title}</div>
-                        <div style={styles.cardMeta}>
-                          <span style={{
-                            ...styles.typeBadge,
-                            background: CONTENT_TYPE_COLORS[card.content_type]?.bg,
-                            color: CONTENT_TYPE_COLORS[card.content_type]?.text,
-                          }}>
-                            {card.content_type === 'short' ? 'Short' : 'Long'}
-                          </span>
-                          <span style={styles.timeAgo}>{relativeTime(card.created_at)}</span>
-                        </div>
-                        {card.status === 'scheduled' && card.moved_to_scheduled_at && (
-                          <div style={styles.archiveNote}>
-                            {archiveCountdown(card.moved_to_scheduled_at)}
-                          </div>
-                        )}
-                      </div>
-                    ))
-                  )}
-                </div>
+            const header = (
+              <div style={{ ...styles.colHeader, background: col.color }}>
+                <span style={{ ...styles.colLabel, color: col.textColor }}>{col.label}</span>
+                {items.length > 0 && (
+                  <span style={{ ...styles.colCount, color: col.textColor }}>{items.length}</span>
+                )}
               </div>
             );
-        })}
-      </div>
+
+            // Static (non-reorderable) columns: Ready & Editing get DnD, others don't.
+            if (!numbered) {
+              return (
+                <div key={col.key} style={styles.column}>
+                  {header}
+                  <div style={styles.colBody}>
+                    {items.length === 0 ? (
+                      <div style={styles.emptyState}>No items</div>
+                    ) : (
+                      items.map(card => (
+                        <div
+                          key={card.id}
+                          style={styles.card}
+                          onContextMenu={isAdmin ? e => handleContextMenu(e, card) : undefined}
+                        >
+                          {renderCardBody(card, null)}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <div key={col.key} style={styles.column}>
+                {header}
+                <Droppable droppableId={col.key}>
+                  {(provided, dropSnapshot) => (
+                    <div
+                      ref={provided.innerRef}
+                      {...provided.droppableProps}
+                      style={{
+                        ...styles.colBody,
+                        ...(dropSnapshot.isDraggingOver ? styles.colBodyDragOver : {}),
+                      }}
+                    >
+                      {items.length === 0 ? (
+                        <div style={styles.emptyState}>No items</div>
+                      ) : (
+                        items.map((card, index) => (
+                          <Draggable
+                            key={card.id}
+                            draggableId={card.id}
+                            index={index}
+                            isDragDisabled={!dragEnabled}
+                          >
+                            {(prov, dragSnapshot) => (
+                              <div
+                                ref={prov.innerRef}
+                                {...prov.draggableProps}
+                                {...prov.dragHandleProps}
+                                style={{
+                                  ...styles.card,
+                                  ...(dragEnabled ? styles.cardDraggable : {}),
+                                  ...(dragSnapshot.isDragging ? styles.cardDragging : {}),
+                                  ...prov.draggableProps.style,
+                                }}
+                                onContextMenu={isAdmin ? e => handleContextMenu(e, card) : undefined}
+                              >
+                                {renderCardBody(card, index + 1)}
+                              </div>
+                            )}
+                          </Draggable>
+                        ))
+                      )}
+                      {provided.placeholder}
+                    </div>
+                  )}
+                </Droppable>
+              </div>
+            );
+          })}
+        </div>
+      </DragDropContext>
 
       {loading && cards.length === 0 && (
         <div style={styles.loadingText}>Loading pipeline...</div>
@@ -318,6 +424,28 @@ const styles = {
     border: '1px solid rgba(255,255,255,0.06)',
     borderRadius: 6,
     padding: '10px 12px',
+  },
+  cardDraggable: {
+    cursor: 'grab',
+  },
+  cardDragging: {
+    background: 'rgba(99,102,241,0.18)',
+    border: '1px solid rgba(99,102,241,0.5)',
+    boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+  },
+  colBodyDragOver: {
+    background: 'rgba(99,102,241,0.06)',
+    border: '1px solid rgba(99,102,241,0.25)',
+    borderTop: 'none',
+  },
+  priorityBadge: {
+    fontSize: 10,
+    fontWeight: 700,
+    padding: '2px 6px',
+    borderRadius: 4,
+    background: 'rgba(99,102,241,0.2)',
+    color: '#a5b4fc',
+    letterSpacing: '0.3px',
   },
   cardTitle: {
     fontSize: 13,
