@@ -67,9 +67,14 @@ export async function renameDriveFile(token: string, fileId: string, newName: st
   }
 }
 
-/** Return the file extension including the dot (e.g. ".mp4"), or "" if none. */
+/**
+ * Return the file extension including the dot (e.g. ".mp4"), or "" if none.
+ * Only a short alphanumeric run counts — many of these Drive files have NO
+ * extension but DO contain dots (e.g. "1. Title"), so a naive "everything
+ * after the last dot" would wrongly treat ". Title" as the extension.
+ */
 export function getExt(filename: string): string {
-  const m = filename.match(/\.[^/.]+$/);
+  const m = filename.match(/\.[A-Za-z0-9]{1,5}$/);
   return m ? m[0] : "";
 }
 
@@ -88,7 +93,7 @@ function stripStatusPrefix(name: string): string {
  * number / (S) / (E) prefixes in any order until stable, and trim.
  */
 export function cleanName(filename: string): string {
-  let name = filename.replace(/\.[^/.]+$/, "");
+  let name = filename.replace(/\.[A-Za-z0-9]{1,5}$/, "");
   let prev: string;
   do {
     prev = name;
@@ -100,7 +105,7 @@ export function cleanName(filename: string): string {
 
 export function hasScheduledPrefix(filename: string): boolean {
   // "(S)" may sit before or after a number prefix; peel the number first.
-  return /^\(S\)\s*/i.test(stripNumberPrefix(filename.replace(/\.[^/.]+$/, "")));
+  return /^\(S\)\s*/i.test(stripNumberPrefix(filename.replace(/\.[A-Za-z0-9]{1,5}$/, "")));
 }
 
 /**

@@ -193,8 +193,20 @@ Deno.serve(async (req: Request) => {
       cardsByTitle.set(c.title.toLowerCase(), c);
     }
 
+    // Lookup: Drive file id → card. The file id is stable across renames, so
+    // matching on it first (before clean-name) is what keeps a renamed file
+    // tied to its existing card instead of spawning a duplicate.
+    const cardByFileId = new Map<string, (typeof existingCards)[0]>();
+    for (const c of existingCards) {
+      if (c.drive_file_id) cardByFileId.set(c.drive_file_id, c);
+      if (c.ready_drive_file_id) cardByFileId.set(c.ready_drive_file_id, c);
+    }
+
     const updates: { id: string; data: Record<string, unknown> }[] = [];
     const matchedEditingKeys = new Set<string>();
+    // Cards whose status changed (advanced/scheduled) this run — excluded from
+    // the "file vanished" prune below so an advancing card isn't archived.
+    const touchedStatusIds = new Set<string>();
 
     // New / newly-advanced cards land at the BOTTOM of their column: give them
     // positions above any existing card, then the self-heal pass (Phase 6)
@@ -209,8 +221,9 @@ Deno.serve(async (req: Request) => {
     for (const file of readyFiles) {
       const clean = cleanName(file.name);
       const key = clean.toLowerCase();
-      const card = cardsByTitle.get(key);
       const scheduled = hasScheduledPrefix(file.name);
+      // Match by stored file id first (survives renames), then by clean name.
+      const card = cardByFileId.get(file.id) || cardsByTitle.get(key);
 
       if (card) {
         if (card.status === "editing") {
@@ -224,7 +237,8 @@ Deno.serve(async (req: Request) => {
               updated_at: now,
             },
           });
-          matchedEditingKeys.add(key);
+          matchedEditingKeys.add(card.title.toLowerCase());
+          touchedStatusIds.add(card.id);
         } else if (card.status === "ready" && scheduled) {
           updates.push({
             id: card.id,
@@ -235,6 +249,10 @@ Deno.serve(async (req: Request) => {
               updated_at: now,
             },
           });
+          touchedStatusIds.add(card.id);
+        } else if (card.status === "ready" && card.ready_drive_file_id !== file.id) {
+          // Found by name but the stored ready file id is missing/stale — bind it.
+          updates.push({ id: card.id, data: { ready_drive_file_id: file.id, updated_at: now } });
         }
         // already matched — skip
       } else {
@@ -269,7 +287,7 @@ Deno.serve(async (req: Request) => {
 
       const clean = cleanName(file.name);
       const key = clean.toLowerCase();
-      if (!cardsByTitle.has(key) && !pendingInserts.has(key)) {
+      if (!cardByFileId.has(file.id) && !cardsByTitle.has(key) && !pendingInserts.has(key)) {
         pendingInserts.set(key, {
           title: clean,
           status: "editing",
@@ -345,6 +363,7 @@ Deno.serve(async (req: Request) => {
               },
             });
             matchedEditingKeys.add(dbCard.title.toLowerCase());
+            touchedStatusIds.add(dbCard.id);
           } else {
             // Mutate the pending insert: change title + advance status
             const pendingKey = match.editing.toLowerCase();
@@ -383,7 +402,7 @@ Deno.serve(async (req: Request) => {
 
       const clean = cleanName(file.name);
       const key = clean.toLowerCase();
-      if (cardsByTitle.has(key) || pendingInserts.has(key)) continue;
+      if (cardByFileId.has(file.id) || cardsByTitle.has(key) || pendingInserts.has(key)) continue;
 
       const scheduled = hasScheduledPrefix(file.name);
       pendingInserts.set(key, {
@@ -415,6 +434,27 @@ Deno.serve(async (req: Request) => {
           id: card.id,
           data: { archived_at: now, updated_at: now },
         });
+      }
+    }
+
+    // ── Phase 5b: Prune cards whose Drive file left its folder ───
+    // If an Editing card's file is no longer in the Editing folder (and it
+    // didn't advance to Ready this run), the file was moved out / trashed —
+    // archive the card so it drops off the board. Same for Ready/Scheduled
+    // cards whose file is gone from the Ready folder. Keyed on the stored file
+    // id (not name), so a rename never triggers this — only a real removal.
+    const presentEditingIds = new Set(editingFiles.map((f) => f.id));
+    const presentReadyIds = new Set(readyFiles.map((f) => f.id));
+    for (const card of existingCards) {
+      if (touchedStatusIds.has(card.id)) continue;
+      if (card.status === "editing" && card.drive_file_id && !presentEditingIds.has(card.drive_file_id)) {
+        updates.push({ id: card.id, data: { archived_at: now, updated_at: now } });
+      } else if (
+        (card.status === "ready" || card.status === "scheduled") &&
+        card.ready_drive_file_id &&
+        !presentReadyIds.has(card.ready_drive_file_id)
+      ) {
+        updates.push({ id: card.id, data: { archived_at: now, updated_at: now } });
       }
     }
 
@@ -464,36 +504,47 @@ Deno.serve(async (req: Request) => {
         const colCards = all.filter((c) => c.status === col).sort(byPos);
         for (let i = 0; i < colCards.length; i++) {
           const c = colCards[i];
-          if ((c.position ?? -1) !== i) {
-            await admin.from("progress_cards").update({ position: i }).eq("id", c.id);
+          // De-compound: a legacy title may itself carry a "N. " prefix; strip
+          // it so we never stack a second number onto the filename.
+          const cleanTitle = cleanName(c.title);
+          const patch: Record<string, unknown> = {};
+          if ((c.position ?? -1) !== i) patch.position = i;
+          if (cleanTitle !== c.title) patch.title = cleanTitle;
+          if (Object.keys(patch).length) {
+            patch.updated_at = now;
+            await admin.from("progress_cards").update(patch).eq("id", c.id);
           }
           const fileId = col === "editing" ? c.drive_file_id : c.ready_drive_file_id;
           if (!fileId) continue;
           const cur = nameById.get(fileId);
           if (!cur) continue;
-          if (!nameHasNumber(cur, i + 1) || cleanName(cur) !== c.title) {
+          if (!nameHasNumber(cur, i + 1) || cleanName(cur) !== cleanTitle) {
             try {
-              await renameDriveFile(token, fileId, numberedName(cur, c.title, i + 1));
+              await renameDriveFile(token, fileId, numberedName(cur, cleanTitle, i + 1));
               renamed++;
             } catch (e) {
-              console.error("renumber failed", c.title, e);
+              console.error("renumber failed", cleanTitle, e);
             }
           }
         }
       }
 
-      // Scheduled cards: strip any leftover number prefix (keep "(S)").
+      // Scheduled cards: no number prefix; keep "(S)". Also de-compound title.
       for (const c of all.filter((c) => c.status === "scheduled")) {
+        const cleanTitle = cleanName(c.title);
+        if (cleanTitle !== c.title) {
+          await admin.from("progress_cards").update({ title: cleanTitle, updated_at: now }).eq("id", c.id);
+        }
         const fileId = c.ready_drive_file_id;
         if (!fileId) continue;
         const cur = nameById.get(fileId);
         if (!cur) continue;
-        if (/^\s*\d+\.\s+/.test(cur)) {
+        if (/^\s*\d+\.\s+/.test(cur) || cleanName(cur) !== cleanTitle) {
           try {
-            await renameDriveFile(token, fileId, unnumberedName(cur, c.title, true));
+            await renameDriveFile(token, fileId, unnumberedName(cur, cleanTitle, true));
             renamed++;
           } catch (e) {
-            console.error("scheduled strip failed", c.title, e);
+            console.error("scheduled strip failed", cleanTitle, e);
           }
         }
       }
