@@ -124,6 +124,18 @@ export default function WeeklyReport() {
   );
 }
 
+function CompletenessBadge({ pct }) {
+  if (pct == null) return null;
+  const color = pct >= 90 ? '#22c55e' : pct >= 70 ? '#f59e0b' : '#ef4444';
+  const bg = pct >= 90 ? 'rgba(34,197,94,0.1)' : pct >= 70 ? 'rgba(245,158,11,0.1)' : 'rgba(239,68,68,0.1)';
+  return (
+    <div style={{ ...styles.completenessBadge, background: bg, borderColor: color + '30' }}>
+      <div style={{ ...styles.completenessBar, width: `${Math.min(pct, 100)}%`, background: color }} />
+      <span style={{ ...styles.completenessText, color }}>Data completeness: {pct}%</span>
+    </div>
+  );
+}
+
 function ReportBody({ report }) {
   const d = report.data || {};
   const n = report.narrative || {};
@@ -139,6 +151,18 @@ function ReportBody({ report }) {
 
   return (
     <>
+      {/* Data completeness badge */}
+      {d.data_completeness_pct != null && (
+        <CompletenessBadge pct={d.data_completeness_pct} />
+      )}
+
+      {/* AI narrative unavailable banner */}
+      {d.narrative_failed && (
+        <div style={styles.aiBanner}>
+          AI summary unavailable for this report. KPI data below is still accurate.
+        </div>
+      )}
+
       {n.headline && <div style={styles.headline}>{n.headline}</div>}
 
       {/* KPI cards */}
@@ -298,4 +322,19 @@ const styles = {
   empty: { padding: '60px 20px', textAlign: 'center' },
   emptyText: { color: 'rgba(255,255,255,0.4)', fontSize: 14, maxWidth: 420, margin: '0 auto' },
   generatedAt: { color: 'rgba(255,255,255,0.3)', fontSize: 11, textAlign: 'right', marginTop: 4 },
+  completenessBadge: {
+    position: 'relative', overflow: 'hidden', borderRadius: 8,
+    border: '1px solid', padding: '8px 14px', marginBottom: 12,
+  },
+  completenessBar: {
+    position: 'absolute', top: 0, left: 0, bottom: 0, opacity: 0.15,
+  },
+  completenessText: {
+    position: 'relative', fontSize: 12, fontWeight: 600,
+  },
+  aiBanner: {
+    background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)',
+    borderRadius: 8, padding: '10px 14px', marginBottom: 12,
+    color: '#fbbf24', fontSize: 13, fontWeight: 500,
+  },
 };

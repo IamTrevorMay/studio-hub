@@ -221,3 +221,51 @@ export function errorResponse(message: string, status = 500) {
     headers: { "Content-Type": "application/json" },
   });
 }
+
+/**
+ * Returns an array of YYYY-MM-DD strings that are missing between
+ * rangeStart and rangeEnd (inclusive) given a set of existing dates.
+ */
+export function detectMissingDays(
+  existingDates: string[],
+  rangeStart: string,
+  rangeEnd: string,
+): string[] {
+  const existing = new Set(existingDates);
+  const missing: string[] = [];
+  const cur = new Date(rangeStart + "T00:00:00Z");
+  const end = new Date(rangeEnd + "T00:00:00Z");
+  while (cur <= end) {
+    const ymd = cur.toISOString().slice(0, 10);
+    if (!existing.has(ymd)) missing.push(ymd);
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+  return missing;
+}
+
+/**
+ * Inserts rows into sync_backfill_queue for each missing date,
+ * silently skipping duplicates (unique index on account+date).
+ */
+export async function enqueueBackfills(
+  supabase: ReturnType<typeof createClient>,
+  platformAccountId: string,
+  missingDates: string[],
+): Promise<number> {
+  if (missingDates.length === 0) return 0;
+  const rows = missingDates.map((d) => ({
+    platform_account_id: platformAccountId,
+    target_date: d,
+    status: "pending",
+  }));
+  // Batch insert; onConflict ignores duplicates
+  const { data, error } = await supabase
+    .from("sync_backfill_queue")
+    .upsert(rows, { onConflict: "platform_account_id,target_date", ignoreDuplicates: true })
+    .select("id");
+  if (error) {
+    console.error("enqueueBackfills error:", error.message);
+    return 0;
+  }
+  return data?.length || 0;
+}

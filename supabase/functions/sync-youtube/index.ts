@@ -255,9 +255,9 @@ serve(async (req) => {
             throw new Error("Could not find uploads playlist for channel");
           }
 
-          console.log(`Uploads playlist ID for ${account.account_name}: ${uploadsPlaylistId}`);
+          console.log(`[DIAG] Uploads playlist ID for ${account.account_name}: ${uploadsPlaylistId}`);
           videoIds = await fetchAllVideoIds(uploadsPlaylistId, apiKey);
-          console.log(`Total videos for ${account.account_name}: ${videoIds.length}`);
+          console.log(`[DIAG] Total videos from API for ${account.account_name}: ${videoIds.length}`);
 
           // Snapshot existing external_ids so we can detect new videos after upsert
           const { data: existingItems } = await supabase
@@ -640,7 +640,13 @@ serve(async (req) => {
 
         // Freshness detection: warn if no new videos were found
         if (videoIds.length > 0 && videoIds.length === existingExtIds.size) {
-          console.warn(`STALENESS WARNING for ${account.account_name}: API returned ${videoIds.length} videos, all already in DB. Newest content: ${newestPublishedAt || 'unknown'}. No new videos detected.`);
+          const daysSinceNewest = newestPublishedAt
+            ? Math.round((Date.now() - new Date(newestPublishedAt).getTime()) / 86400000)
+            : null;
+          console.warn(`[DIAG] STALENESS WARNING for ${account.account_name}: API returned ${videoIds.length} videos, all already in DB. Playlist: ${account.external_id}. Newest content: ${newestPublishedAt || 'unknown'} (${daysSinceNewest != null ? daysSinceNewest + 'd ago' : 'unknown'}). No new videos detected.`);
+        } else if (videoIds.length > 0) {
+          const newCount = videoIds.length - existingExtIds.size;
+          console.log(`[DIAG] ${account.account_name}: ${newCount} new video(s) found out of ${videoIds.length} total. Newest: ${newestPublishedAt || 'unknown'}`);
         }
 
         await completeIngestionLog(supabase, logId, {
@@ -664,6 +670,10 @@ serve(async (req) => {
         results.push({ account: account.account_name, error: (err as Error).message });
       }
     }
+
+    // Refresh the materialized view so dashboards pick up new data
+    try { await supabase.rpc("refresh_daily_platform_rollups"); }
+    catch (e) { console.error("Rollups refresh failed:", e); }
 
     return jsonResponse({ success: true, results });
   } catch (err) {

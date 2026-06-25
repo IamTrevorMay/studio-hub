@@ -11,7 +11,7 @@ export default function TrendChart({ data, metrics }) {
 
   const xStep = plotW / Math.max(data.length - 1, 1);
 
-  // Compute per-metric max and build paths
+  // Compute per-metric max and build points
   const metricLines = metrics.map(m => {
     const values = data.map(d => m.getValue(d));
     const maxVal = Math.max(...values, 1);
@@ -20,9 +20,37 @@ export default function TrendChart({ data, metrics }) {
       const y = PAD.top + plotH - ((m.getValue(d) / maxVal) * plotH);
       return { x, y };
     });
-    const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-    const areaPath = path + ` L${points[points.length - 1].x.toFixed(1)},${PAD.top + plotH} L${PAD.left},${PAD.top + plotH} Z`;
-    return { ...m, values, maxVal, points, path, areaPath };
+
+    // Split into segments at _gap boundaries
+    const segments = [];
+    let currentSeg = { points: [], startIdx: 0, interpolated: false };
+    for (let i = 0; i < data.length; i++) {
+      if (data[i]._gap) {
+        // End current segment if it has points
+        if (currentSeg.points.length > 0) {
+          segments.push(currentSeg);
+        }
+        // Gap point is not drawn — creates a break
+        currentSeg = { points: [], startIdx: i + 1, interpolated: false };
+      } else {
+        currentSeg.points.push(points[i]);
+        if (data[i]._interpolated) currentSeg.interpolated = true;
+      }
+    }
+    if (currentSeg.points.length > 0) segments.push(currentSeg);
+
+    // Build path and area for each segment
+    const segmentPaths = segments.map(seg => {
+      const path = seg.points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+      const areaPath = path + ` L${seg.points[seg.points.length - 1].x.toFixed(1)},${PAD.top + plotH} L${seg.points[0].x.toFixed(1)},${PAD.top + plotH} Z`;
+      return { path, areaPath, interpolated: seg.interpolated };
+    });
+
+    // Also build the full path/area for backward compat (used by area fill)
+    const fullPath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+    const fullArea = fullPath + ` L${points[points.length - 1].x.toFixed(1)},${PAD.top + plotH} L${PAD.left},${PAD.top + plotH} Z`;
+
+    return { ...m, values, maxVal, points, segmentPaths, fullArea };
   });
 
   // Dynamic x-axis date formatting
@@ -46,11 +74,13 @@ export default function TrendChart({ data, metrics }) {
   const gridYs = Array.from({ length: gridLines + 1 }, (_, i) => PAD.top + plotH - (plotH / gridLines) * i);
 
   // Tooltip formatter
-  function formatMetricValue(m, val) {
+  function formatMetricValue(m, val, idx) {
     if (m.formatValue) return m.formatValue(val);
     if (m.key === 'revenue') return '$' + val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     if (m.key === 'engagement') return val.toFixed(2) + '%';
-    return formatCompact(val);
+    const formatted = formatCompact(val);
+    if (idx != null && data[idx]?._interpolated) return formatted + ' (estimated)';
+    return formatted;
   }
 
   return (
@@ -72,11 +102,23 @@ export default function TrendChart({ data, metrics }) {
             </text>
           );
         })}
-        {/* Area fills and lines for each metric */}
+        {/* Area fills and lines for each metric, split at gaps */}
         {metricLines.map(m => (
           <g key={m.key}>
-            <path d={m.areaPath} fill={m.color + '10'} />
-            <path d={m.path} fill="none" stroke={m.color} strokeWidth="1.5" strokeLinejoin="round" opacity={hoveredIndex !== null ? 0.7 : 1} />
+            {m.segmentPaths.map((seg, si) => (
+              <g key={si}>
+                <path d={seg.areaPath} fill={m.color + (seg.interpolated ? '08' : '10')} />
+                <path
+                  d={seg.path}
+                  fill="none"
+                  stroke={m.color}
+                  strokeWidth="1.5"
+                  strokeLinejoin="round"
+                  opacity={seg.interpolated ? 0.5 : (hoveredIndex !== null ? 0.7 : 1)}
+                  strokeDasharray={seg.interpolated ? '4,3' : 'none'}
+                />
+              </g>
+            ))}
           </g>
         ))}
         {/* Hover guide line */}
@@ -114,13 +156,19 @@ export default function TrendChart({ data, metrics }) {
         }}>
           <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '6px', fontWeight: 600 }}>
             {toLocalDate(data[hoveredIndex].date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+            {data[hoveredIndex]._interpolated && (
+              <span style={{ color: '#f59e0b', marginLeft: 6, fontStyle: 'italic' }}>(estimated)</span>
+            )}
+            {data[hoveredIndex]._gap && (
+              <span style={{ color: '#ef4444', marginLeft: 6, fontStyle: 'italic' }}>(no data)</span>
+            )}
           </div>
           {metricLines.map(m => (
             <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
               <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: m.color, flexShrink: 0 }} />
               <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', minWidth: '70px' }}>{m.label}</span>
               <span style={{ fontSize: '12px', color: '#fff', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-                {formatMetricValue(m, m.values[hoveredIndex])}
+                {formatMetricValue(m, m.values[hoveredIndex], hoveredIndex)}
               </span>
             </div>
           ))}

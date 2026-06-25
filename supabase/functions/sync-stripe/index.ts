@@ -327,6 +327,10 @@ async function handleBatchReconciliation(supabase: any, stripeHeaders: Record<st
     await updateLastSynced(supabase, account.id);
     await completeIngestionLog(supabase, logId, { records_processed: processed, records_created: processed }, account.id);
 
+    // Refresh the materialized view so dashboards pick up new data
+    try { await supabase.rpc("refresh_daily_platform_rollups"); }
+    catch (e) { console.error("Rollups refresh failed:", e); }
+
     return jsonResponse({
       success: true,
       batch_processed: processed,

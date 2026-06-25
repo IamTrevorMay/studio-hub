@@ -59,10 +59,10 @@ function delta(cur: number, last: number, avg4: number) {
   return { value: cur, wow: pctChange(cur, last), vs4wk: pctChange(cur, avg4) };
 }
 
-// ── Claude narrative ─────────────────────────────────────────
+// ── Claude narrative (with retry) ────────────────────────────
 async function aiNarrative(summary: unknown): Promise<Record<string, unknown>> {
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
-  if (!apiKey) return {};
+  if (!apiKey) return { _error: "ANTHROPIC_API_KEY not configured" };
   const prompt = `You are the analytics lead for a multi-platform content/creator business. Below is this week's KPI summary as JSON, with week-over-week (wow) and vs-trailing-4-week-average (vs4wk) percent deltas.
 
 ${JSON.stringify(summary, null, 2)}
@@ -73,32 +73,44 @@ Respond with ONLY a JSON object:
 {"headline":"one punchy sentence on the week","wins":["..."],"watch_outs":["..."],"recommendations":["concrete next step", "..."]}
 3-4 items max per list. If data is sparse, say so honestly rather than inventing.`;
 
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 1200,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-    if (!res.ok) {
-      console.error("Claude error", res.status, await res.text());
-      return {};
+  for (let attempt = 0; attempt <= 1; attempt++) {
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          max_tokens: 1200,
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error(`Claude error (attempt ${attempt})`, res.status, errText);
+        if (attempt === 0) {
+          await new Promise((r) => setTimeout(r, 3000));
+          continue;
+        }
+        return { _error: `Claude API ${res.status}` };
+      }
+      const j = await res.json();
+      const text = j?.content?.[0]?.text || "";
+      const m = text.match(/\{[\s\S]*\}/);
+      return m ? JSON.parse(m[0]) : {};
+    } catch (e) {
+      console.error(`aiNarrative failed (attempt ${attempt})`, e);
+      if (attempt === 0) {
+        await new Promise((r) => setTimeout(r, 3000));
+        continue;
+      }
+      return { _error: String(e instanceof Error ? e.message : e) };
     }
-    const j = await res.json();
-    const text = j?.content?.[0]?.text || "";
-    const m = text.match(/\{[\s\S]*\}/);
-    return m ? JSON.parse(m[0]) : {};
-  } catch (e) {
-    console.error("aiNarrative failed", e);
-    return {};
   }
+  return { _error: "Exhausted retries" };
 }
 
 // ── email ────────────────────────────────────────────────────
@@ -385,9 +397,23 @@ Deno.serve(async (req: Request) => {
       return { source: g.column_key, weekly_target: weeklyTarget, published, met: published >= weeklyTarget };
     });
 
+    // ── data completeness ──
+    const activeAccounts = (accounts || []).filter((a) => a.is_active);
+    const expectedPlatformDays = activeAccounts.length * 7;
+    const actualPairs = new Set<string>();
+    for (const r of pdm || []) {
+      if (inRange(r.date, wkStart, wkEnd)) {
+        actualPairs.add(`${r.platform_account_id}|${r.date}`);
+      }
+    }
+    const data_completeness_pct = expectedPlatformDays > 0
+      ? Math.round((actualPairs.size / expectedPlatformDays) * 100)
+      : 100;
+
     // ── assemble ──
     const data = {
       window: { week_start: wkStart, week_end: wkEnd, prev_start: prevStart, prev_end: prevEnd },
+      data_completeness_pct,
       totals: {
         views: delta(wk.views, prev.views, base.views / 4),
         followers_gained: delta(wkF.total, prevF.total, baseF.total / 4),
@@ -426,6 +452,12 @@ Deno.serve(async (req: Request) => {
       cadence,
     };
     const narrative = await aiNarrative(summary);
+
+    // Flag narrative failure in the data payload so the frontend can show a banner
+    if (narrative._error) {
+      (data as Record<string, unknown>).narrative_failed = true;
+      console.warn("Narrative generation failed:", narrative._error);
+    }
 
     // ── upsert (detect first generation for this week) ──
     const { data: existing } = await db

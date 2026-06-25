@@ -138,16 +138,30 @@ async function fetchTimeline(
 /**
  * For cumulative metrics (running totals like total likes or total followers),
  * compute day-over-day deltas. Returns { date: delta } for each date except the first.
+ * Optional metricName/platform params enable diagnostic logging for staleness detection.
  */
 function computeDeltas(
   points: { date: string; value: number }[],
+  metricName?: string,
+  platform?: string,
 ): Record<string, number> {
   // Sort by date ascending
   const sorted = [...points].sort((a, b) => a.date.localeCompare(b.date));
   const result: Record<string, number> = {};
+  let zeroStreak = 0;
   for (let i = 1; i < sorted.length; i++) {
     const delta = sorted[i].value - sorted[i - 1].value;
     result[sorted[i].date] = Math.max(0, delta); // clamp to 0 if negative
+    // Track consecutive zero deltas for diagnostic logging
+    if (delta === 0 && sorted[i].value === sorted[i - 1].value) {
+      zeroStreak++;
+    } else {
+      zeroStreak = 0;
+    }
+  }
+  // Log when TikTok cumulative metrics show repeated identical values (API staleness)
+  if (zeroStreak >= 3 && platform && metricName) {
+    console.log(`[DIAG] ${platform}/${metricName}: ${zeroStreak} consecutive zero-deltas from repeated cumulative values (${sorted[sorted.length - 1]?.value}). Likely API staleness, not genuine zero activity.`);
   }
   return result;
 }
@@ -247,7 +261,7 @@ Deno.serve(async (req: Request) => {
 
         // For cumulative metrics, compute deltas; for non-cumulative, use raw values
         const dayValues: Record<string, number> = m.cumulative
-          ? computeDeltas(points)
+          ? computeDeltas(points, m.metric, cfg.platform)
           : Object.fromEntries(points.map((p) => [p.date, p.value]));
 
         for (const [date, value] of Object.entries(dayValues)) {

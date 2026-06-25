@@ -126,6 +126,12 @@ serve(async (req) => {
       }
     }
 
+    // Refresh the materialized view so dashboards pick up new data
+    try {
+      const _adminClient = getSupabaseAdmin();
+      await _adminClient.rpc("refresh_daily_platform_rollups");
+    } catch (e) { console.error("Rollups refresh failed:", e); }
+
     return jsonResponse({ success: true, results });
   } catch (err) {
     console.error("sync-substack fatal error:", err);

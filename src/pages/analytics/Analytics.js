@@ -21,6 +21,7 @@ import ContentVelocityChart from './components/ContentVelocityChart';
 import FrequencyGrowthChart from './components/FrequencyGrowthChart';
 import CompareView from './components/CompareView';
 import WeeklyReport from './components/WeeklyReport';
+import SyncHealthWidget from './components/SyncHealthWidget';
 
 export default function Analytics() {
   const { profile, isAdmin, refreshKey } = useAuth();
@@ -313,7 +314,7 @@ export default function Analytics() {
     });
   }
 
-  // ── Aggregate time series by date ──
+  // ── Aggregate time series by date (with gap-fill) ──
   const aggregatedTimeSeries = useMemo(() => {
     const byDate = {};
     for (const row of timeSeries) {
@@ -327,7 +328,64 @@ export default function Analytics() {
       byDate[row.date].total_shares += Number(row.total_shares) || 0;
       byDate[row.date].followers_eod += Number(row.followers_eod) || 0;
     }
-    return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+    const sorted = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+    if (sorted.length < 2) return sorted;
+
+    // Fill gaps: generate full date sequence between first and last
+    const fields = ['total_views', 'revenue_cents', 'total_likes', 'total_comments', 'total_shares', 'followers_eod'];
+    const dateMap = {};
+    for (const row of sorted) dateMap[row.date] = row;
+
+    const result = [];
+    const start = new Date(sorted[0].date + 'T00:00:00');
+    const end = new Date(sorted[sorted.length - 1].date + 'T00:00:00');
+    const cur = new Date(start);
+
+    while (cur <= end) {
+      const ymd = cur.toISOString().slice(0, 10);
+      if (dateMap[ymd]) {
+        result.push(dateMap[ymd]);
+      } else {
+        // Find nearest real data points before and after this gap
+        const prevIdx = result.length - 1;
+        let afterDate = null;
+        const probe = new Date(cur);
+        probe.setDate(probe.getDate() + 1);
+        while (probe <= end) {
+          const pYmd = probe.toISOString().slice(0, 10);
+          if (dateMap[pYmd]) { afterDate = pYmd; break; }
+          probe.setDate(probe.getDate() + 1);
+        }
+        // Count consecutive missing days in this gap
+        let gapSize = 0;
+        const gapProbe = new Date(cur);
+        while (gapProbe <= end && !dateMap[gapProbe.toISOString().slice(0, 10)]) {
+          gapSize++;
+          gapProbe.setDate(gapProbe.getDate() + 1);
+        }
+
+        if (gapSize <= 2 && prevIdx >= 0 && afterDate && dateMap[afterDate]) {
+          // Linear interpolation for 1–2 day gaps
+          const before = result[prevIdx];
+          const after = dateMap[afterDate];
+          const totalGap = Math.round((new Date(afterDate + 'T00:00:00') - new Date(before.date + 'T00:00:00')) / 86400000);
+          const dayOffset = Math.round((cur - new Date(before.date + 'T00:00:00')) / 86400000);
+          const ratio = dayOffset / totalGap;
+          const interpolated = { date: ymd, _interpolated: true };
+          for (const f of fields) {
+            interpolated[f] = Math.round((before[f] || 0) + ((after[f] || 0) - (before[f] || 0)) * ratio);
+          }
+          result.push(interpolated);
+        } else {
+          // 3+ day gap: insert zero-valued row with gap marker
+          const gapRow = { date: ymd, _gap: true };
+          for (const f of fields) gapRow[f] = 0;
+          result.push(gapRow);
+        }
+      }
+      cur.setDate(cur.getDate() + 1);
+    }
+    return result;
   }, [timeSeries]);
 
   // ── Account breakdowns for donuts ──
@@ -567,6 +625,9 @@ export default function Analytics() {
       {viewMode === 'dashboard' && (loading ? <p style={styles.loadingText}>Loading analytics...</p> : (
         <>
           {/* ── Dashboard Sections ── */}
+          {/* ── Sync Health (admin-only) ── */}
+          {isAdmin && <SyncHealthWidget />}
+
           {/* ── B. KPI Summary Cards ── */}
           {kpi && (
             <div style={styles.kpiGrid}>
