@@ -20,6 +20,7 @@ import PublishHeatmap from './components/PublishHeatmap';
 import ContentVelocityChart from './components/ContentVelocityChart';
 import FrequencyGrowthChart from './components/FrequencyGrowthChart';
 import CompareView from './components/CompareView';
+import WeeklyReport from './components/WeeklyReport';
 
 export default function Analytics() {
   const { profile, isAdmin, refreshKey } = useAuth();
@@ -413,7 +414,7 @@ export default function Analytics() {
       </div>
 
       {/* ── A. Date Range & Platform Filters (Dashboard only) ── */}
-      {viewMode !== 'advanced' && viewMode !== 'compare' && <div style={styles.filterBar}>
+      {viewMode !== 'advanced' && viewMode !== 'compare' && viewMode !== 'weekly' && <div style={styles.filterBar}>
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
           {/* Month dropdown */}
           <select value={dateRange === 'month' ? filterMonth : ''}
@@ -508,6 +509,7 @@ export default function Analytics() {
       <div style={styles.viewToggleBar}>
         <button onClick={() => setViewMode('dashboard')} style={viewMode === 'dashboard' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Dashboard</button>
         <button onClick={() => setViewMode('compare')} style={viewMode === 'compare' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Compare</button>
+        <button onClick={() => setViewMode('weekly')} style={viewMode === 'weekly' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Weekly Report</button>
         <button onClick={() => setViewMode('advanced')} style={viewMode === 'advanced' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Advanced</button>
         <button onClick={() => setViewMode('health')} style={viewMode === 'health' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Content Health</button>
         <div ref={platformMenuRef} style={{ position: 'relative' }}>
@@ -544,6 +546,10 @@ export default function Analytics() {
 
       {viewMode === 'compare' && (
         <CompareView accounts={accounts} />
+      )}
+
+      {viewMode === 'weekly' && (
+        <WeeklyReport />
       )}
 
       {viewMode === 'advanced' && (
