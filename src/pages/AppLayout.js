@@ -68,8 +68,8 @@ const NAV_ITEMS = [
   { key: 'telestration', label: 'Telestrator', icon: ToolsIcon },
   { key: 'post_show', label: 'Clipping Tool', icon: ToolsIcon },
   { key: 'timeline', label: 'Timeline', icon: ToolsIcon },
-  { key: 'mailer', label: 'Mailer', icon: ToolsIcon, adminOnly: true },
-  { key: 'graphics', label: 'Graphics', icon: ToolsIcon },
+  { key: 'mailer', label: 'Mailer', icon: MailerIcon, adminOnly: true },
+  { key: 'graphics', label: 'Graphics', icon: GraphicsIcon },
   { key: 'assets', label: 'Assets Library', icon: ResourcesIcon, external: { url: 'https://www.mayday.systems/' } },
   { key: 'reviews', label: 'Reviews', icon: ReviewsIcon },
   { key: 'organize', label: 'Organize', icon: ToolsIcon },
@@ -94,7 +94,7 @@ const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', '
 
 // ─── Modes ──────────────────────────────────────────────────
 // Admin-only pages that live in Admin Mode and are hidden from the Work View.
-const ADMIN_PAGE_KEYS = ['payroll', 'analytics', 'tracking', 'accounting', 'business_dev', 'freelancers', 'workflows', 'jobs', 'invoicing', 'ops'];
+const ADMIN_PAGE_KEYS = ['payroll', 'analytics', 'tracking', 'accounting', 'business_dev', 'freelancers', 'workflows', 'jobs', 'invoicing', 'ops', 'mailer'];
 // Everyday anchors kept at the top of the Admin Mode sidebar (items + folders).
 const ADMIN_ESSENTIAL_KEYS = ['dashboard', 'projects', 'calendar', 'deliverables'];
 const ADMIN_ESSENTIAL_FOLDER_IDS = new Set(['pre_production', 'filming', 'post_production']);
@@ -108,6 +108,7 @@ const ADMIN_PAGE_NAV = [
   { type: 'item', key: 'invoicing', label: 'Invoicing' },
   { type: 'item', key: 'payroll', label: 'Payroll' },
   { type: 'item', key: 'business_dev', label: 'Business Dev' },
+  { type: 'item', key: 'mailer', label: 'Mailer' },
   { type: 'item', key: 'jobs', label: 'Jobs' },
   { type: 'item', key: 'ops', label: 'Ops' },
   { type: 'item', key: 'admin', label: 'Admin Settings' },
@@ -193,6 +194,8 @@ const NAV_ICON_MAP = {
   telestration: ToolsIcon,
   post_show: ToolsIcon,
   timeline: ToolsIcon,
+  mailer: MailerIcon,
+  graphics: GraphicsIcon,
   assets: ResourcesIcon,
   reviews: ReviewsIcon,
   organize: ToolsIcon,
@@ -1200,6 +1203,24 @@ function ToolsIcon({ active }) {
   );
 }
 
+function GraphicsIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <path d="M12 2l6 6-10 10H2v-6L12 2z" strokeLinejoin="round" />
+      <path d="M10 4l6 6" />
+      <path d="M2 18l4-4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function MailerIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <rect x="2" y="4" width="16" height="12" rx="2" />
+      <path d="M2 6l8 5 8-5" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 function WorkflowsIcon({ active }) {
   return (
