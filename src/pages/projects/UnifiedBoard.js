@@ -17,7 +17,7 @@ import {
 } from '../../lib/kanbanStages';
 
 const SELECT = `
-  id, name, type, status, deadline, on_hold, hold_reason, archived_at, stage_config,
+  id, name, type, status, deadline, on_hold, hold_reason, archived_at, stage_config, sort_order,
   project_stage_assignments(id, stage, user_id, profile:profiles(id, full_name, nickname, title, role))
 `;
 
@@ -26,6 +26,13 @@ function sortByDueDate(a, b) {
   if (!a.deadline) return 1;
   if (!b.deadline) return -1;
   return new Date(a.deadline) - new Date(b.deadline);
+}
+
+function sortBySortOrder(a, b) {
+  const aOrd = a.sort_order ?? Infinity;
+  const bOrd = b.sort_order ?? Infinity;
+  if (aOrd !== bOrd) return aOrd - bOrd;
+  return sortByDueDate(a, b);
 }
 
 function getDisplayName(profile) {
@@ -148,7 +155,9 @@ export default function UnifiedBoard() {
     filteredTyped.filter((p) => !p.on_hold && p.status !== 'backlog').forEach((p) => {
       if (map[p.status]) map[p.status].push(p);
     });
-    Object.values(map).forEach((arr) => arr.sort(sortByDueDate));
+    Object.entries(map).forEach(([stage, arr]) => {
+      arr.sort(stage === 'queue' ? sortBySortOrder : sortByDueDate);
+    });
     return map;
   }, [filteredTyped]);
 
@@ -162,29 +171,93 @@ export default function UnifiedBoard() {
     return isCurrentStageAssignee(project, profile?.id);
   }
 
+  // Persist sort_order for a list of queue projects (optimistic — state already updated).
+  async function persistQueueOrder(orderedProjects) {
+    const updates = orderedProjects.map((p, i) => ({ id: p.id, sort_order: i }));
+    for (const u of updates) {
+      await supabase.from('projects').update({ sort_order: u.sort_order }).eq('id', u.id);
+    }
+  }
+
   async function onDragEnd(result) {
     const { draggableId, source, destination } = result;
     if (!destination) return;
-    const targetStage = destination.droppableId;
-    const sourceStage = source.droppableId;
-    if (targetStage === sourceStage) return;
-    const validTargets = [...CANONICAL_STAGES, 'backlog'];
-    if (!validTargets.includes(targetStage)) return;
+    const destId = destination.droppableId;
+    const srcId = source.droppableId;
+    if (destId === srcId && destination.index === source.index) return;
+
+    // Parse composite queue droppable IDs (e.g. "queue::mayday_video")
+    const isDestQueue = destId.startsWith('queue::');
+    const isSrcQueue = srcId.startsWith('queue::');
+    const destStage = isDestQueue ? 'queue' : destId;
+    const srcStage = isSrcQueue ? 'queue' : srcId;
+    const destType = isDestQueue ? destId.split('::')[1] : null;
+    const srcType = isSrcQueue ? srcId.split('::')[1] : null;
+
     const project = projects.find((p) => p.id === draggableId);
     if (!project) return;
 
+    // Within-Queue reorder (same type section)
+    if (isSrcQueue && isDestQueue && srcType === destType) {
+      const queueProjects = byStage.queue || [];
+      const typeGroup = queueProjects.filter((p) => (p.type || 'other') === srcType);
+      const reordered = [...typeGroup];
+      const [moved] = reordered.splice(source.index, 1);
+      reordered.splice(destination.index, 0, moved);
+      // Optimistic update: rebuild full queue with this type group reordered
+      const otherGroups = queueProjects.filter((p) => (p.type || 'other') !== srcType);
+      const newQueue = [];
+      for (const opt of PROJECT_TYPE_OPTIONS) {
+        if (opt.value === srcType) newQueue.push(...reordered);
+        else newQueue.push(...otherGroups.filter((p) => p.type === opt.value));
+      }
+      const others = otherGroups.filter((p) => !PROJECT_TYPE_OPTIONS.some((o) => o.value === p.type));
+      newQueue.push(...others);
+      // Update sort_order locally
+      newQueue.forEach((p, i) => { p.sort_order = i; });
+      setProjects((prev) => prev.map((p) => {
+        const updated = newQueue.find((q) => q.id === p.id);
+        return updated ? { ...p, sort_order: updated.sort_order } : p;
+      }));
+      persistQueueOrder(newQueue);
+      return;
+    }
+
+    // Cross-type drop within Queue — disallow (can't change card type by dragging)
+    if (isSrcQueue && isDestQueue && srcType !== destType) return;
+
+    // Validate target is a known stage
+    const validTargets = [...CANONICAL_STAGES, 'backlog'];
+    if (!validTargets.includes(destStage)) return;
+
+    // Same stage, no reorder for non-Queue columns
+    if (destStage === srcStage && !isDestQueue) return;
+
     // Backlog ops: admin-only, no handoff modal.
-    if (targetStage === 'backlog' || sourceStage === 'backlog') {
+    if (destStage === 'backlog' || srcStage === 'backlog') {
       if (!isAdmin) {
         alert('Only admins can move cards in or out of Backlog.');
         return;
       }
-      await performMove(project, targetStage, null);
+      // Backlog → Queue: move and assign sort_order at drop position
+      if (srcStage === 'backlog' && destStage === 'queue') {
+        await performMove(project, 'queue', null);
+        // After move, assign sort_order within the project's type section
+        const queueProjects = (byStage.queue || []).filter((p) => p.type === project.type);
+        const newList = [...queueProjects];
+        newList.splice(destination.index, 0, { ...project, status: 'queue' });
+        persistQueueOrder(
+          // Rebuild full queue order
+          [...(byStage.queue || []).filter((p) => p.type !== project.type), ...newList]
+        );
+        return;
+      }
+      await performMove(project, destStage, null);
       return;
     }
 
-    const sourceIdx = CANONICAL_STAGES.indexOf(sourceStage);
-    const targetIdx = CANONICAL_STAGES.indexOf(targetStage);
+    const sourceIdx = CANONICAL_STAGES.indexOf(srcStage);
+    const targetIdx = CANONICAL_STAGES.indexOf(destStage);
     const isBackward = targetIdx < sourceIdx;
     if (isBackward && !isAdmin) {
       alert('Only admins can move a card backward.');
@@ -193,10 +266,10 @@ export default function UnifiedBoard() {
 
     // Open optional handoff modal for forward moves; backward moves go straight.
     if (!isBackward) {
-      setHandoffModal({ project, targetStage });
+      setHandoffModal({ project, targetStage: destStage });
       return;
     }
-    await performMove(project, targetStage, null);
+    await performMove(project, destStage, null);
   }
 
   async function performMove(project, targetStage, handoffNote) {
@@ -349,7 +422,16 @@ export default function UnifiedBoard() {
           <DragDropContext onDragEnd={onDragEnd}>
             <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: spacing.md }}>
               <div style={s.columnsRow}>
-                {CANONICAL_STAGES.map((stage) => (
+                {CANONICAL_STAGES.map((stage) => stage === 'queue' ? (
+                  <QueueColumn
+                    key={stage}
+                    projects={byStage.queue}
+                    taskPlannedDates={taskPlannedDates}
+                    canDragProject={canDrag}
+                    onCardClick={(p) => setEditProject(p)}
+                    onCardContextMenu={isAdmin ? (e, p) => { e.preventDefault(); setCardCtxMenu({ x: e.clientX, y: e.clientY, project: p }); } : null}
+                  />
+                ) : (
                   <Column
                     key={stage}
                     stage={stage}
@@ -537,6 +619,95 @@ function Column({ stage, projects, canDragProject, onCardClick, onCardContextMen
   );
 }
 
+// ─── QueueColumn ─────────────────────────────────────────────────
+
+function QueueColumn({ projects, canDragProject, onCardClick, onCardContextMenu, taskPlannedDates }) {
+  const typeGroups = useMemo(() => {
+    const groups = [];
+    for (const opt of PROJECT_TYPE_OPTIONS) {
+      const items = projects.filter((p) => p.type === opt.value);
+      if (items.length > 0) groups.push({ key: opt.value, label: opt.label, items });
+    }
+    const other = projects.filter((p) => !PROJECT_TYPE_OPTIONS.some((o) => o.value === p.type));
+    if (other.length > 0) groups.push({ key: 'other', label: 'Other', items: other });
+    return groups;
+  }, [projects]);
+
+  return (
+    <div style={s.column}>
+      <div style={{ ...s.columnHeader, color: STAGE_COLORS.queue }}>
+        <span style={s.columnTitle}>QUEUE</span>
+        <span style={s.columnCount}>{projects.length}</span>
+      </div>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: spacing.md, overflowY: 'auto' }}>
+        {typeGroups.map((group) => {
+          const tc = typeColors(group.key);
+          return (
+            <div key={group.key}>
+              <div style={{ ...s.queueSectionHeader, color: tc.fg }}>
+                <span>{group.label}</span>
+                <span style={{ color: colors.textDim, fontWeight: fontWeights.regular }}>{group.items.length}</span>
+              </div>
+              <Droppable droppableId={`queue::${group.key}`}>
+                {(provided, snapshot) => (
+                  <div
+                    ref={provided.innerRef}
+                    {...provided.droppableProps}
+                    style={{
+                      display: 'flex', flexDirection: 'column', gap: spacing.sm,
+                      borderRadius: radii.sm, padding: spacing.xs, minHeight: 32,
+                      background: snapshot.isDraggingOver ? colors.bgHover : 'transparent',
+                    }}
+                  >
+                    {group.items.map((p, idx) => (
+                      <Draggable
+                        key={p.id}
+                        draggableId={p.id}
+                        index={idx}
+                        isDragDisabled={!canDragProject(p)}
+                      >
+                        {(drag, dragSnap) => (
+                          <div
+                            ref={drag.innerRef}
+                            {...drag.draggableProps}
+                            {...drag.dragHandleProps}
+                            onClick={() => { if (!dragSnap.isDragging) onCardClick?.(p); }}
+                            onContextMenu={onCardContextMenu ? (e) => onCardContextMenu(e, p) : undefined}
+                            style={{
+                              ...drag.draggableProps.style,
+                              ...s.card,
+                              cursor: 'pointer',
+                              opacity: canDragProject(p) ? 1 : 0.65,
+                              boxShadow: dragSnap.isDragging ? '0 8px 20px rgba(0,0,0,0.4)' : 'none',
+                            }}
+                          >
+                            <KanbanCard project={p} taskPlannedDates={taskPlannedDates} priorityNumber={idx + 1} />
+                          </div>
+                        )}
+                      </Draggable>
+                    ))}
+                    {provided.placeholder}
+                  </div>
+                )}
+              </Droppable>
+            </div>
+          );
+        })}
+        {typeGroups.length === 0 && (
+          <Droppable droppableId="queue::other">
+            {(provided) => (
+              <div ref={provided.innerRef} {...provided.droppableProps} style={{ minHeight: 100, padding: spacing.sm }}>
+                <div style={{ color: colors.textDim, fontSize: fontSizes.sm }}>No cards in queue</div>
+                {provided.placeholder}
+              </div>
+            )}
+          </Droppable>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── CardContextMenu ─────────────────────────────────────────────
 
 function CardContextMenu({ x, y, onClose, onDuplicate, onArchive, onDelete }) {
@@ -694,14 +865,19 @@ function ArchivedExpander({ expanded, loading, projects, onToggle }) {
 
 // ─── KanbanCard ──────────────────────────────────────────────────
 
-function KanbanCard({ project, taskPlannedDates }) {
+function KanbanCard({ project, taskPlannedDates, priorityNumber }) {
   const stageAssignments = (project.project_stage_assignments || [])
     .filter((a) => a.stage === project.status);
   const assignees = stageAssignments.map((a) => getDisplayName(a.profile)).filter(Boolean);
   const projectPlanned = taskPlannedDates?.[project.id];
   return (
     <>
-      <div style={s.cardTitle}>{project.name}</div>
+      <div style={s.cardTitle}>
+        {priorityNumber != null && (
+          <span style={s.priorityBadge}>#{priorityNumber}</span>
+        )}
+        {project.name}
+      </div>
       <div style={s.cardMeta}>
         <span style={{ ...s.typeTag, color: typeColors(project.type).fg, background: typeColors(project.type).bg, borderColor: typeColors(project.type).border }}>{typeLabel(project.type)}</span>
         {project.deadline && (
@@ -1509,6 +1685,19 @@ const s = {
     textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: fontWeights.semibold,
     padding: '1px 6px', borderRadius: radii.sm,
     border: '1px solid transparent',
+  },
+  priorityBadge: {
+    fontSize: fontSizes.xs,
+    fontWeight: fontWeights.bold,
+    color: colors.textSubtle,
+    marginRight: 6,
+    fontVariantNumeric: 'tabular-nums',
+  },
+  queueSectionHeader: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    fontSize: 10, fontWeight: fontWeights.bold, letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    padding: `${spacing.xs}px ${spacing.xs}px 2px`,
   },
   dueDate: { color: colors.textMuted, fontWeight: fontWeights.medium },
   assigneeRow: {
