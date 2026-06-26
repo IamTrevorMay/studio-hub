@@ -42,7 +42,6 @@ const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard' },
   { key: 'write', label: 'Write' },
   { key: 'production', label: 'Beat Sheet' },
-  { key: 'screenwriter', label: 'Screenwriter' },
   { key: 'teleprompter', label: 'Teleprompter' },
   { key: 'broadcast', label: 'Broadcast', external: { url: 'https://www.tritonapex.io/broadcast' } },
   { key: 'telestration', label: 'Telestrator' },
@@ -84,7 +83,18 @@ const DESKTOP_ADMIN_PAGE_KEYS = new Set([
   'freelancers', 'workflows', 'jobs', 'invoicing', 'ops',
 ]);
 const ADMIN_ESSENTIAL_KEYS = new Set(['dashboard', 'projects', 'calendar', 'deliverables']);
-const ADMIN_ESSENTIAL_FOLDER_IDS = new Set(['pre_production', 'filming', 'post_production']);
+const ADMIN_ESSENTIAL_FOLDER_IDS = new Set(['pre_production']);
+
+// Folders fully removed from the mobile left nav (both Work and Admin modes).
+// Drops the folder header AND any items nested under it.
+const MOBILE_EXCLUDED_FOLDER_IDS = new Set(['filming', 'post_production']);
+function stripExcludedFolders(nav) {
+  return nav.filter((entry) => {
+    if (entry.type === 'folder') return !MOBILE_EXCLUDED_FOLDER_IDS.has(entry.id);
+    if (entry.type === 'item' && entry.folderId) return !MOBILE_EXCLUDED_FOLDER_IDS.has(entry.folderId);
+    return true;
+  });
+}
 
 // Build the Admin View nav list from resolved nav + hardcoded admin pages.
 // Essential items/folders pulled from resolvedNav, then admin pages appended.
@@ -186,7 +196,9 @@ export default function AppLayoutMobile() {
   useEffect(() => { if (!isAdmin && mode !== 'work') setMode('work'); }, [isAdmin, mode]);
   useEffect(() => { localStorage.setItem('studio-hub-mode', mode); }, [mode]);
 
-  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isFreelancer, profile);
+  const resolvedNav = stripExcludedFolders(
+    getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isFreelancer, profile)
+  );
   const adminModeKeySet = getAdminModeKeySet(resolvedNav);
 
   // When the user flips to a mode their current tab doesn't belong to,
@@ -209,8 +221,8 @@ export default function AppLayoutMobile() {
     : baseNav.filter((e) => !(e.type === 'item' && DESKTOP_ADMIN_PAGE_KEYS.has(e.key)));
 
   function toggleMode() {
+    // Keep the drawer open on mode flip — user is still navigating the nav.
     setMode((m) => (m === 'admin' ? 'work' : 'admin'));
-    setDrawerOpen(false);
   }
 
   function navigateTo(tab, target) {
@@ -603,7 +615,12 @@ const styles = {
   layout: {
     display: 'flex',
     flexDirection: 'column',
+    // Fixed-height shell so <main> is the sole scroll container (sticky top
+    // bar stays put, content scrolls beneath it). minHeight is a fallback for
+    // browsers without dvh; the topbar is flex:0 so it always reserves its row.
+    height: '100dvh',
     minHeight: '100vh',
+    overflow: 'hidden',
     background: '#0f0f1a',
     color: '#e2e8f0',
     fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
@@ -611,6 +628,7 @@ const styles = {
   },
   main: {
     flex: 1,
+    minHeight: 0, // allow the flex child to shrink so it scrolls instead of the document
     overflow: 'auto',
     WebkitOverflowScrolling: 'touch',
   },
