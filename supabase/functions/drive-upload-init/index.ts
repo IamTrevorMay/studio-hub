@@ -153,6 +153,20 @@ Deno.serve(async (req: Request) => {
       const roots = [SUBMISSIONS_FOLDER_ID];
       if (profile.assigned_drive_folder_id) roots.push(profile.assigned_drive_folder_id);
 
+      // Per-assignment submit-folder overrides: trust any folder an admin set as
+      // the submit destination on one of this contractor's own assignments. RLS
+      // scopes this read to rows where freelancer_id = the calling user.
+      const { data: overrideRows } = await supabase
+        .from("freelancer_assignments")
+        .select("submit_folder_id")
+        .eq("freelancer_id", user.id)
+        .not("submit_folder_id", "is", null);
+      if (overrideRows) {
+        for (const r of overrideRows) {
+          if (r.submit_folder_id) roots.push(r.submit_folder_id);
+        }
+      }
+
       // Include Clipping Tool recipient folders so non-admin clippers can upload.
       const { data: recipientFolders } = await supabase
         .from("clipping_tool_recipients")

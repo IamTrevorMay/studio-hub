@@ -875,7 +875,7 @@ export default function FreelancerDashboard({ onNavigate }) {
       {submitModalAssignment && (
         <AssignmentSubmitModal
           assignment={submitModalAssignment}
-          folderId={SUBMISSIONS_FOLDER_ID}
+          folderId={submitModalAssignment.submit_folder_id || SUBMISSIONS_FOLDER_ID}
           onUploadSuccess={(driveFileUrl) => {
             handleUploadSuccess(submitModalAssignment, driveFileUrl);
             setSubmitModalAssignment(null);

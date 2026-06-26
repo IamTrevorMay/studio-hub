@@ -15,6 +15,23 @@ const EDIT_STATUSES = [
   { value: 'completed',   label: 'Completed' },
 ];
 
+// Accept either a full Google Drive folder URL or a bare folder id and
+// normalize to the bare id we store in submit_folder_id. Returns '' when the
+// input is empty/unparseable so the caller can fall back to null (= default).
+function parseDriveFolderId(raw) {
+  const v = (raw || '').trim();
+  if (!v) return '';
+  // .../folders/<id> ... (handles /drive/folders, /drive/u/0/folders, query strings)
+  const m = v.match(/\/folders\/([\w-]+)/);
+  if (m) return m[1];
+  // open?id=<id> style links
+  const q = v.match(/[?&]id=([\w-]+)/);
+  if (q) return q[1];
+  // Already a bare id (no slashes / scheme).
+  if (/^[\w-]+$/.test(v)) return v;
+  return '';
+}
+
 function toDateInput(v) {
   if (!v) return '';
   // freelancer_assignments.due_date is a `date` column → 'YYYY-MM-DD'.
@@ -33,7 +50,7 @@ export default function ContractorAssignmentModal({
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     freelancer_id: '', title: '', description: '', asset_url: '',
-    due_date: '', pay_amount: '', status: 'assigned',
+    due_date: '', pay_amount: '', status: 'assigned', submit_folder: '',
   });
 
   const fetchFreelancers = useCallback(async () => {
@@ -57,11 +74,12 @@ export default function ContractorAssignmentModal({
         due_date: toDateInput(existing.due_date),
         pay_amount: existing.pay_amount != null ? String(existing.pay_amount) : '',
         status: existing.status || 'assigned',
+        submit_folder: existing.submit_folder_id || '',
       });
     } else {
       setForm({
         freelancer_id: '', title: '', description: '', asset_url: '',
-        due_date: '', pay_amount: '', status: 'assigned',
+        due_date: '', pay_amount: '', status: 'assigned', submit_folder: '',
       });
     }
   }, [open, isEdit, existing, fetchFreelancers]);
@@ -79,6 +97,7 @@ export default function ContractorAssignmentModal({
         asset_url: form.asset_url.trim() || null,
         due_date: form.due_date || null,
         pay_amount: form.pay_amount ? parseFloat(form.pay_amount) : null,
+        submit_folder_id: parseDriveFolderId(form.submit_folder) || null,
       };
 
       if (isEdit) {
@@ -216,6 +235,22 @@ export default function ContractorAssignmentModal({
                 placeholder="Paste an Assets Library, Drive, or other URL"
               />
             </div>
+            <div style={{ ...styles.formField, gridColumn: '1 / -1' }}>
+              <label style={styles.label}>Submission Folder Override</label>
+              <input
+                value={form.submit_folder}
+                onChange={e => setForm(p => ({ ...p, submit_folder: e.target.value }))}
+                style={styles.input}
+                placeholder="Optional — paste a Drive folder link to override the default submit location"
+              />
+              {form.submit_folder.trim() && (
+                <span style={styles.hint}>
+                  {parseDriveFolderId(form.submit_folder)
+                    ? `Files for this assignment will upload to folder ${parseDriveFolderId(form.submit_folder)}`
+                    : 'Could not read a Drive folder from that link — submissions will use the default location.'}
+                </span>
+              )}
+            </div>
             <div style={styles.formField}>
               <label style={styles.label}>Due Date</label>
               <input
@@ -288,6 +323,7 @@ const styles = {
   formGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 16px' },
   formField: { display: 'flex', flexDirection: 'column', gap: 4 },
   label: { fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)' },
+  hint: { fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2 },
   input: {
     width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: 6, padding: '8px 12px', color: '#fff', fontSize: 14, outline: 'none',
