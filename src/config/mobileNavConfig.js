@@ -35,9 +35,9 @@ export const MOBILE_SUPPORT = {
   workflows: 'full',
   freelancers: 'full',
   ops: 'full',
+  analytics: 'full',
 
   // Excluded — show DesktopOnlyScreen if visited
-  analytics: 'excluded',
   reviews: 'excluded',
   assets: 'excluded',
   write: 'excluded',

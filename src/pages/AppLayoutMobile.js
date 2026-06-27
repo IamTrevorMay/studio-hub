@@ -32,6 +32,7 @@ import Ideas from './IdeasMobile';
 import Workflows from './WorkflowsMobile';
 import Freelancers from './FreelancersMobile';
 import Ops from './OpsMobile';
+import Analytics from './AnalyticsMobile';
 // Goals page is sunset on desktop; mobile mirrors that — import + nav
 // entry + route case removed. Re-add when goals comes back, if ever.
 
@@ -373,6 +374,7 @@ function renderActiveTab({ activeTab, isAdmin, isAssistant, isPartner, isFreelan
   if (activeTab === 'workflows' && !isAdmin) return null;
   if (activeTab === 'freelancers' && !isAdmin) return null;
   if (activeTab === 'ops' && !isAdmin) return null;
+  if (activeTab === 'analytics' && !isAdmin) return null;
 
   switch (activeTab) {
     case 'dashboard': return <Dashboard onNavigate={navigateTo} />;
@@ -389,6 +391,7 @@ function renderActiveTab({ activeTab, isAdmin, isAssistant, isPartner, isFreelan
     case 'workflows': return <Workflows />;
     case 'freelancers': return <Freelancers />;
     case 'ops': return <Ops />;
+    case 'analytics': return <Analytics />;
     case 'channels': return <Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} />;
     case 'messages': return <Messages onNavigate={navigateTo} />;
     case 'admin': return <AdminPanel />;
