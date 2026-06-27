@@ -14,6 +14,12 @@ const CHANNEL_COLORS = {
   tmb: { bg: 'rgba(239,68,68,0.12)', color: '#fca5a5', label: 'TMB' },
   socials: { bg: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)', label: 'SOC' },
 };
+// Mirrors desktop Deliverables Review column (read-only on mobile).
+const REVIEW_STATUS_BY_VALUE = {
+  not_submitted: { label: 'Not Submitted', bg: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.55)' },
+  pending: { label: 'Pending', bg: 'rgba(245,158,11,0.15)', color: '#fbbf24' },
+  accepted: { label: 'Accepted', bg: 'rgba(34,197,94,0.15)', color: '#22c55e' },
+};
 
 export default function DeliverablesMobile() {
   const { refreshKey } = useAuth();
@@ -172,9 +178,11 @@ export default function DeliverablesMobile() {
                     <div style={styles.cardLeft}>
                       <span style={{ fontSize: 16, flexShrink: 0 }}>{DELIVERABLE_TYPES[d.deliverable_type]?.icon || '\u{1F4CB}'}</span>
                       <div style={{ minWidth: 0 }}>
-                        <div style={styles.cardTitle}>{d.title}</div>
+                        <div style={styles.cardTitle}>
+                          {d.sponsor_name}{d.campaign_name ? ` / ${d.campaign_name}` : ''}
+                        </div>
                         <div style={styles.cardMeta}>
-                          {d.sponsor_name}
+                          {d.title}
                           {d.due_date && ` \u00B7 ${new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`}
                         </div>
                       </div>
@@ -189,6 +197,20 @@ export default function DeliverablesMobile() {
                         </span>
                       )}
                     </div>
+                  </div>
+
+                  <div style={styles.chipRow}>
+                    {(() => {
+                      const r = REVIEW_STATUS_BY_VALUE[d.review_status] || REVIEW_STATUS_BY_VALUE.not_submitted;
+                      return <span style={{ ...styles.chip, background: r.bg, color: r.color }}>{r.label}</span>;
+                    })()}
+                    {ev ? (
+                      <span style={{ ...styles.chip, background: 'rgba(168,85,247,0.12)', color: '#c084fc' }}>
+                        {'\u{1F4F9}'} {new Date(ev.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </span>
+                    ) : (
+                      <span style={{ ...styles.chip, background: 'rgba(245,158,11,0.12)', color: '#fbbf24' }}>Not Scheduled</span>
+                    )}
                   </div>
 
                   {isExpanded && (
@@ -389,6 +411,19 @@ const styles = {
     fontSize: 12,
     fontWeight: 700,
     color: '#22c55e',
+    whiteSpace: 'nowrap',
+  },
+  chipRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 6,
+    padding: `0 ${mobileTokens.space.lg}px ${mobileTokens.space.md}px`,
+  },
+  chip: {
+    fontSize: 10,
+    fontWeight: 700,
+    padding: '3px 8px',
+    borderRadius: 5,
     whiteSpace: 'nowrap',
   },
 
