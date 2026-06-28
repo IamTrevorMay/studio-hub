@@ -134,46 +134,67 @@ daily via RSS; only the subscriber metric in `audience_snapshots` is dead.
 - Exact free/paid counts now require an **authenticated** Substack session.
 
 **Decision (Trevor, 2026-06-28):** source exact counts by parsing Substack's
-publisher **stat-digest emails** via Gmail. Blocker found: the claude.ai-connected
-Gmail (`trevormayofficial@gmail.com`) is a *reader* inbox with zero publisher
-stat emails. The Mayday publication is owned under `trevor.may.khs@gmail.com` —
-that inbox must be connected for this to work.
+publisher emails via Gmail.
+
+**Inbox investigation — RESOLVED 2026-06-28 (corrected earlier wrong assumption):**
+- Substack account/login email IS **`trevormayofficial@gmail.com`** (verified in
+  Substack → user profile → Settings → Account). This is the SAME inbox already
+  connected to the claude.ai Gmail integration — so samples can be inspected directly.
+- Earlier guess that the publication lived under `trevor.may.khs@gmail.com` was WRONG.
+  (Both addresses merely *subscribe* to the "The Mayday Catch Up" newsletter, sender
+  `iamtrevormay+the-mayday-catch-up@substack.com`; the khs copy auto-trashes.)
+- No publisher **stat** emails are present because they are **disabled**, not because
+  it's the wrong inbox.
+- The Substack publication **Settings → Analytics** section (GA4 `G-4C55G86M3T`, GTM,
+  FB/Twitter pixel, Parse.ly, site-verification) is OUTBOUND ad/conversion tracking —
+  it does NOT expose free/paid subscriber totals. Not usable for this. (GA4 could later
+  feed site *pageviews* via the GA Data API, but that's not on the metric list.)
+
+**The setting to enable (Trevor's action):**
+- **Publisher dashboard → Settings tab** (the bottom-left publication settings, NOT
+  the profile settings) → notifications/subscribers section → toggle ON
+  **"New free subscriber"** and **"New paid subscriber"**.
+  Source: support.substack.com/hc/en-us/articles/29152946791188 ("head to the Settings
+  tab… toggle on 'New free subscriber'").
+- The "Your week on Substack" weekly summary is an automatic writer email (no clean
+  toggle) — can't be force-enabled; don't rely on it.
 
 **Implementation plan:**
-1. **Verify source emails first.** Connect/inspect `trevor.may.khs@gmail.com` and
-   confirm Substack sends publisher digests ("Your week on Substack" / new-subscriber
-   emails) containing parseable exact free + paid counts. Capture a sample for the
-   parser. If exact numbers aren't in the email body, this approach is dead — fall
-   back to one of: auth-cookie fetch, CSV export upload, or manual entry.
+1. **Verify email contents first (BLOCKING).** After Trevor enables the toggles, the
+   next subscriber event emails `trevormayofficial@`. Inspect it via the connected
+   Gmail integration and confirm what it carries: does it include a running TOTAL
+   ("you now have N subscribers") + paid split, or just the new subscriber's name?
+   - If it has the total → parse the latest such email for the count.
+   - If it only signals an event → count events for deltas, but we still need a base
+     total (fall back: one-time manual seed, or cookie/CSV).
+   - If too thin → fall back to auth-cookie fetch, CSV export upload, or manual entry.
 2. **Gmail API access for the edge function.** The edge fn can't use the claude.ai
-   Gmail MCP — it needs its own Gmail API token. Reuse the existing Google OAuth app
-   (`google-auth-url` / `google-auth-callback`, tokens in `google_calendar_connections`):
+   Gmail MCP — it needs its own Gmail API token for `trevormayofficial@`. Reuse the
+   existing Google OAuth app (`google-auth-url` / `google-auth-callback`, tokens in
+   `google_calendar_connections`):
    - Add `https://www.googleapis.com/auth/gmail.readonly` to the scope in
      `google-auth-url/index.ts:57` (currently calendar-only).
-   - Trevor must re-consent **once** as `trevor.may.khs@gmail.com` (interactive —
-     cannot be automated). Store that account's refresh token (likely a new
-     `google_gmail_connections` row/table, or generalize `google_calendar_connections`).
-   - Note: mixing scopes forces re-consent for existing calendar users too — decide
-     whether to add a separate connection record instead.
-3. **Parser + sync.** In `sync-substack`:
-   - Replace the dead `subscriber_count` call with: authenticate to Gmail API via
-     stored refresh token → query newest Substack stat email → regex/parse exact
-     free + paid → upsert `audience_snapshots` (free + paid split in metadata).
-   - Cadence note: Substack digests are **weekly**, so the metric refreshes weekly,
-     not daily. Acceptable for a slow-moving number; gate the upsert on a newer email.
-4. **Code-quality fixes (already approved, do regardless of source):**
-   - **Stop the silent swallow** (sync-substack/index.ts:62–82): on subscriber-fetch
-     failure, log the status/body and surface it (don't let the run report `success`
-     while the metric rots).
-   - **Fix mislabeled ingestion log** (sync-substack/index.ts:44): job_type is
-     `"content_sync"`, so Substack is invisible in `IngestionHealthPanel`. Change to
-     `"substack_sync"` so it's tracked distinctly.
+   - Trevor re-consents **once** as `trevormayofficial@gmail.com` (interactive).
+     Store the refresh token (new `google_gmail_connections` row/table, or generalize
+     `google_calendar_connections`). Mixing scopes forces re-consent for existing
+     calendar users → prefer a separate connection record.
+3. **Parser + sync.** In `sync-substack`: authenticate to Gmail API via stored refresh
+   token → query newest Substack subscriber email(s) → parse free + paid → upsert
+   `audience_snapshots` (free/paid split in metadata). Cadence: event-driven (whenever
+   subscribers change), so fresher than the old weekly idea.
+4. **Code-quality fixes — DONE + DEPLOYED 2026-06-28 (commit c60cee24):**
+   - Silent swallow fixed (warns HTTP status/body).
+   - Ingestion log relabeled `content_sync` → `substack_sync`.
 
 **Files:** `supabase/functions/sync-substack/index.ts`,
 `supabase/functions/google-auth-url/index.ts`,
 `supabase/functions/google-auth-callback/index.ts`, `google_calendar_connections` table.
 
 **Cron:** `sync-substack` runs daily `0 4 * * *` (active). No cron change needed.
+
+**STATUS:** waiting on Trevor to (a) enable New free/paid subscriber toggles in the
+Publisher dashboard Settings, then (b) report/forward the first subscriber email so the
+contents can be verified before building the parser.
 
 ### Pending — Priority KPI metrics: verify, fix, add + rescope Weekly brief (2026-06-28)
 
