@@ -6,6 +6,7 @@ export const PLATFORM_META = {
   instagram: { label: 'Instagram', color: '#E4405F', icon: 'IG' },
   tiktok:    { label: 'TikTok',    color: '#00F2EA', icon: 'TT' },
   substack:  { label: 'Substack',  color: '#FF6719', icon: 'SS' },
+  simplecast:{ label: 'Simplecast',color: '#2A2A2A', icon: 'SC' },
   twitch:    { label: 'Twitch',    color: '#9146FF', icon: 'TW' },
   stripe:    { label: 'Stripe',    color: '#635BFF', icon: '$' },
   fourthwall:{ label: 'Fourthwall',color: '#E8451C', icon: 'FW' },

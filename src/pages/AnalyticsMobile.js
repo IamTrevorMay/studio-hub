@@ -17,6 +17,7 @@ const PLATFORM_META = {
   instagram:  { label: 'Instagram',  color: '#E4405F', icon: '◉' },
   tiktok:     { label: 'TikTok',     color: '#00F2EA', icon: '♪' },
   substack:   { label: 'Substack',   color: '#FF6719', icon: 'S' },
+  simplecast: { label: 'Simplecast', color: '#2A2A2A', icon: '🎙' },
   twitch:     { label: 'Twitch',     color: '#9146FF', icon: 'T' },
   stripe:     { label: 'Stripe',     color: '#635BFF', icon: '$' },
   fourthwall: { label: 'Fourthwall', color: '#E8451C', icon: '4' },

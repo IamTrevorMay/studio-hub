@@ -41,7 +41,7 @@ serve(async (req) => {
     const results = [];
 
     for (const account of accounts) {
-      const logId = await startIngestionLog(supabase, account.id, "content_sync");
+      const logId = await startIngestionLog(supabase, account.id, "substack_sync");
       let processed = 0, created = 0, updated = 0;
 
       try {
@@ -59,6 +59,11 @@ serve(async (req) => {
         const rssText = await rssRes.text();
         const items = parseRssItems(rssText);
 
+        // NOTE: Substack removed the public /api/v1/subscriber_count endpoint
+        // (~2026-03, now 404s on both custom domain and *.substack.com). This block
+        // no longer lands data — subscriber/paid counts are slated to move to the
+        // Gmail-parse path (see planning.md). Until then, do NOT swallow the failure
+        // silently: surface the status so it's visible in edge logs.
         try {
           const statsRes = await fetchWithRetry(`${baseUrl}/api/v1/subscriber_count`);
           if (statsRes.ok) {
@@ -76,9 +81,17 @@ serve(async (req) => {
               },
               { onConflict: "platform_account_id,date" }
             );
+          } else {
+            const body = await statsRes.text().catch(() => "");
+            console.warn(
+              `Substack subscriber_count failed for ${publicationSlug}: HTTP ${statsRes.status} ` +
+              `(endpoint likely deprecated). Body: ${body.slice(0, 200)}`
+            );
           }
-        } catch {
-          console.log(`Could not fetch subscriber count for ${publicationSlug}`);
+        } catch (e) {
+          console.warn(
+            `Substack subscriber_count error for ${publicationSlug}: ${(e as Error).message}`
+          );
         }
 
         for (const item of items) {

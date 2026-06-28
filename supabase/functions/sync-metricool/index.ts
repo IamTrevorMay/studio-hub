@@ -52,7 +52,11 @@ const PLATFORM_METRICS = [
     network: "tiktok",
     pdm: [
       { subject: "account", metric: "likes", field: "likes", cumulative: true },
-      { subject: "account", metric: "profile_views", field: "views", cumulative: false },
+      // TikTok views live under subject="video", metric="views" (daily values).
+      // Verified live 2026-06-28: account/video_views AND account/profile_views both
+      // return 0, but video/views returns real daily view counts (e.g. 1831, 5709).
+      // The account-subject metric set does not surface usable views for TikTok.
+      { subject: "video", metric: "views", field: "views", cumulative: false },
     ],
     followers: { subject: "account", metric: "followers_count", cumulative: true },
   },

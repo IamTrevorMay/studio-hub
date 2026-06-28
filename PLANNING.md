@@ -115,6 +115,207 @@ Renamed Freelancer to Contractor in admin panel. Added document signing (`Docume
 - Supabase CLI update (v2.95.4 → v2.101.0)
 - `CLAUDE_MODEL` env var should be set in Supabase dashboard to pin model versions across `generate-trends`, `run-report`
 
+### Pending — Substack subscriber count broken since 2026-03-05 (2026-06-28)
+
+**Symptom:** Analytics subscriber number for the Mayday Substack is frozen at
+`2026-03-05` (~3.7 months stale). Articles are fine — `content_items` updates
+daily via RSS; only the subscriber metric in `audience_snapshots` is dead.
+
+**Root cause (confirmed via live curl 2026-06-28):**
+- `sync-substack` fetches `${baseUrl}/api/v1/subscriber_count`. That public
+  Substack endpoint is **gone — returns 404** on both the custom domain
+  (`https://www.mayday.show`) and the subdomain (`iamtrevormay.substack.com`
+  301-redirects to the 404). Substack removed it ~March, matching the freeze.
+- Failure was **silent**: the fetch is wrapped in `try { … } catch { console.log() }`
+  (sync-substack/index.ts:62–82) and only upserts on `statsRes.ok`, so the run
+  still logged `success` while writing nothing.
+- Homepage `_preloads` now exposes only **bucketed** marketing strings
+  (`rankingDetailFreeSubscriberCount: "Over 2,000 subscribers"`), no exact number.
+- Exact free/paid counts now require an **authenticated** Substack session.
+
+**Decision (Trevor, 2026-06-28):** source exact counts by parsing Substack's
+publisher **stat-digest emails** via Gmail. Blocker found: the claude.ai-connected
+Gmail (`trevormayofficial@gmail.com`) is a *reader* inbox with zero publisher
+stat emails. The Mayday publication is owned under `trevor.may.khs@gmail.com` —
+that inbox must be connected for this to work.
+
+**Implementation plan:**
+1. **Verify source emails first.** Connect/inspect `trevor.may.khs@gmail.com` and
+   confirm Substack sends publisher digests ("Your week on Substack" / new-subscriber
+   emails) containing parseable exact free + paid counts. Capture a sample for the
+   parser. If exact numbers aren't in the email body, this approach is dead — fall
+   back to one of: auth-cookie fetch, CSV export upload, or manual entry.
+2. **Gmail API access for the edge function.** The edge fn can't use the claude.ai
+   Gmail MCP — it needs its own Gmail API token. Reuse the existing Google OAuth app
+   (`google-auth-url` / `google-auth-callback`, tokens in `google_calendar_connections`):
+   - Add `https://www.googleapis.com/auth/gmail.readonly` to the scope in
+     `google-auth-url/index.ts:57` (currently calendar-only).
+   - Trevor must re-consent **once** as `trevor.may.khs@gmail.com` (interactive —
+     cannot be automated). Store that account's refresh token (likely a new
+     `google_gmail_connections` row/table, or generalize `google_calendar_connections`).
+   - Note: mixing scopes forces re-consent for existing calendar users too — decide
+     whether to add a separate connection record instead.
+3. **Parser + sync.** In `sync-substack`:
+   - Replace the dead `subscriber_count` call with: authenticate to Gmail API via
+     stored refresh token → query newest Substack stat email → regex/parse exact
+     free + paid → upsert `audience_snapshots` (free + paid split in metadata).
+   - Cadence note: Substack digests are **weekly**, so the metric refreshes weekly,
+     not daily. Acceptable for a slow-moving number; gate the upsert on a newer email.
+4. **Code-quality fixes (already approved, do regardless of source):**
+   - **Stop the silent swallow** (sync-substack/index.ts:62–82): on subscriber-fetch
+     failure, log the status/body and surface it (don't let the run report `success`
+     while the metric rots).
+   - **Fix mislabeled ingestion log** (sync-substack/index.ts:44): job_type is
+     `"content_sync"`, so Substack is invisible in `IngestionHealthPanel`. Change to
+     `"substack_sync"` so it's tracked distinctly.
+
+**Files:** `supabase/functions/sync-substack/index.ts`,
+`supabase/functions/google-auth-url/index.ts`,
+`supabase/functions/google-auth-callback/index.ts`, `google_calendar_connections` table.
+
+**Cron:** `sync-substack` runs daily `0 4 * * *` (active). No cron change needed.
+
+### Pending — Priority KPI metrics: verify, fix, add + rescope Weekly brief (2026-06-28)
+
+Umbrella spec. Trevor defined the metric set he actually cares about; goal is
+(1) make current pulls correct/consistent, (2) add what's missing / fix what's
+inconsistent, (3) rescope the Weekly KPI brief to ONLY these. Substack
+subscriber piece detailed in the section above (Gmail-parse) — referenced here.
+
+**Priority metric set:**
+- **YouTube** (all channels) — everything as-is (keep all current metrics)
+- **TikTok** — Views, Followers, Likes
+- **Instagram** — Views, Followers, Likes
+- **Substack** — Posts, Likes, Subscribers, Paid Subscribers
+- **Simplecast** — Downloads
+
+**Locked decisions (Trevor, 2026-06-28):**
+- Instagram "Likes" → **relabel as "Engagement"** (Metricool exposes no pure-likes
+  at account level; current value is `postsInteractions` = likes+comments+shares).
+  Keep the value, rename in UI + brief. No new fetching.
+- Substack "Likes" → **DROP** (no reliable public source; would need fragile
+  authenticated scraping). Track Posts + Subscribers + Paid only.
+- Substack Subscribers + Paid → via Gmail-parse plan (see section above).
+
+**Verification status (live-confirmed 2026-06-28, last 7 days of DB values):**
+
+| Want | Status | Cause |
+|---|---|---|
+| YouTube (all) | OK | except More Mayday content frozen Jun-24 (external API) |
+| TikTok Views | BROKEN — 0 every day | mapped to `profile_views` (sync-metricool:55) |
+| TikTok Followers | OK | `followers_count` |
+| TikTok Likes | OK | real daily values |
+| Instagram Views | OK | 20k–36k/day |
+| Instagram Followers | OK | fresh |
+| Instagram Likes | WRONG METRIC | `postsInteractions` mislabeled as likes (sync-metricool:37) |
+| Substack Posts | OK | RSS → content_items |
+| Substack Likes | NOT TRACKED | hardcoded 0 — being dropped per decision |
+| Substack Subscribers | BROKEN since Mar-05 | endpoint 404-gone (see section above) |
+| Substack Paid Subs | BROKEN | same dead endpoint |
+| Simplecast Downloads | NOT INTEGRATED | platform doesn't exist in system |
+
+**Metricool available metrics (from sync-metricool/index.ts:18–28 comments):**
+- TikTok: `video_views, profile_views, followers_count, followers_delta_count, likes, comments, shares`
+- Instagram: `...impressions, reach, profile_views, postsCount, postsInteractions, views, accounts_engaged` (no pure `likes`)
+- Facebook: has `likes` (not needed — FB out of scope)
+
+**Fix tasks:**
+
+1. **TikTok Views — drop-in fix.** `sync-metricool/index.ts:55`: change
+   `metric: "profile_views"` → `metric: "video_views"` for the tiktok `views`
+   field. `video_views` is a valid TikTok metric; `profile_views` returns 0.
+   (Decide cumulative flag: video_views is likely a daily/period value, not a
+   running total — verify against a Metricool sample before setting `cumulative`.)
+
+2. **Instagram Likes → Engagement relabel.** Value stays (`postsInteractions`,
+   sync-metricool:37). Rename presentation only:
+   - `src/pages/analytics/constants.js` / wherever the metric label lives
+   - `WeeklyReport.js`, `AnalyticsMobile.js`, Analytics.js KPI labels
+   - No edge-function data change needed. (Note: the brief already computes
+     `engagement = likes+comments+shares`, so IG "likes" feeding it is internally
+     consistent — this is purely a display-label correction.)
+
+3. **Substack code-quality fixes** (from section above, restated):
+   - Stop silent swallow (sync-substack/index.ts:62–82).
+   - Relabel ingestion log `content_sync` → `substack_sync` (sync-substack:44).
+   - Remove the dead `subscriber_count` fetch once Gmail-parse lands.
+   - Stop writing hardcoded `likes: 0` for Substack (likes dropped from scope).
+
+4. **Simplecast — NEW integration.** Build `sync-simplecast` edge function.
+   - API: base `https://api.simplecast.com`, auth `Authorization: Bearer {token}`
+     (token from Simplecast Private Apps page). Endpoints: `GET /podcasts`,
+     `GET /episodes?podcast={id}`, analytics `GET /analytics?podcast={id}` and
+     `GET /analytics/downloads?podcast={id}` / per-episode downloads.
+   - New `platform_accounts` row: platform='simplecast', external_id=podcast_id,
+     credentials hold the API token (mirror how other platforms store secrets).
+   - Storage: daily total downloads → `platform_daily_metrics` (use `views` field,
+     or add a `downloads` column — decide; `views` reuse keeps brief math simple).
+     Episodes → `content_items` (content_type='podcast_episode'),
+     per-episode downloads → `content_metrics.views`.
+   - Add to `PLATFORM_META` (constants.js + AnalyticsMobile.js): `simplecast`.
+   - Cron: add `sync-simplecast` daily (match others, e.g. `0 6 * * *`).
+   - **BLOCKED — needs from Trevor:** Simplecast API token + which podcast(s) to track.
+   - Docs: https://apidocs.simplecast.com/ , https://help.simplecast.com/hc/en-us/articles/21953603587613
+
+5. **Weekly KPI brief rescope.** Restrict `generate-weekly-report` + renderers to
+   the priority set only.
+   - `generate-weekly-report/index.ts` (~lines 229–443): limit platform aggregation
+     to youtube / tiktok / instagram / substack / simplecast; drop facebook, twitch,
+     stripe, fourthwall, twitter, threads from per-platform breakdowns.
+   - Reframe per-platform metrics to match the set: YouTube (all), TikTok
+     (views/followers/likes), IG (views/followers/**engagement**), Substack
+     (posts/subs/paid), Simplecast (downloads).
+   - Decide revenue's place: brief currently has a full revenue section (Stripe/
+     Fourthwall/YouTube). Trevor's list omits revenue — confirm whether to keep a
+     revenue summary or cut it entirely. **OPEN QUESTION.**
+   - Renderers: `src/pages/analytics/components/WeeklyReport.js`,
+     `src/pages/AnalyticsMobile.js` — update KPI cards + per-platform sections +
+     PLATFORM_META filtering. Consider a single shibboleth `BRIEF_PLATFORMS` array
+     so the scope is edited in one place.
+
+**Open inputs / questions for Trevor:**
+- Simplecast API token + podcast id(s).
+- Keep or cut the revenue section in the rescoped Weekly brief?
+- TikTok `video_views` cumulative semantics — confirm with a live Metricool sample.
+
+**Key files:** `supabase/functions/sync-metricool/index.ts`,
+`supabase/functions/sync-substack/index.ts`, `supabase/functions/sync-simplecast/index.ts` (new),
+`supabase/functions/generate-weekly-report/index.ts`,
+`src/pages/analytics/constants.js`, `src/pages/analytics/components/WeeklyReport.js`,
+`src/pages/AnalyticsMobile.js`.
+
+**BUILD STATUS (2026-06-28) — in working tree, NOT committed/deployed:**
+- ✅ TikTok Views — FIXED + deployed + verified live. Root cause: wrong Metricool
+  subject. `account/video_views` returns empty; the real data is at `subject="video",
+  metric="views"` (daily values). Confirmed live 2026-06-28: 06-22→27 = 1831, 5709,
+  20535, 33992, 19373, 7864. Backfilled 14 days. (Valid `video` metrics: videos, views,
+  comments, shares, interactions, likes, reach, engagement, impressionSources, averageVideoViews.)
+- ✅ Substack code fixes — `sync-substack/index.ts`: log relabeled `content_sync`→`substack_sync`; silent `catch` now `console.warn`s the HTTP status/body. Dead subscriber_count call left in place (replaced later by Gmail-parse). Needs deploy.
+- ✅ IG Likes→Engagement — no code change needed; renderers already label likes+comments+shares as "Engagement". Confirmed via grep.
+- ✅ Weekly brief rescope — `generate-weekly-report/index.ts`: added `BRIEF_PLATFORMS` set (youtube/tiktok/instagram/substack/simplecast); scopes audience/reach/content/completeness; **revenue kept unscoped** per Trevor. Needs deploy.
+- ✅ Simplecast — NEW `sync-simplecast/index.ts` (verified live against the API 2026-06-28)
+  + cron migration `20260628000001_cron_sync_simplecast.sql` (daily 06:30 UTC)
+  + enum migration `20260628000002_add_simplecast_platform_type.sql`.
+  Registered in `PLATFORM_META` (constants.js + AnalyticsMobile.js).
+  - API confirmed: auth = `Bearer <raw base64 token>`; `/analytics/downloads?podcast=…`
+    returns `{ total, by_interval:[{interval, downloads_total}] }` (true per-day series,
+    no delta hack). Function stores by_interval daily downloads → `platform_daily_metrics.views`
+    (last 35 days), episodes → content_items, per-episode downloads for recent episodes only.
+  - DONE LIVE: enum value `simplecast` added; `platform_accounts` row created
+    (id a71e94f6-c96e-4301-9df9-f6362cc2c3a8, account_name 'Mayday! with Trevor May',
+    external_id cd026ec3-23d1-4f4d-b3b1-30f543e0ff4f, token in credentials.api_token).
+    Tracking ONLY this podcast (Trevor's choice; account has 4, others skipped).
+- Decision recorded: Substack Likes DROPPED.
+
+**REMAINING — DEPLOY (needs Trevor's explicit OK; nothing deployed yet):**
+1. `supabase functions deploy sync-simplecast --no-verify-jwt`
+2. Redeploy edited fns: `sync-metricool`, `sync-substack`, `generate-weekly-report`.
+3. Apply migrations `20260628000001` (cron) + `20260628000002` (enum, already live).
+4. Commit working-tree changes (7 files) when ready.
+- Verify after first sync-metricool run: TikTok `video_views` populating + cumulative
+  flag correct. Mayday podcast all-time downloads = 7753, 158 episodes, daily series
+  back to 2026-04-22 (so backfill of last 35 days lands immediately on first run).
+
 ### Pending — Ops page not showing updates (2026-06-11)
 
 Ops dashboard remains stale — no fresh ingestion/sync/edge-function activity

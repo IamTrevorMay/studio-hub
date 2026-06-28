@@ -27,6 +27,12 @@ const corsHeaders = {
 
 const MODEL = Deno.env.get("CLAUDE_MODEL") || "claude-sonnet-4-6";
 
+// Platforms the weekly brief covers (Trevor's priority set, 2026-06-28).
+// Scopes content/audience/reach/completeness aggregation. Revenue is left
+// unscoped on purpose — the money view keeps Stripe/Fourthwall/YouTube.
+// Edit this one set to change which platforms the brief reports on.
+const BRIEF_PLATFORMS = new Set(["youtube", "tiktok", "instagram", "substack", "simplecast"]);
+
 function jsonResp(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -232,6 +238,7 @@ Deno.serve(async (req: Request) => {
       for (const r of pdm || []) {
         if (!inRange(r.date, start, end)) continue;
         const p = platformOf(r.platform_account_id);
+        if (!BRIEF_PLATFORMS.has(p)) continue;
         views += r.views || 0;
         engagement += engOf(r);
         byPlatform[p] = byPlatform[p] || { views: 0, engagement: 0 };
@@ -257,6 +264,7 @@ Deno.serve(async (req: Request) => {
       for (const r of aud || []) {
         if (!inRange(r.date, start, end)) continue;
         const p = platformOf(r.platform_account_id);
+        if (!BRIEF_PLATFORMS.has(p)) continue;
         total += r.followers_gained || 0;
         byPlatform[p] = (byPlatform[p] || 0) + (r.followers_gained || 0);
       }
@@ -277,6 +285,7 @@ Deno.serve(async (req: Request) => {
       }
       for (const [id, v] of latestByAcct) {
         const p = platformOf(id);
+        if (!BRIEF_PLATFORMS.has(p)) continue;
         followerTotals[p] = (followerTotals[p] || 0) + v.total;
       }
     }
@@ -369,7 +378,7 @@ Deno.serve(async (req: Request) => {
         engagement: m.engagement,
         engagement_rate: m.engagement_rate,
       };
-    }).sort((a, b) => b.views - a.views);
+    }).filter((c) => BRIEF_PLATFORMS.has(c.platform)).sort((a, b) => b.views - a.views);
     const topContent = contentRanked.slice(0, 5);
     const bottomContent = contentRanked.length > 5 ? contentRanked.slice(-3).reverse() : [];
 
@@ -398,7 +407,7 @@ Deno.serve(async (req: Request) => {
     });
 
     // ── data completeness ──
-    const activeAccounts = (accounts || []).filter((a) => a.is_active);
+    const activeAccounts = (accounts || []).filter((a) => a.is_active && BRIEF_PLATFORMS.has(a.platform));
     const expectedPlatformDays = activeAccounts.length * 7;
     const actualPairs = new Set<string>();
     for (const r of pdm || []) {
