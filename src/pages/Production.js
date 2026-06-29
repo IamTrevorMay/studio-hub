@@ -411,7 +411,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
       if (!cancelled && data) openSheet(data);
     })();
     return () => { cancelled = true; };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line
 
   const closeEditor = async () => {
     clearTimeout(saveTimer.current);

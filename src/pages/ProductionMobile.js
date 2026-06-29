@@ -86,7 +86,7 @@ export default function ProductionMobile({ initialSheetId, onSheetOpened }) {
       if (onSheetOpened) onSheetOpened();
     })();
     return () => { cancelled = true; };
-  }, [initialSheetId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [initialSheetId]); // eslint-disable-line
 
   // Restore sheet from URL on refresh (safety net when initialSheetId isn't provided)
   useEffect(() => {
@@ -102,7 +102,7 @@ export default function ProductionMobile({ initialSheetId, onSheetOpened }) {
       }
     })();
     return () => { cancelled = true; };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line
 
   async function createSheet(e) {
     e.preventDefault();
