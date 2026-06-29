@@ -67,6 +67,9 @@ export default function Analytics() {
 
   // Data
   const [timeSeries, setTimeSeries] = useState([]);
+  // Substack paid subscribers live in audience_snapshots.metadata.supporters
+  // (manually entered via Data Input), not in the rollup — fetched separately.
+  const [substackPaid, setSubstackPaid] = useState(null);
   const [contentItems, setContentItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -131,6 +134,24 @@ export default function Analytics() {
     }
     load();
   }, []);
+
+  // ── Latest Substack paid (supporters) for the digest card ──
+  useEffect(() => {
+    const acct = accounts.find(a => a.platform === 'substack');
+    if (!acct) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('audience_snapshots')
+        .select('metadata, date')
+        .eq('platform_account_id', acct.id)
+        .order('date', { ascending: false })
+        .limit(30);
+      const row = (data || []).find(r => r.metadata && r.metadata.supporters != null);
+      if (!cancelled) setSubstackPaid(row ? Number(row.metadata.supporters) : null);
+    })();
+    return () => { cancelled = true; };
+  }, [accounts]);
 
   // ── Fetch all data when filters change ──
   const fetchAllData = useCallback(async () => {
@@ -526,6 +547,7 @@ export default function Analytics() {
             {digestPlatforms.map(d => {
               const meta = PLATFORM_META[d.platform] || { label: d.platform, color: '#666' };
               const metrics = (DIGEST_CARD_METRICS[d.platform] || (() => []))(d);
+              if (d.platform === 'substack' && substackPaid != null) metrics.push(['Paid', formatCompact(substackPaid)]);
               return (
                 <div key={d.platform} style={{
                   background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',

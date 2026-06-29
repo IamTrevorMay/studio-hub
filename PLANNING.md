@@ -159,42 +159,38 @@ publisher emails via Gmail.
 - The "Your week on Substack" weekly summary is an automatic writer email (no clean
   toggle) — can't be force-enabled; don't rely on it.
 
-**Implementation plan:**
-1. **Verify email contents first (BLOCKING).** After Trevor enables the toggles, the
-   next subscriber event emails `trevormayofficial@`. Inspect it via the connected
-   Gmail integration and confirm what it carries: does it include a running TOTAL
-   ("you now have N subscribers") + paid split, or just the new subscriber's name?
-   - If it has the total → parse the latest such email for the count.
-   - If it only signals an event → count events for deltas, but we still need a base
-     total (fall back: one-time manual seed, or cookie/CSV).
-   - If too thin → fall back to auth-cookie fetch, CSV export upload, or manual entry.
-2. **Gmail API access for the edge function.** The edge fn can't use the claude.ai
-   Gmail MCP — it needs its own Gmail API token for `trevormayofficial@`. Reuse the
-   existing Google OAuth app (`google-auth-url` / `google-auth-callback`, tokens in
-   `google_calendar_connections`):
-   - Add `https://www.googleapis.com/auth/gmail.readonly` to the scope in
-     `google-auth-url/index.ts:57` (currently calendar-only).
-   - Trevor re-consents **once** as `trevormayofficial@gmail.com` (interactive).
-     Store the refresh token (new `google_gmail_connections` row/table, or generalize
-     `google_calendar_connections`). Mixing scopes forces re-consent for existing
-     calendar users → prefer a separate connection record.
-3. **Parser + sync.** In `sync-substack`: authenticate to Gmail API via stored refresh
-   token → query newest Substack subscriber email(s) → parse free + paid → upsert
-   `audience_snapshots` (free/paid split in metadata). Cadence: event-driven (whenever
-   subscribers change), so fresher than the old weekly idea.
-4. **Code-quality fixes — DONE + DEPLOYED 2026-06-28 (commit c60cee24):**
-   - Silent swallow fixed (warns HTTP status/body).
-   - Ingestion log relabeled `content_sync` → `substack_sync`.
+**EMAIL-PARSE APPROACH KILLED 2026-06-29 (verified against a real email).**
+Trevor enabled the New free/paid subscriber toggles; a "New free subscriber to Mayday!"
+email arrived (no-reply@substack.com → trevormayofficial@). Its body contains ONLY the
+new subscriber's email + signup source + a "View dashboard" button — **no running total,
+no paid count.** Per-event emails give growth deltas only, can't reconstruct the absolute
+total, and don't capture unsubscribes (churn) → a running tally would drift high. So the
+"parse email → get total" plan is dead; the data isn't in the email.
 
-**Files:** `supabase/functions/sync-substack/index.ts`,
-`supabase/functions/google-auth-url/index.ts`,
-`supabase/functions/google-auth-callback/index.ts`, `google_calendar_connections` table.
+**DECISION 2026-06-29: manual periodic entry.** Subscriber/paid totals are slow-moving;
+Trevor enters them by hand when he wants.
+- Path ALREADY EXISTS — Analytics → Dashboard → **"Data Input" → Substack**
+  (`DataInputSection.js:50` → `ManualMetricsForm` with fields
+  `['views','revenue','supporters','followers']`):
+  - **followers** → `audience_snapshots.followers_total` = total subscribers
+  - **supporters** → `audience_snapshots.metadata.supporters` = paid subscribers
+- Nothing to build for entry. The new Dashboard digest card reads followers_eod for the
+  Substack "Subscribers" number; it updates as soon as a manual entry lands.
+- The New free/paid subscriber email toggles can be left on or turned off — no longer used.
 
-**Cron:** `sync-substack` runs daily `0 4 * * *` (active). No cron change needed.
+**OPEN (small):** the Substack digest card shows Posts + Subscribers but NOT Paid.
+Paid (supporters) lives in `audience_snapshots.metadata`, which isn't in
+`daily_platform_rollups` → not in the digestPlatforms memo. To show Paid on the card,
+fetch latest supporters per substack account separately. Offer to Trevor.
 
-**STATUS:** waiting on Trevor to (a) enable New free/paid subscriber toggles in the
-Publisher dashboard Settings, then (b) report/forward the first subscriber email so the
-contents can be verified before building the parser.
+**Code-quality fixes — DONE + DEPLOYED 2026-06-28 (commit c60cee24):**
+- Silent swallow fixed (warns HTTP status/body).
+- Ingestion log relabeled `content_sync` → `substack_sync`.
+(The dead `subscriber_count` fetch in sync-substack can be removed entirely now — it will
+never return data; low priority cleanup.)
+
+**Cron:** `sync-substack` runs daily `0 4 * * *` (active) — keeps syncing Substack
+articles via RSS; subscriber count comes from manual entry, not this fn.
 
 ### Pending — Priority KPI metrics: verify, fix, add + rescope Weekly brief (2026-06-28)
 
