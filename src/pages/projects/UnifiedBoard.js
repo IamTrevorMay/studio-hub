@@ -1261,7 +1261,7 @@ function NewProjectModal({ onClose, onCreated, createdBy }) {
             ))}
           </select>
         </Field>
-        <Field label="Deadline">
+        <Field label="Post Date">
           <input
             type="date"
             value={deadline}
@@ -1287,6 +1287,7 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
   const [type, setType] = useState(project.type || PROJECT_TYPE_OPTIONS[0].value);
   const [status, setStatus] = useState(project.status);
   const [deadline, setDeadline] = useState(project.deadline ? project.deadline.slice(0, 10) : '');
+  const [postTime, setPostTime] = useState(project.post_time || '');
   const [busy, setBusy] = useState(false);
   const [stageConfig, setStageConfig] = useState(project.stage_config || {});
   const [stageAssignments, setStageAssignments] = useState(project.project_stage_assignments || []);
@@ -1367,6 +1368,7 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
         name: name.trim(),
         type,
         deadline: deadline || null,
+        post_time: postTime || null,
       };
       const { error } = await supabase.from('projects').update(patch).eq('id', project.id);
       if (error) throw error;
@@ -1375,6 +1377,38 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
           project_id: project.id,
           target_stage: status,
         });
+      }
+      // Calendar event lifecycle for video types
+      const VIDEO_TYPES = ['mayday_video', 'tm_baseball_video'];
+      if (VIDEO_TYPES.includes(type)) {
+        const eventType = type === 'mayday_video' ? 'video_post' : 'tmbb_video';
+        if (deadline && postTime) {
+          const start = new Date(`${deadline}T${postTime}:00`);
+          const end = new Date(start.getTime() + 60 * 60 * 1000);
+          if (project.calendar_event_id) {
+            await supabase.from('calendar_events').update({
+              title: name.trim(),
+              event_type: eventType,
+              start_date: start.toISOString(),
+              end_date: end.toISOString(),
+            }).eq('id', project.calendar_event_id);
+          } else {
+            const { data: evData } = await supabase.from('calendar_events').insert({
+              title: name.trim(),
+              event_type: eventType,
+              start_date: start.toISOString(),
+              end_date: end.toISOString(),
+              all_day: false,
+              created_by: userId,
+            }).select().single();
+            if (evData) {
+              await supabase.from('projects').update({ calendar_event_id: evData.id }).eq('id', project.id);
+            }
+          }
+        } else if (project.calendar_event_id) {
+          await supabase.from('calendar_events').delete().eq('id', project.calendar_event_id);
+          await supabase.from('projects').update({ calendar_event_id: null }).eq('id', project.id);
+        }
       }
       onSaved?.();
       onClose();
@@ -1440,7 +1474,7 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
             ))}
           </select>
         </Field>
-        <Field label="Deadline">
+        <Field label="Post Date">
           <input
             type="date"
             value={deadline}
@@ -1449,6 +1483,17 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
             style={s.input}
           />
         </Field>
+        {['mayday_video', 'tm_baseball_video'].includes(type) && (
+          <Field label="Time">
+            <input
+              type="time"
+              value={postTime}
+              onChange={(e) => setPostTime(e.target.value)}
+              disabled={!canEdit}
+              style={s.input}
+            />
+          </Field>
+        )}
 
         {/* Assignments */}
         <div style={{ marginTop: spacing.md, marginBottom: spacing.md }}>

@@ -1071,6 +1071,7 @@ function ProjectRow({
   const [editChannel, setEditChannel] = useState(project.channel || '');
   const [editStartDate, setEditStartDate] = useState(project.start_date || '');
   const [editDeadline, setEditDeadline] = useState(project.deadline || '');
+  const [editPostTime, setEditPostTime] = useState(project.post_time || '');
   const [editNotes, setEditNotes] = useState(project.notes || '');
   const [editStageTimelines, setEditStageTimelines] = useState(project.stage_timelines || {});
   const [editStageConfig, setEditStageConfig] = useState(project.stage_config || {});
@@ -1110,6 +1111,43 @@ function ProjectRow({
 
   function saveField(field, value) {
     onUpdateProject(project.id, { [field]: value });
+    setEditingField(null);
+  }
+
+  async function savePostDateAndTime(field, value) {
+    onUpdateProject(project.id, { [field]: value });
+    const deadline = field === 'deadline' ? value : project.deadline;
+    const postTime = field === 'post_time' ? value : project.post_time;
+    const VIDEO_TYPES = ['mayday_video', 'tm_baseball_video'];
+    if (!VIDEO_TYPES.includes(project.type)) { setEditingField(null); return; }
+    const eventType = project.type === 'mayday_video' ? 'video_post' : 'tmbb_video';
+    if (deadline && postTime) {
+      const startDate = new Date(`${deadline}T${postTime}:00`);
+      const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+      if (project.calendar_event_id) {
+        await supabase.from('calendar_events').update({
+          title: project.name,
+          event_type: eventType,
+          start_date: startDate.toISOString(),
+          end_date: endDate.toISOString(),
+        }).eq('id', project.calendar_event_id);
+      } else {
+        const { data: evData } = await supabase.from('calendar_events').insert({
+          title: project.name,
+          event_type: eventType,
+          start_date: startDate.toISOString(),
+          end_date: endDate.toISOString(),
+          all_day: false,
+          created_by: profile.id,
+        }).select().single();
+        if (evData) {
+          await supabase.from('projects').update({ calendar_event_id: evData.id }).eq('id', project.id);
+        }
+      }
+    } else if (project.calendar_event_id) {
+      await supabase.from('calendar_events').delete().eq('id', project.calendar_event_id);
+      await supabase.from('projects').update({ calendar_event_id: null }).eq('id', project.id);
+    }
     setEditingField(null);
   }
 
@@ -1389,22 +1427,44 @@ function ProjectRow({
               </div>
               <span style={{ color: 'rgba(255,255,255,0.2)', marginTop: '16px' }}>→</span>
               <div>
-                <label style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', display: 'block', marginBottom: '4px' }}>Deadline</label>
+                <label style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', display: 'block', marginBottom: '4px' }}>Post Date</label>
                 {editingField === 'deadline' ? (
                   <input
                     type="date"
                     value={editDeadline}
                     onChange={(e) => setEditDeadline(e.target.value)}
-                    onBlur={() => { if (editDeadline !== project.deadline) saveField('deadline', editDeadline); else setEditingField(null); }}
+                    onBlur={() => { if (editDeadline !== project.deadline) savePostDateAndTime('deadline', editDeadline); else setEditingField(null); }}
                     style={styles.inlineInput}
                     autoFocus
                   />
                 ) : (
                   <div onClick={() => { setEditDeadline(project.deadline || ''); setEditingField('deadline'); }} style={styles.inlineDisplay}>
-                    {project.deadline ? new Date(project.deadline).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : <span style={{ color: 'rgba(255,255,255,0.2)' }}>Set deadline</span>}
+                    {project.deadline ? new Date(project.deadline).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : <span style={{ color: 'rgba(255,255,255,0.2)' }}>Set post date</span>}
                   </div>
                 )}
               </div>
+              {['mayday_video', 'tm_baseball_video'].includes(project.type) && (
+                <>
+                  <span style={{ color: 'rgba(255,255,255,0.2)', marginTop: '16px' }}>@</span>
+                  <div>
+                    <label style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', display: 'block', marginBottom: '4px' }}>Time</label>
+                    {editingField === 'post_time' ? (
+                      <input
+                        type="time"
+                        value={editPostTime}
+                        onChange={(e) => setEditPostTime(e.target.value)}
+                        onBlur={() => { if (editPostTime !== project.post_time) savePostDateAndTime('post_time', editPostTime); else setEditingField(null); }}
+                        style={styles.inlineInput}
+                        autoFocus
+                      />
+                    ) : (
+                      <div onClick={() => { setEditPostTime(project.post_time || ''); setEditingField('post_time'); }} style={styles.inlineDisplay}>
+                        {project.post_time ? new Date(`2000-01-01T${project.post_time}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : <span style={{ color: 'rgba(255,255,255,0.2)' }}>Set time</span>}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
