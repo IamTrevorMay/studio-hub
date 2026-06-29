@@ -24,17 +24,17 @@ const STATUS_COLORS = {
 const EVENT_TYPE_COLORS = {
   deadline: '#ef4444', meeting: '#3b82f6', live_recording: '#22c55e',
   filming: '#f59e0b', video_post: '#a855f7', tmbb_video: '#06b6d4',
-  unavailable: '#6b7280', sponsor: '#10b981',
+  unavailable: '#6b7280',
 };
 const EVENT_TYPE_LABELS = {
   deadline: 'Deadline', meeting: 'Meeting', live_recording: 'Live/Recording',
   filming: 'Filming/Recording', video_post: 'Mayday Video', tmbb_video: 'TMBB Video',
-  unavailable: 'Unavailable', sponsor: 'Sponsor',
+  unavailable: 'Unavailable',
 };
 const EVENT_TYPE_ICONS = {
   deadline: '\u23F0', meeting: '\uD83D\uDC65', live_recording: '\uD83D\uDD34',
   filming: '\uD83C\uDFAC', video_post: '\uD83D\uDCF9', tmbb_video: '\uD83C\uDFA5',
-  unavailable: '\uD83D\uDEAB', sponsor: '🤝',
+  unavailable: '\uD83D\uDEAB',
 };
 
 const STATUS_LABELS = {

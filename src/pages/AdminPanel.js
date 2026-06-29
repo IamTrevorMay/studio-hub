@@ -17,7 +17,6 @@ const EVENT_TYPE_LABELS = {
   filming: 'Filming/Recording',
   video_post: 'Mayday Video',
   tmbb_video: 'TMBB Video',
-  sponsor: 'Sponsor',
   unavailable: 'Unavailable',
 };
 const EVENT_TYPES = Object.keys(EVENT_TYPE_LABELS);

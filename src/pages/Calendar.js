@@ -29,7 +29,7 @@ const NETWORK_ICONS = {
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const WEEKDAYS_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-const EVENT_TYPES = ['deadline', 'meeting', 'live_recording', 'filming', 'video_post', 'tmbb_video', 'unavailable', 'sponsor'];
+const EVENT_TYPES = ['deadline', 'meeting', 'live_recording', 'filming', 'video_post', 'tmbb_video', 'unavailable'];
 const EVENT_TYPE_COLORS = {
   deadline: '#ef4444',
   meeting: '#3b82f6',
@@ -38,7 +38,6 @@ const EVENT_TYPE_COLORS = {
   video_post: '#a855f7',
   tmbb_video: '#06b6d4',
   unavailable: '#6b7280',
-  sponsor: '#10b981',
 };
 const EVENT_TYPE_LABELS = {
   deadline: 'Deadline',
@@ -48,7 +47,6 @@ const EVENT_TYPE_LABELS = {
   video_post: 'Mayday Video',
   tmbb_video: 'TMBB Video',
   unavailable: 'Unavailable',
-  sponsor: 'Sponsor',
 };
 const EVENT_TYPE_ICONS = {
   deadline: '\u23F0',
@@ -58,7 +56,6 @@ const EVENT_TYPE_ICONS = {
   video_post: '\uD83D\uDCF9',
   tmbb_video: '\uD83C\uDFA5',
   unavailable: '\uD83D\uDEAB',
-  sponsor: '🤝',
 };
 
 const RECURRENCE_OPTIONS = [
