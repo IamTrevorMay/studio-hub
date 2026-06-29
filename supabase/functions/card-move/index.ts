@@ -64,7 +64,7 @@ const STAGE_DESCRIPTIONS: Record<string, Partial<Record<Stage, string>>> = {
     write: "Complete a beat sheet & update Broadcast.",
     pre_production: "Finalize beat sheet & push script to teleprompter.",
     film: "Film the full video & create the assignment for the editor.",
-    review: "1. Review the Beat Sheet for B-Roll\n2. Add where you see gaps\n3. Download B-Roll files, name them to match Video tags in Beat Sheet\n4. Upload into project folder linked to the assigned editor.",
+    review: "",
     edit: "Monitor editor progress. *Task auto-completes when the editor marks their contractor assignment complete.*",
     post_production: "Build the thumbnail & schedule the upload.",
   },
@@ -91,8 +91,23 @@ const STAGE_DESCRIPTIONS: Record<string, Partial<Record<Stage, string>>> = {
   },
 };
 
-function descriptionFor(projectType: string | null, stage: string): string | null {
+// Per-assignee description overrides: type → stage → userId → description.
+// Falls through to the generic STAGE_DESCRIPTIONS entry when no override exists.
+const ASSIGNEE_DESCRIPTION_OVERRIDES: Record<string, Record<string, Record<string, string>>> = {
+  mayday_video: {
+    pre_production: {
+      "7b1e50e0-cede-409d-a160-1aa6d1e232a9": "Map, Find, & Gather B-Roll video. Then, upload to its own folder inside of the Mayday folder in the Drive.", // Henry Neiman
+      "ed7541f9-213d-4868-9147-5e638cbb6883": "Map, Find, & Gather B-Roll video. Then, upload to its own folder inside of the Mayday folder in the Drive.", // Caleb Bartholomae
+    },
+  },
+};
+
+function descriptionFor(projectType: string | null, stage: string, userId?: string): string | null {
   if (!projectType) return null;
+  if (userId) {
+    const override = ASSIGNEE_DESCRIPTION_OVERRIDES[projectType]?.[stage]?.[userId];
+    if (override) return override;
+  }
   return STAGE_DESCRIPTIONS[projectType]?.[stage as Stage] || null;
 }
 
@@ -289,12 +304,13 @@ Deno.serve(async (req: Request) => {
   const prevLabel = labelFor(project.type, currentStage);
 
   const taskTitle = `${project.name} — ${targetLabel}`;
-  const stageDesc = descriptionFor(project.type, resolvedTargetStage);
-  const description = handoff_note && handoff_note.trim()
-    ? `${stageDesc ? stageDesc + "\n\n" : ""}Handoff from ${prevLabel}:\n${handoff_note.trim()}`
-    : (stageDesc || `Moved from ${prevLabel}.`);
 
   for (const userId of assigneeIds) {
+    const stageDesc = descriptionFor(project.type, resolvedTargetStage, userId);
+    const description = handoff_note && handoff_note.trim()
+      ? `${stageDesc ? stageDesc + "\n\n" : ""}Handoff from ${prevLabel}:\n${handoff_note.trim()}`
+      : (stageDesc || `Moved from ${prevLabel}.`);
+
     // Check if user routes project tasks directly to Sprint Board.
     const { data: userProfile } = await admin
       .from("profiles")

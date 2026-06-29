@@ -55,7 +55,7 @@ export const STAGE_DESCRIPTIONS_BY_TYPE = {
     write: 'Complete a beat sheet & update Broadcast.',
     pre_production: 'Finalize beat sheet & push script to teleprompter.',
     film: 'Film the full video & create the assignment for the editor.',
-    review: '1. Review the Beat Sheet for B-Roll\n2. Add where you see gaps\n3. Download B-Roll files, name them to match Video tags in Beat Sheet\n4. Upload into project folder linked to the assigned editor.',
+    review: '',
     edit: 'Monitor editor progress. *Task auto-completes when the editor marks their contractor assignment complete.*',
     post_production: 'Build the thumbnail & schedule the upload.',
   },
@@ -96,12 +96,13 @@ export const TYPE_DEFAULT_ASSIGNEES = {
   mayday_video: {
     queue: [],
     write: ['aff29906-eda8-4c3f-8a1e-a550b5bbe45d'],            // David Korn
-    pre_production: ['c3290048-436b-46c6-b3f0-fdf7923d0c3b'],   // Trevor May
-    film: ['c3290048-436b-46c6-b3f0-fdf7923d0c3b'],             // Trevor May
-    review: [
+    pre_production: [
+      'c3290048-436b-46c6-b3f0-fdf7923d0c3b',                   // Trevor May
       '7b1e50e0-cede-409d-a160-1aa6d1e232a9',                   // Henry Neiman
       'ed7541f9-213d-4868-9147-5e638cbb6883',                   // Caleb Bartholomae
     ],
+    film: ['c3290048-436b-46c6-b3f0-fdf7923d0c3b'],             // Trevor May
+    review: [],
     edit: ['dc5d43c8-60e2-4721-8b81-aed9aa12aab6'],             // Aaron Diament
     post_production: ['c3290048-436b-46c6-b3f0-fdf7923d0c3b'],  // Trevor May
     publish: [],
