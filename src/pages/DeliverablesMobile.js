@@ -59,7 +59,7 @@ export default function DeliverablesMobile() {
       const { data, error } = await supabase
         .from('calendar_events')
         .select('*')
-        .eq('event_type', 'video_post')
+        .in('event_type', ['video_post', 'tmbb_video'])
         .order('start_date', { ascending: true });
       if (!error) setVideoEvents(data || []);
     } catch (err) { /* ignore */ }

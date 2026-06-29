@@ -169,7 +169,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
       const { data, error } = await supabase
         .from('calendar_events')
         .select('*')
-        .eq('event_type', 'video_post')
+        .in('event_type', ['video_post', 'tmbb_video'])
         .order('start_date', { ascending: true });
       if (error) throw error;
       setVideoEvents(data || []);
@@ -1720,7 +1720,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
 
     // Filter to video_post events in this month
     const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
-    const monthEvents = videoEvents.filter(ev => ev.event_type === 'video_post' && ev.start_date && ev.start_date.slice(0, 7) === monthStr);
+    const monthEvents = videoEvents.filter(ev => (ev.event_type === 'video_post' || ev.event_type === 'tmbb_video') && ev.start_date && ev.start_date.slice(0, 7) === monthStr);
 
     // Which events are linked to other deliverables
     const linkedMap = {};

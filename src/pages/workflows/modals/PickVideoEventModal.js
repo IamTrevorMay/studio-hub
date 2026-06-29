@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../../supabaseClient';
 
-const VIDEO_EVENT_TYPES = ['video_post', 'filming', 'live_recording'];
+const VIDEO_EVENT_TYPES = ['video_post', 'tmbb_video', 'filming', 'live_recording'];
 
 function formatWhen(dateStr) {
   if (!dateStr) return '';

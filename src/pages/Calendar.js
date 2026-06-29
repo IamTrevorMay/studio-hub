@@ -29,13 +29,14 @@ const NETWORK_ICONS = {
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const WEEKDAYS_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-const EVENT_TYPES = ['deadline', 'meeting', 'live_recording', 'filming', 'video_post', 'unavailable', 'sponsor'];
+const EVENT_TYPES = ['deadline', 'meeting', 'live_recording', 'filming', 'video_post', 'tmbb_video', 'unavailable', 'sponsor'];
 const EVENT_TYPE_COLORS = {
   deadline: '#ef4444',
   meeting: '#3b82f6',
   live_recording: '#22c55e',
   filming: '#f59e0b',
   video_post: '#a855f7',
+  tmbb_video: '#06b6d4',
   unavailable: '#6b7280',
   sponsor: '#10b981',
 };
@@ -43,8 +44,9 @@ const EVENT_TYPE_LABELS = {
   deadline: 'Deadline',
   meeting: 'Meeting',
   live_recording: 'Live/Recording',
-  filming: 'Filming',
-  video_post: 'Video Post',
+  filming: 'Filming/Recording',
+  video_post: 'Mayday Video',
+  tmbb_video: 'TMBB Video',
   unavailable: 'Unavailable',
   sponsor: 'Sponsor',
 };
@@ -54,6 +56,7 @@ const EVENT_TYPE_ICONS = {
   live_recording: '\uD83D\uDD34',
   filming: '\uD83C\uDFAC',
   video_post: '\uD83D\uDCF9',
+  tmbb_video: '\uD83C\uDFA5',
   unavailable: '\uD83D\uDEAB',
   sponsor: '🤝',
 };
@@ -312,7 +315,7 @@ export default function Calendar({ onNavigate }) {
       const saved = localStorage.getItem('calendar_filters');
       if (saved) return JSON.parse(saved);
     } catch {}
-    return { substack_article: true, deadline: true, meeting: true, live_recording: true, filming: true, video_post: true, unavailable: true, social_posts: true };
+    return { substack_article: true, deadline: true, meeting: true, live_recording: true, filming: true, video_post: true, tmbb_video: true, unavailable: true, social_posts: true };
   });
   const [dragOverDate, setDragOverDate] = useState(null);
   const [videoDeliverables, setVideoDeliverables] = useState([]);
@@ -1179,7 +1182,7 @@ export default function Calendar({ onNavigate }) {
         </span>
         {isRecurring && <span style={{ fontSize: '8px', flexShrink: 0, opacity: 0.6 }}>{'\uD83D\uDD01'}</span>}
         {ev.google_synced_at && <span style={{ fontSize: '8px', flexShrink: 0, opacity: 0.5 }} title="Synced to Google Calendar">{'\u2713'}</span>}
-        {ev.event_type === 'video_post' && (deliverablesByEventId[ev.id] || []).length > 0 && (
+        {(ev.event_type === 'video_post' || ev.event_type === 'tmbb_video') && (deliverablesByEventId[ev.id] || []).length > 0 && (
           <span style={{ fontSize: '8px', flexShrink: 0, background: 'rgba(16,185,129,0.2)', color: '#6ee7b7', padding: '0 3px', borderRadius: '3px', fontWeight: 700 }} title={(deliverablesByEventId[ev.id] || []).map(d => d.sponsor?.name || 'Sponsor').join(', ')}>
             {'\uD83E\uDD1D'} {(deliverablesByEventId[ev.id] || []).length}
           </span>
@@ -1998,7 +2001,7 @@ export default function Calendar({ onNavigate }) {
                 {selectedEvent.creator?.full_name || 'Unknown'}
               </span>
             </div>
-            {selectedEvent.event_type === 'video_post' && (
+            {(selectedEvent.event_type === 'video_post' || selectedEvent.event_type === 'tmbb_video') && (
               <div style={styles.eventDetailRow}>
                 <span style={styles.eventDetailLabel}>Sponsor Reads</span>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>

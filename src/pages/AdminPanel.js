@@ -14,8 +14,9 @@ const EVENT_TYPE_LABELS = {
   deadline: 'Deadline',
   meeting: 'Meeting',
   live_recording: 'Live/Recording',
-  filming: 'Filming',
-  video_post: 'Video Post',
+  filming: 'Filming/Recording',
+  video_post: 'Mayday Video',
+  tmbb_video: 'TMBB Video',
   sponsor: 'Sponsor',
   unavailable: 'Unavailable',
 };
