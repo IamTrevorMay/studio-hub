@@ -24,9 +24,6 @@ export default function FreelancerProfile() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Email notification preferences
-  const [emailPrefs, setEmailPrefs] = useState({});
-  const [emailPrefsLoading, setEmailPrefsLoading] = useState(true);
 
   const fetchProfile = useCallback(async () => {
     if (!profile?.id) return;
@@ -50,40 +47,9 @@ export default function FreelancerProfile() {
     setLoading(false);
   }, [profile?.id]);
 
-  const FL_EMAIL_TRIGGERS = [
-    { key: 'fl_comment_on_mine', label: 'New comment on my assignment' },
-    { key: 'fl_assignment_due_soon', label: 'Assignment due tomorrow' },
-  ];
-
-  const fetchEmailPrefs = useCallback(async () => {
-    if (!profile?.id) return;
-    setEmailPrefsLoading(true);
-    const { data } = await supabase
-      .from('email_notification_preferences')
-      .select('trigger_key, enabled')
-      .eq('user_id', profile.id);
-    const map = {};
-    (data || []).forEach(r => { map[r.trigger_key] = r.enabled; });
-    setEmailPrefs(map);
-    setEmailPrefsLoading(false);
-  }, [profile?.id]);
-
-  async function toggleEmailPref(triggerKey) {
-    const current = !!emailPrefs[triggerKey];
-    const next = !current;
-    setEmailPrefs(prev => ({ ...prev, [triggerKey]: next }));
-    await supabase.from('email_notification_preferences').upsert({
-      user_id: profile.id,
-      trigger_key: triggerKey,
-      enabled: next,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'user_id,trigger_key' });
-  }
-
   useEffect(() => {
     fetchProfile();
-    fetchEmailPrefs();
-  }, [fetchProfile, fetchEmailPrefs]);
+  }, [fetchProfile]);
 
   function updateField(field, value) {
     setForm(prev => ({ ...prev, [field]: value }));
@@ -403,33 +369,6 @@ export default function FreelancerProfile() {
         </button>
       </div>
 
-      {/* Email Notifications */}
-      <div style={{ ...styles.section, marginTop: 40 }}>
-        <h2 style={styles.sectionTitle}>Email Notifications</h2>
-        {emailPrefsLoading ? (
-          <p style={styles.loadingText}>Loading...</p>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {FL_EMAIL_TRIGGERS.map(t => (
-              <div key={t.key} style={styles.toggleRow}>
-                <span style={styles.toggleLabel}>{t.label}</span>
-                <button
-                  onClick={() => toggleEmailPref(t.key)}
-                  style={{
-                    ...styles.toggleTrack,
-                    background: emailPrefs[t.key] ? '#6366f1' : 'rgba(255,255,255,0.1)',
-                  }}
-                >
-                  <span style={{
-                    ...styles.toggleKnob,
-                    transform: emailPrefs[t.key] ? 'translateX(18px)' : 'translateX(0)',
-                  }} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
     </div>
   );
 }
@@ -564,23 +503,5 @@ const styles = {
     color: '#4ade80',
     fontSize: 13,
     marginBottom: 20,
-  },
-  toggleRow: {
-    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-    padding: '10px 14px', background: 'rgba(255,255,255,0.02)',
-    borderRadius: 8,
-  },
-  toggleLabel: {
-    fontSize: 14, color: 'rgba(255,255,255,0.85)', fontWeight: 500,
-  },
-  toggleTrack: {
-    width: 40, height: 22, borderRadius: 11,
-    border: 'none', cursor: 'pointer', position: 'relative',
-    transition: 'background 0.2s', padding: 0, flexShrink: 0,
-  },
-  toggleKnob: {
-    display: 'block', width: 18, height: 18, borderRadius: '50%',
-    background: '#fff', position: 'absolute', top: 2, left: 2,
-    transition: 'transform 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
   },
 };

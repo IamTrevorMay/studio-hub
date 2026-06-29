@@ -47,6 +47,10 @@ export default function AdminPanel({ initialTab }) {
   const [emailPrefs, setEmailPrefs] = useState({});
   const [emailPrefsLoading, setEmailPrefsLoading] = useState(true);
 
+  // Contractor email notification preferences (admin-managed)
+  const [contractors, setContractors] = useState([]);
+  const [contractorPrefs, setContractorPrefs] = useState({});
+
   // Sync activeTab when navigated to externally (e.g., after Google OAuth redirect)
   useEffect(() => {
     if (initialTab) setActiveTab(initialTab);
@@ -217,16 +221,57 @@ export default function AdminPanel({ initialTab }) {
     }, { onConflict: 'user_id,trigger_key' });
   }
 
+  const CONTRACTOR_EMAIL_TRIGGERS = [
+    { key: 'fl_comment_on_mine', label: 'New comment on their assignment' },
+    { key: 'fl_assignment_due_soon', label: 'Assignment due tomorrow' },
+  ];
+
+  const fetchContractorPrefs = useCallback(async () => {
+    const { data: flProfiles } = await supabase
+      .from('profiles')
+      .select('id, full_name')
+      .eq('role', 'freelancer')
+      .order('full_name');
+    setContractors(flProfiles || []);
+
+    if (!flProfiles?.length) return;
+    const { data: prefs } = await supabase
+      .from('email_notification_preferences')
+      .select('user_id, trigger_key, enabled')
+      .in('user_id', flProfiles.map(c => c.id));
+    const map = {};
+    (prefs || []).forEach(r => {
+      if (!map[r.user_id]) map[r.user_id] = {};
+      map[r.user_id][r.trigger_key] = r.enabled;
+    });
+    setContractorPrefs(map);
+  }, []);
+
+  async function toggleContractorPref(contractorId, triggerKey) {
+    const current = !!(contractorPrefs[contractorId]?.[triggerKey]);
+    const next = !current;
+    setContractorPrefs(prev => ({
+      ...prev,
+      [contractorId]: { ...(prev[contractorId] || {}), [triggerKey]: next },
+    }));
+    await supabase.from('email_notification_preferences').upsert({
+      user_id: contractorId,
+      trigger_key: triggerKey,
+      enabled: next,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,trigger_key' });
+  }
+
   useEffect(() => {
     if (!isAdmin) return;
     setLoading(true);
-    Promise.all([fetchInvitations(), fetchTeamMembers(), fetchGcalConnection(), fetchGcalMappings(), fetchEmailPrefs()])
+    Promise.all([fetchInvitations(), fetchTeamMembers(), fetchGcalConnection(), fetchGcalMappings(), fetchEmailPrefs(), fetchContractorPrefs()])
       .finally(() => setLoading(false));
-  }, [isAdmin, fetchInvitations, fetchTeamMembers, fetchGcalConnection, fetchGcalMappings, fetchEmailPrefs]);
+  }, [isAdmin, fetchInvitations, fetchTeamMembers, fetchGcalConnection, fetchGcalMappings, fetchEmailPrefs, fetchContractorPrefs]);
   useVisibilityRefresh(useCallback(() => {
     if (!isAdmin) return;
-    Promise.all([fetchInvitations(), fetchTeamMembers(), fetchGcalConnection(), fetchGcalMappings(), fetchEmailPrefs()]);
-  }, [isAdmin, fetchInvitations, fetchTeamMembers, fetchGcalConnection, fetchGcalMappings, fetchEmailPrefs]));
+    Promise.all([fetchInvitations(), fetchTeamMembers(), fetchGcalConnection(), fetchGcalMappings(), fetchEmailPrefs(), fetchContractorPrefs()]);
+  }, [isAdmin, fetchInvitations, fetchTeamMembers, fetchGcalConnection, fetchGcalMappings, fetchEmailPrefs, fetchContractorPrefs]));
 
   async function fetchGcalCalendars() {
     try {
@@ -622,35 +667,74 @@ export default function AdminPanel({ initialTab }) {
       )}
 
       {activeTab === 'notifications' && (
-        <div style={styles.card}>
-          <h3 style={styles.cardTitle}>Email Notifications</h3>
-          <p style={{ fontSize: '13px', color: 'rgba(255,255,255,0.45)', margin: '0 0 20px 0' }}>
-            Choose which events send you an email alert.
-          </p>
-          {emailPrefsLoading ? (
-            <p style={styles.emptyText}>Loading...</p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {ADMIN_EMAIL_TRIGGERS.map(t => (
-                <div key={t.key} style={styles.toggleRow}>
-                  <span style={styles.toggleLabel}>{t.label}</span>
-                  <button
-                    onClick={() => toggleEmailPref(t.key)}
-                    style={{
-                      ...styles.toggleTrack,
-                      background: emailPrefs[t.key] ? '#6366f1' : 'rgba(255,255,255,0.1)',
-                    }}
-                  >
-                    <span style={{
-                      ...styles.toggleKnob,
-                      transform: emailPrefs[t.key] ? 'translateX(18px)' : 'translateX(0)',
-                    }} />
-                  </button>
-                </div>
-              ))}
+        <>
+          <div style={styles.card}>
+            <h3 style={styles.cardTitle}>Email Notifications</h3>
+            <p style={{ fontSize: '13px', color: 'rgba(255,255,255,0.45)', margin: '0 0 20px 0' }}>
+              Choose which events send you an email alert.
+            </p>
+            {emailPrefsLoading ? (
+              <p style={styles.emptyText}>Loading...</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {ADMIN_EMAIL_TRIGGERS.map(t => (
+                  <div key={t.key} style={styles.toggleRow}>
+                    <span style={styles.toggleLabel}>{t.label}</span>
+                    <button
+                      onClick={() => toggleEmailPref(t.key)}
+                      style={{
+                        ...styles.toggleTrack,
+                        background: emailPrefs[t.key] ? '#6366f1' : 'rgba(255,255,255,0.1)',
+                      }}
+                    >
+                      <span style={{
+                        ...styles.toggleKnob,
+                        transform: emailPrefs[t.key] ? 'translateX(18px)' : 'translateX(0)',
+                      }} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {contractors.length > 0 && (
+            <div style={styles.card}>
+              <h3 style={styles.cardTitle}>Contractor Notifications</h3>
+              <p style={{ fontSize: '13px', color: 'rgba(255,255,255,0.45)', margin: '0 0 20px 0' }}>
+                Manage which email alerts each contractor receives.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                {contractors.map(c => (
+                  <div key={c.id}>
+                    <div style={{ fontSize: '14px', fontWeight: 600, color: '#e2e8f0', marginBottom: '10px' }}>
+                      {c.full_name || 'Unnamed'}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {CONTRACTOR_EMAIL_TRIGGERS.map(t => (
+                        <div key={t.key} style={styles.toggleRow}>
+                          <span style={styles.toggleLabel}>{t.label}</span>
+                          <button
+                            onClick={() => toggleContractorPref(c.id, t.key)}
+                            style={{
+                              ...styles.toggleTrack,
+                              background: contractorPrefs[c.id]?.[t.key] ? '#6366f1' : 'rgba(255,255,255,0.1)',
+                            }}
+                          >
+                            <span style={{
+                              ...styles.toggleKnob,
+                              transform: contractorPrefs[c.id]?.[t.key] ? 'translateX(18px)' : 'translateX(0)',
+                            }} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
-        </div>
+        </>
       )}
     </div>
   );
