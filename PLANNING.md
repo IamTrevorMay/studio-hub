@@ -192,6 +192,83 @@ never return data; low priority cleanup.)
 **Cron:** `sync-substack` runs daily `0 4 * * *` (active) — keeps syncing Substack
 articles via RSS; subscriber count comes from manual entry, not this fn.
 
+### Pending — Agentio bid auto-import into Deliverables proposals (2026-06-29)
+
+Auto-populate Deliverables proposals from Agentio sponsorship bid emails sent
+to `trevormayofficial@gmail.com`. Bids need fast response — parser should
+surface them in the app ASAP.
+
+**Shares Gmail API dependency with Substack subscriber parser above.**
+
+**Dependencies (Trevor must complete before build):**
+1. ✅ Google Cloud Console: add `gmail.readonly` scope to OAuth consent screen
+   (APIs & Services → OAuth consent screen → Data Access → Add or remove scopes)
+2. ✅ Google Cloud Console: enable Gmail API
+   (APIs & Services → Enabled APIs & services → + Enable → Gmail API)
+3. ⬜ Code: update `google-auth-url` edge function scope from `calendar` to
+   `calendar gmail.readonly` — then deploy
+4. ⬜ Trevor: disconnect + reconnect Google account in app (Calendar settings)
+   to re-consent with the new scope. The stored refresh token in
+   `google_calendar_connections` will then carry both scopes.
+5. ⬜ Verify: confirm refresh token works for Gmail by testing
+   `GET https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=1`
+   with a fresh access token
+
+**Design decisions (confirmed 2026-06-29):**
+- **Placement:** Agentio bids mixed into the proposals list on Deliverables,
+  appearing as a special proposal card type alongside manual proposals, sorted
+  by recency
+- **Lifecycle:** admin can dismiss OR convert to a full proposal with
+  deliverable items (normal proposal flow from there)
+- **Poll frequency:** 5-minute cron (pg_cron → edge function polls Gmail API).
+  Pub/Sub push deferred — simpler, no Google Cloud Console subscription setup.
+- **Scope:** non-recurring events only; parse "You have a new bid" emails from
+  Agentio, extract brand name + bid link
+
+**Implementation plan:**
+1. **Migration:** add `source` column to `ad_read_proposals` (`'manual'` default,
+   `'agentio'` for auto-imported). Add `external_url` column for the "Go to
+   Agentio" link. Add `external_id` column for dedup (Agentio email message ID).
+2. **Edge function:** `sync-agentio-bids`
+   - Authenticate via Gmail refresh token from `google_calendar_connections`
+     (reuse the token refresh pattern from `google-calendar-fetch`)
+   - Query Gmail: `from:agentio q:"new bid"` (or whatever the sender/subject is
+     — need to verify exact email format from a real Agentio bid email)
+   - Parse each email: extract brand name, bid URL, received timestamp
+   - Dedup via `external_id` (Gmail message ID) — skip if already imported
+   - Insert `ad_read_proposals` row with `source='agentio'`, `status='pending'`,
+     `external_url` = Agentio bid link
+   - Track last-processed email timestamp or history ID to avoid re-scanning
+3. **Cron migration:** pg_cron job every 5 minutes, hits `sync-agentio-bids`
+4. **Deliverables UI changes** (`src/pages/Deliverables.js`):
+   - Agentio proposal cards show: brand name, time received, "Go to Agentio"
+     button (links to `external_url`)
+   - "Convert to Proposal" button: opens the normal proposal edit form
+     pre-filled with sponsor name, lets admin add deliverable items
+   - "Dismiss" button: sets status to `'declined'`
+   - Visual distinction: Agentio badge/icon on the card so it's clear it's
+     auto-imported vs manually created
+5. **Notification:** existing `pendingProposalCount` in NotificationContext
+   already counts all pending proposals — Agentio bids will automatically
+   trigger the badge with no changes needed (realtime subscription on
+   `ad_read_proposals` is already wired)
+
+**Blocker — need from Trevor:**
+- Forward or screenshot a real "You have a new bid" email from Agentio so the
+  parser knows: exact sender address, subject line pattern, HTML structure to
+  extract brand name and bid URL from.
+
+**Key files:**
+- `supabase/functions/google-auth-url/index.ts` — scope update
+- `supabase/functions/google-auth-callback/index.ts` — no changes needed
+  (already stores whatever token Google returns)
+- `supabase/functions/google-calendar-fetch/index.ts` — token refresh pattern
+  to reuse
+- `supabase/functions/sync-agentio-bids/index.ts` — NEW
+- `supabase/functions/shared/utils.ts` — ingestion log helpers
+- `src/pages/Deliverables.js` — UI changes for Agentio cards
+- New migration: `ad_read_proposals` columns + cron job
+
 ### Pending — Priority KPI metrics: verify, fix, add + rescope Weekly brief (2026-06-28)
 
 Umbrella spec. Trevor defined the metric set he actually cares about; goal is
