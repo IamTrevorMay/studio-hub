@@ -283,7 +283,7 @@ Deno.serve(async (req: Request) => {
     .eq("project_id", project.id)
     .eq("stage", resolvedTargetStage);
 
-  const assigneeIds = (targetAssignees || []).map((a) => a.user_id);
+  const assigneeIds = [...new Set((targetAssignees || []).map((a) => a.user_id))];
   const newTaskIds: string[] = [];
   const targetLabel = labelFor(project.type, resolvedTargetStage);
   const prevLabel = labelFor(project.type, currentStage);
