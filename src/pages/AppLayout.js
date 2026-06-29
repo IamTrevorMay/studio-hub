@@ -161,6 +161,11 @@ function getTabFromPath() {
   return null;
 }
 
+function getSubPathFromURL() {
+  const segments = window.location.pathname.replace(/^\/+/, '').split('/');
+  return segments[1] || null;
+}
+
 // Items marked { external: { triton: '/path' } } don't set an active tab —
 // they open Triton Apex in a new tab via a short-lived SSO link.
 const TRITON_BASE = 'https://www.tritonapex.io';
@@ -242,7 +247,7 @@ export default function AppLayout() {
   });
   const [mode, setMode] = useState(() => localStorage.getItem('studio-hub-mode') === 'admin' ? 'admin' : 'work');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [navTarget, setNavTarget] = useState(null);
+  const [navTarget, setNavTarget] = useState(() => getSubPathFromURL());
   const [adminInitialTab, setAdminInitialTab] = useState(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -325,9 +330,9 @@ export default function AppLayout() {
   // Persist active tab to localStorage and URL, reset scroll
   useEffect(() => {
     localStorage.setItem('studio-hub-tab', activeTab);
-    const expectedPath = '/' + activeTab;
-    if (window.location.pathname !== expectedPath) {
-      window.history.pushState({}, '', expectedPath);
+    const segments = window.location.pathname.replace(/^\/+/, '').split('/');
+    if (segments[0] !== activeTab) {
+      window.history.pushState({}, '', '/' + activeTab);
     }
     if (mainContentRef.current) mainContentRef.current.scrollTop = 0;
   }, [activeTab]);
@@ -337,6 +342,7 @@ export default function AppLayout() {
     function handlePopState() {
       const tab = getTabFromPath();
       if (tab) setActiveTab(tab);
+      setNavTarget(getSubPathFromURL());
     }
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);

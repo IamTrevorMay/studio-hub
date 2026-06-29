@@ -52,7 +52,7 @@ function timeAgo(iso) {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-export default function ProductionMobile() {
+export default function ProductionMobile({ initialSheetId, onSheetOpened }) {
   const { profile } = useAuth();
   const [sheets, setSheets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -73,6 +73,37 @@ export default function ProductionMobile() {
 
   useEffect(() => { if (profile?.id) fetchSheets(); }, [profile?.id, fetchSheets]);
 
+  // Deep link: open a specific sheet when navigated here with a target id
+  useEffect(() => {
+    if (!initialSheetId) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.from('beat_sheets').select('*').eq('id', initialSheetId).single();
+      if (!cancelled && data) {
+        setActiveSheet(data);
+        window.history.replaceState({}, '', '/production/' + data.id);
+      }
+      if (onSheetOpened) onSheetOpened();
+    })();
+    return () => { cancelled = true; };
+  }, [initialSheetId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Restore sheet from URL on refresh (safety net when initialSheetId isn't provided)
+  useEffect(() => {
+    if (initialSheetId) return;
+    const urlSheetId = window.location.pathname.replace(/^\/+/, '').split('/')[1];
+    if (!urlSheetId) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.from('beat_sheets').select('*').eq('id', urlSheetId).single();
+      if (!cancelled && data) {
+        setActiveSheet(data);
+        window.history.replaceState({}, '', '/production/' + data.id);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function createSheet(e) {
     e.preventDefault();
     if (!createName.trim() || !profile?.id) return;
@@ -86,6 +117,7 @@ export default function ProductionMobile() {
     setShowCreate(false);
     setSheets((prev) => [data, ...prev]);
     setActiveSheet(data);
+    window.history.replaceState({}, '', '/production/' + data.id);
   }
 
   function handleSheetUpdated(updated) {
@@ -104,7 +136,7 @@ export default function ProductionMobile() {
           </div>
         ) : (
           sheets.map((s) => (
-            <button key={s.id} onClick={() => setActiveSheet(s)} style={styles.sheetCard}>
+            <button key={s.id} onClick={() => { setActiveSheet(s); window.history.replaceState({}, '', '/production/' + s.id); }} style={styles.sheetCard}>
               <span style={styles.sheetIcon}>📋</span>
               <div style={styles.sheetBody}>
                 <div style={styles.sheetTitle}>{s.title || 'Untitled'}</div>
@@ -148,7 +180,7 @@ export default function ProductionMobile() {
         </form>
       </BottomSheet>
 
-      <FullScreenSheet open={!!activeSheet} onClose={() => setActiveSheet(null)} title={activeSheet?.title || 'Beat sheet'}>
+      <FullScreenSheet open={!!activeSheet} onClose={() => { window.history.replaceState({}, '', '/production'); setActiveSheet(null); }} title={activeSheet?.title || 'Beat sheet'}>
         {activeSheet && (
           <SheetEditor sheet={activeSheet} onSheetUpdated={handleSheetUpdated} />
         )}

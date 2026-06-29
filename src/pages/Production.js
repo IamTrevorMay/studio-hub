@@ -384,6 +384,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     setSaveStatus('saved');
     setTagInputs({});
     setExpandedContexts(new Set(flattenBeats(loadedBeats).filter(b => b.context).map(b => b.id)));
+    window.history.replaceState({}, '', '/production/' + sheet.id);
   };
 
   // Deep link: open a specific sheet when navigated here with a target id
@@ -399,6 +400,19 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     return () => { cancelled = true; };
   }, [initialSheetId]);
 
+  // Restore sheet from URL on refresh (safety net when initialSheetId isn't provided)
+  useEffect(() => {
+    if (initialSheetId) return;
+    const urlSheetId = window.location.pathname.replace(/^\/+/, '').split('/')[1];
+    if (!urlSheetId) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.from('beat_sheets').select('*').eq('id', urlSheetId).single();
+      if (!cancelled && data) openSheet(data);
+    })();
+    return () => { cancelled = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const closeEditor = async () => {
     clearTimeout(saveTimer.current);
     clearInterval(snapshotTimer.current);
@@ -413,6 +427,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     }
     // save version snapshot on close
     if (activeSheet) await saveSnapshot(activeSheet.id, title, beats);
+    window.history.replaceState({}, '', '/production');
     setActiveSheet(null);
     setShowVersionHistory(false);
     setVersions([]);

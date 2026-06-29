@@ -141,6 +141,11 @@ function getTabFromPath() {
   return null;
 }
 
+function getSubPathFromURL() {
+  const segments = window.location.pathname.replace(/^\/+/, '').split('/');
+  return segments[1] || null;
+}
+
 const TAB_LABELS = NAV_ITEMS.reduce((acc, item) => { acc[item.key] = item.label; return acc; }, {
   admin: 'Admin',
   fl_dashboard: 'Dashboard',
@@ -159,7 +164,7 @@ export default function AppLayoutMobile() {
   // Mode mirrors desktop's localStorage key. Non-admins are pinned to
   // 'work' below (admins still see whichever mode they last used).
   const [mode, setMode] = useState(() => localStorage.getItem('studio-hub-mode') === 'admin' ? 'admin' : 'work');
-  const [navTarget, setNavTarget] = useState(null);
+  const [navTarget, setNavTarget] = useState(() => getSubPathFromURL());
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -170,9 +175,9 @@ export default function AppLayoutMobile() {
   // Persist active tab + URL, reset scroll on change
   useEffect(() => {
     localStorage.setItem('studio-hub-tab', activeTab);
-    const expectedPath = '/' + activeTab;
-    if (window.location.pathname !== expectedPath) {
-      window.history.pushState({}, '', expectedPath);
+    const segments = window.location.pathname.replace(/^\/+/, '').split('/');
+    if (segments[0] !== activeTab) {
+      window.history.pushState({}, '', '/' + activeTab);
     }
     if (mainRef.current) mainRef.current.scrollTop = 0;
   }, [activeTab]);
@@ -181,6 +186,7 @@ export default function AppLayoutMobile() {
     function handlePopState() {
       const tab = getTabFromPath();
       if (tab) setActiveTab(tab);
+      setNavTarget(getSubPathFromURL());
     }
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -380,7 +386,7 @@ function renderActiveTab({ activeTab, isAdmin, isAssistant, isPartner, isFreelan
     case 'dashboard': return <Dashboard onNavigate={navigateTo} />;
     case 'projects': return <Projects onNavigate={navigateTo} />;
     case 'calendar': return <Calendar onNavigate={navigateTo} />;
-    case 'production': return <Production />;
+    case 'production': return <Production initialSheetId={navTarget} onSheetOpened={() => setNavTarget(null)} />;
     case 'ideation': return <Ideation initialConceptId={navTarget} onConceptOpened={() => setNavTarget(null)} />;
     case 'resources': return <Resources />;
     case 'research': return <Research />;
