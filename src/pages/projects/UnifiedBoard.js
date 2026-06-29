@@ -1474,26 +1474,32 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
             ))}
           </select>
         </Field>
-        <Field label="Post Date">
-          <input
-            type="date"
-            value={deadline}
-            onChange={(e) => setDeadline(e.target.value)}
-            disabled={!canEdit}
-            style={s.input}
-          />
-        </Field>
-        {['mayday_video', 'tm_baseball_video'].includes(type) && (
-          <Field label="Time">
-            <input
-              type="time"
-              value={postTime}
-              onChange={(e) => setPostTime(e.target.value)}
-              disabled={!canEdit}
-              style={s.input}
-            />
-          </Field>
-        )}
+        <div style={{ display: 'flex', gap: spacing.sm }}>
+          <div style={{ flex: 1 }}>
+            <Field label="Post Date">
+              <input
+                type="date"
+                value={deadline}
+                onChange={(e) => setDeadline(e.target.value)}
+                disabled={!canEdit}
+                style={s.input}
+              />
+            </Field>
+          </div>
+          {['mayday_video', 'tm_baseball_video'].includes(type) && (
+            <div style={{ flex: 1 }}>
+              <Field label="Time">
+                <input
+                  type="time"
+                  value={postTime}
+                  onChange={(e) => setPostTime(e.target.value)}
+                  disabled={!canEdit}
+                  style={s.input}
+                />
+              </Field>
+            </div>
+          )}
+        </div>
 
         {/* Assignments */}
         <div style={{ marginTop: spacing.md, marginBottom: spacing.md }}>
