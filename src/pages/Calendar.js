@@ -90,6 +90,83 @@ const EMPTY_EVENT_FORM = {
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const HOUR_HEIGHT = 60;
 
+// ── Pacific Time utilities ──
+const PT_TZ = 'America/Los_Angeles';
+const _ptFull = new Intl.DateTimeFormat('en-US', {
+  timeZone: PT_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+});
+
+function getPTparts(d) {
+  const p = {};
+  _ptFull.formatToParts(d).forEach(({ type, value }) => {
+    if (type === 'year') p.year = +value;
+    else if (type === 'month') p.month = +value;
+    else if (type === 'day') p.day = +value;
+    else if (type === 'hour') p.hour = +value % 24;   // midnight = 24 → 0
+    else if (type === 'minute') p.minute = +value;
+    else if (type === 'second') p.second = +value;
+  });
+  return p;
+}
+
+function toPTDateKey(d) {
+  const { year, month, day } = getPTparts(d);
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function getPTMinutesSinceMidnight(d) {
+  const { hour, minute } = getPTparts(d);
+  return hour * 60 + minute;
+}
+
+function formatPTTime(d) {
+  return d.toLocaleTimeString('en-US', { timeZone: PT_TZ, hour: 'numeric', minute: '2-digit' });
+}
+
+function toPTTimeString(d) {
+  const { hour, minute } = getPTparts(d);
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+/** Build a UTC Date from a date string + time string interpreted as Pacific Time */
+function ptToDate(dateStr, timeStr) {
+  // Create a guess in UTC, then adjust by the PT offset on that instant.
+  const [y, mo, da] = dateStr.split('-').map(Number);
+  const [h, mi] = timeStr.split(':').map(Number);
+  const guess = new Date(Date.UTC(y, mo - 1, da, h, mi, 0));
+  // Determine PT offset at the guess instant
+  const pts = getPTparts(guess);
+  const guessLocalMin = pts.hour * 60 + pts.minute;
+  const guessUTCMin = guess.getUTCHours() * 60 + guess.getUTCMinutes();
+  let offsetMin = guessUTCMin - guessLocalMin;
+  // Handle day-boundary wrap
+  if (offsetMin > 720) offsetMin -= 1440;
+  if (offsetMin < -720) offsetMin += 1440;
+  const result = new Date(Date.UTC(y, mo - 1, da, h, mi, 0));
+  result.setUTCMinutes(result.getUTCMinutes() + offsetMin);
+  // Re-check: if the offset changed (DST boundary), adjust once more
+  const check = getPTparts(result);
+  if (check.hour !== h || check.minute !== mi) {
+    const pts2 = getPTparts(result);
+    const localMin2 = pts2.hour * 60 + pts2.minute;
+    const utcMin2 = result.getUTCHours() * 60 + result.getUTCMinutes();
+    let off2 = utcMin2 - localMin2;
+    if (off2 > 720) off2 -= 1440;
+    if (off2 < -720) off2 += 1440;
+    const result2 = new Date(Date.UTC(y, mo - 1, da, h, mi, 0));
+    result2.setUTCMinutes(result2.getUTCMinutes() + off2);
+    return result2;
+  }
+  return result;
+}
+
+function getPTDayOfWeek(d) {
+  const ptStr = d.toLocaleDateString('en-US', { timeZone: PT_TZ, weekday: 'short' });
+  const map = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return map[ptStr] ?? 0;
+}
+
 function formatHourLabel(h) {
   if (h === 0) return '12 AM';
   if (h < 12) return `${h} AM`;
@@ -120,10 +197,11 @@ function expandRecurringEvents(events, rangeStart, rangeEnd) {
     let cursor = new Date(origStart);
 
     const excludedDates = new Set((rule.excludedDates || []).map(d => d.split('T')[0]));
+    const origTimeStr = toPTTimeString(origStart);
 
     function addOccurrence(d) {
-      const occStart = new Date(d);
-      occStart.setHours(origStart.getHours(), origStart.getMinutes(), origStart.getSeconds());
+      const occDateKey = toPTDateKey(d);
+      const occStart = ptToDate(occDateKey, origTimeStr);
       const occEnd = new Date(occStart.getTime() + duration);
       // Series-termination checks run BEFORE the range cull so `count` reflects
       // occurrences from the series start, not just the visible window. Otherwise
@@ -135,8 +213,7 @@ function expandRecurringEvents(events, rangeStart, rangeEnd) {
       if (occStart > rangeEnd) return false;
       // Before the window: counted, but not rendered.
       if (occEnd < rangeStart) return true;
-      const dateKey = occStart.toISOString().split('T')[0];
-      if (excludedDates.has(dateKey)) return true;
+      if (excludedDates.has(occDateKey)) return true;
       result.push({
         ...ev,
         id: count === 1 && occStart.getTime() === origStart.getTime() ? ev.id : `${ev.id}_r${count}`,
@@ -157,7 +234,7 @@ function expandRecurringEvents(events, rangeStart, rangeEnd) {
         cursor.setDate(cursor.getDate() + interval);
       }
     } else if (rule.type === 'weekly') {
-      const days = rule.daysOfWeek && rule.daysOfWeek.length > 0 ? rule.daysOfWeek : [origStart.getDay()];
+      const days = rule.daysOfWeek && rule.daysOfWeek.length > 0 ? rule.daysOfWeek : [getPTDayOfWeek(origStart)];
       let weekCursor = new Date(cursor);
       weekCursor.setDate(weekCursor.getDate() - weekCursor.getDay());
       while (weekCursor <= safeEnd && iterations < MAX_ITERATIONS) {
@@ -174,7 +251,7 @@ function expandRecurringEvents(events, rangeStart, rangeEnd) {
       }
     } else if (rule.type === 'weekdays') {
       while (cursor <= safeEnd && iterations++ < MAX_ITERATIONS) {
-        const dow = cursor.getDay();
+        const dow = getPTDayOfWeek(cursor);
         if (dow >= 1 && dow <= 5) {
           if (addOccurrence(cursor) === false) break;
         }
@@ -248,6 +325,11 @@ export default function Calendar({ onNavigate }) {
   const dragEventRef = useRef(null);
   const initialEventFormRef = useRef(null);
   const contextMenuRef = useRef(null);
+
+  // ── Time-grid drag state (Week / Day views) ──
+  const [timeDrag, setTimeDrag] = useState(null);
+  const timeDragRef = useRef(null);
+  const wasDragging = useRef(false);
 
   useEffect(() => {
     try { localStorage.setItem('calendar_filters', JSON.stringify(visibleFilters)); } catch {}
@@ -381,7 +463,7 @@ export default function Calendar({ onNavigate }) {
 
       // Exclude this date from the parent's recurrence
       if (parent?.recurrence_rule) {
-        const dateKey = new Date(event.start_date).toISOString().split('T')[0];
+        const dateKey = toPTDateKey(new Date(event.start_date));
         const rule = { ...parent.recurrence_rule };
         rule.excludedDates = [...(rule.excludedDates || []), dateKey];
         await supabase.from('calendar_events')
@@ -491,14 +573,108 @@ export default function Calendar({ onNavigate }) {
     const origStart = new Date(ev.start_date);
     const origEnd = new Date(ev.end_date);
     const duration = origEnd.getTime() - origStart.getTime();
-    const newStart = new Date(targetDate);
-    newStart.setHours(origStart.getHours(), origStart.getMinutes(), origStart.getSeconds());
+    const targetKey = toPTDateKey(targetDate);
+    const origTimeStr = toPTTimeString(origStart);
+    const newStart = ptToDate(targetKey, origTimeStr);
     const newEnd = new Date(newStart.getTime() + duration);
     await supabase.from('calendar_events')
       .update({ start_date: newStart.toISOString(), end_date: newEnd.toISOString() })
       .eq('id', ev.id);
     fetchCalendarEvents();
   }
+
+  // ── Week/Day time-grid drag-and-drop ──
+  function handleTimeDragStart(e, ev, dayDate) {
+    if (ev._isRecurrenceInstance) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const evStart = new Date(ev.start_date);
+    const evEnd = new Date(ev.end_date);
+    const startMin = getPTMinutesSinceMidnight(evStart);
+    const durationMin = Math.round((evEnd.getTime() - evStart.getTime()) / 60000);
+    const rect = e.currentTarget.closest('[data-timegrid]')?.getBoundingClientRect();
+    if (!rect) return;
+    const info = {
+      event: ev,
+      originDateKey: toPTDateKey(dayDate),
+      originMinutes: startMin,
+      currentMinutes: startMin,
+      currentDateKey: toPTDateKey(dayDate),
+      durationMin,
+      gridRect: rect,
+      pointerOffsetY: e.clientY - e.currentTarget.getBoundingClientRect().top,
+    };
+    timeDragRef.current = info;
+    setTimeDrag(info);
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  }
+
+  // Document-level listeners for drag
+  useEffect(() => {
+    function onMove(e) {
+      const drag = timeDragRef.current;
+      if (!drag) return;
+      e.preventDefault();
+      const scrollTop = timeGridRef.current?.scrollTop || 0;
+      const gridRect = timeGridRef.current?.getBoundingClientRect();
+      if (!gridRect) return;
+      const y = e.clientY - gridRect.top + scrollTop;
+      const rawMinutes = (y - drag.pointerOffsetY) / HOUR_HEIGHT * 60;
+      const snapped = Math.max(0, Math.min(1440 - drag.durationMin, Math.round(rawMinutes / 15) * 15));
+
+      // Determine which day column for week view
+      const gutterWidth = 56;
+      const colAreaLeft = gridRect.left + gutterWidth;
+      const colAreaWidth = gridRect.width - gutterWidth;
+      let newDateKey = drag.originDateKey;
+      if (viewMode === 'week' && colAreaWidth > 0) {
+        const colX = e.clientX - colAreaLeft;
+        const colIdx = Math.max(0, Math.min(6, Math.floor((colX / colAreaWidth) * 7)));
+        const weekDays = getWeekDays();
+        newDateKey = dk(weekDays[colIdx]);
+      }
+
+      const updated = { ...drag, currentMinutes: snapped, currentDateKey: newDateKey };
+      timeDragRef.current = updated;
+      setTimeDrag(updated);
+    }
+
+    function onUp(e) {
+      const drag = timeDragRef.current;
+      timeDragRef.current = null;
+      setTimeDrag(null);
+      if (!drag) return;
+      const moved = drag.currentMinutes !== drag.originMinutes || drag.currentDateKey !== drag.originDateKey;
+      if (moved) {
+        wasDragging.current = true;
+        setTimeout(() => { wasDragging.current = false; }, 0);
+        // Compute new times and save
+        const h = Math.floor(drag.currentMinutes / 60);
+        const m = drag.currentMinutes % 60;
+        const startTime = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+        const newStart = ptToDate(drag.currentDateKey, startTime);
+        const newEnd = new Date(newStart.getTime() + drag.durationMin * 60000);
+        supabase.from('calendar_events')
+          .update({ start_date: newStart.toISOString(), end_date: newEnd.toISOString() })
+          .eq('id', drag.event.id)
+          .then(({ error }) => {
+            if (error) console.error('Drag save error:', error);
+            fetchCalendarEvents();
+          });
+        syncToGoogleCalendar('update', drag.event.id);
+      } else {
+        wasDragging.current = true;
+        setTimeout(() => { wasDragging.current = false; }, 0);
+      }
+    }
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    return () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+    };
+  }, [viewMode]);
 
   async function syncToGoogleCalendar(action, eventId) {
     try {
@@ -526,12 +702,12 @@ export default function Calendar({ onNavigate }) {
     setSavingEvent(true);
     try {
       const startDate = eventForm.all_day
-        ? new Date(`${eventForm.start_date}T00:00:00`)
-        : new Date(`${eventForm.start_date}T${eventForm.start_time}:00`);
+        ? ptToDate(eventForm.start_date, '00:00')
+        : ptToDate(eventForm.start_date, eventForm.start_time);
       const endDateStr = eventForm.end_date || eventForm.start_date;
       const endDate = eventForm.all_day
-        ? new Date(`${endDateStr}T23:59:59`)
-        : new Date(`${endDateStr}T${eventForm.end_time}:00`);
+        ? ptToDate(endDateStr, '23:59')
+        : ptToDate(endDateStr, eventForm.end_time);
 
       // Preserve excludedDates when editing an existing recurring event
       const existingRule = editingEventId
@@ -541,7 +717,7 @@ export default function Calendar({ onNavigate }) {
         type: eventForm.recurrence,
         interval: eventForm.recurrence_interval || 1,
         daysOfWeek: eventForm.recurrence === 'weekly' || eventForm.recurrence === 'custom'
-          ? (eventForm.recurrence_days.length > 0 ? eventForm.recurrence_days : [startDate.getDay()])
+          ? (eventForm.recurrence_days.length > 0 ? eventForm.recurrence_days : [getPTDayOfWeek(startDate)])
           : undefined,
         endType: eventForm.recurrence_end_type || 'never',
         endDate: eventForm.recurrence_end_type === 'date' ? eventForm.recurrence_end_date : undefined,
@@ -603,7 +779,7 @@ export default function Calendar({ onNavigate }) {
     const parentId = ev._parentId || ev.id;
     const parent = calendarEvents.find(e => e.id === parentId);
     if (!parent) return;
-    const dateKey = new Date(ev.start_date).toISOString().split('T')[0];
+    const dateKey = toPTDateKey(new Date(ev.start_date));
     const rule = { ...parent.recurrence_rule };
     rule.excludedDates = [...(rule.excludedDates || []), dateKey];
     try {
@@ -628,10 +804,10 @@ export default function Calendar({ onNavigate }) {
       title: parent.title || '',
       description: parent.description || '',
       event_type: parent.event_type || 'meeting',
-      start_date: dk(startD),
-      start_time: `${String(startD.getHours()).padStart(2, '0')}:${String(startD.getMinutes()).padStart(2, '0')}`,
-      end_date: dk(endD),
-      end_time: `${String(endD.getHours()).padStart(2, '0')}:${String(endD.getMinutes()).padStart(2, '0')}`,
+      start_date: toPTDateKey(startD),
+      start_time: toPTTimeString(startD),
+      end_date: toPTDateKey(endD),
+      end_time: toPTTimeString(endD),
       all_day: parent.all_day || false,
       location: parent.location || '',
       guests: parent.guests || [],
@@ -649,7 +825,7 @@ export default function Calendar({ onNavigate }) {
     setShowGuestDropdown(false);
     setShowCustomRecurrence(false);
     // Exclude the date from parent series
-    const dateKey = startD.toISOString().split('T')[0];
+    const dateKey = toPTDateKey(startD);
     const rule = { ...(parent.recurrence_rule || {}) };
     rule.excludedDates = [...(rule.excludedDates || []), dateKey];
     supabase.from('calendar_events')
@@ -711,10 +887,10 @@ export default function Calendar({ onNavigate }) {
       title: parentEv.title || '',
       description: parentEv.description || '',
       event_type: parentEv.event_type || 'meeting',
-      start_date: dk(startD),
-      start_time: `${String(startD.getHours()).padStart(2, '0')}:${String(startD.getMinutes()).padStart(2, '0')}`,
-      end_date: dk(endD),
-      end_time: `${String(endD.getHours()).padStart(2, '0')}:${String(endD.getMinutes()).padStart(2, '0')}`,
+      start_date: toPTDateKey(startD),
+      start_time: toPTTimeString(startD),
+      end_date: toPTDateKey(endD),
+      end_time: toPTTimeString(endD),
       all_day: parentEv.all_day || false,
       location: parentEv.location || '',
       guests: parentEv.guests || [],
@@ -782,7 +958,7 @@ export default function Calendar({ onNavigate }) {
 
   function getWeekDays() {
     const d = new Date(viewDate);
-    const day = d.getDay();
+    const day = getPTDayOfWeek(d);
     const days = [];
     for (let i = 0; i < 7; i++) {
       const date = new Date(d);
@@ -793,7 +969,7 @@ export default function Calendar({ onNavigate }) {
   }
 
   function dk(d) {
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return toPTDateKey(d);
   }
 
   function navigate(dir) {
@@ -814,10 +990,9 @@ export default function Calendar({ onNavigate }) {
   }, [calendarEvents, viewDate, viewMode]);
 
   function getEventsForDate(date) {
-    const dayStart = new Date(date);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(date);
-    dayEnd.setHours(23, 59, 59, 999);
+    const dateKey = dk(date);
+    const dayStart = ptToDate(dateKey, '00:00');
+    const dayEnd = new Date(ptToDate(dateKey, '23:59').getTime() + 59 * 1000);
     return expandedEvents.filter(ev => {
       const evStart = new Date(ev.start_date);
       const evEnd = new Date(ev.end_date);
@@ -829,25 +1004,26 @@ export default function Calendar({ onNavigate }) {
 
   function formatEventTime(ev) {
     if (ev.all_day) return 'All day';
-    const d = new Date(ev.start_date);
-    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    return formatPTTime(new Date(ev.start_date));
   }
 
   function getViewTitle() {
+    const tzOpt = { timeZone: PT_TZ };
     if (viewMode === 'month') {
-      return viewDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      return viewDate.toLocaleDateString('en-US', { ...tzOpt, month: 'long', year: 'numeric' });
     }
     if (viewMode === 'week') {
       const days = getWeekDays();
       const s = days[0];
       const e = days[6];
-      const sameMonth = s.getMonth() === e.getMonth();
-      if (sameMonth) {
-        return `${s.toLocaleDateString('en-US', { month: 'short' })} ${s.getDate()} \u2013 ${e.getDate()}, ${e.getFullYear()}`;
+      const sp = getPTparts(s);
+      const ep = getPTparts(e);
+      if (sp.month === ep.month) {
+        return `${s.toLocaleDateString('en-US', { ...tzOpt, month: 'short' })} ${sp.day} \u2013 ${ep.day}, ${ep.year}`;
       }
-      return `${s.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} \u2013 ${e.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${e.getFullYear()}`;
+      return `${s.toLocaleDateString('en-US', { ...tzOpt, month: 'short', day: 'numeric' })} \u2013 ${e.toLocaleDateString('en-US', { ...tzOpt, month: 'short', day: 'numeric' })}, ${ep.year}`;
     }
-    return viewDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    return viewDate.toLocaleDateString('en-US', { ...tzOpt, weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
   }
 
   const calendarDays = getCalendarDays();
@@ -997,7 +1173,7 @@ export default function Calendar({ onNavigate }) {
         onContextMenu={(e) => handleEventContextMenu(e, ev)}
       >
         <span style={{ fontSize: '9px', flexShrink: 0 }}>{icon}</span>
-        {!ev.all_day && <span style={{ fontSize: '9px', flexShrink: 0, color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>{new Date(ev.start_date).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>}
+        {!ev.all_day && <span style={{ fontSize: '9px', flexShrink: 0, color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>{formatPTTime(new Date(ev.start_date))}</span>}
         <span style={{ ...styles.eventChipText, color }}>
           {ev.title}
         </span>
@@ -1016,16 +1192,15 @@ export default function Calendar({ onNavigate }) {
   function getTimedEventStyle(ev, dayDate, columnCount, columnIdx) {
     const evStart = new Date(ev.start_date);
     const evEnd = new Date(ev.end_date);
-    const dayStart = new Date(dayDate);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(dayDate);
-    dayEnd.setHours(23, 59, 59, 999);
+    const dayKey = dk(dayDate);
+    const dayStart = ptToDate(dayKey, '00:00');
+    const dayEnd = new Date(ptToDate(dayKey, '23:59').getTime() + 59 * 1000);
 
     const clampedStart = evStart < dayStart ? dayStart : evStart;
     const clampedEnd = evEnd > dayEnd ? dayEnd : evEnd;
 
-    const startMinutes = clampedStart.getHours() * 60 + clampedStart.getMinutes();
-    const endMinutes = clampedEnd.getHours() * 60 + clampedEnd.getMinutes();
+    const startMinutes = getPTMinutesSinceMidnight(clampedStart);
+    const endMinutes = getPTMinutesSinceMidnight(clampedEnd);
     const duration = Math.max(endMinutes - startMinutes, 25);
 
     const top = (startMinutes / 60) * HOUR_HEIGHT;
@@ -1182,7 +1357,7 @@ export default function Calendar({ onNavigate }) {
                 return (
                   <div key={wi} style={styles.weekRow}>
                     {week.map((day, di) => {
-                      const isToday = day.date.toDateString() === new Date().toDateString();
+                      const isToday = toPTDateKey(day.date) === toPTDateKey(new Date());
                       const dayPosts = showMetricool && visibleFilters.social_posts ? getPostsForDate(day.date) : [];
                       const dayEvents = getEventsForDate(day.date);
                       const regularEvents = dayEvents.filter(ev => ev.event_type !== 'live_recording');
@@ -1327,7 +1502,7 @@ export default function Calendar({ onNavigate }) {
           <div style={styles.weekViewHeader}>
             <div style={styles.timeGutterHeader} />
             {getWeekDays().map((date, i) => {
-              const isToday = date.toDateString() === new Date().toDateString();
+              const isToday = toPTDateKey(date) === toPTDateKey(new Date());
               return (
                 <div key={i} style={{
                   ...styles.weekDayHeader,
@@ -1368,7 +1543,7 @@ export default function Calendar({ onNavigate }) {
           </div>
 
           {/* Time grid */}
-          <div ref={timeGridRef} style={styles.timeGridScroll}>
+          <div ref={timeGridRef} style={styles.timeGridScroll} data-timegrid="week">
             <div style={{ ...styles.timeGrid, height: `${24 * HOUR_HEIGHT}px` }}>
               {/* Hour lines */}
               {HOURS.map(h => (
@@ -1384,11 +1559,11 @@ export default function Calendar({ onNavigate }) {
               {(() => {
                 const now = new Date();
                 const weekDays = getWeekDays();
-                const todayIdx = weekDays.findIndex(d => d.toDateString() === now.toDateString());
+                const nowKey = toPTDateKey(now);
+                const todayIdx = weekDays.findIndex(d => toPTDateKey(d) === nowKey);
                 if (todayIdx < 0) return null;
-                const minutesSinceMidnight = now.getHours() * 60 + now.getMinutes();
+                const minutesSinceMidnight = getPTMinutesSinceMidnight(now);
                 const topPx = (minutesSinceMidnight / 60) * HOUR_HEIGHT;
-                const colLeft = `calc(56px + ${(todayIdx / 7) * 100}% * (1 - 56px / 100%))`;
                 return (
                   <div style={{
                     position: 'absolute', top: `${topPx}px`,
@@ -1415,6 +1590,7 @@ export default function Calendar({ onNavigate }) {
                       borderRight: i < 6 ? '1px solid rgba(255,255,255,0.06)' : 'none',
                     }}
                     onClick={(e) => {
+                      if (wasDragging.current || timeDragRef.current) return;
                       e.stopPropagation();
                       const rect = e.currentTarget.getBoundingClientRect();
                       const y = e.clientY - rect.top + (timeGridRef.current?.scrollTop || 0);
@@ -1427,6 +1603,8 @@ export default function Calendar({ onNavigate }) {
                         const color = EVENT_TYPE_COLORS[ev.event_type] || '#6b7280';
                         const icon = EVENT_TYPE_ICONS[ev.event_type] || '\u2022';
                         const pos = getTimedEventStyle(ev, date, columnCount, columnIdx);
+                        const isDraggable = !ev._isRecurrenceInstance;
+                        const isBeingDragged = timeDrag && timeDrag.event.id === ev.id;
                         return (
                           <div
                             key={`tev-${ev.id}`}
@@ -1437,12 +1615,16 @@ export default function Calendar({ onNavigate }) {
                               borderLeft: `3px solid ${color}`,
                               borderRadius: '4px',
                               padding: '2px 6px',
-                              cursor: 'pointer',
+                              cursor: isDraggable ? 'grab' : 'pointer',
                               zIndex: 5,
                               overflow: 'hidden',
                               fontSize: '11px',
+                              touchAction: isDraggable ? 'none' : undefined,
+                              opacity: isBeingDragged ? 0.4 : 1,
+                              transition: 'opacity 0.1s',
                             }}
-                            onClick={(e) => handleEventClick(e, ev)}
+                            onPointerDown={isDraggable ? (e) => handleTimeDragStart(e, ev, date) : undefined}
+                            onClick={(e) => { if (wasDragging.current) return; handleEventClick(e, ev); }}
                             onContextMenu={(e) => handleEventContextMenu(e, ev)}
                           >
                             <div style={{ fontWeight: 600, color, fontSize: '11px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -1457,6 +1639,44 @@ export default function Calendar({ onNavigate }) {
                     </div>
                   );
                 })}
+
+                {/* Drag ghost preview (week view) */}
+                {timeDrag && viewMode === 'week' && (() => {
+                  const weekDays = getWeekDays();
+                  const colIdx = weekDays.findIndex(d => dk(d) === timeDrag.currentDateKey);
+                  if (colIdx < 0) return null;
+                  const ghostTop = (timeDrag.currentMinutes / 60) * HOUR_HEIGHT;
+                  const ghostHeight = (timeDrag.durationMin / 60) * HOUR_HEIGHT;
+                  const color = EVENT_TYPE_COLORS[timeDrag.event.event_type] || '#6b7280';
+                  const ghostH = Math.floor(timeDrag.currentMinutes / 60);
+                  const ghostM = timeDrag.currentMinutes % 60;
+                  const ghostAMPM = ghostH >= 12 ? 'PM' : 'AM';
+                  const ghostHour = ghostH === 0 ? 12 : ghostH > 12 ? ghostH - 12 : ghostH;
+                  const ghostTimeStr = `${ghostHour}:${String(ghostM).padStart(2, '0')} ${ghostAMPM}`;
+                  return (
+                    <div style={{
+                      position: 'absolute',
+                      top: `${ghostTop}px`,
+                      height: `${Math.max(ghostHeight, 20)}px`,
+                      left: `${(colIdx / 7) * 100}%`,
+                      width: `${100 / 7}%`,
+                      background: `${color}15`,
+                      border: `2px dashed ${color}80`,
+                      borderRadius: '4px',
+                      zIndex: 15,
+                      pointerEvents: 'none',
+                      padding: '2px 6px',
+                      boxSizing: 'border-box',
+                    }}>
+                      <div style={{ fontSize: '10px', fontWeight: 600, color: `${color}cc`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {timeDrag.event.title}
+                      </div>
+                      <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.4)' }}>
+                        {ghostTimeStr}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </div>
@@ -1483,7 +1703,7 @@ export default function Calendar({ onNavigate }) {
           })()}
 
           {/* Time grid */}
-          <div ref={timeGridRef} style={styles.timeGridScroll}>
+          <div ref={timeGridRef} style={styles.timeGridScroll} data-timegrid="day">
             <div style={{ ...styles.timeGrid, height: `${24 * HOUR_HEIGHT}px` }}>
               {/* Hour lines */}
               {HOURS.map(h => (
@@ -1498,8 +1718,8 @@ export default function Calendar({ onNavigate }) {
               {/* Now indicator */}
               {(() => {
                 const now = new Date();
-                if (viewDate.toDateString() !== now.toDateString()) return null;
-                const minutesSinceMidnight = now.getHours() * 60 + now.getMinutes();
+                if (toPTDateKey(viewDate) !== toPTDateKey(now)) return null;
+                const minutesSinceMidnight = getPTMinutesSinceMidnight(now);
                 const topPx = (minutesSinceMidnight / 60) * HOUR_HEIGHT;
                 return (
                   <div style={{
@@ -1516,6 +1736,7 @@ export default function Calendar({ onNavigate }) {
               <div style={styles.dayColumnContainer}>
                 <div style={styles.dayColumn}
                   onClick={(e) => {
+                    if (wasDragging.current || timeDragRef.current) return;
                     e.stopPropagation();
                     const rect = e.currentTarget.getBoundingClientRect();
                     const y = e.clientY - rect.top + (timeGridRef.current?.scrollTop || 0);
@@ -1531,6 +1752,8 @@ export default function Calendar({ onNavigate }) {
                       const color = EVENT_TYPE_COLORS[ev.event_type] || '#6b7280';
                       const icon = EVENT_TYPE_ICONS[ev.event_type] || '\u2022';
                       const pos = getTimedEventStyle(ev, viewDate, columnCount, columnIdx);
+                      const isDraggable = !ev._isRecurrenceInstance;
+                      const isBeingDragged = timeDrag && timeDrag.event.id === ev.id;
                       return (
                         <div
                           key={`tev-${ev.id}`}
@@ -1541,11 +1764,15 @@ export default function Calendar({ onNavigate }) {
                             borderLeft: `3px solid ${color}`,
                             borderRadius: '6px',
                             padding: '4px 10px',
-                            cursor: 'pointer',
+                            cursor: isDraggable ? 'grab' : 'pointer',
                             zIndex: 5,
                             overflow: 'hidden',
+                            touchAction: isDraggable ? 'none' : undefined,
+                            opacity: isBeingDragged ? 0.4 : 1,
+                            transition: 'opacity 0.1s',
                           }}
-                          onClick={(e) => handleEventClick(e, ev)}
+                          onPointerDown={isDraggable ? (e) => handleTimeDragStart(e, ev, viewDate) : undefined}
+                          onClick={(e) => { if (wasDragging.current) return; handleEventClick(e, ev); }}
                           onContextMenu={(e) => handleEventContextMenu(e, ev)}
                         >
                           <div style={{ fontWeight: 600, color, fontSize: '13px', marginBottom: '2px' }}>
@@ -1563,6 +1790,41 @@ export default function Calendar({ onNavigate }) {
                         </div>
                       );
                     });
+                  })()}
+
+                  {/* Drag ghost preview (day view) */}
+                  {timeDrag && viewMode === 'day' && (() => {
+                    const ghostTop = (timeDrag.currentMinutes / 60) * HOUR_HEIGHT;
+                    const ghostHeight = (timeDrag.durationMin / 60) * HOUR_HEIGHT;
+                    const color = EVENT_TYPE_COLORS[timeDrag.event.event_type] || '#6b7280';
+                    const ghostH = Math.floor(timeDrag.currentMinutes / 60);
+                    const ghostM = timeDrag.currentMinutes % 60;
+                    const ghostAMPM = ghostH >= 12 ? 'PM' : 'AM';
+                    const ghostHour = ghostH === 0 ? 12 : ghostH > 12 ? ghostH - 12 : ghostH;
+                    const ghostTimeStr = `${ghostHour}:${String(ghostM).padStart(2, '0')} ${ghostAMPM}`;
+                    return (
+                      <div style={{
+                        position: 'absolute',
+                        top: `${ghostTop}px`,
+                        height: `${Math.max(ghostHeight, 20)}px`,
+                        left: 0,
+                        right: 0,
+                        background: `${color}15`,
+                        border: `2px dashed ${color}80`,
+                        borderRadius: '6px',
+                        zIndex: 15,
+                        pointerEvents: 'none',
+                        padding: '4px 10px',
+                        boxSizing: 'border-box',
+                      }}>
+                        <div style={{ fontSize: '12px', fontWeight: 600, color: `${color}cc`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {timeDrag.event.title}
+                        </div>
+                        <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)' }}>
+                          {ghostTimeStr}
+                        </div>
+                      </div>
+                    );
                   })()}
                 </div>
               </div>
@@ -1675,11 +1937,11 @@ export default function Calendar({ onNavigate }) {
             <div style={styles.eventDetailRow}>
               <span style={styles.eventDetailLabel}>When</span>
               <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '13px' }}>
-                {selectedEvent.all_day ? 'All day' : new Date(selectedEvent.start_date).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                {selectedEvent.all_day ? 'All day' : new Date(selectedEvent.start_date).toLocaleString('en-US', { timeZone: PT_TZ, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
                 {' \u2013 '}
                 {selectedEvent.all_day
-                  ? new Date(selectedEvent.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                  : new Date(selectedEvent.end_date).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+                  ? new Date(selectedEvent.end_date).toLocaleDateString('en-US', { timeZone: PT_TZ, month: 'short', day: 'numeric' })
+                  : new Date(selectedEvent.end_date).toLocaleString('en-US', { timeZone: PT_TZ, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
                 }
               </span>
             </div>
