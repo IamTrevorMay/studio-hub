@@ -5,14 +5,11 @@ import useVisibilityRefresh from '../../hooks/useVisibilityRefresh';
 import YouTubeStudioAdvanced from '../YouTubeStudioAdvanced';
 import ContentHealthDashboard from '../ContentHealthDashboard';
 
-import { PLATFORM_META, DATE_RANGES, MONTHS, TREND_METRICS } from './constants';
-import { daysAgoStr, todayStr, getDateRange, pctChange, formatCompact, fetchAllRows } from './utils';
+import { PLATFORM_META, DATE_RANGES, MONTHS } from './constants';
+import { daysAgoStr, todayStr, getDateRange, formatCompact, fetchAllRows } from './utils';
 import { styles } from './styles';
 
-import KPICard from './components/KPICard';
-import TrendChart from './components/TrendChart';
 import DonutChart from './components/DonutChart';
-import PlatformViewSafe from './components/PlatformView';
 import IngestionHealthPanel from './components/IngestionHealthPanel';
 import DataInputSection from './components/DataInputSection';
 import RPMCard from './components/RPMCard';
@@ -22,6 +19,36 @@ import FrequencyGrowthChart from './components/FrequencyGrowthChart';
 import CompareView from './components/CompareView';
 import WeeklyReport from './components/WeeklyReport';
 import SyncHealthWidget from './components/SyncHealthWidget';
+
+// Platforms the Dashboard top section + Weekly digest focus on, in display order.
+const DIGEST_PLATFORMS = ['youtube', 'tiktok', 'instagram', 'substack', 'simplecast'];
+
+// Tailored metric set per platform (label, value) — driven off the digestPlatforms memo.
+const DIGEST_CARD_METRICS = {
+  youtube: d => [
+    ['Views', formatCompact(d.views)],
+    ['Subs', `${d.gained >= 0 ? '+' : ''}${formatCompact(d.gained)}`],
+    ['Watch', `${formatCompact(Math.round(d.watchHours))} h`],
+    ['Revenue', `$${(d.revenueCents / 100).toLocaleString('en-US', { maximumFractionDigits: 0 })}`],
+  ],
+  tiktok: d => [
+    ['Views', formatCompact(d.views)],
+    ['Followers', formatCompact(d.followers)],
+    ['Likes', formatCompact(d.likes)],
+  ],
+  instagram: d => [
+    ['Views', formatCompact(d.views)],
+    ['Followers', formatCompact(d.followers)],
+    ['Engagement', formatCompact(d.engagement)],
+  ],
+  substack: d => [
+    ['Posts', formatCompact(d.posts)],
+    ['Subscribers', formatCompact(d.followers)],
+  ],
+  simplecast: d => [
+    ['Downloads', formatCompact(d.views)],
+  ],
+};
 
 export default function Analytics() {
   const { profile, isAdmin, refreshKey } = useAuth();
@@ -37,10 +64,8 @@ export default function Analytics() {
   const [platformDropdownOpen, setPlatformDropdownOpen] = useState(false);
   const [contentRefreshing, setContentRefreshing] = useState(false);
   const platformDropdownRef = useRef(null);
-  const platformMenuRef = useRef(null);
 
   // Data
-  const [kpi, setKpi] = useState(null);
   const [timeSeries, setTimeSeries] = useState([]);
   const [contentItems, setContentItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -59,9 +84,6 @@ export default function Analytics() {
   const [showIngestion, setShowIngestion] = useState(false);
   const [ingestionLogs, setIngestionLogs] = useState([]);
   const [viewMode, setViewMode] = useState('dashboard');
-  const [platformMenuOpen, setPlatformMenuOpen] = useState(false);
-  const [selectedPlatform, setSelectedPlatform] = useState(null);
-  const [selectedPlatformAccountId, setSelectedPlatformAccountId] = useState(null);
 
   // Analysis tools
   const [showAnalysis, setShowAnalysis] = useState(false);
@@ -77,7 +99,6 @@ export default function Analytics() {
   // no-ops instead of clobbering current state. One ref per fetch so that
   // refreshing content doesn't invalidate in-flight KPI/time-series fetches.
   const allDataGenRef = useRef(0);
-  const kpiGenRef = useRef(0);
   const timeSeriesGenRef = useRef(0);
   const contentGenRef = useRef(0);
   const analysisGenRef = useRef(0);
@@ -92,9 +113,6 @@ export default function Analytics() {
     function handleClick(e) {
       if (platformDropdownRef.current && !platformDropdownRef.current.contains(e.target)) {
         setPlatformDropdownOpen(false);
-      }
-      if (platformMenuRef.current && !platformMenuRef.current.contains(e.target)) {
-        setPlatformMenuOpen(false);
       }
     }
     document.addEventListener('mousedown', handleClick);
@@ -115,14 +133,11 @@ export default function Analytics() {
   }, []);
 
   // ── Fetch all data when filters change ──
-  const { start, end } = getDateRange(dateRange, customStart, customEnd, filterMonth, filterYear);
-
   const fetchAllData = useCallback(async () => {
     const gen = ++allDataGenRef.current;
     setLoading(true);
     try {
       await Promise.all([
-        fetchKPI(),
         fetchTimeSeries(),
         fetchContentPerformance(),
         fetchAnalysisData(),
@@ -217,59 +232,6 @@ export default function Analytics() {
     });
   }
 
-  async function fetchKPI() {
-    const gen = ++kpiGenRef.current;
-    const { start, end } = getDateRange(dateRange, customStart, customEnd, filterMonth, filterYear);
-
-    // Current period
-    let q = supabase
-      .from('daily_platform_rollups')
-      .select('total_views, total_likes, total_comments, total_shares, followers_eod, platform_account_id')
-      .gte('date', start)
-      .lte('date', end);
-    if (activeAccountIds.length > 0) q = q.in('platform_account_id', activeAccountIds);
-    const rollups = await fetchAllRows(q);
-
-    // Previous period (min 1 day so a same-day range still has a real prev window
-    // instead of an empty query → always +100%/0%).
-    const daysDiff = Math.max(1, Math.ceil((new Date(end) - new Date(start)) / 86400000));
-    const prevStart = new Date(new Date(start).getTime() - daysDiff * 86400000).toISOString().split('T')[0];
-    let pq = supabase
-      .from('daily_platform_rollups')
-      .select('total_views, total_likes, total_comments, total_shares')
-      .gte('date', prevStart)
-      .lt('date', start);
-    if (activeAccountIds.length > 0) pq = pq.in('platform_account_id', activeAccountIds);
-    const prevRollups = await fetchAllRows(pq);
-
-    // Audience — get the latest snapshot for each active account. Apply the same
-    // platform filter as the view/engagement queries, else Net/Total Followers
-    // ignore the filter and disagree with the other KPI cards.
-    let aq = supabase
-      .from('audience_snapshots')
-      .select('followers_total, followers_gained, platform_account_id')
-      .eq('date', end);
-    if (activeAccountIds.length > 0) aq = aq.in('platform_account_id', activeAccountIds);
-    const { data: latestAudience } = await aq;
-
-    const totalViews = rollups.reduce((s, r) => s + Number(r.total_views), 0);
-    const prevViews = prevRollups.reduce((s, r) => s + Number(r.total_views), 0);
-    const totalFollowers = (latestAudience || []).reduce((s, a) => s + Number(a.followers_total), 0);
-    const followersGained = (latestAudience || []).reduce((s, a) => s + Number(a.followers_gained), 0);
-
-    const totalEngagement = rollups.reduce((s, r) => s + Number(r.total_likes || 0) + Number(r.total_comments || 0) + Number(r.total_shares || 0), 0);
-    const prevEngagement = prevRollups.reduce((s, r) => s + Number(r.total_likes || 0) + Number(r.total_comments || 0) + Number(r.total_shares || 0), 0);
-
-    if (gen !== kpiGenRef.current) return;
-    setKpi({
-      totalViews,
-      totalFollowers,
-      totalEngagement,
-      viewsChange: pctChange(totalViews, prevViews),
-      followersChange: followersGained,
-      engagementChange: pctChange(totalEngagement, prevEngagement),
-    });
-  }
 
   async function fetchTimeSeries() {
     const gen = ++timeSeriesGenRef.current;
@@ -314,79 +276,6 @@ export default function Analytics() {
     });
   }
 
-  // ── Aggregate time series by date (with gap-fill) ──
-  const aggregatedTimeSeries = useMemo(() => {
-    const byDate = {};
-    for (const row of timeSeries) {
-      if (!byDate[row.date]) {
-        byDate[row.date] = { date: row.date, total_views: 0, revenue_cents: 0, total_likes: 0, total_comments: 0, total_shares: 0, followers_eod: 0 };
-      }
-      byDate[row.date].total_views += Number(row.total_views) || 0;
-      byDate[row.date].revenue_cents += Number(row.revenue_cents) || 0;
-      byDate[row.date].total_likes += Number(row.total_likes) || 0;
-      byDate[row.date].total_comments += Number(row.total_comments) || 0;
-      byDate[row.date].total_shares += Number(row.total_shares) || 0;
-      byDate[row.date].followers_eod += Number(row.followers_eod) || 0;
-    }
-    const sorted = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
-    if (sorted.length < 2) return sorted;
-
-    // Fill gaps: generate full date sequence between first and last
-    const fields = ['total_views', 'revenue_cents', 'total_likes', 'total_comments', 'total_shares', 'followers_eod'];
-    const dateMap = {};
-    for (const row of sorted) dateMap[row.date] = row;
-
-    const result = [];
-    const start = new Date(sorted[0].date + 'T00:00:00');
-    const end = new Date(sorted[sorted.length - 1].date + 'T00:00:00');
-    const cur = new Date(start);
-
-    while (cur <= end) {
-      const ymd = cur.toISOString().slice(0, 10);
-      if (dateMap[ymd]) {
-        result.push(dateMap[ymd]);
-      } else {
-        // Find nearest real data points before and after this gap
-        const prevIdx = result.length - 1;
-        let afterDate = null;
-        const probe = new Date(cur);
-        probe.setDate(probe.getDate() + 1);
-        while (probe <= end) {
-          const pYmd = probe.toISOString().slice(0, 10);
-          if (dateMap[pYmd]) { afterDate = pYmd; break; }
-          probe.setDate(probe.getDate() + 1);
-        }
-        // Count consecutive missing days in this gap
-        let gapSize = 0;
-        const gapProbe = new Date(cur);
-        while (gapProbe <= end && !dateMap[gapProbe.toISOString().slice(0, 10)]) {
-          gapSize++;
-          gapProbe.setDate(gapProbe.getDate() + 1);
-        }
-
-        if (gapSize <= 2 && prevIdx >= 0 && afterDate && dateMap[afterDate]) {
-          // Linear interpolation for 1–2 day gaps
-          const before = result[prevIdx];
-          const after = dateMap[afterDate];
-          const totalGap = Math.round((new Date(afterDate + 'T00:00:00') - new Date(before.date + 'T00:00:00')) / 86400000);
-          const dayOffset = Math.round((cur - new Date(before.date + 'T00:00:00')) / 86400000);
-          const ratio = dayOffset / totalGap;
-          const interpolated = { date: ymd, _interpolated: true };
-          for (const f of fields) {
-            interpolated[f] = Math.round((before[f] || 0) + ((after[f] || 0) - (before[f] || 0)) * ratio);
-          }
-          result.push(interpolated);
-        } else {
-          // 3+ day gap: insert zero-valued row with gap marker
-          const gapRow = { date: ymd, _gap: true };
-          for (const f of fields) gapRow[f] = 0;
-          result.push(gapRow);
-        }
-      }
-      cur.setDate(cur.getDate() + 1);
-    }
-    return result;
-  }, [timeSeries]);
 
   // ── Account breakdowns for donuts ──
   const platformBreakdown = useMemo(() => {
@@ -412,6 +301,44 @@ export default function Analytics() {
         label: info.name || PLATFORM_META[info.platform]?.label || info.platform,
       }))
       .sort((a, b) => b.views - a.views);
+  }, [timeSeries]);
+
+  // ── Per-platform digest cards (top of dashboard) — the Weekly-digest platforms ──
+  const digestPlatforms = useMemo(() => {
+    const by = {};
+    for (const row of timeSeries) {
+      const p = row.platform;
+      if (!DIGEST_PLATFORMS.includes(p)) continue;
+      if (!by[p]) by[p] = { views: 0, likes: 0, comments: 0, shares: 0, watch: 0, posts: 0, revenue: 0, gained: 0, _fol: {} };
+      const b = by[p];
+      b.views += Number(row.total_views) || 0;
+      b.likes += Number(row.total_likes) || 0;
+      b.comments += Number(row.total_comments) || 0;
+      b.shares += Number(row.total_shares) || 0;
+      b.watch += Number(row.total_watch_time_seconds) || 0;
+      b.posts += Number(row.posts_published) || 0;
+      b.revenue += Number(row.revenue_cents) || 0;
+      b.gained += Number(row.followers_gained) || 0;
+      // followers_eod is a daily snapshot — keep the latest per account, then sum across accounts.
+      const cur = b._fol[row.platform_account_id];
+      if (!cur || row.date > cur.date) b._fol[row.platform_account_id] = { date: row.date, val: Number(row.followers_eod) || 0 };
+    }
+    return DIGEST_PLATFORMS.map(p => {
+      const b = by[p];
+      const followers = b ? Object.values(b._fol).reduce((s, f) => s + f.val, 0) : 0;
+      return {
+        platform: p,
+        hasData: !!b,
+        views: b ? b.views : 0,
+        likes: b ? b.likes : 0,
+        engagement: b ? b.likes + b.comments + b.shares : 0,
+        watchHours: b ? b.watch / 3600 : 0,
+        posts: b ? b.posts : 0,
+        revenueCents: b ? b.revenue : 0,
+        gained: b ? b.gained : 0,
+        followers,
+      };
+    });
   }, [timeSeries]);
 
   // ── Sort content items ──
@@ -570,36 +497,6 @@ export default function Analytics() {
         <button onClick={() => setViewMode('weekly')} style={viewMode === 'weekly' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Weekly Report</button>
         <button onClick={() => setViewMode('advanced')} style={viewMode === 'advanced' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Advanced</button>
         <button onClick={() => setViewMode('health')} style={viewMode === 'health' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Content Health</button>
-        <div ref={platformMenuRef} style={{ position: 'relative' }}>
-          <button
-            onClick={() => setPlatformMenuOpen(prev => !prev)}
-            style={viewMode === 'platform' ? styles.viewToggleBtnActive : styles.viewToggleBtn}
-          >
-            Platforms {selectedPlatform && viewMode === 'platform' ? `· ${PLATFORM_META[selectedPlatform]?.label || selectedPlatform}` : ''} ▾
-          </button>
-          {platformMenuOpen && (
-            <div style={{
-              position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 100,
-              background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10,
-              boxShadow: '0 8px 32px rgba(0,0,0,0.4)', overflow: 'hidden', minWidth: 160,
-            }}>
-              {accounts.filter(a => a.is_active).map(a => {
-                const meta = PLATFORM_META[a.platform] || {};
-                return (
-                  <button key={a.id} onClick={() => { setSelectedPlatform(a.platform); setSelectedPlatformAccountId(a.id); setViewMode('platform'); setPlatformMenuOpen(false); }}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 16px',
-                      background: selectedPlatformAccountId === a.id && viewMode === 'platform' ? 'rgba(99,102,241,0.15)' : 'transparent',
-                      border: 'none', color: 'rgba(255,255,255,0.8)', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left',
-                    }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: meta.color || '#666', flexShrink: 0 }} />
-                    {a.account_name}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
       </div>
 
       {viewMode === 'compare' && (
@@ -618,44 +515,37 @@ export default function Analytics() {
         <ContentHealthDashboard accounts={accounts} />
       )}
 
-      {viewMode === 'platform' && selectedPlatformAccountId && (
-        <PlatformViewSafe accountId={selectedPlatformAccountId} accounts={accounts} start={start} end={end} />
-      )}
-
       {viewMode === 'dashboard' && (loading ? <p style={styles.loadingText}>Loading analytics...</p> : (
         <>
           {/* ── Dashboard Sections ── */}
           {/* ── Sync Health (admin-only) ── */}
           {isAdmin && <SyncHealthWidget />}
 
-          {/* ── B. KPI Summary Cards ── */}
-          {kpi && (
-            <div style={styles.kpiGrid}>
-              <KPICard label="Total Views" value={Number(kpi.totalViews).toLocaleString()} change={kpi.viewsChange} color="#6366f1" />
-              <KPICard label="Total Engagement" value={formatCompact(kpi.totalEngagement)} change={kpi.engagementChange} color="#22c55e" />
-              <KPICard label="Net Followers" value={Number(kpi.totalFollowers).toLocaleString()}
-                change={kpi.followersChange} changeLabel={`${kpi.followersChange >= 0 ? '+' : ''}${Number(kpi.followersChange).toLocaleString()} this period`} color="#ec4899" />
-            </div>
-          )}
-
-          {/* ── C. Trend Chart ── */}
-          <div style={{ ...styles.chartSection, width: '100%' }}>
-            <div style={styles.chartHeader}>
-              <span style={styles.chartTitle}>Trends</span>
-              <div style={{ display: 'flex', gap: '14px', alignItems: 'center' }}>
-                {TREND_METRICS.map(m => (
-                  <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: m.color, flexShrink: 0 }} />
-                    <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>{m.label}</span>
+          {/* ── B. Platform Digest Cards (Weekly-digest platforms) ── */}
+          <div style={styles.kpiGrid}>
+            {digestPlatforms.map(d => {
+              const meta = PLATFORM_META[d.platform] || { label: d.platform, color: '#666' };
+              const metrics = (DIGEST_CARD_METRICS[d.platform] || (() => []))(d);
+              return (
+                <div key={d.platform} style={{
+                  background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
+                  borderLeft: `3px solid ${meta.color}`, borderRadius: 12, padding: '14px 16px',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                    <span style={{ width: 9, height: 9, borderRadius: '50%', background: meta.color, flexShrink: 0 }} />
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{meta.label}</span>
                   </div>
-                ))}
-              </div>
-            </div>
-            {aggregatedTimeSeries.length > 0 ? (
-              <TrendChart data={aggregatedTimeSeries} metrics={TREND_METRICS} />
-            ) : (
-              <p style={styles.emptyText}>No data for selected period</p>
-            )}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 20px' }}>
+                    {metrics.map(([label, value]) => (
+                      <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <span style={{ fontSize: 16, fontWeight: 700, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>{d.hasData ? value : '—'}</span>
+                        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '.4px' }}>{label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           {/* ── D. Platform Breakdowns (Donuts) ── */}
