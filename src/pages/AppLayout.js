@@ -1438,7 +1438,8 @@ const styles = {
   },
   navBadge: {
     position: 'absolute',
-    top: '4px',
+    top: '50%',
+    transform: 'translateY(-50%)',
     right: '8px',
     background: '#ef4444',
     color: '#fff',
@@ -1455,7 +1456,8 @@ const styles = {
   },
   navDot: {
     position: 'absolute',
-    top: '6px',
+    top: '50%',
+    transform: 'translateY(-50%)',
     right: '10px',
     width: '8px',
     height: '8px',
