@@ -455,6 +455,14 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
         link_tab: 'fl_dashboard',
         link_target: assignment.id,
       });
+
+      supabase.functions.invoke('send-notification-email', {
+        body: {
+          trigger_key: 'fl_comment_on_mine',
+          recipient_id: assignment.freelancer_id,
+          context: { assignment_title: assignment.title, person_name: profile.full_name },
+        },
+      }).catch(() => {});
     }
 
     setNewComment('');

@@ -43,6 +43,10 @@ export default function AdminPanel({ initialTab }) {
   const [gcalMessage, setGcalMessage] = useState('');
   const [gcalError, setGcalError] = useState('');
 
+  // Email notification preferences
+  const [emailPrefs, setEmailPrefs] = useState({});
+  const [emailPrefsLoading, setEmailPrefsLoading] = useState(true);
+
   // Sync activeTab when navigated to externally (e.g., after Google OAuth redirect)
   useEffect(() => {
     if (initialTab) setActiveTab(initialTab);
@@ -181,16 +185,48 @@ export default function AdminPanel({ initialTab }) {
     setGcalMappings(map);
   }, [profile?.id]);
 
+  const ADMIN_EMAIL_TRIGGERS = [
+    { key: 'fl_assignment_completed', label: 'Contractor completes an assignment' },
+    { key: 'fl_comment', label: 'Contractor comments on an assignment' },
+    { key: 'fl_stuck', label: 'Contractor reports being stuck' },
+    { key: 'fl_hours_submitted', label: 'Contractor submits hours' },
+  ];
+
+  const fetchEmailPrefs = useCallback(async () => {
+    if (!profile?.id) return;
+    setEmailPrefsLoading(true);
+    const { data } = await supabase
+      .from('email_notification_preferences')
+      .select('trigger_key, enabled')
+      .eq('user_id', profile.id);
+    const map = {};
+    (data || []).forEach(r => { map[r.trigger_key] = r.enabled; });
+    setEmailPrefs(map);
+    setEmailPrefsLoading(false);
+  }, [profile?.id]);
+
+  async function toggleEmailPref(triggerKey) {
+    const current = !!emailPrefs[triggerKey];
+    const next = !current;
+    setEmailPrefs(prev => ({ ...prev, [triggerKey]: next }));
+    await supabase.from('email_notification_preferences').upsert({
+      user_id: profile.id,
+      trigger_key: triggerKey,
+      enabled: next,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,trigger_key' });
+  }
+
   useEffect(() => {
     if (!isAdmin) return;
     setLoading(true);
-    Promise.all([fetchInvitations(), fetchTeamMembers(), fetchGcalConnection(), fetchGcalMappings()])
+    Promise.all([fetchInvitations(), fetchTeamMembers(), fetchGcalConnection(), fetchGcalMappings(), fetchEmailPrefs()])
       .finally(() => setLoading(false));
-  }, [isAdmin, fetchInvitations, fetchTeamMembers, fetchGcalConnection, fetchGcalMappings]);
+  }, [isAdmin, fetchInvitations, fetchTeamMembers, fetchGcalConnection, fetchGcalMappings, fetchEmailPrefs]);
   useVisibilityRefresh(useCallback(() => {
     if (!isAdmin) return;
-    Promise.all([fetchInvitations(), fetchTeamMembers(), fetchGcalConnection(), fetchGcalMappings()]);
-  }, [isAdmin, fetchInvitations, fetchTeamMembers, fetchGcalConnection, fetchGcalMappings]));
+    Promise.all([fetchInvitations(), fetchTeamMembers(), fetchGcalConnection(), fetchGcalMappings(), fetchEmailPrefs()]);
+  }, [isAdmin, fetchInvitations, fetchTeamMembers, fetchGcalConnection, fetchGcalMappings, fetchEmailPrefs]));
 
   async function fetchGcalCalendars() {
     try {
@@ -333,6 +369,10 @@ export default function AdminPanel({ initialTab }) {
           onClick={() => setActiveTab('google')}
           style={{ ...styles.tab, ...(activeTab === 'google' ? styles.tabActive : {}) }}
         >Google Calendar</button>
+        <button
+          onClick={() => setActiveTab('notifications')}
+          style={{ ...styles.tab, ...(activeTab === 'notifications' ? styles.tabActive : {}) }}
+        >Notifications</button>
       </div>
 
       {activeTab === 'invite' && (
@@ -580,6 +620,38 @@ export default function AdminPanel({ initialTab }) {
           )}
         </>
       )}
+
+      {activeTab === 'notifications' && (
+        <div style={styles.card}>
+          <h3 style={styles.cardTitle}>Email Notifications</h3>
+          <p style={{ fontSize: '13px', color: 'rgba(255,255,255,0.45)', margin: '0 0 20px 0' }}>
+            Choose which events send you an email alert.
+          </p>
+          {emailPrefsLoading ? (
+            <p style={styles.emptyText}>Loading...</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {ADMIN_EMAIL_TRIGGERS.map(t => (
+                <div key={t.key} style={styles.toggleRow}>
+                  <span style={styles.toggleLabel}>{t.label}</span>
+                  <button
+                    onClick={() => toggleEmailPref(t.key)}
+                    style={{
+                      ...styles.toggleTrack,
+                      background: emailPrefs[t.key] ? '#6366f1' : 'rgba(255,255,255,0.1)',
+                    }}
+                  >
+                    <span style={{
+                      ...styles.toggleKnob,
+                      transform: emailPrefs[t.key] ? 'translateX(18px)' : 'translateX(0)',
+                    }} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -740,5 +812,23 @@ const styles = {
     flex: 1, padding: '8px 10px', background: 'rgba(255,255,255,0.05)',
     border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px',
     color: '#fff', fontSize: '13px', fontFamily: 'inherit', outline: 'none',
+  },
+  toggleRow: {
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+    padding: '10px 14px', background: 'rgba(255,255,255,0.02)',
+    borderRadius: '8px',
+  },
+  toggleLabel: {
+    fontSize: '14px', color: '#e2e8f0', fontWeight: 500,
+  },
+  toggleTrack: {
+    width: '40px', height: '22px', borderRadius: '11px',
+    border: 'none', cursor: 'pointer', position: 'relative',
+    transition: 'background 0.2s', padding: 0, flexShrink: 0,
+  },
+  toggleKnob: {
+    display: 'block', width: '18px', height: '18px', borderRadius: '50%',
+    background: '#fff', position: 'absolute', top: '2px', left: '2px',
+    transition: 'transform 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
   },
 };

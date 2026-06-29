@@ -5,8 +5,6 @@ import useRealtimeTable from '../hooks/useRealtimeTable';
 import { logUploadError } from '../lib/uploadErrors';
 
 const SUBMISSIONS_FOLDER_ID = '1r1dENUCjNSs57MjidYbE2rWrbMKXpLM0';
-// Studio owner (Trevor) — sole recipient of contractor-comment notifications.
-const STUDIO_OWNER_ID = 'c3290048-436b-46c6-b3f0-fdf7923d0c3b';
 
 const STATUS_LABELS = {
   assigned: 'Assigned',
@@ -232,6 +230,14 @@ export default function FreelancerDashboard({ onNavigate }) {
         link_tab: 'freelancers',
         link_target: assignment.id,
       });
+
+      supabase.functions.invoke('send-notification-email', {
+        body: {
+          trigger_key: 'fl_assignment_completed',
+          recipient_id: assignment.created_by,
+          context: { assignment_title: assignment.title, person_name: profile.full_name },
+        },
+      }).catch(() => {});
     }
     fetchAssignments();
   }
@@ -275,15 +281,23 @@ export default function FreelancerDashboard({ onNavigate }) {
       });
 
       const assignment = assignments.find(a => a.id === selectedId);
-      if (assignment && profile.id !== STUDIO_OWNER_ID) {
+      if (assignment && assignment.created_by && profile.id !== assignment.created_by) {
         await supabase.from('notifications').insert({
-          user_id: STUDIO_OWNER_ID,
+          user_id: assignment.created_by,
           type: 'fl_comment',
           title: 'New Comment',
           body: `${profile.full_name} commented on "${assignment.title}"`,
           link_tab: 'freelancers',
           link_target: assignment.id,
         });
+
+        supabase.functions.invoke('send-notification-email', {
+          body: {
+            trigger_key: 'fl_comment',
+            recipient_id: assignment.created_by,
+            context: { assignment_title: assignment.title, person_name: profile.full_name },
+          },
+        }).catch(() => {});
       }
       setNewComment('');
       fetchComments(selectedId);
@@ -313,6 +327,14 @@ export default function FreelancerDashboard({ onNavigate }) {
         link_tab: 'freelancers',
         link_target: hoursModalAssignment.id,
       });
+
+      supabase.functions.invoke('send-notification-email', {
+        body: {
+          trigger_key: 'fl_assignment_completed',
+          recipient_id: hoursModalAssignment.created_by,
+          context: { assignment_title: hoursModalAssignment.title, person_name: profile.full_name },
+        },
+      }).catch(() => {});
     }
     setHoursModalAssignment(null);
     setHoursInput('');
@@ -330,22 +352,23 @@ export default function FreelancerDashboard({ onNavigate }) {
         body: `\u{1F6A7} Stuck: ${stuckText.trim()}`,
       });
 
-      const { data: admins } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('role', 'admin');
+      if (assignment.created_by) {
+        await supabase.from('notifications').insert({
+          user_id: assignment.created_by,
+          type: 'fl_stuck',
+          title: 'Contractor Stuck',
+          body: `${profile.full_name} is stuck on "${assignment.title}": ${stuckText.trim()}`,
+          link_tab: 'freelancers',
+          link_target: assignment.id,
+        });
 
-      if (admins?.length) {
-        await supabase.from('notifications').insert(
-          admins.map(admin => ({
-            user_id: admin.id,
-            type: 'fl_stuck',
-            title: 'Contractor Stuck',
-            body: `${profile.full_name} is stuck on "${assignment.title}": ${stuckText.trim()}`,
-            link_tab: 'freelancers',
-            link_target: assignment.id,
-          }))
-        );
+        supabase.functions.invoke('send-notification-email', {
+          body: {
+            trigger_key: 'fl_stuck',
+            recipient_id: assignment.created_by,
+            context: { assignment_title: assignment.title, person_name: profile.full_name, message: stuckText.trim() },
+          },
+        }).catch(() => {});
       }
 
       setStuckText('');

@@ -97,6 +97,18 @@ export default function FreelancerHours() {
       notes: notes || null,
       submitted_at: new Date().toISOString(),
     }, { onConflict: 'freelancer_id,period_start,period_end' });
+    supabase.functions.invoke('send-notification-email', {
+      body: {
+        trigger_key: 'fl_hours_submitted',
+        recipient_id: '__all_admins__',
+        context: {
+          person_name: profile.full_name,
+          hours: parseFloat(hours) || 0,
+          period: `${period.start} – ${period.end}`,
+        },
+      },
+    }).catch(() => {});
+
     setFormState(prev => {
       const next = { ...prev };
       delete next[key];
