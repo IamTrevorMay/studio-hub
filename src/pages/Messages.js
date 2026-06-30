@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { useNotifications } from '../contexts/NotificationContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
 
 
 export default function Messages({ onNavigate }) {
   const { profile, refreshKey } = useAuth();
+  const { fetchUnreadDms } = useNotifications();
   const [conversations, setConversations] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -118,10 +120,25 @@ export default function Messages({ onNavigate }) {
     }
   }, []);
 
+  const markConversationRead = useCallback(async (conversationId) => {
+    if (!profile?.id || !conversationId) return;
+    try {
+      await supabase
+        .from('conversation_participants')
+        .update({ last_read_at: new Date().toISOString() })
+        .eq('conversation_id', conversationId)
+        .eq('user_id', profile.id);
+      fetchUnreadDms();
+    } catch (err) {
+      console.error('Error marking conversation read:', err);
+    }
+  }, [profile?.id, fetchUnreadDms]);
+
   useEffect(() => {
     if (!activeConversation) return;
     fetchMessages(activeConversation.id);
-  }, [activeConversation, fetchMessages]);
+    markConversationRead(activeConversation.id);
+  }, [activeConversation, fetchMessages, markConversationRead]);
 
   useEffect(() => {
     if (!activeConversation) return;
@@ -139,10 +156,12 @@ export default function Messages({ onNavigate }) {
         // Dedup by id — reconnect/resubscribe can redeliver, and the deps below
         // tear down + re-subscribe on unrelated refreshes.
         if (data) setMessages(prev => prev.some(m => m.id === data.id) ? prev : [...prev, data]);
+        // Viewing this conversation — keep read cursor current so it isn't counted unread.
+        if (payload.new.user_id !== profile?.id) markConversationRead(activeConversation.id);
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [activeConversation]);
+  }, [activeConversation, profile?.id, markConversationRead]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

@@ -19,6 +19,7 @@ export function NotificationProvider({ children }) {
   const [myTaskCount, setMyTaskCount] = useState(0);
   const [stuckCommentCount, setStuckCommentCount] = useState(0);
   const [flCommentCount, setFlCommentCount] = useState(0);
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
 
   // Single RPC call to get all badge counts
   const refreshNotifications = useCallback(async () => {
@@ -73,6 +74,20 @@ export function NotificationProvider({ children }) {
     }
   }, [user]);
 
+  // Unread direct messages (per-message count across all conversations)
+  const fetchUnreadDms = useCallback(async () => {
+    if (!profile?.id) return;
+    try {
+      const { data, error } = await supabase.rpc('get_unread_dm_count', {
+        p_user_id: profile.id,
+      });
+      if (error) throw error;
+      setUnreadMessageCount(data || 0);
+    } catch (err) {
+      console.error('Error fetching unread DM count:', err);
+    }
+  }, [profile?.id]);
+
   const markChannelSeen = useCallback((channelId) => {
     localStorage.setItem(`channel_seen_${channelId}`, new Date().toISOString());
     setUnreadMentionChannelIds(prev => prev.filter(id => id !== channelId));
@@ -88,8 +103,11 @@ export function NotificationProvider({ children }) {
     if (!user || !profile) return;
     refreshNotifications();
     fetchUnreadMentions();
+    fetchUnreadDms();
 
     const channel = supabase.channel('notification-changes')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'direct_messages' }, () => fetchUnreadDms())
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversation_participants', filter: `user_id=eq.${profile.id}` }, () => fetchUnreadDms())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements' }, () => refreshNotifications())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'announcement_reads' }, () => refreshNotifications())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_itinerary' }, () => refreshNotifications())
@@ -104,13 +122,14 @@ export function NotificationProvider({ children }) {
     const interval = setInterval(() => {
       refreshNotifications();
       fetchUnreadMentions();
+      fetchUnreadDms();
     }, 300000);
 
     return () => {
       supabase.removeChannel(channel);
       clearInterval(interval);
     };
-  }, [user, profile, refreshNotifications, fetchUnreadMentions, refreshKey]);
+  }, [user, profile, refreshNotifications, fetchUnreadMentions, fetchUnreadDms, refreshKey]);
 
   const value = {
     unreadAnnouncementCount,
@@ -126,6 +145,8 @@ export function NotificationProvider({ children }) {
     myTaskCount,
     stuckCommentCount,
     flCommentCount,
+    unreadMessageCount,
+    fetchUnreadDms,
   };
 
   return <NotificationContext.Provider value={value}>{children}</NotificationContext.Provider>;

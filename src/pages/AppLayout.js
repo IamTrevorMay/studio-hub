@@ -234,7 +234,7 @@ const NAV_ICON_MAP = {
 
 export default function AppLayout() {
   const { profile, signOut, isAdmin, isAssistant, isPartner, isFreelancer, restrictedNavKeys } = useAuth();
-  const { unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, newAssignmentCount, myTaskCount, stuckCommentCount, flCommentCount, refreshNotifications } = useNotifications();
+  const { unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, newAssignmentCount, myTaskCount, stuckCommentCount, flCommentCount, unreadMessageCount, refreshNotifications } = useNotifications();
   const { getResolvedNav, saveConfig, saving } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => {
     const fromPath = getTabFromPath();
@@ -557,6 +557,9 @@ export default function AppLayout() {
                             {child.key === 'channels' && unreadMentionChannelIds.length > 0 && (
                               <span style={styles.navBadge}>{unreadMentionChannelIds.length}</span>
                             )}
+                            {child.key === 'messages' && unreadMessageCount > 0 && (
+                              <span style={styles.navBadge}>{unreadMessageCount > 99 ? '99+' : unreadMessageCount}</span>
+                            )}
                             {child.key === 'deliverables' && pendingProposalCount > 0 && (
                               <span style={styles.navDot} />
                             )}
@@ -603,6 +606,9 @@ export default function AppLayout() {
                               {child.key === 'channels' && unreadMentionChannelIds.length > 0 && (
                                 <span style={styles.navBadge}>{unreadMentionChannelIds.length}</span>
                               )}
+                              {child.key === 'messages' && unreadMessageCount > 0 && (
+                                <span style={styles.navBadge}>{unreadMessageCount > 99 ? '99+' : unreadMessageCount}</span>
+                              )}
                               {child.key === 'projects' && pendingProposalCount > 0 && (
                                 <span style={styles.navBadge}>{pendingProposalCount}</span>
                               )}
@@ -635,6 +641,9 @@ export default function AppLayout() {
                       )}
                       {entry.key === 'channels' && unreadMentionChannelIds.length > 0 && (
                         <span style={styles.navBadge}>{unreadMentionChannelIds.length}</span>
+                      )}
+                      {entry.key === 'messages' && unreadMessageCount > 0 && (
+                        <span style={styles.navBadge}>{unreadMessageCount > 99 ? '99+' : unreadMessageCount}</span>
                       )}
                       {entry.key === 'deliverables' && pendingProposalCount > 0 && (
                         <span style={styles.navDot} />
