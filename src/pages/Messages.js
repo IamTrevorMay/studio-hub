@@ -123,11 +123,12 @@ export default function Messages({ onNavigate }) {
   const markConversationRead = useCallback(async (conversationId) => {
     if (!profile?.id || !conversationId) return;
     try {
-      await supabase
+      const { error } = await supabase
         .from('conversation_participants')
         .update({ last_read_at: new Date().toISOString() })
         .eq('conversation_id', conversationId)
         .eq('user_id', profile.id);
+      if (error) throw error;
       fetchUnreadDms();
     } catch (err) {
       console.error('Error marking conversation read:', err);
