@@ -381,6 +381,16 @@ Deno.serve(async (req: Request) => {
           .eq("id", logEntry.id);
       }
 
+      // Update platform account health so Ops "Platform health" reflects the sync
+      await supabase
+        .from("platform_accounts")
+        .update({
+          last_synced_at: new Date().toISOString(),
+          last_success_at: new Date().toISOString(),
+          consecutive_failures: 0,
+        })
+        .eq("id", account.id);
+
       results[cfg.platform] = {
         pdm_upserted: totalPdm,
         aud_upserted: totalAud,

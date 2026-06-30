@@ -226,10 +226,15 @@ Deno.serve(async (req: Request) => {
     results.revenue_events_upserted = totalCreated;
     results.since = sinceDate;
 
-    // Update last_synced_at
+    // Update last_synced_at + success health
     await supabase
       .from("platform_accounts")
-      .update({ last_synced_at: new Date().toISOString() })
+      .update({
+        last_synced_at: new Date().toISOString(),
+        last_success_at: new Date().toISOString(),
+        consecutive_failures: 0,
+        token_status: "valid",
+      })
       .eq("id", account.id);
 
     // Refresh materialized view

@@ -450,10 +450,15 @@ Deno.serve(async (req: Request) => {
       errors.vods = (e as Error).message;
     }
 
-    // ── 8. Update last_synced_at ──
+    // ── 8. Update last_synced_at + success health ──
     await supabase
       .from("platform_accounts")
-      .update({ last_synced_at: new Date().toISOString() })
+      .update({
+        last_synced_at: new Date().toISOString(),
+        last_success_at: new Date().toISOString(),
+        consecutive_failures: 0,
+        token_status: "valid",
+      })
       .eq("id", account.id);
 
     // ── 9. Complete ingestion log ──

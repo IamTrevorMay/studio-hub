@@ -29,29 +29,59 @@ export async function startIngestionLog(
 export async function completeIngestionLog(
   supabase: ReturnType<typeof createClient>,
   logId: string,
-  stats: { records_processed?: number; records_created?: number; records_updated?: number }
+  stats: { records_processed?: number; records_created?: number; records_updated?: number },
+  platformAccountId?: string
 ) {
   await supabase
     .from("ingestion_logs")
     .update({ status: "success", completed_at: new Date().toISOString(), ...stats })
     .eq("id", logId);
+
+  // Update platform account health
+  if (platformAccountId) {
+    await supabase
+      .from("platform_accounts")
+      .update({
+        last_success_at: new Date().toISOString(),
+        consecutive_failures: 0,
+        token_status: "valid",
+      })
+      .eq("id", platformAccountId);
+  }
 }
 
 export async function failIngestionLog(
   supabase: ReturnType<typeof createClient>,
   logId: string,
   error: Error | string,
-  details?: Record<string, unknown>
+  details?: Record<string, unknown>,
+  platformAccountId?: string
 ) {
+  const errorMsg = typeof error === "string" ? error : error.message;
   await supabase
     .from("ingestion_logs")
     .update({
       status: "failed",
       completed_at: new Date().toISOString(),
-      error_message: typeof error === "string" ? error : error.message,
+      error_message: errorMsg,
       error_details: details || {},
     })
     .eq("id", logId);
+
+  // Update platform account health
+  if (platformAccountId) {
+    await supabase
+      .from("platform_accounts")
+      .update({
+        last_error_at: new Date().toISOString(),
+        last_error_message: errorMsg,
+      })
+      .eq("id", platformAccountId);
+
+    await supabase.rpc("increment_consecutive_failures", {
+      p_account_id: platformAccountId,
+    });
+  }
 }
 
 export async function getActiveAccounts(
