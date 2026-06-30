@@ -313,18 +313,45 @@ Deno.serve(async (req: Request) => {
         else totalPdm += data?.length || 0;
       }
 
-      // Upsert audience_snapshots (followers as cumulative total)
+      // Upsert audience_snapshots. Metricool's followers metric is a cumulative
+      // running total, so the daily *gain* is the day-over-day change. This was
+      // previously hardcoded to 0, which zeroed out IG/TikTok/FB audience
+      // velocity everywhere downstream (decision row, weekly report, rollups)
+      // even though followers_total was moving. We now derive the gain from the
+      // total, anchoring the earliest in-window day to the last snapshot before
+      // the window so it isn't stuck at 0. (The window already fetches one extra
+      // day — see daysBack + 1 above — for exactly this purpose.) Gains may be
+      // negative on net-loss days, which is correct.
       let totalAud = 0;
-      const audRows = Object.entries(followersByDate)
+      const sortedFollowers = Object.entries(followersByDate)
         .filter(([_, v]) => v > 0)
-        .map(([date, followers]) => ({
+        .sort(([a], [b]) => a.localeCompare(b));
+
+      let prevTotal: number | null = null;
+      if (sortedFollowers.length) {
+        const { data: priorSnap } = await supabase
+          .from("audience_snapshots")
+          .select("followers_total")
+          .eq("platform_account_id", account.id)
+          .lt("date", sortedFollowers[0][0])
+          .order("date", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (priorSnap) prevTotal = priorSnap.followers_total;
+      }
+
+      const audRows = sortedFollowers.map(([date, followers]) => {
+        const gained = prevTotal == null ? 0 : followers - prevTotal;
+        prevTotal = followers;
+        return {
           platform_account_id: account.id,
           date,
           followers_total: followers,
-          followers_gained: 0,
+          followers_gained: gained,
           demographics: {},
           metadata: { source: "metricool" },
-        }));
+        };
+      });
       for (let i = 0; i < audRows.length; i += 100) {
         const batch = audRows.slice(i, i + 100);
         const { error, data } = await supabase
