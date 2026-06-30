@@ -78,21 +78,31 @@ async function refreshAccessToken(
   const tokens = await res.json();
   const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
 
-  // Write new tokens to DB immediately — old refresh token is already invalidated
-  const { error: updateError } = await supabase
-    .from("platform_accounts")
-    .update({
-      credentials: {
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
-        token_expires_at: expiresAt,
-      },
-    })
-    .eq("id", accountId);
-
-  if (updateError) {
+  // Persist the new tokens. Twitch already invalidated the OLD refresh token the
+  // moment this refresh succeeded, so failing to save the NEW one bricks the
+  // integration until a human re-authorizes. A single transient DB hiccup
+  // shouldn't cost that, so retry a few times with backoff before giving up.
+  let persisted = false;
+  for (let attempt = 0; attempt < 3 && !persisted; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 500 * attempt));
+    const { error: updateError } = await supabase
+      .from("platform_accounts")
+      .update({
+        credentials: {
+          access_token: tokens.access_token,
+          refresh_token: tokens.refresh_token,
+          token_expires_at: expiresAt,
+        },
+      })
+      .eq("id", accountId);
+    if (!updateError) { persisted = true; break; }
     console.error(
-      `CRITICAL: Token refreshed but DB write failed! New tokens may be lost. Error: ${updateError.message}`,
+      `CRITICAL: Twitch token DB write failed (attempt ${attempt + 1}/3): ${updateError.message}`,
+    );
+  }
+  if (!persisted) {
+    console.error(
+      "CRITICAL: Twitch tokens refreshed but could NOT be saved after 3 attempts. The next run may require re-authorization.",
     );
   }
 

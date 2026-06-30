@@ -78,7 +78,7 @@ function aggregate(rows) {
     if (!byAcct[id]) {
       byAcct[id] = {
         id, platform: r.platform, name: r.account_name,
-        views: 0, engagement: 0, followers: 0, revenue: 0,
+        views: 0, engagement: 0, followers: 0, revenue: 0, posts: 0,
         _daily: {},
       };
     }
@@ -88,6 +88,7 @@ function aggregate(rows) {
     const fol = Number(r.followers_gained) || 0;
     const rev = Number(r.revenue_cents) || 0;
     a.views += views; a.engagement += eng; a.followers += fol; a.revenue += rev;
+    a.posts += Number(r.posts_published) || 0;
     const day = String(r.date).slice(0, 10);
     if (!a._daily[day]) a._daily[day] = { views: 0, engagement: 0, followers: 0, revenue: 0 };
     a._daily[day].views += views;
@@ -149,6 +150,23 @@ function MetricCell({ metric, cur, prev, series }) {
   );
 }
 
+// Efficiency cell: views per post (cur vs prev), no sparkline — a ratio's daily
+// series is too noisy to read at this size.
+function EfficiencyCell({ curViews, curPosts, prevViews, prevPosts }) {
+  const cur = curPosts > 0 ? curViews / curPosts : 0;
+  const prev = prevPosts > 0 ? prevViews / prevPosts : 0;
+  return (
+    <td style={styles.td}>
+      <div style={local.cellValue}>{curPosts > 0 ? formatCompact(cur) : '—'}</div>
+      <div style={{ ...local.cellPrev, marginBottom: 3 }}>{curPosts} posts</div>
+      <div style={local.cellFooter}>
+        <DeltaBadge cur={cur} prev={prev} />
+        <span style={local.cellPrev}>vs {prevPosts > 0 ? formatCompact(prev) : '—'}</span>
+      </div>
+    </td>
+  );
+}
+
 export default function CompareView({ accounts = [] }) {
   const [preset, setPreset] = useState('30d');
   const [customStart, setCustomStart] = useState(daysAgoStr(30));
@@ -168,7 +186,7 @@ export default function CompareView({ accounts = [] }) {
     const gen = ++genRef.current;
     setLoading(true);
     try {
-      const cols = 'date, platform_account_id, platform, account_name, total_views, total_likes, total_comments, total_shares, followers_gained, revenue_cents';
+      const cols = 'date, platform_account_id, platform, account_name, total_views, total_likes, total_comments, total_shares, followers_gained, revenue_cents, posts_published';
       const baseQuery = (p) => {
         let q = supabase
           .from('daily_platform_rollups')
@@ -206,6 +224,7 @@ export default function CompareView({ accounts = [] }) {
         id,
         platform: ref.platform,
         name: ref.name,
+        posts: { cur: cur ? cur.posts : 0, prev: prev ? prev.posts : 0 },
         metrics: METRICS.reduce((acc, m) => {
           acc[m.key] = {
             cur: cur ? cur[m.key] : 0,
@@ -231,6 +250,10 @@ export default function CompareView({ accounts = [] }) {
         rows.reduce((s, r) => s + (r.metrics[m.key].series[i] || 0), 0));
       t[m.key] = { cur, prev, series };
     }
+    t.posts = {
+      cur: rows.reduce((s, r) => s + r.posts.cur, 0),
+      prev: rows.reduce((s, r) => s + r.posts.prev, 0),
+    };
     return t;
   }, [rows]);
 
@@ -311,6 +334,9 @@ export default function CompareView({ accounts = [] }) {
                     <span style={{ color: m.color }}>{m.label}</span>
                   </th>
                 ))}
+                <th style={{ ...styles.th, textAlign: 'left', minWidth: '130px' }} title="Views per post — reach earned per unit of work">
+                  <span style={{ color: '#a5b4fc' }}>Views / Post</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -323,6 +349,8 @@ export default function CompareView({ accounts = [] }) {
                   <MetricCell key={m.key} metric={m}
                     cur={totals[m.key].cur} prev={totals[m.key].prev} series={totals[m.key].series} />
                 ))}
+                <EfficiencyCell curViews={totals.views.cur} curPosts={totals.posts.cur}
+                  prevViews={totals.views.prev} prevPosts={totals.posts.prev} />
               </tr>
               {rows.map((row, i) => {
                 const meta = PLATFORM_META[row.platform] || { label: row.platform, color: '#666' };
@@ -343,6 +371,8 @@ export default function CompareView({ accounts = [] }) {
                       <MetricCell key={m.key} metric={m}
                         cur={row.metrics[m.key].cur} prev={row.metrics[m.key].prev} series={row.metrics[m.key].series} />
                     ))}
+                    <EfficiencyCell curViews={row.metrics.views.cur} curPosts={row.posts.cur}
+                      prevViews={row.metrics.views.prev} prevPosts={row.posts.prev} />
                   </tr>
                 );
               })}

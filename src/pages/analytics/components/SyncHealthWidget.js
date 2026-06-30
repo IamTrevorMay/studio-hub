@@ -9,7 +9,9 @@ function statusColor(row) {
   const tokenBad = row.token_status === 'expired' || row.token_status === 'revoked';
 
   if (tokenBad || hoursSince > 50 || failures >= 3) return '#ef4444';
-  if (hoursSince > 26 || failures >= 1 || !hasYesterday) return '#f59e0b';
+  // Stale data (cached/identical API responses) looks healthy on every other
+  // check, so it must downgrade an otherwise-green account to amber.
+  if (hoursSince > 26 || failures >= 1 || !hasYesterday || row.stale) return '#f59e0b';
   return '#22c55e';
 }
 
@@ -50,6 +52,11 @@ function HealthDot({ row }) {
           <div style={styles.tooltipRow}>
             Yesterday data: {hasYesterday ? 'present' : 'missing'}
           </div>
+          {row.stale && (
+            <div style={{ ...styles.tooltipRow, color: '#fbbf24' }}>
+              {row.stale_reason || 'Data appears stale'}
+            </div>
+          )}
           {row.token_status !== 'valid' && row.token_status !== 'unknown' && (
             <div style={{ ...styles.tooltipRow, color: '#f87171' }}>
               Token: {row.token_status}

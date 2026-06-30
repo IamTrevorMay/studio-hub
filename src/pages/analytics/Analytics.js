@@ -6,7 +6,7 @@ import YouTubeStudioAdvanced from '../YouTubeStudioAdvanced';
 import ContentHealthDashboard from '../ContentHealthDashboard';
 
 import { PLATFORM_META, DATE_RANGES, MONTHS } from './constants';
-import { daysAgoStr, todayStr, getDateRange, formatCompact, fetchAllRows } from './utils';
+import { daysAgoStr, todayStr, getDateRange, formatCompact, formatCurrency, pctChange, fetchAllRows } from './utils';
 import { styles } from './styles';
 
 import DonutChart from './components/DonutChart';
@@ -19,6 +19,11 @@ import FrequencyGrowthChart from './components/FrequencyGrowthChart';
 import CompareView from './components/CompareView';
 import WeeklyReport from './components/WeeklyReport';
 import SyncHealthWidget from './components/SyncHealthWidget';
+import DecisionKpiCard from './components/DecisionKpiCard';
+import DataCompletenessBadge from './components/DataCompletenessBadge';
+import CoverageChip from './components/CoverageChip';
+import FormatPerformance from './components/FormatPerformance';
+import ThisWeekBanner from './components/ThisWeekBanner';
 
 // Platforms the Dashboard top section + Weekly digest focus on, in display order.
 const DIGEST_PLATFORMS = ['youtube', 'tiktok', 'instagram', 'substack', 'simplecast'];
@@ -67,6 +72,7 @@ export default function Analytics() {
 
   // Data
   const [timeSeries, setTimeSeries] = useState([]);
+  const [kpiSummary, setKpiSummary] = useState(null);
   // Substack paid subscribers live in audience_snapshots.metadata.supporters
   // (manually entered via Data Input), not in the rollup — fetched separately.
   const [substackPaid, setSubstackPaid] = useState(null);
@@ -74,7 +80,7 @@ export default function Analytics() {
   const [loading, setLoading] = useState(true);
 
   // Content table sort
-  const [sortCol, setSortCol] = useState('published_at');
+  const [sortCol, setSortCol] = useState('outperformance');
   const [sortDir, setSortDir] = useState('desc');
 
   // CSV upload (preserved)
@@ -105,6 +111,7 @@ export default function Analytics() {
   const timeSeriesGenRef = useRef(0);
   const contentGenRef = useRef(0);
   const analysisGenRef = useRef(0);
+  const kpiGenRef = useRef(0);
 
   // Clear any pending syncStatus timer on unmount
   useEffect(() => () => {
@@ -162,6 +169,7 @@ export default function Analytics() {
         fetchTimeSeries(),
         fetchContentPerformance(),
         fetchAnalysisData(),
+        fetchKpiSummary(),
       ]);
     } catch (err) {
       console.error('Error fetching analytics:', err);
@@ -222,6 +230,21 @@ export default function Analytics() {
     }
   }
 
+  // Decision-row KPIs: current window + previous-equal-length window + trailing-
+  // 4-window average for views, posts, followers gained, and (complete) revenue.
+  async function fetchKpiSummary() {
+    const gen = ++kpiGenRef.current;
+    const { start, end } = getDateRange(dateRange, customStart, customEnd, filterMonth, filterYear);
+    const { data, error } = await supabase.rpc('get_kpi_summary', {
+      p_start: start,
+      p_end: end,
+      p_account_ids: activeAccountIds.length > 0 ? activeAccountIds : null,
+    });
+    if (gen !== kpiGenRef.current) return;
+    if (error) { console.error('get_kpi_summary error:', error); setKpiSummary(null); return; }
+    setKpiSummary(data);
+  }
+
   async function fetchAnalysisData() {
     const gen = ++analysisGenRef.current;
     const { start, end } = getDateRange(dateRange, customStart, customEnd, filterMonth, filterYear);
@@ -234,7 +257,7 @@ export default function Analytics() {
         .in('event_type', ['charge', 'subscription_renewal']),
       supabase
         .from('content_items')
-        .select('id, title, published_at, platform_account_id, url, platform_account:platform_accounts(platform, account_name), latest_metrics:content_metrics(views, likes, comments, shares, engagement_rate)')
+        .select('id, title, published_at, platform_account_id, url, content_type, series, platform_account:platform_accounts(platform, account_name), latest_metrics:content_metrics(views, likes, comments, shares, engagement_rate)')
         .gte('published_at', start)
         .lte('published_at', end + 'T23:59:59.999')
         .order('published_at', { ascending: false })
@@ -362,11 +385,77 @@ export default function Analytics() {
     });
   }, [timeSeries]);
 
+  // ── Decision-row KPIs (Reach / Efficiency / Audience velocity / Revenue) ──
+  const decisionCards = useMemo(() => {
+    if (!kpiSummary?.current) return null;
+    const cur = kpiSummary.current, prev = kpiSummary.prev || {}, base = kpiSummary.base4 || {};
+    const n = (v) => Number(v) || 0;
+    const perPost = (views, posts) => (n(posts) > 0 ? n(views) / n(posts) : 0);
+    const rpm = (cents, views) => (n(views) > 0 ? (n(cents) / 100) / (n(views) / 1000) : 0);
+    const curVPP = perPost(cur.views, cur.posts);
+    const topViews = platformBreakdown.filter(p => p.views > 0)[0];
+    return {
+      reach: {
+        value: formatCompact(n(cur.views)),
+        soWhat: topViews ? `Top: ${topViews.label} (${formatCompact(topViews.views)})` : null,
+        deltaPrev: pctChange(n(cur.views), n(prev.views)),
+        deltaBase: pctChange(n(cur.views), n(base.views)),
+      },
+      efficiency: {
+        value: formatCompact(curVPP),
+        soWhat: `${n(cur.posts).toLocaleString()} posts published`,
+        deltaPrev: pctChange(curVPP, perPost(prev.views, prev.posts)),
+        deltaBase: pctChange(curVPP, perPost(base.views, base.posts)),
+      },
+      audience: {
+        value: `${n(cur.followers_gained) >= 0 ? '+' : ''}${formatCompact(n(cur.followers_gained))}`,
+        soWhat: `net followers over ${kpiSummary.window?.len_days || 0}d`,
+        deltaPrev: pctChange(n(cur.followers_gained), n(prev.followers_gained)),
+        deltaBase: pctChange(n(cur.followers_gained), n(base.followers_gained)),
+      },
+      revenue: {
+        value: formatCurrency(n(cur.revenue_cents)),
+        soWhat: `Blended RPM $${rpm(cur.revenue_cents, cur.views).toFixed(2)}/1K`,
+        deltaPrev: pctChange(n(cur.revenue_cents), n(prev.revenue_cents)),
+        deltaBase: pctChange(n(cur.revenue_cents), n(base.revenue_cents)),
+      },
+    };
+  }, [kpiSummary, platformBreakdown]);
+
+  // ── Score each post vs its platform's median views (efficiency lens) ──
+  const scoredContent = useMemo(() => {
+    const viewsOf = (it) => Number(it.latest_metrics?.[0]?.views) || 0;
+    const byPlatform = {};
+    for (const it of contentItems) {
+      const p = it.platform_account?.platform || 'unknown';
+      const v = viewsOf(it);
+      if (v > 0) (byPlatform[p] = byPlatform[p] || []).push(v);
+    }
+    const medians = {};
+    for (const [p, arr] of Object.entries(byPlatform)) {
+      const s = [...arr].sort((a, b) => a - b);
+      const mid = Math.floor(s.length / 2);
+      medians[p] = s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+    }
+    return contentItems.map((it) => {
+      const p = it.platform_account?.platform || 'unknown';
+      const med = medians[p] || 0;
+      const vsMedian = med > 0 ? viewsOf(it) / med : null;
+      let flag = null;
+      if (vsMedian != null && vsMedian >= 2) flag = 'hot';
+      else if (vsMedian != null && vsMedian <= 0.33) flag = 'cold';
+      return { ...it, _vsMedian: vsMedian, _flag: flag };
+    });
+  }, [contentItems]);
+
   // ── Sort content items ──
   const sortedContent = useMemo(() => {
-    return [...contentItems].sort((a, b) => {
+    return [...scoredContent].sort((a, b) => {
       let va, vb;
-      if (sortCol === 'views' || sortCol === 'engagement_rate') {
+      if (sortCol === 'outperformance') {
+        va = a._vsMedian ?? -1;
+        vb = b._vsMedian ?? -1;
+      } else if (sortCol === 'views' || sortCol === 'engagement_rate') {
         const aMetrics = a.latest_metrics?.[0] || {};
         const bMetrics = b.latest_metrics?.[0] || {};
         va = aMetrics[sortCol] || 0;
@@ -381,7 +470,7 @@ export default function Analytics() {
       if (typeof va === 'string') return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
       return sortDir === 'asc' ? va - vb : vb - va;
     });
-  }, [contentItems, sortCol, sortDir]);
+  }, [scoredContent, sortCol, sortDir]);
 
   function handleSort(col) {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -539,8 +628,30 @@ export default function Analytics() {
       {viewMode === 'dashboard' && (loading ? <p style={styles.loadingText}>Loading analytics...</p> : (
         <>
           {/* ── Dashboard Sections ── */}
+          {/* ── This Week narrative (decision destination) ── */}
+          <ThisWeekBanner onOpenFullReport={() => setViewMode('weekly')} />
+          {/* ── Data trust signals ── */}
+          <DataCompletenessBadge />
           {/* ── Sync Health (admin-only) ── */}
           {isAdmin && <SyncHealthWidget />}
+
+          {/* ── Decision Row — Reach / Efficiency / Audience velocity / Revenue ── */}
+          {decisionCards && (
+            <div style={styles.kpiGrid}>
+              <DecisionKpiCard label="Reach (views)" value={decisionCards.reach.value}
+                soWhat={decisionCards.reach.soWhat}
+                deltaPrev={decisionCards.reach.deltaPrev} deltaBase={decisionCards.reach.deltaBase} color="#6366f1" />
+              <DecisionKpiCard label="Efficiency (views / post)" value={decisionCards.efficiency.value}
+                soWhat={decisionCards.efficiency.soWhat}
+                deltaPrev={decisionCards.efficiency.deltaPrev} deltaBase={decisionCards.efficiency.deltaBase} color="#22c55e" />
+              <DecisionKpiCard label="Audience velocity" value={decisionCards.audience.value}
+                soWhat={decisionCards.audience.soWhat}
+                deltaPrev={decisionCards.audience.deltaPrev} deltaBase={decisionCards.audience.deltaBase} color="#ec4899" />
+              <DecisionKpiCard label="Revenue" value={decisionCards.revenue.value}
+                soWhat={decisionCards.revenue.soWhat}
+                deltaPrev={decisionCards.revenue.deltaPrev} deltaBase={decisionCards.revenue.deltaBase} color="#f59e0b" />
+            </div>
+          )}
 
           {/* ── B. Platform Digest Cards (Weekly-digest platforms) ── */}
           <div style={styles.kpiGrid}>
@@ -556,6 +667,7 @@ export default function Analytics() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                     <span style={{ width: 9, height: 9, borderRadius: '50%', background: meta.color, flexShrink: 0 }} />
                     <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{meta.label}</span>
+                    <CoverageChip platform={d.platform} style={{ marginLeft: 'auto' }} />
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 20px' }}>
                     {metrics.map(([label, value]) => (
@@ -642,6 +754,9 @@ export default function Analytics() {
             </div>
           )}
 
+          {/* ── Revenue efficiency (North Star: which platform monetizes best) ── */}
+          <RPMCard revenueData={analysisData.revenue} timeSeries={timeSeries} accounts={accounts} />
+
           {/* ── E. Content Performance Table ── */}
           <div style={{ marginTop: '16px' }}>
             <button onClick={() => setShowContentPerf(!showContentPerf)} style={styles.collapseBtn}>
@@ -683,6 +798,10 @@ export default function Analytics() {
                           <th style={{ ...styles.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => handleSort('engagement_rate')}>
                             Engagement {sortCol === 'engagement_rate' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
                           </th>
+                          <th style={{ ...styles.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => handleSort('outperformance')}
+                            title="Views relative to this platform's median post">
+                            vs median {sortCol === 'outperformance' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -693,6 +812,8 @@ export default function Analytics() {
                           return (
                             <tr key={item.id} style={i % 2 === 0 ? styles.trEven : {}}>
                               <td style={{ ...styles.td, ...styles.tdSticky, background: i % 2 === 0 ? 'rgba(255,255,255,0.01)' : '#12121f' }}>
+                                {item._flag === 'hot' && <span title="Breakout: ≥2× platform median" style={{ marginRight: 6 }}>🔥</span>}
+                                {item._flag === 'cold' && <span title="Underperformer: ≤0.33× platform median" style={{ marginRight: 6 }}>⚠️</span>}
                                 {item.url ? (
                                   <a href={item.url} target="_blank" rel="noopener noreferrer"
                                     style={{ color: '#e2e8f0', textDecoration: 'none', fontWeight: 500 }}>
@@ -722,6 +843,10 @@ export default function Analytics() {
                               <td style={{ ...styles.td, ...styles.tdValue, textAlign: 'right' }}>
                                 {metrics.engagement_rate != null ? (Number(metrics.engagement_rate) * 100).toFixed(2) + '%' : '—'}
                               </td>
+                              <td style={{ ...styles.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                                color: item._vsMedian == null ? 'rgba(255,255,255,0.3)' : item._vsMedian >= 2 ? '#4ade80' : item._vsMedian <= 0.33 ? '#f87171' : 'rgba(255,255,255,0.6)' }}>
+                                {item._vsMedian == null ? '—' : `${item._vsMedian.toFixed(1)}×`}
+                              </td>
                             </tr>
                           );
                         })}
@@ -744,7 +869,7 @@ export default function Analytics() {
             </button>
             {showAnalysis && (
               <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '0px' }}>
-                <RPMCard revenueData={analysisData.revenue} timeSeries={timeSeries} accounts={accounts} />
+                <FormatPerformance contentItems={analysisData.contentWithMetrics} />
                 <PublishHeatmap contentItems={analysisData.contentWithMetrics} />
                 <ContentVelocityChart contentItems={analysisData.contentWithMetrics} />
                 <FrequencyGrowthChart

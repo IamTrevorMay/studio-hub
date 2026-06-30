@@ -219,6 +219,7 @@ function ReportBody({ report }) {
           <div style={styles.rowLine}><span style={styles.platName}>Total (net + YouTube est.)</span><span style={styles.revVal}>{fmtUsd(revenue.total_cents)}</span></div>
           <div style={styles.rowLine}><span style={styles.platName}>Direct net</span><span style={styles.revVal}>{fmtUsd(revenue.net_cents)}</span></div>
           <div style={styles.rowLine}><span style={styles.platName}>Gross</span><span style={styles.revVal}>{fmtUsd(revenue.gross_cents)}</span></div>
+          {revenue.non_platform_cents > 0 && <div style={styles.rowLine}><span style={styles.platName}>Company / Other (sponsorships)</span><span style={styles.revVal}>{fmtUsd(revenue.non_platform_cents)}</span></div>}
           {revenue.margin_pct != null && <div style={styles.rowLine}><span style={styles.platName}>Net margin</span><span style={styles.revVal}>{revenue.margin_pct}%</span></div>}
           <div style={styles.rowLine}><span style={styles.platName}>YouTube est. / RPM</span><span style={styles.revVal}>{fmtUsd(revenue.youtube_est_cents)} · ${revenue.youtube_rpm ?? 0}</span></div>
         </div>

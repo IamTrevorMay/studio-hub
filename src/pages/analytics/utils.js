@@ -95,6 +95,20 @@ export function toLocalDate(s) {
   return new Date(String(s).slice(0, 10) + 'T00:00:00');
 }
 
+// Normalize a content item into a human "format" bucket for "what to make
+// next" analysis. Format is derived from the existing content_type enum +
+// platform, so no schema column is needed.
+export function deriveFormat(contentType, platform) {
+  const ct = String(contentType || '').toLowerCase();
+  if (ct === 'short') return 'Shorts';
+  if (ct === 'article') return 'Editorial';
+  if (ct === 'podcast' || platform === 'simplecast') return 'Podcast';
+  if (ct === 'vod' || ct === 'stream' || platform === 'twitch') return 'Streams / VODs';
+  if (ct === 'video') return 'Long-form video';
+  if (ct === 'post') return 'Posts';
+  return ct ? ct.charAt(0).toUpperCase() + ct.slice(1) : 'Other';
+}
+
 export function formatCompact(n) {
   if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
   if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';

@@ -220,7 +220,11 @@ Deno.serve(async (req: Request) => {
       .from("platform_accounts")
       .select("id, platform, account_name, is_active");
     const acctMap = new Map((accounts || []).map((a) => [a.id, a]));
-    const platformOf = (id: string) => acctMap.get(id)?.platform || "unknown";
+    // Revenue can be non-platform (sponsorships, direct deals) with a null
+    // platform_account_id. Label it "company" so it stays visible in totals and
+    // breakdowns instead of disappearing as an "unknown" bucket. (Non-brief
+    // platforms are filtered out downstream by BRIEF_PLATFORMS where relevant.)
+    const platformOf = (id: string) => acctMap.get(id)?.platform || "company";
 
     // ── platform_daily_metrics (views/engagement) over the full 5-week span ──
     const { data: pdm } = await db
@@ -439,6 +443,9 @@ Deno.serve(async (req: Request) => {
       revenue: {
         net_cents: wkR.net,
         gross_cents: wkR.gross,
+        // Non-platform revenue (sponsorships/direct) so the headline total is
+        // demonstrably complete, not silently dropping unattributed income.
+        non_platform_cents: wkR.byPlatform["company"]?.net || 0,
         margin_pct: wkR.gross > 0 ? Math.round((wkR.net / wkR.gross) * 1000) / 10 : null,
         by_platform: wkR.byPlatform,
         youtube_est_cents: wkYt.estRevCents,

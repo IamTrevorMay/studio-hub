@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { callEdgeFn } from '../lib/edgeFn';
 import { mobileTokens } from '../utils/mobileTokens';
-import { daysAgoStr } from './analytics/utils';
+import { daysAgoStr, todayStr, formatCompact, formatCurrency, pctChange } from './analytics/utils';
 
 // Mobile Analytics — Admin Mode. Two tabs:
 //   • Weekly Report (default): the AI weekly KPI brief (summary always shown,
@@ -328,6 +328,7 @@ function ContentList({ rows }) {
 function PlatformKpisTab() {
   const [accounts, setAccounts] = useState([]);
   const [stats, setStats] = useState({}); // accountId -> { followers, gained, views, engagement, revenue_cents }
+  const [kpiSummary, setKpiSummary] = useState(null); // { current, prev, base4 } from get_kpi_summary
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
@@ -341,6 +342,12 @@ function PlatformKpisTab() {
       setAccounts(list);
       const ids = list.map((a) => a.id);
       const start = daysAgoStr(30);
+
+      // Decision-row KPIs (all accounts, last 30d vs prior 30d). Same RPC the
+      // desktop decision row uses, so the headline numbers match across devices.
+      supabase
+        .rpc('get_kpi_summary', { p_start: start, p_end: todayStr(), p_account_ids: null })
+        .then(({ data, error }) => { if (!error && data) setKpiSummary(data); });
 
       if (ids.length === 0) { setStats({}); setLoading(false); return; }
 
@@ -388,8 +395,18 @@ function PlatformKpisTab() {
   const totalFollowers = accounts.reduce((s, a) => s + (stats[a.id]?.followers || 0), 0);
   const totalGained = accounts.reduce((s, a) => s + (stats[a.id]?.gained || 0), 0);
 
+  const decisionCards = buildDecisionCards(kpiSummary);
+
   return (
     <div style={styles.tabBody}>
+      {decisionCards && (
+        <div style={styles.kpiGrid}>
+          {decisionCards.map((c) => (
+            <DecisionMobileCard key={c.key} card={c} />
+          ))}
+        </div>
+      )}
+
       <div style={styles.totalCard}>
         <div style={styles.totalLabel}>Total followers</div>
         <div style={styles.totalValue}>{fmtCount(totalFollowers)}</div>
@@ -445,6 +462,60 @@ function Metric({ label, value }) {
     <div style={styles.metric}>
       <div style={styles.metricValue}>{value}</div>
       <div style={styles.metricLabel}>{label}</div>
+    </div>
+  );
+}
+
+// Turn the get_kpi_summary payload into the 4 decision cards (Reach, Efficiency,
+// Audience velocity, Revenue) with a "vs prev 30d" delta. Returns null until the
+// RPC resolves so the row simply doesn't render rather than flashing zeros.
+function buildDecisionCards(summary) {
+  if (!summary || !summary.current) return null;
+  const cur = summary.current;
+  const prev = summary.prev || {};
+
+  const views = Number(cur.views) || 0;
+  const posts = Number(cur.posts) || 0;
+  const gained = Number(cur.followers_gained) || 0;
+  const revenue = Number(cur.revenue_cents) || 0;
+
+  const prevViews = Number(prev.views) || 0;
+  const prevPosts = Number(prev.posts) || 0;
+  const prevGained = Number(prev.followers_gained) || 0;
+  const prevRevenue = Number(prev.revenue_cents) || 0;
+
+  const perPost = posts > 0 ? views / posts : 0;
+  const prevPerPost = prevPosts > 0 ? prevViews / prevPosts : 0;
+  const rpm = views > 0 ? (revenue / 100) / (views / 1000) : 0;
+
+  return [
+    { key: 'reach', label: 'Reach (views)', value: formatCompact(views), delta: pctChange(views, prevViews) },
+    { key: 'eff', label: 'Views / post', value: formatCompact(perPost), delta: pctChange(perPost, prevPerPost) },
+    { key: 'aud', label: 'Followers gained', value: fmtSigned(gained), delta: pctChange(gained, prevGained) },
+    { key: 'rev', label: 'Revenue', value: formatCurrency(revenue), sub: rpm > 0 ? `$${rpm.toFixed(2)} RPM` : null, delta: pctChange(revenue, prevRevenue) },
+  ];
+}
+
+function DecisionMobileCard({ card }) {
+  const d = card.delta;
+  const hasDelta = d != null && isFinite(d);
+  const up = hasDelta && d >= 0;
+  return (
+    <div style={styles.kpiCard}>
+      <div style={styles.kpiLabel}>{card.label}</div>
+      <div style={styles.kpiValue}>{card.value}</div>
+      <div style={styles.kpiDeltas}>
+        {hasDelta ? (
+          <span style={{ fontSize: 12, fontWeight: 700, color: up ? '#86efac' : '#fca5a5' }}>
+            {up ? '▲' : '▼'} {Math.abs(d).toFixed(0)}%
+          </span>
+        ) : (
+          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)' }}>—</span>
+        )}
+        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>
+          {card.sub || 'vs prev 30d'}
+        </span>
+      </div>
     </div>
   );
 }

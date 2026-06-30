@@ -1,17 +1,46 @@
 import { formatCompact } from './utils';
 
+// `coverage` declares how complete each platform's backend pipeline actually is,
+// so the UI can label partial data honestly instead of rendering every platform
+// as if it were fully tracked. See COVERAGE_META for the labels/tooltips.
+//   full      — views + engagement + audience + revenue (YouTube)
+//   reach     — views/engagement + followers, no revenue (Metricool: IG/FB/TikTok)
+//   audience  — subscribers + content, engagement not ingested (Substack)
+//   followers — follower count only (Twitter/Threads)
+//   live      — live/partial only, no history or revenue (Twitch)
+//   revenue   — revenue only, no audience/content (Stripe/Fourthwall/Company)
 export const PLATFORM_META = {
-  youtube:   { label: 'YouTube',   color: '#FF0000', icon: 'YT' },
-  facebook:  { label: 'Facebook',  color: '#1877F2', icon: 'FB' },
-  instagram: { label: 'Instagram', color: '#E4405F', icon: 'IG' },
-  tiktok:    { label: 'TikTok',    color: '#00F2EA', icon: 'TT' },
-  substack:  { label: 'Substack',  color: '#FF6719', icon: 'SS' },
-  simplecast:{ label: 'Simplecast',color: '#2A2A2A', icon: 'SC' },
-  twitch:    { label: 'Twitch',    color: '#9146FF', icon: 'TW' },
-  stripe:    { label: 'Stripe',    color: '#635BFF', icon: '$' },
-  fourthwall:{ label: 'Fourthwall',color: '#E8451C', icon: 'FW' },
-  twitter:   { label: 'Twitter',   color: '#1DA1F2', icon: 'X' },
-  threads:   { label: 'Threads',   color: '#FFFFFF', icon: 'TH' },
+  youtube:   { label: 'YouTube',   color: '#FF0000', icon: 'YT', coverage: 'full' },
+  facebook:  { label: 'Facebook',  color: '#1877F2', icon: 'FB', coverage: 'reach' },
+  instagram: { label: 'Instagram', color: '#E4405F', icon: 'IG', coverage: 'reach' },
+  tiktok:    { label: 'TikTok',    color: '#00F2EA', icon: 'TT', coverage: 'reach' },
+  substack:  { label: 'Substack',  color: '#FF6719', icon: 'SS', coverage: 'audience' },
+  simplecast:{ label: 'Simplecast',color: '#2A2A2A', icon: 'SC', coverage: 'reach' },
+  twitch:    { label: 'Twitch',    color: '#9146FF', icon: 'TW', coverage: 'live' },
+  stripe:    { label: 'Stripe',    color: '#635BFF', icon: '$',  coverage: 'revenue' },
+  fourthwall:{ label: 'Fourthwall',color: '#E8451C', icon: 'FW', coverage: 'revenue' },
+  twitter:   { label: 'Twitter',   color: '#1DA1F2', icon: 'X',  coverage: 'followers' },
+  threads:   { label: 'Threads',   color: '#FFFFFF', icon: 'TH', coverage: 'followers' },
+  // Non-platform revenue (sponsorships, direct deals) with no per-platform home.
+  // Lives in revenue_events with a null platform_account_id; surfaced in totals
+  // as "Company / Other" so headline revenue stays complete.
+  company:   { label: 'Company / Other', color: '#94a3b8', icon: 'CO', coverage: 'revenue' },
+};
+
+// Coverage levels whose accounts are EXPECTED to write a platform_daily_metrics
+// row every day — used to scope the data-completeness badge so platforms that
+// legitimately never produce daily metrics don't drag the score down.
+export const DAILY_PIPELINE_COVERAGES = ['full', 'reach', 'live'];
+
+// Short label + one-line explanation for each coverage level, used to render the
+// honesty chip next to a platform anywhere its data could be misread as complete.
+export const COVERAGE_META = {
+  full:      { label: 'Full',         note: 'Views, engagement, audience and revenue all tracked.' },
+  reach:     { label: 'Reach only',   note: 'Views, engagement and followers tracked — no revenue.' },
+  audience:  { label: 'Audience only',note: 'Subscribers and posts tracked — engagement not ingested.' },
+  followers: { label: 'Followers only', note: 'Only follower count is tracked for this platform.' },
+  live:      { label: 'Live only',    note: 'Only live/recent activity — no history, no revenue.' },
+  revenue:   { label: 'Revenue only', note: 'Revenue only — no audience or content metrics.' },
 };
 
 export const REVENUE_CATEGORIES = {
