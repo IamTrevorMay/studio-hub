@@ -37,6 +37,10 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   const { unreadMentionChannelIds, markChannelSeen, refreshNotifications } = useNotifications();
   const confirm = useConfirm();
   const [channels, setChannels] = useState([]);
+  const [draggedChannelId, setDraggedChannelId] = useState(null);
+  const [dragOverChannelId, setDragOverChannelId] = useState(null);
+  const [contextMenu, setContextMenu] = useState(null); // { channelId, x, y }
+  const [renamingChannelId, setRenamingChannelId] = useState(null);
   const [activeChannel, setActiveChannel] = useState(null);
   const [messages, setMessages] = useState([]);
   const [pinnedMessages, setPinnedMessages] = useState([]);
@@ -81,6 +85,22 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   useVisibilityRefresh(useCallback(() => {
     if (profile?.id) fetchChannels();
   }, [profile?.id, fetchChannels]));
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    function close(e) {
+      if (e.type === 'keydown' && e.key !== 'Escape') return;
+      setContextMenu(null);
+    }
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [contextMenu]);
 
   useEffect(() => {
     if (!initialChannelName || channels.length === 0) return;
@@ -206,25 +226,36 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
     if (activeChannel) fetchPinnedMessages(activeChannel.id);
   }
 
-  async function handleMoveChannel(channelId, direction) {
-    const idx = channels.findIndex(c => c.id === channelId);
-    const swapIdx = idx + direction;
-    if (swapIdx < 0 || swapIdx >= channels.length) return;
-    const a = channels[idx];
-    const b = channels[swapIdx];
-    // Swap the two channels' actual sort_order values. Writing array indices
-    // here corrupted ordering whenever stored sort_orders weren't a contiguous
-    // 0..n-1 sequence.
-    const aOrder = a.sort_order ?? idx;
-    const bOrder = b.sort_order ?? swapIdx;
-    const updates = [
-      { id: a.id, sort_order: bOrder },
-      { id: b.id, sort_order: aOrder },
-    ];
-    for (const u of updates) {
-      await supabase.from('channels').update({ sort_order: u.sort_order }).eq('id', u.id);
-    }
+  async function handleReorderChannels(draggedId, targetId) {
+    if (!draggedId || draggedId === targetId) return;
+    const fromIdx = channels.findIndex(c => c.id === draggedId);
+    const toIdx = channels.findIndex(c => c.id === targetId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const reordered = [...channels];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+    // Renumber every channel to a contiguous 0..n-1 sequence so ordering is
+    // never corrupted by gaps in the stored sort_order values.
+    const withOrder = reordered.map((c, i) => ({ ...c, sort_order: i }));
+    setChannels(withOrder); // optimistic
+    // Only write rows whose stored sort_order actually changed.
+    await Promise.all(
+      withOrder
+        .filter(c => c.sort_order !== (channels.find(o => o.id === c.id)?.sort_order))
+        .map(c => supabase.from('channels').update({ sort_order: c.sort_order }).eq('id', c.id))
+    );
     fetchChannels();
+  }
+
+  async function handleRenameChannel(channelId, rawName) {
+    const name = rawName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    setRenamingChannelId(null);
+    const ch = channels.find(c => c.id === channelId);
+    if (!name || !ch || name === ch.name) return;
+    const { error } = await supabase.from('channels').update({ name }).eq('id', channelId);
+    if (error) { alert('Error: ' + error.message); return; }
+    setChannels(prev => prev.map(c => c.id === channelId ? { ...c, name } : c));
+    setActiveChannel(prev => (prev?.id === channelId ? { ...prev, name } : prev));
   }
 
   async function handleDeleteChannel(channelId) {
@@ -446,26 +477,64 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
         )}
 
         <div style={styles.channelList}>
-          {channels.map((ch, idx) => (
+          {channels.map((ch) => (
             <ChannelItem
               key={ch.id}
               channel={ch}
               isActive={activeChannel?.id === ch.id}
               isAdmin={isAdmin}
-              isFirst={idx === 0}
-              isLast={idx === channels.length - 1}
               hasUnreadMention={unreadMentionChannelIds.includes(ch.id)}
+              isDragging={draggedChannelId === ch.id}
+              isDragOver={dragOverChannelId === ch.id && draggedChannelId !== ch.id}
+              isRenaming={renamingChannelId === ch.id}
               onSelect={() => {
                 setActiveChannel(ch);
                 markChannelSeen(ch.id);
                 refreshNotifications();
               }}
-              onMove={(dir) => handleMoveChannel(ch.id, dir)}
-              onDelete={() => handleDeleteChannel(ch.id)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setContextMenu({ channelId: ch.id, x: e.clientX, y: e.clientY });
+              }}
+              onDragStart={() => setDraggedChannelId(ch.id)}
+              onDragEnterItem={() => setDragOverChannelId(ch.id)}
+              onDropItem={() => {
+                handleReorderChannels(draggedChannelId, ch.id);
+                setDraggedChannelId(null);
+                setDragOverChannelId(null);
+              }}
+              onDragEnd={() => {
+                setDraggedChannelId(null);
+                setDragOverChannelId(null);
+              }}
+              onRenameSubmit={(name) => handleRenameChannel(ch.id, name)}
+              onRenameCancel={() => setRenamingChannelId(null)}
             />
           ))}
         </div>
       </div>
+
+      {contextMenu && (() => {
+        const ch = channels.find(c => c.id === contextMenu.channelId);
+        if (!ch) return null;
+        return (
+          <div
+            style={{ ...styles.contextMenu, top: contextMenu.y, left: contextMenu.x }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <button
+              style={styles.contextMenuItem}
+              onClick={() => { setRenamingChannelId(ch.id); setContextMenu(null); }}
+            >Rename</button>
+            {!ch.is_default && (
+              <button
+                style={{ ...styles.contextMenuItem, ...styles.contextMenuItemDanger }}
+                onClick={() => { setContextMenu(null); handleDeleteChannel(ch.id); }}
+              >Delete</button>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Chat Area */}
       <div style={styles.chatArea}>
@@ -599,48 +668,73 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   );
 }
 
-function ChannelItem({ channel, isActive, isAdmin, isFirst, isLast, hasUnreadMention, onSelect, onMove, onDelete }) {
-  const [hovered, setHovered] = useState(false);
+function ChannelItem({
+  channel, isActive, isAdmin, hasUnreadMention,
+  isDragging, isDragOver, isRenaming,
+  onSelect, onContextMenu,
+  onDragStart, onDragEnterItem, onDropItem, onDragEnd,
+  onRenameSubmit, onRenameCancel,
+}) {
+  const [renameValue, setRenameValue] = useState(channel.name);
+  const renameInputRef = useRef(null);
+
+  useEffect(() => {
+    if (isRenaming) {
+      setRenameValue(channel.name);
+      requestAnimationFrame(() => {
+        renameInputRef.current?.focus();
+        renameInputRef.current?.select();
+      });
+    }
+  }, [isRenaming, channel.name]);
+
+  if (isRenaming) {
+    return (
+      <div style={styles.channelItemRow}>
+        <div style={{ ...styles.channelItem, gap: '6px' }}>
+          <span style={styles.hashIcon}>#</span>
+          <input
+            ref={renameInputRef}
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onBlur={() => onRenameSubmit(renameValue)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); onRenameSubmit(renameValue); }
+              else if (e.key === 'Escape') { e.preventDefault(); onRenameCancel(); }
+            }}
+            style={styles.channelRenameInput}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
-      style={styles.channelItemRow}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      style={{
+        ...styles.channelItemRow,
+        ...(isDragging ? styles.channelItemDragging : {}),
+        ...(isDragOver ? styles.channelItemDragOver : {}),
+      }}
+      draggable={isAdmin}
+      onDragStart={isAdmin ? onDragStart : undefined}
+      onDragOver={isAdmin ? (e) => { e.preventDefault(); onDragEnterItem(); } : undefined}
+      onDrop={isAdmin ? (e) => { e.preventDefault(); onDropItem(); } : undefined}
+      onDragEnd={isAdmin ? onDragEnd : undefined}
+      onContextMenu={isAdmin ? onContextMenu : undefined}
     >
       <button
         onClick={onSelect}
         style={{
           ...styles.channelItem,
           ...(isActive ? styles.channelItemActive : {}),
+          ...(isAdmin ? { cursor: 'grab' } : {}),
         }}
       >
         <span style={styles.hashIcon}>#</span>
         <span style={styles.channelItemName}>{channel.name}</span>
         {hasUnreadMention && <span style={styles.channelUnreadDot} />}
       </button>
-      {isAdmin && hovered && (
-        <div style={styles.channelActions}>
-          <button
-            onClick={(e) => { e.stopPropagation(); onMove(-1); }}
-            disabled={isFirst}
-            style={{ ...styles.reorderBtn, opacity: isFirst ? 0.2 : 0.6 }}
-            title="Move up"
-          >↑</button>
-          <button
-            onClick={(e) => { e.stopPropagation(); onMove(1); }}
-            disabled={isLast}
-            style={{ ...styles.reorderBtn, opacity: isLast ? 0.2 : 0.6 }}
-            title="Move down"
-          >↓</button>
-          {!channel.is_default && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onDelete(); }}
-              style={styles.channelDeleteBtn}
-              title="Delete channel"
-            >✕</button>
-          )}
-        </div>
-      )}
     </div>
   );
 }
@@ -843,6 +937,34 @@ const styles = {
   },
   channelItemRow: {
     display: 'flex', alignItems: 'center', gap: '2px', position: 'relative',
+    borderRadius: '8px', transition: 'background 0.1s, opacity 0.1s',
+  },
+  channelItemDragging: {
+    opacity: 0.4,
+  },
+  channelItemDragOver: {
+    background: 'rgba(99,102,241,0.18)',
+    boxShadow: 'inset 0 2px 0 #6366f1',
+  },
+  channelRenameInput: {
+    flex: 1, padding: '2px 4px', background: 'rgba(255,255,255,0.08)',
+    border: '1px solid rgba(99,102,241,0.5)', borderRadius: '5px',
+    color: '#fff', fontSize: '14px', fontFamily: 'inherit', outline: 'none',
+    minWidth: 0,
+  },
+  contextMenu: {
+    position: 'fixed', zIndex: 1000, minWidth: '140px',
+    background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '8px', padding: '4px', display: 'flex', flexDirection: 'column',
+    boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+  },
+  contextMenuItem: {
+    padding: '8px 10px', background: 'none', border: 'none', textAlign: 'left',
+    color: 'rgba(255,255,255,0.8)', fontSize: '13px', fontFamily: 'inherit',
+    cursor: 'pointer', borderRadius: '6px', width: '100%',
+  },
+  contextMenuItemDanger: {
+    color: '#ef4444',
   },
   channelItem: {
     display: 'flex', alignItems: 'center', gap: '8px',
@@ -853,17 +975,6 @@ const styles = {
   },
   channelItemActive: {
     background: 'rgba(99,102,241,0.12)', color: '#e2e8f0',
-  },
-  channelActions: {
-    display: 'flex', alignItems: 'center', gap: '0px',
-  },
-  reorderBtn: {
-    background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)',
-    fontSize: '10px', cursor: 'pointer', padding: '1px 3px', lineHeight: 1,
-  },
-  channelDeleteBtn: {
-    background: 'none', border: 'none', color: 'rgba(239,68,68,0.5)',
-    fontSize: '11px', cursor: 'pointer', padding: '1px 3px', lineHeight: 1,
   },
   hashIcon: {
     fontSize: '16px', fontWeight: 700, opacity: 0.5,
