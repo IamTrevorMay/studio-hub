@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { callEdgeFn } from '../../../lib/edgeFn';
 import { useAuth } from '../../../contexts/AuthContext';
+import { MiniBar, platformColor, viz } from '../viz';
 
 // Weekly KPI report viewer. Reads weekly_reports snapshots (generated every
 // Saturday by the generate-weekly-report edge fn). Admins can force a refresh
@@ -188,27 +189,35 @@ function ReportBody({ report }) {
         {/* Audience growth by platform */}
         <div style={styles.card}>
           <div style={styles.cardTitle}>Audience growth</div>
-          {Object.keys(gained).length === 0 ? <div style={styles.muted}>No data</div> : (
-            Object.entries(gained).sort((a, b) => b[1] - a[1]).map(([p, v]) => (
-              <div key={p} style={styles.rowLine}>
-                <span style={styles.platName}>{p}</span>
-                <span style={{ color: v >= 0 ? '#34d399' : '#f87171', fontWeight: 600 }}>{fmtSigned(v)}</span>
+          {Object.keys(gained).length === 0 ? <div style={styles.muted}>No data</div> : (() => {
+            const rows = Object.entries(gained).sort((a, b) => b[1] - a[1]);
+            const maxAbs = Math.max(...rows.map(([, v]) => Math.abs(v)), 1);
+            return rows.map(([p, v]) => (
+              <div key={p} style={styles.barRow}>
+                <span style={styles.barName}>{p}</span>
+                <div style={{ flex: 1 }}>
+                  <MiniBar value={Math.abs(v)} max={maxAbs} color={v >= 0 ? viz.positive : viz.negative} height={18} label={fmtSigned(v)} />
+                </div>
               </div>
-            ))
-          )}
+            ));
+          })()}
         </div>
 
         {/* Reach by platform */}
         <div style={styles.card}>
           <div style={styles.cardTitle}>Views by platform</div>
-          {Object.keys(viewsByP).length === 0 ? <div style={styles.muted}>No data</div> : (
-            Object.entries(viewsByP).sort((a, b) => (b[1].views || 0) - (a[1].views || 0)).map(([p, v]) => (
-              <div key={p} style={styles.rowLine}>
-                <span style={styles.platName}>{p}</span>
-                <span style={{ color: '#e2e8f0', fontWeight: 600 }}>{fmtNum(v.views)}</span>
+          {Object.keys(viewsByP).length === 0 ? <div style={styles.muted}>No data</div> : (() => {
+            const rows = Object.entries(viewsByP).sort((a, b) => (b[1].views || 0) - (a[1].views || 0));
+            const maxViews = Math.max(...rows.map(([, v]) => v.views || 0), 1);
+            return rows.map(([p, v]) => (
+              <div key={p} style={styles.barRow}>
+                <span style={styles.barName}>{p}</span>
+                <div style={{ flex: 1 }}>
+                  <MiniBar value={v.views || 0} max={maxViews} color={platformColor(p)} height={18} label={fmtNum(v.views)} />
+                </div>
               </div>
-            ))
-          )}
+            ));
+          })()}
         </div>
       </div>
 
@@ -309,6 +318,8 @@ const styles = {
   twoCol: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 },
   rowLine: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: 13 },
   platName: { color: 'rgba(255,255,255,0.7)', textTransform: 'capitalize' },
+  barRow: { display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0' },
+  barName: { color: 'rgba(255,255,255,0.7)', textTransform: 'capitalize', fontSize: 13, minWidth: 90, flexShrink: 0 },
   revVal: { color: '#e2e8f0', fontWeight: 600, fontVariantNumeric: 'tabular-nums' },
   narrativeRow: { display: 'flex', gap: 24, flexWrap: 'wrap' },
   narrativeHead: { fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 },

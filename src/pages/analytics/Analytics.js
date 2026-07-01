@@ -24,7 +24,7 @@ import DataCompletenessBadge from './components/DataCompletenessBadge';
 import CoverageChip from './components/CoverageChip';
 import FormatPerformance from './components/FormatPerformance';
 import ThisWeekBanner from './components/ThisWeekBanner';
-import { MiniBar, EmptyChart } from './viz';
+import { MiniBar, EmptyChart, Sparkline } from './viz';
 
 // Platforms the Dashboard top section + Weekly digest focus on, in display order.
 const DIGEST_PLATFORMS = ['youtube', 'tiktok', 'instagram', 'substack', 'simplecast'];
@@ -386,6 +386,42 @@ export default function Analytics() {
     });
   }, [timeSeries]);
 
+  // ── Daily series for KPI sparklines (shape behind each headline number) ──
+  const kpiSparks = useMemo(() => {
+    const byDate = {};
+    for (const row of timeSeries) {
+      const d = row.date;
+      if (!byDate[d]) byDate[d] = { views: 0, posts: 0, gained: 0, revenue: 0 };
+      byDate[d].views += Number(row.total_views) || 0;
+      byDate[d].posts += Number(row.posts_published) || 0;
+      byDate[d].gained += Number(row.followers_gained) || 0;
+      byDate[d].revenue += Number(row.revenue_cents) || 0;
+    }
+    const dates = Object.keys(byDate).sort();
+    return {
+      views: dates.map(d => byDate[d].views),
+      efficiency: dates.map(d => (byDate[d].posts > 0 ? byDate[d].views / byDate[d].posts : 0)),
+      audience: dates.map(d => byDate[d].gained),
+      revenue: dates.map(d => byDate[d].revenue / 100),
+    };
+  }, [timeSeries]);
+
+  // ── Per-platform daily views for the digest-card sparklines ──
+  const platformViewSpark = useMemo(() => {
+    const by = {};
+    for (const row of timeSeries) {
+      const p = row.platform;
+      if (!DIGEST_PLATFORMS.includes(p)) continue;
+      by[p] = by[p] || {};
+      by[p][row.date] = (by[p][row.date] || 0) + (Number(row.total_views) || 0);
+    }
+    const out = {};
+    for (const p of DIGEST_PLATFORMS) {
+      out[p] = by[p] ? Object.keys(by[p]).sort().map(d => by[p][d]) : [];
+    }
+    return out;
+  }, [timeSeries]);
+
   // ── Decision-row KPIs (Reach / Efficiency / Audience velocity / Revenue) ──
   const decisionCards = useMemo(() => {
     if (!kpiSummary?.current) return null;
@@ -472,6 +508,12 @@ export default function Analytics() {
       return sortDir === 'asc' ? va - vb : vb - va;
     });
   }, [scoredContent, sortCol, sortDir]);
+
+  // Max views across the table so each row's inline bar is comparable.
+  const maxTableViews = useMemo(
+    () => Math.max(1, ...scoredContent.map(it => Number(it.latest_metrics?.[0]?.views) || 0)),
+    [scoredContent],
+  );
 
   function handleSort(col) {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -654,16 +696,16 @@ export default function Analytics() {
           {decisionCards && (
             <div style={styles.kpiGrid}>
               <DecisionKpiCard label="Reach (views)" value={decisionCards.reach.value}
-                soWhat={decisionCards.reach.soWhat}
+                soWhat={decisionCards.reach.soWhat} spark={kpiSparks.views}
                 deltaPrev={decisionCards.reach.deltaPrev} deltaBase={decisionCards.reach.deltaBase} color="#6366f1" />
               <DecisionKpiCard label="Efficiency (views / post)" value={decisionCards.efficiency.value}
-                soWhat={decisionCards.efficiency.soWhat}
+                soWhat={decisionCards.efficiency.soWhat} spark={kpiSparks.efficiency}
                 deltaPrev={decisionCards.efficiency.deltaPrev} deltaBase={decisionCards.efficiency.deltaBase} color="#22c55e" />
               <DecisionKpiCard label="Audience velocity" value={decisionCards.audience.value}
-                soWhat={decisionCards.audience.soWhat}
+                soWhat={decisionCards.audience.soWhat} spark={kpiSparks.audience}
                 deltaPrev={decisionCards.audience.deltaPrev} deltaBase={decisionCards.audience.deltaBase} color="#ec4899" />
               <DecisionKpiCard label="Revenue" value={decisionCards.revenue.value}
-                soWhat={decisionCards.revenue.soWhat}
+                soWhat={decisionCards.revenue.soWhat} spark={kpiSparks.revenue}
                 deltaPrev={decisionCards.revenue.deltaPrev} deltaBase={decisionCards.revenue.deltaBase} color="#f59e0b" />
             </div>
           )}
@@ -684,13 +726,20 @@ export default function Analytics() {
                     <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{meta.label}</span>
                     <CoverageChip platform={d.platform} style={{ marginLeft: 'auto' }} />
                   </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 20px' }}>
-                    {metrics.map(([label, value]) => (
-                      <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        <span style={{ fontSize: 16, fontWeight: 700, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>{d.hasData ? value : '—'}</span>
-                        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '.4px' }}>{label}</span>
+                  <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 20px' }}>
+                      {metrics.map(([label, value]) => (
+                        <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          <span style={{ fontSize: 16, fontWeight: 700, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>{d.hasData ? value : '—'}</span>
+                          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '.4px' }}>{label}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {d.hasData && (platformViewSpark[d.platform] || []).length >= 2 && (
+                      <div style={{ flexShrink: 0 }} title="Daily views trend">
+                        <Sparkline data={platformViewSpark[d.platform]} color={meta.color} width={72} height={24} />
                       </div>
-                    ))}
+                    )}
                   </div>
                 </div>
               );
@@ -840,8 +889,15 @@ export default function Analytics() {
                               <td style={styles.td}>
                                 {item.published_at ? new Date(item.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
                               </td>
-                              <td style={{ ...styles.td, ...styles.tdValue, textAlign: 'right' }}>
-                                {metrics.views != null ? formatCompact(Number(metrics.views)) : '—'}
+                              <td style={{ ...styles.td, textAlign: 'right' }}>
+                                {metrics.views != null ? (
+                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+                                    <span style={{ ...styles.tdValue }}>{formatCompact(Number(metrics.views))}</span>
+                                    <div style={{ width: 70 }}>
+                                      <MiniBar value={Number(metrics.views)} max={maxTableViews} color={meta.color || '#6366f1'} height={5} />
+                                    </div>
+                                  </div>
+                                ) : '—'}
                               </td>
                               <td style={{ ...styles.td, ...styles.tdValue, textAlign: 'right' }}>
                                 {metrics.engagement_rate != null ? (Number(metrics.engagement_rate) * 100).toFixed(2) + '%' : '—'}
