@@ -15,12 +15,15 @@ export const PLATFORM_META = {
   instagram: { label: 'Instagram', color: '#E4405F', icon: 'IG', coverage: 'reach' },
   tiktok:    { label: 'TikTok',    color: '#00F2EA', icon: 'TT', coverage: 'reach' },
   substack:  { label: 'Substack',  color: '#FF6719', icon: 'SS', coverage: 'audience' },
-  simplecast:{ label: 'Simplecast',color: '#2A2A2A', icon: 'SC', coverage: 'reach' },
+  // Simplecast's brand color is near-black (#2A2A2A) — invisible on the dark
+  // theme. Use a legible neutral so its dots/segments/points actually render.
+  simplecast:{ label: 'Simplecast',color: '#9AA0A6', icon: 'SC', coverage: 'reach' },
   twitch:    { label: 'Twitch',    color: '#9146FF', icon: 'TW', coverage: 'live' },
   stripe:    { label: 'Stripe',    color: '#635BFF', icon: '$',  coverage: 'revenue' },
   fourthwall:{ label: 'Fourthwall',color: '#E8451C', icon: 'FW', coverage: 'revenue' },
   twitter:   { label: 'Twitter',   color: '#1DA1F2', icon: 'X',  coverage: 'followers' },
-  threads:   { label: 'Threads',   color: '#FFFFFF', icon: 'TH', coverage: 'followers' },
+  // Softened from pure #FFFFFF — full white glares and reads as "text" on dark.
+  threads:   { label: 'Threads',   color: '#E7E9EA', icon: 'TH', coverage: 'followers' },
   // Non-platform revenue (sponsorships, direct deals) with no per-platform home.
   // Lives in revenue_events with a null platform_account_id; surfaced in totals
   // as "Company / Other" so headline revenue stays complete.

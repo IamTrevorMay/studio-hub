@@ -477,6 +477,20 @@ export default function Analytics() {
     else { setSortCol(col); setSortDir('desc'); }
   }
 
+  // Accessible sortable header: keyboard-activatable + aria-sort for screen readers.
+  function renderSortTh(col, label, opts = {}) {
+    const active = sortCol === col;
+    const ariaSort = active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none';
+    return (
+      <th scope="col" role="columnheader" tabIndex={0} aria-sort={ariaSort} title={opts.title}
+        onClick={() => handleSort(col)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSort(col); } }}
+        style={{ ...styles.th, ...(opts.sticky ? styles.thSticky : {}), ...(opts.align === 'right' ? { textAlign: 'right' } : {}), cursor: 'pointer' }}>
+        {label} {active && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+      </th>
+    );
+  }
+
   return (
     <div style={styles.page}>
       {/* ── Top Bar ── */}
@@ -683,7 +697,9 @@ export default function Analytics() {
           </div>
 
           {/* ── D. Platform Breakdowns (Donuts) ── */}
-          {platformBreakdown.length > 0 && (
+          {platformBreakdown.length === 0 ? (
+            <div style={styles.emptyCard}><p style={styles.emptyText}>No platform breakdown for this range yet.</p></div>
+          ) : (
             <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
               {/* Views */}
               {platformBreakdown.some(p => p.views > 0) && (
@@ -707,28 +723,31 @@ export default function Analytics() {
                   </div>
                 </div>
               )}
-              {/* Engagement */}
-              {platformBreakdown.some(p => p.engagement > 0) && (
-                <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px', borderLeft: '3px solid #22c55e' }}>
-                  <span style={{ ...styles.chartTitle, color: '#22c55e' }}>Engagement by Platform</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '24px', marginTop: '16px', flexWrap: 'wrap' }}>
-                    <DonutChart data={platformBreakdown.filter(p => p.engagement > 0)} valueKey="engagement" centerLabel="avg engagement"
-                      formatValue={v => {
-                        const avg = platformBreakdown.filter(p => p.engagement > 0).length;
-                        return avg > 0 ? ((v / avg) * 100).toFixed(2) + '%' : '0%';
-                      }} />
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      {platformBreakdown.filter(p => p.engagement > 0).map(p => (
-                        <div key={p.label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: p.color, flexShrink: 0 }} />
-                          <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', minWidth: '70px' }}>{p.label}</span>
-                          <span style={{ fontSize: '12px', fontWeight: 600, color: '#fff' }}>{(p.engagement * 100).toFixed(2)}%</span>
+              {/* Engagement — a RATE per platform, which cannot be summed into a
+                  part-to-whole. Rank platforms by engagement rate instead of a
+                  (mathematically meaningless) donut. */}
+              {platformBreakdown.some(p => p.engagement > 0) && (() => {
+                const engRows = platformBreakdown.filter(p => p.engagement > 0).sort((a, b) => b.engagement - a.engagement);
+                const maxEng = Math.max(...engRows.map(p => p.engagement), 0.0001);
+                return (
+                  <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px', borderLeft: '3px solid #22c55e' }}>
+                    <span style={{ ...styles.chartTitle, color: '#22c55e' }}>Engagement Rate by Platform</span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '16px' }}>
+                      {engRows.map(p => (
+                        <div key={p.label} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', minWidth: '72px', flexShrink: 0 }}>{p.label}</span>
+                          <div style={{ flex: 1, position: 'relative', height: '20px', background: 'rgba(255,255,255,0.03)', borderRadius: '4px', overflow: 'hidden' }}>
+                            <div style={{ height: '100%', borderRadius: '4px', background: p.color, opacity: 0.75, width: `${(p.engagement / maxEng) * 100}%` }} />
+                            <span style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', fontWeight: 600, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>
+                              {(p.engagement * 100).toFixed(2)}%
+                            </span>
+                          </div>
                         </div>
                       ))}
                     </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
               {/* Followers */}
               {platformBreakdown.some(p => p.followers > 0) && (
                 <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px', borderLeft: '3px solid #ec4899' }}>
@@ -759,7 +778,7 @@ export default function Analytics() {
 
           {/* ── E. Content Performance Table ── */}
           <div style={{ marginTop: '16px' }}>
-            <button onClick={() => setShowContentPerf(!showContentPerf)} style={styles.collapseBtn}>
+            <button onClick={() => setShowContentPerf(!showContentPerf)} style={styles.collapseBtn} aria-expanded={showContentPerf}>
               {showContentPerf ? '▾' : '▸'} Content Performance ({contentItems.length})
             </button>
             {showContentPerf && (
@@ -775,7 +794,6 @@ export default function Analytics() {
                       title="Refresh content performance">
                       ↻
                     </button>
-                    <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
                   </div>
                 </div>
                 {sortedContent.length > 0 ? (
@@ -783,25 +801,12 @@ export default function Analytics() {
                     <table style={styles.table}>
                       <thead>
                         <tr>
-                          <th style={{ ...styles.th, ...styles.thSticky, cursor: 'pointer' }} onClick={() => handleSort('title')}>
-                            Title {sortCol === 'title' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
-                          </th>
-                          <th style={{ ...styles.th, cursor: 'pointer' }} onClick={() => handleSort('platform')}>
-                            Platform {sortCol === 'platform' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
-                          </th>
-                          <th style={{ ...styles.th, cursor: 'pointer' }} onClick={() => handleSort('published_at')}>
-                            Date {sortCol === 'published_at' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
-                          </th>
-                          <th style={{ ...styles.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => handleSort('views')}>
-                            Views {sortCol === 'views' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
-                          </th>
-                          <th style={{ ...styles.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => handleSort('engagement_rate')}>
-                            Engagement {sortCol === 'engagement_rate' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
-                          </th>
-                          <th style={{ ...styles.th, textAlign: 'right', cursor: 'pointer' }} onClick={() => handleSort('outperformance')}
-                            title="Views relative to this platform's median post">
-                            vs median {sortCol === 'outperformance' && <span style={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
-                          </th>
+                          {renderSortTh('title', 'Title', { sticky: true })}
+                          {renderSortTh('platform', 'Platform')}
+                          {renderSortTh('published_at', 'Date')}
+                          {renderSortTh('views', 'Views', { align: 'right' })}
+                          {renderSortTh('engagement_rate', 'Engagement', { align: 'right' })}
+                          {renderSortTh('outperformance', 'vs median', { align: 'right', title: "Views relative to this platform's median post" })}
                         </tr>
                       </thead>
                       <tbody>
@@ -864,7 +869,7 @@ export default function Analytics() {
 
           {/* ── Analysis Tools ── */}
           <div style={{ marginTop: '16px' }}>
-            <button onClick={() => setShowAnalysis(!showAnalysis)} style={styles.collapseBtn}>
+            <button onClick={() => setShowAnalysis(!showAnalysis)} style={styles.collapseBtn} aria-expanded={showAnalysis}>
               {showAnalysis ? '▾' : '▸'} Analysis Tools
             </button>
             {showAnalysis && (
@@ -885,7 +890,7 @@ export default function Analytics() {
 
       {/* ── F. Data Input Section ── */}
       <div style={{ marginTop: '24px' }}>
-        <button onClick={() => setCsvSection(!csvSection)} style={styles.collapseBtn}>
+        <button onClick={() => setCsvSection(!csvSection)} style={styles.collapseBtn} aria-expanded={csvSection}>
           {csvSection ? '▾' : '▸'} Data Input
         </button>
         {csvSection && <DataInputSection profile={profile} accounts={accounts} />}
@@ -897,7 +902,7 @@ export default function Analytics() {
           <button onClick={() => {
             setShowIngestion(!showIngestion);
             if (!showIngestion) fetchIngestionLogs();
-          }} style={styles.collapseBtn}>
+          }} style={styles.collapseBtn} aria-expanded={showIngestion}>
             {showIngestion ? '▾' : '▸'} Ingestion Health (Admin)
           </button>
           {showIngestion && <IngestionHealthPanel logs={ingestionLogs} accounts={accounts} onRefresh={fetchIngestionLogs} />}
