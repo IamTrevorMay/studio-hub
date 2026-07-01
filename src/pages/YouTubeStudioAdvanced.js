@@ -446,40 +446,56 @@ export default function YouTubeStudioAdvanced({ accounts }) {
   }
 
   // Fetch and group rows for the table
+  // PostgREST caps each response (default 1000 rows), and these tables hold one
+  // row per (video|dimension × day), so a single .limit() silently returns an
+  // arbitrary partial slice — which made charts show the wrong date span. Page
+  // through the entire result set instead. Cap-agnostic: the effective page size
+  // is learned from the first page, so it works whatever the server limit is.
+  async function fetchAllRows(table, range, orderCols) {
+    const all = [];
+    let from = 0;
+    let pageSize = null;
+    // hard safety ceiling so pathological ranges can't loop forever
+    while (from <= 100000) {
+      let q = supabase.from(table).select('*')
+        .gte('date', range.start).lte('date', range.end)
+        .in('platform_account_id', effectiveChannelIds);
+      for (const col of orderCols) q = q.order(col, { ascending: true });
+      const { data, error } = await q.range(from, from + 999);
+      if (error || !data || data.length === 0) break;
+      all.push(...data);
+      if (pageSize === null) pageSize = data.length; // == server cap (<= 1000)
+      from += data.length;
+      if (data.length < pageSize) break; // short page → last page
+    }
+    return all;
+  }
+
   async function fetchTableRows(range, isCurrent) {
     if (effectiveChannelIds.length === 0) return [];
 
     if (dimensionDef.isContent) {
       // yt_video_daily — group by video_id
-      const { data } = await supabase.from('yt_video_daily').select('*')
-        .gte('date', range.start).lte('date', range.end)
-        .in('platform_account_id', effectiveChannelIds)
-        .limit(50000);
+      const rows = await fetchAllRows('yt_video_daily', range, ['date', 'video_id', 'platform_account_id']);
       if (!isCurrent()) return [];
-      return groupAndAggregate(data || [], r => r.video_id, k => k);
+      return groupAndAggregate(rows, r => r.video_id, k => k);
     }
 
     if (dimensionDef.isTime) {
       // Sum across one dim table (use traffic_source as the canonical channel-rollup
       // since channel totals = sum across any complete dimension; traffic_source covers all views).
-      const { data } = await supabase.from(dimensionDef.table).select('*')
-        .gte('date', range.start).lte('date', range.end)
-        .in('platform_account_id', effectiveChannelIds)
-        .limit(50000);
+      const rows = await fetchAllRows(dimensionDef.table, range, ['date', 'dimension_value', 'platform_account_id']);
       if (!isCurrent()) return [];
       const bucketFn = dimensionDef.bucket === 'month' ? (r) => monthKey(r.date) : (r) => r.date;
       const labelFn = dimensionDef.bucket === 'month' ? formatMonth : formatDate;
       // Group by date AND sum all dimension_values into that date
-      return groupAndAggregate(data || [], bucketFn, labelFn);
+      return groupAndAggregate(rows, bucketFn, labelFn);
     }
 
     // Standard dimension table
-    const { data } = await supabase.from(dimensionDef.table).select('*')
-      .gte('date', range.start).lte('date', range.end)
-      .in('platform_account_id', effectiveChannelIds)
-      .limit(50000);
+    const rows = await fetchAllRows(dimensionDef.table, range, ['date', 'dimension_value', 'platform_account_id']);
     if (!isCurrent()) return [];
-    return groupAndAggregate(data || [], r => r.dimension_value, k => k);
+    return groupAndAggregate(rows, r => r.dimension_value, k => k);
   }
 
   // Chart series: one line for the totals + one extra line per selected row.
@@ -491,14 +507,11 @@ export default function YouTubeStudioAdvanced({ accounts }) {
 
     const table = dimensionDef.isContent ? 'yt_video_daily' : dimensionDef.table;
     const groupCol = dimensionDef.isContent ? 'video_id' : 'dimension_value';
+    const orderCols = ['date', groupCol, 'platform_account_id'];
 
-    const { data } = await supabase.from(table).select('*')
-      .gte('date', range.start).lte('date', range.end)
-      .in('platform_account_id', effectiveChannelIds)
-      .limit(50000);
+    const rows = await fetchAllRows(table, range, orderCols);
     if (!isCurrent()) return [];
 
-    const rows = data || [];
     // Always include the totals line
     const totalsByDate = groupAndAggregate(rows, r => r.date, k => k);
     totalsByDate.sort((a, b) => a._key.localeCompare(b._key));
@@ -510,6 +523,31 @@ export default function YouTubeStudioAdvanced({ accounts }) {
     };
 
     const seriesArr = [totalsSeries];
+
+    // Comparison overlay: fetch the compare period and re-map each point onto the
+    // current range's x-axis by day-offset (day 1 → day 1), so both lines align.
+    if (comparePeriod) {
+      const cmpRows = await fetchAllRows(table, comparePeriod, orderCols);
+      if (!isCurrent()) return [];
+      const cmpByDate = groupAndAggregate(cmpRows, r => r.date, k => k);
+      cmpByDate.sort((a, b) => a._key.localeCompare(b._key));
+      const startCur = new Date(range.start + 'T00:00:00');
+      const startCmp = new Date(comparePeriod.start + 'T00:00:00');
+      const cmpLabel = compareMode === 'yoy' ? 'Same period last year'
+        : compareMode === 'previous' ? 'Previous period' : 'Comparison';
+      seriesArr.push({
+        key: '__compare__',
+        label: cmpLabel,
+        color: '#94a3b8',
+        dashed: true,
+        points: cmpByDate.map(r => {
+          const off = Math.round((new Date(r._key + 'T00:00:00') - startCmp) / 86400000);
+          const mapped = new Date(startCur.getTime() + off * 86400000).toISOString().split('T')[0];
+          return { date: mapped, value: r[chartMetric] || 0, realDate: r._key };
+        }),
+      });
+    }
+
     // Per-selected-row series
     for (let i = 0; i < selectedRowKeys.length && i < 7; i++) {
       const key = selectedRowKeys[i];
@@ -1040,7 +1078,7 @@ function StudioLineChart({ series, metricDef }) {
           const path = s.points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xFor(p.date)} ${yFor(p.value || 0)}`).join(' ');
           return (
             <g key={s.key}>
-              <path d={path} fill="none" stroke={s.color} strokeWidth="2" />
+              <path d={path} fill="none" stroke={s.color} strokeWidth="2" strokeDasharray={s.dashed ? '5 4' : undefined} />
               {hoverX != null && s.points.find(p => p.date === hoverX) && (
                 <circle cx={xFor(hoverX)} cy={yFor(s.points.find(p => p.date === hoverX).value || 0)} r="4" fill={s.color} />
               )}
