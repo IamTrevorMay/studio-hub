@@ -813,86 +813,87 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   };
 
   // ─── drag end ──────────────────────────────────────────────────────────────
+  // Beats and segments live in a single flat droppable so a beat can be dragged
+  // freely into or out of a segment in one motion (nested droppables of the same
+  // type aren't reliably supported by the dnd library). The flat drag result is
+  // reconstructed back into the nested { beat | segment{children} } tree here.
   const handleDragEnd = (result) => {
-    const { source, destination, draggableId } = result;
+    const { source, destination } = result;
     if (!destination) return;
-    if (source.droppableId === destination.droppableId && source.index === destination.index) return;
+    if (source.index === destination.index) return;
 
-    const srcIsTop = source.droppableId === 'top-level';
-    const dstIsTop = destination.droppableId === 'top-level';
-    const srcSegId = !srcIsTop ? source.droppableId.replace('segment-', '') : null;
-    const dstSegId = !dstIsTop ? destination.droppableId.replace('segment-', '') : null;
-
-    // Prevent dropping a segment into another segment
-    const draggedIsSegment = beats.some(item => isSegment(item) && item.id === draggableId);
-    if (draggedIsSegment && !dstIsTop) return;
-
-    if (srcIsTop && dstIsTop) {
-      // Reorder within top level (beats and segments)
-      const reordered = Array.from(beats);
-      const [moved] = reordered.splice(source.index, 1);
-      reordered.splice(destination.index, 0, moved);
-      setBeats(reordered);
-    } else if (srcIsTop && !dstIsTop) {
-      // Move beat from top level into a segment
-      setBeats(prev => {
-        const item = prev[source.index];
-        if (isSegment(item)) return prev;
-        const withoutItem = [...prev];
-        withoutItem.splice(source.index, 1);
-        return withoutItem.map(i => {
-          if (!isSegment(i) || i.id !== dstSegId) return i;
-          const children = Array.from(i.children);
-          children.splice(destination.index, 0, item);
-          return { ...i, children };
-        });
-      });
-    } else if (!srcIsTop && dstIsTop) {
-      // Move beat from segment to top level
-      setBeats(prev => {
-        let movedBeat = null;
-        const updated = prev.map(item => {
-          if (!isSegment(item) || item.id !== srcSegId) return item;
-          const children = Array.from(item.children);
-          [movedBeat] = children.splice(source.index, 1);
-          return { ...item, children };
-        });
-        if (!movedBeat) return prev;
-        const result = Array.from(updated);
-        result.splice(destination.index, 0, movedBeat);
-        return result;
-      });
-    } else if (srcSegId === dstSegId) {
-      // Reorder within same segment
-      setBeats(prev => prev.map(item => {
-        if (!isSegment(item) || item.id !== srcSegId) return item;
-        const children = Array.from(item.children);
-        const [moved] = children.splice(source.index, 1);
-        children.splice(destination.index, 0, moved);
-        return { ...item, children };
-      }));
-    } else {
-      // Move beat between different segments
-      setBeats(prev => {
-        let movedBeat = null;
-        const updated = prev.map(item => {
-          if (!isSegment(item)) return item;
-          if (item.id === srcSegId) {
-            const children = Array.from(item.children);
-            [movedBeat] = children.splice(source.index, 1);
-            return { ...item, children };
+    setBeats(prev => {
+      // Build the flat model in the exact order rows are rendered (segment
+      // headers + visible beats; collapsed segments contribute only a header).
+      const flat = [];
+      for (const item of prev) {
+        if (isSegment(item)) {
+          flat.push({ kind: 'seg', id: item.id });
+          if (!collapsedSegments.has(item.id)) {
+            for (const child of item.children) flat.push({ kind: 'beat', id: child.id, segId: item.id });
           }
-          return item;
-        });
-        if (!movedBeat) return prev;
-        return updated.map(item => {
-          if (!isSegment(item) || item.id !== dstSegId) return item;
-          const children = Array.from(item.children);
-          children.splice(destination.index, 0, movedBeat);
-          return { ...item, children };
-        });
-      });
-    }
+        } else {
+          flat.push({ kind: 'beat', id: item.id, segId: null });
+        }
+      }
+
+      const s = source.index;
+      const d = destination.index;
+      if (s < 0 || s >= flat.length) return prev;
+      const moved = flat[s];
+
+      let newFlat;
+      if (moved.kind === 'seg') {
+        // Move the whole segment (header + its visible children) as one block.
+        let end = s + 1;
+        while (end < flat.length && flat[end].kind === 'beat' && flat[end].segId === moved.id) end++;
+        const block = flat.slice(s, end);
+        const rest = [...flat.slice(0, s), ...flat.slice(end)];
+        let insertAt = d > s ? d - (block.length - 1) : d;
+        insertAt = Math.max(0, Math.min(insertAt, rest.length));
+        newFlat = [...rest.slice(0, insertAt), ...block, ...rest.slice(insertAt)];
+      } else {
+        // Move a single beat; its new segment membership is inherited from the
+        // row it now sits under (a segment header → that segment; a beat → its
+        // group; nothing above → top level / ungrouped).
+        const rest = [...flat.slice(0, s), ...flat.slice(s + 1)];
+        const insertAt = Math.max(0, Math.min(d, rest.length));
+        const before = rest[insertAt - 1];
+        const segId = before ? (before.kind === 'seg' ? before.id : before.segId) : null;
+        newFlat = [...rest.slice(0, insertAt), { ...moved, segId }, ...rest.slice(insertAt)];
+      }
+
+      // Reconstruct the nested tree from the reordered flat list.
+      const oldSegById = {};
+      const beatById = {};
+      for (const item of prev) {
+        if (isSegment(item)) {
+          oldSegById[item.id] = item;
+          for (const c of item.children) beatById[c.id] = c;
+        } else {
+          beatById[item.id] = item;
+        }
+      }
+      const rebuilt = [];
+      const segNodeById = {};
+      for (const e of newFlat) {
+        if (e.kind === 'seg') {
+          const base = oldSegById[e.id];
+          if (!base) continue;
+          const node = { ...base, children: [] };
+          segNodeById[e.id] = node;
+          rebuilt.push(node);
+          // Collapsed segments keep their (unrendered) children from the old tree.
+          if (collapsedSegments.has(e.id) && base.children) node.children.push(...base.children);
+        } else {
+          const beat = beatById[e.id];
+          if (!beat) continue;
+          if (e.segId && segNodeById[e.segId]) segNodeById[e.segId].children.push(beat);
+          else rebuilt.push(beat);
+        }
+      }
+      return rebuilt;
+    });
 
     // Re-trigger auto-resize on textareas after React re-renders the moved beat
     requestAnimationFrame(() => {
@@ -931,6 +932,13 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     if (source.droppableId === destination.droppableId) return;
     const newFolder = destination.droppableId === 'unfiled' ? null : destination.droppableId;
     setSheets(prev => prev.map(s => s.id === sheetId ? { ...s, folder: newFolder } : s));
+    // Auto-expand the destination folder so the moved sheet is visible.
+    setCollapsedFolders(prev => {
+      if (!prev.has(destination.droppableId)) return prev;
+      const next = new Set(prev);
+      next.delete(destination.droppableId);
+      return next;
+    });
     await supabase.from('beat_sheets').update({ folder: newFolder }).eq('id', sheetId);
 
     // Trigger workflow event when a sheet lands in a tracked folder.
@@ -1861,7 +1869,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                                 </svg>
                               </button>
                             </div>
-                            {!isCollapsed && (
+                            {(
                               <Droppable droppableId={folder.id} type="SHEET">
                                 {(provided, snapshot) => (
                                   <div
@@ -1871,9 +1879,16 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                                       ...styles.folderDropZone,
                                       background: snapshot.isDraggingOver ? 'rgba(99,102,241,0.05)' : 'transparent',
                                       borderColor: snapshot.isDraggingOver ? 'rgba(99,102,241,0.35)' : 'rgba(255,255,255,0.05)',
-                                      minHeight: folderSheets.length === 0 ? 52 : undefined,
+                                      ...(isCollapsed && !snapshot.isDraggingOver
+                                        ? { minHeight: 0, paddingTop: 0, paddingBottom: 0, marginBottom: 0, border: 'none' }
+                                        : { minHeight: (isCollapsed || folderSheets.length === 0) ? 52 : undefined }),
                                     }}
                                   >
+                                    {isCollapsed ? (
+                                      snapshot.isDraggingOver && (
+                                        <div style={styles.folderEmptyHint}>Drop here</div>
+                                      )
+                                    ) : (<>
                                     {folderSheets.length === 0 && (
                                       <div style={styles.folderEmptyHint}>
                                         {snapshot.isDraggingOver ? 'Drop here' : 'Drag sheets here'}
@@ -1924,6 +1939,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                                         )}
                                       </Draggable>
                                     ))}
+                                    </>)}
                                     {provided.placeholder}
                                   </div>
                                 )}
@@ -1958,7 +1974,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                     <span style={styles.folderSectionTitle}>Unfiled</span>
                     <span style={styles.folderCount}>{unfiledSheets.length}</span>
                   </button>
-                  {!isCollapsed && (
+                  {(
                     <Droppable droppableId="unfiled" type="SHEET">
                       {(provided, snapshot) => (
                         <div
@@ -1968,9 +1984,16 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                             ...styles.folderDropZone,
                             background: snapshot.isDraggingOver ? 'rgba(99,102,241,0.05)' : 'transparent',
                             borderColor: snapshot.isDraggingOver ? 'rgba(99,102,241,0.35)' : 'rgba(255,255,255,0.05)',
-                            minHeight: unfiledSheets.length === 0 ? 52 : undefined,
+                            ...(isCollapsed && !snapshot.isDraggingOver
+                              ? { minHeight: 0, paddingTop: 0, paddingBottom: 0, marginBottom: 0, border: 'none' }
+                              : { minHeight: (isCollapsed || unfiledSheets.length === 0) ? 52 : undefined }),
                           }}
                         >
+                          {isCollapsed ? (
+                            snapshot.isDraggingOver && (
+                              <div style={styles.folderEmptyHint}>Drop here</div>
+                            )
+                          ) : (<>
                           {unfiledSheets.length === 0 && (
                             <div style={styles.folderEmptyHint}>
                               {snapshot.isDraggingOver ? 'Drop here' : 'No unfiled sheets'}
@@ -2021,6 +2044,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                               )}
                             </Draggable>
                           ))}
+                          </>)}
                           {provided.placeholder}
                         </div>
                       )}
@@ -2049,7 +2073,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                     <span style={styles.folderSectionTitle}>{ARCHIVE_FOLDER.label}</span>
                     <span style={styles.folderCount}>{archiveSheets.length}</span>
                   </button>
-                  {!isCollapsed && (
+                  {(
                     <Droppable droppableId="archive" type="SHEET">
                       {(provided, snapshot) => (
                         <div
@@ -2059,9 +2083,16 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                             ...styles.folderDropZone,
                             background: snapshot.isDraggingOver ? 'rgba(99,102,241,0.05)' : 'transparent',
                             borderColor: snapshot.isDraggingOver ? 'rgba(99,102,241,0.35)' : 'rgba(255,255,255,0.05)',
-                            minHeight: archiveSheets.length === 0 ? 52 : undefined,
+                            ...(isCollapsed && !snapshot.isDraggingOver
+                              ? { minHeight: 0, paddingTop: 0, paddingBottom: 0, marginBottom: 0, border: 'none' }
+                              : { minHeight: (isCollapsed || archiveSheets.length === 0) ? 52 : undefined }),
                           }}
                         >
+                          {isCollapsed ? (
+                            snapshot.isDraggingOver && (
+                              <div style={styles.folderEmptyHint}>Drop here</div>
+                            )
+                          ) : (<>
                           {archiveSheets.length === 0 && (
                             <div style={styles.folderEmptyHint}>
                               {snapshot.isDraggingOver ? 'Drop here' : 'Drag sheets here'}
@@ -2112,6 +2143,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                               )}
                             </Draggable>
                           ))}
+                          </>)}
                           {provided.placeholder}
                         </div>
                       )}
@@ -2249,29 +2281,38 @@ export default function Production({ initialSheetId, onSheetOpened }) {
 
       {/* Beat rows */}
       <DragDropContext onDragEnd={handleDragEnd}>
-        <Droppable droppableId="top-level" type="ITEMS">
-          {(provided) => (
+        <Droppable droppableId="beat-list" type="ITEMS">
+          {(provided) => {
+            // Single flat droppable: segment headers and beats share one
+            // contiguous index space so beats drag freely in/out of segments.
+            let idx = 0;
+            return (
             <div ref={provided.innerRef} {...provided.droppableProps}>
-              {beats.map((item, index) => {
+              {beats.map((item) => {
                 if (isSegment(item)) {
+                  const collapsed = collapsedSegments.has(item.id);
+                  const headerIndex = idx++;
                   return (
-                    <Draggable key={item.id} draggableId={item.id} index={index}>
-                      {(provided, snapshot) => (
-                        <div
-                          ref={provided.innerRef}
-                          {...provided.draggableProps}
-                          style={{
-                            ...styles.segmentContainer,
-                            background: `${item.color || '#6366f1'}12`,
-                            border: `1px solid ${item.color || '#6366f1'}30`,
-                            borderLeft: `4px solid ${item.color || '#6366f1'}`,
-                            ...(snapshot.isDragging ? { boxShadow: `0 8px 32px ${item.color || '#6366f1'}40` } : {}),
-                            ...provided.draggableProps.style,
-                          }}
-                        >
-                          {/* Segment header */}
+                    <div
+                      key={item.id}
+                      style={{
+                        ...styles.segmentContainer,
+                        background: `${item.color || '#6366f1'}12`,
+                        border: `1px solid ${item.color || '#6366f1'}30`,
+                        borderLeft: `4px solid ${item.color || '#6366f1'}`,
+                      }}
+                    >
+                      {/* Segment header (draggable = moves the whole segment) */}
+                      <Draggable draggableId={item.id} index={headerIndex}>
+                        {(hProvided, hSnapshot) => (
                           <div
-                            style={styles.segmentHeader}
+                            ref={hProvided.innerRef}
+                            {...hProvided.draggableProps}
+                            style={{
+                              ...styles.segmentHeader,
+                              ...(hSnapshot.isDragging ? { boxShadow: `0 8px 32px ${item.color || '#6366f1'}40`, borderRadius: 8, background: `${item.color || '#6366f1'}20` } : {}),
+                              ...hProvided.draggableProps.style,
+                            }}
                             onContextMenu={e => {
                               const tag = e.target.tagName;
                               if (tag === 'TEXTAREA' || tag === 'INPUT') return;
@@ -2279,7 +2320,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                               setContextMenu({ x: e.clientX, y: e.clientY, segmentId: item.id, isSegmentHeader: true });
                             }}
                           >
-                            <div {...provided.dragHandleProps} style={styles.dragHandle} title="Drag to reorder segment">
+                            <div {...hProvided.dragHandleProps} style={styles.dragHandle} title="Drag to reorder segment">
                               <svg width="12" height="16" viewBox="0 0 12 16" fill="rgba(255,255,255,0.25)">
                                 <circle cx="3" cy="2" r="1.5" /><circle cx="9" cy="2" r="1.5" />
                                 <circle cx="3" cy="6" r="1.5" /><circle cx="9" cy="6" r="1.5" />
@@ -2296,10 +2337,10 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                                 return next;
                               })}
                               style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px', display: 'flex', alignItems: 'center', flexShrink: 0 }}
-                              title={collapsedSegments.has(item.id) ? 'Expand segment' : 'Collapse segment'}
+                              title={collapsed ? 'Expand segment' : 'Collapse segment'}
                             >
                               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke={item.color || '#6366f1'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                                style={{ transform: collapsedSegments.has(item.id) ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.15s ease' }}>
+                                style={{ transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.15s ease' }}>
                                 <path d="M4 5l3 3 3-3" />
                               </svg>
                             </button>
@@ -2334,7 +2375,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                                 </div>
                               )}
                             </div>
-                            {collapsedSegments.has(item.id) && (
+                            {collapsed && (
                               <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', marginLeft: 'auto', paddingRight: 8, flexShrink: 0 }}>
                                 {item.children.length} beat{item.children.length !== 1 ? 's' : ''}
                               </span>
@@ -2345,41 +2386,39 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                               </svg>
                             </button>
                           </div>
+                        )}
+                      </Draggable>
 
-                          {/* Segment beats */}
-                          <Droppable droppableId={`segment-${item.id}`} type="ITEMS">
-                            {(segProvided) => (
-                              <div ref={segProvided.innerRef} {...segProvided.droppableProps} style={{ minHeight: collapsedSegments.has(item.id) ? 0 : 4, overflow: collapsedSegments.has(item.id) ? 'hidden' : undefined, maxHeight: collapsedSegments.has(item.id) ? 0 : undefined }}>
-                                {!collapsedSegments.has(item.id) && item.children.map((beat, bIdx) => (
-                                  <Draggable key={beat.id} draggableId={beat.id} index={bIdx}>
-                                    {(bProvided, bSnapshot) => renderBeatRow(beat, bProvided, bSnapshot, item.id)}
-                                  </Draggable>
-                                ))}
-                                {segProvided.placeholder}
-                              </div>
-                            )}
-                          </Droppable>
+                      {/* Segment beats — draggables sharing the flat index space */}
+                      {!collapsed && item.children.map((beat) => {
+                        const beatIndex = idx++;
+                        return (
+                          <Draggable key={beat.id} draggableId={beat.id} index={beatIndex}>
+                            {(bProvided, bSnapshot) => renderBeatRow(beat, bProvided, bSnapshot, item.id)}
+                          </Draggable>
+                        );
+                      })}
 
-                          {!collapsedSegments.has(item.id) && (
-                            <button onClick={() => addBeatToSegment(item.id)} style={styles.addBeatInSegmentBtn}>+ Beat</button>
-                          )}
-                        </div>
+                      {!collapsed && (
+                        <button onClick={() => addBeatToSegment(item.id)} style={styles.addBeatInSegmentBtn}>+ Beat</button>
                       )}
-                    </Draggable>
+                    </div>
                   );
                 }
 
                 // Top-level beat
                 const beat = item;
+                const beatIndex = idx++;
                 return (
-                  <Draggable key={beat.id} draggableId={beat.id} index={index}>
+                  <Draggable key={beat.id} draggableId={beat.id} index={beatIndex}>
                     {(provided, snapshot) => renderBeatRow(beat, provided, snapshot, null)}
                   </Draggable>
                 );
               })}
               {provided.placeholder}
             </div>
-          )}
+            );
+          }}
         </Droppable>
       </DragDropContext>
 

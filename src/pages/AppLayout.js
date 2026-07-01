@@ -96,7 +96,7 @@ const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', '
 // Admin-only pages that live in Admin Mode and are hidden from the Work View.
 const ADMIN_PAGE_KEYS = ['payroll', 'analytics', 'tracking', 'accounting', 'business_dev', 'freelancers', 'workflows', 'jobs', 'invoicing', 'ops', 'mailer'];
 // Everyday anchors kept at the top of the Admin Mode sidebar (items + folders).
-const ADMIN_ESSENTIAL_KEYS = ['dashboard', 'projects', 'calendar', 'deliverables'];
+const ADMIN_ESSENTIAL_KEYS = ['dashboard', 'projects', 'calendar', 'deliverables', 'channels', 'messages'];
 const ADMIN_ESSENTIAL_FOLDER_IDS = new Set(['pre_production', 'filming', 'post_production']);
 // Admin-only page entries appended after a divider.
 const ADMIN_PAGE_NAV = [

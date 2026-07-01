@@ -10,7 +10,6 @@ import { daysAgoStr, todayStr, getDateRange, formatCompact, formatCurrency, pctC
 import { styles, L } from './styles';
 
 import DonutChart from './components/DonutChart';
-import IngestionHealthPanel from './components/IngestionHealthPanel';
 import DataInputSection from './components/DataInputSection';
 import RPMCard from './components/RPMCard';
 import PublishHeatmap from './components/PublishHeatmap';
@@ -122,9 +121,6 @@ export default function Analytics() {
   // Platform digest strip (collapsible under KPIs)
   const [showDigest, setShowDigest] = useState(false);
 
-  // Ingestion health (admin)
-  const [showIngestion, setShowIngestion] = useState(false);
-  const [ingestionLogs, setIngestionLogs] = useState([]);
   const [viewMode, setViewMode] = useState('dashboard');
 
   // Analysis tools
@@ -1008,28 +1004,6 @@ export default function Analytics() {
         </button>
         {csvSection && <DataInputSection profile={profile} accounts={accounts} />}
       </div>
-
-      {/* ── G. Ingestion Health Panel (admin only) ── */}
-      {isAdmin && (
-        <div style={{ marginTop: '16px' }}>
-          <button onClick={() => {
-            setShowIngestion(!showIngestion);
-            if (!showIngestion) fetchIngestionLogs();
-          }} style={styles.collapseBtn} aria-expanded={showIngestion}>
-            {showIngestion ? '▾' : '▸'} Ingestion Health (Admin)
-          </button>
-          {showIngestion && <IngestionHealthPanel logs={ingestionLogs} accounts={accounts} onRefresh={fetchIngestionLogs} />}
-        </div>
-      )}
     </div>
   );
-
-  async function fetchIngestionLogs() {
-    const { data } = await supabase
-      .from('ingestion_logs')
-      .select('*')
-      .order('started_at', { ascending: false })
-      .limit(50);
-    if (data) setIngestionLogs(data);
-  }
 }
