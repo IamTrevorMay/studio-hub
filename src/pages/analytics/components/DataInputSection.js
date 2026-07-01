@@ -19,7 +19,7 @@ export default function DataInputSection({ profile, accounts }) {
   const meta = PLATFORM_META[activeTab] || {};
 
   return (
-    <div style={{ padding: '16px', background: 'rgba(38,48,67,0.03)', border: '1px solid rgba(38,48,67,0.08)', borderRadius: '12px', marginTop: '8px' }}>
+    <div style={{ padding: '16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', marginTop: '8px' }}>
       <div style={{ display: 'flex', gap: '6px', marginBottom: '16px', flexWrap: 'wrap' }}>
         {DATA_INPUT_TABS.map(t => {
           const pm = PLATFORM_META[t.key] || {};
@@ -39,8 +39,8 @@ export default function DataInputSection({ profile, accounts }) {
       {activeTab === 'tiktok' && (
         <div>
           <TikTokCSVUpload profile={profile} accounts={accounts} />
-          <div style={{ marginTop: '16px', borderTop: '1px solid rgba(38,48,67,0.08)', paddingTop: '12px' }}>
-            <span style={{ fontSize: '11px', color: '#8791a0', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Manual Input</span>
+          <div style={{ marginTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '12px' }}>
+            <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.42)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Manual Input</span>
             <ManualMetricsForm platform="tiktok" fields={['followers']} accounts={accounts} />
           </div>
         </div>

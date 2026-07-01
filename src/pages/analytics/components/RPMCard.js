@@ -38,11 +38,11 @@ export default function RPMCard({ revenueData, timeSeries, accounts }) {
   const maxRpm = Math.max(...rows.map(r => r.rpm), 0.01);
 
   return (
-    <div style={{ ...analysisStyles.card, borderLeft: '3px solid #c98a2b' }}>
+    <div style={{ ...analysisStyles.card, borderLeft: '3px solid #f59e0b' }}>
       <div style={analysisStyles.cardHeader}>
-        <span style={{ ...analysisStyles.cardTitle, color: '#c98a2b' }}>Revenue per 1K Views (RPM)</span>
-        <span style={{ fontSize: '11px', color: '#8791a0' }}>
-          Blended RPM: <strong style={{ color: '#c98a2b' }}>${blendedRpm.toFixed(2)}</strong>
+        <span style={{ ...analysisStyles.cardTitle, color: '#f59e0b' }}>Revenue per 1K Views (RPM)</span>
+        <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.42)' }}>
+          Blended RPM: <strong style={{ color: '#f59e0b' }}>${blendedRpm.toFixed(2)}</strong>
         </span>
       </div>
       {rows.length === 0 ? (
@@ -52,7 +52,7 @@ export default function RPMCard({ revenueData, timeSeries, accounts }) {
           {rows.map(r => (
             <div key={r.accountId} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: r.color, flexShrink: 0 }} />
-              <span style={{ fontSize: '12px', color: '#5a6473', minWidth: '120px', flexShrink: 0 }}>{r.name}</span>
+              <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.55)', minWidth: '120px', flexShrink: 0 }}>{r.name}</span>
               <div style={{ flex: 1 }}>
                 <MiniBar
                   value={r.rpm} max={maxRpm} color={r.color} height={22}
@@ -60,15 +60,15 @@ export default function RPMCard({ revenueData, timeSeries, accounts }) {
                   refPct={maxRpm > 0 ? (blendedRpm / maxRpm) * 100 : null}
                 />
               </div>
-              <span style={{ fontSize: '11px', color: '#8791a0', minWidth: '70px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+              <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.42)', minWidth: '70px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                 {formatCompact(r.views)} views
               </span>
-              <span style={{ fontSize: '11px', color: '#8791a0', minWidth: '70px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+              <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.42)', minWidth: '70px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                 ${r.revenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
               </span>
             </div>
           ))}
-          <div style={{ fontSize: '10px', color: '#aab2be', marginTop: '2px' }}>
+          <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.32)', marginTop: '2px' }}>
             Bar = RPM · vertical marker = blended average (${blendedRpm.toFixed(2)})
           </div>
         </div>

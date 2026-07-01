@@ -25,7 +25,7 @@ const chip = {
   fontWeight: 600,
   letterSpacing: '0.3px',
   textTransform: 'uppercase',
-  color: '#a6741c',
+  color: '#f59e0b',
   background: 'rgba(201,138,43,0.12)',
   border: '1px solid rgba(201,138,43,0.30)',
   whiteSpace: 'nowrap',

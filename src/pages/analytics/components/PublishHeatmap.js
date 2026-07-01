@@ -48,7 +48,7 @@ export default function PublishHeatmap({ contentItems }) {
 
   function cellFill(day, part) {
     const cell = grid[`${day}-${part}`];
-    if (!cell || cell.count === 0) return 'rgba(38,48,67,0.03)';
+    if (!cell || cell.count === 0) return 'rgba(255,255,255,0.03)';
     const avg = cell.totalViews / cell.count;
     return sequential(maxAvg > 0 ? avg / maxAvg : 0);
   }
@@ -60,28 +60,28 @@ export default function PublishHeatmap({ contentItems }) {
       <div style={analysisStyles.cardHeader}>
         <span style={{ ...analysisStyles.cardTitle, color: '#8b5cf6' }}>Best Publish Time</span>
         {/* Color key */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: '#8791a0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: 'rgba(255,255,255,0.42)' }}>
           <span>fewer views</span>
           <span style={{ width: 72, height: 8, borderRadius: 4, background: `linear-gradient(90deg, ${sequential(0.05)}, ${sequential(1)})` }} />
           <span>more</span>
         </div>
       </div>
-      <p style={{ fontSize: '11px', color: '#8791a0', margin: '4px 0 12px' }}>Average views by day of week and daypart (Pacific).</p>
+      <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.42)', margin: '4px 0 12px' }}>Average views by day of week and daypart (Pacific).</p>
       {!hasData ? (
-        <p style={{ fontSize: 12, color: '#8791a0' }}>Not enough published content to map publish times yet.</p>
+        <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.42)' }}>Not enough published content to map publish times yet.</p>
       ) : (
         <div style={{ overflowX: 'auto', position: 'relative' }}>
           <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxWidth: W, maxHeight: '260px' }}>
             {/* Daypart labels */}
             {DAYPARTS.map((dp, c) => (
               <text key={c} x={labelW + c * (cellW + gap) + cellW / 2} y={labelH - 6}
-                fill="#8791a0" fontSize="10" textAnchor="middle">{dp.label}</text>
+                fill="rgba(255,255,255,0.42)" fontSize="10" textAnchor="middle">{dp.label}</text>
             ))}
             {/* Day rows */}
             {dayLabels.map((label, d) => (
               <g key={d}>
                 <text x={labelW - 8} y={labelH + d * (cellH + gap) + cellH / 2 + 3}
-                  fill="#8791a0" fontSize="10" textAnchor="end">{label}</text>
+                  fill="rgba(255,255,255,0.42)" fontSize="10" textAnchor="end">{label}</text>
                 {DAYPARTS.map((dp, c) => {
                   const cell = grid[`${d}-${c}`];
                   const active = hoveredCell === `${d}-${c}`;
@@ -89,7 +89,7 @@ export default function PublishHeatmap({ contentItems }) {
                     <rect key={c}
                       x={labelW + c * (cellW + gap)} y={labelH + d * (cellH + gap)}
                       width={cellW} height={cellH} rx="4" fill={cellFill(d, c)}
-                      stroke={active ? '#5a6473' : 'transparent'} strokeWidth="1.5"
+                      stroke={active ? 'rgba(255,255,255,0.55)' : 'transparent'} strokeWidth="1.5"
                       onMouseEnter={() => setHoveredCell(`${d}-${c}`)}
                       onMouseLeave={() => setHoveredCell(null)}
                       style={{ cursor: 'default' }}>
@@ -108,11 +108,11 @@ export default function PublishHeatmap({ contentItems }) {
             return (
               <div style={{
                 position: 'absolute', top: '4px', right: '8px',
-                background: '#ffffff', border: '1px solid #dbe2ec',
+                background: '#161d2b', border: '1px solid rgba(255,255,255,0.12)',
                 borderRadius: '8px', padding: '8px 12px', pointerEvents: 'none',
-                fontSize: '11px', color: '#5a6473',
+                fontSize: '11px', color: 'rgba(255,255,255,0.55)',
               }}>
-                <strong style={{ color: '#263043' }}>{dayLabels[d]} {DAYPARTS[c].label} PT</strong>
+                <strong style={{ color: '#e7ebf2' }}>{dayLabels[d]} {DAYPARTS[c].label} PT</strong>
                 <br />{count} post{count !== 1 ? 's' : ''} — avg {formatCompact(avg)} views
               </div>
             );

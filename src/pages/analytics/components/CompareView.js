@@ -128,7 +128,7 @@ function DeltaBadge({ cur, prev }) {
   if (cur === 0 && prev === 0) return <span style={local.deltaFlat}>—</span>;
   const pct = pctChange(cur, prev);
   const up = cur >= prev;
-  const color = cur === prev ? '#8791a0' : up ? '#22c55e' : '#ef4444';
+  const color = cur === prev ? 'rgba(255,255,255,0.42)' : up ? '#22c55e' : '#ef4444';
   const arrow = cur === prev ? '' : up ? '▲' : '▼';
   return (
     <span style={{ ...local.deltaBadge, color }}>
@@ -276,7 +276,7 @@ export default function CompareView({ accounts = [] }) {
             <>
               <input type="date" value={customStart} max={customEnd}
                 onChange={e => setCustomStart(e.target.value)} style={styles.filterInput} />
-              <span style={{ color: '#8791a0' }}>to</span>
+              <span style={{ color: 'rgba(255,255,255,0.42)' }}>to</span>
               <input type="date" value={customEnd} min={customStart} max={todayStr()}
                 onChange={e => setCustomEnd(e.target.value)} style={styles.filterInput} />
             </>
@@ -313,8 +313,8 @@ export default function CompareView({ accounts = [] }) {
       <div style={local.rangeSummary}>
         <span style={{ color: '#a5b4fc', fontWeight: 600 }}>{periods.current.label}</span>
         <span style={local.rangeDates}>{fmtShort(periods.current.start)} – {fmtShort(periods.current.end)}</span>
-        <span style={{ color: '#aab2be', margin: '0 4px' }}>vs</span>
-        <span style={{ color: '#5a6473', fontWeight: 600 }}>{periods.previous.label}</span>
+        <span style={{ color: 'rgba(255,255,255,0.32)', margin: '0 4px' }}>vs</span>
+        <span style={{ color: 'rgba(255,255,255,0.55)', fontWeight: 600 }}>{periods.previous.label}</span>
         <span style={local.rangeDates}>{fmtShort(periods.previous.start)} – {fmtShort(periods.previous.end)}</span>
       </div>
 
@@ -342,7 +342,7 @@ export default function CompareView({ accounts = [] }) {
             <tbody>
               {/* All-platforms total row */}
               <tr style={local.totalRow}>
-                <td style={{ ...styles.td, ...styles.tdSticky, background: '#1a1a2e', fontWeight: 700, color: '#263043' }}>
+                <td style={{ ...styles.td, ...styles.tdSticky, background: '#1a1a2e', fontWeight: 700, color: '#e7ebf2' }}>
                   All Platforms
                 </td>
                 {METRICS.map(m => (
@@ -356,13 +356,13 @@ export default function CompareView({ accounts = [] }) {
                 const meta = PLATFORM_META[row.platform] || { label: row.platform, color: '#666' };
                 return (
                   <tr key={row.id} style={i % 2 === 0 ? styles.trEven : {}}>
-                    <td style={{ ...styles.td, ...styles.tdSticky, background: i % 2 === 0 ? '#15152a' : '#ffffff' }}>
+                    <td style={{ ...styles.td, ...styles.tdSticky, background: i % 2 === 0 ? '#15152a' : '#161d2b' }}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span style={{ width: 10, height: 10, borderRadius: '3px', background: meta.color, flexShrink: 0 }} />
                         <span>
-                          <span style={{ color: '#263043', fontWeight: 600 }}>{row.name || meta.label}</span>
+                          <span style={{ color: '#e7ebf2', fontWeight: 600 }}>{row.name || meta.label}</span>
                           {row.name && row.name !== meta.label && (
-                            <span style={{ display: 'block', fontSize: '10px', color: '#8791a0' }}>{meta.label}</span>
+                            <span style={{ display: 'block', fontSize: '10px', color: 'rgba(255,255,255,0.42)' }}>{meta.label}</span>
                           )}
                         </span>
                       </span>
@@ -387,12 +387,12 @@ export default function CompareView({ accounts = [] }) {
 const local = {
   controlBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '12px' },
   pillRow: { display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '12px' },
-  rangeSummary: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '13px', marginBottom: '16px', padding: '10px 14px', background: 'rgba(38,48,67,0.03)', border: '1px solid rgba(38,48,67,0.08)', borderRadius: '10px' },
-  rangeDates: { fontSize: '11px', color: '#8791a0' },
+  rangeSummary: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '13px', marginBottom: '16px', padding: '10px 14px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px' },
+  rangeDates: { fontSize: '11px', color: 'rgba(255,255,255,0.42)' },
   totalRow: { background: 'rgba(99,102,241,0.06)', borderBottom: '2px solid rgba(99,102,241,0.25)' },
-  cellValue: { fontSize: '15px', fontWeight: 700, color: '#263043', fontVariantNumeric: 'tabular-nums', marginBottom: '3px' },
+  cellValue: { fontSize: '15px', fontWeight: 700, color: '#e7ebf2', fontVariantNumeric: 'tabular-nums', marginBottom: '3px' },
   cellFooter: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' },
-  cellPrev: { fontSize: '10px', color: '#8791a0', fontVariantNumeric: 'tabular-nums' },
+  cellPrev: { fontSize: '10px', color: 'rgba(255,255,255,0.42)', fontVariantNumeric: 'tabular-nums' },
   deltaBadge: { fontSize: '11px', fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' },
-  deltaFlat: { fontSize: '11px', color: '#8791a0' },
+  deltaFlat: { fontSize: '11px', color: 'rgba(255,255,255,0.42)' },
 };

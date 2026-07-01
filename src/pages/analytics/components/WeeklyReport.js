@@ -15,7 +15,7 @@ const fmtSigned = (n) => `${n >= 0 ? '+' : ''}${Number(n || 0).toLocaleString()}
 function DeltaBadge({ label, pct }) {
   const na = pct === null || pct === undefined;
   const up = !na && pct >= 0;
-  const color = na ? '#8791a0' : up ? '#34d399' : '#f87171';
+  const color = na ? 'rgba(255,255,255,0.42)' : up ? '#34d399' : '#f87171';
   return (
     <span style={{ fontSize: 11, color, whiteSpace: 'nowrap' }}>
       {label} {na ? 'n/a' : `${up ? '+' : ''}${pct}%`}
@@ -30,7 +30,7 @@ function KpiCard({ label, value, d }) {
       <div style={styles.kpiValue}>{value}</div>
       <div style={styles.kpiDeltas}>
         <DeltaBadge label="WoW" pct={d?.wow} />
-        <span style={{ color: 'rgba(38,48,67,0.16)' }}>·</span>
+        <span style={{ color: 'rgba(255,255,255,0.15)' }}>·</span>
         <DeltaBadge label="4wk" pct={d?.vs4wk} />
       </div>
     </div>
@@ -285,7 +285,7 @@ function ContentTable({ rows }) {
             <td style={styles.td}>
               {c.url ? <a href={c.url} target="_blank" rel="noreferrer" style={styles.link}>{c.title}</a> : c.title}
             </td>
-            <td style={{ ...styles.td, color: '#5a6473' }}>{c.platform}</td>
+            <td style={{ ...styles.td, color: 'rgba(255,255,255,0.55)' }}>{c.platform}</td>
             <td style={{ ...styles.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(c.views)}</td>
             <td style={{ ...styles.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{c.engagement_rate ? `${Number(c.engagement_rate).toFixed(1)}%` : '—'}</td>
           </tr>
@@ -297,43 +297,43 @@ function ContentTable({ rows }) {
 
 const styles = {
   header: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' },
-  title: { margin: 0, fontSize: 20, fontWeight: 700, color: '#263043' },
+  title: { margin: 0, fontSize: 20, fontWeight: 700, color: '#e7ebf2' },
   weekSelect: {
-    background: 'rgba(38,48,67,0.08)', border: '1px solid rgba(38,48,67,0.14)', borderRadius: 8,
-    color: '#263043', fontSize: 13, padding: '6px 10px', fontFamily: 'inherit', cursor: 'pointer',
+    background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8,
+    color: '#e7ebf2', fontSize: 13, padding: '6px 10px', fontFamily: 'inherit', cursor: 'pointer',
   },
   genBtn: {
     marginLeft: 'auto', padding: '6px 14px', background: 'rgba(99,102,241,0.12)',
     border: '1px solid rgba(99,102,241,0.3)', borderRadius: 8, color: '#a5b4fc',
     fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
   },
-  headline: { color: '#263043', fontSize: 16, fontWeight: 600, lineHeight: 1.45, margin: '4px 0 18px' },
+  headline: { color: '#e7ebf2', fontSize: 16, fontWeight: 600, lineHeight: 1.45, margin: '4px 0 18px' },
   kpiGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 },
-  kpiCard: { background: 'rgba(38,48,67,0.03)', border: '1px solid rgba(38,48,67,0.08)', borderRadius: 10, padding: '14px 16px' },
-  kpiLabel: { fontSize: 12, color: '#5a6473', marginBottom: 6 },
-  kpiValue: { fontSize: 24, fontWeight: 700, color: '#263043', fontVariantNumeric: 'tabular-nums' },
+  kpiCard: { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, padding: '14px 16px' },
+  kpiLabel: { fontSize: 12, color: 'rgba(255,255,255,0.55)', marginBottom: 6 },
+  kpiValue: { fontSize: 24, fontWeight: 700, color: '#e7ebf2', fontVariantNumeric: 'tabular-nums' },
   kpiDeltas: { display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 },
-  card: { background: 'rgba(38,48,67,0.03)', border: '1px solid rgba(38,48,67,0.08)', borderRadius: 10, padding: 16, marginBottom: 16 },
-  cardTitle: { fontSize: 13, fontWeight: 600, color: '#3b4453', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 12 },
+  card: { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, padding: 16, marginBottom: 16 },
+  cardTitle: { fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.72)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 12 },
   twoCol: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 },
-  rowLine: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid rgba(38,48,67,0.08)', fontSize: 13 },
-  platName: { color: '#3b4453', textTransform: 'capitalize' },
+  rowLine: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: 13 },
+  platName: { color: 'rgba(255,255,255,0.72)', textTransform: 'capitalize' },
   barRow: { display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0' },
-  barName: { color: '#3b4453', textTransform: 'capitalize', fontSize: 13, minWidth: 90, flexShrink: 0 },
-  revVal: { color: '#263043', fontWeight: 600, fontVariantNumeric: 'tabular-nums' },
+  barName: { color: 'rgba(255,255,255,0.72)', textTransform: 'capitalize', fontSize: 13, minWidth: 90, flexShrink: 0 },
+  revVal: { color: '#e7ebf2', fontWeight: 600, fontVariantNumeric: 'tabular-nums' },
   narrativeRow: { display: 'flex', gap: 24, flexWrap: 'wrap' },
   narrativeHead: { fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 },
   narrativeList: { margin: 0, padding: 0, listStyle: 'none' },
-  narrativeItem: { color: '#3b4453', fontSize: 13, lineHeight: 1.5, marginBottom: 6, display: 'flex' },
+  narrativeItem: { color: 'rgba(255,255,255,0.72)', fontSize: 13, lineHeight: 1.5, marginBottom: 6, display: 'flex' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  th: { textAlign: 'left', fontSize: 11, color: '#8791a0', textTransform: 'uppercase', letterSpacing: '0.5px', padding: '6px 8px', borderBottom: '1px solid rgba(38,48,67,0.10)' },
-  td: { fontSize: 13, color: '#263043', padding: '8px', borderBottom: '1px solid rgba(38,48,67,0.06)' },
+  th: { textAlign: 'left', fontSize: 11, color: 'rgba(255,255,255,0.42)', textTransform: 'uppercase', letterSpacing: '0.5px', padding: '6px 8px', borderBottom: '1px solid rgba(255,255,255,0.08)' },
+  td: { fontSize: 13, color: '#e7ebf2', padding: '8px', borderBottom: '1px solid rgba(255,255,255,0.05)' },
   link: { color: '#a5b4fc', textDecoration: 'none' },
-  muted: { color: '#8791a0', fontSize: 13, padding: '6px 0' },
-  loadingText: { color: '#8791a0', fontSize: 14, padding: '20px 0' },
+  muted: { color: 'rgba(255,255,255,0.42)', fontSize: 13, padding: '6px 0' },
+  loadingText: { color: 'rgba(255,255,255,0.42)', fontSize: 14, padding: '20px 0' },
   empty: { padding: '60px 20px', textAlign: 'center' },
-  emptyText: { color: '#8791a0', fontSize: 14, maxWidth: 420, margin: '0 auto' },
-  generatedAt: { color: '#8791a0', fontSize: 11, textAlign: 'right', marginTop: 4 },
+  emptyText: { color: 'rgba(255,255,255,0.42)', fontSize: 14, maxWidth: 420, margin: '0 auto' },
+  generatedAt: { color: 'rgba(255,255,255,0.42)', fontSize: 11, textAlign: 'right', marginTop: 4 },
   completenessBadge: {
     position: 'relative', overflow: 'hidden', borderRadius: 8,
     border: '1px solid', padding: '8px 14px', marginBottom: 12,

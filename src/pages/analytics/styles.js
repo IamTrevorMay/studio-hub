@@ -4,28 +4,31 @@
 // steel-blue accent. Everything below builds off the `L` palette so the whole
 // page retints from one place.
 
+// DARK "cool blue-gray" theme. Same zoned Tableau layout, dark surfaces:
+// deep blue-gray page, layered raised cards, gentle dark-blue zone gradients,
+// light text, steel-blue accent. Retints from this one object.
 export const L = {
-  pageBg:       '#eef1f6',
-  card:         '#ffffff',
-  cardAlt:      '#f7f9fc',
+  pageBg:       '#0e1420',
+  card:         '#161d2b',
+  cardAlt:      '#1b2331',
   // gentle top-to-bottom washes used on zone wrappers to delineate sections
-  zoneGrad:     'linear-gradient(180deg, #f4f8fd 0%, #ffffff 55%)',
-  zoneGradAlt:  'linear-gradient(180deg, #eef3fa 0%, #f8fafd 60%)',
-  border:       '#dbe2ec',
-  borderStrong: '#c7d0dd',
-  ink:          '#263043',
-  inkMuted:     '#5a6473',
-  inkSubtle:    '#8791a0',
-  inkFaint:     '#aab2be',
-  accent:       '#3d6ea5',
-  accentText:   '#2f5c8a',
-  accentSoft:   '#e8eff7',
-  accentBorder: '#bcd0e6',
-  gridLine:     '#e6eaf0',
-  shadowSm:     '0 1px 2px rgba(38,48,67,0.05)',
-  shadow:       '0 1px 2px rgba(38,48,67,0.04), 0 6px 20px rgba(38,48,67,0.06)',
-  pos:          '#2f8f5b',
-  neg:          '#c2483d',
+  zoneGrad:     'linear-gradient(180deg, #18212f 0%, #121927 55%)',
+  zoneGradAlt:  'linear-gradient(180deg, #1a2634 0%, #141c2a 60%)',
+  border:       'rgba(255,255,255,0.08)',
+  borderStrong: 'rgba(255,255,255,0.15)',
+  ink:          '#e7ebf2',
+  inkMuted:     'rgba(255,255,255,0.70)',
+  inkSubtle:    'rgba(255,255,255,0.48)',
+  inkFaint:     'rgba(255,255,255,0.32)',
+  accent:       '#5b8fc7',
+  accentText:   '#8fb4d8',
+  accentSoft:   'rgba(91,143,199,0.18)',
+  accentBorder: 'rgba(91,143,199,0.42)',
+  gridLine:     'rgba(255,255,255,0.06)',
+  shadowSm:     '0 1px 2px rgba(0,0,0,0.35)',
+  shadow:       '0 2px 6px rgba(0,0,0,0.35), 0 10px 28px rgba(0,0,0,0.4)',
+  pos:          '#4ade80',
+  neg:          '#f87171',
 };
 
 // analysisStyles — consumed by the analysis-tool components (cards). Light.

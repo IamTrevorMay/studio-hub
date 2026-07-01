@@ -35,7 +35,7 @@ export default function DataCompletenessBadge() {
   const pct = Math.round((present / daily.length) * 100);
   const staleCount = health.filter((h) => h.stale).length;
 
-  const color = pct >= 90 ? '#2f8f5b' : pct >= 70 ? '#c98a2b' : '#c2483d';
+  const color = pct >= 90 ? '#22c55e' : pct >= 70 ? '#f59e0b' : '#ef4444';
   const bg = pct >= 90 ? 'rgba(47,143,91,0.08)' : pct >= 70 ? 'rgba(201,138,43,0.08)' : 'rgba(194,72,61,0.08)';
 
   return (
@@ -45,7 +45,7 @@ export default function DataCompletenessBadge() {
         <span style={{ color, fontWeight: 700 }}>Data completeness {pct}%</span>
         <span style={styles.sub}>· {present} of {daily.length} daily sources reported yesterday</span>
         {staleCount > 0 && (
-          <span style={{ ...styles.sub, color: '#c98a2b' }}>· {staleCount} stale</span>
+          <span style={{ ...styles.sub, color: '#f59e0b' }}>· {staleCount} stale</span>
         )}
       </span>
     </div>
@@ -59,5 +59,5 @@ const styles = {
   },
   bar: { position: 'absolute', top: 0, left: 0, bottom: 0, opacity: 0.14 },
   text: { position: 'relative', fontSize: 12, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' },
-  sub: { color: '#5a6473', fontWeight: 500 },
+  sub: { color: 'rgba(255,255,255,0.55)', fontWeight: 500 },
 };

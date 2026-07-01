@@ -56,9 +56,9 @@ export default function FormatPerformance({ contentItems }) {
                 style={{
                   padding: '3px 10px', borderRadius: 14, fontSize: 11, fontWeight: 600, cursor: 'pointer',
                   fontFamily: 'inherit', textTransform: 'capitalize',
-                  border: '1px solid ' + (groupBy === g ? 'rgba(20,184,166,0.5)' : 'rgba(38,48,67,0.14)'),
+                  border: '1px solid ' + (groupBy === g ? 'rgba(20,184,166,0.5)' : 'rgba(255,255,255,0.1)'),
                   background: groupBy === g ? 'rgba(20,184,166,0.15)' : 'transparent',
-                  color: groupBy === g ? '#5eead4' : '#5a6473',
+                  color: groupBy === g ? '#5eead4' : 'rgba(255,255,255,0.55)',
                 }}>
                 {g}
               </button>
@@ -66,23 +66,23 @@ export default function FormatPerformance({ contentItems }) {
           </div>
         )}
       </div>
-      <p style={{ fontSize: 11, color: '#8791a0', margin: '4px 0 12px' }}>
+      <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.42)', margin: '4px 0 12px' }}>
         Average views per post by {groupBy}. Taller = more reach earned per post published.
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {rows.map((r) => (
           <div key={r.key} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 12, color: '#3b4453', minWidth: 130, flexShrink: 0 }}>
+            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.72)', minWidth: 130, flexShrink: 0 }}>
               {r.key}
-              <span style={{ color: '#8791a0', marginLeft: 5 }}>×{r.count}</span>
+              <span style={{ color: 'rgba(255,255,255,0.42)', marginLeft: 5 }}>×{r.count}</span>
             </span>
             <div style={{ flex: 1 }}>
               <MiniBar value={r.avgViews} max={maxAvg} color="#14b8a6" height={22} label={`${formatCompact(r.avgViews)} avg`} />
             </div>
-            <span style={{ fontSize: 11, color: '#8791a0', minWidth: 80, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.42)', minWidth: 80, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
               {r.avgEr > 0 ? (r.avgEr * 100).toFixed(1) + '% eng' : '—'}
             </span>
-            <span style={{ fontSize: 11, color: '#8791a0', minWidth: 80, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.42)', minWidth: 80, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
               best {formatCompact(r.best)}
             </span>
           </div>

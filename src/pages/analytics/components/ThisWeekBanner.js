@@ -60,8 +60,8 @@ export default function ThisWeekBanner({ onOpenFullReport }) {
         <>
           {n.headline && <div style={styles.headline}>{String(n.headline)}</div>}
           <div style={styles.row}>
-            <Block title="Wins" items={n.wins} color="#2f8f5b" />
-            <Block title="Watch-outs" items={n.watch_outs} color="#c98a2b" />
+            <Block title="Wins" items={n.wins} color="#22c55e" />
+            <Block title="Watch-outs" items={n.watch_outs} color="#f59e0b" />
             <Block title="Recommendations" items={n.recommendations} color={L.accent} />
           </div>
         </>

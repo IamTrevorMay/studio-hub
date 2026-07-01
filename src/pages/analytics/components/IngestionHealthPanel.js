@@ -118,13 +118,13 @@ export default function IngestionHealthPanel({ logs, accounts, onRefresh }) {
                   <tr style={{ background: 'rgba(245,158,11,0.05)' }}>
                     <td colSpan={8} style={{ padding: '8px 12px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: '12px', color: '#5a6473' }}>
-                          Date range: <strong style={{ color: '#263043' }}>{log.metadata.date_start}</strong> to <strong style={{ color: '#263043' }}>{log.metadata.date_end}</strong>
+                        <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.55)' }}>
+                          Date range: <strong style={{ color: '#e7ebf2' }}>{log.metadata.date_start}</strong> to <strong style={{ color: '#e7ebf2' }}>{log.metadata.date_end}</strong>
                         </span>
                         <input
                           type="number" step="0.01" min="0" placeholder="Revenue ($)"
                           value={revenueInput} onChange={e => setRevenueInput(e.target.value)}
-                          style={{ background: 'rgba(38,48,67,0.08)', border: '1px solid rgba(38,48,67,0.14)', borderRadius: '6px', color: '#263043', padding: '6px 10px', fontSize: '13px', width: '130px' }}
+                          style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: '#e7ebf2', padding: '6px 10px', fontSize: '13px', width: '130px' }}
                         />
                         <button onClick={() => handleSaveRevenue(log)} disabled={revenueSaving || !revenueInput}
                           style={{ ...styles.uploadBtn, borderColor: '#f59e0b66', color: '#f59e0b', padding: '6px 14px', fontSize: '12px', opacity: revenueSaving || !revenueInput ? 0.5 : 1 }}>
@@ -143,7 +143,7 @@ export default function IngestionHealthPanel({ logs, accounts, onRefresh }) {
             );
           })}
           {logs.length === 0 && (
-            <tr><td colSpan={8} style={{ ...styles.td, textAlign: 'center', color: '#8791a0' }}>No ingestion logs yet</td></tr>
+            <tr><td colSpan={8} style={{ ...styles.td, textAlign: 'center', color: 'rgba(255,255,255,0.42)' }}>No ingestion logs yet</td></tr>
           )}
         </tbody>
       </table>

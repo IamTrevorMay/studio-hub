@@ -12,7 +12,7 @@ import { Sparkline } from '../viz';
 function Delta({ label, pct }) {
   const na = pct === null || pct === undefined || !isFinite(pct);
   const up = !na && pct >= 0;
-  const color = na ? '#8791a0' : up ? '#2f8f5b' : '#c2483d';
+  const color = na ? 'rgba(255,255,255,0.42)' : up ? '#22c55e' : '#ef4444';
   const glyph = na ? '' : up ? '▲' : '▼';
   return (
     <span style={{ fontSize: 11, color, whiteSpace: 'nowrap', fontWeight: 600 }}>
@@ -35,13 +35,13 @@ export default function DecisionKpiCard({ label, value, soWhat, deltaPrev, delta
         )}
       </div>
       {soWhat && (
-        <div style={{ fontSize: 11, color: '#5a6473', marginTop: 3 }}>
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', marginTop: 3 }}>
           {soWhat}
         </div>
       )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
         <Delta label="vs prev" pct={deltaPrev} />
-        <span style={{ color: '#c7d0dd' }}>·</span>
+        <span style={{ color: 'rgba(255,255,255,0.14)' }}>·</span>
         <Delta label="4-avg" pct={deltaBase} />
       </div>
     </div>

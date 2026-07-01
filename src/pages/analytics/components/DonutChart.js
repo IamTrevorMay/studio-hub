@@ -42,23 +42,23 @@ export default function DonutChart({ data, valueKey = 'views', centerLabel = 'to
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label={ariaLabel}
         onMouseLeave={() => setHovered(null)}>
         {segments.map((s, i) => (
-          <path key={i} d={s.path} fill={s.color} stroke="#ffffff" strokeWidth="1.5"
+          <path key={i} d={s.path} fill={s.color} stroke="#161d2b" strokeWidth="1.5"
             opacity={hovered === null || hovered === i ? 1 : 0.35}
             onMouseEnter={() => setHovered(i)}
             style={{ transition: 'opacity 0.15s', cursor: 'default' }} />
         ))}
-        <text x={cx} y={cy - 6} textAnchor="middle" fill="#263043" fontSize="16" fontWeight="700">{centerText}</text>
-        <text x={cx} y={cy + 12} textAnchor="middle" fill="#8791a0" fontSize="10">{centerLabel}</text>
+        <text x={cx} y={cy - 6} textAnchor="middle" fill="#e7ebf2" fontSize="16" fontWeight="700">{centerText}</text>
+        <text x={cx} y={cy + 12} textAnchor="middle" fill="rgba(255,255,255,0.42)" fontSize="10">{centerLabel}</text>
       </svg>
       {hovered !== null && segments[hovered] && (
         <ChartTooltip leftPct={50} flip={false} top={-4}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ width: 8, height: 8, borderRadius: 2, background: segments[hovered].color, flexShrink: 0 }} />
-            <span style={{ fontSize: 11, color: '#5a6473' }}>{segments[hovered].label}</span>
-            <span style={{ fontSize: 12, fontWeight: 700, color: '#263043', fontVariantNumeric: 'tabular-nums' }}>
+            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)' }}>{segments[hovered].label}</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#e7ebf2', fontVariantNumeric: 'tabular-nums' }}>
               {fmt(segments[hovered].val)}
             </span>
-            <span style={{ fontSize: 10, color: '#8791a0' }}>({segments[hovered].pct.toFixed(1)}%)</span>
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.42)' }}>({segments[hovered].pct.toFixed(1)}%)</span>
           </div>
         </ChartTooltip>
       )}
