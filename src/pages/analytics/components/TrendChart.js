@@ -3,7 +3,7 @@ import { formatCompact, toLocalDate } from '../utils';
 
 export default function TrendChart({ data, metrics }) {
   const [hoveredIndex, setHoveredIndex] = useState(null);
-  const W = 900, H = 280, PAD = { top: 20, right: 20, bottom: 40, left: 20 };
+  const W = 900, H = 280, PAD = { top: 20, right: 20, bottom: 40, left: 44 };
   const plotW = W - PAD.left - PAD.right;
   const plotH = H - PAD.top - PAD.bottom;
 
@@ -85,11 +85,19 @@ export default function TrendChart({ data, metrics }) {
 
   return (
     <div style={{ overflowX: 'auto', position: 'relative' }}>
+      {metricLines.length > 1 && (
+        <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', marginBottom: '2px' }}>
+          Each line indexed to its own peak (100%) — hover for actual values.
+        </div>
+      )}
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxHeight: '300px' }}
         onMouseLeave={() => setHoveredIndex(null)}>
-        {/* Grid lines */}
+        {/* Grid lines + indexed y-axis (% of each line's own peak) */}
         {gridYs.map((y, i) => (
-          <line key={i} x1={PAD.left} y1={y} x2={W - PAD.right} y2={y} stroke="rgba(255,255,255,0.05)" />
+          <g key={i}>
+            <line x1={PAD.left} y1={y} x2={W - PAD.right} y2={y} stroke="rgba(255,255,255,0.05)" />
+            <text x={PAD.left - 8} y={y + 3} textAnchor="end" fill="rgba(255,255,255,0.3)" fontSize="10">{i * 25}%</text>
+          </g>
         ))}
         {/* X-axis labels */}
         {data.map((d, i) => {

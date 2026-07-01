@@ -24,7 +24,37 @@ import DataCompletenessBadge from './components/DataCompletenessBadge';
 import CoverageChip from './components/CoverageChip';
 import FormatPerformance from './components/FormatPerformance';
 import ThisWeekBanner from './components/ThisWeekBanner';
-import { MiniBar, EmptyChart, Sparkline } from './viz';
+import { MiniBar, EmptyChart, Sparkline, Skeleton } from './viz';
+
+// Skeleton placeholder for the dashboard while first data loads — keeps the
+// page shape instead of collapsing to a single "Loading…" line.
+function DashboardSkeleton() {
+  return (
+    <div>
+      <div style={styles.kpiGrid}>
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} style={styles.kpiCard}>
+            <Skeleton height={10} width="45%" />
+            <Skeleton height={26} width="70%" style={{ marginTop: 10 }} />
+            <Skeleton height={10} width="55%" style={{ marginTop: 12 }} />
+          </div>
+        ))}
+      </div>
+      <div style={styles.kpiGrid}>
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} style={styles.kpiCard}><Skeleton height={70} /></div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px' }}>
+            <Skeleton height={160} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // Platforms the Dashboard top section + Weekly digest focus on, in display order.
 const DIGEST_PLATFORMS = ['youtube', 'tiktok', 'instagram', 'substack', 'simplecast'];
@@ -682,7 +712,7 @@ export default function Analytics() {
         <ContentHealthDashboard accounts={accounts} />
       )}
 
-      {viewMode === 'dashboard' && (loading ? <p style={styles.loadingText}>Loading analytics...</p> : (
+      {viewMode === 'dashboard' && (loading ? <DashboardSkeleton /> : (
         <>
           {/* ── Dashboard Sections ── */}
           {/* ── This Week narrative (decision destination) ── */}

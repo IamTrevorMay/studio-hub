@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { callEdgeFn } from '../lib/edgeFn';
 import { mobileTokens } from '../utils/mobileTokens';
 import { daysAgoStr, todayStr, formatCompact, formatCurrency, pctChange } from './analytics/utils';
+import { MiniBar, platformColor } from './analytics/viz';
 
 // Mobile Analytics — Admin Mode. Two tabs:
 //   • Weekly Report (default): the AI weekly KPI brief (summary always shown,
@@ -17,7 +18,7 @@ const PLATFORM_META = {
   instagram:  { label: 'Instagram',  color: '#E4405F', icon: '◉' },
   tiktok:     { label: 'TikTok',     color: '#00F2EA', icon: '♪' },
   substack:   { label: 'Substack',   color: '#FF6719', icon: 'S' },
-  simplecast: { label: 'Simplecast', color: '#2A2A2A', icon: '🎙' },
+  simplecast: { label: 'Simplecast', color: '#9AA0A6', icon: '🎙' },
   twitch:     { label: 'Twitch',     color: '#9146FF', icon: 'T' },
   stripe:     { label: 'Stripe',     color: '#635BFF', icon: '$' },
   fourthwall: { label: 'Fourthwall', color: '#E8451C', icon: '4' },
@@ -245,25 +246,33 @@ function ReportBody({ report }) {
 
       {/* Collapsible detail sections */}
       <Collapsible title="Audience growth">
-        {Object.keys(gained).length === 0 ? <div style={styles.muted}>No data</div> : (
-          Object.entries(gained).sort((a, b) => b[1] - a[1]).map(([p, v]) => (
-            <div key={p} style={styles.rowLine}>
-              <span style={styles.platName}>{p}</span>
-              <span style={{ color: v >= 0 ? '#34d399' : '#f87171', fontWeight: 600 }}>{fmtSigned(v)}</span>
+        {Object.keys(gained).length === 0 ? <div style={styles.muted}>No data</div> : (() => {
+          const rows = Object.entries(gained).sort((a, b) => b[1] - a[1]);
+          const maxAbs = Math.max(...rows.map(([, v]) => Math.abs(v)), 1);
+          return rows.map(([p, v]) => (
+            <div key={p} style={styles.barRow}>
+              <span style={styles.barName}>{p}</span>
+              <div style={{ flex: 1 }}>
+                <MiniBar value={Math.abs(v)} max={maxAbs} color={v >= 0 ? '#34d399' : '#f87171'} height={16} label={fmtSigned(v)} />
+              </div>
             </div>
-          ))
-        )}
+          ));
+        })()}
       </Collapsible>
 
       <Collapsible title="Views by platform">
-        {Object.keys(viewsByP).length === 0 ? <div style={styles.muted}>No data</div> : (
-          Object.entries(viewsByP).sort((a, b) => (b[1].views || 0) - (a[1].views || 0)).map(([p, v]) => (
-            <div key={p} style={styles.rowLine}>
-              <span style={styles.platName}>{p}</span>
-              <span style={{ color: '#e2e8f0', fontWeight: 600 }}>{fmtNum(v.views)}</span>
+        {Object.keys(viewsByP).length === 0 ? <div style={styles.muted}>No data</div> : (() => {
+          const rows = Object.entries(viewsByP).sort((a, b) => (b[1].views || 0) - (a[1].views || 0));
+          const maxViews = Math.max(...rows.map(([, v]) => v.views || 0), 1);
+          return rows.map(([p, v]) => (
+            <div key={p} style={styles.barRow}>
+              <span style={styles.barName}>{p}</span>
+              <div style={{ flex: 1 }}>
+                <MiniBar value={v.views || 0} max={maxViews} color={platformColor(p)} height={16} label={fmtNum(v.views)} />
+              </div>
             </div>
-          ))
-        )}
+          ));
+        })()}
       </Collapsible>
 
       <Collapsible title="Revenue">
@@ -394,6 +403,7 @@ function PlatformKpisTab() {
 
   const totalFollowers = accounts.reduce((s, a) => s + (stats[a.id]?.followers || 0), 0);
   const totalGained = accounts.reduce((s, a) => s + (stats[a.id]?.gained || 0), 0);
+  const maxFollowers = Math.max(1, ...accounts.map((a) => stats[a.id]?.followers || 0));
 
   const decisionCards = buildDecisionCards(kpiSummary);
 
@@ -442,6 +452,9 @@ function PlatformKpisTab() {
                   </div>
                 </div>
               </div>
+              {s.followers > 0 && (
+                <MiniBar value={s.followers} max={maxFollowers} color={meta.color} height={6} showTrack />
+              )}
               <div style={styles.metricRow}>
                 <Metric label="Views" value={fmtCount(s.views)} />
                 <Metric label="Engagement" value={fmtCount(s.engagement)} />
@@ -576,6 +589,8 @@ const styles = {
 
   rowLine: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: 13 },
   platName: { color: 'rgba(255,255,255,0.7)', textTransform: 'capitalize' },
+  barRow: { display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0' },
+  barName: { color: 'rgba(255,255,255,0.7)', textTransform: 'capitalize', fontSize: 12, minWidth: 74, flexShrink: 0 },
   revVal: { color: '#e2e8f0', fontWeight: 600, fontVariantNumeric: 'tabular-nums' },
   muted: { color: 'rgba(255,255,255,0.35)', fontSize: 13, padding: '6px 0' },
 

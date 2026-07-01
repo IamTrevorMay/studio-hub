@@ -10,7 +10,7 @@ export const analysisStyles = {
 };
 
 export const styles = {
-  page: { padding: '32px 40px' },
+  page: { padding: '32px 40px', maxWidth: '1600px', margin: '0 auto' },
   topBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' },
   pageTitle: { fontSize: '28px', fontWeight: 700, color: '#fff', margin: '0 0 4px', letterSpacing: '-0.5px' },
   pageSubtitle: { fontSize: '14px', color: 'rgba(255,255,255,0.4)', margin: 0 },

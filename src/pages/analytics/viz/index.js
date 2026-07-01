@@ -5,4 +5,5 @@ export { default as MiniBar } from './MiniBar';
 export { default as Sparkline } from './Sparkline';
 export { default as Legend } from './Legend';
 export { default as ChartTooltip } from './ChartTooltip';
+export { default as Skeleton } from './Skeleton';
 export { platformColor, sequential, viz } from './palette';
