@@ -12,7 +12,7 @@ import { getDisplayName } from '../lib/displayName';
 // Pin / edit / delete / channel-management stays desktop-only.
 
 export default function ChannelsMobile({ initialChannelName, onChannelOpened }) {
-  const { profile, refreshKey } = useAuth();
+  const { profile, isAdmin, refreshKey } = useAuth();
   const { unreadMentionChannelIds, markChannelSeen } = useNotifications();
   const [channels, setChannels] = useState([]);
   const [activeChannel, setActiveChannel] = useState(null);
@@ -59,25 +59,32 @@ export default function ChannelsMobile({ initialChannelName, onChannelOpened }) 
   useEffect(() => {
     if (!initialChannelName || channels.length === 0) return;
     const match = channels.find((c) => c.name.toLowerCase() === initialChannelName.toLowerCase());
-    if (match) {
+    const canView = match && (isAdmin || !match.allowed_roles || match.allowed_roles.length === 0 || match.allowed_roles.includes(profile?.role));
+    if (canView) {
       setActiveChannel(match);
       markChannelSeen(match.id);
     }
     if (onChannelOpened) onChannelOpened();
-  }, [initialChannelName, channels, markChannelSeen, onChannelOpened]);
+  }, [initialChannelName, channels, markChannelSeen, onChannelOpened, isAdmin, profile?.role]);
 
   function openChannel(ch) {
     setActiveChannel(ch);
     markChannelSeen(ch.id);
   }
 
+  // Admins see every channel; others only channels their role can access
+  // (allowed_roles null/empty = open to everyone).
+  const visibleChannels = channels.filter(
+    (ch) => isAdmin || !ch.allowed_roles || ch.allowed_roles.length === 0 || ch.allowed_roles.includes(profile?.role),
+  );
+
   if (loading) return <p style={styles.empty}>Loading…</p>;
-  if (channels.length === 0) return <p style={styles.empty}>No channels yet.</p>;
+  if (visibleChannels.length === 0) return <p style={styles.empty}>No channels yet.</p>;
 
   return (
     <div style={styles.root}>
       <ul style={styles.list}>
-        {channels.map((ch) => {
+        {visibleChannels.map((ch) => {
           const last = lastMessages[ch.id];
           const hasMention = unreadMentionChannelIds.includes(ch.id);
           return (

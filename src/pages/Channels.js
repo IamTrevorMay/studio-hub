@@ -1,10 +1,29 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
+
+// Roles that can be individually granted channel access via the admin
+// "Set Permissions" menu. Admin-tier roles (admin, director_creative,
+// director_comms) always have access and are intentionally not listed.
+const CHANNEL_ROLE_OPTIONS = [
+  { value: 'assistant', label: 'Assistant' },
+  { value: 'member', label: 'Member' },
+  { value: 'partner', label: 'Partner' },
+  { value: 'producer', label: 'Producer' },
+  { value: 'freelancer', label: 'Contractor' },
+];
+
+// A channel with no allowed_roles (null/empty) is open to everyone. Otherwise
+// only the listed roles — plus admin-tier, who always see every channel.
+function channelVisibleToRole(channel, role) {
+  const allowed = channel.allowed_roles;
+  if (!allowed || allowed.length === 0) return true;
+  return allowed.includes(role);
+}
 
 
 function applyFormatMarker(textareaRef, text, marker, setter) {
@@ -41,6 +60,8 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   const [dragOverChannelId, setDragOverChannelId] = useState(null);
   const [contextMenu, setContextMenu] = useState(null); // { channelId, x, y }
   const [renamingChannelId, setRenamingChannelId] = useState(null);
+  const [permsChannel, setPermsChannel] = useState(null); // channel being edited in the Set Permissions modal
+  const [permsSelected, setPermsSelected] = useState(() => new Set());
   const [activeChannel, setActiveChannel] = useState(null);
   const [messages, setMessages] = useState([]);
   const [pinnedMessages, setPinnedMessages] = useState([]);
@@ -56,6 +77,13 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   const inputRef = useRef(null);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // Admins manage every channel; everyone else only sees channels their role
+  // is permitted to access.
+  const visibleChannels = useMemo(
+    () => channels.filter(ch => isAdmin || channelVisibleToRole(ch, profile?.role)),
+    [channels, isAdmin, profile?.role],
+  );
 
   const fetchChannels = useCallback(async () => {
     try {
@@ -101,6 +129,17 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
       window.removeEventListener('scroll', close, true);
     };
   }, [contextMenu]);
+
+  // Keep the active channel within what this user is allowed to see (e.g. after
+  // an admin restricts the currently-open channel).
+  useEffect(() => {
+    if (loading) return;
+    if (activeChannel && !visibleChannels.some(c => c.id === activeChannel.id)) {
+      setActiveChannel(visibleChannels[0] || null);
+    } else if (!activeChannel && visibleChannels.length > 0) {
+      setActiveChannel(visibleChannels[0]);
+    }
+  }, [visibleChannels, activeChannel, loading]);
 
   useEffect(() => {
     if (!initialChannelName || channels.length === 0) return;
@@ -264,6 +303,36 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
     await supabase.from('channels').delete().eq('id', channelId);
     if (activeChannel?.id === channelId) setActiveChannel(null);
     fetchChannels();
+  }
+
+  function openPermsModal(ch) {
+    // null/empty allowed_roles means "open to everyone" → start with all on.
+    const current = (!ch.allowed_roles || ch.allowed_roles.length === 0)
+      ? CHANNEL_ROLE_OPTIONS.map(r => r.value)
+      : ch.allowed_roles;
+    setPermsChannel(ch);
+    setPermsSelected(new Set(current));
+  }
+
+  function togglePermRole(role) {
+    setPermsSelected(prev => {
+      const next = new Set(prev);
+      next.has(role) ? next.delete(role) : next.add(role);
+      return next;
+    });
+  }
+
+  async function handleSavePermissions() {
+    if (!permsChannel) return;
+    const all = CHANNEL_ROLE_OPTIONS.map(r => r.value);
+    const selected = all.filter(r => permsSelected.has(r));
+    // Everyone selected → store null ("open"); keeps semantics simple & backward compatible.
+    const allowed_roles = selected.length === all.length ? null : selected;
+    const { error } = await supabase.from('channels').update({ allowed_roles }).eq('id', permsChannel.id);
+    if (error) { alert('Error: ' + error.message); return; }
+    setChannels(prev => prev.map(c => c.id === permsChannel.id ? { ...c, allowed_roles } : c));
+    setActiveChannel(prev => (prev?.id === permsChannel.id ? { ...prev, allowed_roles } : prev));
+    setPermsChannel(null);
   }
 
   async function handleSendMessage(e) {
@@ -477,7 +546,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
         )}
 
         <div style={styles.channelList}>
-          {channels.map((ch) => (
+          {visibleChannels.map((ch) => (
             <ChannelItem
               key={ch.id}
               channel={ch}
@@ -526,6 +595,10 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
               style={styles.contextMenuItem}
               onClick={() => { setRenamingChannelId(ch.id); setContextMenu(null); }}
             >Rename</button>
+            <button
+              style={styles.contextMenuItem}
+              onClick={() => { openPermsModal(ch); setContextMenu(null); }}
+            >Set Permissions</button>
             {!ch.is_default && (
               <button
                 style={{ ...styles.contextMenuItem, ...styles.contextMenuItemDanger }}
@@ -535,6 +608,42 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
           </div>
         );
       })()}
+
+      {permsChannel && (
+        <div style={styles.modalOverlay} onMouseDown={() => setPermsChannel(null)}>
+          <div style={styles.modalCard} onMouseDown={(e) => e.stopPropagation()}>
+            <h3 style={styles.modalTitle}>Permissions · #{permsChannel.name}</h3>
+            <p style={styles.modalHint}>
+              Choose which roles can access this channel. Admins always have access.
+            </p>
+            <div style={styles.roleList}>
+              {CHANNEL_ROLE_OPTIONS.map(({ value, label }) => {
+                const on = permsSelected.has(value);
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => togglePermRole(value)}
+                    style={styles.roleRow}
+                  >
+                    <span>{label}</span>
+                    <span style={{ ...styles.roleToggle, ...(on ? styles.roleToggleOn : {}) }}>
+                      <span style={{ ...styles.roleToggleKnob, ...(on ? styles.roleToggleKnobOn : {}) }} />
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {permsSelected.size === 0 && (
+              <p style={styles.modalWarn}>No roles selected — only admins will see this channel.</p>
+            )}
+            <div style={styles.modalActions}>
+              <button style={styles.modalCancelBtn} onClick={() => setPermsChannel(null)}>Cancel</button>
+              <button style={styles.modalSaveBtn} onClick={handleSavePermissions}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Chat Area */}
       <div style={styles.chatArea}>
@@ -733,6 +842,9 @@ function ChannelItem({
       >
         <span style={styles.hashIcon}>#</span>
         <span style={styles.channelItemName}>{channel.name}</span>
+        {isAdmin && channel.allowed_roles && channel.allowed_roles.length > 0 && (
+          <span title="Restricted to certain roles" style={styles.channelLock}>🔒</span>
+        )}
         {hasUnreadMention && <span style={styles.channelUnreadDot} />}
       </button>
     </div>
@@ -965,6 +1077,62 @@ const styles = {
   },
   contextMenuItemDanger: {
     color: '#ef4444',
+  },
+  channelLock: {
+    fontSize: '10px', opacity: 0.55, marginLeft: '2px', flexShrink: 0,
+  },
+  modalOverlay: {
+    position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.55)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px',
+  },
+  modalCard: {
+    width: '340px', maxWidth: '100%', background: '#1a1a2e',
+    border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px',
+    padding: '18px', boxShadow: '0 16px 48px rgba(0,0,0,0.5)',
+  },
+  modalTitle: {
+    margin: '0 0 4px', color: '#fff', fontSize: '15px', fontWeight: 700,
+  },
+  modalHint: {
+    margin: '0 0 14px', color: 'rgba(255,255,255,0.45)', fontSize: '12px', lineHeight: 1.4,
+  },
+  roleList: {
+    display: 'flex', flexDirection: 'column', gap: '4px',
+  },
+  roleRow: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '9px 10px', background: 'rgba(255,255,255,0.04)', border: 'none',
+    borderRadius: '8px', color: 'rgba(255,255,255,0.85)', fontSize: '13px',
+    fontFamily: 'inherit', cursor: 'pointer', width: '100%',
+  },
+  roleToggle: {
+    width: '34px', height: '20px', borderRadius: '10px', background: 'rgba(255,255,255,0.15)',
+    position: 'relative', transition: 'background 0.15s', flexShrink: 0,
+  },
+  roleToggleOn: {
+    background: '#6366f1',
+  },
+  roleToggleKnob: {
+    position: 'absolute', top: '2px', left: '2px', width: '16px', height: '16px',
+    borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
+  },
+  roleToggleKnobOn: {
+    left: '16px',
+  },
+  modalWarn: {
+    margin: '12px 0 0', color: '#f59e0b', fontSize: '11.5px', lineHeight: 1.4,
+  },
+  modalActions: {
+    display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px',
+  },
+  modalCancelBtn: {
+    padding: '8px 14px', background: 'rgba(255,255,255,0.06)', border: 'none',
+    borderRadius: '7px', color: 'rgba(255,255,255,0.7)', fontSize: '13px',
+    fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+  },
+  modalSaveBtn: {
+    padding: '8px 16px', background: '#6366f1', border: 'none', borderRadius: '7px',
+    color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
   },
   channelItem: {
     display: 'flex', alignItems: 'center', gap: '8px',
