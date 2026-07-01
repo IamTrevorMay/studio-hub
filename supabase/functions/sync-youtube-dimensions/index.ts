@@ -139,7 +139,16 @@ serve(async (req) => {
     const overrideDate = url.searchParams.get("date");
     const includeVideos = url.searchParams.get("videos") !== "0";
     const debug = url.searchParams.get("debug") === "1";
-    const targetDate = overrideDate || new Date(Date.now() - 2 * 86400000).toISOString().split("T")[0];
+    // YouTube Analytics finalizes data a few days late, so fetching only a single
+    // "2 days ago" date is almost always empty — and it was never re-fetched once
+    // it finalized, leaving permanent gaps. Sync a rolling window of recent days
+    // each run instead; upserts are idempotent, so each date is captured as soon
+    // as YouTube finalizes it. `?date=YYYY-MM-DD` still forces a single day (used
+    // for targeted backfills); `?days=N` overrides the window size.
+    const windowDays = Math.min(45, Math.max(1, parseInt(url.searchParams.get("days") || "7", 10) || 7));
+    const dates = overrideDate
+      ? [overrideDate]
+      : Array.from({ length: windowDays }, (_, i) => new Date(Date.now() - (i + 2) * 86400000).toISOString().split("T")[0]);
     const accounts = await getActiveAccounts(supabase, "youtube");
     if (accounts.length === 0) return jsonResponse({ message: "No active YouTube accounts" });
     const results: any[] = [];
@@ -147,19 +156,27 @@ serve(async (req) => {
       const logId = await startIngestionLog(supabase, account.id, "youtube_dimensions_sync");
       try {
         const accessToken = await getAccessToken(account.account_name);
-        if (!accessToken) { await failIngestionLog(supabase, logId, "No access token", undefined, account.id); results.push({ account: account.account_name, error: "no_access_token" }); continue; }
-        const channelDims = await syncChannelDimensions(supabase, accessToken, account, targetDate, targetDate);
-        let videoDaily: any = { count: 0 };
-        if (includeVideos) videoDaily = await syncVideoDaily(supabase, accessToken, account, targetDate, targetDate);
-        const totalRows = Object.values(channelDims).reduce((s: number, v: any) => s + (v?.rows || 0), 0);
-        await completeIngestionLog(supabase, logId, { records_processed: totalRows + videoDaily.count }, account.id);
-        results.push({ account: account.account_name, date: targetDate, video_daily_count: videoDaily.count, ...(debug ? { channel_dims: channelDims, video_daily_debug: videoDaily.debug } : { channel_dims_summary: Object.fromEntries(Object.entries(channelDims).map(([k, v]: [string, any]) => [k, v.rows ?? 0])) }) });
+        if (!accessToken) { await failIngestionLog(supabase, logId, "No access token"); results.push({ account: account.account_name, error: "no_access_token" }); continue; }
+        let dimRowsTotal = 0;
+        let videoRowsTotal = 0;
+        const perDate: any[] = [];
+        for (const targetDate of dates) {
+          const channelDims = await syncChannelDimensions(supabase, accessToken, account, targetDate, targetDate);
+          let videoDaily: any = { count: 0 };
+          if (includeVideos) videoDaily = await syncVideoDaily(supabase, accessToken, account, targetDate, targetDate);
+          const dimRows = Object.values(channelDims).reduce((s: number, v: any) => s + (v?.rows || 0), 0);
+          dimRowsTotal += dimRows;
+          videoRowsTotal += videoDaily.count;
+          perDate.push({ date: targetDate, dim_rows: dimRows, video_daily_count: videoDaily.count, ...(debug ? { channel_dims: channelDims, video_daily_debug: videoDaily.debug } : {}) });
+        }
+        await completeIngestionLog(supabase, logId, { records_processed: dimRowsTotal + videoRowsTotal, metadata: { window_days: overrideDate ? 1 : windowDays, dates, dim_rows: dimRowsTotal, video_daily_rows: videoRowsTotal } });
+        results.push({ account: account.account_name, range: dates.length === 1 ? dates[0] : `${dates[dates.length - 1]}..${dates[0]}`, dim_rows: dimRowsTotal, video_daily_count: videoRowsTotal, ...(debug ? { per_date: perDate } : {}) });
       } catch (err) {
-        await failIngestionLog(supabase, logId, err as Error, undefined, account.id);
+        await failIngestionLog(supabase, logId, err as Error);
         results.push({ account: account.account_name, error: (err as Error).message });
       }
     }
-    return jsonResponse({ success: true, target_date: targetDate, results });
+    return jsonResponse({ success: true, window_days: windowDays, dates, results });
   } catch (err) {
     console.error("sync-youtube-dimensions fatal:", err);
     return errorResponse((err as Error).message);

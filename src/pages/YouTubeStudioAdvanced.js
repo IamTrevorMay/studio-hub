@@ -352,6 +352,11 @@ export default function YouTubeStudioAdvanced({ accounts }) {
   // Video metadata cache (id → { title, thumbnail_url, url })
   const [videoMeta, setVideoMeta] = useState({});
 
+  // Freshness: newest date we actually have data for (YouTube Analytics finalizes
+  // several days late, so the current window can legitimately be empty).
+  const [latestDataDate, setLatestDataDate] = useState(null);
+  const didAutoAdjustRef = useRef(false);
+
   const fetchGen = useRef(0);
 
   useEffect(() => {
@@ -364,6 +369,37 @@ export default function YouTubeStudioAdvanced({ accounts }) {
     chartMetric,
     selectedRowKeys.join('|'),
   ]);
+
+  // Track the newest date with data for the selected channels.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (effectiveChannelIds.length === 0) { setLatestDataDate(null); return; }
+      const { data } = await supabase
+        .from('yt_video_daily')
+        .select('date')
+        .in('platform_account_id', effectiveChannelIds)
+        .order('date', { ascending: false })
+        .limit(1);
+      if (!cancelled) setLatestDataDate(data?.[0]?.date || null);
+    })();
+    return () => { cancelled = true; };
+  }, [effectiveChannelIds.join(',')]);
+
+  // Smarter default: if the data is clearly stale, shift the initial 28-day
+  // window to end at the latest available date so the view isn't blank. Only
+  // overrides the untouched default, and only once.
+  useEffect(() => {
+    if (didAutoAdjustRef.current || !latestDataDate) return;
+    const behind = Math.round((new Date(todayStr()) - new Date(latestDataDate)) / 86400000);
+    if (datePreset === '28d' && behind > 3) {
+      const start = new Date(new Date(latestDataDate).getTime() - 27 * 86400000).toISOString().split('T')[0];
+      setCustomStart(start);
+      setCustomEnd(latestDataDate);
+      setDatePreset('custom');
+    }
+    didAutoAdjustRef.current = true;
+  }, [latestDataDate, datePreset]);
 
   async function fetchAll() {
     const gen = ++fetchGen.current;
@@ -621,8 +657,37 @@ export default function YouTubeStudioAdvanced({ accounts }) {
     );
   }
 
+  const daysBehind = latestDataDate
+    ? Math.round((new Date(todayStr()) - new Date(latestDataDate)) / 86400000)
+    : 0;
+  const isStale = latestDataDate && daysBehind > 3;
+
+  function jumpToLatest() {
+    if (!latestDataDate) return;
+    const start = new Date(new Date(latestDataDate).getTime() - 27 * 86400000).toISOString().split('T')[0];
+    setCustomStart(start);
+    setCustomEnd(latestDataDate);
+    setDatePreset('custom');
+  }
+
   return (
     <div>
+      {isStale && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+          padding: '10px 14px', marginBottom: 12, borderRadius: 10,
+          background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.35)',
+          color: '#fbbf24', fontSize: 13,
+        }}>
+          <span style={{ fontSize: 15 }}>⚠️</span>
+          <span style={{ flex: 1, minWidth: 220 }}>
+            YouTube Studio data is <strong>{daysBehind} days behind</strong> — latest available: <strong>{formatDate(latestDataDate)}</strong>. YouTube finalizes analytics a few days late; if it stays this far back the daily sync needs attention.
+          </span>
+          <button onClick={jumpToLatest} style={{ ...S.headerChip, whiteSpace: 'nowrap' }}>
+            View latest 28 days
+          </button>
+        </div>
+      )}
       {/* ── Top header strip ── */}
       <div style={S.studioHeader}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
