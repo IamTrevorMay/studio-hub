@@ -199,28 +199,20 @@ export default function Messages({ onNavigate }) {
           .select('*').eq('id', data).single();
         if (convo) setActiveConversation(convo);
       } else {
-        // Group conversation
-        const { data: convo, error } = await supabase
-          .from('conversations')
-          .insert({
-            name: groupName || null,
-            is_group: selectedUsers.length > 1,
-            created_by: profile.id,
-          })
-          .select()
-          .single();
+        // Group conversation (or named 1:1). Created via SECURITY DEFINER RPC so the
+        // conversation + participant rows are inserted atomically. A direct
+        // insert().select() fails RLS: RETURNING enforces the conversations SELECT
+        // policy, which requires the caller to already be a participant — but the
+        // creator's participant row doesn't exist yet at that point.
+        const { data: convo, error } = await supabase.rpc('create_group_conversation', {
+          p_participant_ids: selectedUsers,
+          p_name: groupName || null,
+        });
 
         if (error) throw error;
 
-        // Add all participants
-        const participants = [profile.id, ...selectedUsers].map(uid => ({
-          conversation_id: convo.id,
-          user_id: uid,
-        }));
-        await supabase.from('conversation_participants').insert(participants);
-
         await fetchConversations();
-        setActiveConversation(convo);
+        if (convo) setActiveConversation(convo);
       }
 
       setShowNewConvo(false);

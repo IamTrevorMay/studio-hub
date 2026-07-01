@@ -100,14 +100,14 @@ export default function MessagesMobile({ onNavigate }) {
           setActiveConvo({ ...convo, participants: parts || [] });
         }
       } else {
-        const { data: convo, error } = await supabase
-          .from('conversations')
-          .insert({ name: groupName || null, is_group: selectedUsers.length > 1, created_by: profile.id })
-          .select()
-          .single();
+        // Group conversation via SECURITY DEFINER RPC (atomic insert of the
+        // conversation + participants; avoids the INSERT ... RETURNING RLS failure
+        // where the creator isn't a participant yet). See create_group_conversation.
+        const { data: convo, error } = await supabase.rpc('create_group_conversation', {
+          p_participant_ids: selectedUsers,
+          p_name: groupName || null,
+        });
         if (error) throw error;
-        const participants = [profile.id, ...selectedUsers].map((uid) => ({ conversation_id: convo.id, user_id: uid }));
-        await supabase.from('conversation_participants').insert(participants);
         await fetchConversations();
         const { data: parts } = await supabase
           .from('conversation_participants')
