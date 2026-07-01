@@ -97,8 +97,10 @@ export default function Analytics() {
   const [activeAccountIds, setActiveAccountIds] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [platformDropdownOpen, setPlatformDropdownOpen] = useState(false);
+  const [timeDropdownOpen, setTimeDropdownOpen] = useState(false);
   const [contentRefreshing, setContentRefreshing] = useState(false);
   const platformDropdownRef = useRef(null);
+  const timeDropdownRef = useRef(null);
 
   // Data
   const [timeSeries, setTimeSeries] = useState([]);
@@ -153,10 +155,22 @@ export default function Analytics() {
       if (platformDropdownRef.current && !platformDropdownRef.current.contains(e.target)) {
         setPlatformDropdownOpen(false);
       }
+      if (timeDropdownRef.current && !timeDropdownRef.current.contains(e.target)) {
+        setTimeDropdownOpen(false);
+      }
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
+
+  // Label shown on the time-range pill button.
+  function timeRangeLabel() {
+    if (dateRange === 'lifetime') return 'Lifetime';
+    if (dateRange === 'custom') return 'Custom';
+    if (dateRange === 'month') return `${MONTHS[filterMonth]} ${filterYear}`;
+    if (dateRange === 'year') return `${filterYear}`;
+    return DATE_RANGES.find(r => r.key === dateRange)?.label || 'Time range';
+  }
 
   // ── Fetch platform accounts ──
   useEffect(() => {
@@ -593,105 +607,118 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* ── A. Date Range & Platform Filters (Dashboard only) ── */}
-      {viewMode !== 'advanced' && viewMode !== 'compare' && viewMode !== 'weekly' && <div style={styles.filterBar}>
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-          {/* Month dropdown */}
-          <select value={dateRange === 'month' ? filterMonth : ''}
-            onChange={e => { setDateRange('month'); setFilterMonth(Number(e.target.value)); }}
-            style={{ ...styles.filterSelect, ...(dateRange === 'month' ? styles.filterSelectActive : {}) }}>
-            <option value="" disabled>Month</option>
-            {MONTHS.map((m, i) => <option key={i} value={i}>{m}</option>)}
-          </select>
-
-          {/* Year dropdown */}
-          <select value={dateRange === 'year' || dateRange === 'month' ? filterYear : ''}
-            onChange={e => { if (dateRange !== 'month') setDateRange('year'); setFilterYear(Number(e.target.value)); }}
-            style={{ ...styles.filterSelect, ...(dateRange === 'year' || dateRange === 'month' ? styles.filterSelectActive : {}) }}>
-            <option value="" disabled>Year</option>
-            {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(y => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
-
-          {/* Lifetime */}
-          <button onClick={() => setDateRange('lifetime')}
-            style={{ ...styles.filterChip, ...(dateRange === 'lifetime' ? styles.filterChipActive : {}) }}>
-            Lifetime
-          </button>
-
-          {/* Quick presets */}
-          {DATE_RANGES.filter(r => r.key !== 'custom').map(r => (
-            <button key={r.key} onClick={() => setDateRange(r.key)}
-              style={{ ...styles.filterChip, ...(dateRange === r.key ? styles.filterChipActive : {}) }}>
-              {r.label}
-            </button>
-          ))}
-
-          {/* Custom */}
-          <button onClick={() => setDateRange('custom')}
-            style={{ ...styles.filterChip, ...(dateRange === 'custom' ? styles.filterChipActive : {}) }}>
-            Custom
-          </button>
-          {dateRange === 'custom' && (
-            <>
-              <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} style={styles.filterInput} />
-              <span style={{ color: L.inkSubtle }}>to</span>
-              <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} style={styles.filterInput} />
-            </>
-          )}
+      {/* ── View Mode Toggle + Dashboard filters (time pill + platforms pill) ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: '24px' }}>
+        <div style={{ ...styles.viewToggleBar, marginBottom: 0 }}>
+          <button onClick={() => setViewMode('dashboard')} style={viewMode === 'dashboard' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Dashboard</button>
+          <button onClick={() => setViewMode('compare')} style={viewMode === 'compare' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Compare</button>
+          <button onClick={() => setViewMode('weekly')} style={viewMode === 'weekly' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Weekly Report</button>
+          <button onClick={() => setViewMode('advanced')} style={viewMode === 'advanced' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Advanced</button>
+          <button onClick={() => setViewMode('health')} style={viewMode === 'health' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Content Health</button>
         </div>
 
-        {/* Platform dropdown */}
-        <div ref={platformDropdownRef} style={{ position: 'relative' }}>
-          <button onClick={() => setPlatformDropdownOpen(!platformDropdownOpen)}
-            style={{ ...styles.filterChip, display: 'flex', alignItems: 'center', gap: '6px' }}>
-            Platforms
-            {activeAccountIds.length > 0 && (
-              <span style={{ background: L.accentSoft, padding: '1px 6px', borderRadius: '8px', fontSize: '10px', fontWeight: 700, color: L.accentText }}>
-                {activeAccountIds.length}
-              </span>
-            )}
-            <span style={{ fontSize: '10px', marginLeft: '2px' }}>{platformDropdownOpen ? '▲' : '▼'}</span>
-          </button>
-          {platformDropdownOpen && (
-            <div style={styles.platformDropdown}>
-              {activeAccountIds.length > 0 && (
-                <button onClick={() => setActiveAccountIds([])} style={styles.platformDropdownClear}>
-                  Clear all
-                </button>
+        {viewMode !== 'advanced' && viewMode !== 'compare' && viewMode !== 'weekly' && (
+          <>
+            {/* Time range pill dropdown — just right of the tabs bar */}
+            <div ref={timeDropdownRef} style={{ position: 'relative' }}>
+              <button onClick={() => setTimeDropdownOpen(o => !o)}
+                style={{ ...styles.filterChip, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {timeRangeLabel()}
+                <span style={{ fontSize: '10px', marginLeft: '2px' }}>{timeDropdownOpen ? '▲' : '▼'}</span>
+              </button>
+              {timeDropdownOpen && (
+                <div style={{ ...styles.platformDropdown, left: 0, right: 'auto', minWidth: '280px', padding: '10px' }}>
+                  {/* Quick presets */}
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {DATE_RANGES.filter(r => r.key !== 'custom').map(r => (
+                      <button key={r.key} onClick={() => setDateRange(r.key)}
+                        style={{ ...styles.filterChip, ...(dateRange === r.key ? styles.filterChipActive : {}) }}>
+                        {r.label}
+                      </button>
+                    ))}
+                    <button onClick={() => setDateRange('lifetime')}
+                      style={{ ...styles.filterChip, ...(dateRange === 'lifetime' ? styles.filterChipActive : {}) }}>
+                      Lifetime
+                    </button>
+                    <button onClick={() => setDateRange('custom')}
+                      style={{ ...styles.filterChip, ...(dateRange === 'custom' ? styles.filterChipActive : {}) }}>
+                      Custom
+                    </button>
+                  </div>
+
+                  {/* Month / Year */}
+                  <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                    <select value={dateRange === 'month' ? filterMonth : ''}
+                      onChange={e => { setDateRange('month'); setFilterMonth(Number(e.target.value)); }}
+                      style={{ ...styles.filterSelect, ...(dateRange === 'month' ? styles.filterSelectActive : {}) }}>
+                      <option value="" disabled>Month</option>
+                      {MONTHS.map((m, i) => <option key={i} value={i}>{m}</option>)}
+                    </select>
+                    <select value={dateRange === 'year' || dateRange === 'month' ? filterYear : ''}
+                      onChange={e => { if (dateRange !== 'month') setDateRange('year'); setFilterYear(Number(e.target.value)); }}
+                      style={{ ...styles.filterSelect, ...(dateRange === 'year' || dateRange === 'month' ? styles.filterSelectActive : {}) }}>
+                      <option value="" disabled>Year</option>
+                      {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(y => (
+                        <option key={y} value={y}>{y}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Custom dates */}
+                  {dateRange === 'custom' && (
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '8px', flexWrap: 'wrap' }}>
+                      <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} style={styles.filterInput} />
+                      <span style={{ color: L.inkSubtle }}>to</span>
+                      <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} style={styles.filterInput} />
+                    </div>
+                  )}
+                </div>
               )}
-              {accounts.map(acct => {
-                const meta = PLATFORM_META[acct.platform] || { label: acct.platform, color: '#666', icon: '?' };
-                const isActive = activeAccountIds.length === 0 || activeAccountIds.includes(acct.id);
-                return (
-                  <button key={acct.id} onClick={() => toggleAccount(acct.id)}
-                    style={{
-                      ...styles.platformDropdownItem,
-                      ...(isActive
-                        ? { background: meta.color + '18', borderColor: meta.color + '55', color: meta.color }
-                        : {}),
-                    }}>
-                    <span style={{ ...styles.platformDot, background: meta.color, opacity: isActive ? 1 : 0.35 }} />
-                    <span style={{ flex: 1 }}>{acct.account_name}</span>
-                    {(activeAccountIds.includes(acct.id)) && (
-                      <span style={{ fontSize: '12px', color: meta.color }}>✓</span>
-                    )}
-                  </button>
-                );
-              })}
             </div>
-          )}
-        </div>
-      </div>}
 
-      {/* ── View Mode Toggle ── */}
-      <div style={styles.viewToggleBar}>
-        <button onClick={() => setViewMode('dashboard')} style={viewMode === 'dashboard' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Dashboard</button>
-        <button onClick={() => setViewMode('compare')} style={viewMode === 'compare' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Compare</button>
-        <button onClick={() => setViewMode('weekly')} style={viewMode === 'weekly' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Weekly Report</button>
-        <button onClick={() => setViewMode('advanced')} style={viewMode === 'advanced' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Advanced</button>
-        <button onClick={() => setViewMode('health')} style={viewMode === 'health' ? styles.viewToggleBtnActive : styles.viewToggleBtn}>Content Health</button>
+            {/* Platform dropdown — just right of the time pill */}
+            <div ref={platformDropdownRef} style={{ position: 'relative' }}>
+              <button onClick={() => setPlatformDropdownOpen(!platformDropdownOpen)}
+                style={{ ...styles.filterChip, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                Platforms
+                {activeAccountIds.length > 0 && (
+                  <span style={{ background: L.accentSoft, padding: '1px 6px', borderRadius: '8px', fontSize: '10px', fontWeight: 700, color: L.accentText }}>
+                    {activeAccountIds.length}
+                  </span>
+                )}
+                <span style={{ fontSize: '10px', marginLeft: '2px' }}>{platformDropdownOpen ? '▲' : '▼'}</span>
+              </button>
+              {platformDropdownOpen && (
+                <div style={styles.platformDropdown}>
+                  {activeAccountIds.length > 0 && (
+                    <button onClick={() => setActiveAccountIds([])} style={styles.platformDropdownClear}>
+                      Clear all
+                    </button>
+                  )}
+                  {accounts.map(acct => {
+                    const meta = PLATFORM_META[acct.platform] || { label: acct.platform, color: '#666', icon: '?' };
+                    const isActive = activeAccountIds.length === 0 || activeAccountIds.includes(acct.id);
+                    return (
+                      <button key={acct.id} onClick={() => toggleAccount(acct.id)}
+                        style={{
+                          ...styles.platformDropdownItem,
+                          ...(isActive
+                            ? { background: meta.color + '18', borderColor: meta.color + '55', color: meta.color }
+                            : {}),
+                        }}>
+                        <span style={{ ...styles.platformDot, background: meta.color, opacity: isActive ? 1 : 0.35 }} />
+                        <span style={{ flex: 1 }}>{acct.account_name}</span>
+                        {(activeAccountIds.includes(acct.id)) && (
+                          <span style={{ fontSize: '12px', color: meta.color }}>✓</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       {viewMode === 'compare' && (
