@@ -65,9 +65,11 @@ const CATEGORY_COLORS = {
   underperforming: '#64748b',
 };
 
+// NOTE: never returns 'breakout' — that label is owned solely by the is_breakout
+// flag (which also enforces the purity check). A video can clear both score
+// gates yet fail purity; it must land in stability/growth, not breakout.
 function categorize(s, g) {
-  if (s >= BREAKOUT_GATE.stability && g >= BREAKOUT_GATE.growth) return 'breakout';
-  if (s > g && s >= 50) return 'stability';
+  if (s >= g && s >= 50) return 'stability';
   if (g > s && g >= 50) return 'growth';
   return 'underperforming';
 }
@@ -162,8 +164,15 @@ export default function ContentHealthDashboard({ accounts }) {
         }
       }
 
-      // Aggregate traffic source: algo % = (SUGGESTED + BROWSE) / total
-      const ALGO_SOURCES = new Set(['SUGGESTED','YT_OTHER_PAGE','BROWSE']);
+      // Aggregate traffic source: algo % = algorithmic-discovery surfaces / total.
+      // These are the dimension_value codes YouTube actually returns (verified
+      // against yt_video_dim_traffic_source): RELATED_VIDEO = suggested feed,
+      // SHORTS = Shorts feed, YT_OTHER_PAGE = browse/other. (The old set used
+      // 'SUGGESTED'/'BROWSE', which never exist in the data, so algo % was
+      // capturing ~2% of true algo traffic instead of ~50%.) Search, channel
+      // page, subscriptions and notifications are intentionally excluded — those
+      // are intent/owned surfaces, not algorithmic discovery.
+      const ALGO_SOURCES = new Set(['RELATED_VIDEO','YT_OTHER_PAGE','SHORTS']);
       const trafficByVideo = {};
       for (const r of (trafficRows || [])) {
         const id = r.video_id;
@@ -216,6 +225,7 @@ export default function ContentHealthDashboard({ accounts }) {
           returning_watch_time: s.sub_watch,
           returning_view_pct: returningPct,
           returning_avd: subAvd,
+          subscribed_views: s.sub_views,
           // Growth inputs
           new_viewer_volume: s.unsub_views,
           new_viewer_pct: newPct,
@@ -282,7 +292,10 @@ export default function ContentHealthDashboard({ accounts }) {
 
         const breakoutRaw = (stability * growth) / 100;
         const channelRatio = meds.new_to_returning_ratio || 0;
-        const videoRatio = v.returning_watch_time > 0 ? v.new_viewer_volume / (v.returning_watch_time / 60) : 0;
+        // Same expression + same denominator floor as the channel median above,
+        // so video and norm are computed identically (was unfloored → skewed
+        // drift % for low-watch videos).
+        const videoRatio = v.new_viewer_volume / Math.max(v.returning_watch_time / 60, 1);
         const ratioDelta = channelRatio > 0 ? Math.abs(videoRatio - channelRatio) / channelRatio : 0;
         const ratioPasses = ratioDelta <= BREAKOUT_GATE.ratio_tolerance;
         const isBreakout = stability >= BREAKOUT_GATE.stability
@@ -660,7 +673,7 @@ function DetailPanel({ video, onClose }) {
             <RawStat label="Avg view duration" value={formatDuration(video.avg_view_duration_seconds)} />
             <RawStat label="Engagement rate" value={(video.engagement_rate * 100).toFixed(2) + '%'} />
             <RawStat label="Sub conversion" value={(video.sub_conversion * 100).toFixed(2) + '%'} />
-            <RawStat label="Subscribed views" value={formatNumber(video.returning_watch_time > 0 ? Math.round((video.returning_watch_time / Math.max(video.avg_view_duration_seconds, 1)) * 60) : 0)} />
+            <RawStat label="Subscribed views" value={formatNumber(video.subscribed_views)} />
             <RawStat label="New (unsub) views" value={formatNumber(video.new_viewer_volume)} />
             <RawStat label="New viewer %" value={(video.new_viewer_pct * 100).toFixed(1) + '%'} />
             <RawStat label="Algo traffic %" value={(video.algo_traffic_pct * 100).toFixed(1) + '%'} />
