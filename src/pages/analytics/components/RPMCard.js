@@ -1,8 +1,12 @@
 import React from 'react';
-import { PLATFORM_META } from '../constants';
 import { formatCompact } from '../utils';
 import { analysisStyles } from '../styles';
+import { MiniBar, EmptyChart, platformColor } from '../viz';
 
+// "Which platform monetizes best." The bar now encodes RPM (revenue per 1K
+// views) — the metric the card is actually about — with a marker for the
+// blended average so each platform reads against the benchmark. Revenue and
+// views ride along as context numbers.
 export default function RPMCard({ revenueData, timeSeries, accounts }) {
   const revenueByAccount = {};
   for (const r of revenueData) {
@@ -21,20 +25,17 @@ export default function RPMCard({ revenueData, timeSeries, accounts }) {
     .map(([accountId, cents]) => {
       const acct = accounts.find(a => a.id === accountId);
       const platform = acct?.platform || 'unknown';
-      const meta = PLATFORM_META[platform] || { label: platform, color: '#666' };
       const views = viewsByAccount[accountId] || 0;
       const revenue = cents / 100;
       const rpm = views > 0 ? (revenue / (views / 1000)) : 0;
-      return { accountId, name: acct?.account_name || meta.label, platform, color: meta.color, revenue, views, rpm };
+      return { accountId, name: acct?.account_name || platform, platform, color: platformColor(platform), revenue, views, rpm };
     })
-    .sort((a, b) => b.revenue - a.revenue);
-
-  if (rows.length === 0) return null;
+    .sort((a, b) => b.rpm - a.rpm);
 
   const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0);
   const totalViews = rows.reduce((s, r) => s + r.views, 0);
   const blendedRpm = totalViews > 0 ? (totalRevenue / (totalViews / 1000)) : 0;
-  const maxRevenue = Math.max(...rows.map(r => r.revenue));
+  const maxRpm = Math.max(...rows.map(r => r.rpm), 0.01);
 
   return (
     <div style={{ ...analysisStyles.card, borderLeft: '3px solid #f59e0b' }}>
@@ -44,31 +45,34 @@ export default function RPMCard({ revenueData, timeSeries, accounts }) {
           Blended RPM: <strong style={{ color: '#f59e0b' }}>${blendedRpm.toFixed(2)}</strong>
         </span>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '12px' }}>
-        {rows.map(r => (
-          <div key={r.accountId} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: r.color, flexShrink: 0 }} />
-            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', minWidth: '120px', flexShrink: 0 }}>{r.name}</span>
-            <div style={{ flex: 1, position: 'relative', height: '22px', background: 'rgba(255,255,255,0.03)', borderRadius: '4px', overflow: 'hidden' }}>
-              <div style={{
-                height: '100%', borderRadius: '4px',
-                background: `linear-gradient(90deg, ${r.color}44, ${r.color}88)`,
-                width: `${maxRevenue > 0 ? (r.revenue / maxRevenue) * 100 : 0}%`,
-                transition: 'width 0.3s ease',
-              }} />
-              <span style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', color: '#fff', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-                ${r.revenue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+      {rows.length === 0 ? (
+        <div style={{ marginTop: '12px' }}><EmptyChart label="No revenue with view data for this range." height={80} /></div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '12px' }}>
+          {rows.map(r => (
+            <div key={r.accountId} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: r.color, flexShrink: 0 }} />
+              <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', minWidth: '120px', flexShrink: 0 }}>{r.name}</span>
+              <div style={{ flex: 1 }}>
+                <MiniBar
+                  value={r.rpm} max={maxRpm} color={r.color} height={22}
+                  label={`$${r.rpm.toFixed(2)}/1K`}
+                  refPct={maxRpm > 0 ? (blendedRpm / maxRpm) * 100 : null}
+                />
+              </div>
+              <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', minWidth: '70px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                {formatCompact(r.views)} views
+              </span>
+              <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', minWidth: '70px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                ${r.revenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
               </span>
             </div>
-            <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', minWidth: '70px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-              {formatCompact(r.views)} views
-            </span>
-            <span style={{ fontSize: '12px', fontWeight: 700, color: '#f59e0b', minWidth: '65px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-              ${r.rpm.toFixed(2)}/1K
-            </span>
+          ))}
+          <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', marginTop: '2px' }}>
+            Bar = RPM · vertical marker = blended average (${blendedRpm.toFixed(2)})
           </div>
-        ))}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

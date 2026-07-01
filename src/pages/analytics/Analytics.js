@@ -24,6 +24,7 @@ import DataCompletenessBadge from './components/DataCompletenessBadge';
 import CoverageChip from './components/CoverageChip';
 import FormatPerformance from './components/FormatPerformance';
 import ThisWeekBanner from './components/ThisWeekBanner';
+import { MiniBar, EmptyChart } from './viz';
 
 // Platforms the Dashboard top section + Weekly digest focus on, in display order.
 const DIGEST_PLATFORMS = ['youtube', 'tiktok', 'instagram', 'substack', 'simplecast'];
@@ -698,7 +699,7 @@ export default function Analytics() {
 
           {/* ── D. Platform Breakdowns (Donuts) ── */}
           {platformBreakdown.length === 0 ? (
-            <div style={styles.emptyCard}><p style={styles.emptyText}>No platform breakdown for this range yet.</p></div>
+            <div style={{ marginBottom: '20px' }}><EmptyChart label="No platform breakdown for this range yet." /></div>
           ) : (
             <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
               {/* Views */}
@@ -736,11 +737,8 @@ export default function Analytics() {
                       {engRows.map(p => (
                         <div key={p.label} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                           <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', minWidth: '72px', flexShrink: 0 }}>{p.label}</span>
-                          <div style={{ flex: 1, position: 'relative', height: '20px', background: 'rgba(255,255,255,0.03)', borderRadius: '4px', overflow: 'hidden' }}>
-                            <div style={{ height: '100%', borderRadius: '4px', background: p.color, opacity: 0.75, width: `${(p.engagement / maxEng) * 100}%` }} />
-                            <span style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', fontWeight: 600, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>
-                              {(p.engagement * 100).toFixed(2)}%
-                            </span>
+                          <div style={{ flex: 1 }}>
+                            <MiniBar value={p.engagement} max={maxEng} color={p.color} height={20} label={`${(p.engagement * 100).toFixed(2)}%`} />
                           </div>
                         </div>
                       ))}
@@ -859,9 +857,7 @@ export default function Analytics() {
                     </table>
                   </div>
                 ) : (
-                  <div style={styles.emptyCard}>
-                    <p style={styles.emptyText}>No content found for this date range.</p>
-                  </div>
+                  <div style={{ marginBottom: '20px' }}><EmptyChart label="No content found for this date range." /></div>
                 )}
               </>
             )}

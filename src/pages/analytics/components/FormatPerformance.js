@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { deriveFormat, formatCompact } from '../utils';
 import { analysisStyles } from '../styles';
+import { MiniBar } from '../viz';
 
 // "What to make next" by type. Groups published content into formats (Shorts /
 // Long-form / Podcast / Editorial / Streams) — or by series when set — and ranks
@@ -75,15 +76,8 @@ export default function FormatPerformance({ contentItems }) {
               {r.key}
               <span style={{ color: 'rgba(255,255,255,0.3)', marginLeft: 5 }}>×{r.count}</span>
             </span>
-            <div style={{ flex: 1, position: 'relative', height: 22, background: 'rgba(255,255,255,0.03)', borderRadius: 4, overflow: 'hidden' }}>
-              <div style={{
-                height: '100%', borderRadius: 4,
-                background: 'linear-gradient(90deg, rgba(20,184,166,0.3), rgba(20,184,166,0.65))',
-                width: `${(r.avgViews / maxAvg) * 100}%`,
-              }} />
-              <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: '#fff', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-                {formatCompact(r.avgViews)} avg
-              </span>
+            <div style={{ flex: 1 }}>
+              <MiniBar value={r.avgViews} max={maxAvg} color="#14b8a6" height={22} label={`${formatCompact(r.avgViews)} avg`} />
             </div>
             <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', minWidth: 80, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
               {r.avgEr > 0 ? (r.avgEr * 100).toFixed(1) + '% eng' : '—'}
