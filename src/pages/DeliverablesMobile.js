@@ -42,8 +42,8 @@ export default function DeliverablesMobile() {
       const flat = [];
       (data || []).forEach(s => {
         (s.sponsor_deliverables || []).forEach(d => {
-          const campaign = (s.sponsor_campaigns || []).find(c => c.id === d.campaign_id);
-          flat.push({ ...d, sponsor_name: s.name, sponsor_id: s.id, campaign_name: campaign?.name || null, brief_url: campaign?.brief_url || null, brief_name: campaign?.brief_name || null });
+          const brand = (s.sponsor_campaigns || []).find(c => c.id === d.campaign_id);
+          flat.push({ ...d, sponsor_name: s.name, sponsor_id: s.id, brand_name: brand?.name || null, brief_url: brand?.brief_url || null, brief_name: brand?.brief_name || null });
         });
       });
       setAllDeliverables(flat);
@@ -179,7 +179,7 @@ export default function DeliverablesMobile() {
                       <span style={{ fontSize: 16, flexShrink: 0 }}>{DELIVERABLE_TYPES[d.deliverable_type]?.icon || '\u{1F4CB}'}</span>
                       <div style={{ minWidth: 0 }}>
                         <div style={styles.cardTitle}>
-                          {d.sponsor_name}{d.campaign_name ? ` / ${d.campaign_name}` : ''}
+                          {d.sponsor_name}{d.brand_name && d.brand_name !== d.sponsor_name ? ` / ${d.brand_name}` : ''}
                         </div>
                         <div style={styles.cardMeta}>
                           {d.title}
@@ -215,10 +215,10 @@ export default function DeliverablesMobile() {
 
                   {isExpanded && (
                     <div style={styles.cardDetail}>
-                      {d.campaign_name && (
+                      {d.brand_name && d.brand_name !== d.sponsor_name && (
                         <div style={styles.detailRow}>
-                          <span style={styles.detailLabel}>Campaign</span>
-                          <span style={styles.detailValue}>{d.campaign_name}</span>
+                          <span style={styles.detailLabel}>Brand</span>
+                          <span style={styles.detailValue}>{d.brand_name}</span>
                         </div>
                       )}
                       {linkedSheet && (
@@ -247,7 +247,7 @@ export default function DeliverablesMobile() {
                       )}
                       {d.brief_url && (
                         <a href={d.brief_url} target="_blank" rel="noopener noreferrer" style={styles.briefLink}>
-                          {d.brief_name || 'Campaign Brief'}
+                          {d.brief_name || 'Brand Brief'}
                         </a>
                       )}
                       {(d.platforms || []).length > 0 && (

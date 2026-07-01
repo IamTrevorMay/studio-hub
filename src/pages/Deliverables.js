@@ -33,16 +33,16 @@ const FILM_STATUS_OPTIONS = [
 ];
 const FILM_STATUS_BY_VALUE = FILM_STATUS_OPTIONS.reduce((acc, o) => { acc[o.value] = o; return acc; }, {});
 
-export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
+export default function Deliverables({ initialBrandId, onBrandOpened }) {
   const { profile, isAdmin, refreshKey } = useAuth();
   const confirm = useConfirm();
 
   // Sponsors state
   const [sponsors, setSponsors] = useState([]);
   const [sponsorLoading, setSponsorLoading] = useState(false);
-  const [expandedCampaignId, setExpandedCampaignId] = useState(null);
-  const [campaignActiveOpen, setCampaignActiveOpen] = useState(true);
-  const [campaignInactiveOpen, setCampaignInactiveOpen] = useState(false);
+  const [expandedBrandId, setExpandedBrandId] = useState(null);
+  const [brandActiveOpen, setBrandActiveOpen] = useState(true);
+  const [brandInactiveOpen, setBrandInactiveOpen] = useState(false);
   const [showDeliverableForm, setShowDeliverableForm] = useState(null);
   const [editingDeliverable, setEditingDeliverable] = useState(null);
   const [deliverableType, setDeliverableType] = useState('long_form_read');
@@ -68,7 +68,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
   }, []);
   const [deliverablePlatforms, setDeliverablePlatforms] = useState([]);
   const [deliverableNeedsReview, setDeliverableNeedsReview] = useState(false);
-  const [deliverableCampaignId, setDeliverableCampaignId] = useState('');
+  const [deliverableBrandId, setDeliverableBrandId] = useState('');
   const [deliverablePay, setDeliverablePay] = useState('');
   const [deliverableBeatSheetId, setDeliverableBeatSheetId] = useState('');
   const [deliverableVideoEventId, setDeliverableVideoEventId] = useState('');
@@ -78,11 +78,11 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
   // Video events for deliverable linking
   const [videoEvents, setVideoEvents] = useState([]);
 
-  // Campaign state
-  const [showCampaignForm, setShowCampaignForm] = useState(false);
-  const [editingCampaign, setEditingCampaign] = useState(null);
-  const [campaignForm, setCampaignForm] = useState({ name: '', brand: '', description: '', start_date: '', end_date: '', contact_name: '', contact_email: '', payment_status: 'unpaid' });
-  const [briefModalCampaign, setBriefModalCampaign] = useState(null);
+  // Brand state
+  const [showBrandForm, setShowBrandForm] = useState(false);
+  const [editingBrand, setEditingBrand] = useState(null);
+  const [brandForm, setBrandForm] = useState({ brand: '', description: '', start_date: '', end_date: '', contact_name: '', contact_email: '', payment_status: 'unpaid' });
+  const [briefModalBrand, setBriefModalBrand] = useState(null);
   const [briefModalType, setBriefModalType] = useState('file'); // 'link' | 'file' | 'text'
   const [briefModalUrl, setBriefModalUrl] = useState('');
   const [briefModalLabel, setBriefModalLabel] = useState('');
@@ -130,13 +130,13 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
   const [scheduleModalDate, setScheduleModalDate] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
   const [scheduleModalHoveredEvent, setScheduleModalHoveredEvent] = useState(null);
 
-  // Auto-expand a campaign when navigated to from another page
+  // Auto-expand a brand when navigated to from another page
   useEffect(() => {
-    if (initialCampaignId) {
-      setExpandedCampaignId(initialCampaignId);
-      if (onCampaignOpened) onCampaignOpened();
+    if (initialBrandId) {
+      setExpandedBrandId(initialBrandId);
+      if (onBrandOpened) onBrandOpened();
     }
-  }, [initialCampaignId, onCampaignOpened]);
+  }, [initialBrandId, onBrandOpened]);
 
   // --- Data fetching ---
   const fetchSponsors = useCallback(async () => {
@@ -151,8 +151,8 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
       const flat = [];
       (data || []).forEach(s => {
         (s.sponsor_deliverables || []).forEach(d => {
-          const campaign = (s.sponsor_campaigns || []).find(c => c.id === d.campaign_id);
-          flat.push({ ...d, sponsor_name: s.name, sponsor_id: s.id, campaign_name: campaign?.name || null, campaign_briefs: campaign?.campaign_briefs || [] });
+          const brand = (s.sponsor_campaigns || []).find(c => c.id === d.campaign_id);
+          flat.push({ ...d, sponsor_name: s.name, sponsor_id: s.id, brand_name: brand?.name || null, campaign_briefs: brand?.campaign_briefs || [] });
         });
       });
       setAllDeliverables(flat);
@@ -485,17 +485,17 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
 
       const items = (proposal.items || []).slice().sort((a, b) => (a.position || 0) - (b.position || 0));
       const bounds = monthBounds(items);
-      const campaignPayload = {
+      const brandPayload = {
         sponsor_id: sponsorId,
-        name: proposal.sponsor_name + ' Campaign',
+        name: proposal.sponsor_name,
         description: proposal.description || null,
         payment_status: 'unpaid',
       };
-      if (bounds.start) campaignPayload.start_date = bounds.start;
-      if (bounds.end) campaignPayload.end_date = bounds.end;
-      const { data: campaign, error: cErr } = await supabase
+      if (bounds.start) brandPayload.start_date = bounds.start;
+      if (bounds.end) brandPayload.end_date = bounds.end;
+      const { data: brand, error: cErr } = await supabase
         .from('sponsor_campaigns')
-        .insert(campaignPayload)
+        .insert(brandPayload)
         .select()
         .single();
       if (cErr) throw cErr;
@@ -503,7 +503,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
       if (items.length > 0) {
         const delivRows = items.map((it) => ({
           sponsor_id: sponsorId,
-          campaign_id: campaign.id,
+          campaign_id: brand.id,
           title: it.title,
           deliverable_type: it.deliverable_type,
           channel: it.channel || null,
@@ -600,7 +600,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
   function resetDeliverableForm() {
     setDeliverableType('long_form_read');
     setDueDate(''); setDeliverableNotes('');
-    setDeliverablePlatforms([]); setDeliverableNeedsReview(false); setDeliverableCampaignId('');
+    setDeliverablePlatforms([]); setDeliverableNeedsReview(false); setDeliverableBrandId('');
     setDeliverablePay(''); setDeliverableBeatSheetId(''); setDeliverableVideoEventId('');
     setDeliverableChannel('');
     setDeliverableReviewStatus('not_submitted');
@@ -613,7 +613,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
     setDeliverableNotes(d.ad_copy || d.notes || '');
     setDeliverablePlatforms(d.platforms || []);
     setDeliverableNeedsReview(d.needs_review || false);
-    setDeliverableCampaignId(d.campaign_id || '');
+    setDeliverableBrandId(d.campaign_id || '');
     setDeliverablePay(d.pay != null ? String(d.pay) : '');
     setDeliverableBeatSheetId(d.beat_sheet_id || '');
     setDeliverableVideoEventId(d.video_event_id || '');
@@ -623,7 +623,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
     setShowDeliverableForm(d.campaign_id);
   }
 
-  async function handleSaveDeliverable(e, sponsorId, campaignId) {
+  async function handleSaveDeliverable(e, sponsorId, brandId) {
     e.preventDefault();
     const sponsor = sponsors.find(s => s.id === sponsorId);
     const autoTitle = `${DELIVERABLE_TYPES[deliverableType]?.label || deliverableType} — ${sponsor?.name || 'Sponsor'}`;
@@ -636,7 +636,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
         ad_copy: deliverableNotes || null,
         platforms: deliverablePlatforms,
         needs_review: deliverableNeedsReview,
-        campaign_id: campaignId || deliverableCampaignId || null,
+        campaign_id: brandId || deliverableBrandId || null,
         pay: deliverablePay ? parseFloat(deliverablePay) : null,
         beat_sheet_id: deliverableBeatSheetId || null,
         video_event_id: deliverableVideoEventId || null,
@@ -678,7 +678,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
         ad_copy: deliverableNotes || null,
         platforms: deliverablePlatforms,
         needs_review: deliverableNeedsReview,
-        campaign_id: campaignId || null,
+        campaign_id: brandId || null,
         pay: deliverablePay ? parseFloat(deliverablePay) : null,
         beat_sheet_id: deliverableBeatSheetId || null,
         video_event_id: deliverableVideoEventId || null,
@@ -737,16 +737,16 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
       }
     }
 
-    const syncCampId = campaignId || deliverableCampaignId;
-    if (syncCampId) await syncCampaignRevenue(syncCampId);
+    const syncCampId = brandId || deliverableBrandId;
+    if (syncCampId) await syncBrandRevenue(syncCampId);
 
     resetDeliverableForm();
     fetchSponsors();
   }
 
-  async function handleDeleteUncampaigned() {
-    if (!(await confirm(`Delete all ${uncampaignedDeliverables.length} uncampaigned deliverables? This cannot be undone.`))) return;
-    for (const d of uncampaignedDeliverables) {
+  async function handleDeleteUnbranded() {
+    if (!(await confirm(`Delete all ${unbrandedDeliverables.length} unbranded deliverables? This cannot be undone.`))) return;
+    for (const d of unbrandedDeliverables) {
       if (d.calendar_event_id) {
         await supabase.from('calendar_events').delete().eq('id', d.calendar_event_id);
       }
@@ -760,7 +760,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
       await supabase.from('calendar_events').delete().eq('id', deliverable.calendar_event_id);
     }
     await supabase.from('sponsor_deliverables').delete().eq('id', deliverable.id);
-    if (deliverable.campaign_id) await syncCampaignRevenue(deliverable.campaign_id);
+    if (deliverable.campaign_id) await syncBrandRevenue(deliverable.campaign_id);
     fetchSponsors();
   }
 
@@ -900,30 +900,29 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
     return beatSheets.filter(bs => !usedIds.has(bs.id) && !bs.is_archived && bs.folder !== 'archive');
   }
 
-  // --- Campaign handlers ---
-  function resetCampaignForm() {
-    setCampaignForm({ name: '', brand: '', description: '', start_date: '', end_date: '', contact_name: '', contact_email: '', payment_status: 'unpaid' });
-    setEditingCampaign(null); setShowCampaignForm(false);
+  // --- Brand handlers ---
+  function resetBrandForm() {
+    setBrandForm({ brand: '', description: '', start_date: '', end_date: '', contact_name: '', contact_email: '', payment_status: 'unpaid' });
+    setEditingBrand(null); setShowBrandForm(false);
   }
 
-  function startEditCampaign(campaign) {
-    setCampaignForm({
-      name: campaign.name,
-      brand: campaign.brand || '',
-      description: campaign.description || '',
-      start_date: campaign.start_date || '',
-      end_date: campaign.end_date || '',
-      contact_name: campaign.contact_name || '',
-      contact_email: campaign.contact_email || '',
-      payment_status: campaign.payment_status || 'unpaid',
+  function startEditBrand(brand) {
+    setBrandForm({
+      brand: brand.brand || brand.name || '',
+      description: brand.description || '',
+      start_date: brand.start_date || '',
+      end_date: brand.end_date || '',
+      contact_name: brand.contact_name || '',
+      contact_email: brand.contact_email || '',
+      payment_status: brand.payment_status || 'unpaid',
     });
-    setEditingCampaign(campaign.id);
-    setShowCampaignForm(true);
+    setEditingBrand(brand.id);
+    setShowBrandForm(true);
   }
 
-  async function handleSaveCampaign(e) {
+  async function handleSaveBrand(e) {
     e.preventDefault();
-    const brandName = (campaignForm.brand || '').trim();
+    const brandName = (brandForm.brand || '').trim();
     if (!brandName) { alert('Brand name is required'); return; }
     let sponsorId;
     const { data: existing } = await supabase
@@ -945,48 +944,48 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
     }
     const payload = {
       sponsor_id: sponsorId,
-      name: campaignForm.name,
-      description: campaignForm.description || null,
-      start_date: campaignForm.start_date || null,
-      end_date: campaignForm.end_date || null,
-      contact_name: campaignForm.contact_name || null,
-      contact_email: campaignForm.contact_email || null,
-      payment_status: campaignForm.payment_status || 'unpaid',
+      name: brandName,
+      description: brandForm.description || null,
+      start_date: brandForm.start_date || null,
+      end_date: brandForm.end_date || null,
+      contact_name: brandForm.contact_name || null,
+      contact_email: brandForm.contact_email || null,
+      payment_status: brandForm.payment_status || 'unpaid',
       updated_at: new Date().toISOString(),
     };
-    let campaignId = editingCampaign;
-    if (editingCampaign) {
-      const { error } = await supabase.from('sponsor_campaigns').update(payload).eq('id', editingCampaign);
-      if (error) { alert('Error updating campaign: ' + error.message); return; }
+    let brandId = editingBrand;
+    if (editingBrand) {
+      const { error } = await supabase.from('sponsor_campaigns').update(payload).eq('id', editingBrand);
+      if (error) { alert('Error updating brand: ' + error.message); return; }
     } else {
       const { data, error } = await supabase.from('sponsor_campaigns').insert(payload).select().single();
-      if (error) { alert('Error creating campaign: ' + error.message); return; }
-      campaignId = data.id;
+      if (error) { alert('Error creating brand: ' + error.message); return; }
+      brandId = data.id;
     }
-    await syncCampaignRevenue(campaignId);
+    await syncBrandRevenue(brandId);
 
-    resetCampaignForm();
+    resetBrandForm();
     fetchSponsors();
   }
 
-  async function syncCampaignRevenue(campaignId) {
-    if (!campaignId) return;
-    const revenueKey = `sponsor_campaign_${campaignId}`;
-    const { data: campaign } = await supabase
+  async function syncBrandRevenue(brandId) {
+    if (!brandId) return;
+    const revenueKey = `sponsor_campaign_${brandId}`;
+    const { data: brand } = await supabase
       .from('sponsor_campaigns')
       .select('id, sponsor_id, payment_status, end_date')
-      .eq('id', campaignId)
+      .eq('id', brandId)
       .single();
-    if (!campaign) {
+    if (!brand) {
       await supabase.from('revenue_events').delete().eq('stripe_event_id', revenueKey);
       return;
     }
     const { data: dels } = await supabase
       .from('sponsor_deliverables')
       .select('pay')
-      .eq('campaign_id', campaignId);
+      .eq('campaign_id', brandId);
     const totalPay = (dels || []).reduce((sum, d) => sum + (parseFloat(d.pay) || 0), 0);
-    if (campaign.payment_status === 'paid' && totalPay > 0) {
+    if (brand.payment_status === 'paid' && totalPay > 0) {
       const amountCents = Math.round(totalPay * 100);
       await supabase.from('revenue_events').upsert({
         stripe_event_id: revenueKey,
@@ -994,9 +993,9 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
         amount_cents: amountCents,
         net_amount_cents: amountCents,
         product_category: 'sponsorship',
-        occurred_at: campaign.end_date || new Date().toISOString(),
+        occurred_at: brand.end_date || new Date().toISOString(),
         platform_account_id: null,
-        metadata: { source: 'sponsor_campaign', campaign_id: campaignId, sponsor_id: campaign.sponsor_id },
+        metadata: { source: 'sponsor_campaign', campaign_id: brandId, sponsor_id: brand.sponsor_id },
       }, { onConflict: 'stripe_event_id' });
     } else {
       await supabase.from('revenue_events').delete().eq('stripe_event_id', revenueKey);
@@ -1015,8 +1014,8 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
     fetchSponsors();
   }
 
-  function openBriefModal(campaign) {
-    setBriefModalCampaign(campaign);
+  function openBriefModal(brand) {
+    setBriefModalBrand(brand);
     setBriefModalType('file');
     setBriefModalUrl('');
     setBriefModalLabel('');
@@ -1027,8 +1026,8 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
     setBriefModalRegenerate(false);
   }
 
-  function openBriefModalEdit(campaign, brief) {
-    setBriefModalCampaign(campaign);
+  function openBriefModalEdit(brand, brief) {
+    setBriefModalBrand(brand);
     const t = brief.source_type || (brief.type === 'doc' ? 'file' : 'link');
     setBriefModalType(t);
     setBriefModalUrl(t === 'link' ? (brief.url || '') : '');
@@ -1041,11 +1040,11 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
   }
 
   async function saveBriefModal() {
-    if (!briefModalCampaign) return;
+    if (!briefModalBrand) return;
     setBriefModalError('');
     setBriefModalSaving(true);
     const isEdit = !!briefModalEditingId;
-    const nextPos = (briefModalCampaign.campaign_briefs || []).length;
+    const nextPos = (briefModalBrand.campaign_briefs || []).length;
     try {
       if (briefModalType === 'link') {
         const url = briefModalUrl.trim();
@@ -1060,7 +1059,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
           }).eq('id', briefModalEditingId);
         } else {
           await supabase.from('campaign_briefs').insert({
-            campaign_id: briefModalCampaign.id,
+            campaign_id: briefModalBrand.id,
             type: 'link', source_type: 'link', label, url, position: nextPos,
           });
         }
@@ -1069,7 +1068,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
         let fileUrl = null;
         let originalLabel = briefModalLabel.trim();
         if (briefModalFile) {
-          const filePath = `${briefModalCampaign.id}/${Date.now()}_${briefModalFile.name}`;
+          const filePath = `${briefModalBrand.id}/${Date.now()}_${briefModalFile.name}`;
           const { error: uploadError } = await supabase.storage.from('campaign-briefs').upload(filePath, briefModalFile);
           if (uploadError) { setBriefModalError('Upload failed: ' + uploadError.message); setBriefModalSaving(false); return; }
           const { data: urlData } = supabase.storage.from('campaign-briefs').getPublicUrl(filePath);
@@ -1083,7 +1082,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
         } else {
           setBriefModalProcessing(true);
           let onepagerMd = null;
-          const targetUrl = fileUrl || briefModalCampaign.campaign_briefs?.find(b => b.id === briefModalEditingId)?.url;
+          const targetUrl = fileUrl || briefModalBrand.campaign_briefs?.find(b => b.id === briefModalEditingId)?.url;
           try {
             const { data: fnData, error: fnErr } = await supabase.functions.invoke('generate-brief-onepager', {
               body: { file_url: targetUrl },
@@ -1107,7 +1106,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
             await supabase.from('campaign_briefs').update(payload).eq('id', briefModalEditingId);
           } else {
             await supabase.from('campaign_briefs').insert({
-              campaign_id: briefModalCampaign.id, ...payload, position: nextPos,
+              campaign_id: briefModalBrand.id, ...payload, position: nextPos,
             });
           }
         }
@@ -1115,7 +1114,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
         const text = briefModalText.trim();
         if (!text) { setBriefModalError('Paste brief text'); setBriefModalSaving(false); return; }
         const label = briefModalLabel.trim() || 'Brief';
-        const existing = isEdit ? (briefModalCampaign.campaign_briefs || []).find(b => b.id === briefModalEditingId) : null;
+        const existing = isEdit ? (briefModalBrand.campaign_briefs || []).find(b => b.id === briefModalEditingId) : null;
         const textChanged = !isEdit || (existing && existing.source_text !== text);
         const shouldRegen = !isEdit || textChanged || briefModalRegenerate;
         if (isEdit && !shouldRegen) {
@@ -1144,7 +1143,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
             }).eq('id', briefModalEditingId);
           } else {
             const { data: inserted } = await supabase.from('campaign_briefs').insert({
-              campaign_id: briefModalCampaign.id,
+              campaign_id: briefModalBrand.id,
               type: 'doc', source_type: 'text', source_text: text, label,
               onepager_md: onepagerMd,
               generated_at: new Date().toISOString(),
@@ -1158,27 +1157,27 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
         }
       }
       fetchSponsors();
-      setBriefModalCampaign(null);
+      setBriefModalBrand(null);
     } finally {
       setBriefModalSaving(false);
     }
   }
 
-  async function handleDeleteCampaign(campaignId) {
-    if (!(await confirm('Delete this campaign and all its deliverables?'))) return;
-    const campaignDeliverables = allDeliverables.filter(d => d.campaign_id === campaignId);
-    for (const d of campaignDeliverables) {
+  async function handleDeleteBrand(brandId) {
+    if (!(await confirm('Delete this brand and all its deliverables?'))) return;
+    const brandDeliverables = allDeliverables.filter(d => d.campaign_id === brandId);
+    for (const d of brandDeliverables) {
       if (d.calendar_event_id) {
         await supabase.from('calendar_events').delete().eq('id', d.calendar_event_id);
       }
     }
-    await supabase.from('sponsor_deliverables').delete().eq('campaign_id', campaignId);
-    await supabase.from('sponsor_campaigns').delete().eq('id', campaignId);
+    await supabase.from('sponsor_deliverables').delete().eq('campaign_id', brandId);
+    await supabase.from('sponsor_campaigns').delete().eq('id', brandId);
     fetchSponsors();
   }
 
   // --- Computed values ---
-  const allCampaignsFlat = sponsors.flatMap(s =>
+  const allBrandsFlat = sponsors.flatMap(s =>
     (s.sponsor_campaigns || []).map(c => ({
       ...c,
       brand: s.name,
@@ -1186,17 +1185,17 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
       deliverables: (s.sponsor_deliverables || []).filter(d => d.campaign_id === c.id),
     }))
   );
-  const sortedCampaigns = [...allCampaignsFlat].sort((a, b) => {
+  const sortedBrands = [...allBrandsFlat].sort((a, b) => {
     const aActive = a.deliverables.length === 0 || a.deliverables.some(d => !d.delivered);
     const bActive = b.deliverables.length === 0 || b.deliverables.some(d => !d.delivered);
     if (aActive && !bActive) return -1;
     if (!aActive && bActive) return 1;
     return new Date(b.created_at) - new Date(a.created_at);
   });
-  const activeCampaignsCount = allCampaignsFlat.filter(c =>
+  const activeBrandsCount = allBrandsFlat.filter(c =>
     c.deliverables.length === 0 || c.deliverables.some(d => !d.delivered)
   ).length;
-  const uncampaignedDeliverables = sponsors.flatMap(s =>
+  const unbrandedDeliverables = sponsors.flatMap(s =>
     (s.sponsor_deliverables || []).filter(d => !d.campaign_id).map(d => ({ ...d, sponsor_name: s.name, sponsor_id: s.id }))
   );
   const pendingProposals = proposals.filter(p => p.status === 'pending');
@@ -1255,7 +1254,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
     );
   }
 
-  // Deliverable as a card (used in the campaign stack). Turns green when delivered.
+  // Deliverable as a card (used in the brand stack). Turns green when delivered.
   function renderDeliverableCard(d) {
     const delivered = d.delivered;
     const ev = d.video_event_id ? videoEvents.find(e => e.id === d.video_event_id) : null;
@@ -1386,8 +1385,8 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
       switch (sortCol) {
         case 'due': cmp = (a.due_date || '').localeCompare(b.due_date || ''); break;
         case 'sponsor': {
-          const sA = `${a.sponsor_name || ''} ${a.campaign_name || ''}`;
-          const sB = `${b.sponsor_name || ''} ${b.campaign_name || ''}`;
+          const sA = `${a.sponsor_name || ''} ${a.brand_name || ''}`;
+          const sB = `${b.sponsor_name || ''} ${b.brand_name || ''}`;
           cmp = sA.localeCompare(sB); break;
         }
         case 'type': cmp = (a.deliverable_type || '').localeCompare(b.deliverable_type || ''); break;
@@ -1451,7 +1450,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
 
         {tableDeliverables.length === 0 ? (
           <div style={styles.emptyCard}>
-            <p style={styles.emptyText}>No upcoming deliverables. Add deliverables to campaigns above.</p>
+            <p style={styles.emptyText}>No upcoming deliverables. Add deliverables to brands below.</p>
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -1508,7 +1507,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                           }}
                           title="Edit deliverable"
                         >
-                          {d.sponsor_name}{d.campaign_name ? ` / ${d.campaign_name}` : ''}
+                          {d.sponsor_name}{d.brand_name && d.brand_name !== d.sponsor_name ? ` / ${d.brand_name}` : ''}
                         </span>
                       </td>
                       {/* Brief — only processed one-pagers */}
@@ -1797,7 +1796,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
         <div style={{ ...styles.modalBox, maxWidth: 1060, padding: '28px 32px' }}>
           <div style={styles.modalHeader}>
             <div>
-              <h3 style={styles.modalTitle}>{d.sponsor_name}{d.campaign_name ? ` — ${d.campaign_name}` : ''}</h3>
+              <h3 style={styles.modalTitle}>{d.sponsor_name}{d.brand_name && d.brand_name !== d.sponsor_name ? ` — ${d.brand_name}` : ''}</h3>
               <p style={styles.modalSubtitle}>{DELIVERABLE_TYPES[d.deliverable_type]?.label || d.deliverable_type} — Select a video post to link</p>
             </div>
             <button onClick={() => setScheduleModalDeliverable(null)} style={styles.modalClose} aria-label="Close">✕</button>
@@ -2102,28 +2101,31 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
             </div>
           )}
 
+      {/* ── Upcoming Deliverables Table ── */}
+      {renderDeliverableTable()}
+
       <div style={styles.topBar}>
         <div>
-          <h1 style={styles.pageTitle}>Campaigns</h1>
+          <h1 style={styles.pageTitle}>Brands</h1>
           <p style={styles.pageSubtitle}>
-            {activeCampaignsCount} active · {sortedCampaigns.length - activeCampaignsCount} inactive
+            {activeBrandsCount} active · {sortedBrands.length - activeBrandsCount} inactive
           </p>
         </div>
-        <button onClick={() => { resetCampaignForm(); setShowCampaignForm(!showCampaignForm); }} style={styles.addBtn}>
-          {showCampaignForm && !editingCampaign ? '\u2715 Cancel' : '+ New Campaign'}
+        <button onClick={() => { resetBrandForm(); setShowBrandForm(!showBrandForm); }} style={styles.addBtn}>
+          {showBrandForm && !editingBrand ? '\u2715 Cancel' : '+ New Brand'}
         </button>
       </div>
 
-      {/* Campaign Form (modal) */}
-      {showCampaignForm && (
-        <Modal title={editingCampaign ? 'Edit Campaign' : 'New Campaign'} onClose={() => { resetCampaignForm(); setShowCampaignForm(false); }} maxWidth={680}>
-        <form onSubmit={handleSaveCampaign}>
+      {/* Brand Form (modal) */}
+      {showBrandForm && (
+        <Modal title={editingBrand ? 'Edit Brand' : 'New Brand'} onClose={() => { resetBrandForm(); setShowBrandForm(false); }} maxWidth={680}>
+        <form onSubmit={handleSaveBrand}>
           <div style={styles.formGrid}>
             <div style={styles.field}>
               <label style={styles.label}>Brand *</label>
               <input
-                value={campaignForm.brand}
-                onChange={e => setCampaignForm({ ...campaignForm, brand: e.target.value })}
+                value={brandForm.brand}
+                onChange={e => setBrandForm({ ...brandForm, brand: e.target.value })}
                 placeholder="e.g. NordVPN"
                 required
                 list="brand-suggestions"
@@ -2134,37 +2136,33 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
               </datalist>
             </div>
             <div style={styles.field}>
-              <label style={styles.label}>Campaign Name *</label>
-              <input value={campaignForm.name} onChange={e => setCampaignForm({ ...campaignForm, name: e.target.value })} placeholder="e.g. Q1 Launch" required style={styles.input} />
-            </div>
-            <div style={styles.field}>
               <label style={styles.label}>Start Date</label>
-              <input type="date" value={campaignForm.start_date} onChange={e => setCampaignForm({ ...campaignForm, start_date: e.target.value })} style={styles.input} />
+              <input type="date" value={brandForm.start_date} onChange={e => setBrandForm({ ...brandForm, start_date: e.target.value })} style={styles.input} />
             </div>
             <div style={styles.field}>
               <label style={styles.label}>End Date</label>
-              <input type="date" value={campaignForm.end_date} onChange={e => setCampaignForm({ ...campaignForm, end_date: e.target.value })} style={styles.input} />
+              <input type="date" value={brandForm.end_date} onChange={e => setBrandForm({ ...brandForm, end_date: e.target.value })} style={styles.input} />
             </div>
             <div style={styles.field}>
               <label style={styles.label}>Contact Name</label>
-              <input value={campaignForm.contact_name} onChange={e => setCampaignForm({ ...campaignForm, contact_name: e.target.value })} placeholder="e.g. John Smith" style={styles.input} />
+              <input value={brandForm.contact_name} onChange={e => setBrandForm({ ...brandForm, contact_name: e.target.value })} placeholder="e.g. John Smith" style={styles.input} />
             </div>
             <div style={styles.field}>
               <label style={styles.label}>Contact Email</label>
-              <input value={campaignForm.contact_email} onChange={e => setCampaignForm({ ...campaignForm, contact_email: e.target.value })} placeholder="john@sponsor.com" type="email" style={styles.input} />
+              <input value={brandForm.contact_email} onChange={e => setBrandForm({ ...brandForm, contact_email: e.target.value })} placeholder="john@sponsor.com" type="email" style={styles.input} />
             </div>
             {isAdmin && (
               <div style={styles.field}>
                 <label style={styles.label}>Payment Status</label>
-                <select value={campaignForm.payment_status} onChange={e => setCampaignForm({ ...campaignForm, payment_status: e.target.value })} style={styles.select}>
+                <select value={brandForm.payment_status} onChange={e => setBrandForm({ ...brandForm, payment_status: e.target.value })} style={styles.select}>
                   <option value="unpaid">Unpaid</option>
                   <option value="partial">Partial</option>
                   <option value="paid">Paid</option>
                 </select>
               </div>
             )}
-            {editingCampaign && (() => {
-              const c = sponsors.flatMap(s => s.sponsor_campaigns || []).find(x => x.id === editingCampaign);
+            {editingBrand && (() => {
+              const c = sponsors.flatMap(s => s.sponsor_campaigns || []).find(x => x.id === editingBrand);
               const briefs = (c?.campaign_briefs || []).slice().sort((a, b) => a.position - b.position);
               return (
                 <div style={styles.field}>
@@ -2195,35 +2193,34 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
           </div>
           <div style={styles.field}>
             <label style={styles.label}>Description</label>
-            <textarea value={campaignForm.description} onChange={e => setCampaignForm({ ...campaignForm, description: e.target.value })} placeholder="Campaign details..." rows={2} style={{ ...styles.input, resize: 'vertical' }} />
+            <textarea value={brandForm.description} onChange={e => setBrandForm({ ...brandForm, description: e.target.value })} placeholder="Brand details..." rows={2} style={{ ...styles.input, resize: 'vertical' }} />
           </div>
-          <button type="submit" style={styles.submitBtn}>{editingCampaign ? 'Update Campaign' : 'Create Campaign'}</button>
+          <button type="submit" style={styles.submitBtn}>{editingBrand ? 'Update Brand' : 'Create Brand'}</button>
         </form>
         </Modal>
       )}
 
-      {/* Campaign List */}
+      {/* Brand List */}
       {sponsorLoading ? (
-        <p style={styles.emptyText}>Loading campaigns...</p>
-      ) : sortedCampaigns.length === 0 ? (
+        <p style={styles.emptyText}>Loading brands...</p>
+      ) : sortedBrands.length === 0 ? (
         <div style={styles.emptyCard}>
-          <p style={styles.emptyText}>No campaigns yet. Add one to get started.</p>
+          <p style={styles.emptyText}>No brands yet. Add one to get started.</p>
         </div>
       ) : (
         (() => {
-          const renderCampaignCard = (campaign) => {
-              const isExpanded = expandedCampaignId === campaign.id;
-              const campaignDels = campaign.deliverables;
-              const campDeliveredCount = campaignDels.filter(d => d.delivered).length;
-              const campTotalPay = campaignDels.reduce((sum, d) => sum + (parseFloat(d.pay) || 0), 0);
+          const renderBrandCard = (brand) => {
+              const isExpanded = expandedBrandId === brand.id;
+              const brandDels = brand.deliverables;
+              const campDeliveredCount = brandDels.filter(d => d.delivered).length;
+              const campTotalPay = brandDels.reduce((sum, d) => sum + (parseFloat(d.pay) || 0), 0);
               return (
-                <div key={campaign.id} style={styles.sponsorCard}>
-                  <div style={styles.sponsorCardHeader} onClick={() => setExpandedCampaignId(isExpanded ? null : campaign.id)}>
+                <div key={brand.id} style={styles.sponsorCard}>
+                  <div style={styles.sponsorCardHeader} onClick={() => setExpandedBrandId(isExpanded ? null : brand.id)}>
                     {/* Title / subtitle row */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
                       <div style={{ minWidth: 0 }}>
-                        <div style={styles.projectRowName}>{campaign.name}</div>
-                        <div style={styles.projectRowMeta}>{campaign.brand}</div>
+                        <div style={styles.projectRowName}>{brand.brand}</div>
                       </div>
                       <svg width="16" height="16" viewBox="0 0 16 16" fill="rgba(255,255,255,0.3)"
                         style={{ flexShrink: 0, marginTop: '3px', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>
@@ -2232,45 +2229,45 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                     </div>
                     {/* Chips row */}
                     <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px' }}>
-                      {campaign.start_date && campaign.end_date && (
+                      {brand.start_date && brand.end_date && (
                         <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)' }}>
-                          {new Date(campaign.start_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – {new Date(campaign.end_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          {new Date(brand.start_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – {new Date(brand.end_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                         </span>
                       )}
                       {isAdmin && (
-                        <span style={{ ...styles.statusTag, background: `${PAYMENT_STATUS_COLORS[campaign.payment_status]}15`, color: PAYMENT_STATUS_COLORS[campaign.payment_status] }}>
-                          {campaign.payment_status}
+                        <span style={{ ...styles.statusTag, background: `${PAYMENT_STATUS_COLORS[brand.payment_status]}15`, color: PAYMENT_STATUS_COLORS[brand.payment_status] }}>
+                          {brand.payment_status}
                         </span>
                       )}
-                      {(!campaign.campaign_briefs || campaign.campaign_briefs.length === 0) && (
+                      {(!brand.campaign_briefs || brand.campaign_briefs.length === 0) && (
                         <span
-                          onClick={(e) => { e.stopPropagation(); openBriefModal(campaign); }}
+                          onClick={(e) => { e.stopPropagation(); openBriefModal(brand); }}
                           style={{ ...styles.statusTag, background: 'rgba(245,158,11,0.12)', color: '#f59e0b', fontSize: '10px', fontWeight: 600, cursor: 'pointer' }}
                         >
                           + Add Brief
                         </span>
                       )}
-                      {campaignDels.length > 0 && (
-                        <span style={styles.checklistBadge}>{campDeliveredCount}/{campaignDels.length}</span>
+                      {brandDels.length > 0 && (
+                        <span style={styles.checklistBadge}>{campDeliveredCount}/{brandDels.length}</span>
                       )}
                     </div>
                   </div>
 
                   {isExpanded && (
                     <div style={styles.projectDetail}>
-                      {/* Campaign meta info */}
+                      {/* Brand meta info */}
                       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '8px' }}>
                         {isAdmin && campTotalPay > 0 && (
-                          <span style={{ ...styles.paymentBadge, background: `${PAYMENT_STATUS_COLORS[campaign.payment_status]}15`, color: PAYMENT_STATUS_COLORS[campaign.payment_status] }}>
+                          <span style={{ ...styles.paymentBadge, background: `${PAYMENT_STATUS_COLORS[brand.payment_status]}15`, color: PAYMENT_STATUS_COLORS[brand.payment_status] }}>
                             ${campTotalPay.toLocaleString()}
                           </span>
                         )}
-                        {(campaign.contact_name || campaign.contact_email) && (
+                        {(brand.contact_name || brand.contact_email) && (
                           <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>
-                            {campaign.contact_name}{campaign.contact_email && ` (${campaign.contact_email})`}
+                            {brand.contact_name}{brand.contact_email && ` (${brand.contact_email})`}
                           </span>
                         )}
-                        {(campaign.campaign_briefs || []).map(brief => (
+                        {(brand.campaign_briefs || []).map(brief => (
                           <span key={brief.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                             <a href={brief.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '11px', color: '#a5b4fc', textDecoration: 'none' }}>
                               {brief.type === 'doc' ? '\u{1F4C4}' : '\u{1F517}'} {brief.label || 'Brief'}
@@ -2279,38 +2276,38 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                           </span>
                         ))}
                       </div>
-                      {campaign.description && (
-                        <p style={{ margin: '0 0 8px', fontSize: '13px', color: 'rgba(255,255,255,0.5)', whiteSpace: 'pre-wrap' }}>{campaign.description}</p>
+                      {brand.description && (
+                        <p style={{ margin: '0 0 8px', fontSize: '13px', color: 'rgba(255,255,255,0.5)', whiteSpace: 'pre-wrap' }}>{brand.description}</p>
                       )}
 
                       {/* Deliverables (stacked cards) */}
-                      {campaignDels.length > 0 && (
+                      {brandDels.length > 0 && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '10px' }}>
-                          {campaignDels.map(d => renderDeliverableCard(d))}
+                          {brandDels.map(d => renderDeliverableCard(d))}
                         </div>
                       )}
 
                       {/* Add Deliverable */}
                       <button
-                        onClick={(e) => { e.stopPropagation(); resetDeliverableForm(); setDeliverableCampaignId(campaign.id); setShowDeliverableForm(campaign.id); }}
+                        onClick={(e) => { e.stopPropagation(); resetDeliverableForm(); setDeliverableBrandId(brand.id); setShowDeliverableForm(brand.id); }}
                         style={styles.addDeliverableBtn}
                       >
                         + Add Deliverable
                       </button>
 
-                      {/* Campaign Actions */}
+                      {/* Brand Actions */}
                       <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-                        <button onClick={() => startEditCampaign(campaign)} style={{ ...styles.filterBtn, fontSize: '12px' }}>Edit</button>
-                        <button onClick={() => handleDeleteCampaign(campaign.id)} style={{ ...styles.filterBtn, fontSize: '12px', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}>Delete</button>
+                        <button onClick={() => startEditBrand(brand)} style={{ ...styles.filterBtn, fontSize: '12px' }}>Edit</button>
+                        <button onClick={() => handleDeleteBrand(brand.id)} style={{ ...styles.filterBtn, fontSize: '12px', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}>Delete</button>
                       </div>
                     </div>
                   )}
                   {/* Edit modal lives outside the isExpanded gate so it can
                       open from the Upcoming Deliverables table without
-                      forcing the parent campaign card to expand. */}
-                  {showDeliverableForm === campaign.id && (
-                    <Modal title={editingDeliverable ? 'Edit Deliverable' : 'Add Deliverable'} subtitle={campaign.name} onClose={() => { resetDeliverableForm(); setShowDeliverableForm(null); }} maxWidth={680}>
-                      <form onSubmit={(e) => handleSaveDeliverable(e, campaign.sponsor_id, campaign.id)}>
+                      forcing the parent brand card to expand. */}
+                  {showDeliverableForm === brand.id && (
+                    <Modal title={editingDeliverable ? 'Edit Deliverable' : 'Add Deliverable'} subtitle={brand.brand} onClose={() => { resetDeliverableForm(); setShowDeliverableForm(null); }} maxWidth={680}>
+                      <form onSubmit={(e) => handleSaveDeliverable(e, brand.sponsor_id, brand.id)}>
                         <div style={styles.formGrid}>
                           <div style={styles.field}>
                             <label style={styles.label}>Type</label>
@@ -2414,48 +2411,45 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
               );
             };
             const isAct = (c) => c.deliverables.length === 0 || c.deliverables.some(d => !d.delivered);
-            const activeC = sortedCampaigns.filter(isAct);
-            const inactiveC = sortedCampaigns.filter(c => !isAct(c));
+            const activeC = sortedBrands.filter(isAct);
+            const inactiveC = sortedBrands.filter(c => !isAct(c));
             const section = (title, list, open, setOpen) => (
               <div style={{ marginBottom: '16px' }}>
-                <button onClick={() => setOpen(v => !v)} style={styles.campaignSectionHeader}>
+                <button onClick={() => setOpen(v => !v)} style={styles.brandSectionHeader}>
                   <span style={{ width: '12px', display: 'inline-block' }}>{open ? '▾' : '▸'}</span>
                   {title}
                   <span style={styles.checklistBadge}>{list.length}</span>
                 </button>
                 {open && (list.length > 0
-                  ? <div style={{ ...styles.campaignGrid, marginTop: '12px' }}>{list.map(renderCampaignCard)}</div>
-                  : <p style={{ ...styles.emptyText, marginTop: '8px' }}>No {title.toLowerCase()} campaigns.</p>)}
+                  ? <div style={{ ...styles.brandGrid, marginTop: '12px' }}>{list.map(renderBrandCard)}</div>
+                  : <p style={{ ...styles.emptyText, marginTop: '8px' }}>No {title.toLowerCase()} brands.</p>)}
               </div>
             );
             return (
               <>
-                {section('Active', activeC, campaignActiveOpen, setCampaignActiveOpen)}
-                {section('Inactive', inactiveC, campaignInactiveOpen, setCampaignInactiveOpen)}
+                {section('Active', activeC, brandActiveOpen, setBrandActiveOpen)}
+                {section('Inactive', inactiveC, brandInactiveOpen, setBrandInactiveOpen)}
               </>
             );
           })()
       )}
 
-      {/* Uncampaigned Deliverables (legacy) */}
-      {uncampaignedDeliverables.length > 0 && (
+      {/* Unbranded Deliverables (legacy) */}
+      {unbrandedDeliverables.length > 0 && (
         <details style={{ marginTop: '12px', padding: '0 4px' }}>
           <summary style={{ color: 'rgba(255,255,255,0.4)', fontSize: '12px', cursor: 'pointer', userSelect: 'none' }}>
-            {uncampaignedDeliverables.length} uncampaigned deliverable{uncampaignedDeliverables.length !== 1 ? 's' : ''}
+            {unbrandedDeliverables.length} unbranded deliverable{unbrandedDeliverables.length !== 1 ? 's' : ''}
           </summary>
           <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
             {isAdmin && (
-              <button onClick={handleDeleteUncampaigned} style={{ alignSelf: 'flex-start', background: 'rgba(239,68,68,0.1)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '6px', padding: '4px 10px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', marginBottom: '4px' }}>
-                Delete All Uncampaigned
+              <button onClick={handleDeleteUnbranded} style={{ alignSelf: 'flex-start', background: 'rgba(239,68,68,0.1)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '6px', padding: '4px 10px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', marginBottom: '4px' }}>
+                Delete All Unbranded
               </button>
             )}
-            {uncampaignedDeliverables.map(d => renderDeliverableRow(d, sponsors.find(s => s.id === d.sponsor_id)))}
+            {unbrandedDeliverables.map(d => renderDeliverableRow(d, sponsors.find(s => s.id === d.sponsor_id)))}
           </div>
         </details>
       )}
-
-      {/* ── Upcoming Deliverables Table ── */}
-      {renderDeliverableTable()}
 
       {/* Schedule Calendar Modal */}
       {renderScheduleCalendarModal()}
@@ -2473,7 +2467,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
               <div style={{ padding: '18px 22px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
                   <h3 style={{ margin: '0 0 2px', fontSize: '16px', fontWeight: 600, color: '#fff' }}>Ad Copy</h3>
-                  <p style={{ margin: 0, fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>{editingD?.sponsor_name}{editingD?.campaign_name ? ` · ${editingD.campaign_name}` : ''}</p>
+                  <p style={{ margin: 0, fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>{editingD?.sponsor_name}{editingD?.brand_name && editingD.brand_name !== editingD.sponsor_name ? ` · ${editingD.brand_name}` : ''}</p>
                 </div>
                 <button onClick={() => setAdCopyModalOpen(false)} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)', borderRadius: '6px', padding: '6px 12px', fontSize: '12px', cursor: 'pointer' }}>Close</button>
               </div>
@@ -2497,7 +2491,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
                   <div style={{ padding: '10px 18px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'rgba(255,255,255,0.4)', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>Brief · read-only</div>
                   <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '18px 22px' }}>
                     {briefs.length === 0 && (
-                      <p style={{ margin: 0, fontSize: '13px', color: 'rgba(255,255,255,0.4)' }}>No brief attached to this campaign yet.</p>
+                      <p style={{ margin: 0, fontSize: '13px', color: 'rgba(255,255,255,0.4)' }}>No brief attached to this brand yet.</p>
                     )}
                     {onepagerBriefs.length > 0 && (
                       <div className="brief-md" style={{ fontSize: '13px', lineHeight: 1.6, color: 'rgba(255,255,255,0.85)' }} dangerouslySetInnerHTML={{ __html: onepagerHtml }} />
@@ -2537,11 +2531,11 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
         );
       })()}
 
-      {briefModalCampaign && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }} onMouseDown={(e) => { if (e.target === e.currentTarget && !briefModalSaving) setBriefModalCampaign(null); }}>
+      {briefModalBrand && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }} onMouseDown={(e) => { if (e.target === e.currentTarget && !briefModalSaving) setBriefModalBrand(null); }}>
           <div style={{ background: '#1a1a2e', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '480px', border: '1px solid rgba(255,255,255,0.1)' }}>
             <h3 style={{ margin: '0 0 4px', fontSize: '16px', fontWeight: 600, color: '#fff' }}>{briefModalEditingId ? 'Edit Brief' : 'Add Brief'}</h3>
-            <p style={{ margin: '0 0 16px', fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>{briefModalCampaign.name}</p>
+            <p style={{ margin: '0 0 16px', fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>{briefModalBrand.name}</p>
             {!briefModalEditingId && (
               <div style={{ display: 'flex', gap: '4px', marginBottom: '12px' }}>
                 {[
@@ -2596,7 +2590,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
               )}
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '18px' }}>
-              <button onClick={() => setBriefModalCampaign(null)} disabled={briefModalSaving} style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)', border: 'none', borderRadius: '6px', padding: '8px 16px', fontSize: '13px', cursor: briefModalSaving ? 'not-allowed' : 'pointer', opacity: briefModalSaving ? 0.5 : 1 }}>Cancel</button>
+              <button onClick={() => setBriefModalBrand(null)} disabled={briefModalSaving} style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)', border: 'none', borderRadius: '6px', padding: '8px 16px', fontSize: '13px', cursor: briefModalSaving ? 'not-allowed' : 'pointer', opacity: briefModalSaving ? 0.5 : 1 }}>Cancel</button>
               <button onClick={saveBriefModal} disabled={briefModalSaving} style={{ background: '#6366f1', color: '#fff', border: 'none', borderRadius: '6px', padding: '8px 16px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', opacity: briefModalSaving ? 0.5 : 1 }}>
                 {briefModalProcessing ? 'Generating one-pager…' : briefModalSaving ? 'Saving…' : (briefModalEditingId ? 'Save Changes' : 'Save Brief')}
               </button>
@@ -2617,7 +2611,7 @@ export default function Deliverables({ initialCampaignId, onCampaignOpened }) {
               style={styles.contextMenuItem}
               onClick={() => {
                 const d = cardContextMenu.deliverable;
-                if (d.campaign_id) setExpandedCampaignId(d.campaign_id);
+                if (d.campaign_id) setExpandedBrandId(d.campaign_id);
                 startEditDeliverable(d);
                 setCardContextMenu(null);
               }}
@@ -2821,7 +2815,7 @@ const styles = {
     margin: 0,
   },
 
-  // ── Campaign card grid (2 per row) ──
+  // ── Brand card grid (2 per row) ──
   columnPanel: {
     background: 'rgba(255,255,255,0.02)',
     border: '1px solid rgba(255,255,255,0.07)',
@@ -2864,20 +2858,20 @@ const styles = {
     background: 'rgba(255,255,255,0.08)',
     margin: '18px 0',
   },
-  campaignGrid: {
+  brandGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
     gap: '14px',
     alignItems: 'start',
   },
-  campaignSectionHeader: {
+  brandSectionHeader: {
     display: 'flex', alignItems: 'center', gap: '8px', width: '100%',
     background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
     borderRadius: '8px', padding: '8px 12px', cursor: 'pointer',
     color: 'rgba(255,255,255,0.85)', fontSize: '14px', fontWeight: 600, fontFamily: 'inherit',
   },
 
-  // ── Deliverable cards (stacked inside a campaign / Upcoming grid) ──
+  // ── Deliverable cards (stacked inside a brand / Upcoming grid) ──
   delivCard: {
     background: 'rgba(255,255,255,0.03)',
     border: '1px solid rgba(255,255,255,0.07)',
