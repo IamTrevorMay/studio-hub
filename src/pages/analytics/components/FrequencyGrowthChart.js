@@ -79,11 +79,11 @@ export default function FrequencyGrowthChart({ contentItems, audienceSnapshots, 
         <div style={{ display: 'flex', gap: '16px', fontSize: '11px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
             <span style={{ width: '12px', height: '8px', borderRadius: '2px', background: 'rgba(99,102,241,0.6)' }} />
-            <span style={{ color: 'rgba(255,255,255,0.4)' }}>Posts/week</span>
+            <span style={{ color: '#8791a0' }}>Posts/week</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
             <span style={{ width: '12px', height: '2px', background: '#22c55e' }} />
-            <span style={{ color: 'rgba(255,255,255,0.4)' }}>Followers gained</span>
+            <span style={{ color: '#8791a0' }}>Followers gained</span>
           </div>
         </div>
       </div>
@@ -93,10 +93,10 @@ export default function FrequencyGrowthChart({ contentItems, audienceSnapshots, 
           {/* Grid */}
           {[0, 0.25, 0.5, 0.75, 1].map(pct => {
             const y = PAD.top + plotH * pct;
-            return <line key={pct} x1={PAD.left} y1={y} x2={W - PAD.right} y2={y} stroke="rgba(255,255,255,0.04)" />;
+            return <line key={pct} x1={PAD.left} y1={y} x2={W - PAD.right} y2={y} stroke="rgba(38,48,67,0.06)" />;
           })}
           {/* Zero line */}
-          <line x1={PAD.left} y1={zeroY} x2={W - PAD.right} y2={zeroY} stroke="rgba(255,255,255,0.1)" strokeDasharray="4,3" />
+          <line x1={PAD.left} y1={zeroY} x2={W - PAD.right} y2={zeroY} stroke="rgba(38,48,67,0.14)" strokeDasharray="4,3" />
           {/* Left Y axis labels (posts) */}
           {[0, Math.round(maxPosts / 2), maxPosts].map(v => {
             const y = PAD.top + plotH - (v / maxPosts) * plotH;
@@ -132,14 +132,14 @@ export default function FrequencyGrowthChart({ contentItems, audienceSnapshots, 
           <path d={linePath} fill="none" stroke="#22c55e" strokeWidth="2" strokeLinejoin="round" />
           {linePoints.map((p, i) => (
             <circle key={i} cx={p.x} cy={p.y} r={hoveredWeek === i ? 4 : 2.5}
-              fill="#22c55e" stroke="#12121f" strokeWidth="1" />
+              fill="#22c55e" stroke="#ffffff" strokeWidth="1" />
           ))}
           {/* X-axis labels */}
           {data.map((d, i) => {
             if (data.length > 10 && i !== 0 && i !== data.length - 1 && i % tickInterval !== 0) return null;
             const x = PAD.left + i * xStep;
             return (
-              <text key={i} x={x} y={H - 8} fill="rgba(255,255,255,0.3)" fontSize="9" textAnchor="middle"
+              <text key={i} x={x} y={H - 8} fill="#8791a0" fontSize="9" textAnchor="middle"
                 transform={`rotate(-30, ${x}, ${H - 8})`}>
                 {d.week}
               </text>
@@ -149,7 +149,7 @@ export default function FrequencyGrowthChart({ contentItems, audienceSnapshots, 
           {hoveredWeek !== null && (
             <line x1={PAD.left + hoveredWeek * xStep} y1={PAD.top}
               x2={PAD.left + hoveredWeek * xStep} y2={PAD.top + plotH}
-              stroke="rgba(255,255,255,0.15)" strokeWidth="1" strokeDasharray="4,3" />
+              stroke="rgba(38,48,67,0.16)" strokeWidth="1" strokeDasharray="4,3" />
           )}
           {/* Invisible hover rects */}
           {data.map((d, i) => (
@@ -166,12 +166,12 @@ export default function FrequencyGrowthChart({ contentItems, audienceSnapshots, 
               position: 'absolute', top: '8px',
               left: `${xPct}%`,
               transform: xPct > 70 ? 'translateX(-110%)' : 'translateX(10px)',
-              background: 'rgba(18,18,31,0.95)', border: '1px solid rgba(255,255,255,0.12)',
+              background: '#ffffff', border: '1px solid #dbe2ec',
               borderRadius: '8px', padding: '10px 14px', pointerEvents: 'none',
               zIndex: 10, boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
             }}>
-              <div style={{ fontSize: '11px', fontWeight: 600, color: '#fff', marginBottom: '6px' }}>Week of {d.week}</div>
-              <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '3px' }}>
+              <div style={{ fontSize: '11px', fontWeight: 600, color: '#263043', marginBottom: '6px' }}>Week of {d.week}</div>
+              <div style={{ fontSize: '11px', color: '#5a6473', marginBottom: '3px' }}>
                 Posts: <strong style={{ color: '#a5b4fc' }}>{d.posts}</strong>
               </div>
               {Object.entries(d.byPlatform).map(([p, count]) => (
@@ -179,7 +179,7 @@ export default function FrequencyGrowthChart({ contentItems, audienceSnapshots, 
                   {PLATFORM_META[p]?.label || p}: {count}
                 </div>
               ))}
-              <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginTop: '4px' }}>
+              <div style={{ fontSize: '11px', color: '#5a6473', marginTop: '4px' }}>
                 Followers: <strong style={{ color: d.followersGained >= 0 ? '#4ade80' : '#f87171' }}>
                   {d.followersGained >= 0 ? '+' : ''}{formatCompact(d.followersGained)}
                 </strong>

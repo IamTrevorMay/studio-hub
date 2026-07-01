@@ -7,7 +7,7 @@ import ContentHealthDashboard from '../ContentHealthDashboard';
 
 import { PLATFORM_META, DATE_RANGES, MONTHS } from './constants';
 import { daysAgoStr, todayStr, getDateRange, formatCompact, formatCurrency, pctChange, fetchAllRows } from './utils';
-import { styles } from './styles';
+import { styles, L } from './styles';
 
 import DonutChart from './components/DonutChart';
 import IngestionHealthPanel from './components/IngestionHealthPanel';
@@ -119,6 +119,8 @@ export default function Analytics() {
 
   // Content performance (collapsible)
   const [showContentPerf, setShowContentPerf] = useState(false);
+  // Platform digest strip (collapsible under KPIs)
+  const [showDigest, setShowDigest] = useState(false);
 
   // Ingestion health (admin)
   const [showIngestion, setShowIngestion] = useState(false);
@@ -574,7 +576,7 @@ export default function Analytics() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           {syncStatus && (
-            <span style={{ fontSize: '12px', color: syncStatus.includes('failed') || syncStatus.includes('warning') ? '#f59e0b' : '#22c55e', fontWeight: 600 }}>
+            <span style={{ fontSize: '12px', color: syncStatus.includes('failed') || syncStatus.includes('warning') ? '#c98a2b' : L.pos, fontWeight: 600 }}>
               {syncStatus}
             </span>
           )}
@@ -582,11 +584,11 @@ export default function Analytics() {
             onClick={handleSyncAllPlatforms}
             disabled={syncing}
             style={{
-              padding: '8px 16px', borderRadius: '8px', border: '1px solid rgba(99,102,241,0.3)',
-              background: syncing ? 'rgba(99,102,241,0.1)' : 'rgba(99,102,241,0.15)',
-              color: '#a5b4fc', fontSize: '13px', fontWeight: 600, cursor: syncing ? 'not-allowed' : 'pointer',
+              padding: '8px 16px', borderRadius: '8px', border: 'none',
+              background: L.accent,
+              color: '#ffffff', fontSize: '13px', fontWeight: 600, cursor: syncing ? 'not-allowed' : 'pointer',
               fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '6px',
-              opacity: syncing ? 0.7 : 1, transition: 'all 0.15s',
+              opacity: syncing ? 0.6 : 1, transition: 'all 0.15s', boxShadow: L.shadowSm,
             }}
           >
             <span style={{ display: 'inline-block', animation: syncing ? 'spin 1s linear infinite' : 'none' }}>↻</span>
@@ -638,7 +640,7 @@ export default function Analytics() {
           {dateRange === 'custom' && (
             <>
               <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} style={styles.filterInput} />
-              <span style={{ color: 'rgba(255,255,255,0.3)' }}>to</span>
+              <span style={{ color: L.inkSubtle }}>to</span>
               <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} style={styles.filterInput} />
             </>
           )}
@@ -650,7 +652,7 @@ export default function Analytics() {
             style={{ ...styles.filterChip, display: 'flex', alignItems: 'center', gap: '6px' }}>
             Platforms
             {activeAccountIds.length > 0 && (
-              <span style={{ background: 'rgba(99,102,241,0.3)', padding: '1px 6px', borderRadius: '8px', fontSize: '10px', fontWeight: 700, color: '#a5b4fc' }}>
+              <span style={{ background: L.accentSoft, padding: '1px 6px', borderRadius: '8px', fontSize: '10px', fontWeight: 700, color: L.accentText }}>
                 {activeAccountIds.length}
               </span>
             )}
@@ -714,147 +716,175 @@ export default function Analytics() {
 
       {viewMode === 'dashboard' && (loading ? <DashboardSkeleton /> : (
         <>
-          {/* ── Dashboard Sections ── */}
-          {/* ── This Week narrative (decision destination) ── */}
-          <ThisWeekBanner onOpenFullReport={() => setViewMode('weekly')} />
-          {/* ── Data trust signals ── */}
-          <DataCompletenessBadge />
-          {/* ── Sync Health (admin-only) ── */}
-          {isAdmin && <SyncHealthWidget />}
+          {/* ── ZONE 1 · This Week ── */}
+          <section style={styles.zone}>
+            <div style={styles.zoneHead}>
+              <h2 style={styles.zoneTitle}>This Week</h2>
+              <span style={styles.zoneSub}>narrative summary · data health</span>
+            </div>
+            <ThisWeekBanner onOpenFullReport={() => setViewMode('weekly')} />
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '14px', alignItems: 'center' }}>
+              <DataCompletenessBadge />
+              {isAdmin && <SyncHealthWidget />}
+            </div>
+          </section>
 
-          {/* ── Decision Row — Reach / Efficiency / Audience velocity / Revenue ── */}
+          {/* ── ZONE 2 · Key Performance ── */}
           {decisionCards && (
-            <div style={styles.kpiGrid}>
-              <DecisionKpiCard label="Reach (views)" value={decisionCards.reach.value}
-                soWhat={decisionCards.reach.soWhat} spark={kpiSparks.views}
-                deltaPrev={decisionCards.reach.deltaPrev} deltaBase={decisionCards.reach.deltaBase} color="#6366f1" />
-              <DecisionKpiCard label="Efficiency (views / post)" value={decisionCards.efficiency.value}
-                soWhat={decisionCards.efficiency.soWhat} spark={kpiSparks.efficiency}
-                deltaPrev={decisionCards.efficiency.deltaPrev} deltaBase={decisionCards.efficiency.deltaBase} color="#22c55e" />
-              <DecisionKpiCard label="Audience velocity" value={decisionCards.audience.value}
-                soWhat={decisionCards.audience.soWhat} spark={kpiSparks.audience}
-                deltaPrev={decisionCards.audience.deltaPrev} deltaBase={decisionCards.audience.deltaBase} color="#ec4899" />
-              <DecisionKpiCard label="Revenue" value={decisionCards.revenue.value}
-                soWhat={decisionCards.revenue.soWhat} spark={kpiSparks.revenue}
-                deltaPrev={decisionCards.revenue.deltaPrev} deltaBase={decisionCards.revenue.deltaBase} color="#f59e0b" />
-            </div>
+            <section style={styles.zone}>
+              <div style={styles.zoneHead}>
+                <h2 style={styles.zoneTitle}>Key Performance</h2>
+                <span style={styles.zoneSub}>vs previous period · trailing 4-window average</span>
+              </div>
+              <div style={styles.kpiGrid}>
+                <DecisionKpiCard label="Reach (views)" value={decisionCards.reach.value}
+                  soWhat={decisionCards.reach.soWhat} spark={kpiSparks.views}
+                  deltaPrev={decisionCards.reach.deltaPrev} deltaBase={decisionCards.reach.deltaBase} color="#3d6ea5" />
+                <DecisionKpiCard label="Efficiency (views / post)" value={decisionCards.efficiency.value}
+                  soWhat={decisionCards.efficiency.soWhat} spark={kpiSparks.efficiency}
+                  deltaPrev={decisionCards.efficiency.deltaPrev} deltaBase={decisionCards.efficiency.deltaBase} color="#2f8f5b" />
+                <DecisionKpiCard label="Audience velocity" value={decisionCards.audience.value}
+                  soWhat={decisionCards.audience.soWhat} spark={kpiSparks.audience}
+                  deltaPrev={decisionCards.audience.deltaPrev} deltaBase={decisionCards.audience.deltaBase} color="#a4548b" />
+                <DecisionKpiCard label="Revenue" value={decisionCards.revenue.value}
+                  soWhat={decisionCards.revenue.soWhat} spark={kpiSparks.revenue}
+                  deltaPrev={decisionCards.revenue.deltaPrev} deltaBase={decisionCards.revenue.deltaBase} color="#c98a2b" />
+              </div>
+
+              {/* Platform digest — secondary, collapsed by default */}
+              <div style={{ marginTop: '18px' }}>
+                <button onClick={() => setShowDigest(!showDigest)} style={styles.collapseBtn} aria-expanded={showDigest}>
+                  {showDigest ? '▾' : '▸'} By platform ({digestPlatforms.filter(d => d.hasData).length})
+                </button>
+                {showDigest && (
+                  <div style={{ ...styles.kpiGrid, marginTop: '14px' }}>
+                    {digestPlatforms.map(d => {
+                      const meta = PLATFORM_META[d.platform] || { label: d.platform, color: '#666' };
+                      const metrics = (DIGEST_CARD_METRICS[d.platform] || (() => []))(d);
+                      if (d.platform === 'substack' && substackPaid != null) metrics.push(['Paid', formatCompact(substackPaid)]);
+                      return (
+                        <div key={d.platform} style={{
+                          background: L.card, border: `1px solid ${L.border}`,
+                          borderLeft: `3px solid ${meta.color}`, borderRadius: 12, padding: '14px 16px', boxShadow: L.shadowSm,
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                            <span style={{ width: 9, height: 9, borderRadius: '50%', background: meta.color, flexShrink: 0 }} />
+                            <span style={{ fontSize: 13, fontWeight: 700, color: L.ink }}>{meta.label}</span>
+                            <CoverageChip platform={d.platform} style={{ marginLeft: 'auto' }} />
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12 }}>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 20px' }}>
+                              {metrics.map(([label, value]) => (
+                                <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                  <span style={{ fontSize: 16, fontWeight: 700, color: L.ink, fontVariantNumeric: 'tabular-nums' }}>{d.hasData ? value : '—'}</span>
+                                  <span style={{ fontSize: 10, color: L.inkSubtle, textTransform: 'uppercase', letterSpacing: '.4px' }}>{label}</span>
+                                </div>
+                              ))}
+                            </div>
+                            {d.hasData && (platformViewSpark[d.platform] || []).length >= 2 && (
+                              <div style={{ flexShrink: 0 }} title="Daily views trend">
+                                <Sparkline data={platformViewSpark[d.platform]} color={meta.color} width={72} height={24} />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </section>
           )}
 
-          {/* ── B. Platform Digest Cards (Weekly-digest platforms) ── */}
-          <div style={styles.kpiGrid}>
-            {digestPlatforms.map(d => {
-              const meta = PLATFORM_META[d.platform] || { label: d.platform, color: '#666' };
-              const metrics = (DIGEST_CARD_METRICS[d.platform] || (() => []))(d);
-              if (d.platform === 'substack' && substackPaid != null) metrics.push(['Paid', formatCompact(substackPaid)]);
-              return (
-                <div key={d.platform} style={{
-                  background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
-                  borderLeft: `3px solid ${meta.color}`, borderRadius: 12, padding: '14px 16px',
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                    <span style={{ width: 9, height: 9, borderRadius: '50%', background: meta.color, flexShrink: 0 }} />
-                    <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{meta.label}</span>
-                    <CoverageChip platform={d.platform} style={{ marginLeft: 'auto' }} />
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12 }}>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 20px' }}>
-                      {metrics.map(([label, value]) => (
-                        <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                          <span style={{ fontSize: 16, fontWeight: 700, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>{d.hasData ? value : '—'}</span>
-                          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '.4px' }}>{label}</span>
-                        </div>
-                      ))}
-                    </div>
-                    {d.hasData && (platformViewSpark[d.platform] || []).length >= 2 && (
-                      <div style={{ flexShrink: 0 }} title="Daily views trend">
-                        <Sparkline data={platformViewSpark[d.platform]} color={meta.color} width={72} height={24} />
+          {/* ── ZONE 3 · Platform Breakdown ── */}
+          <section style={styles.zone}>
+            <div style={styles.zoneHead}>
+              <h2 style={styles.zoneTitle}>Platform Breakdown</h2>
+              <span style={styles.zoneSub}>where reach, engagement &amp; revenue come from</span>
+            </div>
+            {platformBreakdown.length === 0 ? (
+              <EmptyChart label="No platform breakdown for this range yet." />
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
+                {/* Views */}
+                {platformBreakdown.some(p => p.views > 0) && (
+                  <div style={{ ...styles.chartSection, borderTop: '3px solid #3d6ea5' }}>
+                    <span style={{ ...styles.chartTitle, color: '#2f5c8a' }}>Views by Platform</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '24px', marginTop: '16px', flexWrap: 'wrap' }}>
+                      <DonutChart data={platformBreakdown} valueKey="views" centerLabel="total views" />
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {platformBreakdown.filter(p => p.views > 0).map(p => {
+                          const total = platformBreakdown.reduce((s, x) => s + x.views, 0);
+                          return (
+                            <div key={p.label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: p.color, flexShrink: 0 }} />
+                              <span style={{ fontSize: '12px', color: L.inkMuted, minWidth: '70px' }}>{p.label}</span>
+                              <span style={{ fontSize: '12px', fontWeight: 700, color: L.ink }}>{formatCompact(p.views)}</span>
+                              <span style={{ fontSize: '10px', color: L.inkSubtle }}>({(total > 0 ? (p.views / total) * 100 : 0).toFixed(1)}%)</span>
+                            </div>
+                          );
+                        })}
                       </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* ── D. Platform Breakdowns (Donuts) ── */}
-          {platformBreakdown.length === 0 ? (
-            <div style={{ marginBottom: '20px' }}><EmptyChart label="No platform breakdown for this range yet." /></div>
-          ) : (
-            <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
-              {/* Views */}
-              {platformBreakdown.some(p => p.views > 0) && (
-                <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px', borderLeft: '3px solid #6366f1' }}>
-                  <span style={{ ...styles.chartTitle, color: '#6366f1' }}>Views by Platform</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '24px', marginTop: '16px', flexWrap: 'wrap' }}>
-                    <DonutChart data={platformBreakdown} valueKey="views" centerLabel="total views" />
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      {platformBreakdown.filter(p => p.views > 0).map(p => {
-                        const total = platformBreakdown.reduce((s, x) => s + x.views, 0);
-                        return (
-                          <div key={p.label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: p.color, flexShrink: 0 }} />
-                            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', minWidth: '70px' }}>{p.label}</span>
-                            <span style={{ fontSize: '12px', fontWeight: 600, color: '#fff' }}>{formatCompact(p.views)}</span>
-                            <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>({(total > 0 ? (p.views / total) * 100 : 0).toFixed(1)}%)</span>
-                          </div>
-                        );
-                      })}
                     </div>
                   </div>
-                </div>
-              )}
-              {/* Engagement — a RATE per platform, which cannot be summed into a
-                  part-to-whole. Rank platforms by engagement rate instead of a
-                  (mathematically meaningless) donut. */}
-              {platformBreakdown.some(p => p.engagement > 0) && (() => {
-                const engRows = platformBreakdown.filter(p => p.engagement > 0).sort((a, b) => b.engagement - a.engagement);
-                const maxEng = Math.max(...engRows.map(p => p.engagement), 0.0001);
-                return (
-                  <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px', borderLeft: '3px solid #22c55e' }}>
-                    <span style={{ ...styles.chartTitle, color: '#22c55e' }}>Engagement Rate by Platform</span>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '16px' }}>
-                      {engRows.map(p => (
-                        <div key={p.label} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', minWidth: '72px', flexShrink: 0 }}>{p.label}</span>
-                          <div style={{ flex: 1 }}>
-                            <MiniBar value={p.engagement} max={maxEng} color={p.color} height={20} label={`${(p.engagement * 100).toFixed(2)}%`} />
+                )}
+                {/* Engagement — a RATE per platform; ranked bar, not a donut. */}
+                {platformBreakdown.some(p => p.engagement > 0) && (() => {
+                  const engRows = platformBreakdown.filter(p => p.engagement > 0).sort((a, b) => b.engagement - a.engagement);
+                  const maxEng = Math.max(...engRows.map(p => p.engagement), 0.0001);
+                  return (
+                    <div style={{ ...styles.chartSection, borderTop: '3px solid #2f8f5b' }}>
+                      <span style={{ ...styles.chartTitle, color: '#2f8f5b' }}>Engagement Rate by Platform</span>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '16px' }}>
+                        {engRows.map(p => (
+                          <div key={p.label} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ fontSize: '12px', color: L.inkMuted, minWidth: '72px', flexShrink: 0 }}>{p.label}</span>
+                            <div style={{ flex: 1 }}>
+                              <MiniBar value={p.engagement} max={maxEng} color={p.color} height={20} label={`${(p.engagement * 100).toFixed(2)}%`} />
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+                {/* Followers */}
+                {platformBreakdown.some(p => p.followers > 0) && (
+                  <div style={{ ...styles.chartSection, borderTop: '3px solid #a4548b' }}>
+                    <span style={{ ...styles.chartTitle, color: '#a4548b' }}>Followers by Platform</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '24px', marginTop: '16px', flexWrap: 'wrap' }}>
+                      <DonutChart data={platformBreakdown.filter(p => p.followers > 0)} valueKey="followers" centerLabel="total followers" />
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {platformBreakdown.filter(p => p.followers > 0).map(p => {
+                          const total = platformBreakdown.filter(x => x.followers > 0).reduce((s, x) => s + x.followers, 0);
+                          return (
+                            <div key={p.label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: p.color, flexShrink: 0 }} />
+                              <span style={{ fontSize: '12px', color: L.inkMuted, minWidth: '70px' }}>{p.label}</span>
+                              <span style={{ fontSize: '12px', fontWeight: 700, color: L.ink }}>{formatCompact(p.followers)}</span>
+                              <span style={{ fontSize: '10px', color: L.inkSubtle }}>({(total > 0 ? (p.followers / total) * 100 : 0).toFixed(1)}%)</span>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
-                );
-              })()}
-              {/* Followers */}
-              {platformBreakdown.some(p => p.followers > 0) && (
-                <div style={{ ...styles.chartSection, flex: '1 1 340px', minWidth: '300px', borderLeft: '3px solid #ec4899' }}>
-                  <span style={{ ...styles.chartTitle, color: '#ec4899' }}>Followers by Platform</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '24px', marginTop: '16px', flexWrap: 'wrap' }}>
-                    <DonutChart data={platformBreakdown.filter(p => p.followers > 0)} valueKey="followers" centerLabel="total followers" />
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      {platformBreakdown.filter(p => p.followers > 0).map(p => {
-                        const total = platformBreakdown.filter(x => x.followers > 0).reduce((s, x) => s + x.followers, 0);
-                        return (
-                          <div key={p.label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: p.color, flexShrink: 0 }} />
-                            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', minWidth: '70px' }}>{p.label}</span>
-                            <span style={{ fontSize: '12px', fontWeight: 600, color: '#fff' }}>{formatCompact(p.followers)}</span>
-                            <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>({(total > 0 ? (p.followers / total) * 100 : 0).toFixed(1)}%)</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
+            )}
+            {/* Revenue efficiency (RPM) */}
+            <div style={{ marginTop: '20px' }}>
+              <RPMCard revenueData={analysisData.revenue} timeSeries={timeSeries} accounts={accounts} />
             </div>
-          )}
+          </section>
 
-          {/* ── Revenue efficiency (North Star: which platform monetizes best) ── */}
-          <RPMCard revenueData={analysisData.revenue} timeSeries={timeSeries} accounts={accounts} />
-
-          {/* ── E. Content Performance Table ── */}
-          <div style={{ marginTop: '16px' }}>
+          {/* ── ZONE 4 · Deep Dives ── */}
+          <section style={styles.zone}>
+            <div style={styles.zoneHead}>
+              <h2 style={styles.zoneTitle}>Deep Dives</h2>
+              <span style={styles.zoneSub}>expand what you need</span>
+            </div>
+            <div style={{ marginBottom: '12px' }}>
             <button onClick={() => setShowContentPerf(!showContentPerf)} style={styles.collapseBtn} aria-expanded={showContentPerf}>
               {showContentPerf ? '▾' : '▸'} Content Performance ({contentItems.length})
             </button>
@@ -864,7 +894,7 @@ export default function Analytics() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <button onClick={handleContentRefresh} disabled={contentRefreshing}
                       style={{
-                        background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer',
+                        background: 'none', border: 'none', color: L.inkSubtle, cursor: 'pointer',
                         fontSize: '16px', padding: '2px 6px', fontFamily: 'inherit', lineHeight: 1,
                         animation: contentRefreshing ? 'spin 0.8s linear infinite' : 'none',
                       }}
@@ -893,12 +923,12 @@ export default function Analytics() {
                           const meta = PLATFORM_META[platform] || {};
                           return (
                             <tr key={item.id} style={i % 2 === 0 ? styles.trEven : {}}>
-                              <td style={{ ...styles.td, ...styles.tdSticky, background: i % 2 === 0 ? 'rgba(255,255,255,0.01)' : '#12121f' }}>
+                              <td style={{ ...styles.td, ...styles.tdSticky, background: i % 2 === 0 ? L.cardAlt : L.card }}>
                                 {item._flag === 'hot' && <span title="Breakout: ≥2× platform median" style={{ marginRight: 6 }}>🔥</span>}
                                 {item._flag === 'cold' && <span title="Underperformer: ≤0.33× platform median" style={{ marginRight: 6 }}>⚠️</span>}
                                 {item.url ? (
                                   <a href={item.url} target="_blank" rel="noopener noreferrer"
-                                    style={{ color: '#e2e8f0', textDecoration: 'none', fontWeight: 500 }}>
+                                    style={{ color: L.accentText, textDecoration: 'none', fontWeight: 600 }}>
                                     {item.title || '(Untitled)'}
                                   </a>
                                 ) : (item.title || '(Untitled)')}
@@ -924,7 +954,7 @@ export default function Analytics() {
                                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
                                     <span style={{ ...styles.tdValue }}>{formatCompact(Number(metrics.views))}</span>
                                     <div style={{ width: 70 }}>
-                                      <MiniBar value={Number(metrics.views)} max={maxTableViews} color={meta.color || '#6366f1'} height={5} />
+                                      <MiniBar value={Number(metrics.views)} max={maxTableViews} color={meta.color || L.accent} height={5} />
                                     </div>
                                   </div>
                                 ) : '—'}
@@ -932,8 +962,8 @@ export default function Analytics() {
                               <td style={{ ...styles.td, ...styles.tdValue, textAlign: 'right' }}>
                                 {metrics.engagement_rate != null ? (Number(metrics.engagement_rate) * 100).toFixed(2) + '%' : '—'}
                               </td>
-                              <td style={{ ...styles.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
-                                color: item._vsMedian == null ? 'rgba(255,255,255,0.3)' : item._vsMedian >= 2 ? '#4ade80' : item._vsMedian <= 0.33 ? '#f87171' : 'rgba(255,255,255,0.6)' }}>
+                              <td style={{ ...styles.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700,
+                                color: item._vsMedian == null ? L.inkSubtle : item._vsMedian >= 2 ? L.pos : item._vsMedian <= 0.33 ? L.neg : L.inkMuted }}>
                                 {item._vsMedian == null ? '—' : `${item._vsMedian.toFixed(1)}×`}
                               </td>
                             </tr>
@@ -966,7 +996,8 @@ export default function Analytics() {
                 />
               </div>
             )}
-          </div>
+            </div>
+          </section>
         </>
       ))}
 

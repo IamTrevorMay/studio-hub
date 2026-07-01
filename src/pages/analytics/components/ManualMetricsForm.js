@@ -288,28 +288,28 @@ export default function ManualMetricsForm({ platform, fields, accounts }) {
     setSubmitting(false);
   }
 
-  if (!account) return <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px', margin: 0 }}>No {meta.label} account found.</p>;
+  if (!account) return <p style={{ color: '#8791a0', fontSize: '13px', margin: 0 }}>No {meta.label} account found.</p>;
 
   return (
     <div>
       <form onSubmit={handleSubmit}>
-        <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', margin: '0 0 10px' }}>
+        <p style={{ fontSize: '12px', color: '#8791a0', margin: '0 0 10px' }}>
           Enter totals for the date range. Views and revenue are split evenly across days. Followers{hasSupporters ? ' and supporters are' : ' is'} set as a snapshot for each day.
         </p>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Start Date</label>
+            <label style={{ fontSize: '11px', color: '#8791a0', fontWeight: 600 }}>Start Date</label>
             <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
               style={{ ...styles.filterInput, padding: '8px 10px' }} required />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>End Date</label>
+            <label style={{ fontSize: '11px', color: '#8791a0', fontWeight: 600 }}>End Date</label>
             <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
               style={{ ...styles.filterInput, padding: '8px 10px' }} required />
           </div>
           {hasViews && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Total Views</label>
+              <label style={{ fontSize: '11px', color: '#8791a0', fontWeight: 600 }}>Total Views</label>
               <input type="text" inputMode="numeric" pattern="[0-9]*" value={views}
                 onChange={e => setViews(e.target.value.replace(/[^0-9]/g, ''))}
                 placeholder="0" style={{ ...styles.filterInput, padding: '8px 10px', width: '120px' }} />
@@ -317,7 +317,7 @@ export default function ManualMetricsForm({ platform, fields, accounts }) {
           )}
           {hasRevenue && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Total Revenue ($)</label>
+              <label style={{ fontSize: '11px', color: '#8791a0', fontWeight: 600 }}>Total Revenue ($)</label>
               <input type="text" inputMode="decimal" value={revenue}
                 onChange={e => setRevenue(e.target.value.replace(/[^0-9.]/g, ''))}
                 placeholder="0.00" style={{ ...styles.filterInput, padding: '8px 10px', width: '120px' }} />
@@ -325,7 +325,7 @@ export default function ManualMetricsForm({ platform, fields, accounts }) {
           )}
           {hasSubscribers && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Subscribers</label>
+              <label style={{ fontSize: '11px', color: '#8791a0', fontWeight: 600 }}>Subscribers</label>
               <input type="text" inputMode="numeric" pattern="[0-9]*" value={subscribers}
                 onChange={e => setSubscribers(e.target.value.replace(/[^0-9]/g, ''))}
                 placeholder="0" style={{ ...styles.filterInput, padding: '8px 10px', width: '120px' }} />
@@ -333,7 +333,7 @@ export default function ManualMetricsForm({ platform, fields, accounts }) {
           )}
           {hasSupporters && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Supporters</label>
+              <label style={{ fontSize: '11px', color: '#8791a0', fontWeight: 600 }}>Supporters</label>
               <input type="text" inputMode="numeric" pattern="[0-9]*" value={supporters}
                 onChange={e => setSupporters(e.target.value.replace(/[^0-9]/g, ''))}
                 placeholder="0" style={{ ...styles.filterInput, padding: '8px 10px', width: '120px' }} />
@@ -341,7 +341,7 @@ export default function ManualMetricsForm({ platform, fields, accounts }) {
           )}
           {hasFollowers && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>{platform === 'substack' ? 'Subscribers' : 'Followers'}</label>
+              <label style={{ fontSize: '11px', color: '#8791a0', fontWeight: 600 }}>{platform === 'substack' ? 'Subscribers' : 'Followers'}</label>
               <input type="text" inputMode="numeric" pattern="[0-9]*" value={followers}
                 onChange={e => setFollowers(e.target.value.replace(/[^0-9]/g, ''))}
                 placeholder="0" style={{ ...styles.filterInput, padding: '8px 10px', width: '120px' }} />
@@ -366,16 +366,16 @@ export default function ManualMetricsForm({ platform, fields, accounts }) {
           {showManage ? '▾' : '▸'} Manage Entries
         </button>
         {showManage && (
-          <div style={{ marginTop: '10px', padding: '12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px' }}>
+          <div style={{ marginTop: '10px', padding: '12px', background: 'rgba(38,48,67,0.03)', border: '1px solid rgba(38,48,67,0.08)', borderRadius: '10px' }}>
             {/* Delete range */}
             <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: '12px' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                <label style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', fontWeight: 600, textTransform: 'uppercase' }}>Delete from</label>
+                <label style={{ fontSize: '10px', color: '#8791a0', fontWeight: 600, textTransform: 'uppercase' }}>Delete from</label>
                 <input type="date" value={deleteStart} onChange={e => setDeleteStart(e.target.value)}
                   style={{ ...styles.filterInput, padding: '6px 8px', fontSize: '11px' }} />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                <label style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', fontWeight: 600, textTransform: 'uppercase' }}>to</label>
+                <label style={{ fontSize: '10px', color: '#8791a0', fontWeight: 600, textTransform: 'uppercase' }}>to</label>
                 <input type="date" value={deleteEnd} onChange={e => setDeleteEnd(e.target.value)}
                   style={{ ...styles.filterInput, padding: '6px 8px', fontSize: '11px' }} />
               </div>
@@ -398,41 +398,41 @@ export default function ManualMetricsForm({ platform, fields, accounts }) {
 
             {/* Entries table */}
             {loadingEntries ? (
-              <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.3)', margin: 0 }}>Loading...</p>
+              <p style={{ fontSize: '12px', color: '#8791a0', margin: 0 }}>Loading...</p>
             ) : entries.length === 0 ? (
-              <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.3)', margin: 0 }}>No entries found.</p>
+              <p style={{ fontSize: '12px', color: '#8791a0', margin: 0 }}>No entries found.</p>
             ) : (
-              <div style={{ maxHeight: '300px', overflow: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
+              <div style={{ maxHeight: '300px', overflow: 'auto', borderRadius: '8px', border: '1px solid rgba(38,48,67,0.08)' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                   <thead>
                     <tr>
-                      <th style={{ padding: '6px 6px 6px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0, background: '#1a1a2e', width: '28px' }}>
+                      <th style={{ padding: '6px 6px 6px 10px', borderBottom: '1px solid rgba(38,48,67,0.08)', position: 'sticky', top: 0, background: '#f7f9fc', width: '28px' }}>
                         <input type="checkbox" checked={selectedDates.size === entries.length && entries.length > 0} onChange={toggleSelectAll}
                           style={{ cursor: 'pointer', accentColor: color }} />
                       </th>
-                      <th style={{ padding: '6px 10px', textAlign: 'left', fontSize: '10px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0, background: '#1a1a2e' }}>Date</th>
-                      {hasViews && <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0, background: '#1a1a2e' }}>Views</th>}
-                      {hasRevenue && <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0, background: '#1a1a2e' }}>Revenue</th>}
-                      {hasSupporters && <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0, background: '#1a1a2e' }}>Supporters</th>}
-                      {(hasFollowers || hasSubscribers) && <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0, background: '#1a1a2e' }}>{platform === 'substack' ? 'Subs' : 'Followers'}</th>}
-                      <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', color: 'rgba(255,255,255,0.4)', borderBottom: '1px solid rgba(255,255,255,0.06)', position: 'sticky', top: 0, background: '#1a1a2e', width: '40px' }}></th>
+                      <th style={{ padding: '6px 10px', textAlign: 'left', fontSize: '10px', color: '#8791a0', textTransform: 'uppercase', borderBottom: '1px solid rgba(38,48,67,0.08)', position: 'sticky', top: 0, background: '#f7f9fc' }}>Date</th>
+                      {hasViews && <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', color: '#8791a0', textTransform: 'uppercase', borderBottom: '1px solid rgba(38,48,67,0.08)', position: 'sticky', top: 0, background: '#f7f9fc' }}>Views</th>}
+                      {hasRevenue && <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', color: '#8791a0', textTransform: 'uppercase', borderBottom: '1px solid rgba(38,48,67,0.08)', position: 'sticky', top: 0, background: '#f7f9fc' }}>Revenue</th>}
+                      {hasSupporters && <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', color: '#8791a0', textTransform: 'uppercase', borderBottom: '1px solid rgba(38,48,67,0.08)', position: 'sticky', top: 0, background: '#f7f9fc' }}>Supporters</th>}
+                      {(hasFollowers || hasSubscribers) && <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', color: '#8791a0', textTransform: 'uppercase', borderBottom: '1px solid rgba(38,48,67,0.08)', position: 'sticky', top: 0, background: '#f7f9fc' }}>{platform === 'substack' ? 'Subs' : 'Followers'}</th>}
+                      <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '10px', color: '#8791a0', borderBottom: '1px solid rgba(38,48,67,0.08)', position: 'sticky', top: 0, background: '#f7f9fc', width: '40px' }}></th>
                     </tr>
                   </thead>
                   <tbody>
                     {entries.map(entry => (
-                      <tr key={entry.date} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', background: selectedDates.has(entry.date) ? 'rgba(255,255,255,0.03)' : 'transparent' }}>
+                      <tr key={entry.date} style={{ borderBottom: '1px solid rgba(38,48,67,0.05)', background: selectedDates.has(entry.date) ? 'rgba(38,48,67,0.05)' : 'transparent' }}>
                         <td style={{ padding: '5px 6px 5px 10px' }}>
                           <input type="checkbox" checked={selectedDates.has(entry.date)} onChange={() => toggleSelectDate(entry.date)}
                             style={{ cursor: 'pointer', accentColor: color }} />
                         </td>
-                        <td style={{ padding: '5px 10px', color: 'rgba(255,255,255,0.6)' }}>{entry.date}</td>
-                        {hasViews && <td style={{ padding: '5px 10px', color: 'rgba(255,255,255,0.6)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{entry.views != null ? Number(entry.views).toLocaleString() : '—'}</td>}
-                        {hasRevenue && <td style={{ padding: '5px 10px', color: 'rgba(255,255,255,0.6)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{entry.revenue_cents != null ? '$' + (entry.revenue_cents / 100).toFixed(2) : '—'}</td>}
-                        {hasSupporters && <td style={{ padding: '5px 10px', color: 'rgba(255,255,255,0.6)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{entry.supporters != null ? Number(entry.supporters).toLocaleString() : '—'}</td>}
-                        {(hasFollowers || hasSubscribers) && <td style={{ padding: '5px 10px', color: 'rgba(255,255,255,0.6)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{entry.followers_total != null ? Number(entry.followers_total).toLocaleString() : '—'}</td>}
+                        <td style={{ padding: '5px 10px', color: '#5a6473' }}>{entry.date}</td>
+                        {hasViews && <td style={{ padding: '5px 10px', color: '#5a6473', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{entry.views != null ? Number(entry.views).toLocaleString() : '—'}</td>}
+                        {hasRevenue && <td style={{ padding: '5px 10px', color: '#5a6473', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{entry.revenue_cents != null ? '$' + (entry.revenue_cents / 100).toFixed(2) : '—'}</td>}
+                        {hasSupporters && <td style={{ padding: '5px 10px', color: '#5a6473', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{entry.supporters != null ? Number(entry.supporters).toLocaleString() : '—'}</td>}
+                        {(hasFollowers || hasSubscribers) && <td style={{ padding: '5px 10px', color: '#5a6473', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{entry.followers_total != null ? Number(entry.followers_total).toLocaleString() : '—'}</td>}
                         <td style={{ padding: '5px 10px', textAlign: 'right' }}>
                           <button onClick={() => handleDeleteSingleDay(entry)}
-                            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.25)', cursor: 'pointer', fontSize: '13px', padding: '2px 4px' }}
+                            style={{ background: 'none', border: 'none', color: '#aab2be', cursor: 'pointer', fontSize: '13px', padding: '2px 4px' }}
                             title={`Delete ${entry.date}`}>✕</button>
                         </td>
                       </tr>

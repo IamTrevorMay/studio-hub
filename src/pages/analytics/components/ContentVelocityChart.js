@@ -65,13 +65,13 @@ export default function ContentVelocityChart({ contentItems }) {
             return (
               <div key={p} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: meta.color }} />
-                <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>{meta.label}</span>
+                <span style={{ fontSize: '11px', color: '#8791a0' }}>{meta.label}</span>
               </div>
             );
           })}
         </div>
       </div>
-      <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', margin: '4px 0 12px' }}>
+      <p style={{ fontSize: '11px', color: '#8791a0', margin: '4px 0 12px' }}>
         Total views vs days since publish. Dots higher and to the left gained traction fastest.
       </p>
       <div style={{ overflowX: 'auto', position: 'relative' }}>
@@ -83,8 +83,8 @@ export default function ContentVelocityChart({ contentItems }) {
             if (y < PAD.top || y > PAD.top + plotH) return null;
             return (
               <g key={t}>
-                <line x1={PAD.left} y1={y} x2={W - PAD.right} y2={y} stroke="rgba(255,255,255,0.05)" />
-                <text x={PAD.left - 8} y={y + 3} fill="rgba(255,255,255,0.3)" fontSize="10" textAnchor="end">
+                <line x1={PAD.left} y1={y} x2={W - PAD.right} y2={y} stroke="rgba(38,48,67,0.08)" />
+                <text x={PAD.left - 8} y={y + 3} fill="#8791a0" fontSize="10" textAnchor="end">
                   {formatCompact(t)}
                 </text>
               </g>
@@ -94,21 +94,21 @@ export default function ContentVelocityChart({ contentItems }) {
           {xTicks.map(t => {
             const x = xPos(t);
             return (
-              <text key={t} x={x} y={H - 12} fill="rgba(255,255,255,0.3)" fontSize="10" textAnchor="middle">
+              <text key={t} x={x} y={H - 12} fill="#8791a0" fontSize="10" textAnchor="middle">
                 {t}d
               </text>
             );
           })}
           {/* Axis labels */}
-          <text x={W / 2} y={H - 0} fill="rgba(255,255,255,0.25)" fontSize="10" textAnchor="middle">Days since publish</text>
-          <text x={14} y={H / 2} fill="rgba(255,255,255,0.25)" fontSize="10" textAnchor="middle" transform={`rotate(-90, 14, ${H / 2})`}>Views (log scale)</text>
+          <text x={W / 2} y={H - 0} fill="#aab2be" fontSize="10" textAnchor="middle">Days since publish</text>
+          <text x={14} y={H / 2} fill="#aab2be" fontSize="10" textAnchor="middle" transform={`rotate(-90, 14, ${H / 2})`}>Views (log scale)</text>
           {/* Dots */}
           {dots.map((d, i) => (
             <circle key={d.id}
               cx={xPos(d.daysOld)} cy={yPos(d.views)}
               r={hoveredDot === i ? 6 : 4}
               fill={d.color} fillOpacity={hoveredDot === i ? 1 : 0.7}
-              stroke={hoveredDot === i ? '#fff' : d.color} strokeWidth={hoveredDot === i ? 2 : 0.5}
+              stroke={hoveredDot === i ? '#263043' : d.color} strokeWidth={hoveredDot === i ? 2 : 0.5}
               onMouseEnter={() => setHoveredDot(i)}
               style={{ cursor: 'pointer', transition: 'r 0.15s' }}
             />
@@ -122,14 +122,14 @@ export default function ContentVelocityChart({ contentItems }) {
               position: 'absolute', top: '8px',
               left: `${xPct}%`,
               transform: xPct > 70 ? 'translateX(-110%)' : 'translateX(10px)',
-              background: 'rgba(18,18,31,0.95)', border: '1px solid rgba(255,255,255,0.12)',
+              background: '#ffffff', border: '1px solid #dbe2ec',
               borderRadius: '8px', padding: '10px 14px', pointerEvents: 'none',
               maxWidth: '280px', zIndex: 10, boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
             }}>
-              <div style={{ fontSize: '12px', fontWeight: 600, color: '#fff', marginBottom: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ fontSize: '12px', fontWeight: 600, color: '#263043', marginBottom: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {d.title}
               </div>
-              <div style={{ display: 'flex', gap: '8px', fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}>
+              <div style={{ display: 'flex', gap: '8px', fontSize: '11px', color: '#5a6473' }}>
                 <span style={{ color: d.color }}>{d.label}</span>
                 <span>{formatCompact(d.views)} views</span>
                 <span>{d.daysOld}d old</span>

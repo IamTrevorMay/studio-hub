@@ -13,7 +13,7 @@ class PlatformViewErrorBoundary extends React.Component {
     if (this.state.error) {
       return <div style={{ padding: 24, color: '#f87171', fontSize: 13 }}>
         <p style={{ fontWeight: 600 }}>Platform view error:</p>
-        <pre style={{ whiteSpace: 'pre-wrap', color: 'rgba(255,255,255,0.5)' }}>{this.state.error.message}</pre>
+        <pre style={{ whiteSpace: 'pre-wrap', color: '#5a6473' }}>{this.state.error.message}</pre>
       </div>;
     }
     return this.props.children;
@@ -224,7 +224,7 @@ function PlatformView({ accountId, accounts, start, end }) {
       <>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
           <span style={{ width: 12, height: 12, borderRadius: '50%', background: fwColor }} />
-          <span style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>Merchandise</span>
+          <span style={{ fontSize: 18, fontWeight: 700, color: '#263043' }}>Merchandise</span>
         </div>
 
         {/* KPI Cards */}
@@ -252,7 +252,7 @@ function PlatformView({ accountId, accounts, start, end }) {
                 {[{ label: 'Gross', color: fwColor }, { label: 'Net', color: '#22c55e' }].map(m => (
                   <div key={m.label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: m.color }} />
-                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>{m.label}</span>
+                    <span style={{ fontSize: 11, color: '#5a6473', fontWeight: 500 }}>{m.label}</span>
                   </div>
                 ))}
               </div>
@@ -317,7 +317,7 @@ function PlatformView({ accountId, accounts, start, end }) {
                     const margin = orderMarginPct(o);
                     return (
                       <tr key={o.id || i} style={i % 2 === 0 ? styles.trEven : {}}>
-                        <td style={{ ...styles.td, color: 'rgba(255,255,255,0.45)', fontSize: 11 }}>{o.metadata?.friendly_id || '—'}</td>
+                        <td style={{ ...styles.td, color: '#8791a0', fontSize: 11 }}>{o.metadata?.friendly_id || '—'}</td>
                         <td style={{ ...styles.td, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.product_name || '—'}</td>
                         <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>{o.occurred_at ? new Date(o.occurred_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</td>
                         <td style={{ ...styles.td, textAlign: 'right' }}>{formatCurrency(o.amount_cents || 0)}</td>
@@ -355,7 +355,7 @@ function PlatformView({ accountId, accounts, start, end }) {
       {/* Platform header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
         <span style={{ width: 12, height: 12, borderRadius: '50%', background: color }} />
-        <span style={{ fontSize: 18, fontWeight: 700, color: '#fff' }}>{String(account?.account_name || '')}</span>
+        <span style={{ fontSize: 18, fontWeight: 700, color: '#263043' }}>{String(account?.account_name || '')}</span>
       </div>
 
       {/* KPI Cards */}
@@ -375,7 +375,7 @@ function PlatformView({ accountId, accounts, start, end }) {
             <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f59e0b', flexShrink: 0 }} />
-                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>Impressions</span>
+                <span style={{ fontSize: 11, color: '#5a6473', fontWeight: 500 }}>Impressions</span>
               </div>
             </div>
           </div>
@@ -392,7 +392,7 @@ function PlatformView({ accountId, accounts, start, end }) {
               {trendMetrics.map(m => (
                 <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: m.color, flexShrink: 0 }} />
-                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>{m.label}</span>
+                  <span style={{ fontSize: 11, color: '#5a6473', fontWeight: 500 }}>{m.label}</span>
                 </div>
               ))}
             </div>

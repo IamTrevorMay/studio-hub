@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
+import { L } from '../styles';
 
 // Brings the Weekly Report's AI narrative onto the daily dashboard so this is a
 // single decision destination: headline + wins / watch-outs / recommendations
@@ -13,7 +14,7 @@ function Block({ title, items, color }) {
       <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color, marginBottom: 6 }}>{title}</div>
       <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
         {items.slice(0, 3).map((x, i) => (
-          <li key={i} style={{ color: 'rgba(255,255,255,0.75)', fontSize: 12.5, lineHeight: 1.5, marginBottom: 5, display: 'flex' }}>
+          <li key={i} style={{ color: L.inkMuted, fontSize: 12.5, lineHeight: 1.5, marginBottom: 5, display: 'flex' }}>
             <span style={{ color, marginRight: 6 }}>●</span>{String(x)}
           </li>
         ))}
@@ -59,9 +60,9 @@ export default function ThisWeekBanner({ onOpenFullReport }) {
         <>
           {n.headline && <div style={styles.headline}>{String(n.headline)}</div>}
           <div style={styles.row}>
-            <Block title="Wins" items={n.wins} color="#34d399" />
-            <Block title="Watch-outs" items={n.watch_outs} color="#fbbf24" />
-            <Block title="Recommendations" items={n.recommendations} color="#a5b4fc" />
+            <Block title="Wins" items={n.wins} color="#2f8f5b" />
+            <Block title="Watch-outs" items={n.watch_outs} color="#c98a2b" />
+            <Block title="Recommendations" items={n.recommendations} color={L.accent} />
           </div>
         </>
       )}
@@ -71,19 +72,19 @@ export default function ThisWeekBanner({ onOpenFullReport }) {
 
 const styles = {
   wrap: {
-    background: 'linear-gradient(135deg, rgba(99,102,241,0.08), rgba(99,102,241,0.02))',
-    border: '1px solid rgba(99,102,241,0.2)', borderRadius: 12, padding: '14px 18px', marginBottom: 16,
+    background: L.card,
+    border: `1px solid ${L.border}`, borderRadius: 12, padding: '16px 18px', boxShadow: L.shadowSm,
   },
   head: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   toggle: {
-    background: 'none', border: 'none', color: '#e2e8f0', fontSize: 14, fontWeight: 700,
+    background: 'none', border: 'none', color: L.ink, fontSize: 14, fontWeight: 700,
     cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', padding: 0,
   },
-  dates: { fontSize: 11, color: 'rgba(255,255,255,0.4)', marginLeft: 10, fontWeight: 500 },
+  dates: { fontSize: 11, color: L.inkSubtle, marginLeft: 10, fontWeight: 500 },
   link: {
-    background: 'none', border: 'none', color: '#a5b4fc', fontSize: 12, fontWeight: 600,
+    background: 'none', border: 'none', color: L.accent, fontSize: 12, fontWeight: 600,
     cursor: 'pointer', fontFamily: 'inherit',
   },
-  headline: { color: '#e2e8f0', fontSize: 14.5, fontWeight: 600, lineHeight: 1.45, margin: '12px 0 14px' },
+  headline: { color: L.ink, fontSize: 14.5, fontWeight: 600, lineHeight: 1.45, margin: '12px 0 14px' },
   row: { display: 'flex', gap: 24, flexWrap: 'wrap' },
 };

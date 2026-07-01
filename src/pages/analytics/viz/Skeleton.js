@@ -7,7 +7,7 @@ export default function Skeleton({ height = 16, width = '100%', radius = radii.s
   return (
     <div style={{
       height, width, borderRadius: radius,
-      background: 'rgba(255,255,255,0.05)',
+      background: 'rgba(38,48,67,0.08)',
       animation: 'pulse 1.4s ease-in-out infinite',
       ...style,
     }} />

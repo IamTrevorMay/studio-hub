@@ -86,7 +86,7 @@ export default function TrendChart({ data, metrics }) {
   return (
     <div style={{ overflowX: 'auto', position: 'relative' }}>
       {metricLines.length > 1 && (
-        <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', marginBottom: '2px' }}>
+        <div style={{ fontSize: '10px', color: '#8791a0', marginBottom: '2px' }}>
           Each line indexed to its own peak (100%) — hover for actual values.
         </div>
       )}
@@ -95,8 +95,8 @@ export default function TrendChart({ data, metrics }) {
         {/* Grid lines + indexed y-axis (% of each line's own peak) */}
         {gridYs.map((y, i) => (
           <g key={i}>
-            <line x1={PAD.left} y1={y} x2={W - PAD.right} y2={y} stroke="rgba(255,255,255,0.05)" />
-            <text x={PAD.left - 8} y={y + 3} textAnchor="end" fill="rgba(255,255,255,0.3)" fontSize="10">{i * 25}%</text>
+            <line x1={PAD.left} y1={y} x2={W - PAD.right} y2={y} stroke="rgba(38,48,67,0.08)" />
+            <text x={PAD.left - 8} y={y + 3} textAnchor="end" fill="#8791a0" fontSize="10">{i * 25}%</text>
           </g>
         ))}
         {/* X-axis labels */}
@@ -105,7 +105,7 @@ export default function TrendChart({ data, metrics }) {
           else if (i !== 0 && i !== data.length - 1 && i % tickInterval !== 0) return null;
           const x = PAD.left + i * xStep;
           return (
-            <text key={i} x={x} y={H - 8} fill="rgba(255,255,255,0.3)" fontSize="10" textAnchor="middle">
+            <text key={i} x={x} y={H - 8} fill="#8791a0" fontSize="10" textAnchor="middle">
               {formatDateLabel(d.date)}
             </text>
           );
@@ -134,13 +134,13 @@ export default function TrendChart({ data, metrics }) {
           <line
             x1={PAD.left + hoveredIndex * xStep} y1={PAD.top}
             x2={PAD.left + hoveredIndex * xStep} y2={PAD.top + plotH}
-            stroke="rgba(255,255,255,0.2)" strokeWidth="1" strokeDasharray="4,3"
+            stroke="rgba(38,48,67,0.22)" strokeWidth="1" strokeDasharray="4,3"
           />
         )}
         {/* Hover dots */}
         {hoveredIndex !== null && metricLines.map(m => (
           <circle key={m.key} cx={m.points[hoveredIndex].x} cy={m.points[hoveredIndex].y}
-            r="3.5" fill={m.color} stroke="#12121f" strokeWidth="1.5" />
+            r="3.5" fill={m.color} stroke="#ffffff" strokeWidth="1.5" />
         ))}
         {/* Invisible hover rects */}
         {data.map((d, i) => {
@@ -158,11 +158,11 @@ export default function TrendChart({ data, metrics }) {
           top: '8px',
           left: `${((PAD.left + hoveredIndex * xStep) / W) * 100}%`,
           transform: hoveredIndex > data.length * 0.7 ? 'translateX(-110%)' : 'translateX(10px)',
-          background: 'rgba(18,18,31,0.95)', border: '1px solid rgba(255,255,255,0.12)',
+          background: '#ffffff', border: '1px solid #dbe2ec',
           borderRadius: '8px', padding: '10px 14px', zIndex: 10, pointerEvents: 'none',
           minWidth: '140px', boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
         }}>
-          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '6px', fontWeight: 600 }}>
+          <div style={{ fontSize: '11px', color: '#5a6473', marginBottom: '6px', fontWeight: 600 }}>
             {toLocalDate(data[hoveredIndex].date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
             {data[hoveredIndex]._interpolated && (
               <span style={{ color: '#f59e0b', marginLeft: 6, fontStyle: 'italic' }}>(estimated)</span>
@@ -174,8 +174,8 @@ export default function TrendChart({ data, metrics }) {
           {metricLines.map(m => (
             <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
               <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: m.color, flexShrink: 0 }} />
-              <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', minWidth: '70px' }}>{m.label}</span>
-              <span style={{ fontSize: '12px', color: '#fff', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+              <span style={{ fontSize: '11px', color: '#5a6473', minWidth: '70px' }}>{m.label}</span>
+              <span style={{ fontSize: '12px', color: '#263043', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
                 {formatMetricValue(m, m.values[hoveredIndex], hoveredIndex)}
               </span>
             </div>

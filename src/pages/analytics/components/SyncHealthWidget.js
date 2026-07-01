@@ -8,11 +8,11 @@ function statusColor(row) {
   const hasYesterday = (row.yesterday_row_count || 0) >= row.expected_row_count;
   const tokenBad = row.token_status === 'expired' || row.token_status === 'revoked';
 
-  if (tokenBad || hoursSince > 50 || failures >= 3) return '#ef4444';
+  if (tokenBad || hoursSince > 50 || failures >= 3) return '#c2483d';
   // Stale data (cached/identical API responses) looks healthy on every other
   // check, so it must downgrade an otherwise-green account to amber.
-  if (hoursSince > 26 || failures >= 1 || !hasYesterday || row.stale) return '#f59e0b';
-  return '#22c55e';
+  if (hoursSince > 26 || failures >= 1 || !hasYesterday || row.stale) return '#c98a2b';
+  return '#2f8f5b';
 }
 
 function relativeTime(iso) {
@@ -100,15 +100,15 @@ const styles = {
     alignItems: 'center',
     gap: 8,
     padding: '8px 12px',
-    background: 'rgba(255,255,255,0.02)',
-    border: '1px solid rgba(255,255,255,0.06)',
+    background: '#ffffff',
+    border: '1px solid #dbe2ec',
     borderRadius: 10,
-    marginBottom: 16,
+    boxShadow: '0 1px 2px rgba(38,48,67,0.05)',
   },
   label: {
     fontSize: 11,
-    fontWeight: 600,
-    color: 'rgba(255,255,255,0.4)',
+    fontWeight: 700,
+    color: '#8791a0',
     textTransform: 'uppercase',
     letterSpacing: '0.5px',
     marginRight: 4,

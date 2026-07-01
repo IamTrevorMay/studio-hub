@@ -72,7 +72,7 @@ export default function YouTubeCSVUpload({ profile }) {
   }
 
   return (
-    <div style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', marginTop: '8px' }}>
+    <div style={{ padding: '16px', background: 'rgba(38,48,67,0.03)', border: '1px solid rgba(38,48,67,0.08)', borderRadius: '12px', marginTop: '8px' }}>
       <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
         {YT_CSV_PLATFORMS.map(p => (
           <button key={p.key} onClick={() => setCsvPlatform(p.key)}

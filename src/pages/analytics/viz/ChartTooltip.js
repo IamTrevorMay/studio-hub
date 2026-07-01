@@ -8,9 +8,9 @@ export default function ChartTooltip({ leftPct = 0, top = 8, flip, children }) {
     <div style={{
       position: 'absolute', top, left: `${leftPct}%`,
       transform: flip ? 'translateX(-110%)' : 'translateX(10px)',
-      background: 'rgba(18,18,31,0.95)', border: '1px solid rgba(255,255,255,0.12)',
+      background: '#ffffff', border: '1px solid #dbe2ec',
       borderRadius: 8, padding: '10px 14px', pointerEvents: 'none', zIndex: 10,
-      minWidth: 140, boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+      minWidth: 140, boxShadow: '0 6px 20px rgba(38,48,67,0.14)',
     }}>
       {children}
     </div>

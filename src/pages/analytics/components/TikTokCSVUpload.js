@@ -88,11 +88,11 @@ export default function TikTokCSVUpload({ profile, accounts }) {
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
-  if (!tiktokAccount) return <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px', margin: 0 }}>No TikTok account found.</p>;
+  if (!tiktokAccount) return <p style={{ color: '#8791a0', fontSize: '13px', margin: 0 }}>No TikTok account found.</p>;
 
   return (
     <div>
-      <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', margin: '0 0 10px' }}>
+      <p style={{ fontSize: '12px', color: '#8791a0', margin: '0 0 10px' }}>
         Upload a CSV exported from TikTok Studio. Select the year for the data (TikTok CSVs don't include the year).
         {lastDataDate && (
           <span style={{ marginLeft: '8px', color: '#4ade80', fontWeight: 600 }}>
@@ -102,7 +102,7 @@ export default function TikTokCSVUpload({ profile, accounts }) {
       </p>
       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Year</label>
+          <label style={{ fontSize: '11px', color: '#8791a0', fontWeight: 600 }}>Year</label>
           <select value={csvYear} onChange={e => setCsvYear(Number(e.target.value))} style={{ ...styles.filterSelect, padding: '8px 10px' }}>
             {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(y => (
               <option key={y} value={y}>{y}</option>
