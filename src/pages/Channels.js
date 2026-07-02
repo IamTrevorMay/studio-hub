@@ -291,8 +291,19 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
     setRenamingChannelId(null);
     const ch = channels.find(c => c.id === channelId);
     if (!name || !ch || name === ch.name) return;
+    // Channel names are unique — catch a collision up front so the user gets a
+    // clear message instead of a raw "channels_name_key" constraint error.
+    if (channels.some(c => c.id !== channelId && c.name === name)) {
+      alert(`A channel named #${name} already exists. Please choose a different name.`);
+      return;
+    }
     const { error } = await supabase.from('channels').update({ name }).eq('id', channelId);
-    if (error) { alert('Error: ' + error.message); return; }
+    if (error) {
+      alert(error.code === '23505'
+        ? `A channel named #${name} already exists. Please choose a different name.`
+        : 'Error: ' + error.message);
+      return;
+    }
     setChannels(prev => prev.map(c => c.id === channelId ? { ...c, name } : c));
     setActiveChannel(prev => (prev?.id === channelId ? { ...prev, name } : prev));
   }
@@ -380,10 +391,22 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   async function handleCreateChannel(e) {
     e.preventDefault();
     const name = channelName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    if (!name) { alert('Please enter a channel name.'); return; }
+    // Channel names are unique — catch a collision up front so the user gets a
+    // clear message instead of a raw "channels_name_key" constraint error.
+    if (channels.some(c => c.name === name)) {
+      alert(`A channel named #${name} already exists. Please choose a different name.`);
+      return;
+    }
     const { error } = await supabase.from('channels').insert({
       name, description: channelDesc, created_by: profile.id,
     });
-    if (error) { alert('Error: ' + error.message); return; }
+    if (error) {
+      alert(error.code === '23505'
+        ? `A channel named #${name} already exists. Please choose a different name.`
+        : 'Error: ' + error.message);
+      return;
+    }
     setChannelName('');
     setChannelDesc('');
     setShowCreateChannel(false);
@@ -786,9 +809,13 @@ function ChannelItem({
 }) {
   const [renameValue, setRenameValue] = useState(channel.name);
   const renameInputRef = useRef(null);
+  // Enter/Escape unmount this input, which fires onBlur — this guards against
+  // that blur re-submitting (or submitting a name the user just canceled).
+  const finalizedRef = useRef(false);
 
   useEffect(() => {
     if (isRenaming) {
+      finalizedRef.current = false;
       setRenameValue(channel.name);
       requestAnimationFrame(() => {
         renameInputRef.current?.focus();
@@ -806,10 +833,10 @@ function ChannelItem({
             ref={renameInputRef}
             value={renameValue}
             onChange={(e) => setRenameValue(e.target.value)}
-            onBlur={() => onRenameSubmit(renameValue)}
+            onBlur={() => { if (!finalizedRef.current) { finalizedRef.current = true; onRenameSubmit(renameValue); } }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') { e.preventDefault(); onRenameSubmit(renameValue); }
-              else if (e.key === 'Escape') { e.preventDefault(); onRenameCancel(); }
+              if (e.key === 'Enter') { e.preventDefault(); finalizedRef.current = true; onRenameSubmit(renameValue); }
+              else if (e.key === 'Escape') { e.preventDefault(); finalizedRef.current = true; onRenameCancel(); }
             }}
             style={styles.channelRenameInput}
           />
