@@ -16,6 +16,14 @@ function json(body: unknown, status = 200) {
   });
 }
 
+// Pacific-time day key. Server runs UTC; "due tomorrow" must be computed on the
+// PT calendar (due_date is a PT calendar date) regardless of when the cron fires.
+function ptDayString(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(d);
+}
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -277,9 +285,7 @@ async function handleDueSoonCron(
   siteUrl: string,
 ) {
   // Find assignments due tomorrow that aren't completed
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStr = tomorrow.toISOString().split("T")[0];
+  const tomorrowStr = ptDayString(new Date(Date.now() + 86400000));
 
   const { data: assignments } = await supabase
     .from("freelancer_assignments")

@@ -5,6 +5,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { ptRangeToUtc } from '../lib/ptDate';
 import YearlyGoalsSection from '../components/YearlyGoalsSection';
 import ProgressKanban from '../components/ProgressKanban';
 
@@ -31,31 +32,6 @@ function getMonthRange(year, month) {
   const lastDay = new Date(year, month + 1, 0).getDate();
   const end = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
   return { start, end };
-}
-
-// UTC instant for a given wall-clock time in America/Los_Angeles.
-// `published_at` is timestamptz; comparing against a bare date makes Postgres
-// assume UTC midnight, which pulls in late-PT posts from the prior day. These
-// helpers anchor month boundaries to Pacific midnight instead (DST-aware via Intl).
-function laOffsetMs(utcInstant) {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-  }).formatToParts(new Date(utcInstant)).reduce((a, p) => { a[p.type] = p.value; return a; }, {});
-  const asUTC = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour % 24, +parts.minute, +parts.second);
-  return asUTC - utcInstant; // wall - utc = PT offset
-}
-
-function ptWallToUtcISO(year, month, day) {
-  const guess = Date.UTC(year, month, day, 0, 0, 0);
-  return new Date(guess - laOffsetMs(guess)).toISOString();
-}
-
-// Half-open UTC range [startUtc, endUtc) covering the PT calendar month.
-function getMonthRangeUtc(year, month) {
-  const startUtc = ptWallToUtcISO(year, month, 1);
-  const endUtc = ptWallToUtcISO(month === 11 ? year + 1 : year, month === 11 ? 0 : month + 1, 1);
-  return { startUtc, endUtc };
 }
 
 function formatCompact(n) {
@@ -264,7 +240,7 @@ export default function Tracking() {
     const gen = ++postsGenRef.current;
     setPostsLoading(true);
     const { start, end } = getMonthRange(postsYear, postsMonth);
-    const { startUtc, endUtc } = getMonthRangeUtc(postsYear, postsMonth);
+    const { startUtc, endUtc } = ptRangeToUtc(start, end);
 
     const ciIds = POSTS_COLUMNS.filter(c => c.source === 'content_items').map(c => c.accountId);
     const ciQuery = supabase

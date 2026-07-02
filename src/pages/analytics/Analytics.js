@@ -8,6 +8,7 @@ import ContentHealthDashboard from '../ContentHealthDashboard';
 import { PLATFORM_META, DATE_RANGES, MONTHS } from './constants';
 import { daysAgoStr, todayStr, getDateRange, formatCompact, formatCurrency, pctChange, fetchAllRows } from './utils';
 import { styles, L } from './styles';
+import { ptRangeToUtc } from '../../lib/ptDate';
 
 import DonutChart from './components/DonutChart';
 import DataInputSection from './components/DataInputSection';
@@ -291,18 +292,19 @@ export default function Analytics() {
   async function fetchAnalysisData() {
     const gen = ++analysisGenRef.current;
     const { start, end } = getDateRange(dateRange, customStart, customEnd, filterMonth, filterYear);
+    const { startUtc, endUtc } = ptRangeToUtc(start, end);
     const [revResult, contentResult, audResult] = await Promise.all([
       supabase
         .from('revenue_events')
         .select('platform_account_id, amount_cents, net_amount_cents, event_type')
-        .gte('occurred_at', start)
-        .lte('occurred_at', end + 'T23:59:59.999')
+        .gte('occurred_at', startUtc)
+        .lt('occurred_at', endUtc)
         .in('event_type', ['charge', 'subscription_renewal']),
       supabase
         .from('content_items')
         .select('id, title, published_at, platform_account_id, url, content_type, series, platform_account:platform_accounts(platform, account_name), latest_metrics:content_metrics(views, likes, comments, shares, engagement_rate)')
-        .gte('published_at', start)
-        .lte('published_at', end + 'T23:59:59.999')
+        .gte('published_at', startUtc)
+        .lt('published_at', endUtc)
         .order('published_at', { ascending: false })
         .limit(500),
       supabase
@@ -338,6 +340,7 @@ export default function Analytics() {
   async function fetchContentPerformance() {
     const gen = ++contentGenRef.current;
     const { start, end } = getDateRange(dateRange, customStart, customEnd, filterMonth, filterYear);
+    const { startUtc, endUtc } = ptRangeToUtc(start, end);
     let q = supabase
       .from('content_items')
       .select(`
@@ -345,8 +348,8 @@ export default function Analytics() {
         platform_account:platform_accounts(platform, account_name),
         latest_metrics:content_metrics(views, likes, comments, shares, engagement_rate)
       `)
-      .gte('published_at', start)
-      .lte('published_at', end)
+      .gte('published_at', startUtc)
+      .lt('published_at', endUtc)
       .order('published_at', { ascending: false })
       .limit(100);
     if (activeAccountIds.length > 0) q = q.in('platform_account_id', activeAccountIds);

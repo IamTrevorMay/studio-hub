@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { callWorkflowFn } from '../lib/workflowApi';
+import { ptMonthKey, ptDayKey } from '../lib/ptDate';
 
 const DELIVERABLE_TYPES = {
   long_form_read: { label: 'Long Form Read', icon: '\u{1F4D6}' },
@@ -1719,7 +1720,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
 
     // Filter to video_post events in this month
     const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
-    const monthEvents = videoEvents.filter(ev => (ev.event_type === 'video_post' || ev.event_type === 'tmbb_video') && ev.start_date && ev.start_date.slice(0, 7) === monthStr);
+    const monthEvents = videoEvents.filter(ev => (ev.event_type === 'video_post' || ev.event_type === 'tmbb_video') && ev.start_date && ptMonthKey(ev.start_date) === monthStr);
 
     // Which events are linked to other deliverables
     const linkedMap = {};
@@ -1734,7 +1735,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
     for (let i = 0; i < firstDay; i++) cells.push(<div key={`blank-${i}`} style={styles.calendarDayBlank} />);
     for (let day = 1; day <= daysInMonth; day++) {
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      const dayEvents = monthEvents.filter(ev => ev.start_date.slice(0, 10) === dateStr);
+      const dayEvents = monthEvents.filter(ev => ptDayKey(ev.start_date) === dateStr);
       const isToday = dateStr === todayStr;
       cells.push(
         <div key={day} style={{ ...styles.calendarDay, ...(isToday ? { border: '1px solid rgba(99,102,241,0.5)' } : {}) }}>

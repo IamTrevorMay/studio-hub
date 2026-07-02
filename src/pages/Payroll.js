@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { ptDateToUtcISO } from '../lib/ptDate';
 
 // ── Pay Period Helpers ────────────────────────────────────────────
 
@@ -153,8 +154,8 @@ export default function Payroll() {
       supabase.from('freelancer_assignments')
         .select('id, freelancer_id, title, pay_amount, hours_spent, completed_at, status')
         .eq('status', 'completed')
-        .gte('completed_at', selectedPeriod.start + 'T00:00:00')
-        .lte('completed_at', selectedPeriod.end + 'T23:59:59'),
+        .gte('completed_at', ptDateToUtcISO(selectedPeriod.start))
+        .lt('completed_at', ptDateToUtcISO(selectedPeriod.end, true)),
       supabase.from('profiles').select('id, full_name, role, avatar_url, pay_method, pay_method_detail').in('role', ['admin', 'assistant', 'member', 'director_creative', 'director_comms']),
       supabase.from('payroll_salaries').select('*').is('ended_at', null),
       supabase.from('payroll_one_offs').select('*').eq('period_start', selectedPeriod.start).order('created_at'),

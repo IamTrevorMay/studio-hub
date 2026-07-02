@@ -14,6 +14,14 @@ import {
 } from "../shared/utils.ts";
 import { isSafeExternalUrl } from "../shared/url-validation.ts";
 
+// Pacific-time day key. Server runs UTC; daily snapshots must bucket by the PT
+// calendar (matches other syncs) or near-midnight rows mislabel the day.
+function ptDayString(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(d);
+}
+
 serve(async (req) => {
   try {
     // Auth: CRON_SECRET (header or query) or admin JWT required
@@ -68,7 +76,7 @@ serve(async (req) => {
           const statsRes = await fetchWithRetry(`${baseUrl}/api/v1/subscriber_count`);
           if (statsRes.ok) {
             const statsData = await statsRes.json();
-            const today = new Date().toISOString().split("T")[0];
+            const today = ptDayString();
             await supabase.from("audience_snapshots").upsert(
               {
                 platform_account_id: account.id,

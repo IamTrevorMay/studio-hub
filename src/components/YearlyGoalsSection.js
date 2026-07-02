@@ -9,6 +9,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+import { ptDateToUtcISO, ptMonthKey } from '../lib/ptDate';
 
 // ─── Constants + helpers (mirrored from Goals.js so this stays standalone) ─
 
@@ -238,7 +239,7 @@ export default function YearlyGoalsSection() {
   async function fetchMonthlyProgress(mGoals, accts) {
     const now = new Date();
     const year = now.getFullYear();
-    const yearStart = `${year}-01-01`;
+    const yearStart = ptDateToUtcISO(`${year}-01-01`); // PT-midnight Jan 1 as a UTC instant
     const yearEnd = now.toISOString();
     const allAccountIds = [...new Set(mGoals.flatMap(g => g.platform_account_ids || []))];
     if (!allAccountIds.length) return;
@@ -289,7 +290,7 @@ export default function YearlyGoalsSection() {
       });
       const byMonth = {};
       for (const item of filtered) {
-        const month = item.published_at.substring(0, 7);
+        const month = ptMonthKey(item.published_at); // PT year-month, matches currentMonth
         byMonth[month] = (byMonth[month] || 0) + 1;
       }
       if (hasTiktok && mg.content_type_filter === 'short') {

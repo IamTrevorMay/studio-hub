@@ -8,6 +8,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const HELIX = "https://api.twitch.tv/helix";
 
+// Pacific-time day key. Server runs UTC; daily snapshots/metrics must bucket by
+// the PT calendar (matches sync-youtube) or near-midnight rows mislabel the day.
+function ptDayString(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(d);
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -225,7 +233,7 @@ Deno.serve(async (req: Request) => {
 
     const accessToken = newTokens.access_token;
     const broadcasterId = account.external_id;
-    const today = new Date().toISOString().split("T")[0];
+    const today = ptDayString();
 
     // ── 2. Fetch followers ──
     let followersTotal = 0;
@@ -241,9 +249,7 @@ Deno.serve(async (req: Request) => {
         results.followers = followersTotal;
 
         // Get yesterday's snapshot for delta
-        const yesterday = new Date(Date.now() - 86400000)
-          .toISOString()
-          .split("T")[0];
+        const yesterday = ptDayString(new Date(Date.now() - 86400000));
         const { data: yesterdaySnap } = await supabase
           .from("audience_snapshots")
           .select("followers_total")

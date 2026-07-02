@@ -13,6 +13,25 @@ import {
 import { parseDuration } from "./parseDuration.ts";
 
 const YT_API_BASE = "https://www.googleapis.com/youtube/v3";
+
+// Pacific-time helpers. The server runs UTC; daily snapshots/metrics and
+// per-day revenue attribution must use the PT calendar (the app's timezone),
+// or rows land on the wrong day near midnight PT.
+function ptDayString(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(d);
+}
+function ptDateToUtcISO(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const guess = Date.UTC(y, m - 1, d, 0, 0, 0);
+  const p = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  }).formatToParts(new Date(guess)).reduce((a: Record<string, string>, x) => { a[x.type] = x.value; return a; }, {});
+  const asUTC = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second);
+  return new Date(guess - (asUTC - guess)).toISOString();
+}
 const YT_ANALYTICS_API = "https://youtubeanalytics.googleapis.com/v2/reports";
 
 // Per-channel refresh token mapping
@@ -209,7 +228,7 @@ serve(async (req) => {
         const channelCreatedAt = channelData.items?.[0]?.snippet?.publishedAt;
 
         if (channelStats) {
-          const today = new Date().toISOString().split("T")[0];
+          const today = ptDayString();
           await supabase.from("audience_snapshots").upsert(
             {
               platform_account_id: account.id,
@@ -224,7 +243,7 @@ serve(async (req) => {
             { onConflict: "platform_account_id,date" }
           );
 
-          const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
+          const yesterday = ptDayString(new Date(Date.now() - 86400000));
           const { data: yesterdaySnap } = await supabase
             .from("audience_snapshots")
             .select("followers_total")
@@ -528,7 +547,7 @@ serve(async (req) => {
                     product_category: "ad_revenue",
                     product_name: `YouTube Ad Revenue - ${account.account_name}`,
                     is_recurring: false,
-                    occurred_at: `${day.date}T00:00:00Z`,
+                    occurred_at: ptDateToUtcISO(day.date),
                     metadata: {
                       source: "youtube_analytics",
                       channel_id: channelId,

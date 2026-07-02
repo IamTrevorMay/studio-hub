@@ -17,6 +17,14 @@ import {
 
 const STRIPE_API = "https://api.stripe.com/v1";
 
+// Pacific-time day key. Server runs UTC; daily snapshots must bucket by the PT
+// calendar (matches other syncs) or near-midnight rows mislabel the day.
+function ptDayString(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(d);
+}
+
 Deno.serve(async (req) => {
   try {
     const supabase = getSupabaseAdmin();
@@ -310,7 +318,7 @@ async function handleBatchReconciliation(supabase: any, stripeHeaders: Record<st
       subStartingAfter = subsData.has_more && subs.length > 0 ? subs[subs.length - 1].id : null;
     } while (subStartingAfter);
 
-    const today = new Date().toISOString().split("T")[0];
+    const today = ptDayString();
     await supabase.from("audience_snapshots").upsert(
       {
         platform_account_id: account.id,
