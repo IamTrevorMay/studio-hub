@@ -17,12 +17,18 @@ const CHANNEL_ROLE_OPTIONS = [
   { value: 'freelancer', label: 'Contractor' },
 ];
 
-// A channel with no allowed_roles (null/empty) is open to everyone. Otherwise
-// only the listed roles — plus admin-tier, who always see every channel.
-function channelVisibleToRole(channel, role) {
-  const allowed = channel.allowed_roles;
+// A null/empty allowed_roles list is open to everyone. Otherwise only the
+// listed roles — plus admin-tier, who always see everything.
+function rolesAllow(allowed, role) {
   if (!allowed || allowed.length === 0) return true;
   return allowed.includes(role);
+}
+
+// A grouped channel's visibility is governed by its group's permissions (the
+// group overrides the channel's own); an ungrouped channel uses its own.
+function effectiveChannelVisible(channel, group, role) {
+  if (group) return rolesAllow(group.allowed_roles, role);
+  return rolesAllow(channel.allowed_roles, role);
 }
 
 
@@ -56,16 +62,22 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   const { unreadMentionChannelIds, markChannelSeen, refreshNotifications } = useNotifications();
   const confirm = useConfirm();
   const [channels, setChannels] = useState([]);
+  const [groups, setGroups] = useState([]);
+  const [collapsedGroups, setCollapsedGroups] = useState(() => new Set());
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [groupName, setGroupName] = useState('');
+  const [renamingGroupId, setRenamingGroupId] = useState(null);
   const [draggedChannelId, setDraggedChannelId] = useState(null);
   const [dragOverChannelId, setDragOverChannelId] = useState(null);
-  const [contextMenu, setContextMenu] = useState(null); // { channelId, x, y }
+  const [contextMenu, setContextMenu] = useState(null); // { kind: 'channel'|'group', id, x, y }
   const [renamingChannelId, setRenamingChannelId] = useState(null);
-  const [permsChannel, setPermsChannel] = useState(null); // channel being edited in the Set Permissions modal
+  const [permsTarget, setPermsTarget] = useState(null); // { kind: 'channel'|'group', row } being edited
   const [permsSelected, setPermsSelected] = useState(() => new Set());
   const [activeChannel, setActiveChannel] = useState(null);
   const [messages, setMessages] = useState([]);
   const [pinnedMessages, setPinnedMessages] = useState([]);
-  const [showPinned, setShowPinned] = useState(false);
+  const [showPinned, setShowPinned] = useState(true);
+  const [highlightedMsgId, setHighlightedMsgId] = useState(null);
   const [newMessage, setNewMessage] = useState('');
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [channelName, setChannelName] = useState('');
@@ -78,11 +90,17 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Admins manage every channel; everyone else only sees channels their role
-  // is permitted to access.
+  const groupById = useMemo(() => {
+    const m = {};
+    groups.forEach(g => { m[g.id] = g; });
+    return m;
+  }, [groups]);
+
+  // Admins manage everything; everyone else only sees channels their role is
+  // permitted to access — via the channel's group when it has one, else its own.
   const visibleChannels = useMemo(
-    () => channels.filter(ch => isAdmin || channelVisibleToRole(ch, profile?.role)),
-    [channels, isAdmin, profile?.role],
+    () => channels.filter(ch => isAdmin || effectiveChannelVisible(ch, ch.group_id ? groupById[ch.group_id] : null, profile?.role)),
+    [channels, groupById, isAdmin, profile?.role],
   );
 
   const fetchChannels = useCallback(async () => {
@@ -93,6 +111,16 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
       if (data?.length > 0) setActiveChannel(prev => prev || data[0]);
     } catch (err) {
       console.error('Error fetching channels:', err);
+    }
+  }, []);
+
+  const fetchGroups = useCallback(async () => {
+    try {
+      const { data } = await supabase.from('channel_groups')
+        .select('*').order('sort_order', { ascending: true }).order('name');
+      setGroups(data || []);
+    } catch (err) {
+      console.error('Error fetching channel groups:', err);
     }
   }, []);
 
@@ -107,12 +135,12 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
 
   useEffect(() => {
     if (!profile?.id) return;
-    Promise.all([fetchChannels(), fetchTeamMembers()])
+    Promise.all([fetchChannels(), fetchGroups(), fetchTeamMembers()])
       .finally(() => setLoading(false));
-  }, [profile?.id, fetchChannels, fetchTeamMembers]);
+  }, [profile?.id, fetchChannels, fetchGroups, fetchTeamMembers]);
   useVisibilityRefresh(useCallback(() => {
-    if (profile?.id) fetchChannels();
-  }, [profile?.id, fetchChannels]));
+    if (profile?.id) { fetchChannels(); fetchGroups(); }
+  }, [profile?.id, fetchChannels, fetchGroups]));
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -316,12 +344,13 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
     fetchChannels();
   }
 
-  function openPermsModal(ch) {
+  // Works for both channels and groups (kind = 'channel' | 'group').
+  function openPermsModal(kind, row) {
     // null/empty allowed_roles means "open to everyone" → start with all on.
-    const current = (!ch.allowed_roles || ch.allowed_roles.length === 0)
+    const current = (!row.allowed_roles || row.allowed_roles.length === 0)
       ? CHANNEL_ROLE_OPTIONS.map(r => r.value)
-      : ch.allowed_roles;
-    setPermsChannel(ch);
+      : row.allowed_roles;
+    setPermsTarget({ kind, row });
     setPermsSelected(new Set(current));
   }
 
@@ -334,16 +363,83 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   }
 
   async function handleSavePermissions() {
-    if (!permsChannel) return;
+    if (!permsTarget) return;
     const all = CHANNEL_ROLE_OPTIONS.map(r => r.value);
     const selected = all.filter(r => permsSelected.has(r));
     // Everyone selected → store null ("open"); keeps semantics simple & backward compatible.
     const allowed_roles = selected.length === all.length ? null : selected;
-    const { error } = await supabase.from('channels').update({ allowed_roles }).eq('id', permsChannel.id);
+    const table = permsTarget.kind === 'group' ? 'channel_groups' : 'channels';
+    const { error } = await supabase.from(table).update({ allowed_roles }).eq('id', permsTarget.row.id);
     if (error) { alert('Error: ' + error.message); return; }
-    setChannels(prev => prev.map(c => c.id === permsChannel.id ? { ...c, allowed_roles } : c));
-    setActiveChannel(prev => (prev?.id === permsChannel.id ? { ...prev, allowed_roles } : prev));
-    setPermsChannel(null);
+    if (permsTarget.kind === 'group') {
+      setGroups(prev => prev.map(g => g.id === permsTarget.row.id ? { ...g, allowed_roles } : g));
+    } else {
+      setChannels(prev => prev.map(c => c.id === permsTarget.row.id ? { ...c, allowed_roles } : c));
+      setActiveChannel(prev => (prev?.id === permsTarget.row.id ? { ...prev, allowed_roles } : prev));
+    }
+    setPermsTarget(null);
+  }
+
+  // ── Group management (admin) ──
+  async function handleCreateGroup(e) {
+    e.preventDefault();
+    const name = groupName.trim();
+    if (!name) { alert('Please enter a group name.'); return; }
+    const maxOrder = groups.reduce((m, g) => Math.max(m, g.sort_order ?? 0), -1);
+    const { error } = await supabase.from('channel_groups')
+      .insert({ name, created_by: profile.id, sort_order: maxOrder + 1 });
+    if (error) { alert('Error: ' + error.message); return; }
+    setGroupName('');
+    setShowCreateGroup(false);
+    fetchGroups();
+  }
+
+  async function handleRenameGroup(groupId, rawName) {
+    setRenamingGroupId(null);
+    const name = rawName.trim();
+    const g = groups.find(x => x.id === groupId);
+    if (!name || !g || name === g.name) return;
+    const { error } = await supabase.from('channel_groups').update({ name }).eq('id', groupId);
+    if (error) { alert('Error: ' + error.message); return; }
+    setGroups(prev => prev.map(x => x.id === groupId ? { ...x, name } : x));
+  }
+
+  async function handleDeleteGroup(groupId) {
+    const g = groups.find(x => x.id === groupId);
+    if (!(await confirm(`Delete the group "${g?.name || ''}"? Its channels will be ungrouped (not deleted).`))) return;
+    const { error } = await supabase.from('channel_groups').delete().eq('id', groupId);
+    if (error) { alert('Error: ' + error.message); return; }
+    await Promise.all([fetchGroups(), fetchChannels()]);
+  }
+
+  async function handleMoveChannelToGroup(channelId, groupId) {
+    setContextMenu(null);
+    const { error } = await supabase.from('channels').update({ group_id: groupId }).eq('id', channelId);
+    if (error) { alert('Error: ' + error.message); return; }
+    setChannels(prev => prev.map(c => c.id === channelId ? { ...c, group_id: groupId } : c));
+  }
+
+  function toggleGroupCollapse(groupId) {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      next.has(groupId) ? next.delete(groupId) : next.add(groupId);
+      return next;
+    });
+  }
+
+  // ── Pinned "table of contents" → jump to the message in the thread ──
+  function pinnedSnippet(content) {
+    const firstLine = (content || '').split('\n').find(l => l.trim()) || content || '';
+    const plain = firstLine.replace(/\*\*/g, '').replace(/\*/g, '').replace(/^[-•]\s*/, '').trim();
+    return plain.length > 60 ? plain.slice(0, 60) + '…' : plain;
+  }
+
+  function scrollToMessage(id) {
+    const el = document.getElementById(`chan-msg-${id}`);
+    if (!el) return; // older than the loaded window — nothing to scroll to
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setHighlightedMsgId(id);
+    setTimeout(() => setHighlightedMsgId(h => (h === id ? null : h)), 1800);
   }
 
   async function handleSendMessage(e) {
@@ -551,13 +647,69 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
 
   const messageGroups = groupMessages(messages);
 
+  const renderChannelItem = (ch) => (
+    <ChannelItem
+      key={ch.id}
+      channel={ch}
+      isActive={activeChannel?.id === ch.id}
+      isAdmin={isAdmin}
+      hasUnreadMention={unreadMentionChannelIds.includes(ch.id)}
+      isDragging={draggedChannelId === ch.id}
+      isDragOver={dragOverChannelId === ch.id && draggedChannelId !== ch.id}
+      isRenaming={renamingChannelId === ch.id}
+      onSelect={() => {
+        setActiveChannel(ch);
+        markChannelSeen(ch.id);
+        refreshNotifications();
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setContextMenu({ kind: 'channel', id: ch.id, x: e.clientX, y: e.clientY });
+      }}
+      onDragStart={() => setDraggedChannelId(ch.id)}
+      onDragEnterItem={() => setDragOverChannelId(ch.id)}
+      onDropItem={() => {
+        handleReorderChannels(draggedChannelId, ch.id);
+        setDraggedChannelId(null);
+        setDragOverChannelId(null);
+      }}
+      onDragEnd={() => {
+        setDraggedChannelId(null);
+        setDragOverChannelId(null);
+      }}
+      onRenameSubmit={(name) => handleRenameChannel(ch.id, name)}
+      onRenameCancel={() => setRenamingChannelId(null)}
+    />
+  );
+
+  // Ungrouped channels render at the top; each group renders as a collapsible
+  // section below. Non-admins only see groups that contain a channel visible
+  // to them (group perms already filtered those out of visibleChannels).
+  const ungroupedChannels = visibleChannels.filter(c => !c.group_id);
+  const visibleGroups = isAdmin
+    ? groups
+    : groups.filter(g => visibleChannels.some(c => c.group_id === g.id));
+
   return (
     <div style={styles.page}>
       {/* Channel Sidebar */}
       <div style={styles.channelSidebar}>
         <div style={styles.channelHeader}>
           <h3 style={styles.channelHeaderTitle}>Channels</h3>
-          <button onClick={() => setShowCreateChannel(!showCreateChannel)} style={styles.addChannelBtn} title="Create channel">+</button>
+          <div style={{ display: 'flex', gap: '4px' }}>
+            {isAdmin && (
+              <button
+                onClick={() => { setShowCreateGroup(v => !v); setShowCreateChannel(false); }}
+                style={styles.addChannelBtn}
+                title="Create group"
+              >📁</button>
+            )}
+            <button
+              onClick={() => { setShowCreateChannel(v => !v); setShowCreateGroup(false); }}
+              style={styles.addChannelBtn}
+              title="Create channel"
+            >+</button>
+          </div>
         </div>
 
         {showCreateChannel && (
@@ -568,47 +720,75 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
           </form>
         )}
 
+        {showCreateGroup && (
+          <form onSubmit={handleCreateGroup} style={styles.createForm}>
+            <input value={groupName} onChange={(e) => setGroupName(e.target.value)} placeholder="Group name" required style={styles.formInput} />
+            <button type="submit" style={styles.createBtn}>Create group</button>
+          </form>
+        )}
+
         <div style={styles.channelList}>
-          {visibleChannels.map((ch) => (
-            <ChannelItem
-              key={ch.id}
-              channel={ch}
-              isActive={activeChannel?.id === ch.id}
-              isAdmin={isAdmin}
-              hasUnreadMention={unreadMentionChannelIds.includes(ch.id)}
-              isDragging={draggedChannelId === ch.id}
-              isDragOver={dragOverChannelId === ch.id && draggedChannelId !== ch.id}
-              isRenaming={renamingChannelId === ch.id}
-              onSelect={() => {
-                setActiveChannel(ch);
-                markChannelSeen(ch.id);
-                refreshNotifications();
-              }}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setContextMenu({ channelId: ch.id, x: e.clientX, y: e.clientY });
-              }}
-              onDragStart={() => setDraggedChannelId(ch.id)}
-              onDragEnterItem={() => setDragOverChannelId(ch.id)}
-              onDropItem={() => {
-                handleReorderChannels(draggedChannelId, ch.id);
-                setDraggedChannelId(null);
-                setDragOverChannelId(null);
-              }}
-              onDragEnd={() => {
-                setDraggedChannelId(null);
-                setDragOverChannelId(null);
-              }}
-              onRenameSubmit={(name) => handleRenameChannel(ch.id, name)}
-              onRenameCancel={() => setRenamingChannelId(null)}
-            />
-          ))}
+          {ungroupedChannels.map(renderChannelItem)}
+
+          {visibleGroups.map((g) => {
+            const collapsed = collapsedGroups.has(g.id);
+            const groupChannels = visibleChannels.filter(c => c.group_id === g.id);
+            return (
+              <div key={g.id} style={styles.groupBlock}>
+                <GroupHeader
+                  group={g}
+                  isAdmin={isAdmin}
+                  collapsed={collapsed}
+                  isRenaming={renamingGroupId === g.id}
+                  onToggle={() => toggleGroupCollapse(g.id)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setContextMenu({ kind: 'group', id: g.id, x: e.clientX, y: e.clientY });
+                  }}
+                  onRenameSubmit={(name) => handleRenameGroup(g.id, name)}
+                  onRenameCancel={() => setRenamingGroupId(null)}
+                />
+                {!collapsed && (
+                  <div style={styles.groupChannels}>
+                    {groupChannels.length === 0
+                      ? <div style={styles.groupEmpty}>No channels yet</div>
+                      : groupChannels.map(renderChannelItem)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      {contextMenu && (() => {
-        const ch = channels.find(c => c.id === contextMenu.channelId);
+      {contextMenu && contextMenu.kind === 'group' && (() => {
+        const g = groups.find(x => x.id === contextMenu.id);
+        if (!g) return null;
+        return (
+          <div
+            style={{ ...styles.contextMenu, top: contextMenu.y, left: contextMenu.x }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <button
+              style={styles.contextMenuItem}
+              onClick={() => { setRenamingGroupId(g.id); setContextMenu(null); }}
+            >Rename</button>
+            <button
+              style={styles.contextMenuItem}
+              onClick={() => { openPermsModal('group', g); setContextMenu(null); }}
+            >Set Permissions</button>
+            <button
+              style={{ ...styles.contextMenuItem, ...styles.contextMenuItemDanger }}
+              onClick={() => { setContextMenu(null); handleDeleteGroup(g.id); }}
+            >Delete group</button>
+          </div>
+        );
+      })()}
+
+      {contextMenu && contextMenu.kind === 'channel' && (() => {
+        const ch = channels.find(c => c.id === contextMenu.id);
         if (!ch) return null;
+        const otherGroups = groups.filter(g => g.id !== ch.group_id);
         return (
           <div
             style={{ ...styles.contextMenu, top: contextMenu.y, left: contextMenu.x }}
@@ -620,8 +800,26 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
             >Rename</button>
             <button
               style={styles.contextMenuItem}
-              onClick={() => { openPermsModal(ch); setContextMenu(null); }}
+              onClick={() => { openPermsModal('channel', ch); setContextMenu(null); }}
             >Set Permissions</button>
+            {(ch.group_id || otherGroups.length > 0) && (
+              <>
+                <div style={styles.contextMenuLabel}>Move to</div>
+                {ch.group_id && (
+                  <button
+                    style={styles.contextMenuItem}
+                    onClick={() => handleMoveChannelToGroup(ch.id, null)}
+                  >Ungrouped</button>
+                )}
+                {otherGroups.map(g => (
+                  <button
+                    key={g.id}
+                    style={styles.contextMenuItem}
+                    onClick={() => handleMoveChannelToGroup(ch.id, g.id)}
+                  >{g.name}</button>
+                ))}
+              </>
+            )}
             {!ch.is_default && (
               <button
                 style={{ ...styles.contextMenuItem, ...styles.contextMenuItemDanger }}
@@ -632,12 +830,18 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
         );
       })()}
 
-      {permsChannel && (
-        <div style={styles.modalOverlay} onMouseDown={() => setPermsChannel(null)}>
+      {permsTarget && (
+        <div style={styles.modalOverlay} onMouseDown={() => setPermsTarget(null)}>
           <div style={styles.modalCard} onMouseDown={(e) => e.stopPropagation()}>
-            <h3 style={styles.modalTitle}>Permissions · #{permsChannel.name}</h3>
+            <h3 style={styles.modalTitle}>
+              {permsTarget.kind === 'group'
+                ? `Permissions · Group: ${permsTarget.row.name}`
+                : `Permissions · #${permsTarget.row.name}`}
+            </h3>
             <p style={styles.modalHint}>
-              Choose which roles can access this channel. Admins always have access.
+              {permsTarget.kind === 'group'
+                ? 'Choose which roles can access channels in this group. This overrides each channel’s own permissions. Admins always have access.'
+                : 'Choose which roles can access this channel. Admins always have access.'}
             </p>
             <div style={styles.roleList}>
               {CHANNEL_ROLE_OPTIONS.map(({ value, label }) => {
@@ -658,10 +862,12 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
               })}
             </div>
             {permsSelected.size === 0 && (
-              <p style={styles.modalWarn}>No roles selected — only admins will see this channel.</p>
+              <p style={styles.modalWarn}>
+                No roles selected — only admins will see {permsTarget.kind === 'group' ? 'this group' : 'this channel'}.
+              </p>
             )}
             <div style={styles.modalActions}>
-              <button style={styles.modalCancelBtn} onClick={() => setPermsChannel(null)}>Cancel</button>
+              <button style={styles.modalCancelBtn} onClick={() => setPermsTarget(null)}>Cancel</button>
               <button style={styles.modalSaveBtn} onClick={handleSavePermissions}>Save</button>
             </div>
           </div>
@@ -683,29 +889,35 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
               </div>
             </div>
 
-            {/* Pinned Messages - Always visible */}
+            {/* Pinned messages — a clickable table of contents. Each row jumps
+                to the message in the thread. */}
             {pinnedMessages.length > 0 && (
               <div style={styles.pinnedPanel}>
-                <div style={styles.pinnedPanelHeader}>
+                <button style={styles.pinnedPanelHeader} onClick={() => setShowPinned(s => !s)}>
                   <span style={styles.pinnedPanelTitle}>📌 Pinned ({pinnedMessages.length})</span>
-                </div>
-                {pinnedMessages.map(msg => (
-                  <div key={msg.id} style={styles.pinnedItem}>
-                    <div style={styles.pinnedItemHeader}>
-                      <span style={styles.pinnedItemAuthor}>{getDisplayName(msg.profile)}</span>
-                      <span style={styles.pinnedItemTime}>
-                        {new Date(msg.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                        {' '}
-                        {new Date(msg.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                      </span>
-                    </div>
-                    <div style={styles.pinnedItemText}>{formatMessageContent(msg.content)}</div>
-                    <button
-                      onClick={() => handlePinMessage(msg.id, true)}
-                      style={styles.unpinBtn}
-                    >Unpin</button>
+                  <span style={styles.pinnedChevron}>{showPinned ? '▾' : '▸'}</span>
+                </button>
+                {showPinned && (
+                  <div style={styles.pinnedList}>
+                    {pinnedMessages.map(msg => (
+                      <div key={msg.id} style={styles.pinnedTocItem}>
+                        <button
+                          style={styles.pinnedTocMain}
+                          onClick={() => scrollToMessage(msg.id)}
+                          title="Jump to message"
+                        >
+                          <span style={styles.pinnedTocAuthor}>{getDisplayName(msg.profile)}:</span>
+                          <span style={styles.pinnedTocSnippet}>{pinnedSnippet(msg.content)}</span>
+                        </button>
+                        <button
+                          onClick={() => handlePinMessage(msg.id, true)}
+                          style={styles.pinnedTocUnpin}
+                          title="Unpin"
+                        >✕</button>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
             )}
 
@@ -733,6 +945,8 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
                       {group.messages.map(msg => (
                         <MessageRow
                           key={msg.id}
+                          rowId={`chan-msg-${msg.id}`}
+                          isHighlighted={highlightedMsgId === msg.id}
                           msg={msg}
                           isAdmin={isAdmin}
                           profileId={profile?.id}
@@ -878,7 +1092,62 @@ function ChannelItem({
   );
 }
 
-function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, formatContent }) {
+function GroupHeader({
+  group, isAdmin, collapsed, isRenaming,
+  onToggle, onContextMenu, onRenameSubmit, onRenameCancel,
+}) {
+  const [renameValue, setRenameValue] = useState(group.name);
+  const renameInputRef = useRef(null);
+  // See ChannelItem: guards the Enter/Escape unmount blur from re-submitting.
+  const finalizedRef = useRef(false);
+
+  useEffect(() => {
+    if (isRenaming) {
+      finalizedRef.current = false;
+      setRenameValue(group.name);
+      requestAnimationFrame(() => {
+        renameInputRef.current?.focus();
+        renameInputRef.current?.select();
+      });
+    }
+  }, [isRenaming, group.name]);
+
+  if (isRenaming) {
+    return (
+      <div style={styles.groupHeader}>
+        <span style={styles.groupChevron}>{collapsed ? '▸' : '▾'}</span>
+        <input
+          ref={renameInputRef}
+          value={renameValue}
+          onChange={(e) => setRenameValue(e.target.value)}
+          onBlur={() => { if (!finalizedRef.current) { finalizedRef.current = true; onRenameSubmit(renameValue); } }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); finalizedRef.current = true; onRenameSubmit(renameValue); }
+            else if (e.key === 'Escape') { e.preventDefault(); finalizedRef.current = true; onRenameCancel(); }
+          }}
+          style={styles.channelRenameInput}
+        />
+      </div>
+    );
+  }
+
+  const restricted = group.allowed_roles && group.allowed_roles.length > 0;
+  return (
+    <button
+      style={styles.groupHeader}
+      onClick={onToggle}
+      onContextMenu={isAdmin ? onContextMenu : undefined}
+    >
+      <span style={styles.groupChevron}>{collapsed ? '▸' : '▾'}</span>
+      <span style={styles.groupName}>{group.name}</span>
+      {isAdmin && restricted && (
+        <span title="Restricted to certain roles" style={styles.channelLock}>🔒</span>
+      )}
+    </button>
+  );
+}
+
+function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, formatContent, rowId, isHighlighted }) {
   const [hovered, setHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -956,12 +1225,17 @@ function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, formatCo
 
   return (
     <div
+      id={rowId}
       style={{
         ...msgStyles.messageRow,
-        background: hovered || menuOpen ? 'rgba(255,255,255,0.02)' : 'transparent',
+        background: isHighlighted
+          ? 'rgba(251,191,36,0.14)'
+          : (hovered || menuOpen ? 'rgba(255,255,255,0.02)' : 'transparent'),
+        boxShadow: isHighlighted ? 'inset 0 0 0 1px rgba(251,191,36,0.4)' : 'none',
         borderRadius: '6px',
         margin: '0 -4px',
         padding: '2px 4px',
+        transition: 'background 0.4s, box-shadow 0.4s',
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => { setHovered(false); }}
@@ -1091,6 +1365,29 @@ const styles = {
     color: '#fff', fontSize: '14px', fontFamily: 'inherit', outline: 'none',
     minWidth: 0,
   },
+  groupBlock: {
+    marginTop: '6px',
+  },
+  groupHeader: {
+    display: 'flex', alignItems: 'center', gap: '6px', width: '100%',
+    padding: '6px 8px', border: 'none', background: 'transparent',
+    color: 'rgba(255,255,255,0.5)', fontSize: '11px', fontWeight: 700,
+    letterSpacing: '0.03em', textTransform: 'uppercase', cursor: 'pointer',
+    fontFamily: 'inherit', textAlign: 'left', borderRadius: '6px',
+  },
+  groupChevron: {
+    fontSize: '9px', opacity: 0.6, flexShrink: 0,
+  },
+  groupName: {
+    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
+  },
+  groupChannels: {
+    paddingLeft: '8px',
+  },
+  groupEmpty: {
+    padding: '6px 10px', fontSize: '12px', color: 'rgba(255,255,255,0.3)',
+    fontStyle: 'italic',
+  },
   contextMenu: {
     position: 'fixed', zIndex: 1000, minWidth: '140px',
     background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)',
@@ -1104,6 +1401,11 @@ const styles = {
   },
   contextMenuItemDanger: {
     color: '#ef4444',
+  },
+  contextMenuLabel: {
+    padding: '6px 10px 3px', fontSize: '10px', fontWeight: 700,
+    letterSpacing: '0.04em', textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.3)',
   },
   channelLock: {
     fontSize: '10px', opacity: 0.55, marginLeft: '2px', flexShrink: 0,
@@ -1197,10 +1499,37 @@ const styles = {
   },
   pinnedPanelHeader: {
     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-    marginBottom: '8px',
+    width: '100%', padding: 0, background: 'none', border: 'none',
+    cursor: 'pointer', fontFamily: 'inherit',
   },
   pinnedPanelTitle: {
     fontSize: '12px', fontWeight: 700, color: '#fbbf24',
+  },
+  pinnedChevron: {
+    fontSize: '11px', color: '#fbbf24', opacity: 0.7,
+  },
+  pinnedList: {
+    display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '8px',
+  },
+  pinnedTocItem: {
+    display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '6px',
+  },
+  pinnedTocMain: {
+    display: 'flex', alignItems: 'baseline', gap: '6px', flex: 1, minWidth: 0,
+    padding: '5px 8px', background: 'none', border: 'none', textAlign: 'left',
+    cursor: 'pointer', fontFamily: 'inherit', borderRadius: '6px',
+  },
+  pinnedTocAuthor: {
+    fontSize: '12px', fontWeight: 600, color: '#e2e8f0', flexShrink: 0,
+  },
+  pinnedTocSnippet: {
+    fontSize: '12px', color: 'rgba(255,255,255,0.55)',
+    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+  },
+  pinnedTocUnpin: {
+    background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)',
+    cursor: 'pointer', fontSize: '12px', padding: '4px 6px', flexShrink: 0,
+    borderRadius: '5px',
   },
   pinnedCloseBtn: {
     background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)',
