@@ -234,7 +234,7 @@ const NAV_ICON_MAP = {
 
 export default function AppLayout() {
   const { profile, signOut, isAdmin, isAssistant, isPartner, isFreelancer, restrictedNavKeys } = useAuth();
-  const { unreadAnnouncementCount, newItineraryCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, newAssignmentCount, myTaskCount, stuckCommentCount, flCommentCount, unreadMessageCount, refreshNotifications } = useNotifications();
+  const { unreadAnnouncementCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, newAssignmentCount, myTaskCount, stuckCommentCount, flCommentCount, unreadMessageCount, refreshNotifications } = useNotifications();
   const { getResolvedNav, saveConfig, saving } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => {
     const fromPath = getTabFromPath();
@@ -389,7 +389,7 @@ export default function AppLayout() {
       .eq('id', profile.id);
   }
 
-  const dashboardNotifCount = unreadAnnouncementCount + (isAdmin ? newItineraryCount + flCommentCount : 0) + myTaskCount;
+  const dashboardNotifCount = unreadAnnouncementCount + (isAdmin ? flCommentCount : 0) + myTaskCount;
 
   function handleNavClick(key) {
     if (key === 'fl_assignments' && profile?.assigned_drive_folder_id) {

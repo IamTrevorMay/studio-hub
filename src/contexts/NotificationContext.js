@@ -10,7 +10,6 @@ export function NotificationProvider({ children }) {
   const { user, profile, refreshKey } = useAuth();
 
   const [unreadAnnouncementCount, setUnreadAnnouncementCount] = useState(0);
-  const [newItineraryCount, setNewItineraryCount] = useState(0);
   const [unreadMentionChannelIds, setUnreadMentionChannelIds] = useState([]);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [pendingProposalCount, setPendingProposalCount] = useState(0);
@@ -34,7 +33,6 @@ export function NotificationProvider({ children }) {
       if (error) throw error;
       if (data) {
         setUnreadAnnouncementCount(data.unread_announcement_count || 0);
-        setNewItineraryCount(data.new_itinerary_count || 0);
         setUnreadNotificationCount(data.unread_notification_count || 0);
         setPendingProposalCount(data.pending_proposal_count || 0);
         setUnsignedDocCount(data.unsigned_doc_count || 0);
@@ -95,7 +93,6 @@ export function NotificationProvider({ children }) {
 
   const markDashboardSeen = useCallback(() => {
     localStorage.setItem('dashboard_last_seen', new Date().toISOString());
-    setNewItineraryCount(0);
   }, []);
 
   // Initial fetch + real-time subscriptions + 5-min fallback poll
@@ -110,7 +107,6 @@ export function NotificationProvider({ children }) {
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversation_participants', filter: `user_id=eq.${profile.id}` }, () => fetchUnreadDms())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements' }, () => refreshNotifications())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'announcement_reads' }, () => refreshNotifications())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_itinerary' }, () => refreshNotifications())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'channel_messages' }, () => fetchUnreadMentions())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => refreshNotifications())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'ad_read_proposals' }, () => refreshNotifications())
@@ -133,7 +129,6 @@ export function NotificationProvider({ children }) {
 
   const value = {
     unreadAnnouncementCount,
-    newItineraryCount,
     markDashboardSeen,
     unreadMentionChannelIds,
     markChannelSeen,

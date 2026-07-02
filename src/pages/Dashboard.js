@@ -91,20 +91,6 @@ export default function Dashboard({ onNavigate }) {
   const [boardVersion, setBoardVersion] = useState(0);   // SprintBoard changed → SprintPanel re-fetches
   const [sprintVersion, setSprintVersion] = useState(0); // SprintPanel changed → SprintBoard re-fetches
 
-  // Itinerary state
-  const [itineraryItems, setItineraryItems] = useState([]);
-  const [itineraryLoading, setItineraryLoading] = useState(false);
-  const [newItemText, setNewItemText] = useState('');
-  const [showItineraryInput, setShowItineraryInput] = useState(false);
-  const [editingItemId, setEditingItemId] = useState(null);
-  const [editingItemText, setEditingItemText] = useState('');
-  const [newItemPriority, setNewItemPriority] = useState(null);
-  const [editingItemPriority, setEditingItemPriority] = useState(null);
-
-  // Admin comment state
-  const [commentingItemId, setCommentingItemId] = useState(null);
-  const [commentText, setCommentText] = useState('');
-
   // Announcements state
   const [announcements, setAnnouncements] = useState([]);
   const [announcementsLoading, setAnnouncementsLoading] = useState(false);
@@ -241,31 +227,6 @@ export default function Dashboard({ onNavigate }) {
 
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-
-  const fetchItinerary = useCallback(async () => {
-    if (!profile?.id) return;
-    setItineraryLoading(true);
-    try {
-      let query = supabase
-        .from('daily_itinerary')
-        .select(isAdmin ? '*, creator:profiles!created_by(full_name)' : '*')
-        .or(`is_complete.eq.false,target_date.eq.${todayStr}`)
-        .order('created_at', { ascending: true });
-
-      if (!isAdmin) {
-        query = query.eq('created_by', profile.id);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-      setItineraryItems(sortByPriority(data || [], 'is_complete'));
-    } catch (err) {
-      console.error('Error fetching itinerary:', err);
-      setItineraryItems([]);
-    } finally {
-      setItineraryLoading(false);
-    }
-  }, [profile?.id, isAdmin, todayStr]);
 
   const fetchTeamProfiles = useCallback(async () => {
     if (!profile?.id) return;
@@ -491,12 +452,6 @@ export default function Dashboard({ onNavigate }) {
   }, [profile?.id, isPartner, fetchAssignments, fetchSponsorDeliverables]);
 
   useEffect(() => {
-    if ((isAdmin || isAssistant) && profile?.id) {
-      fetchItinerary();
-    }
-  }, [isAdmin, isAssistant, profile?.id, fetchItinerary]);
-
-  useEffect(() => {
     if (profile?.id) {
       fetchAnnouncements();
     }
@@ -551,12 +506,11 @@ export default function Dashboard({ onNavigate }) {
       fetchAssignments();
       fetchSponsorDeliverables();
     }
-    if (isAdmin || isAssistant) fetchItinerary();
     fetchAnnouncements();
     fetchTeamProfiles();
     fetchOooRequests();
     fetchUpcomingOoo();
-  }, [profile?.id, isAdmin, isAssistant, isPartner, fetchAssignments, fetchSponsorDeliverables, fetchItinerary, fetchAnnouncements, fetchTeamProfiles, fetchOooRequests, fetchUpcomingOoo]));
+  }, [profile?.id, isAdmin, isAssistant, isPartner, fetchAssignments, fetchSponsorDeliverables, fetchAnnouncements, fetchTeamProfiles, fetchOooRequests, fetchUpcomingOoo]));
 
   useEffect(() => {
     if (profile?.id) fetchCheckins();
@@ -612,99 +566,6 @@ export default function Dashboard({ onNavigate }) {
   useEffect(() => {
     if (profile?.id) fetchTodayEvents();
   }, [profile?.id, fetchTodayEvents]);
-
-  async function addItineraryItem() {
-    if (!newItemText.trim() || newItemPriority === null) return;
-    const content = newItemText.trim();
-    const priority = newItemPriority;
-    const tempItem = {
-      id: `temp-${Date.now()}`,
-      created_by: profile.id,
-      target_date: todayStr,
-      content,
-      priority,
-      is_complete: false,
-      admin_comment: null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      creator: { full_name: profile.full_name },
-    };
-    setNewItemText('');
-    setNewItemPriority(null);
-    setShowItineraryInput(false);
-    setItineraryItems(prev => sortByPriority([...prev, tempItem], 'is_complete'));
-    try {
-      const { error } = await supabase.from('daily_itinerary').insert({
-        created_by: profile.id,
-        target_date: todayStr,
-        content,
-        priority,
-      });
-      if (error) throw error;
-      fetchItinerary(); // Re-fetch to get real ID
-    } catch (err) {
-      console.error('Error adding itinerary item:', err);
-      setItineraryItems(prev => prev.filter(i => i.id !== tempItem.id));
-      setNewItemText(content);
-      setNewItemPriority(priority);
-    }
-  }
-
-  async function updateItineraryItem(id, updates) {
-    const prev = itineraryItems;
-    setItineraryItems(items => sortByPriority(items.map(i => i.id === id ? { ...i, ...updates, updated_at: new Date().toISOString() } : i), 'is_complete'));
-    try {
-      const { error } = await supabase
-        .from('daily_itinerary')
-        .update({ ...updates, updated_at: new Date().toISOString() })
-        .eq('id', id);
-      if (error) throw error;
-    } catch (err) {
-      console.error('Error updating itinerary item:', err);
-      setItineraryItems(prev);
-    }
-  }
-
-  async function deleteItineraryItem(id) {
-    const prev = itineraryItems;
-    setItineraryItems(items => items.filter(i => i.id !== id));
-    try {
-      const { error } = await supabase.from('daily_itinerary').delete().eq('id', id);
-      if (error) throw error;
-    } catch (err) {
-      console.error('Error deleting itinerary item:', err);
-      setItineraryItems(prev);
-    }
-  }
-
-  function handleEditSave(id) {
-    const updates = {};
-    if (editingItemText.trim()) updates.content = editingItemText.trim();
-    if (editingItemPriority !== null) updates.priority = editingItemPriority;
-    if (Object.keys(updates).length > 0) updateItineraryItem(id, updates);
-    setEditingItemId(null);
-    setEditingItemText('');
-    setEditingItemPriority(null);
-  }
-
-  // Admin comment handlers
-  async function saveAdminComment(itemId) {
-    const newComment = commentText.trim() || null;
-    const prev = itineraryItems;
-    setItineraryItems(items => items.map(i => i.id === itemId ? { ...i, admin_comment: newComment, updated_at: new Date().toISOString() } : i));
-    setCommentingItemId(null);
-    setCommentText('');
-    try {
-      const { error } = await supabase
-        .from('daily_itinerary')
-        .update({ admin_comment: newComment, updated_at: new Date().toISOString() })
-        .eq('id', itemId);
-      if (error) throw error;
-    } catch (err) {
-      console.error('Error saving admin comment:', err);
-      setItineraryItems(prev);
-    }
-  }
 
   // Announcement handlers
   function stripHtml(html) {
@@ -968,129 +829,6 @@ export default function Dashboard({ onNavigate }) {
 
   const completedAssignments = assignments
     .filter(a => a.project && a.project.status === 'published');
-
-  // ── Itinerary item renderer ──
-  function renderItineraryItem(item) {
-    const isEditing = editingItemId === item.id;
-    const isCommenting = commentingItemId === item.id;
-    const borderColor = item.priority ? PRIORITY_COLORS[item.priority] : undefined;
-    return (
-      <div key={item.id} style={{ ...styles.itineraryItemWrapper, ...(borderColor ? { borderLeft: `3px solid ${borderColor}` } : {}) }}>
-        <div style={styles.itineraryItem}>
-          <input
-            type="checkbox"
-            checked={item.is_complete}
-            onChange={() => updateItineraryItem(item.id, { is_complete: !item.is_complete })}
-            style={styles.itineraryCheckbox}
-          />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            {isEditing ? (
-              <>
-                <input
-                  value={editingItemText}
-                  onChange={(e) => setEditingItemText(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleEditSave(item.id)}
-                  style={styles.itineraryEditInput}
-                  autoFocus
-                />
-                <div style={{ display: 'flex', gap: '3px', marginTop: '6px', flexWrap: 'wrap' }}>
-                  {PRIORITY_OPTIONS.map(p => (
-                    <button
-                      key={p}
-                      onClick={() => setEditingItemPriority(p)}
-                      style={{
-                        width: 26, height: 26, borderRadius: '4px', border: editingItemPriority === p ? `2px solid ${PRIORITY_COLORS[p]}` : '1px solid rgba(255,255,255,0.12)',
-                        background: editingItemPriority === p ? `${PRIORITY_COLORS[p]}22` : 'rgba(255,255,255,0.04)',
-                        color: editingItemPriority === p ? PRIORITY_COLORS[p] : 'rgba(255,255,255,0.5)',
-                        fontSize: '11px', fontWeight: 700, cursor: 'pointer', padding: 0,
-                      }}
-                    >{p}</button>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <span style={{
-                ...styles.itineraryContent,
-                textDecoration: item.is_complete ? 'line-through' : 'none',
-                opacity: item.is_complete ? 0.5 : 1,
-              }}>
-                {item.content}
-              </span>
-            )}
-            {isAdmin && item.creator && (
-              <span style={styles.itineraryCreator}>{item.creator.full_name}</span>
-            )}
-          </div>
-          <div style={styles.itineraryActions}>
-            {!isEditing && (isAdmin || isAssistant) && (
-              <button
-                onClick={() => { setEditingItemId(item.id); setEditingItemText(item.content); setEditingItemPriority(item.priority || null); }}
-                style={styles.itineraryActionBtn}
-                title="Edit"
-              >
-                ✎
-              </button>
-            )}
-            {(isAdmin || isAssistant) && (
-              <button
-                onClick={() => deleteItineraryItem(item.id)}
-                style={{ ...styles.itineraryActionBtn, color: '#ef4444' }}
-                title="Delete"
-              >
-                ✕
-              </button>
-            )}
-          </div>
-        </div>
-        {/* Admin comment section */}
-        {isAdmin && (
-          <div style={styles.commentSection}>
-            {isCommenting ? (
-              <div style={styles.commentEditRow}>
-                <input
-                  value={commentText}
-                  onChange={(e) => setCommentText(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && saveAdminComment(item.id)}
-                  placeholder="Add a comment..."
-                  style={styles.commentInput}
-                  autoFocus
-                />
-                <button onClick={() => saveAdminComment(item.id)} style={styles.commentSaveBtn}>Save</button>
-                <button onClick={() => { setCommentingItemId(null); setCommentText(''); }} style={styles.commentCancelBtn}>Cancel</button>
-              </div>
-            ) : item.admin_comment ? (
-              <div style={styles.commentDisplay}>
-                <span style={styles.commentLabel}>Admin:</span>
-                <span style={styles.commentText}>{item.admin_comment}</span>
-                <button
-                  onClick={() => { setCommentingItemId(item.id); setCommentText(item.admin_comment); }}
-                  style={styles.commentEditBtn}
-                >
-                  ✎
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => { setCommentingItemId(item.id); setCommentText(''); }}
-                style={styles.addCommentBtn}
-              >
-                + Add comment
-              </button>
-            )}
-          </div>
-        )}
-        {/* Assistant sees admin comment read-only */}
-        {isAssistant && item.admin_comment && (
-          <div style={styles.commentSection}>
-            <div style={styles.commentDisplay}>
-              <span style={styles.commentLabel}>Admin:</span>
-              <span style={styles.commentText}>{item.admin_comment}</span>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
 
   // ── Todo list functions ──
   const addTodoItem = async () => {
@@ -1647,77 +1385,6 @@ export default function Dashboard({ onNavigate }) {
           <MyTasks embedded onNavigate={onNavigate} />
           <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', margin: '16px 0' }} />
           {renderTodaySchedule()}
-          {(isAdmin || isAssistant) && (
-            <>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <h3 style={styles.subSectionTitle}>Itinerary</h3>
-                {!showItineraryInput && (
-                  <button
-                    onClick={() => setShowItineraryInput(true)}
-                    style={styles.postAnnouncementBtn}
-                  >
-                    + Add
-                  </button>
-                )}
-              </div>
-              {showItineraryInput && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <div style={styles.itineraryAddRow}>
-                    <input
-                      value={newItemText}
-                      onChange={(e) => setNewItemText(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && newItemPriority !== null) addItineraryItem();
-                        if (e.key === 'Escape') { setShowItineraryInput(false); setNewItemText(''); setNewItemPriority(null); }
-                      }}
-                      placeholder="Add an itinerary item..."
-                      style={styles.itineraryInput}
-                      autoFocus
-                    />
-                    <button
-                      onClick={addItineraryItem}
-                      disabled={!newItemText.trim() || newItemPriority === null}
-                      style={{
-                        ...styles.itineraryAddBtn,
-                        opacity: (newItemText.trim() && newItemPriority !== null) ? 1 : 0.4,
-                      }}
-                    >
-                      Add
-                    </button>
-                    <button
-                      onClick={() => { setShowItineraryInput(false); setNewItemText(''); setNewItemPriority(null); }}
-                      style={styles.cancelTitleBtn}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                  <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
-                    {PRIORITY_OPTIONS.map(p => (
-                      <button
-                        key={p}
-                        onClick={() => setNewItemPriority(p)}
-                        style={{
-                          width: 26, height: 26, borderRadius: '4px', border: newItemPriority === p ? `2px solid ${PRIORITY_COLORS[p]}` : '1px solid rgba(255,255,255,0.12)',
-                          background: newItemPriority === p ? `${PRIORITY_COLORS[p]}22` : 'rgba(255,255,255,0.04)',
-                          color: newItemPriority === p ? PRIORITY_COLORS[p] : 'rgba(255,255,255,0.5)',
-                          fontSize: '11px', fontWeight: 700, cursor: 'pointer', padding: 0,
-                        }}
-                      >{p}</button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {itineraryLoading ? (
-                <p style={styles.emptyText}>Loading...</p>
-              ) : itineraryItems.length === 0 ? (
-                <p style={{ ...styles.emptyText, marginTop: '8px' }}>No itinerary items for today</p>
-              ) : (
-                <div style={styles.itineraryList}>
-                  {itineraryItems.map(item => renderItineraryItem(item))}
-                </div>
-              )}
-            </>
-          )}
           {renderTodoList()}
         </div>
       </div>
