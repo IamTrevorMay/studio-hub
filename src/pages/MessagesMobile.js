@@ -5,9 +5,36 @@ import FullScreenSheet from '../components/mobile/FullScreenSheet';
 import BottomSheet from '../components/mobile/BottomSheet';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
+import { useConfirm } from '../contexts/ConfirmContext';
+
+function applyFormatMarker(textareaRef, text, marker, setter) {
+  const el = textareaRef.current;
+  if (!el) return;
+  const start = el.selectionStart;
+  const end = el.selectionEnd;
+  const selected = text.substring(start, end);
+  if (selected) {
+    const newText = text.substring(0, start) + marker + selected + marker + text.substring(end);
+    setter(newText);
+    requestAnimationFrame(() => {
+      el.selectionStart = start + marker.length;
+      el.selectionEnd = end + marker.length;
+      el.focus();
+    });
+  } else {
+    const newText = text.substring(0, start) + marker + marker + text.substring(end);
+    setter(newText);
+    requestAnimationFrame(() => {
+      el.selectionStart = start + marker.length;
+      el.selectionEnd = start + marker.length;
+      el.focus();
+    });
+  }
+}
 
 export default function MessagesMobile({ onNavigate }) {
   const { profile, refreshKey } = useAuth();
+  const confirm = useConfirm();
   const [conversations, setConversations] = useState([]);
   const [activeConvo, setActiveConvo] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -17,6 +44,11 @@ export default function MessagesMobile({ onNavigate }) {
   const [searchUsers, setSearchUsers] = useState('');
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [groupName, setGroupName] = useState('');
+  const [actionConvo, setActionConvo] = useState(null); // convo whose action sheet is open
+  const [renamingConvo, setRenamingConvo] = useState(null); // convo being renamed
+  const [renameValue, setRenameValue] = useState('');
+  const longPressTimer = useRef(null);
+  const longPressFired = useRef(false);
 
   const fetchConversations = useCallback(async () => {
     if (!profile?.id) return;
@@ -129,6 +161,52 @@ export default function MessagesMobile({ onNavigate }) {
     return (m.nickname || '').toLowerCase().includes(needle) || (m.full_name || '').toLowerCase().includes(needle);
   });
 
+  // Long-press a thread to open its action sheet (mobile equivalent of right-click).
+  function startPress(convo) {
+    longPressFired.current = false;
+    longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true;
+      setActionConvo(convo);
+    }, 500);
+  }
+  function cancelPress() {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+  }
+  function handleThreadClick(convo) {
+    if (longPressFired.current) { longPressFired.current = false; return; } // long-press already handled
+    setActiveConvo(convo);
+  }
+
+  async function handleLeaveConversation(convo) {
+    setActionConvo(null);
+    const ok = await confirm(
+      convo.is_group
+        ? `Leave "${convoName(convo)}"? You'll stop receiving its messages.`
+        : `Delete this conversation? It will be removed from your list.`
+    );
+    if (!ok) return;
+    const { error } = await supabase
+      .from('conversation_participants')
+      .delete()
+      .eq('conversation_id', convo.id)
+      .eq('user_id', profile.id);
+    if (error) { console.error('Error leaving conversation:', error); return; }
+    if (activeConvo?.id === convo.id) setActiveConvo(null);
+    setConversations((prev) => prev.filter((c) => c.id !== convo.id));
+  }
+
+  async function handleRenameSubmit() {
+    const convo = renamingConvo;
+    if (!convo) return;
+    const name = renameValue.trim();
+    if (!name || name === convo.name) { setRenamingConvo(null); return; }
+    const { error } = await supabase.from('conversations').update({ name }).eq('id', convo.id);
+    if (error) { console.error('Error renaming conversation:', error); return; }
+    setConversations((prev) => prev.map((c) => (c.id === convo.id ? { ...c, name } : c)));
+    if (activeConvo?.id === convo.id) setActiveConvo((prev) => ({ ...prev, name }));
+    setRenamingConvo(null);
+  }
+
   return (
     <div style={styles.root}>
       <div style={styles.toolbar}>
@@ -150,7 +228,15 @@ export default function MessagesMobile({ onNavigate }) {
       ) : (
         <div style={styles.threadList}>
           {conversations.map((convo) => (
-            <button key={convo.id} onClick={() => setActiveConvo(convo)} style={styles.threadRow}>
+            <button
+              key={convo.id}
+              onClick={() => handleThreadClick(convo)}
+              onTouchStart={() => startPress(convo)}
+              onTouchEnd={cancelPress}
+              onTouchMove={cancelPress}
+              onContextMenu={(e) => { e.preventDefault(); setActionConvo(convo); }}
+              style={styles.threadRow}
+            >
               <div style={styles.threadAvatar}>{convoInitial(convo)}</div>
               <div style={styles.threadBody}>
                 <div style={styles.threadHeader}>
@@ -234,6 +320,56 @@ export default function MessagesMobile({ onNavigate }) {
           </button>
         </div>
       </BottomSheet>
+
+      <BottomSheet
+        open={!!actionConvo}
+        onClose={() => setActionConvo(null)}
+        title={actionConvo ? convoName(actionConvo) : ''}
+      >
+        {actionConvo && (
+          <div style={styles.newPanel}>
+            {actionConvo.is_group && actionConvo.created_by === profile.id && (
+              <button
+                style={styles.actionRow}
+                onClick={() => { setRenameValue(actionConvo.name || ''); setRenamingConvo(actionConvo); setActionConvo(null); }}
+              >
+                Rename group
+              </button>
+            )}
+            <button
+              style={{ ...styles.actionRow, color: '#f87171' }}
+              onClick={() => handleLeaveConversation(actionConvo)}
+            >
+              {actionConvo.is_group ? 'Leave group' : 'Delete conversation'}
+            </button>
+          </div>
+        )}
+      </BottomSheet>
+
+      <BottomSheet
+        open={!!renamingConvo}
+        onClose={() => setRenamingConvo(null)}
+        title="Rename group"
+      >
+        {renamingConvo && (
+          <div style={styles.newPanel}>
+            <input
+              autoFocus
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              placeholder="Group name"
+              style={styles.input}
+            />
+            <button
+              onClick={handleRenameSubmit}
+              disabled={!renameValue.trim()}
+              style={{ ...styles.primaryBtn, opacity: renameValue.trim() ? 1 : 0.4 }}
+            >
+              Save
+            </button>
+          </div>
+        )}
+      </BottomSheet>
     </div>
   );
 }
@@ -244,6 +380,7 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
   const [text, setText] = useState('');
   const sendingRef = useRef(false);
   const endRef = useRef(null);
+  const inputRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -284,6 +421,14 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
+  // Auto-grow the composer to fit its content (capped at 120px).
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+      inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 120) + 'px';
+    }
+  }, [text]);
+
   async function send(e) {
     e.preventDefault();
     if (!text.trim() || sendingRef.current) return; // guard double-submit
@@ -299,9 +444,18 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
     sendingRef.current = false;
   }
 
-  function renderContent(content) {
-    const parts = content.split(/(#\w+(?:-\w+)*)/g);
+  function formatInline(text) {
+    const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|[@#]\w+(?:[- ]\w+)*)/g);
     return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={i} style={{ fontWeight: 700 }}>{part.slice(2, -2)}</strong>;
+      }
+      if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
+        return <em key={i} style={{ fontStyle: 'italic' }}>{part.slice(1, -1)}</em>;
+      }
+      if (part.startsWith('@')) {
+        return <span key={i} style={convoStyles.mention}>{part}</span>;
+      }
       if (part.startsWith('#')) {
         const chName = part.slice(1);
         return (
@@ -312,6 +466,42 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
       }
       return part;
     });
+  }
+
+  function renderContent(content) {
+    if (!content.includes('\n') && !/^[-•] /.test(content)) {
+      return formatInline(content);
+    }
+    const lines = content.split('\n');
+    const result = [];
+    let bulletItems = [];
+    const flushBullets = () => {
+      if (bulletItems.length > 0) {
+        result.push(
+          <ul key={`ul-${result.length}`} style={convoStyles.bulletList}>
+            {bulletItems.map((item, j) => (
+              <li key={j} style={convoStyles.bulletItem}>{formatInline(item)}</li>
+            ))}
+          </ul>
+        );
+        bulletItems = [];
+      }
+    };
+    lines.forEach((line, i) => {
+      const bulletMatch = line.match(/^[-•] (.*)/);
+      if (bulletMatch) {
+        bulletItems.push(bulletMatch[1]);
+      } else {
+        flushBullets();
+        if (line.trim() === '') {
+          result.push(<div key={`line-${i}`} style={{ height: 6 }} />);
+        } else {
+          result.push(<div key={`line-${i}`}>{formatInline(line)}</div>);
+        }
+      }
+    });
+    flushBullets();
+    return result;
   }
 
   return (
@@ -346,17 +536,38 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
         <div ref={endRef} />
       </div>
       <form onSubmit={send} style={{ ...convoStyles.composer, paddingBottom: `calc(${mobileTokens.space.md}px + ${mobileTokens.safeBottom})` }}>
-        <input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Message…"
-          style={convoStyles.input}
-        />
-        <button type="submit" disabled={!text.trim()} style={{ ...convoStyles.sendBtn, opacity: text.trim() ? 1 : 0.4 }} aria-label="Send">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M2 10l16-7-7 16-2-7-7-2z" />
-          </svg>
-        </button>
+        <div style={convoStyles.composerRow}>
+          <textarea
+            ref={inputRef}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                send(e);
+              }
+              if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
+                e.preventDefault();
+                applyFormatMarker(inputRef, text, '**', setText);
+              }
+              if ((e.metaKey || e.ctrlKey) && e.key === 'i') {
+                e.preventDefault();
+                applyFormatMarker(inputRef, text, '*', setText);
+              }
+            }}
+            placeholder="Message…"
+            rows={1}
+            style={convoStyles.input}
+          />
+          <button type="submit" disabled={!text.trim()} style={{ ...convoStyles.sendBtn, opacity: text.trim() ? 1 : 0.4 }} aria-label="Send">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M2 10l16-7-7 16-2-7-7-2z" />
+            </svg>
+          </button>
+        </div>
+        <div style={convoStyles.formatHint}>
+          <strong>**bold**</strong>  <em>*italic*</em>  - bullet
+        </div>
       </form>
     </div>
   );
@@ -564,6 +775,21 @@ const styles = {
     fontFamily: 'inherit',
     marginTop: mobileTokens.space.sm,
   },
+  actionRow: {
+    ...mobileTapButton,
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+    minHeight: mobileTokens.tap + 4,
+    padding: mobileTokens.space.md,
+    borderRadius: mobileTokens.radius.md,
+    background: 'rgba(255,255,255,0.04)',
+    color: '#e2e8f0',
+    fontSize: mobileTokens.font.md,
+    fontWeight: 600,
+    textAlign: 'left',
+    fontFamily: 'inherit',
+  },
 };
 
 const convoStyles = {
@@ -607,22 +833,54 @@ const convoStyles = {
   },
   composer: {
     display: 'flex',
-    gap: mobileTokens.space.sm,
+    flexDirection: 'column',
+    gap: 4,
     padding: `${mobileTokens.space.md}px ${mobileTokens.space.lg}px`,
     background: 'rgba(15,15,30,0.96)',
     borderTop: '1px solid rgba(255,255,255,0.06)',
   },
+  composerRow: {
+    display: 'flex',
+    gap: mobileTokens.space.sm,
+    alignItems: 'flex-end',
+  },
   input: {
     flex: 1,
     minHeight: mobileTokens.tap,
+    maxHeight: 120,
     padding: `${mobileTokens.space.sm}px ${mobileTokens.space.md}px`,
     background: 'rgba(255,255,255,0.06)',
     border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: mobileTokens.radius.pill,
+    borderRadius: mobileTokens.radius.lg,
     color: '#fff',
     fontSize: mobileTokens.font.base,
     outline: 'none',
     fontFamily: 'inherit',
+    resize: 'none',
+    lineHeight: 1.4,
+    overflow: 'auto',
+    boxSizing: 'border-box',
+  },
+  formatHint: {
+    fontSize: mobileTokens.font.xs,
+    color: 'rgba(255,255,255,0.25)',
+    paddingLeft: 2,
+  },
+  mention: {
+    background: 'rgba(99,102,241,0.2)',
+    color: '#a5b4fc',
+    padding: '1px 4px',
+    borderRadius: 4,
+    fontWeight: 600,
+  },
+  bulletList: {
+    margin: '4px 0',
+    paddingLeft: 18,
+    listStyleType: 'disc',
+  },
+  bulletItem: {
+    lineHeight: 1.4,
+    marginBottom: 2,
   },
   sendBtn: {
     width: mobileTokens.tap,

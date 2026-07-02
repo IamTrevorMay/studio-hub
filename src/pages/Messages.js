@@ -4,10 +4,37 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
+import { useConfirm } from '../contexts/ConfirmContext';
 
+
+function applyFormatMarker(textareaRef, text, marker, setter) {
+  const el = textareaRef.current;
+  if (!el) return;
+  const start = el.selectionStart;
+  const end = el.selectionEnd;
+  const selected = text.substring(start, end);
+  if (selected) {
+    const newText = text.substring(0, start) + marker + selected + marker + text.substring(end);
+    setter(newText);
+    requestAnimationFrame(() => {
+      el.selectionStart = start + marker.length;
+      el.selectionEnd = end + marker.length;
+      el.focus();
+    });
+  } else {
+    const newText = text.substring(0, start) + marker + marker + text.substring(end);
+    setter(newText);
+    requestAnimationFrame(() => {
+      el.selectionStart = start + marker.length;
+      el.selectionEnd = start + marker.length;
+      el.focus();
+    });
+  }
+}
 
 export default function Messages({ onNavigate }) {
   const { profile, refreshKey } = useAuth();
+  const confirm = useConfirm();
   const { fetchUnreadDms } = useNotifications();
   const [conversations, setConversations] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);
@@ -19,9 +46,13 @@ export default function Messages({ onNavigate }) {
   const [groupName, setGroupName] = useState('');
   const [searchUsers, setSearchUsers] = useState('');
   const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
   const sendingRef = useRef(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [contextMenu, setContextMenu] = useState(null); // { convo, x, y }
+  const [renamingConvo, setRenamingConvo] = useState(null); // convo being renamed
+  const [renameValue, setRenameValue] = useState('');
 
   const fetchConversations = useCallback(async () => {
     if (!profile?.id) return;
@@ -141,6 +172,14 @@ export default function Messages({ onNavigate }) {
     markConversationRead(activeConversation.id);
   }, [activeConversation, fetchMessages, markConversationRead]);
 
+  // Auto-grow the message textarea to fit its content (capped at 150px).
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+      inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 150) + 'px';
+    }
+  }, [newMessage]);
+
   useEffect(() => {
     if (!activeConversation) return;
     const channel = supabase
@@ -180,6 +219,61 @@ export default function Messages({ onNavigate }) {
     });
     if (!error) setNewMessage(''); // only clear on success — don't silently drop the message
     sendingRef.current = false;
+  }
+
+  async function handleLeaveConversation(convo) {
+    setContextMenu(null);
+    const isGroup = convo.is_group;
+    const ok = await confirm(
+      isGroup
+        ? `Leave "${getConvoDisplayName(convo)}"? You'll stop receiving its messages.`
+        : `Delete this conversation? It will be removed from your list.`
+    );
+    if (!ok) return;
+    const { error } = await supabase
+      .from('conversation_participants')
+      .delete()
+      .eq('conversation_id', convo.id)
+      .eq('user_id', profile.id);
+    if (error) {
+      console.error('Error leaving conversation:', error);
+      return;
+    }
+    if (activeConversation?.id === convo.id) {
+      setActiveConversation(null);
+      setMessages([]);
+    }
+    setConversations(prev => prev.filter(c => c.id !== convo.id));
+  }
+
+  function startRename(convo) {
+    setContextMenu(null);
+    setRenamingConvo(convo);
+    setRenameValue(convo.name || '');
+  }
+
+  async function handleRenameSubmit(e) {
+    e.preventDefault();
+    const convo = renamingConvo;
+    if (!convo) return;
+    const name = renameValue.trim();
+    if (!name || name === convo.name) {
+      setRenamingConvo(null);
+      return;
+    }
+    const { error } = await supabase
+      .from('conversations')
+      .update({ name })
+      .eq('id', convo.id);
+    if (error) {
+      console.error('Error renaming conversation:', error);
+      return;
+    }
+    setConversations(prev => prev.map(c => (c.id === convo.id ? { ...c, name } : c)));
+    if (activeConversation?.id === convo.id) {
+      setActiveConversation(prev => ({ ...prev, name }));
+    }
+    setRenamingConvo(null);
   }
 
   async function handleStartConversation() {
@@ -258,9 +352,18 @@ export default function Messages({ onNavigate }) {
     || (m.full_name || '').toLowerCase().includes(searchUsers.toLowerCase())
   );
 
-  function formatMessageContent(content) {
-    const parts = content.split(/(#\w+(?:-\w+)*)/g);
+  function formatInline(text) {
+    const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|[@#]\w+(?:[- ]\w+)*)/g);
     return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={i} style={{ fontWeight: 700, color: '#e2e8f0' }}>{part.slice(2, -2)}</strong>;
+      }
+      if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
+        return <em key={i} style={{ fontStyle: 'italic', color: 'rgba(255,255,255,0.85)' }}>{part.slice(1, -1)}</em>;
+      }
+      if (part.startsWith('@')) {
+        return <span key={i} style={styles.mention}>{part}</span>;
+      }
       if (part.startsWith('#')) {
         const chName = part.slice(1);
         return (
@@ -275,6 +378,42 @@ export default function Messages({ onNavigate }) {
       }
       return part;
     });
+  }
+
+  function formatMessageContent(content) {
+    if (!content.includes('\n') && !/^[-•] /.test(content)) {
+      return formatInline(content);
+    }
+    const lines = content.split('\n');
+    const result = [];
+    let bulletItems = [];
+    const flushBullets = () => {
+      if (bulletItems.length > 0) {
+        result.push(
+          <ul key={`ul-${result.length}`} style={styles.bulletList}>
+            {bulletItems.map((item, j) => (
+              <li key={j} style={styles.bulletItem}>{formatInline(item)}</li>
+            ))}
+          </ul>
+        );
+        bulletItems = [];
+      }
+    };
+    lines.forEach((line, i) => {
+      const bulletMatch = line.match(/^[-•] (.*)/);
+      if (bulletMatch) {
+        bulletItems.push(bulletMatch[1]);
+      } else {
+        flushBullets();
+        if (line.trim() === '') {
+          result.push(<div key={`line-${i}`} style={{ height: '8px' }} />);
+        } else {
+          result.push(<div key={`line-${i}`}>{formatInline(line)}</div>);
+        }
+      }
+    });
+    flushBullets();
+    return result;
   }
 
   return (
@@ -336,6 +475,10 @@ export default function Messages({ onNavigate }) {
             <button
               key={convo.id}
               onClick={() => setActiveConversation(convo)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setContextMenu({ convo, x: e.clientX, y: e.clientY });
+              }}
               style={{
                 ...styles.convoItem,
                 ...(activeConversation?.id === convo.id ? styles.convoItemActive : {}),
@@ -422,19 +565,41 @@ export default function Messages({ onNavigate }) {
               <div ref={messagesEndRef} />
             </div>
 
-            <form onSubmit={handleSendMessage} style={styles.inputForm}>
-              <input
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                placeholder="Type a message..."
-                style={styles.messageInput}
-              />
-              <button type="submit" style={styles.sendBtn} disabled={!newMessage.trim()}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M2 21l21-9L2 3v7l15 2-15 2v7z" />
-                </svg>
-              </button>
-            </form>
+            <div style={styles.inputWrap}>
+              <form onSubmit={handleSendMessage} style={styles.inputForm}>
+                <textarea
+                  ref={inputRef}
+                  value={newMessage}
+                  onChange={(e) => setNewMessage(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendMessage(e);
+                    }
+                    if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
+                      e.preventDefault();
+                      applyFormatMarker(inputRef, newMessage, '**', setNewMessage);
+                    }
+                    if ((e.metaKey || e.ctrlKey) && e.key === 'i') {
+                      e.preventDefault();
+                      applyFormatMarker(inputRef, newMessage, '*', setNewMessage);
+                    }
+                  }}
+                  placeholder="Type a message..."
+                  rows={1}
+                  style={styles.messageInput}
+                />
+                <button type="submit" style={styles.sendBtn} disabled={!newMessage.trim()}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M2 21l21-9L2 3v7l15 2-15 2v7z" />
+                  </svg>
+                </button>
+              </form>
+              <div style={styles.formatHint}>
+                <span><strong>**bold**</strong>  <em>*italic*</em>  - bullet</span>
+                <span style={{ marginLeft: '12px' }}>Shift+Enter for new line</span>
+              </div>
+            </div>
           </>
         ) : (
           <div style={styles.noChat}>
@@ -444,6 +609,48 @@ export default function Messages({ onNavigate }) {
           </div>
         )}
       </div>
+
+      {contextMenu && (
+        <>
+          <div style={styles.contextOverlay} onClick={() => setContextMenu(null)} onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }} />
+          <div style={{ ...styles.contextMenu, top: contextMenu.y, left: contextMenu.x }}>
+            {contextMenu.convo.is_group && contextMenu.convo.created_by === profile?.id && (
+              <button style={styles.contextItem} onClick={() => startRename(contextMenu.convo)}>
+                Rename group
+              </button>
+            )}
+            <button
+              style={{ ...styles.contextItem, color: '#f87171' }}
+              onClick={() => handleLeaveConversation(contextMenu.convo)}
+            >
+              {contextMenu.convo.is_group ? 'Leave group' : 'Delete conversation'}
+            </button>
+          </div>
+        </>
+      )}
+
+      {renamingConvo && (
+        <div style={styles.modalOverlay} onClick={() => setRenamingConvo(null)}>
+          <form style={styles.renameModal} onClick={(e) => e.stopPropagation()} onSubmit={handleRenameSubmit}>
+            <h3 style={styles.renameTitle}>Rename group</h3>
+            <input
+              autoFocus
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              placeholder="Group name"
+              style={styles.searchInput}
+            />
+            <div style={styles.renameActions}>
+              <button type="button" style={styles.renameCancel} onClick={() => setRenamingConvo(null)}>
+                Cancel
+              </button>
+              <button type="submit" style={styles.renameSave} disabled={!renameValue.trim()}>
+                Save
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
@@ -567,13 +774,32 @@ const styles = {
   msgTime: {
     fontSize: '10px', color: 'rgba(255,255,255,0.2)', marginTop: '4px',
   },
+  inputWrap: {
+    padding: '12px 24px 16px', flexShrink: 0,
+  },
   inputForm: {
-    display: 'flex', gap: '8px', padding: '12px 24px 16px', flexShrink: 0,
+    display: 'flex', gap: '8px', alignItems: 'flex-end',
   },
   messageInput: {
     flex: 1, padding: '12px 16px', background: 'rgba(255,255,255,0.05)',
     border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px',
     color: '#fff', fontSize: '14px', fontFamily: 'inherit', outline: 'none',
+    resize: 'none', lineHeight: 1.5, minHeight: '46px', maxHeight: '150px',
+    overflow: 'auto', boxSizing: 'border-box',
+  },
+  formatHint: {
+    fontSize: '11px', color: 'rgba(255,255,255,0.2)', marginTop: '4px',
+    paddingLeft: '2px',
+  },
+  mention: {
+    background: 'rgba(99,102,241,0.2)', color: '#a5b4fc',
+    padding: '1px 4px', borderRadius: '4px', fontWeight: 600,
+  },
+  bulletList: {
+    margin: '4px 0', paddingLeft: '20px', listStyleType: 'disc',
+  },
+  bulletItem: {
+    fontSize: '14px', color: '#e2e8f0', lineHeight: 1.5, marginBottom: '2px',
   },
   sendBtn: {
     width: '42px', height: '42px', display: 'flex', alignItems: 'center',
@@ -591,5 +817,46 @@ const styles = {
     background: 'rgba(99,102,241,0.15)', color: '#a5b4fc',
     padding: '1px 4px', borderRadius: '4px', fontWeight: 600,
     cursor: 'pointer',
+  },
+  contextOverlay: {
+    position: 'fixed', inset: 0, zIndex: 100,
+  },
+  contextMenu: {
+    position: 'fixed', zIndex: 101, minWidth: '160px',
+    background: '#1e1e36', border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: '8px', padding: '4px',
+    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+  },
+  contextItem: {
+    display: 'flex', alignItems: 'center', gap: '8px', width: '100%',
+    padding: '8px 10px', background: 'none', border: 'none', borderRadius: '5px',
+    color: 'rgba(255,255,255,0.75)', fontSize: '13px', cursor: 'pointer',
+    fontFamily: 'inherit', textAlign: 'left',
+  },
+  modalOverlay: {
+    position: 'fixed', inset: 0, zIndex: 200,
+    background: 'rgba(0,0,0,0.5)', display: 'flex',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  renameModal: {
+    width: '340px', maxWidth: '90vw', background: '#16162c',
+    border: '1px solid rgba(255,255,255,0.1)', borderRadius: '14px',
+    padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px',
+  },
+  renameTitle: {
+    fontSize: '15px', fontWeight: 700, color: '#e2e8f0', margin: 0,
+  },
+  renameActions: {
+    display: 'flex', justifyContent: 'flex-end', gap: '8px',
+  },
+  renameCancel: {
+    padding: '8px 14px', background: 'rgba(255,255,255,0.06)', border: 'none',
+    borderRadius: '8px', color: 'rgba(255,255,255,0.6)', fontSize: '13px',
+    cursor: 'pointer', fontFamily: 'inherit',
+  },
+  renameSave: {
+    padding: '8px 14px', background: '#6366f1', border: 'none',
+    borderRadius: '8px', color: '#fff', fontSize: '13px', fontWeight: 600,
+    cursor: 'pointer', fontFamily: 'inherit',
   },
 };
