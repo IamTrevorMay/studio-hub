@@ -199,6 +199,20 @@ export default function Messages({ onNavigate }) {
         // Viewing this conversation — keep read cursor current so it isn't counted unread.
         if (payload.new.user_id !== profile?.id) markConversationRead(activeConversation.id);
       })
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'direct_messages',
+        filter: `conversation_id=eq.${activeConversation.id}`,
+      }, (payload) => {
+        setMessages(prev => prev.map(m => (m.id === payload.new.id
+          ? { ...m, content: payload.new.content, edited_at: payload.new.edited_at }
+          : m)));
+      })
+      .on('postgres_changes', {
+        event: 'DELETE', schema: 'public', table: 'direct_messages',
+        filter: `conversation_id=eq.${activeConversation.id}`,
+      }, (payload) => {
+        setMessages(prev => prev.filter(m => m.id !== payload.old.id));
+      })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [activeConversation, profile?.id, markConversationRead]);
@@ -274,6 +288,26 @@ export default function Messages({ onNavigate }) {
       setActiveConversation(prev => ({ ...prev, name }));
     }
     setRenamingConvo(null);
+  }
+
+  async function handleEditMessage(messageId, newContent) {
+    const trimmed = newContent.trim();
+    if (!trimmed) return;
+    const editedAt = new Date().toISOString();
+    const { error } = await supabase
+      .from('direct_messages')
+      .update({ content: trimmed, edited_at: editedAt })
+      .eq('id', messageId);
+    if (error) { console.error('Error editing message:', error); return; }
+    setMessages(prev => prev.map(m => (m.id === messageId ? { ...m, content: trimmed, edited_at: editedAt } : m)));
+  }
+
+  async function handleDeleteMessage(messageId) {
+    const ok = await confirm('Delete this message? This cannot be undone.');
+    if (!ok) return;
+    const { error } = await supabase.from('direct_messages').delete().eq('id', messageId);
+    if (error) { console.error('Error deleting message:', error); return; }
+    setMessages(prev => prev.filter(m => m.id !== messageId));
   }
 
   async function handleStartConversation() {
@@ -539,26 +573,16 @@ export default function Messages({ onNavigate }) {
                   const isOwn = msg.user_id === profile?.id;
                   const showAvatar = i === 0 || messages[i - 1].user_id !== msg.user_id;
                   return (
-                    <div key={msg.id} style={{
-                      ...styles.msgRow,
-                      justifyContent: isOwn ? 'flex-end' : 'flex-start',
-                    }}>
-                      {!isOwn && showAvatar && (
-                        <div style={styles.msgAvatar}>{getDisplayInitial(msg.profile)}</div>
-                      )}
-                      {!isOwn && !showAvatar && <div style={{ width: '32px' }} />}
-                      <div style={{
-                        ...styles.msgBubble,
-                        background: isOwn ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.05)',
-                        borderColor: isOwn ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.06)',
-                      }}>
-                        {showAvatar && !isOwn && (
-                          <div style={styles.msgSender}>{getDisplayName(msg.profile)}</div>
-                        )}
-                        <div style={styles.msgContent}>{formatMessageContent(msg.content)}</div>
-                        <div style={styles.msgTime}>{formatTime(msg.created_at)}</div>
-                      </div>
-                    </div>
+                    <DmMessage
+                      key={msg.id}
+                      msg={msg}
+                      isOwn={isOwn}
+                      showAvatar={showAvatar}
+                      formatContent={formatMessageContent}
+                      formatTime={formatTime}
+                      onEdit={handleEditMessage}
+                      onDelete={handleDeleteMessage}
+                    />
                   );
                 })
               )}
@@ -651,6 +675,145 @@ export default function Messages({ onNavigate }) {
           </form>
         </div>
       )}
+    </div>
+  );
+}
+
+function DmMessage({ msg, isOwn, showAvatar, formatContent, formatTime, onEdit, onDelete }) {
+  const [hovered, setHovered] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editContent, setEditContent] = useState(msg.content);
+  const menuRef = useRef(null);
+  const editInputRef = useRef(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handleClick(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [menuOpen]);
+
+  useEffect(() => {
+    if (editing && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.selectionStart = editInputRef.current.value.length;
+    }
+  }, [editing]);
+
+  useEffect(() => {
+    if (editInputRef.current) {
+      editInputRef.current.style.height = 'auto';
+      editInputRef.current.style.height = Math.min(editInputRef.current.scrollHeight, 150) + 'px';
+    }
+  }, [editContent]);
+
+  function handleStartEdit() {
+    setEditContent(msg.content);
+    setEditing(true);
+    setMenuOpen(false);
+  }
+  function handleSaveEdit() {
+    if (editContent.trim() && editContent.trim() !== msg.content) onEdit(msg.id, editContent);
+    setEditing(false);
+  }
+  function handleCancelEdit() {
+    setEditContent(msg.content);
+    setEditing(false);
+  }
+  function handleCopy() {
+    navigator.clipboard.writeText(msg.content).catch(() => {});
+    setMenuOpen(false);
+  }
+  function handleEditKeyDown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSaveEdit();
+    } else if (e.key === 'Escape') {
+      handleCancelEdit();
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
+      e.preventDefault();
+      applyFormatMarker(editInputRef, editContent, '**', setEditContent);
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'i') {
+      e.preventDefault();
+      applyFormatMarker(editInputRef, editContent, '*', setEditContent);
+    }
+  }
+
+  return (
+    <div
+      style={{ ...styles.msgRow, justifyContent: isOwn ? 'flex-end' : 'flex-start' }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {!isOwn && showAvatar && (
+        <div style={styles.msgAvatar}>{getDisplayInitial(msg.profile)}</div>
+      )}
+      {!isOwn && !showAvatar && <div style={{ width: '32px' }} />}
+
+      {isOwn && !editing && (
+        <div style={{ position: 'relative', alignSelf: 'center', flexShrink: 0 }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); setMenuOpen(o => !o); }}
+            style={{ ...styles.msgMenuBtn, opacity: hovered || menuOpen ? 0.7 : 0 }}
+            title="More options"
+          >
+            ⋯
+          </button>
+          {menuOpen && (
+            <div ref={menuRef} style={styles.msgMenuDropdown}>
+              <button onClick={handleStartEdit} style={styles.msgMenuItem}>✏️ Edit</button>
+              <button onClick={handleCopy} style={styles.msgMenuItem}>📋 Copy</button>
+              <button
+                onClick={() => { onDelete(msg.id); setMenuOpen(false); }}
+                style={{ ...styles.msgMenuItem, color: '#fca5a5' }}
+              >
+                🗑 Delete
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{
+        ...styles.msgBubble,
+        background: isOwn ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.05)',
+        borderColor: isOwn ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.06)',
+        ...(editing ? { width: '100%', maxWidth: '80%' } : {}),
+      }}>
+        {showAvatar && !isOwn && (
+          <div style={styles.msgSender}>{getDisplayName(msg.profile)}</div>
+        )}
+        {editing ? (
+          <>
+            <textarea
+              ref={editInputRef}
+              rows={1}
+              value={editContent}
+              onChange={(e) => setEditContent(e.target.value)}
+              onKeyDown={handleEditKeyDown}
+              style={styles.msgEditInput}
+            />
+            <div style={styles.msgEditActions}>
+              <span style={styles.msgEditHint}>Enter to save · Esc to cancel</span>
+              <button onClick={handleCancelEdit} style={styles.msgEditCancel}>Cancel</button>
+              <button onClick={handleSaveEdit} style={styles.msgEditSave}>Save</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={styles.msgContent}>
+              {formatContent(msg.content)}
+              {msg.edited_at && <span style={styles.msgEditedTag}>(edited)</span>}
+            </div>
+            <div style={styles.msgTime}>{formatTime(msg.created_at)}</div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -773,6 +936,52 @@ const styles = {
   },
   msgTime: {
     fontSize: '10px', color: 'rgba(255,255,255,0.2)', marginTop: '4px',
+  },
+  msgEditedTag: {
+    fontSize: '10px', color: 'rgba(255,255,255,0.3)', marginLeft: '6px',
+    fontStyle: 'italic',
+  },
+  msgMenuBtn: {
+    background: 'none', border: 'none', cursor: 'pointer',
+    fontSize: '16px', padding: '2px 6px', color: 'rgba(255,255,255,0.6)',
+    transition: 'opacity 0.15s', borderRadius: '4px', lineHeight: 1,
+    letterSpacing: '1px',
+  },
+  msgMenuDropdown: {
+    position: 'absolute', top: '100%', right: 0, marginTop: '2px',
+    background: '#1e1e36', border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: '8px', padding: '4px', zIndex: 50, minWidth: '130px',
+    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+  },
+  msgMenuItem: {
+    display: 'flex', alignItems: 'center', gap: '8px', width: '100%',
+    padding: '7px 10px', background: 'none', border: 'none', borderRadius: '5px',
+    color: 'rgba(255,255,255,0.7)', fontSize: '12px', cursor: 'pointer',
+    fontFamily: 'inherit', textAlign: 'left',
+  },
+  msgEditInput: {
+    width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(99,102,241,0.4)', borderRadius: '8px',
+    color: '#fff', fontSize: '14px', fontFamily: 'inherit', outline: 'none',
+    boxSizing: 'border-box', resize: 'none', lineHeight: 1.5,
+    minHeight: '34px', maxHeight: '150px', overflow: 'auto',
+  },
+  msgEditActions: {
+    display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+    gap: '8px', marginTop: '6px',
+  },
+  msgEditHint: {
+    fontSize: '10px', color: 'rgba(255,255,255,0.3)', marginRight: 'auto',
+  },
+  msgEditCancel: {
+    padding: '4px 10px', background: 'rgba(255,255,255,0.08)', border: 'none',
+    borderRadius: '6px', color: 'rgba(255,255,255,0.7)', fontSize: '12px',
+    cursor: 'pointer', fontFamily: 'inherit',
+  },
+  msgEditSave: {
+    padding: '4px 10px', background: '#6366f1', border: 'none',
+    borderRadius: '6px', color: '#fff', fontSize: '12px', fontWeight: 600,
+    cursor: 'pointer', fontFamily: 'inherit',
   },
   inputWrap: {
     padding: '12px 24px 16px', flexShrink: 0,

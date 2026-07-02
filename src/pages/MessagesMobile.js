@@ -378,9 +378,16 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState('');
+  const [actionMsg, setActionMsg] = useState(null); // own message whose action sheet is open
+  const [editingId, setEditingId] = useState(null);
+  const [editContent, setEditContent] = useState('');
   const sendingRef = useRef(false);
   const endRef = useRef(null);
   const inputRef = useRef(null);
+  const editRef = useRef(null);
+  const pressTimer = useRef(null);
+  const pressFired = useRef(false);
+  const confirm = useConfirm();
 
   useEffect(() => {
     let cancelled = false;
@@ -415,6 +422,20 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
         // Dedup by id — reconnect can redeliver the same row.
         if (data) setMessages((prev) => prev.some((m) => m.id === data.id) ? prev : [...prev, data]);
       })
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'direct_messages',
+        filter: `conversation_id=eq.${conversation.id}`,
+      }, (payload) => {
+        setMessages((prev) => prev.map((m) => (m.id === payload.new.id
+          ? { ...m, content: payload.new.content, edited_at: payload.new.edited_at }
+          : m)));
+      })
+      .on('postgres_changes', {
+        event: 'DELETE', schema: 'public', table: 'direct_messages',
+        filter: `conversation_id=eq.${conversation.id}`,
+      }, (payload) => {
+        setMessages((prev) => prev.filter((m) => m.id !== payload.old.id));
+      })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [conversation.id, refreshKey]);
@@ -442,6 +463,61 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
     });
     if (error) setText(content); // restore the typed message on failure instead of silently losing it
     sendingRef.current = false;
+  }
+
+  // Focus + size the edit box when editing begins / content changes.
+  useEffect(() => {
+    if (editingId && editRef.current) {
+      editRef.current.focus();
+      editRef.current.selectionStart = editRef.current.value.length;
+    }
+  }, [editingId]);
+  useEffect(() => {
+    if (editRef.current) {
+      editRef.current.style.height = 'auto';
+      editRef.current.style.height = Math.min(editRef.current.scrollHeight, 120) + 'px';
+    }
+  }, [editContent]);
+
+  // Long-press an own message to open its action sheet.
+  function startPress(m) {
+    pressFired.current = false;
+    pressTimer.current = setTimeout(() => { pressFired.current = true; setActionMsg(m); }, 500);
+  }
+  function cancelPress() {
+    if (pressTimer.current) clearTimeout(pressTimer.current);
+  }
+
+  function startEdit(m) {
+    setActionMsg(null);
+    setEditContent(m.content);
+    setEditingId(m.id);
+  }
+  function cancelEdit() {
+    setEditingId(null);
+    setEditContent('');
+  }
+  async function saveEdit() {
+    const trimmed = editContent.trim();
+    const target = editingId;
+    if (!trimmed) { cancelEdit(); return; }
+    const editedAt = new Date().toISOString();
+    const { error } = await supabase
+      .from('direct_messages')
+      .update({ content: trimmed, edited_at: editedAt })
+      .eq('id', target);
+    if (error) { console.error('Error editing message:', error); return; }
+    setMessages((prev) => prev.map((m) => (m.id === target ? { ...m, content: trimmed, edited_at: editedAt } : m)));
+    setEditingId(null);
+    setEditContent('');
+  }
+  async function deleteMsg(id) {
+    setActionMsg(null);
+    const ok = await confirm('Delete this message? This cannot be undone.');
+    if (!ok) return;
+    const { error } = await supabase.from('direct_messages').delete().eq('id', id);
+    if (error) { console.error('Error deleting message:', error); return; }
+    setMessages((prev) => prev.filter((m) => m.id !== id));
   }
 
   function formatInline(text) {
@@ -514,20 +590,49 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
         ) : (
           messages.map((m) => {
             const mine = m.user_id === profileId;
+            const isEditing = editingId === m.id;
             return (
               <div key={m.id} style={{ ...convoStyles.bubbleRow, justifyContent: mine ? 'flex-end' : 'flex-start' }}>
-                <div style={{
-                  ...convoStyles.bubble,
-                  background: mine ? 'linear-gradient(135deg, #6366f1, #818cf8)' : 'rgba(255,255,255,0.06)',
-                  color: mine ? '#fff' : '#e2e8f0',
-                  borderBottomRightRadius: mine ? 4 : mobileTokens.radius.lg,
-                  borderBottomLeftRadius: mine ? mobileTokens.radius.lg : 4,
-                }}>
+                <div
+                  onTouchStart={mine && !isEditing ? () => startPress(m) : undefined}
+                  onTouchEnd={mine ? cancelPress : undefined}
+                  onTouchMove={mine ? cancelPress : undefined}
+                  onContextMenu={mine && !isEditing ? (e) => { e.preventDefault(); setActionMsg(m); } : undefined}
+                  style={{
+                    ...convoStyles.bubble,
+                    background: mine ? 'linear-gradient(135deg, #6366f1, #818cf8)' : 'rgba(255,255,255,0.06)',
+                    color: mine ? '#fff' : '#e2e8f0',
+                    borderBottomRightRadius: mine ? 4 : mobileTokens.radius.lg,
+                    borderBottomLeftRadius: mine ? mobileTokens.radius.lg : 4,
+                    ...(isEditing ? { width: '100%' } : {}),
+                  }}
+                >
                   {!mine && <div style={convoStyles.bubbleSender}>{getDisplayName(m.profile) || 'Unknown'}</div>}
-                  <div>{renderContent(m.content)}</div>
-                  <div style={{ ...convoStyles.bubbleTime, color: mine ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.4)' }}>
-                    {formatTime(m.created_at)}
-                  </div>
+                  {isEditing ? (
+                    <div>
+                      <textarea
+                        ref={editRef}
+                        value={editContent}
+                        onChange={(e) => setEditContent(e.target.value)}
+                        rows={1}
+                        style={convoStyles.editInput}
+                      />
+                      <div style={convoStyles.editActions}>
+                        <button onClick={cancelEdit} style={convoStyles.editCancel}>Cancel</button>
+                        <button onClick={saveEdit} style={convoStyles.editSave}>Save</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        {renderContent(m.content)}
+                        {m.edited_at && <span style={convoStyles.editedTag}> (edited)</span>}
+                      </div>
+                      <div style={{ ...convoStyles.bubbleTime, color: mine ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.4)' }}>
+                        {formatTime(m.created_at)}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             );
@@ -569,6 +674,23 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
           <strong>**bold**</strong>  <em>*italic*</em>  - bullet
         </div>
       </form>
+
+      <BottomSheet open={!!actionMsg} onClose={() => setActionMsg(null)} title="Message">
+        {actionMsg && (
+          <div style={styles.newPanel}>
+            <button style={styles.actionRow} onClick={() => startEdit(actionMsg)}>Edit</button>
+            <button
+              style={styles.actionRow}
+              onClick={() => { navigator.clipboard.writeText(actionMsg.content).catch(() => {}); setActionMsg(null); }}
+            >
+              Copy
+            </button>
+            <button style={{ ...styles.actionRow, color: '#f87171' }} onClick={() => deleteMsg(actionMsg.id)}>
+              Delete
+            </button>
+          </div>
+        )}
+      </BottomSheet>
     </div>
   );
 }
@@ -900,5 +1022,54 @@ const convoStyles = {
     color: '#a5b4fc',
     fontWeight: 600,
     cursor: 'pointer',
+  },
+  editedTag: {
+    fontSize: mobileTokens.font.xs,
+    opacity: 0.6,
+    fontStyle: 'italic',
+  },
+  editInput: {
+    width: '100%',
+    minHeight: 36,
+    maxHeight: 120,
+    padding: `${mobileTokens.space.sm}px ${mobileTokens.space.md}px`,
+    background: 'rgba(255,255,255,0.12)',
+    border: '1px solid rgba(255,255,255,0.25)',
+    borderRadius: mobileTokens.radius.md,
+    color: '#fff',
+    fontSize: mobileTokens.font.base,
+    outline: 'none',
+    fontFamily: 'inherit',
+    resize: 'none',
+    lineHeight: 1.4,
+    overflow: 'auto',
+    boxSizing: 'border-box',
+  },
+  editActions: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: mobileTokens.space.sm,
+    marginTop: mobileTokens.space.sm,
+  },
+  editCancel: {
+    padding: `4px ${mobileTokens.space.md}px`,
+    background: 'rgba(255,255,255,0.15)',
+    border: 'none',
+    borderRadius: mobileTokens.radius.sm,
+    color: '#fff',
+    fontSize: mobileTokens.font.sm,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  editSave: {
+    padding: `4px ${mobileTokens.space.md}px`,
+    background: '#fff',
+    border: 'none',
+    borderRadius: mobileTokens.radius.sm,
+    color: '#4f46e5',
+    fontSize: mobileTokens.font.sm,
+    fontWeight: 700,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
   },
 };
