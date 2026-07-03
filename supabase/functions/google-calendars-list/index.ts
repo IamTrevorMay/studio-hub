@@ -83,6 +83,15 @@ Deno.serve(async (req: Request) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
+    const { data: prof } = await adminClient
+      .from("profiles").select("role").eq("id", user.id).single();
+    if (prof?.role !== "admin") {
+      return new Response(JSON.stringify({ error: "Admin required" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const accessToken = await getValidToken(adminClient, user.id);
 
     const res = await fetch(

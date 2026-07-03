@@ -86,11 +86,6 @@ Deno.serve(async (req: Request) => {
     .single();
   if (taskErr || !task) return jsonResp({ error: "Task not found" }, 404);
 
-  // Remove any sprint card(s) currently tied to this task — they belong to the
-  // previous assignee (or a previous routing state). Routing is the only thing
-  // that sets personal_tasks.task_id, so this is safe to clear wholesale.
-  await admin.from("personal_tasks").delete().eq("task_id", taskId);
-
   // Decide routing for the new assignee.
   let routed = false;
   if (newAssigneeId) {
@@ -113,6 +108,13 @@ Deno.serve(async (req: Request) => {
   }
   const { error: updErr } = await admin.from("tasks").update(patch).eq("id", taskId);
   if (updErr) return jsonResp({ error: `Failed to reassign: ${updErr.message}` }, 500);
+
+  // Update succeeded — now safe to remove any sprint card(s) tied to this task.
+  // They belong to the previous assignee (or a previous routing state). Routing
+  // is the only thing that sets personal_tasks.task_id, so clearing wholesale is
+  // safe. Doing this only after the update ensures a failed update leaves the
+  // sprint card intact (no destructive rollback needed).
+  await admin.from("personal_tasks").delete().eq("task_id", taskId);
 
   let sprintCardCreated = false;
   if (newAssigneeId && routed && !isComplete) {

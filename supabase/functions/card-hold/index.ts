@@ -97,14 +97,28 @@ Deno.serve(async (req: Request) => {
     .eq("id", project_id);
   if (projErr) return jsonResp({ error: `Failed to unhold project: ${projErr.message}` }, 500);
 
-  const { data: restored } = await admin
+  // Prior status isn't recorded when holding, so infer the correct restore state:
+  // workflow-driven tasks were 'active' before the hold; standalone tasks were 'pending'.
+  const { data: restoredActive } = await admin
+    .from("tasks")
+    .update({ status: "active", hold_reason: null })
+    .eq("related_entity_type", "project")
+    .eq("related_entity_id", project_id)
+    .eq("status", "on_hold")
+    .is("completed_at", null)
+    .not("workflow_instance_id", "is", null)
+    .select("id");
+
+  const { data: restoredPending } = await admin
     .from("tasks")
     .update({ status: "pending", hold_reason: null })
     .eq("related_entity_type", "project")
     .eq("related_entity_id", project_id)
     .eq("status", "on_hold")
     .is("completed_at", null)
+    .is("workflow_instance_id", null)
     .select("id");
 
-  return jsonResp({ project_id, action, restored_tasks: (restored || []).length });
+  const restoredCount = (restoredActive || []).length + (restoredPending || []).length;
+  return jsonResp({ project_id, action, restored_tasks: restoredCount });
 });

@@ -99,6 +99,14 @@ Deno.serve(async (req: Request) => {
     const { data, error: userError } = await sb.auth.getUser();
     if (userError || !data?.user) return json({ ok: false, error: "Not authenticated" });
 
+    // ── Role gate: admin only ──
+    const { data: profile } = await sb
+      .from("profiles")
+      .select("role")
+      .eq("id", data.user.id)
+      .single();
+    if (profile?.role !== "admin") return json({ ok: false, error: "Admin only" }, 403);
+
     // ── Parse body ──
     const body = await req.json();
     const question = (body.question || "").trim();

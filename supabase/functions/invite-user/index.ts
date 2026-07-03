@@ -60,6 +60,7 @@ Deno.serve(async (req: Request) => {
       });
     }
     const inviteRole = role || "member";
+    const normalizedEmail = email.toLowerCase().trim();
 
     // Create an admin client with the service role key to invite users
     const adminClient = createClient(
@@ -69,7 +70,7 @@ Deno.serve(async (req: Request) => {
 
     // Send the invite email. Pass role in user_metadata so the
     // handle_new_user() trigger picks it up when the profile is auto-created.
-    const { data, error } = await adminClient.auth.admin.inviteUserByEmail(email, {
+    const { data, error } = await adminClient.auth.admin.inviteUserByEmail(normalizedEmail, {
       data: {
         role: inviteRole,
         title: title || null,
@@ -90,7 +91,7 @@ Deno.serve(async (req: Request) => {
 
     // Log the invite in the invitations table (AuthPage looks this up on accept)
     const { error: inviteLogError } = await adminClient.from("invitations").insert({
-      email: email.toLowerCase().trim(),
+      email: normalizedEmail,
       invited_by: user.id,
       accepted_at: null,
       role: inviteRole,

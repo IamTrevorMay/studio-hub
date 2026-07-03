@@ -48,7 +48,7 @@ Deno.serve(async (req: Request) => {
 
     // Parse request body
     const { target } = await req.json();
-    if (!target || !ALLOWED_TARGETS.some((p: string) => target.startsWith(p))) {
+    if (!target || !ALLOWED_TARGETS.includes(target)) {
       return new Response(JSON.stringify({ error: "Invalid target" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

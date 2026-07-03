@@ -38,14 +38,59 @@ async function acceptProposal(
     throw new Error(`Proposal not found: ${pErr?.message}`);
   }
 
+  // Idempotency guard — if already accepted, don't re-create sponsor/campaign/deliverables.
+  // Best-effort: return the previously created sponsor + campaign so the return shape holds.
+  if (proposal.status === "accepted") {
+    const { data: sponsorRow } = await admin
+      .from("sponsors")
+      .select("id")
+      .ilike("name", brandName)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (sponsorRow) {
+      const { data: existingCampaign } = await admin
+        .from("sponsor_campaigns")
+        .select("id, name")
+        .eq("sponsor_id", sponsorRow.id)
+        .ilike("name", brandName + " Campaign")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (existingCampaign) {
+        const { data: delivs } = await admin
+          .from("sponsor_deliverables")
+          .select("id, title")
+          .eq("campaign_id", existingCampaign.id);
+        return {
+          sponsor_id: sponsorRow.id,
+          campaign_id: existingCampaign.id,
+          campaign_name: existingCampaign.name,
+          deliverables: (delivs || []).map((d) => ({
+            deliverable_id: d.id,
+            title: d.title,
+          })),
+        };
+      }
+    }
+    // Prior campaign not locatable — still avoid inserting duplicates.
+    return {
+      sponsor_id: "",
+      campaign_id: "",
+      campaign_name: brandName + " Campaign",
+      deliverables: [],
+    };
+  }
+
   // Find or create sponsor
   let sponsorId: string;
   const { data: existing } = await admin
     .from("sponsors")
     .select("id")
     .ilike("name", brandName)
+    .order("created_at", { ascending: true })
     .limit(1)
-    .single();
+    .maybeSingle();
 
   if (existing) {
     sponsorId = existing.id;
