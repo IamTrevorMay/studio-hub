@@ -18,20 +18,30 @@ export default function Whiteboard({ docId, title, docType, onBack, onSaveTempla
   const [loaded, setLoaded] = useState(false);
   const isDrawing = useRef(false);
 
-  // Load
-  useEffect(() => {
-    loadDoc();
-  }, [docId]);
-
   const TABLE_MAP = { resource_documents: 'resource_documents', show_documents: 'show_documents' };
   const tableName = TABLE_MAP[docType] || 'concept_documents';
 
-  async function loadDoc() {
-    const { data } = await supabase.from(tableName)
-      .select('content').eq('id', docId).single();
-    if (data?.content?.strokes) setStrokes(data.content.strokes);
-    setLoaded(true);
-  }
+  const dirtyRef = useRef(false);
+  const loadedRef = useRef(false);
+  useEffect(() => { loadedRef.current = loaded; }, [loaded]);
+
+  // Load. Reset loaded first and guard against a stale response when docId
+  // changes, and ALWAYS replace strokes — switching to an empty doc must clear
+  // the previous canvas, otherwise the prior drawing gets autosaved into it.
+  useEffect(() => {
+    let cancelled = false;
+    setLoaded(false);
+    dirtyRef.current = false;
+    (async () => {
+      const { data } = await supabase.from(tableName)
+        .select('content').eq('id', docId).single();
+      if (cancelled) return;
+      setStrokes(data?.content?.strokes || []);
+      setUndoStack([]);
+      setLoaded(true);
+    })();
+    return () => { cancelled = true; };
+  }, [docId, tableName]);
 
   // Redraw canvas whenever strokes change
   useEffect(() => {
@@ -136,20 +146,41 @@ export default function Whiteboard({ docId, title, docType, onBack, onSaveTempla
   const strokesRef = useRef(strokes);
   strokesRef.current = strokes;
 
-  const save = useCallback(async () => {
+  const flush = useCallback(async () => {
+    if (!dirtyRef.current || !docId || !loadedRef.current) return;
+    dirtyRef.current = false;
     setSaving(true);
-    await supabase.from(tableName)
+    const { error } = await supabase.from(tableName)
       .update({ content: { strokes: strokesRef.current }, updated_at: new Date().toISOString() })
       .eq('id', docId);
     setSaving(false);
+    if (error) {
+      // Supabase resolves (doesn't reject) on DB/RLS failure — re-mark dirty so
+      // the next change/interval retries; never report a failed save as saved.
+      console.error('Whiteboard autosave failed:', error.message);
+      dirtyRef.current = true;
+    }
   }, [docId, tableName]);
 
-  // Auto-save on stroke changes (debounced)
+  // Debounced autosave: mark dirty on stroke changes and schedule a flush.
   useEffect(() => {
     if (!loaded) return;
-    const timer = setTimeout(() => { save(); }, 2000);
+    dirtyRef.current = true;
+    const timer = setTimeout(() => { flush(); }, 2000);
     return () => clearTimeout(timer);
-  }, [strokes, loaded, save]);
+  }, [strokes, loaded, flush]);
+
+  // Flush a pending save on unmount (Back / navigate within the 2s debounce) and
+  // on tab close, so strokes drawn just before leaving aren't lost.
+  useEffect(() => {
+    return () => { flush(); };
+  }, [flush]);
+
+  useEffect(() => {
+    const onBeforeUnload = () => { flush(); };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [flush]);
 
   return (
     <div style={styles.page}>

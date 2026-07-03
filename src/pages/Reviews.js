@@ -355,6 +355,9 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
   const [thumbnails, setThumbnails] = useState([]);
   const [titles, setTitles] = useState([]);
   const [description, setDescription] = useState(review.description || '');
+  // Tracks unsaved description edits so a fetchDetails() refetch (fired by any
+  // sibling mutation) can't clobber the textarea with the stale DB value.
+  const descDirtyRef = useRef(false);
   const [detailsComments, setDetailsComments] = useState([]);
   const [newTitleText, setNewTitleText] = useState('');
   const [showDetailComments, setShowDetailComments] = useState({}); // { 'thumbnail-id': true, ... }
@@ -584,9 +587,9 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
     setThumbnails(thumbRes.data || []);
     setTitles(titleRes.data || []);
     setDetailsComments(commentRes.data || []);
-    // Refresh description from DB
+    // Refresh description from DB — but never over an unsaved in-progress edit.
     const { data: rev } = await supabase.from('reviews').select('description').eq('id', review.id).single();
-    if (rev) setDescription(rev.description || '');
+    if (rev && !descDirtyRef.current) setDescription(rev.description || '');
   }
 
   async function handleUploadThumbnail(e) {
@@ -623,7 +626,9 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
   }
 
   async function handleSaveDescription() {
-    await supabase.from('reviews').update({ description }).eq('id', review.id);
+    const { error } = await supabase.from('reviews').update({ description }).eq('id', review.id);
+    if (error) { console.error('Save description failed:', error.message); return; }
+    descDirtyRef.current = false;
   }
 
   async function handleAddDetailComment(targetType, targetId) {
@@ -964,7 +969,7 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
           </div>
           <textarea
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => { descDirtyRef.current = true; setDescription(e.target.value); }}
             onBlur={handleSaveDescription}
             placeholder="Write the video description..."
             style={styles.descriptionTextarea}

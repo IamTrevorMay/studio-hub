@@ -503,7 +503,7 @@ function AutoSavePlugin({
       if (isNative) {
         // Native mode: save full Lexical editor state JSON
         const editorStateJSON = editor.getEditorState().toJSON()
-        await supabase
+        const { error } = await supabase
           .from(tableName)
           .update({
             content: {
@@ -514,13 +514,19 @@ function AutoSavePlugin({
             updated_at: new Date().toISOString(),
           })
           .eq('id', docId)
+        // Supabase resolves (doesn't reject) on RLS/DB failure — throw so the
+        // catch marks 'error' + re-dirties instead of falsely reporting 'saved'.
+        if (error) throw error
       } else {
-        // Legacy mode: serialize to elements array
+        // Legacy mode: serialize inside the synchronous read, then await the
+        // write OUTSIDE the callback so its error is actually checked (the old
+        // fire-and-forget .then() reported 'saved' before the write resolved).
+        let elements: LegacyElement[] = []
         editor.getEditorState().read(() => {
           const root = $getRoot()
           const children = root.getChildren()
 
-          const elements: LegacyElement[] = children
+          elements = children
             .filter((child) => isScreenplayNode(child))
             .map((child) => {
               const type = getNodeElementType(child)
@@ -538,20 +544,20 @@ function AutoSavePlugin({
                 text: child.getTextContent(),
               }
             })
-
-          supabase
-            .from(tableName)
-            .update({
-              content: {
-                titlePage: titlePageRef.current,
-                elements,
-                notes: scriptNotesRef.current,
-              },
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', docId)
-            .then(() => {})
         })
+
+        const { error } = await supabase
+          .from(tableName)
+          .update({
+            content: {
+              titlePage: titlePageRef.current,
+              elements,
+              notes: scriptNotesRef.current,
+            },
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', docId)
+        if (error) throw error
       }
 
       onSaveStatus('saved')
