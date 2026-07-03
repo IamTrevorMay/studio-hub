@@ -47,12 +47,13 @@ const HIGHLIGHT_COLORS = [
 ];
 
 // Wrap the current selection (or insert at the cursor) with the given before/
-// after markers, keeping any selected text selected afterwards.
-function applyFormatWrap(textareaRef, text, before, after, setter) {
+// after markers, keeping any selected text selected afterwards. Pass selOverride
+// ({ start, end }) when the live selection was lost (e.g. focus moved to an input).
+function applyFormatWrap(textareaRef, text, before, after, setter, selOverride) {
   const el = textareaRef.current;
   if (!el) return;
-  const start = el.selectionStart;
-  const end = el.selectionEnd;
+  const start = selOverride ? selOverride.start : el.selectionStart;
+  const end = selOverride ? selOverride.end : el.selectionEnd;
   const selected = text.substring(start, end);
   const newText = text.substring(0, start) + before + selected + after + text.substring(end);
   setter(newText);
@@ -83,6 +84,117 @@ function applyFormatMarker(textareaRef, text, marker, setter) {
   applyFormatWrap(textareaRef, text, marker, marker, setter);
 }
 
+// Shared formatting toolbar for both the composer and the message-edit field.
+// targetRef is the textarea; value/setValue are its controlled state.
+function FormatToolbar({ targetRef, value, setValue }) {
+  const [hlOpen, setHlOpen] = useState(false);
+  const [sizeOpen, setSizeOpen] = useState(false);
+  const [sizeValue, setSizeValue] = useState(24);
+  // Captured when the size popover opens — the number input steals focus, which
+  // clears the textarea's live selection, so we apply against this snapshot.
+  const sizeSelRef = useRef(null);
+
+  useEffect(() => {
+    if (!hlOpen && !sizeOpen) return;
+    function close(e) {
+      if (e.type === 'keydown' && e.key !== 'Escape') return;
+      setHlOpen(false);
+      setSizeOpen(false);
+    }
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', close);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', close);
+    };
+  }, [hlOpen, sizeOpen]);
+
+  const preserveFocus = (e) => { e.preventDefault(); e.stopPropagation(); };
+
+  function applySize() {
+    const n = Math.max(8, Math.min(64, Math.round(Number(sizeValue) || 0)));
+    applyFormatWrap(targetRef, value, `%%${n}:`, '%%', setValue, sizeSelRef.current);
+    setSizeOpen(false);
+  }
+
+  return (
+    <div style={styles.formatToolbar}>
+      <button
+        type="button" title="Bold" style={styles.fmtBtn}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => applyFormatMarker(targetRef, value, '**', setValue)}
+      ><strong>B</strong></button>
+      <button
+        type="button" title="Italic" style={styles.fmtBtn}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => applyFormatMarker(targetRef, value, '*', setValue)}
+      ><em>I</em></button>
+      <button
+        type="button" title="Underline" style={styles.fmtBtn}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => applyFormatWrap(targetRef, value, '__', '__', setValue)}
+      ><span style={{ textDecoration: 'underline' }}>U</span></button>
+      <button
+        type="button" title="Divider line" style={styles.fmtBtn}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => insertAtCursor(targetRef, value, '\n---\n', setValue)}
+      >―</button>
+
+      <div style={{ position: 'relative' }}>
+        <button
+          type="button" title="Highlight" style={styles.fmtBtn}
+          onMouseDown={preserveFocus}
+          onClick={() => { setHlOpen(v => !v); setSizeOpen(false); }}
+        >🖍</button>
+        {hlOpen && (
+          <div style={styles.pickerPopover} onMouseDown={preserveFocus}>
+            {HIGHLIGHT_COLORS.map((c, idx) => (
+              <button
+                key={c.name}
+                type="button"
+                title={c.name}
+                style={{ ...styles.swatch, background: c.bg }}
+                onClick={() => {
+                  applyFormatWrap(targetRef, value, `==${idx + 1}:`, '==', setValue);
+                  setHlOpen(false);
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div style={{ position: 'relative' }}>
+        <button
+          type="button" title="Font size" style={styles.fmtBtn}
+          onMouseDown={preserveFocus}
+          onClick={() => {
+            const el = targetRef.current;
+            sizeSelRef.current = el ? { start: el.selectionStart, end: el.selectionEnd } : null;
+            setSizeOpen(v => !v);
+            setHlOpen(false);
+          }}
+        >A↕</button>
+        {sizeOpen && (
+          <div style={styles.sizePopover} onMouseDown={(e) => e.stopPropagation()}>
+            <input
+              type="number" min={8} max={64} value={sizeValue}
+              onChange={(e) => setSizeValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); applySize(); } }}
+              style={styles.sizeInput}
+            />
+            <button
+              type="button" style={styles.sizeApplyBtn}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={applySize}
+            >Apply</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Channels({ initialChannelName, onChannelOpened }) {
   const { profile, isAdmin, refreshKey } = useAuth();
   const { unreadMentionChannelIds, markChannelSeen, refreshNotifications } = useNotifications();
@@ -103,7 +215,6 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   const [showPinned, setShowPinned] = useState(true);
   const [highlightedMsgId, setHighlightedMsgId] = useState(null);
   const [newMessage, setNewMessage] = useState('');
-  const [showHighlightPicker, setShowHighlightPicker] = useState(false);
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [channelName, setChannelName] = useState('');
   const [channelDesc, setChannelDesc] = useState('');
@@ -182,22 +293,6 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
       window.removeEventListener('scroll', close, true);
     };
   }, [contextMenu]);
-
-  // Close the highlight color picker on outside click or Escape. The picker
-  // itself stops mousedown propagation so selecting a swatch doesn't close it early.
-  useEffect(() => {
-    if (!showHighlightPicker) return;
-    function close(e) {
-      if (e.type === 'keydown' && e.key !== 'Escape') return;
-      setShowHighlightPicker(false);
-    }
-    document.addEventListener('mousedown', close);
-    document.addEventListener('keydown', close);
-    return () => {
-      document.removeEventListener('mousedown', close);
-      document.removeEventListener('keydown', close);
-    };
-  }, [showHighlightPicker]);
 
   // Keep the active channel within what this user is allowed to see (e.g. after
   // an admin restricts the currently-open channel).
@@ -635,29 +730,39 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
     || (m.full_name || '').toLowerCase().includes(mentionFilter)
   );
 
-  function formatInline(text) {
-    const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|__[^_]+__|==\d:[^=]+==|[@#]\w+(?:[- ]\w+)*)/g);
+  // Recursive so nested markers render — e.g. a highlight can wrap bold text,
+  // a font-size span can wrap a highlight, etc. keyPrefix keeps React keys unique
+  // across recursion depth.
+  function formatInline(text, keyPrefix = '') {
+    const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|__[^_]+__|==\d:[^=]+==|%%\d{1,2}:[^%]+%%|[@#]\w+(?:[- ]\w+)*)/g);
     return parts.map((part, i) => {
-      if (part.startsWith('**') && part.endsWith('**')) {
-        return <strong key={i} style={{ fontWeight: 700, color: '#e2e8f0' }}>{part.slice(2, -2)}</strong>;
+      const key = `${keyPrefix}${i}`;
+      const inner = (t) => formatInline(t, `${key}.`);
+      if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+        return <strong key={key} style={{ fontWeight: 700, color: '#e2e8f0' }}>{inner(part.slice(2, -2))}</strong>;
       }
       if (part.startsWith('__') && part.endsWith('__') && part.length > 4) {
-        return <u key={i} style={{ textDecoration: 'underline' }}>{part.slice(2, -2)}</u>;
+        return <u key={key} style={{ textDecoration: 'underline' }}>{inner(part.slice(2, -2))}</u>;
       }
       if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
-        return <em key={i} style={{ fontStyle: 'italic', color: 'rgba(255,255,255,0.85)' }}>{part.slice(1, -1)}</em>;
+        return <em key={key} style={{ fontStyle: 'italic', color: 'rgba(255,255,255,0.85)' }}>{inner(part.slice(1, -1))}</em>;
       }
       const hl = part.match(/^==(\d):([^=]+)==$/);
       if (hl) {
         const color = HIGHLIGHT_COLORS[Number(hl[1]) - 1] || HIGHLIGHT_COLORS[0];
         return (
-          <mark key={i} style={{ background: color.bg, color: '#1a1a2e', borderRadius: '3px', padding: '0 3px' }}>
-            {hl[2]}
+          <mark key={key} style={{ background: color.bg, color: '#1a1a2e', borderRadius: '3px', padding: '0 3px' }}>
+            {inner(hl[2])}
           </mark>
         );
       }
+      const fs = part.match(/^%%(\d{1,2}):([^%]+)%%$/);
+      if (fs) {
+        const size = Math.max(8, Math.min(64, Number(fs[1])));
+        return <span key={key} style={{ fontSize: `${size}px`, lineHeight: 1.2 }}>{inner(fs[2])}</span>;
+      }
       if (part.startsWith('@')) {
-        return <span key={i} style={msgStyles.mention}>{part}</span>;
+        return <span key={key} style={msgStyles.mention}>{part}</span>;
       }
       if (part.startsWith('#')) {
         const chName = part.slice(1).toLowerCase();
@@ -665,7 +770,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
         if (matched) {
           return (
             <span
-              key={i}
+              key={key}
               style={msgStyles.channelLink}
               onClick={() => setActiveChannel(matched)}
             >
@@ -1098,54 +1203,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
                   ))}
                 </div>
               )}
-              <div style={styles.formatToolbar}>
-                <button
-                  type="button" title="Bold" style={styles.fmtBtn}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => applyFormatMarker(inputRef, newMessage, '**', setNewMessage)}
-                ><strong>B</strong></button>
-                <button
-                  type="button" title="Italic" style={styles.fmtBtn}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => applyFormatMarker(inputRef, newMessage, '*', setNewMessage)}
-                ><em>I</em></button>
-                <button
-                  type="button" title="Underline" style={styles.fmtBtn}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => applyFormatWrap(inputRef, newMessage, '__', '__', setNewMessage)}
-                ><span style={{ textDecoration: 'underline' }}>U</span></button>
-                <button
-                  type="button" title="Divider line" style={styles.fmtBtn}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => insertAtCursor(inputRef, newMessage, '\n---\n', setNewMessage)}
-                >―</button>
-                <div style={{ position: 'relative' }}>
-                  <button
-                    type="button" title="Highlight" style={styles.fmtBtn}
-                    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                    onClick={() => setShowHighlightPicker(v => !v)}
-                  >🖍</button>
-                  {showHighlightPicker && (
-                    <div
-                      style={styles.highlightPicker}
-                      onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                    >
-                      {HIGHLIGHT_COLORS.map((c, idx) => (
-                        <button
-                          key={c.name}
-                          type="button"
-                          title={c.name}
-                          style={{ ...styles.swatch, background: c.bg }}
-                          onClick={() => {
-                            applyFormatWrap(inputRef, newMessage, `==${idx + 1}:`, '==', setNewMessage);
-                            setShowHighlightPicker(false);
-                          }}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
+              <FormatToolbar targetRef={inputRef} value={newMessage} setValue={setNewMessage} />
               <form onSubmit={handleSendMessage} style={styles.inputForm}>
                 <textarea
                   ref={inputRef}
@@ -1320,7 +1378,6 @@ function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, formatCo
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(msg.content);
-  const [editHighlightOpen, setEditHighlightOpen] = useState(false);
   const menuRef = useRef(null);
   const editInputRef = useRef(null);
 
@@ -1345,20 +1402,13 @@ function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, formatCo
     }
   }, [editing]);
 
-  // Close the edit highlight picker on outside click or Escape.
+  // Grow the edit field to fit the full message rather than capping its height.
   useEffect(() => {
-    if (!editHighlightOpen) return;
-    function close(e) {
-      if (e.type === 'keydown' && e.key !== 'Escape') return;
-      setEditHighlightOpen(false);
+    if (editing && editInputRef.current) {
+      editInputRef.current.style.height = 'auto';
+      editInputRef.current.style.height = editInputRef.current.scrollHeight + 'px';
     }
-    document.addEventListener('mousedown', close);
-    document.addEventListener('keydown', close);
-    return () => {
-      document.removeEventListener('mousedown', close);
-      document.removeEventListener('keydown', close);
-    };
-  }, [editHighlightOpen]);
+  }, [editing, editContent]);
 
   function handleCopy() {
     navigator.clipboard.writeText(msg.content).catch(() => {});
@@ -1419,54 +1469,7 @@ function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, formatCo
     >
       {editing ? (
         <div style={{ flex: 1 }}>
-          <div style={styles.formatToolbar}>
-            <button
-              type="button" title="Bold" style={styles.fmtBtn}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => applyFormatMarker(editInputRef, editContent, '**', setEditContent)}
-            ><strong>B</strong></button>
-            <button
-              type="button" title="Italic" style={styles.fmtBtn}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => applyFormatMarker(editInputRef, editContent, '*', setEditContent)}
-            ><em>I</em></button>
-            <button
-              type="button" title="Underline" style={styles.fmtBtn}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => applyFormatWrap(editInputRef, editContent, '__', '__', setEditContent)}
-            ><span style={{ textDecoration: 'underline' }}>U</span></button>
-            <button
-              type="button" title="Divider line" style={styles.fmtBtn}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => insertAtCursor(editInputRef, editContent, '\n---\n', setEditContent)}
-            >―</button>
-            <div style={{ position: 'relative' }}>
-              <button
-                type="button" title="Highlight" style={styles.fmtBtn}
-                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                onClick={() => setEditHighlightOpen(v => !v)}
-              >🖍</button>
-              {editHighlightOpen && (
-                <div
-                  style={styles.highlightPicker}
-                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                >
-                  {HIGHLIGHT_COLORS.map((c, idx) => (
-                    <button
-                      key={c.name}
-                      type="button"
-                      title={c.name}
-                      style={{ ...styles.swatch, background: c.bg }}
-                      onClick={() => {
-                        applyFormatWrap(editInputRef, editContent, `==${idx + 1}:`, '==', setEditContent);
-                        setEditHighlightOpen(false);
-                      }}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
+          <FormatToolbar targetRef={editInputRef} value={editContent} setValue={setEditContent} />
           <textarea
             ref={editInputRef}
             rows={1}
@@ -1857,7 +1860,7 @@ const styles = {
     borderRadius: '6px', color: 'rgba(255,255,255,0.75)', cursor: 'pointer',
     fontSize: '13px', fontFamily: 'inherit', lineHeight: 1,
   },
-  highlightPicker: {
+  pickerPopover: {
     position: 'absolute', bottom: '36px', left: 0, zIndex: 50,
     display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px',
     padding: '8px', background: '#1a1a2e',
@@ -1867,6 +1870,22 @@ const styles = {
   swatch: {
     width: '22px', height: '22px', borderRadius: '5px',
     border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer', padding: 0,
+  },
+  sizePopover: {
+    position: 'absolute', bottom: '36px', left: 0, zIndex: 50,
+    display: 'flex', alignItems: 'center', gap: '6px',
+    padding: '8px', background: '#1a1a2e',
+    border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px',
+    boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+  },
+  sizeInput: {
+    width: '54px', padding: '5px 7px', background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px',
+    color: '#fff', fontSize: '13px', fontFamily: 'inherit', outline: 'none',
+  },
+  sizeApplyBtn: {
+    padding: '5px 10px', background: '#6366f1', border: 'none', borderRadius: '6px',
+    color: '#fff', fontSize: '12px', fontFamily: 'inherit', cursor: 'pointer',
   },
   inputForm: {
     display: 'flex', gap: '8px',
@@ -1958,10 +1977,9 @@ const msgStyles = {
     border: '1px solid rgba(99,102,241,0.4)', borderRadius: '8px',
     color: '#fff', fontSize: '14px', fontFamily: 'inherit', outline: 'none',
     boxSizing: 'border-box',
-    // Fixed 8-row height (14px × 1.5 line-height × 8 + 16px padding + 2px
-    // border ≈ 186px) shown by default; scrolls internally past 8 rows.
-    resize: 'none', lineHeight: 1.5, height: '186px',
-    overflow: 'auto',
+    // Auto-sized to fit the message content (see the resize effect in MessageRow).
+    resize: 'none', lineHeight: 1.5, minHeight: '36px',
+    overflow: 'hidden',
   },
   divider: {
     border: 'none', borderTop: '1px solid rgba(255,255,255,0.15)', margin: '8px 0',
