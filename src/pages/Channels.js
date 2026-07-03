@@ -1131,8 +1131,11 @@ function ChannelItem({
       }}
       onContextMenu={isAdmin ? onContextMenu : undefined}
     >
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onSelect}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}
         style={{
           ...styles.channelItem,
           ...(isActive ? styles.channelItemActive : {}),
@@ -1145,7 +1148,7 @@ function ChannelItem({
           <span title="Restricted to certain roles" style={styles.channelLock}>🔒</span>
         )}
         {hasUnreadMention && <span style={styles.channelUnreadDot} />}
-      </button>
+      </div>
     </div>
   );
 }
