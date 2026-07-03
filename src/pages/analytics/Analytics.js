@@ -13,6 +13,7 @@ import { ptRangeToUtc } from '../../lib/ptDate';
 import DonutChart from './components/DonutChart';
 import DataInputSection from './components/DataInputSection';
 import RPMCard from './components/RPMCard';
+import BestPostTimes from './components/BestPostTimes';
 import PublishHeatmap from './components/PublishHeatmap';
 import ContentVelocityChart from './components/ContentVelocityChart';
 import FrequencyGrowthChart from './components/FrequencyGrowthChart';
@@ -900,6 +901,9 @@ export default function Analytics() {
                     </div>
                   </div>
                 )}
+                {/* Best post times — self-fetching (trailing 180d), independent
+                    of the page's date-range filter. */}
+                <BestPostTimes />
               </div>
             )}
             {/* Revenue efficiency (RPM) */}
