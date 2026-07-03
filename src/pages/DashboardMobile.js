@@ -50,7 +50,7 @@ export default function DashboardMobile({ onNavigate }) {
   const { profile, isAdmin } = useAuth();
   const [activeTab, setActiveTab] = useState('tasks');
 
-  const visibleTabs = isAdmin ? ALL_TABS.filter(t => t.key !== 'mytasks') : ALL_TABS;
+  const visibleTabs = ALL_TABS;
 
   return (
     <div style={styles.root}>
