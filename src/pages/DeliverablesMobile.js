@@ -30,6 +30,7 @@ export default function DeliverablesMobile() {
   const [slotLimits, setSlotLimits] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState(null);
+  const [showDelivered, setShowDelivered] = useState(false);
 
   const fetchSponsors = useCallback(async () => {
     try {
@@ -97,7 +98,7 @@ export default function DeliverablesMobile() {
 
   // Derived data
   const upcomingReads = allDeliverables
-    .filter(d => !d.delivered)
+    .filter(d => showDelivered || !d.delivered)
     .sort((a, b) => {
       if (!a.due_date && !b.due_date) return 0;
       if (!a.due_date) return 1;
@@ -159,10 +160,21 @@ export default function DeliverablesMobile() {
 
       {/* Upcoming Deliverables */}
       <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>
-          Upcoming
-          <span style={styles.countBadge}>{upcomingReads.length}</span>
-        </h2>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <h2 style={{ ...styles.sectionTitle, marginBottom: 0 }}>
+            Upcoming
+            <span style={styles.countBadge}>{upcomingReads.length}</span>
+          </h2>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>
+            <input
+              type="checkbox"
+              checked={showDelivered}
+              onChange={e => setShowDelivered(e.target.checked)}
+              style={{ accentColor: '#6366f1' }}
+            />
+            Show Delivered
+          </label>
+        </div>
 
         {upcomingReads.length === 0 ? (
           <p style={styles.emptyText}>No upcoming deliverables</p>
@@ -200,6 +212,9 @@ export default function DeliverablesMobile() {
                   </div>
 
                   <div style={styles.chipRow}>
+                    {d.delivered && (
+                      <span style={{ ...styles.chip, background: 'rgba(34,197,94,0.15)', color: '#22c55e' }}>{'✓'} Delivered</span>
+                    )}
                     {(() => {
                       const r = REVIEW_STATUS_BY_VALUE[d.review_status] || REVIEW_STATUS_BY_VALUE.not_submitted;
                       return <span style={{ ...styles.chip, background: r.bg, color: r.color }}>{r.label}</span>;
