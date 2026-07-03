@@ -84,22 +84,55 @@ function applyFormatMarker(textareaRef, text, marker, setter) {
   applyFormatWrap(textareaRef, text, marker, marker, setter);
 }
 
+// Replace a range of the text with a replacement string, placing the cursor
+// right after it. Used for the link inserter, which swaps the selection for a
+// composed [label](url) snippet.
+function replaceSelection(textareaRef, text, replacement, setter, sel) {
+  const el = textareaRef.current;
+  const start = sel ? sel.start : (el ? el.selectionStart : text.length);
+  const end = sel ? sel.end : (el ? el.selectionEnd : text.length);
+  const newText = text.substring(0, start) + replacement + text.substring(end);
+  setter(newText);
+  requestAnimationFrame(() => {
+    if (!el) return;
+    const pos = start + replacement.length;
+    el.selectionStart = pos;
+    el.selectionEnd = pos;
+    el.focus();
+  });
+}
+
+// Accept only http(s)/mailto links; otherwise assume a bare domain and prepend
+// https://. Returns null for anything unsafe (e.g. javascript:) so it renders as text.
+function normalizeUrl(raw) {
+  const url = (raw || '').trim();
+  if (!url) return null;
+  if (/^(https?:\/\/|mailto:)/i.test(url)) return url;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return null; // some other scheme — reject
+  return 'https://' + url;
+}
+
 // Shared formatting toolbar for both the composer and the message-edit field.
 // targetRef is the textarea; value/setValue are its controlled state.
 function FormatToolbar({ targetRef, value, setValue }) {
   const [hlOpen, setHlOpen] = useState(false);
   const [sizeOpen, setSizeOpen] = useState(false);
   const [sizeValue, setSizeValue] = useState(24);
-  // Captured when the size popover opens — the number input steals focus, which
-  // clears the textarea's live selection, so we apply against this snapshot.
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [linkText, setLinkText] = useState('');
+  const [linkUrl, setLinkUrl] = useState('');
+  // Captured when a popover with a text input opens — those inputs steal focus,
+  // which clears the textarea's live selection, so we apply against this snapshot.
   const sizeSelRef = useRef(null);
+  const linkSelRef = useRef(null);
 
   useEffect(() => {
-    if (!hlOpen && !sizeOpen) return;
+    if (!hlOpen && !sizeOpen && !linkOpen) return;
     function close(e) {
       if (e.type === 'keydown' && e.key !== 'Escape') return;
       setHlOpen(false);
       setSizeOpen(false);
+      setLinkOpen(false);
     }
     document.addEventListener('mousedown', close);
     document.addEventListener('keydown', close);
@@ -107,7 +140,7 @@ function FormatToolbar({ targetRef, value, setValue }) {
       document.removeEventListener('mousedown', close);
       document.removeEventListener('keydown', close);
     };
-  }, [hlOpen, sizeOpen]);
+  }, [hlOpen, sizeOpen, linkOpen]);
 
   const preserveFocus = (e) => { e.preventDefault(); e.stopPropagation(); };
 
@@ -115,6 +148,30 @@ function FormatToolbar({ targetRef, value, setValue }) {
     const n = Math.max(8, Math.min(64, Math.round(Number(sizeValue) || 0)));
     applyFormatWrap(targetRef, value, `%%${n}:`, '%%', setValue, sizeSelRef.current);
     setSizeOpen(false);
+  }
+
+  function openLink() {
+    const el = targetRef.current;
+    const sel = el ? { start: el.selectionStart, end: el.selectionEnd } : null;
+    linkSelRef.current = sel;
+    const selected = sel ? value.substring(sel.start, sel.end) : '';
+    // Prefill: selected text becomes the display text, or the URL if it looks like one.
+    const looksLikeUrl = /^(https?:\/\/|www\.|mailto:)/i.test(selected.trim());
+    setLinkText(looksLikeUrl ? '' : selected);
+    setLinkUrl(looksLikeUrl ? selected.trim() : '');
+    setHlOpen(false);
+    setSizeOpen(false);
+    setLinkOpen(true);
+  }
+
+  function insertLink() {
+    const url = normalizeUrl(linkUrl);
+    if (!url) return;
+    const label = linkText.trim() || url;
+    replaceSelection(targetRef, value, `[${label}](${url})`, setValue, linkSelRef.current);
+    setLinkOpen(false);
+    setLinkText('');
+    setLinkUrl('');
   }
 
   return (
@@ -191,7 +248,62 @@ function FormatToolbar({ targetRef, value, setValue }) {
           </div>
         )}
       </div>
+
+      <div style={{ position: 'relative' }}>
+        <button
+          type="button" title="Insert link" style={styles.fmtBtn}
+          onMouseDown={preserveFocus}
+          onClick={() => (linkOpen ? setLinkOpen(false) : openLink())}
+        >🔗</button>
+        {linkOpen && (
+          <div style={styles.linkPopover} onMouseDown={(e) => e.stopPropagation()}>
+            <input
+              type="text" value={linkText} placeholder="Text to display"
+              onChange={(e) => setLinkText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); insertLink(); } }}
+              style={styles.linkInput}
+            />
+            <input
+              type="text" value={linkUrl} placeholder="Link (https://…)"
+              onChange={(e) => setLinkUrl(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); insertLink(); } }}
+              style={styles.linkInput}
+            />
+            <button
+              type="button" style={styles.sizeApplyBtn}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={insertLink}
+            >Apply</button>
+          </div>
+        )}
+      </div>
     </div>
+  );
+}
+
+// Inline rename input for a pinned post's custom title. Local state so typing
+// doesn't churn the parent; commits on Enter/blur, cancels on Escape.
+function PinTitleInput({ initial, onSubmit, onCancel }) {
+  const [val, setVal] = useState(initial);
+  const ref = useRef(null);
+  const finalized = useRef(false);
+  useEffect(() => {
+    requestAnimationFrame(() => { ref.current?.focus(); ref.current?.select(); });
+  }, []);
+  return (
+    <input
+      ref={ref}
+      value={val}
+      onChange={(e) => setVal(e.target.value)}
+      onMouseDown={(e) => e.stopPropagation()}
+      onBlur={() => { if (!finalized.current) { finalized.current = true; onSubmit(val); } }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') { e.preventDefault(); finalized.current = true; onSubmit(val); }
+        else if (e.key === 'Escape') { e.preventDefault(); finalized.current = true; onCancel(); }
+      }}
+      placeholder="Pinned title"
+      style={styles.pinnedRenameInput}
+    />
   );
 }
 
@@ -213,6 +325,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   const [messages, setMessages] = useState([]);
   const [pinnedMessages, setPinnedMessages] = useState([]);
   const [showPinned, setShowPinned] = useState(true);
+  const [renamingPinId, setRenamingPinId] = useState(null);
   const [highlightedMsgId, setHighlightedMsgId] = useState(null);
   const [newMessage, setNewMessage] = useState('');
   const [showCreateChannel, setShowCreateChannel] = useState(false);
@@ -344,6 +457,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
         .select('*, profile:profiles(id, full_name, nickname, title)')
         .eq('channel_id', channelId)
         .eq('is_pinned', true)
+        .order('pin_order', { ascending: true, nullsFirst: false })
         .order('created_at', { ascending: false });
       setPinnedMessages(data || []);
     } catch (err) {
@@ -411,8 +525,40 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   }, [newMessage]);
 
   async function handlePinMessage(messageId, isPinned) {
-    await supabase.from('channel_messages').update({ is_pinned: !isPinned }).eq('id', messageId);
+    // When pinning, drop the message at the end of the pinned order.
+    const patch = { is_pinned: !isPinned };
+    if (!isPinned) {
+      const maxOrder = pinnedMessages.reduce((m, p) => Math.max(m, p.pin_order ?? -1), -1);
+      patch.pin_order = maxOrder + 1;
+    }
+    await supabase.from('channel_messages').update(patch).eq('id', messageId);
     if (activeChannel) fetchPinnedMessages(activeChannel.id);
+  }
+
+  async function handleRenamePin(messageId, rawTitle) {
+    setRenamingPinId(null);
+    const title = rawTitle.trim();
+    const p = pinnedMessages.find(m => m.id === messageId);
+    if (!p || (title || null) === (p.pin_title || null)) return;
+    const pin_title = title || null; // empty clears back to the content snippet
+    const { error } = await supabase.from('channel_messages').update({ pin_title }).eq('id', messageId);
+    if (error) { alert('Error: ' + error.message); return; }
+    setPinnedMessages(prev => prev.map(m => m.id === messageId ? { ...m, pin_title } : m));
+  }
+
+  async function handlePinnedDragEnd(result) {
+    const { source, destination } = result;
+    if (!destination || source.index === destination.index) return;
+    const reordered = Array.from(pinnedMessages);
+    const [moved] = reordered.splice(source.index, 1);
+    reordered.splice(destination.index, 0, moved);
+    const withOrder = reordered.map((m, i) => ({ ...m, pin_order: i }));
+    setPinnedMessages(withOrder); // optimistic
+    await Promise.all(
+      withOrder
+        .filter(m => m.pin_order !== (pinnedMessages.find(o => o.id === m.id)?.pin_order))
+        .map(m => supabase.from('channel_messages').update({ pin_order: m.pin_order }).eq('id', m.id))
+    );
   }
 
   async function handleEditMessage(messageId, newContent) {
@@ -604,10 +750,50 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   }
 
   // ── Pinned "table of contents" → jump to the message in the thread ──
-  function pinnedSnippet(content) {
-    const firstLine = (content || '').split('\n').find(l => l.trim()) || content || '';
-    const plain = firstLine.replace(/\*\*/g, '').replace(/\*/g, '').replace(/^[-•]\s*/, '').trim();
-    return plain.length > 60 ? plain.slice(0, 60) + '…' : plain;
+  // "last updated" date shown after the title — the last edit, else when posted.
+  function pinnedUpdatedLabel(msg) {
+    const d = new Date(msg.edited_at || msg.created_at);
+    const now = new Date();
+    const opts = d.getFullYear() === now.getFullYear()
+      ? { month: 'short', day: 'numeric' }
+      : { month: 'short', day: 'numeric', year: 'numeric' };
+    return d.toLocaleDateString('en-US', opts);
+  }
+
+  // First link found in a message — a markdown link's URL, else a bare URL.
+  function firstUrl(content) {
+    const md = (content || '').match(/\[[^\]]+\]\(([^)]+)\)/);
+    if (md) return normalizeUrl(md[1]);
+    const bare = (content || '').match(/https?:\/\/[^\s]+/);
+    return bare ? bare[0] : null;
+  }
+
+  // The message's first non-empty line (leading bullet stripped), kept whole so
+  // markdown links render as their label. Visual truncation is handled by CSS
+  // ellipsis on the row — never by cutting the raw markdown, which would split a
+  // [label](url) mid-syntax and leak the raw URL.
+  function firstContentLine(content) {
+    const line = (content || '').split('\n').find(l => l.trim()) || content || '';
+    return line.replace(/^[-•]\s*/, '').trim();
+  }
+
+  // Render the pinned row's title. A custom name always displays as the name
+  // (never the raw URL): if the message has a link, the name becomes the link;
+  // if the name itself carries a link, that renders; otherwise plain text. With
+  // no custom name we render the full first line formatted (links → labels).
+  function renderPinTitle(msg) {
+    const custom = (msg.pin_title || '').trim();
+    if (!custom) return formatInline(firstContentLine(msg.content));
+    if (/\[[^\]]+\]\([^)]+\)|https?:\/\//.test(custom)) return formatInline(custom);
+    const url = firstUrl(msg.content);
+    if (url) {
+      return (
+        <a href={url} target="_blank" rel="noopener noreferrer" style={msgStyles.link} onClick={(e) => e.stopPropagation()}>
+          {custom}
+        </a>
+      );
+    }
+    return custom;
   }
 
   function scrollToMessage(id) {
@@ -734,10 +920,28 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   // a font-size span can wrap a highlight, etc. keyPrefix keeps React keys unique
   // across recursion depth.
   function formatInline(text, keyPrefix = '') {
-    const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|__[^_]+__|==\d:[^=]+==|%%\d{1,2}:[^%]+%%|[@#]\w+(?:[- ]\w+)*)/g);
+    const parts = text.split(/(\[[^\]]+\]\([^)]+\)|https?:\/\/[^\s]+|\*\*[^*]+\*\*|\*[^*]+\*|__[^_]+__|==\d:[^=]+==|%%\d{1,2}:[^%]+%%|[@#]\w+(?:[- ]\w+)*)/g);
     return parts.map((part, i) => {
       const key = `${keyPrefix}${i}`;
       const inner = (t) => formatInline(t, `${key}.`);
+      const link = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+      if (link) {
+        const url = normalizeUrl(link[2]);
+        if (url) {
+          return (
+            <a key={key} href={url} target="_blank" rel="noopener noreferrer" style={msgStyles.link} onClick={(e) => e.stopPropagation()}>
+              {inner(link[1])}
+            </a>
+          );
+        }
+      }
+      if (/^https?:\/\/[^\s]+$/.test(part)) {
+        return (
+          <a key={key} href={part} target="_blank" rel="noopener noreferrer" style={msgStyles.link} onClick={(e) => e.stopPropagation()}>
+            {part}
+          </a>
+        );
+      }
       if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
         return <strong key={key} style={{ fontWeight: 700, color: '#e2e8f0' }}>{inner(part.slice(2, -2))}</strong>;
       }
@@ -1051,6 +1255,26 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
         );
       })()}
 
+      {contextMenu && contextMenu.kind === 'pin' && (() => {
+        const p = pinnedMessages.find(m => m.id === contextMenu.id);
+        if (!p) return null;
+        return (
+          <div
+            style={{ ...styles.contextMenu, top: contextMenu.y, left: contextMenu.x }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <button
+              style={styles.contextMenuItem}
+              onClick={() => { setRenamingPinId(p.id); setContextMenu(null); }}
+            >Edit</button>
+            <button
+              style={{ ...styles.contextMenuItem, ...styles.contextMenuItemDanger }}
+              onClick={() => { setContextMenu(null); handlePinMessage(p.id, true); }}
+            >Delete</button>
+          </div>
+        );
+      })()}
+
       {permsTarget && (
         <div style={styles.modalOverlay} onMouseDown={() => setPermsTarget(null)}>
           <div style={styles.modalCard} onMouseDown={(e) => e.stopPropagation()}>
@@ -1119,25 +1343,64 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
                   <span style={styles.pinnedChevron}>{showPinned ? '▾' : '▸'}</span>
                 </button>
                 {showPinned && (
-                  <div style={styles.pinnedList}>
-                    {pinnedMessages.map(msg => (
-                      <div key={msg.id} style={styles.pinnedTocItem}>
-                        <button
-                          style={styles.pinnedTocMain}
-                          onClick={() => scrollToMessage(msg.id)}
-                          title="Jump to message"
-                        >
-                          <span style={styles.pinnedTocAuthor}>{getDisplayName(msg.profile)}:</span>
-                          <span style={styles.pinnedTocSnippet}>{pinnedSnippet(msg.content)}</span>
-                        </button>
-                        <button
-                          onClick={() => handlePinMessage(msg.id, true)}
-                          style={styles.pinnedTocUnpin}
-                          title="Unpin"
-                        >✕</button>
-                      </div>
-                    ))}
-                  </div>
+                  <DragDropContext onDragEnd={handlePinnedDragEnd}>
+                    <Droppable droppableId="pinned">
+                      {(dropProvided) => (
+                        <div ref={dropProvided.innerRef} {...dropProvided.droppableProps} style={styles.pinnedList}>
+                          {pinnedMessages.map((msg, index) => (
+                            <Draggable
+                              key={msg.id}
+                              draggableId={`pin-${msg.id}`}
+                              index={index}
+                              isDragDisabled={renamingPinId === msg.id}
+                            >
+                              {(dragProvided, snapshot) => (
+                                <div
+                                  ref={dragProvided.innerRef}
+                                  {...dragProvided.draggableProps}
+                                  onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    setContextMenu({ kind: 'pin', id: msg.id, x: e.clientX, y: e.clientY });
+                                  }}
+                                  style={{
+                                    ...styles.pinnedTocItem,
+                                    ...(snapshot.isDragging ? styles.pinnedTocItemDragging : {}),
+                                    ...(dragProvided.draggableProps.style || {}),
+                                  }}
+                                >
+                                  <span
+                                    {...dragProvided.dragHandleProps}
+                                    style={styles.pinnedDragHandle}
+                                    title="Drag to reorder"
+                                  >⠿</span>
+                                  {renamingPinId === msg.id ? (
+                                    <PinTitleInput
+                                      initial={msg.pin_title || ''}
+                                      onSubmit={(v) => handleRenamePin(msg.id, v)}
+                                      onCancel={() => setRenamingPinId(null)}
+                                    />
+                                  ) : (
+                                    <div
+                                      role="button"
+                                      tabIndex={0}
+                                      style={styles.pinnedTocMain}
+                                      onClick={() => scrollToMessage(msg.id)}
+                                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); scrollToMessage(msg.id); } }}
+                                      title="Jump to message · right-click for options"
+                                    >
+                                      <span style={styles.pinnedTocTitle}>{renderPinTitle(msg)}</span>
+                                      <span style={styles.pinnedTocUpdated}>(last updated {pinnedUpdatedLabel(msg)})</span>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </Draggable>
+                          ))}
+                          {dropProvided.placeholder}
+                        </div>
+                      )}
+                    </Droppable>
+                  </DragDropContext>
                 )}
               </div>
             )}
@@ -1742,24 +2005,34 @@ const styles = {
     display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '8px',
   },
   pinnedTocItem: {
-    display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '6px',
+    display: 'flex', alignItems: 'center', gap: '4px', borderRadius: '6px',
+  },
+  pinnedTocItemDragging: {
+    background: 'rgba(251,191,36,0.12)',
+    boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
+  },
+  pinnedDragHandle: {
+    flexShrink: 0, cursor: 'grab', color: 'rgba(255,255,255,0.3)',
+    fontSize: '13px', padding: '0 2px', userSelect: 'none',
   },
   pinnedTocMain: {
     display: 'flex', alignItems: 'baseline', gap: '6px', flex: 1, minWidth: 0,
     padding: '5px 8px', background: 'none', border: 'none', textAlign: 'left',
     cursor: 'pointer', fontFamily: 'inherit', borderRadius: '6px',
   },
-  pinnedTocAuthor: {
-    fontSize: '12px', fontWeight: 600, color: '#e2e8f0', flexShrink: 0,
-  },
-  pinnedTocSnippet: {
-    fontSize: '12px', color: 'rgba(255,255,255,0.55)',
+  pinnedTocTitle: {
+    fontSize: '12px', fontWeight: 600, color: '#e2e8f0', minWidth: 0,
     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
   },
-  pinnedTocUnpin: {
-    background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)',
-    cursor: 'pointer', fontSize: '12px', padding: '4px 6px', flexShrink: 0,
-    borderRadius: '5px',
+  pinnedTocUpdated: {
+    fontSize: '11px', fontStyle: 'italic', color: 'rgba(255,255,255,0.35)',
+    flexShrink: 0,
+  },
+  pinnedRenameInput: {
+    flex: 1, minWidth: 0, padding: '4px 8px',
+    background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(251,191,36,0.5)',
+    borderRadius: '6px', color: '#fff', fontSize: '12px', fontFamily: 'inherit',
+    outline: 'none',
   },
   pinnedCloseBtn: {
     background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)',
@@ -1887,6 +2160,18 @@ const styles = {
     padding: '5px 10px', background: '#6366f1', border: 'none', borderRadius: '6px',
     color: '#fff', fontSize: '12px', fontFamily: 'inherit', cursor: 'pointer',
   },
+  linkPopover: {
+    position: 'absolute', bottom: '36px', left: 0, zIndex: 50,
+    display: 'flex', flexDirection: 'column', gap: '6px', width: '220px',
+    padding: '8px', background: '#1a1a2e',
+    border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px',
+    boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+  },
+  linkInput: {
+    width: '100%', boxSizing: 'border-box', padding: '6px 8px',
+    background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
+    borderRadius: '6px', color: '#fff', fontSize: '13px', fontFamily: 'inherit', outline: 'none',
+  },
   inputForm: {
     display: 'flex', gap: '8px',
   },
@@ -1966,6 +2251,9 @@ const msgStyles = {
     background: 'rgba(99,102,241,0.15)', color: '#a5b4fc',
     padding: '1px 4px', borderRadius: '4px', fontWeight: 600,
     cursor: 'pointer', textDecoration: 'none',
+  },
+  link: {
+    color: '#818cf8', textDecoration: 'underline', wordBreak: 'break-word',
   },
   editedTag: {
     fontSize: '11px', color: 'rgba(255,255,255,0.25)', marginLeft: '6px',
