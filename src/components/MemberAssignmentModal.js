@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { RESEARCH_FIELDS, emptyResearchForm, listResearchDocs, createResearchDoc } from '../lib/researchDocs';
+import { fetchAllRows } from '../pages/analytics/utils';
 
 const TEAM_ROLES = ['admin', 'assistant', 'member', 'partner'];
 
@@ -63,15 +64,17 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
 
   const fetchData = useCallback(async () => {
     try {
-      const [profRes, delivRes, campRes] = await Promise.all([
+      const [profRes, delivRows, campRes] = await Promise.all([
         supabase
           .from('profiles')
           .select('id, full_name, email, role')
           .order('full_name', { ascending: true, nullsFirst: false }),
-        supabase
-          .from('sponsor_deliverables')
-          .select('id, title, due_date, channel, delivered, status, notes, campaign:sponsor_campaigns(name, brief_url)')
-          .order('due_date', { ascending: true }),
+        fetchAllRows(
+          supabase
+            .from('sponsor_deliverables')
+            .select('id, title, due_date, channel, delivered, status, notes, campaign:sponsor_campaigns(name, brief_url)')
+            .order('due_date', { ascending: true })
+        ),
         supabase
           .from('sponsor_campaigns')
           .select('id, name, end_date')
@@ -82,7 +85,7 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
       const today = new Date().toISOString().slice(0, 10);
       const monthOf = (d) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short' }) : '';
       setDeliverables(
-        (delivRes.data || [])
+        (delivRows || [])
           .filter(d =>
             d.delivered !== true
             && (d.status || '').toLowerCase() !== 'archived'

@@ -293,31 +293,36 @@ export default function Analytics() {
     const gen = ++analysisGenRef.current;
     const { start, end } = getDateRange(dateRange, customStart, customEnd, filterMonth, filterYear);
     const { startUtc, endUtc } = ptRangeToUtc(start, end);
+    // Paginate past the 1000-row default: revenue_events and audience_snapshots
+    // exceed 1000 on long ranges (per-charge rows / one row per account per day),
+    // which silently understated revenue, RPM and follower growth. Content is
+    // paginated in full rather than capped at 500 so aggregations see every item.
     const [revResult, contentResult, audResult] = await Promise.all([
-      supabase
+      fetchAllRows(supabase
         .from('revenue_events')
         .select('platform_account_id, amount_cents, net_amount_cents, event_type')
         .gte('occurred_at', startUtc)
         .lt('occurred_at', endUtc)
-        .in('event_type', ['charge', 'subscription_renewal']),
-      supabase
+        .in('event_type', ['charge', 'subscription_renewal'])
+        .order('occurred_at', { ascending: false })),
+      fetchAllRows(supabase
         .from('content_items')
         .select('id, title, published_at, platform_account_id, url, content_type, series, platform_account:platform_accounts(platform, account_name), latest_metrics:content_metrics(views, likes, comments, shares, engagement_rate)')
         .gte('published_at', startUtc)
         .lt('published_at', endUtc)
-        .order('published_at', { ascending: false })
-        .limit(500),
-      supabase
+        .order('published_at', { ascending: false })),
+      fetchAllRows(supabase
         .from('audience_snapshots')
         .select('date, followers_gained, platform_account_id')
         .gte('date', start)
-        .lte('date', end),
+        .lte('date', end)
+        .order('date', { ascending: false })),
     ]);
     if (gen !== analysisGenRef.current) return;
     setAnalysisData({
-      revenue: revResult.data || [],
-      contentWithMetrics: contentResult.data || [],
-      audienceSnapshots: audResult.data || [],
+      revenue: revResult || [],
+      contentWithMetrics: contentResult || [],
+      audienceSnapshots: audResult || [],
     });
   }
 
@@ -350,10 +355,9 @@ export default function Analytics() {
       `)
       .gte('published_at', startUtc)
       .lt('published_at', endUtc)
-      .order('published_at', { ascending: false })
-      .limit(100);
+      .order('published_at', { ascending: false });
     if (activeAccountIds.length > 0) q = q.in('platform_account_id', activeAccountIds);
-    const { data } = await q;
+    const data = await fetchAllRows(q);
     if (gen !== contentGenRef.current) return;
     setContentItems(data || []);
   }

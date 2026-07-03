@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+import { fetchAllRows } from './analytics/utils';
 
 import * as mammoth from 'mammoth';
 import { marked } from 'marked';
@@ -151,10 +152,11 @@ export default function Reviews() {
   const fetchReviews = useCallback(async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.from('reviews')
-        .select('*, creator:profiles!reviews_created_by_fkey(full_name), thumbs:review_thumbnails(file_path, created_at)')
-        .order('created_at', { ascending: false });
-      if (error) throw error;
+      const data = await fetchAllRows(
+        supabase.from('reviews')
+          .select('*, creator:profiles!reviews_created_by_fkey(full_name), thumbs:review_thumbnails(file_path, created_at)')
+          .order('created_at', { ascending: false })
+      );
       // For reviews with no video yet, surface an uploaded thumbnail (earliest) on the card.
       const enriched = (data || []).map(r => {
         const firstThumb = (r.thumbs || []).slice().sort((a, b) =>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
+import { fetchAllRows } from './analytics/utils';
 
 // Admin-only Jobs page: manage public listings, review applications, and run
 // onboarding for accepted hires. Public board + edge functions live elsewhere.
@@ -43,14 +44,14 @@ export default function Jobs({ initialApplicationId, onApplicationOpened }) {
   }, []);
 
   const fetchAll = useCallback(async () => {
-    const [lRes, aRes, oRes] = await Promise.all([
-      supabase.from('job_listings').select('*').order('position').order('created_at', { ascending: false }),
-      supabase.from('job_applications').select('*, listing:job_listings(title)').order('created_at', { ascending: false }),
-      supabase.from('job_onboarding').select('*, application:job_applications(applicant_name, applicant_email, listing:job_listings(title))').order('created_at', { ascending: false }),
+    const [lRows, aRows, oRows] = await Promise.all([
+      fetchAllRows(supabase.from('job_listings').select('*').order('position').order('created_at', { ascending: false })),
+      fetchAllRows(supabase.from('job_applications').select('*, listing:job_listings(title)').order('created_at', { ascending: false })),
+      fetchAllRows(supabase.from('job_onboarding').select('*, application:job_applications(applicant_name, applicant_email, listing:job_listings(title))').order('created_at', { ascending: false })),
     ]);
-    setListings(lRes.data || []);
-    setApplications(aRes.data || []);
-    setOnboarding(oRes.data || []);
+    setListings(lRows || []);
+    setApplications(aRows || []);
+    setOnboarding(oRows || []);
     setLoading(false);
   }, []);
 
@@ -746,8 +747,9 @@ function AnalyticsTab({ listings, applications }) {
   useEffect(() => {
     (async () => {
       const since = new Date(Date.now() - 90 * 86400000).toISOString();
-      const { data } = await supabase.from('job_listing_views')
-        .select('listing_id, created_at').gte('created_at', since);
+      const data = await fetchAllRows(supabase.from('job_listing_views')
+        .select('listing_id, created_at').gte('created_at', since)
+        .order('created_at', { ascending: false }));
       const byListing = {};
       (data || []).forEach(v => { if (v.listing_id) byListing[v.listing_id] = (byListing[v.listing_id] || 0) + 1; });
       setViews({ total: (data || []).length, byListing });

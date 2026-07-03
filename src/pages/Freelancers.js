@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { fetchAllRows } from './analytics/utils';
 
 const TABS = ['Assignments', 'Hours', 'Documents', 'Team'];
 
@@ -106,12 +107,15 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
     (fpData || []).forEach(fp => { fpMap[fp.id] = fp; });
     setFlProfiles(fpMap);
 
-    const { data: acData } = await supabase
-      .from('freelancer_assignments')
-      .select('freelancer_id, status');
+    const acData = await fetchAllRows(
+      supabase
+        .from('freelancer_assignments')
+        .select('freelancer_id, status, declined_at')
+        .order('freelancer_id', { ascending: true })
+    );
     const counts = {};
-    (acData || []).forEach(a => {
-      if (a.status !== 'completed') {
+    acData.forEach(a => {
+      if (a.status !== 'completed' && !a.declined_at) {
         counts[a.freelancer_id] = (counts[a.freelancer_id] || 0) + 1;
       }
     });
@@ -137,11 +141,13 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
   }, []);
 
   const fetchAssignments = useCallback(async () => {
-    const { data } = await supabase
-      .from('freelancer_assignments')
-      .select('*, freelancer:profiles!freelancer_assignments_freelancer_id_fkey(full_name, avatar_url), created_by_profile:profiles!freelancer_assignments_created_by_fkey(full_name)')
-      .order('created_at', { ascending: false });
-    setAssignments(data || []);
+    const data = await fetchAllRows(
+      supabase
+        .from('freelancer_assignments')
+        .select('*, freelancer:profiles!freelancer_assignments_freelancer_id_fkey(full_name, avatar_url), created_by_profile:profiles!freelancer_assignments_created_by_fkey(full_name)')
+        .order('created_at', { ascending: false })
+    );
+    setAssignments(data);
   }, []);
 
   const fetchComments = useCallback(async (assignmentId) => {
@@ -154,11 +160,13 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
   }, []);
 
   const fetchHours = useCallback(async () => {
-    const { data } = await supabase
-      .from('freelancer_hours')
-      .select('*, freelancer:profiles!freelancer_hours_freelancer_id_fkey(full_name, avatar_url)')
-      .order('period_start', { ascending: false });
-    setHours(data || []);
+    const data = await fetchAllRows(
+      supabase
+        .from('freelancer_hours')
+        .select('*, freelancer:profiles!freelancer_hours_freelancer_id_fkey(full_name, avatar_url)')
+        .order('period_start', { ascending: false })
+    );
+    setHours(data);
   }, []);
 
   const fetchDocs = useCallback(async () => {

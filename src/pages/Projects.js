@@ -8,6 +8,7 @@ import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import UnifiedBoard from './projects/UnifiedBoard';
 import { labelFor as stageTaskLabel } from '../lib/kanbanStages';
 import { callEdgeFn } from '../lib/edgeFn';
+import { fetchAllRows } from './analytics/utils';
 
 
 const STATUSES = ['queue', 'write', 'pre_production', 'film', 'review', 'edit', 'post_production', 'publish'];
@@ -79,9 +80,10 @@ export default function Projects({ onNavigate }) {
   const fetchProjects = useCallback(async () => {
     console.log('[Projects] fetchProjects called at', new Date().toISOString());
     try {
-      const { data, error } = await supabase
-        .from('projects')
-        .select(`
+      const data = await fetchAllRows(
+        supabase
+          .from('projects')
+          .select(`
           *,
           creator:profiles!created_by(id, full_name),
           project_assignments(*, profile:profiles(id, full_name, title)),
@@ -89,9 +91,9 @@ export default function Projects({ onNavigate }) {
           project_checklists(*),
           project_stage_assignments(*, profile:profiles(id, full_name, title, role))
         `)
-        .order('created_at', { ascending: false });
+          .order('created_at', { ascending: false })
+      );
 
-      if (error) throw error;
       setProjects(data || []);
     } catch (err) {
       console.error('Error:', err);
@@ -289,11 +291,12 @@ export default function Projects({ onNavigate }) {
   const fetchShorts = useCallback(async () => {
     setShortsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('shorts_queue')
-        .select('*, creator:profiles!created_by(id, full_name), assignee:profiles!assigned_to(id, full_name)')
-        .order('created_at', { ascending: true });
-      if (error) throw error;
+      const data = await fetchAllRows(
+        supabase
+          .from('shorts_queue')
+          .select('*, creator:profiles!created_by(id, full_name), assignee:profiles!assigned_to(id, full_name)')
+          .order('created_at', { ascending: true })
+      );
       setShorts(data || []);
     } catch (err) {
       console.error('Error fetching shorts:', err);

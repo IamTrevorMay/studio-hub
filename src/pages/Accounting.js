@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { DonutChart, TrendChart, formatCompact } from '../lib/charts';
+import { fetchAllRows } from './analytics/utils';
 
 // Revenue (income) categories the Tiller sync writes into revenue_transactions.
 // Mirrors INCOME_CATEGORIES + the meta map that used to live in Analytics.js.
@@ -159,29 +160,33 @@ export default function Accounting() {
     const daysDiff = Math.max(1, Math.ceil((new Date(end) - new Date(start)) / 86400000));
     const prevStart = new Date(new Date(start).getTime() - daysDiff * 86400000).toISOString().slice(0, 10);
 
+    // Transaction tables are paginated past Supabase's 1000-row default — Tiller
+    // syncs every bank/CC line, so any real range exceeds 1000 and unpaginated
+    // fetches silently understated revenue/expense/net/margin. Prev-period
+    // queries also need a deterministic .order() for stable pagination.
     const [revCur, revOld, expCur, expOld, campaigns, deliverables] = await Promise.all([
-      supabase.from('revenue_transactions')
+      fetchAllRows(supabase.from('revenue_transactions')
         .select('date, description, category, amount_cents, account, business')
-        .gte('date', start).lte('date', end).order('date', { ascending: false }),
-      supabase.from('revenue_transactions')
+        .gte('date', start).lte('date', end).order('date', { ascending: false })),
+      fetchAllRows(supabase.from('revenue_transactions')
         .select('date, category, amount_cents, business')
-        .gte('date', prevStart).lt('date', start),
-      supabase.from('expense_transactions')
+        .gte('date', prevStart).lt('date', start).order('date', { ascending: false })),
+      fetchAllRows(supabase.from('expense_transactions')
         .select('date, description, category, amount_cents, account, business')
-        .gte('date', start).lte('date', end).order('date', { ascending: false }),
-      supabase.from('expense_transactions')
+        .gte('date', start).lte('date', end).order('date', { ascending: false })),
+      fetchAllRows(supabase.from('expense_transactions')
         .select('date, category, amount_cents, business')
-        .gte('date', prevStart).lt('date', start),
+        .gte('date', prevStart).lt('date', start).order('date', { ascending: false })),
       // Sponsor revenue pipeline (range-independent current snapshot).
       supabase.from('sponsor_campaigns').select('id, payment_status, apply_agency_fee, fully_delivered_at'),
       supabase.from('sponsor_deliverables').select('campaign_id, pay'),
     ]);
 
     if (signal?.aborted) return;
-    setRevenue(revCur.data || []);
-    setRevenuePrev(revOld.data || []);
-    setExpenses(expCur.data || []);
-    setExpensesPrev(expOld.data || []);
+    setRevenue(revCur || []);
+    setRevenuePrev(revOld || []);
+    setExpenses(expCur || []);
+    setExpensesPrev(expOld || []);
     setSponsorPipeline(computeSponsorPipeline(campaigns.data || [], deliverables.data || []));
   }, [rangeKey]);
 

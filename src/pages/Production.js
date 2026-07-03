@@ -5,6 +5,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { callWorkflowFn } from '../lib/workflowApi';
+import { fetchAllRows } from './analytics/utils';
 
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
 
@@ -202,12 +203,13 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   // ─── fetch sheets ───────────────────────────────────────────────────────────
   const fetchSheets = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('beat_sheets')
-      .select('*')
-      .eq('is_archived', false)
-      .order('updated_at', { ascending: false });
-    if (error) console.error('Fetch beat sheets error:', error);
+    const data = await fetchAllRows(
+      supabase
+        .from('beat_sheets')
+        .select('*')
+        .eq('is_archived', false)
+        .order('updated_at', { ascending: false })
+    );
     setSheets(data || []);
     setLoading(false);
   }, []);

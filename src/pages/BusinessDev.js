@@ -4,6 +4,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+import { fetchAllRows } from './analytics/utils';
 
 // ════════════════════════════════════════════════════════════
 // Constants
@@ -263,8 +264,8 @@ export default function BusinessDev() {
     try {
       const [phRes, initRes, taskRes, linkRes, msRes, adminRes, partnerRes] = await Promise.all([
         supabase.from('bd_phases').select('*').is('archived_at', null).order('position'),
-        supabase.from('bd_initiatives').select('*').order('position'),
-        supabase.from('bd_tasks').select('*').order('position'),
+        fetchAllRows(supabase.from('bd_initiatives').select('*').order('position')),
+        fetchAllRows(supabase.from('bd_tasks').select('*').order('position')),
         supabase.from('bd_initiative_links').select('*').order('position'),
         supabase.from('bd_milestones').select('*').is('retired_at', null).order('target_date'),
         supabase.from('profiles').select('id, full_name, role').in('role', ['admin', 'partner']).order('full_name'),
@@ -273,8 +274,8 @@ export default function BusinessDev() {
       const phs = phRes.data || [];
       setPartners(partnerRes.data || []);
       setPhases(phs);
-      setInitiatives(initRes.data || []);
-      setTasks(taskRes.data || []);
+      setInitiatives(initRes || []);
+      setTasks(taskRes || []);
       setLinks(linkRes.data || []);
       setMilestones(msRes.data || []);
       setAdmins(adminRes.data || []);
@@ -332,12 +333,13 @@ export default function BusinessDev() {
     const end = yearRange.end;
     const allAccountIds = [...new Set(metricGoals.flatMap(g => g.platform_account_ids || []))];
     if (!allAccountIds.length) { setBdRollupData({}); return; }
-    const { data: rollups } = await supabase
+    const rollups = await fetchAllRows(supabase
       .from('platform_daily_metrics')
       .select('*')
       .gte('date', start)
       .lte('date', end)
-      .in('platform_account_id', allAccountIds);
+      .in('platform_account_id', allAccountIds)
+      .order('date', { ascending: false }));
     if (!rollups) { setBdRollupData({}); return; }
     const result = {};
     for (const goal of metricGoals) {

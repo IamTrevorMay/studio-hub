@@ -6,6 +6,7 @@ import MemberAssignmentModal from '../components/MemberAssignmentModal';
 import ContractorAssignmentModal from '../components/ContractorAssignmentModal';
 import TaskEditModal from '../components/TaskEditModal';
 import ProgressTable from '../components/workflows/ProgressTable';
+import { fetchAllRows } from './analytics/utils';
 
 // ─── Component ───────────────────────────────────────────────
 export default function Workflows() {
@@ -421,14 +422,16 @@ export default function Workflows() {
     const TASK_DONE_COLS = TASK_COLS + ', completed_at';
     const FL_COLS = 'id, title, description, freelancer_id, status, due_date, pay_amount, asset_url, completed_at, created_at, created_by';
     const [
-      { data: pend },
+      pend,
       { data: completed },
       { data: flPend },
       { data: flDoneData },
     ] = await Promise.all([
-      supabase.from('tasks').select(TASK_COLS)
+      fetchAllRows(supabase.from('tasks').select(TASK_COLS)
         .in('status', ['active', 'pending', 'on_hold'])
-        .not('assignee_id', 'is', null),
+        .not('assignee_id', 'is', null)
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })),
       supabase.from('tasks').select(TASK_DONE_COLS)
         .eq('status', 'complete')
         .gte('completed_at', cutoff)
