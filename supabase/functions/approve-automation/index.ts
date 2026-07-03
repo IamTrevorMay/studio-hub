@@ -101,7 +101,14 @@ async function runActions(
         if (navTarget) insertData.nav_target = navTarget;
         if (dedupKey) insertData.dedup_key = dedupKey;
 
-        const { error } = await admin.from("tasks").insert(insertData);
+        // Idempotent on (automation_id, dedup_key, assignee_id): a retry after a
+        // partial failure, or a concurrent execution, won't duplicate the task.
+        const { error } = dedupKey
+          ? await admin.from("tasks").upsert(insertData, {
+              onConflict: "automation_id,dedup_key,assignee_id",
+              ignoreDuplicates: true,
+            })
+          : await admin.from("tasks").insert(insertData);
         if (error) {
           throw new Error(`Failed to insert task for ${aId}: ${error.message}`);
         }
@@ -236,7 +243,21 @@ Deno.serve(async (req: Request) => {
   if (runErr || !run) {
     return jsonResp({ error: "Pending run not found" }, 404);
   }
-  if (run.status !== "pending_confirmation") {
+  // Atomically claim the pending run before doing anything. Two admins acting on
+  // the same all_admins confirmation gate (or a double-click) otherwise both pass
+  // a passive status check and execute the actions twice. Only the update that
+  // actually flips pending_confirmation -> running proceeds.
+  const { data: claimed, error: claimErr } = await admin
+    .from("automation_runs")
+    .update({ status: "running" })
+    .eq("id", run.id)
+    .eq("status", "pending_confirmation")
+    .select("id")
+    .maybeSingle();
+  if (claimErr) {
+    return jsonResp({ error: `Failed to claim run: ${claimErr.message}` }, 500);
+  }
+  if (!claimed) {
     return jsonResp({ error: `Run no longer pending (status: ${run.status})` }, 400);
   }
 
@@ -246,6 +267,8 @@ Deno.serve(async (req: Request) => {
     .eq("id", run.automation_id)
     .single();
   if (automationErr || !automation) {
+    // Release the claim so the gate stays actionable.
+    await admin.from("automation_runs").update({ status: "pending_confirmation" }).eq("id", run.id);
     return jsonResp({ error: "Automation not found" }, 404);
   }
 
@@ -271,10 +294,13 @@ Deno.serve(async (req: Request) => {
       );
     } catch (err) {
       const errMsg = (err as Error).message;
-      // Update run to error, leave task active so admin can retry or decline.
+      // Revert to pending_confirmation (not error) and leave the task active so
+      // the admin can actually retry — a terminal 'error' status would make the
+      // gate un-reapprovable. Task inserts are idempotent (unique dedup index),
+      // so a retry after a partial failure won't duplicate already-created tasks.
       await admin
         .from("automation_runs")
-        .update({ status: "error", error_message: errMsg, actions_taken: actionsTaken })
+        .update({ status: "pending_confirmation", error_message: errMsg, actions_taken: actionsTaken })
         .eq("id", run.id);
       await admin
         .from("automations")

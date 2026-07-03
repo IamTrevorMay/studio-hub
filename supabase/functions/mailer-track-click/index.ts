@@ -4,19 +4,25 @@
 //
 //   GET /functions/v1/mailer-track-click?s=<send_id>&u=<encoded url>
 //
-// The destination URL is validated so we don't become an open redirect
-// for arbitrary external targets — only http/https schemes pass.
+// The destination URL is validated so we don't become an open redirect for
+// arbitrary external targets: it must be http/https AND carry a valid HMAC
+// signature (`sig`) that mailer-send-now attached at render time. A scheme
+// check alone was insufficient — anyone could pass ?u=https://evil.com and turn
+// the sending domain into a phishing redirector.
 //
 // Deploy: supabase functions deploy mailer-track-click --no-verify-jwt
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { getAdminClient } from "../shared/workflow-engine.ts";
+import { verifyDest } from "../shared/mailer-links.ts";
 
-function safeDest(raw: string | null): string | null {
+function safeDest(raw: string | null, sig: string | null): string | null {
   if (!raw) return null;
   try {
     const u = new URL(raw);
     if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    // Only redirect to a destination we ourselves signed.
+    if (!verifyDest(raw, sig)) return null;
     return u.toString();
   } catch { return null; }
 }
@@ -24,7 +30,7 @@ function safeDest(raw: string | null): string | null {
 Deno.serve(async (req) => {
   const url = new URL(req.url);
   const sendId = url.searchParams.get("s");
-  const dest = safeDest(url.searchParams.get("u"));
+  const dest = safeDest(url.searchParams.get("u"), url.searchParams.get("sig"));
   if (!dest) return new Response("Bad destination", { status: 400 });
 
   if (sendId) {

@@ -391,7 +391,15 @@ async function executeCreateTask(
     if (navTarget) insertData.nav_target = navTarget;
     if (dedupKey) insertData.dedup_key = dedupKey;
 
-    const { error } = await admin.from("tasks").insert(insertData);
+    // The pre-check above is a fast path; the upsert closes the race where two
+    // concurrent runs both pass the check. Unique index on
+    // (automation_id, dedup_key, assignee_id) makes the duplicate a no-op.
+    const { error } = dedupKey
+      ? await admin.from("tasks").upsert(insertData, {
+          onConflict: "automation_id,dedup_key,assignee_id",
+          ignoreDuplicates: true,
+        })
+      : await admin.from("tasks").insert(insertData);
     if (error) {
       throw new Error(`Failed to insert task for ${aId}: ${error.message}`);
     }

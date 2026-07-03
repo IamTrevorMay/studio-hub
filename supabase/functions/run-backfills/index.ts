@@ -106,6 +106,29 @@ Deno.serve(async (req: Request) => {
           throw new Error(`${syncFn} returned ${res.status}: ${errText.slice(0, 500)}`);
         }
 
+        // A 200 from the sync function does NOT prove the target day was
+        // backfilled: several syncs (metricool, stripe, substack, fourthwall)
+        // only cover a recent rolling window and ignore backfill_date, so an
+        // older date returns 200 while writing nothing. Verify a row actually
+        // landed for (account, target_date); if not, throw so the item retries
+        // and ultimately surfaces as 'failed' instead of being silently marked
+        // completed and hiding a permanent gap.
+        const acctId = item.platform_account_id;
+        const [pdm, snap] = await Promise.all([
+          supabase.from("platform_daily_metrics")
+            .select("*", { count: "exact", head: true })
+            .eq("platform_account_id", acctId).eq("date", item.target_date),
+          supabase.from("audience_snapshots")
+            .select("*", { count: "exact", head: true })
+            .eq("platform_account_id", acctId).eq("date", item.target_date),
+        ]);
+        if (!(pdm.count || 0) && !(snap.count || 0)) {
+          throw new Error(
+            `${syncFn} returned 200 but wrote no metrics/snapshot for ${item.target_date} — ` +
+            `this platform likely cannot re-sync that historical date`,
+          );
+        }
+
         await supabase.from("sync_backfill_queue")
           .update({ status: "completed", completed_at: new Date().toISOString() })
           .eq("id", item.id);

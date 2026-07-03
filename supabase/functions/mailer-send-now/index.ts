@@ -27,6 +27,7 @@ import { renderCampaign, Block, RssItem } from "../shared/mailer-render.ts";
 import { resolveBlockData, digestDateET } from "../shared/mailer-bindings.ts";
 import { resendBatch, SendEmailInput } from "../shared/resend.ts";
 import { isSafeExternalUrl } from "../shared/url-validation.ts";
+import { signDest } from "../shared/mailer-links.ts";
 
 interface Campaign {
   id: string;
@@ -199,6 +200,7 @@ Deno.serve(async (req) => {
         const u = new URL(`${baseUrl}/functions/v1/mailer-track-click`);
         u.searchParams.set("s", sendId);
         u.searchParams.set("u", href);
+        u.searchParams.set("sig", signDest(href));
         return u.toString();
       },
       subscriber: {

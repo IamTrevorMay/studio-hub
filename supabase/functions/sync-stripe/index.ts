@@ -342,7 +342,7 @@ async function handleBatchReconciliation(supabase: any, stripeHeaders: Record<st
     return jsonResponse({
       success: true,
       batch_processed: processed,
-      active_subscriptions: subsData.data?.length || 0,
+      active_subscriptions: activeSubs,
       mrr_cents: mrr,
     });
   } catch (err) {

@@ -110,16 +110,25 @@ Deno.serve(async (req: Request) => {
       return jsonRes({ error: "No daily graphics found" }, 404);
     }
 
-    // Check if already posted
-    const { data: existing } = await admin
+    // Atomically claim this date BEFORE any external publishing. The unique
+    // constraint on daily_graphics_posts.date means a concurrent invocation
+    // (cron + manual trigger, or a retry) loses the race and skips, instead of
+    // both publishing a real public Instagram carousel. The claim row is filled
+    // in with the post id on success, or deleted on failure so a retry can run.
+    const { data: claim, error: claimErr } = await admin
       .from("daily_graphics_posts")
+      .insert({ date: targetDate })
       .select("id")
-      .eq("date", targetDate)
       .maybeSingle();
 
-    if (existing) {
-      return jsonRes({ skipped: true, reason: "already_posted", date: targetDate });
+    if (claimErr) {
+      if ((claimErr as { code?: string }).code === "23505") {
+        return jsonRes({ skipped: true, reason: "already_posted", date: targetDate });
+      }
+      return jsonRes({ error: "Failed to claim date", detail: claimErr.message }, 500);
     }
+    const claimId = claim?.id as string;
+    const releaseClaim = () => admin.from("daily_graphics_posts").delete().eq("id", claimId);
 
     // Fetch graphics for this date
     const { data: graphics, error: gfxError } = await admin
@@ -129,6 +138,7 @@ Deno.serve(async (req: Request) => {
       .order("id", { ascending: true });
 
     if (gfxError || !graphics || graphics.length === 0) {
+      await releaseClaim();
       return jsonRes({ error: "No graphics for date", date: targetDate }, 404);
     }
 
@@ -163,6 +173,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (childIds.length === 0) {
+      await releaseClaim();
       return jsonRes({ error: "Failed to create any child containers", details: errors }, 502);
     }
 
@@ -190,6 +201,7 @@ Deno.serve(async (req: Request) => {
     const carouselData = await carouselRes.json();
 
     if (!carouselData.id) {
+      await releaseClaim();
       return jsonRes(
         {
           error: "Failed to create carousel container",
@@ -218,6 +230,7 @@ Deno.serve(async (req: Request) => {
     const publishData = await publishRes.json();
 
     if (!publishData.id) {
+      await releaseClaim();
       return jsonRes(
         {
           error: "Failed to publish carousel",
@@ -228,13 +241,12 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Record successful post
-    await admin.from("daily_graphics_posts").insert({
-      date: targetDate,
+    // Fill in the claimed row with the published post id.
+    await admin.from("daily_graphics_posts").update({
       post_id: publishData.id,
       format_used: "instagram_graph_api",
       media_ids: childIds,
-    });
+    }).eq("id", claimId);
 
     return jsonRes({
       success: true,
