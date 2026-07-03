@@ -1262,8 +1262,10 @@ function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, formatCo
 
   useEffect(() => {
     if (editInputRef.current) {
+      // Grow to fit content up to 8 rows (14px × 1.5 line-height × 8 + 16px
+      // padding + 2px border ≈ 186px), then the textarea scrolls internally.
       editInputRef.current.style.height = 'auto';
-      editInputRef.current.style.height = Math.min(editInputRef.current.scrollHeight, 150) + 'px';
+      editInputRef.current.style.height = Math.min(editInputRef.current.scrollHeight, 186) + 'px';
     }
   }, [editContent]);
 
@@ -1539,7 +1541,7 @@ const styles = {
   hashIcon: {
     fontSize: '16px', fontWeight: 700, opacity: 0.5,
   },
-  channelItemName: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  channelItemName: { flex: 1, minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word', lineHeight: 1.3 },
   channelUnreadDot: {
     width: '8px', height: '8px', borderRadius: '50%',
     background: '#ef4444', flexShrink: 0, marginLeft: 'auto',
@@ -1773,7 +1775,7 @@ const msgStyles = {
     border: '1px solid rgba(99,102,241,0.4)', borderRadius: '8px',
     color: '#fff', fontSize: '14px', fontFamily: 'inherit', outline: 'none',
     boxSizing: 'border-box',
-    resize: 'none', lineHeight: 1.5, minHeight: '36px', maxHeight: '150px',
+    resize: 'none', lineHeight: 1.5, minHeight: '36px', maxHeight: '186px',
     overflow: 'auto',
   },
   bulletList: {
