@@ -143,8 +143,13 @@ async function processStripeEvent(supabase: any, event: any) {
   switch (eventType) {
     case "charge.succeeded": {
       const productCategory = await categorizeCharge(supabase, obj);
+      // Key on the charge id (shared with batch reconciliation, which keys on the
+      // balance transaction's source = this charge id) so the webhook and the
+      // daily batch collide on one row instead of double-counting the charge.
+      // ignoreDuplicates:false so the richer webhook data (real product_category)
+      // overwrites a batch-written 'other' placeholder regardless of order.
       await supabase.from("revenue_events").upsert({
-        stripe_event_id: event.id,
+        stripe_event_id: `charge_${obj.id}`,
         event_type: "charge",
         amount_cents: obj.amount,
         net_amount_cents: obj.amount - (obj.application_fee_amount || 0),
@@ -158,7 +163,7 @@ async function processStripeEvent(supabase: any, event: any) {
           payment_method_type: obj.payment_method_details?.type,
           receipt_url: obj.receipt_url,
         },
-      }, { onConflict: "stripe_event_id", ignoreDuplicates: true });
+      }, { onConflict: "stripe_event_id", ignoreDuplicates: false });
       return { processed: "charge.succeeded" };
     }
 
@@ -273,8 +278,13 @@ async function handleBatchReconciliation(supabase: any, stripeHeaders: Record<st
       }
       const batch = balData.data || [];
       for (const txn of batch) {
+        // Key on the underlying charge id when available (txn.source) so this
+        // collides with the webhook's charge_<id> row; fall back to the balance
+        // txn id only when there's no source. ignoreDuplicates:true so the batch
+        // never clobbers the webhook's richer categorization.
+        const chargeId = typeof txn.source === "string" ? txn.source : null;
         await supabase.from("revenue_events").upsert({
-          stripe_event_id: `bal_${txn.id}`,
+          stripe_event_id: chargeId ? `charge_${chargeId}` : `bal_${txn.id}`,
           event_type: "charge",
           amount_cents: txn.amount,
           net_amount_cents: txn.net,

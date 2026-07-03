@@ -109,58 +109,89 @@ Deno.serve(async (req: Request) => {
         }
         const q = `'${folderId}' in parents and (createdTime > '${lastSeenIso}' or modifiedTime > '${lastSeenIso}')`;
 
-        const driveRes = await fetch(
-          "https://www.googleapis.com/drive/v3/files?" + new URLSearchParams({
+        // A single tick can change more than one page (200) of files — e.g. a
+        // bulk upload. Follow nextPageToken until Drive stops returning one so
+        // we process every changed file before advancing the cursor. Cap the
+        // number of pages so a runaway response can never loop forever.
+        const MAX_PAGES = 50;
+        let pageToken: string | undefined = undefined;
+        let pages = 0;
+        let hitPageBound = false;
+
+        while (true) {
+          const params = new URLSearchParams({
             q,
-            fields: "files(id,name,mimeType,webViewLink,createdTime,modifiedTime,trashed,parents,lastModifyingUser(emailAddress,displayName,permissionId))",
+            fields: "nextPageToken, files(id,name,mimeType,webViewLink,createdTime,modifiedTime,trashed,parents,lastModifyingUser(emailAddress,displayName,permissionId))",
             orderBy: "createdTime",
             pageSize: "200",
             supportsAllDrives: "true",
             includeItemsFromAllDrives: "true",
-          }),
-          { headers: { Authorization: `Bearer ${accessToken}` } },
-        );
-        const driveBody = await driveRes.json();
-        if (!driveRes.ok) {
-          throw new Error(`Drive list failed: ${driveBody.error?.message || driveRes.status}`);
-        }
+          });
+          if (pageToken) params.set("pageToken", pageToken);
 
-        const files: DriveFile[] = driveBody.files || [];
-
-        for (const f of files) {
-          const eventType: "added" | "modified" | "trashed" =
-            f.trashed ? "trashed"
-            : (f.createdTime && Date.parse(f.createdTime) > Date.parse(lastSeen)) ? "added"
-            : "modified";
-
-          const { error: upsertErr } = await admin.from("drive_events").upsert(
-            {
-              watch_id: watch.id,
-              drive_file_id: f.id,
-              file_name: f.name ?? null,
-              mime_type: f.mimeType ?? null,
-              parent_folder_id: f.parents?.[0] ?? watch.folder_id,
-              web_view_link: f.webViewLink ?? null,
-              created_time: f.createdTime ?? null,
-              modified_time: f.modifiedTime ?? null,
-              event_type: eventType,
-              uploader_email: f.lastModifyingUser?.emailAddress ?? null,
-              uploader_display_name: f.lastModifyingUser?.displayName ?? null,
-              uploader_permission_id: f.lastModifyingUser?.permissionId ?? null,
-              payload: f as unknown as Record<string, unknown>,
-            },
-            { onConflict: "watch_id,drive_file_id,event_type", ignoreDuplicates: true },
+          const driveRes = await fetch(
+            "https://www.googleapis.com/drive/v3/files?" + params,
+            { headers: { Authorization: `Bearer ${accessToken}` } },
           );
-          if (!upsertErr) totalEvents += 1;
+          const driveBody = await driveRes.json();
+          if (!driveRes.ok) {
+            throw new Error(`Drive list failed: ${driveBody.error?.message || driveRes.status}`);
+          }
+
+          const files: DriveFile[] = driveBody.files || [];
+
+          for (const f of files) {
+            const eventType: "added" | "modified" | "trashed" =
+              f.trashed ? "trashed"
+              : (f.createdTime && Date.parse(f.createdTime) > Date.parse(lastSeen)) ? "added"
+              : "modified";
+
+            const { error: upsertErr } = await admin.from("drive_events").upsert(
+              {
+                watch_id: watch.id,
+                drive_file_id: f.id,
+                file_name: f.name ?? null,
+                mime_type: f.mimeType ?? null,
+                parent_folder_id: f.parents?.[0] ?? watch.folder_id,
+                web_view_link: f.webViewLink ?? null,
+                created_time: f.createdTime ?? null,
+                modified_time: f.modifiedTime ?? null,
+                event_type: eventType,
+                uploader_email: f.lastModifyingUser?.emailAddress ?? null,
+                uploader_display_name: f.lastModifyingUser?.displayName ?? null,
+                uploader_permission_id: f.lastModifyingUser?.permissionId ?? null,
+                payload: f as unknown as Record<string, unknown>,
+              },
+              { onConflict: "watch_id,drive_file_id,event_type", ignoreDuplicates: true },
+            );
+            if (!upsertErr) totalEvents += 1;
+          }
+
+          pages += 1;
+          pageToken = driveBody.nextPageToken || undefined;
+          if (!pageToken) break;
+          if (pages >= MAX_PAGES) {
+            // Safety bound hit with more pages outstanding. Do NOT advance the
+            // cursor — the next tick will re-query from the same last_seen_time
+            // (dedup makes the already-processed rows no-ops) and drain the rest.
+            hitPageBound = true;
+            break;
+          }
         }
 
-        await admin
-          .from("drive_watches")
-          .update({
-            last_seen_time: requestStart,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", watch.id);
+        if (hitPageBound) {
+          console.warn(
+            `drive-watch-poll: watch ${watch.id} hit MAX_PAGES (${MAX_PAGES}); cursor not advanced, will resume next tick`,
+          );
+        } else {
+          await admin
+            .from("drive_watches")
+            .update({
+              last_seen_time: requestStart,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", watch.id);
+        }
       } catch (err) {
         errors.push({ watchId: watch.id, error: (err as Error).message });
       }

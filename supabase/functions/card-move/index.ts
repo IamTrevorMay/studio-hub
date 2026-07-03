@@ -356,11 +356,18 @@ Deno.serve(async (req: Request) => {
         .eq("user_id", userId)
         .eq("status", "active")
         .maybeSingle();
+      const { data: maxPos } = await admin
+        .from("personal_tasks")
+        .select("position")
+        .eq("created_by", userId)
+        .order("position", { ascending: false })
+        .limit(1)
+        .maybeSingle();
       await admin.from("personal_tasks").insert({
         created_by: userId,
         content: taskTitle,
         status: "in_progress",
-        position: Date.now() % 100000,
+        position: ((maxPos?.position as number) || 0) + 1,
         task_id: task.id,
         project_id: project.id,
         sprint_id: sprint?.id || null,

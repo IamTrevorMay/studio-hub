@@ -13,6 +13,12 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "GET, OPTIONS",
 };
 
+function ptDayString(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(d);
+}
+
 function jsonResponse(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -53,20 +59,15 @@ Deno.serve(async (req: Request) => {
   // Clamp days to a sane range so a large value can't blow up the Metricool window/cost.
   const days = Math.min(90, Math.max(1, parseInt(url.searchParams.get("days") || "7", 10) || 7));
 
-  // Build date range in Pacific time (matches Metricool's response dates)
-  const now = new Date();
-  const from = new Date(now);
-  from.setUTCDate(from.getUTCDate() - (days + 1)); // extra day to cover timezone overlap
+  // Build date range in Pacific time (matches Metricool's response dates).
+  // Boundaries are PT calendar days so they stay consistent with the
+  // timezone=America/Los_Angeles request below.
+  const DAY_MS = 86400000;
+  const fromDay = ptDayString(new Date(Date.now() - (days + 1) * DAY_MS)); // extra day covers timezone overlap
+  const toDay = ptDayString(); // today in PT
 
-  // Format as local-style datetime strings (no Z suffix) for Metricool
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const fmtDate = (d: Date) =>
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T00:00:00`;
-  const fmtNow = (d: Date) =>
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T23:59:59`;
-
-  const fromStr = fmtDate(from);
-  const toStr = fmtNow(now);
+  const fromStr = `${fromDay}T00:00:00`;
+  const toStr = `${toDay}T23:59:59`;
 
   const apiUrl = `https://app.metricool.com/api/v2/scheduler/posts?start=${encodeURIComponent(fromStr)}&end=${encodeURIComponent(toStr)}&timezone=America/Los_Angeles&extendedRange=true&userId=${mcUserId}&blogId=${mcBlogId}`;
 

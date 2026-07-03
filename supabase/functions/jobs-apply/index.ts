@@ -4,8 +4,9 @@
 // inserts the application, notifies admins in-app, and emails a confirmation.
 //
 // Abuse controls: honeypot, per-IP/email rate limit, Cloudflare Turnstile
-// (active only when TURNSTILE_SECRET is set), duplicate guard, and résumé
-// magic-byte validation. Applicant consent is required and recorded.
+// (fails closed unless TURNSTILE_SECRET is set or a dev bypass is enabled),
+// duplicate guard, and résumé magic-byte validation. Applicant consent is
+// required and recorded.
 //
 // Deploy: supabase functions deploy jobs-apply --no-verify-jwt
 
@@ -61,12 +62,20 @@ async function sendEmail(to: string, subject: string, html: string) {
   }
 }
 
-// Cloudflare Turnstile. No-op (returns true) when no secret is configured, so
-// the form keeps working until keys are wired up.
-async function verifyTurnstile(token: string | undefined, ip: string): Promise<boolean> {
+// Cloudflare Turnstile. Fails CLOSED when no secret is configured — the only
+// bypass is an explicit dev opt-out (ENVIRONMENT=dev or TURNSTILE_DISABLED=true)
+// so production never silently skips bot protection.
+async function verifyTurnstile(
+  token: string | undefined,
+  ip: string,
+): Promise<"ok" | "fail" | "unconfigured"> {
   const secret = Deno.env.get("TURNSTILE_SECRET");
-  if (!secret) return true; // flag off
-  if (!token) return false;
+  if (!secret) {
+    const devBypass = Deno.env.get("ENVIRONMENT") === "dev"
+      || Deno.env.get("TURNSTILE_DISABLED") === "true";
+    return devBypass ? "ok" : "unconfigured";
+  }
+  if (!token) return "fail";
   try {
     const form = new URLSearchParams({ secret, response: token, remoteip: ip });
     const r = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
@@ -75,10 +84,10 @@ async function verifyTurnstile(token: string | undefined, ip: string): Promise<b
       body: form,
     });
     const out = await r.json();
-    return !!out.success;
+    return out.success ? "ok" : "fail";
   } catch (e) {
     console.error("Turnstile verify failed:", (e as Error).message);
-    return false;
+    return "fail";
   }
 }
 
@@ -140,8 +149,13 @@ Deno.serve(async (req: Request) => {
     || req.headers.get("cf-connecting-ip")
     || "unknown";
 
-  // Bot challenge (active only when configured).
-  if (!(await verifyTurnstile(body.turnstile_token as string | undefined, ip))) {
+  // Bot challenge — fails closed if not configured (except explicit dev bypass).
+  const turnstile = await verifyTurnstile(body.turnstile_token as string | undefined, ip);
+  if (turnstile === "unconfigured") {
+    console.error("Turnstile secret missing — rejecting application (captcha not configured).");
+    return reply({ error: "Applications are temporarily unavailable. Please try again later." }, 503);
+  }
+  if (turnstile === "fail") {
     return reply({ error: "Verification failed. Please retry the challenge." }, 400);
   }
 

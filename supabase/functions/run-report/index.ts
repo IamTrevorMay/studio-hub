@@ -16,6 +16,12 @@ import {
   type SourceResult,
 } from "../shared/report-sources.ts";
 
+function ptDayString(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(d);
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -381,7 +387,7 @@ async function runConfig(
   adminClient: ReturnType<typeof createClient>,
   config: any,
 ): Promise<{ success: boolean; error?: string; emailsSent?: number; emailsFailed?: number }> {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = ptDayString();
 
   const { data: runRow, error: runErr } = await adminClient
     .from("report_runs")

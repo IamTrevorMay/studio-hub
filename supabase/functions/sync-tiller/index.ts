@@ -395,9 +395,12 @@ Deno.serve(async (req: Request) => {
 
         const incomeRes = await upsertBatched("revenue_transactions", incomeTxs);
         const expenseRes = await upsertBatched("expense_transactions", expenseTxs);
-        const sourceParsed = incomeTxs.length + expenseTxs.length;
-        const incomePruned = await reconcile("revenue_transactions", src.business, sourceParsed, incomeRes.errors);
-        const expensePruned = await reconcile("expense_transactions", src.business, sourceParsed, expenseRes.errors);
+        // Reconcile each table against ITS OWN parsed count. Passing the combined
+        // total let a table whose category parsed to 0 this run still clear its
+        // zero-guard (because the other category was populated) and delete all of
+        // its rows.
+        const incomePruned = await reconcile("revenue_transactions", src.business, incomeTxs.length, incomeRes.errors);
+        const expensePruned = await reconcile("expense_transactions", src.business, expenseTxs.length, expenseRes.errors);
 
         results.push({
           business: src.business,

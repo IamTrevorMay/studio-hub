@@ -150,11 +150,18 @@ async function maybeCreateSprintCards(
       .eq("status", "active")
       .maybeSingle();
 
+    const { data: maxPos } = await admin
+      .from("personal_tasks")
+      .select("position")
+      .eq("created_by", p.id)
+      .order("position", { ascending: false })
+      .limit(1)
+      .maybeSingle();
     await admin.from("personal_tasks").insert({
       created_by: p.id,
       content: taskTitle,
       status: "in_progress",
-      position: Date.now() % 100000,
+      position: ((maxPos?.position as number) || 0) + 1,
       task_id: taskId,
       sprint_id: sprint?.id || null,
     });

@@ -15,6 +15,12 @@ import {
   errorResponse,
 } from "../shared/utils.ts";
 
+function ptDayString(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(d);
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", {
@@ -45,9 +51,9 @@ Deno.serve(async (req: Request) => {
   const supabase = getSupabaseAdmin();
 
   try {
-    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-    const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
-    const twoDaysAgo = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
+    const yesterday = ptDayString(new Date(Date.now() - 86400000));
+    const sevenDaysAgo = ptDayString(new Date(Date.now() - 7 * 86400000));
+    const twoDaysAgo = ptDayString(new Date(Date.now() - 2 * 86400000));
 
     // Get all active accounts
     const { data: accounts } = await supabase

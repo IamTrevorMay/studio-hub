@@ -1,6 +1,12 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+function ptDayString(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(d);
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -110,7 +116,7 @@ Deno.serve(async (req: Request) => {
       contentSummary += `- **${a.title}** [${feedName}, ${feedType}] ${desc}\n`;
     }
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = ptDayString();
 
     const prompt = `You are a trends analyst for a content creator. Your job is to analyze recent articles and newsletters, identify what's trending, and suggest content topics.
 

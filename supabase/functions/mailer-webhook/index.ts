@@ -38,8 +38,19 @@ function timingSafeEqual(a: string, b: string): boolean {
   return r === 0;
 }
 
+// Send-status funnel rank. Webhooks can arrive out of order (Resend may deliver
+// 'clicked' before 'delivered'); we only advance status, never regress it, and
+// never move away from a terminal bounced/complained.
+const STATUS_RANK: Record<string, number> = {
+  queued: 0, sent: 1, delivered: 2, opened: 3, clicked: 4, bounced: 5, complained: 5,
+};
+
 async function verifySignature(req: Request, raw: string): Promise<boolean> {
-  if (!WEBHOOK_SECRET) return true; // Allow unsigned in dev if no secret configured.
+  if (!WEBHOOK_SECRET) {
+    // Fail CLOSED in production — an unset secret must not let anyone POST forged
+    // bounce/complaint events (which suppress subscribers). Only bypass in dev.
+    return Deno.env.get("ENVIRONMENT") === "dev";
+  }
   const id = req.headers.get("svix-id");
   const ts = req.headers.get("svix-timestamp");
   const sig = req.headers.get("svix-signature");
@@ -77,36 +88,60 @@ Deno.serve(async (req) => {
   const admin = getAdminClient();
   const mapped = EVENT_MAP[event.type];
   const resendId = (event.data as { email_id?: string }).email_id;
+  const svixId = req.headers.get("svix-id");
 
   // Locate the send row by Resend id (preferred) or fall back to recipient.
   let sendId: string | null = null;
   let campaignId: string | null = null;
+  let currentStatus: string | null = null;
   if (resendId) {
     const { data } = await admin
       .from("mailer_sends")
       .select("id, campaign_id, status")
       .eq("resend_id", resendId)
       .maybeSingle();
-    if (data) { sendId = data.id as string; campaignId = data.campaign_id as string; }
+    if (data) {
+      sendId = data.id as string;
+      campaignId = data.campaign_id as string;
+      currentStatus = data.status as string;
+    }
   }
 
-  // Always log the raw event for replay / debugging.
+  // Idempotency: Resend retries webhooks on any non-2xx/timeout. Without a guard,
+  // each redelivery re-runs the status update + stat bump, inflating counters.
+  // Dedup on svix-id (the stable per-event id).
+  let duplicate = false;
+  if (svixId) {
+    const { count } = await admin
+      .from("mailer_events")
+      .select("id", { count: "exact", head: true })
+      .filter("payload->>svix_id", "eq", svixId);
+    duplicate = (count || 0) > 0;
+  }
+
+  // Always log the raw event for replay / debugging (with the svix id embedded).
   await admin.from("mailer_events").insert({
     campaign_id: campaignId,
     send_id: sendId,
     event_type: event.type,
-    payload: event.data,
+    payload: { ...(event.data as Record<string, unknown>), svix_id: svixId },
     url: (event.data as { click?: { link?: string } }).click?.link || null,
   });
+
+  // A redelivery is logged (above) but must not re-mutate send state or stats.
+  if (duplicate) return jsonResp({ ok: true, deduped: true });
 
   // Update send row + bump campaign counter, but only if this is an
   // event we model. Unknown events (Resend may add new types) are still
   // logged above so we can backfill mappings later without losing data.
   if (mapped && sendId) {
-    await admin.from("mailer_sends").update({
-      status: mapped.status,
-      [mapped.column]: new Date().toISOString(),
-    }).eq("id", sendId);
+    // Always stamp the event's own timestamp column, but only advance status
+    // forward so an out-of-order 'delivered' can't downgrade a 'clicked' row.
+    const update: Record<string, unknown> = { [mapped.column]: new Date().toISOString() };
+    const rankNew = STATUS_RANK[mapped.status] ?? 0;
+    const rankCur = STATUS_RANK[currentStatus ?? ""] ?? 0;
+    if (rankNew > rankCur) update.status = mapped.status;
+    await admin.from("mailer_sends").update(update).eq("id", sendId);
 
     if (campaignId) {
       // Increment the rolled-up stat. Postgres jsonb_set + cast to int

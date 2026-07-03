@@ -52,6 +52,8 @@ Deno.serve(
         const guid = item.guid || item.link;
         if (!guid) continue;
 
+        const _pd = item.pubDate ? new Date(item.pubDate) : null;
+
         const { error: upsertError } = await admin
           .from("research_articles")
           .upsert(
@@ -62,7 +64,7 @@ Deno.serve(
               description: item.description || null,
               content: item.content || null,
               author: item.author || null,
-              pub_date: item.pubDate ? new Date(item.pubDate).toISOString() : null,
+              pub_date: _pd && !isNaN(_pd.getTime()) ? _pd.toISOString() : null,
               image_url: item.imageUrl || null,
               guid,
             },

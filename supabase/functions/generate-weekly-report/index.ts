@@ -49,6 +49,13 @@ function admin(): SupabaseClient {
 
 // ── date helpers (UTC) ───────────────────────────────────────
 function ymd(d: Date): string { return d.toISOString().slice(0, 10); }
+// PT calendar day for a given instant (America/Los_Angeles). Used to bucket
+// timestamptz columns (published_at, occurred_at) by Pacific day, not UTC day.
+function ptDayString(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(d);
+}
 function addDays(d: Date, n: number): Date {
   const x = new Date(d);
   x.setUTCDate(x.getUTCDate() + n);
@@ -295,17 +302,21 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── revenue_events ──
+    // Widen the fetch by ±1 day (UTC) so PT-day rows near the boundary are
+    // included, then bucket each row by its PT calendar day below.
+    const revFetchStart = ymd(addDays(weekStart, -28 - 1));
+    const revFetchEnd = ymd(addDays(weekEnd, 1));
     const { data: rev } = await db
       .from("revenue_events")
       .select("platform_account_id, occurred_at, amount_cents, net_amount_cents, product_category, event_type")
-      .gte("occurred_at", baseStart)
-      .lte("occurred_at", wkEnd + "T23:59:59Z");
+      .gte("occurred_at", revFetchStart)
+      .lte("occurred_at", revFetchEnd + "T23:59:59Z");
 
     function revenue(start: string, end: string) {
       let gross = 0, net = 0;
       const byPlatform: Record<string, { gross: number; net: number }> = {};
       for (const r of rev || []) {
-        const day = (r.occurred_at || "").slice(0, 10);
+        const day = r.occurred_at ? ptDayString(new Date(r.occurred_at)) : "";
         if (!inRange(day, start, end)) continue;
         const p = platformOf(r.platform_account_id);
         gross += r.amount_cents || 0;
@@ -346,11 +357,18 @@ Deno.serve(async (req: Request) => {
     const totRevBase = baseR.net + baseYt.estRevCents;
 
     // ── content published this week (top/bottom + cadence) ──
-    const { data: items } = await db
+    // Widen the fetch by ±1 day (UTC), then keep only rows whose PT calendar
+    // day falls within [wkStart, wkEnd] so PT-boundary posts land in the right week.
+    const contentFetchStart = ymd(addDays(weekStart, -1));
+    const contentFetchEnd = ymd(addDays(weekEnd, 1));
+    const { data: itemsRaw } = await db
       .from("content_items")
       .select("id, title, url, platform_account_id, published_at")
-      .gte("published_at", wkStart + "T00:00:00Z")
-      .lte("published_at", wkEnd + "T23:59:59Z");
+      .gte("published_at", contentFetchStart + "T00:00:00Z")
+      .lte("published_at", contentFetchEnd + "T23:59:59Z");
+    const items = (itemsRaw || []).filter((i) =>
+      i.published_at && inRange(ptDayString(new Date(i.published_at)), wkStart, wkEnd)
+    );
     const itemIds = (items || []).map((i) => i.id);
     let metricsByItem = new Map<string, { views: number; engagement: number; engagement_rate: number }>();
     if (itemIds.length) {

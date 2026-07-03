@@ -80,13 +80,32 @@ function targetUtcHour(
   return Number(String(timeStr).split(":")[0]) || 0;
 }
 
-// Build schedule context variables
+// Pacific-time calendar helpers. Schedules express day/date intent in PT (e.g.
+// "payroll on the 1st and 15th"), so the day-of-month / day-of-week / dedup date
+// must be computed in America/Los_Angeles, not UTC — otherwise any schedule
+// whose firing hour lands after PT midnight in UTC is off by a day. (The firing
+// HOUR itself stays UTC because config stores time_utc.)
+function ptDayString(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(d);
+}
+function ptDayOfMonth(d: Date = new Date()): number {
+  return parseInt(ptDayString(d).slice(8, 10), 10);
+}
+function ptDayOfWeek(d: Date = new Date()): number {
+  const wd = new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", weekday: "short" }).format(d);
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(wd);
+}
+
+// Build schedule context variables (PT-anchored)
 function getScheduleContext(): Record<string, unknown> {
   const now = new Date();
-  const today = now.toISOString().slice(0, 10); // YYYY-MM-DD
-  const dayOfMonth = now.getUTCDate();
-  const dayOfWeek = now.getUTCDay(); // 0=Sun
-  return { today, day_of_month: String(dayOfMonth), day_of_week: String(dayOfWeek) };
+  return {
+    today: ptDayString(now),
+    day_of_month: String(ptDayOfMonth(now)),
+    day_of_week: String(ptDayOfWeek(now)),
+  };
 }
 
 // Check if a schedule automation should fire at the current UTC time
@@ -94,7 +113,7 @@ function shouldFireSchedule(
   config: Record<string, unknown>,
   nowUtc: Date,
 ): boolean {
-  const currentDay = nowUtc.getUTCDate();
+  const currentDay = ptDayOfMonth(nowUtc); // PT calendar day (config.days is PT intent)
   const currentHour = nowUtc.getUTCHours();
   const targetHour = targetUtcHour(config, nowUtc);
 
@@ -111,7 +130,7 @@ function shouldFireSchedule(
 
   if (type === "weekly") {
     const dayOfWeek = (config.day_of_week as number) ?? 1; // default Monday
-    return nowUtc.getUTCDay() === dayOfWeek && currentHour === targetHour;
+    return ptDayOfWeek(nowUtc) === dayOfWeek && currentHour === targetHour;
   }
 
   return false;
