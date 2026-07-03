@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
@@ -67,8 +68,6 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [groupName, setGroupName] = useState('');
   const [renamingGroupId, setRenamingGroupId] = useState(null);
-  const [draggedChannelId, setDraggedChannelId] = useState(null);
-  const [dragOverChannelId, setDragOverChannelId] = useState(null);
   const [contextMenu, setContextMenu] = useState(null); // { kind: 'channel'|'group', id, x, y }
   const [renamingChannelId, setRenamingChannelId] = useState(null);
   const [permsTarget, setPermsTarget] = useState(null); // { kind: 'channel'|'group', row } being edited
@@ -297,23 +296,59 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
     if (activeChannel) fetchPinnedMessages(activeChannel.id);
   }
 
-  async function handleReorderChannels(draggedId, targetId) {
-    if (!draggedId || draggedId === targetId) return;
-    const fromIdx = channels.findIndex(c => c.id === draggedId);
-    const toIdx = channels.findIndex(c => c.id === targetId);
-    if (fromIdx < 0 || toIdx < 0) return;
-    const reordered = [...channels];
-    const [moved] = reordered.splice(fromIdx, 1);
-    reordered.splice(toIdx, 0, moved);
-    // Renumber every channel to a contiguous 0..n-1 sequence so ordering is
-    // never corrupted by gaps in the stored sort_order values.
-    const withOrder = reordered.map((c, i) => ({ ...c, sort_order: i }));
+  // Drag-and-drop reorder AND move channels between groups. Droppable ids are
+  // 'ungrouped' or `group:<id>`; a null group_id means the channel is ungrouped.
+  const dropIdToGroupId = (dropId) => (dropId === 'ungrouped' ? null : dropId.slice('group:'.length));
+
+  async function onChannelDragEnd(result) {
+    const { source, destination } = result;
+    if (!destination) return;
+    if (source.droppableId === destination.droppableId && source.index === destination.index) return;
+
+    // Snapshot each section's channels in their current display order.
+    const sectionOf = (dropId) => {
+      const gid = dropIdToGroupId(dropId);
+      return channels.filter(c => (c.group_id || null) === gid);
+    };
+    const srcArr = Array.from(sectionOf(source.droppableId));
+    const sameSection = source.droppableId === destination.droppableId;
+    const dstArr = sameSection ? srcArr : Array.from(sectionOf(destination.droppableId));
+
+    const [moved] = srcArr.splice(source.index, 1);
+    if (!moved) return;
+    const newGroupId = dropIdToGroupId(destination.droppableId);
+    dstArr.splice(destination.index, 0, { ...moved, group_id: newGroupId });
+
+    // Rebuild the full channel list in display order (ungrouped, then each group
+    // in group order) and renumber to a contiguous 0..n-1 sequence so within-
+    // section ordering is preserved despite a single shared sort_order column.
+    const sectionArrs = new Map();
+    sectionArrs.set('ungrouped', source.droppableId === 'ungrouped' ? srcArr
+      : destination.droppableId === 'ungrouped' ? dstArr
+      : sectionOf('ungrouped'));
+    groups.forEach(g => {
+      const key = `group:${g.id}`;
+      sectionArrs.set(key, source.droppableId === key ? srcArr
+        : destination.droppableId === key ? dstArr
+        : sectionOf(key));
+    });
+    const flat = [
+      ...sectionArrs.get('ungrouped'),
+      ...groups.flatMap(g => sectionArrs.get(`group:${g.id}`)),
+    ];
+    const withOrder = flat.map((c, i) => ({ ...c, sort_order: i }));
     setChannels(withOrder); // optimistic
-    // Only write rows whose stored sort_order actually changed.
+
+    // Only write rows whose sort_order or group_id actually changed.
+    const prevById = new Map(channels.map(c => [c.id, c]));
     await Promise.all(
       withOrder
-        .filter(c => c.sort_order !== (channels.find(o => o.id === c.id)?.sort_order))
-        .map(c => supabase.from('channels').update({ sort_order: c.sort_order }).eq('id', c.id))
+        .filter(c => {
+          const p = prevById.get(c.id);
+          return !p || p.sort_order !== c.sort_order || (p.group_id || null) !== (c.group_id || null);
+        })
+        .map(c => supabase.from('channels')
+          .update({ sort_order: c.sort_order, group_id: c.group_id }).eq('id', c.id))
     );
     fetchChannels();
   }
@@ -651,39 +686,36 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
 
   const messageGroups = groupMessages(messages);
 
-  const renderChannelItem = (ch) => (
-    <ChannelItem
+  const renderChannelItem = (ch, index) => (
+    <Draggable
       key={ch.id}
-      channel={ch}
-      isActive={activeChannel?.id === ch.id}
-      isAdmin={isAdmin}
-      hasUnreadMention={unreadMentionChannelIds.includes(ch.id)}
-      isDragging={draggedChannelId === ch.id}
-      isDragOver={dragOverChannelId === ch.id && draggedChannelId !== ch.id}
-      isRenaming={renamingChannelId === ch.id}
-      onSelect={() => {
-        setActiveChannel(ch);
-        markChannelSeen(ch.id);
-        refreshNotifications();
-      }}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        setContextMenu({ kind: 'channel', id: ch.id, x: e.clientX, y: e.clientY });
-      }}
-      onDragStart={() => setDraggedChannelId(ch.id)}
-      onDragEnterItem={() => setDragOverChannelId(ch.id)}
-      onDropItem={() => {
-        handleReorderChannels(draggedChannelId, ch.id);
-        setDraggedChannelId(null);
-        setDragOverChannelId(null);
-      }}
-      onDragEnd={() => {
-        setDraggedChannelId(null);
-        setDragOverChannelId(null);
-      }}
-      onRenameSubmit={(name) => handleRenameChannel(ch.id, name)}
-      onRenameCancel={() => setRenamingChannelId(null)}
-    />
+      draggableId={ch.id}
+      index={index}
+      isDragDisabled={!isAdmin || renamingChannelId === ch.id}
+    >
+      {(provided, snapshot) => (
+        <ChannelItem
+          channel={ch}
+          isActive={activeChannel?.id === ch.id}
+          isAdmin={isAdmin}
+          hasUnreadMention={unreadMentionChannelIds.includes(ch.id)}
+          isRenaming={renamingChannelId === ch.id}
+          dragProvided={provided}
+          isDragging={snapshot.isDragging}
+          onSelect={() => {
+            setActiveChannel(ch);
+            markChannelSeen(ch.id);
+            refreshNotifications();
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setContextMenu({ kind: 'channel', id: ch.id, x: e.clientX, y: e.clientY });
+          }}
+          onRenameSubmit={(name) => handleRenameChannel(ch.id, name)}
+          onRenameCancel={() => setRenamingChannelId(null)}
+        />
+      )}
+    </Draggable>
   );
 
   // Ungrouped channels render at the top; each group renders as a collapsible
@@ -731,38 +763,59 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
           </form>
         )}
 
-        <div style={styles.channelList}>
-          {ungroupedChannels.map(renderChannelItem)}
+        <DragDropContext onDragEnd={onChannelDragEnd}>
+          <div style={styles.channelList}>
+            <Droppable droppableId="ungrouped">
+              {(provided) => (
+                <div ref={provided.innerRef} {...provided.droppableProps}>
+                  {ungroupedChannels.map((ch, i) => renderChannelItem(ch, i))}
+                  {provided.placeholder}
+                </div>
+              )}
+            </Droppable>
 
-          {visibleGroups.map((g) => {
-            const collapsed = collapsedGroups.has(g.id);
-            const groupChannels = visibleChannels.filter(c => c.group_id === g.id);
-            return (
-              <div key={g.id} style={styles.groupBlock}>
-                <GroupHeader
-                  group={g}
-                  isAdmin={isAdmin}
-                  collapsed={collapsed}
-                  isRenaming={renamingGroupId === g.id}
-                  onToggle={() => toggleGroupCollapse(g.id)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setContextMenu({ kind: 'group', id: g.id, x: e.clientX, y: e.clientY });
-                  }}
-                  onRenameSubmit={(name) => handleRenameGroup(g.id, name)}
-                  onRenameCancel={() => setRenamingGroupId(null)}
-                />
-                {!collapsed && (
-                  <div style={styles.groupChannels}>
-                    {groupChannels.length === 0
-                      ? <div style={styles.groupEmpty}>No channels yet</div>
-                      : groupChannels.map(renderChannelItem)}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+            {visibleGroups.map((g) => {
+              const collapsed = collapsedGroups.has(g.id);
+              const groupChannels = visibleChannels.filter(c => c.group_id === g.id);
+              return (
+                <div key={g.id} style={styles.groupBlock}>
+                  <GroupHeader
+                    group={g}
+                    isAdmin={isAdmin}
+                    collapsed={collapsed}
+                    isRenaming={renamingGroupId === g.id}
+                    onToggle={() => toggleGroupCollapse(g.id)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setContextMenu({ kind: 'group', id: g.id, x: e.clientX, y: e.clientY });
+                    }}
+                    onRenameSubmit={(name) => handleRenameGroup(g.id, name)}
+                    onRenameCancel={() => setRenamingGroupId(null)}
+                  />
+                  {!collapsed && (
+                    <Droppable droppableId={`group:${g.id}`}>
+                      {(provided, snapshot) => (
+                        <div
+                          ref={provided.innerRef}
+                          {...provided.droppableProps}
+                          style={{
+                            ...styles.groupChannels,
+                            ...(snapshot.isDraggingOver ? styles.groupChannelsDragOver : {}),
+                          }}
+                        >
+                          {groupChannels.length === 0 && !snapshot.isDraggingOver
+                            ? <div style={styles.groupEmpty}>No channels yet</div>
+                            : groupChannels.map((ch, i) => renderChannelItem(ch, i))}
+                          {provided.placeholder}
+                        </div>
+                      )}
+                    </Droppable>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </DragDropContext>
       </div>
 
       {contextMenu && contextMenu.kind === 'group' && (() => {
@@ -1020,9 +1073,8 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
 
 function ChannelItem({
   channel, isActive, isAdmin, hasUnreadMention,
-  isDragging, isDragOver, isRenaming,
+  isDragging, isRenaming, dragProvided,
   onSelect, onContextMenu,
-  onDragStart, onDragEnterItem, onDropItem, onDragEnd,
   onRenameSubmit, onRenameCancel,
 }) {
   const [renameValue, setRenameValue] = useState(channel.name);
@@ -1044,7 +1096,11 @@ function ChannelItem({
 
   if (isRenaming) {
     return (
-      <div style={styles.channelItemRow}>
+      <div
+        ref={dragProvided?.innerRef}
+        {...(dragProvided?.draggableProps || {})}
+        style={{ ...styles.channelItemRow, ...(dragProvided?.draggableProps?.style || {}) }}
+      >
         <div style={{ ...styles.channelItem, gap: '6px' }}>
           <span style={styles.hashIcon}>#</span>
           <input
@@ -1065,16 +1121,14 @@ function ChannelItem({
 
   return (
     <div
+      ref={dragProvided?.innerRef}
+      {...(dragProvided?.draggableProps || {})}
+      {...(dragProvided?.dragHandleProps || {})}
       style={{
         ...styles.channelItemRow,
         ...(isDragging ? styles.channelItemDragging : {}),
-        ...(isDragOver ? styles.channelItemDragOver : {}),
+        ...(dragProvided?.draggableProps?.style || {}),
       }}
-      draggable={isAdmin}
-      onDragStart={isAdmin ? onDragStart : undefined}
-      onDragOver={isAdmin ? (e) => { e.preventDefault(); onDragEnterItem(); } : undefined}
-      onDrop={isAdmin ? (e) => { e.preventDefault(); onDropItem(); } : undefined}
-      onDragEnd={isAdmin ? onDragEnd : undefined}
       onContextMenu={isAdmin ? onContextMenu : undefined}
     >
       <button
@@ -1357,11 +1411,8 @@ const styles = {
     borderRadius: '8px', transition: 'background 0.1s, opacity 0.1s',
   },
   channelItemDragging: {
-    opacity: 0.4,
-  },
-  channelItemDragOver: {
-    background: 'rgba(99,102,241,0.18)',
-    boxShadow: 'inset 0 2px 0 #6366f1',
+    background: 'rgba(99,102,241,0.22)',
+    boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
   },
   channelRenameInput: {
     flex: 1, padding: '2px 4px', background: 'rgba(255,255,255,0.08)',
@@ -1386,7 +1437,12 @@ const styles = {
     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
   },
   groupChannels: {
-    paddingLeft: '8px',
+    paddingLeft: '8px', minHeight: '10px',
+    borderRadius: '8px', transition: 'background 0.1s',
+  },
+  groupChannelsDragOver: {
+    background: 'rgba(99,102,241,0.12)',
+    boxShadow: 'inset 0 0 0 1px rgba(99,102,241,0.4)',
   },
   groupEmpty: {
     padding: '6px 10px', fontSize: '12px', color: 'rgba(255,255,255,0.3)',
