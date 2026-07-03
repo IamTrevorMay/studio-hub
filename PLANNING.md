@@ -903,3 +903,43 @@ internals — is now comprehensively audited.**
 - Supabase CLI outdated (v2.95.4 vs v2.101.0 available) — potential compatibility issues
 - Pages are large single-file components (100-200KB) — maintainability risk as complexity grows
 - `CRON_SECRET` hardcoded in a migration file
+
+## Architecture Standardization Plan (2026-07-02)
+
+From a 6-axis standardization sweep (edge functions, frontend, styling, DB/RLS, auth, cross-cutting). Report-only; nothing changed yet.
+
+**Meta-finding:** the abstractions already exist — adoption is <15%. `createHandler` (3/82 fns), `useSupabaseQuery` (1 call), `useRealtimeTable` (1 file), `src/lib/ptDate.js` (6 files), `styleTokens` (0% of large pages), `styleRecipes` (0 uses), a promised ESLint rule (never built). This is an **adoption + enforcement** problem, not a missing-framework problem. Plan leans on driving adoption + CI guards over building new frameworks.
+
+### 🔴 Urgent — live authz exposure found during the sweep (fix, not standardization)
+Same class as the channels bug. **Verified against live DB (`ytfjkoxowfskuibdsfea`):**
+- `sponsors`, `sponsor_deliverables`, `campaign_briefs`, `platform_daily_metrics`, `audience_snapshots` have `USING(true)/WITH CHECK(true)` policies scoped to `{authenticated}` for SELECT/INSERT/UPDATE/DELETE → **any logged-in user can read + mutate all sponsor deals, briefs, and analytics via the client SDK**, bypassing admin-only UI. `revenue_transactions` is correctly `service_role`-only; the sponsor tables next to it were missed. **110 always-true authenticated policies total**; ~40 need per-table intent review.
+- `is_admin(uid)` has 3 conflicting definitions; `20260602140000_director_roles.sql` did a `create or replace` silently granting `director_creative`/`director_comms` admin on all `bd_*` tables — unreviewed privilege broadening.
+- **Action:** rewrite `USING(true)` → `is_admin(auth.uid())` (or correct tier) on the financial/analytics/sponsor tables; then audit the remaining ~40.
+
+### Tier 1 — Safe-by-default (do first; prevents whole bug classes)
+1. **One canonical `is_admin()` + one edge auth guard.** Admin-tier is forked 3 ways: `rolePermissions.js` (FE, +directors), DB `is_admin()` (+directors), ~53 hand-rolled edge checks (`admin` only). A director is admin in UI/DB but gets 403 from every admin edge function. Collapse: one no-arg `public.is_admin()` (auth.uid()-derived); edge calls it via RPC; FE reads `useAuth().isAdmin`; delete the `(uid)` overloads.
+2. **Canonical SECURITY DEFINER template + standing REVOKE-PUBLIC sweep.** Functions default to `GRANT EXECUTE TO PUBLIC` → anon-callable (the footgun the whole `20260703*` wave chased). Template: `security definer` + `set search_path=public,pg_temp` + internal auth check + `REVOKE EXECUTE FROM PUBLIC` + explicit grant. Add a standing sweep migration (like `search_path_sweep`, for grants) run at end of every batch.
+3. **`WITH CHECK` on every UPDATE policy (14 missing) + ban `GRANT … TO anon`.** The 14 `USING`-only UPDATE policies let users rewrite ownership columns (`research_inbox_state`, avatar, `email_notification_preferences`). All 5 historical anon grants were revenue-exposure incidents.
+
+### Tier 2 — Edge-function base kit (biggest boilerplate kill)
+4. **Collapse 3 competing shared bases (`utils.ts` / `handler.ts` / `workflow-engine.ts`) into one slim kit and adopt it.** Evidence: 50 copied `corsHeaders`, 27 local json helpers, 43 inline `createClient`, 349 scattered `Deno.env.get`, 12 identical `ptDayString`, 4 copied `fetchWithRetry`. Target: new function needs only `createHandler` + `shared/http` + `shared/supabase` + `shared/env` (+ `shared/ptDate`), replacing ~150 lines/fn. Fold `getUserFromJwt` into `createHandler`; migrate the ~79 non-adopters.
+5. **`shared/ptDate.ts` on the edge + enforce `src/lib/ptDate.js` on FE.** Recurring correctness bug (last ~6 commits all PT-vs-UTC). 12 copied edge helpers; ~260 raw `toISOString().slice`/`toLocaleDateString` offenders across 68 FE files vs 6 using the helper. Add a lint banning raw date-slicing.
+
+### Tier 3 — Frontend data layer (kills desktop/mobile drift)
+6. **`useTableData` hook (folding in `useSupabaseQuery` JWT-refresh) → migrate the 432 raw `supabase.from` sites.** Auth-retry resilience + uniform loading/error; collapses 4–7 hand-rolled fetchers per page.
+7. **Per-domain data hooks shared by desktop + `*Mobile` pairs.** 20 pairs re-query the same tables, no shared data layer (~110 duplicated mobile queries) → every bug fixed twice.
+8. **Migrate 21 hand-rolled realtime subscriptions to `useRealtimeTable`.** Inline copies lack the reconnect/backoff the hook has — dropped socket silently stops live updates on 20 pages.
+
+### Tier 4 — Cross-cutting primitives & polish
+9. **`createNotification()` helper + `NOTIFICATION_TYPES` enum.** 19 direct-insert sites with drifting shapes (automation notifications ship with no title/body). Collapses to 2 helpers + one email-fanout hook.
+10. **`ToastProvider` (mirror `ConfirmContext`) + codemod the 147 `alert()` calls.** Biggest user-facing quality win.
+11. **`supabase gen types` → checked-in `database.types.ts`.** Root cause of shape drift; edge is already TS.
+12. **Styling:** consolidate duplicated color maps (`EVENT_TYPE_COLORS` ×4 identical, `STATUS_COLORS` ×8 *conflicting schemas*), add a categorical palette to `styleTokens`, **wire the promised-but-missing ESLint rule** (`mayday/no-style-magic-numbers`), backfill tokens into the 5 worst pages (~900 hardcoded hits: Deliverables/Dashboard/Production/Calendar/Projects). Recipe layer (`modal()`/`card()`/`button()`) is dead code vs 92 hand-rolled modal overlays.
+13. **Extend the existing pure-fn test pattern to `workflow-engine.ts` + `run-automations`** — highest blast radius, currently untested.
+
+### Suggested sequencing
+1. **Now:** close the RLS exposure (urgent block) as concrete migrations.
+2. **Foundation PR:** edge kit (#4–5) + `is_admin()` unification — everything builds on these.
+3. **Adoption PRs (incremental, page-by-page):** #6–8 data layer, #9–10 primitives.
+4. **Guardrails:** wire ESLint (date-slicing ban, style magic-numbers, `alert()` ban) + the standing REVOKE-PUBLIC sweep so drift can't return.
+5. **Backfill:** types (#11), styling (#12), tests (#13).
