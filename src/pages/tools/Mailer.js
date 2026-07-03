@@ -139,6 +139,13 @@ function CampaignsPane() {
                 <tr key={c.id} style={styles.tr}>
                   <td style={styles.td}>
                     <button onClick={() => setEditing(c)} style={styles.linkBtn}>{c.name}</button>
+                    {c.is_template && (
+                      <span style={{
+                        marginLeft: 8, fontSize: 10, fontWeight: 700, textTransform: 'uppercase',
+                        letterSpacing: '0.04em', color: '#a5b4fc', background: 'rgba(99,102,241,0.15)',
+                        padding: '2px 6px', borderRadius: 5,
+                      }}>Recurring</span>
+                    )}
                   </td>
                   <td style={styles.td}>{c.subject || <span style={styles.muted}>—</span>}</td>
                   <td style={styles.td}><StatusPill status={c.status} /></td>
@@ -146,7 +153,11 @@ function CampaignsPane() {
                   <td style={styles.td}>{c.stats?.recipients ?? 0}</td>
                   <td style={styles.td}>{c.sent_at ? new Date(c.sent_at).toLocaleString() : <span style={styles.muted}>—</span>}</td>
                   <td style={{ ...styles.td, textAlign: 'right' }}>
-                    <button style={styles.smallBtn} onClick={() => openSendDialog(c)}>Send</button>
+                    {/* Templates are armed daily by mailer-arm-daily — sending one
+                        directly would double up outside the daily cadence. */}
+                    {c.is_template
+                      ? <span style={{ ...styles.muted, fontSize: 12, marginRight: 8 }}>sent daily</span>
+                      : <button style={styles.smallBtn} onClick={() => openSendDialog(c)}>Send</button>}
                     <button style={{ ...styles.smallBtn, color: '#f87171' }} onClick={() => remove(c)}>Delete</button>
                   </td>
                 </tr>
