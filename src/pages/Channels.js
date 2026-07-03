@@ -33,29 +33,54 @@ function effectiveChannelVisible(channel, group, role) {
 }
 
 
-function applyFormatMarker(textareaRef, text, marker, setter) {
+// Highlighter palette. The wire syntax is ==N:text== where N is a 1-based index
+// into this array; formatInline renders each with the matching background.
+const HIGHLIGHT_COLORS = [
+  { name: 'Yellow', bg: '#fde047' },
+  { name: 'Green', bg: '#86efac' },
+  { name: 'Blue', bg: '#93c5fd' },
+  { name: 'Pink', bg: '#f9a8d4' },
+  { name: 'Purple', bg: '#c4b5fd' },
+  { name: 'Orange', bg: '#fdba74' },
+  { name: 'Red', bg: '#fca5a5' },
+  { name: 'Teal', bg: '#5eead4' },
+];
+
+// Wrap the current selection (or insert at the cursor) with the given before/
+// after markers, keeping any selected text selected afterwards.
+function applyFormatWrap(textareaRef, text, before, after, setter) {
   const el = textareaRef.current;
   if (!el) return;
   const start = el.selectionStart;
   const end = el.selectionEnd;
   const selected = text.substring(start, end);
-  if (selected) {
-    const newText = text.substring(0, start) + marker + selected + marker + text.substring(end);
-    setter(newText);
-    requestAnimationFrame(() => {
-      el.selectionStart = start + marker.length;
-      el.selectionEnd = end + marker.length;
-      el.focus();
-    });
-  } else {
-    const newText = text.substring(0, start) + marker + marker + text.substring(end);
-    setter(newText);
-    requestAnimationFrame(() => {
-      el.selectionStart = start + marker.length;
-      el.selectionEnd = start + marker.length;
-      el.focus();
-    });
-  }
+  const newText = text.substring(0, start) + before + selected + after + text.substring(end);
+  setter(newText);
+  requestAnimationFrame(() => {
+    el.selectionStart = start + before.length;
+    el.selectionEnd = end + before.length;
+    el.focus();
+  });
+}
+
+// Insert a snippet at the cursor (used for block-level inserts like dividers).
+function insertAtCursor(textareaRef, text, snippet, setter) {
+  const el = textareaRef.current;
+  if (!el) return;
+  const start = el.selectionStart;
+  const end = el.selectionEnd;
+  const newText = text.substring(0, start) + snippet + text.substring(end);
+  setter(newText);
+  requestAnimationFrame(() => {
+    const pos = start + snippet.length;
+    el.selectionStart = pos;
+    el.selectionEnd = pos;
+    el.focus();
+  });
+}
+
+function applyFormatMarker(textareaRef, text, marker, setter) {
+  applyFormatWrap(textareaRef, text, marker, marker, setter);
 }
 
 export default function Channels({ initialChannelName, onChannelOpened }) {
@@ -78,6 +103,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   const [showPinned, setShowPinned] = useState(true);
   const [highlightedMsgId, setHighlightedMsgId] = useState(null);
   const [newMessage, setNewMessage] = useState('');
+  const [showHighlightPicker, setShowHighlightPicker] = useState(false);
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [channelName, setChannelName] = useState('');
   const [channelDesc, setChannelDesc] = useState('');
@@ -156,6 +182,22 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
       window.removeEventListener('scroll', close, true);
     };
   }, [contextMenu]);
+
+  // Close the highlight color picker on outside click or Escape. The picker
+  // itself stops mousedown propagation so selecting a swatch doesn't close it early.
+  useEffect(() => {
+    if (!showHighlightPicker) return;
+    function close(e) {
+      if (e.type === 'keydown' && e.key !== 'Escape') return;
+      setShowHighlightPicker(false);
+    }
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', close);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', close);
+    };
+  }, [showHighlightPicker]);
 
   // Keep the active channel within what this user is allowed to see (e.g. after
   // an admin restricts the currently-open channel).
@@ -594,13 +636,25 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   );
 
   function formatInline(text) {
-    const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|[@#]\w+(?:[- ]\w+)*)/g);
+    const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|__[^_]+__|==\d:[^=]+==|[@#]\w+(?:[- ]\w+)*)/g);
     return parts.map((part, i) => {
       if (part.startsWith('**') && part.endsWith('**')) {
         return <strong key={i} style={{ fontWeight: 700, color: '#e2e8f0' }}>{part.slice(2, -2)}</strong>;
       }
+      if (part.startsWith('__') && part.endsWith('__') && part.length > 4) {
+        return <u key={i} style={{ textDecoration: 'underline' }}>{part.slice(2, -2)}</u>;
+      }
       if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
         return <em key={i} style={{ fontStyle: 'italic', color: 'rgba(255,255,255,0.85)' }}>{part.slice(1, -1)}</em>;
+      }
+      const hl = part.match(/^==(\d):([^=]+)==$/);
+      if (hl) {
+        const color = HIGHLIGHT_COLORS[Number(hl[1]) - 1] || HIGHLIGHT_COLORS[0];
+        return (
+          <mark key={i} style={{ background: color.bg, color: '#1a1a2e', borderRadius: '3px', padding: '0 3px' }}>
+            {hl[2]}
+          </mark>
+        );
       }
       if (part.startsWith('@')) {
         return <span key={i} style={msgStyles.mention}>{part}</span>;
@@ -625,7 +679,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   }
 
   function formatMessageContent(content) {
-    if (!content.includes('\n') && !/^[-•] /.test(content)) {
+    if (!content.includes('\n') && !/^[-•] /.test(content) && content.trim() !== '---') {
       return formatInline(content);
     }
     const lines = content.split('\n');
@@ -644,6 +698,11 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
       }
     };
     lines.forEach((line, i) => {
+      if (line.trim() === '---') {
+        flushBullets();
+        result.push(<hr key={`hr-${i}`} style={msgStyles.divider} />);
+        return;
+      }
       const bulletMatch = line.match(/^[-•] (.*)/);
       if (bulletMatch) {
         bulletItems.push(bulletMatch[1]);
@@ -1039,6 +1098,54 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
                   ))}
                 </div>
               )}
+              <div style={styles.formatToolbar}>
+                <button
+                  type="button" title="Bold" style={styles.fmtBtn}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => applyFormatMarker(inputRef, newMessage, '**', setNewMessage)}
+                ><strong>B</strong></button>
+                <button
+                  type="button" title="Italic" style={styles.fmtBtn}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => applyFormatMarker(inputRef, newMessage, '*', setNewMessage)}
+                ><em>I</em></button>
+                <button
+                  type="button" title="Underline" style={styles.fmtBtn}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => applyFormatWrap(inputRef, newMessage, '__', '__', setNewMessage)}
+                ><span style={{ textDecoration: 'underline' }}>U</span></button>
+                <button
+                  type="button" title="Divider line" style={styles.fmtBtn}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => insertAtCursor(inputRef, newMessage, '\n---\n', setNewMessage)}
+                >―</button>
+                <div style={{ position: 'relative' }}>
+                  <button
+                    type="button" title="Highlight" style={styles.fmtBtn}
+                    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    onClick={() => setShowHighlightPicker(v => !v)}
+                  >🖍</button>
+                  {showHighlightPicker && (
+                    <div
+                      style={styles.highlightPicker}
+                      onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    >
+                      {HIGHLIGHT_COLORS.map((c, idx) => (
+                        <button
+                          key={c.name}
+                          type="button"
+                          title={c.name}
+                          style={{ ...styles.swatch, background: c.bg }}
+                          onClick={() => {
+                            applyFormatWrap(inputRef, newMessage, `==${idx + 1}:`, '==', setNewMessage);
+                            setShowHighlightPicker(false);
+                          }}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
               <form onSubmit={handleSendMessage} style={styles.inputForm}>
                 <textarea
                   ref={inputRef}
@@ -1213,6 +1320,7 @@ function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, formatCo
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(msg.content);
+  const [editHighlightOpen, setEditHighlightOpen] = useState(false);
   const menuRef = useRef(null);
   const editInputRef = useRef(null);
 
@@ -1237,6 +1345,21 @@ function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, formatCo
     }
   }, [editing]);
 
+  // Close the edit highlight picker on outside click or Escape.
+  useEffect(() => {
+    if (!editHighlightOpen) return;
+    function close(e) {
+      if (e.type === 'keydown' && e.key !== 'Escape') return;
+      setEditHighlightOpen(false);
+    }
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', close);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', close);
+    };
+  }, [editHighlightOpen]);
+
   function handleCopy() {
     navigator.clipboard.writeText(msg.content).catch(() => {});
     setMenuOpen(false);
@@ -1259,15 +1382,6 @@ function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, formatCo
     setEditContent(msg.content);
     setEditing(false);
   }
-
-  useEffect(() => {
-    if (editInputRef.current) {
-      // Grow to fit content up to 8 rows (14px × 1.5 line-height × 8 + 16px
-      // padding + 2px border ≈ 186px), then the textarea scrolls internally.
-      editInputRef.current.style.height = 'auto';
-      editInputRef.current.style.height = Math.min(editInputRef.current.scrollHeight, 186) + 'px';
-    }
-  }, [editContent]);
 
   function handleEditKeyDown(e) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -1305,6 +1419,54 @@ function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, formatCo
     >
       {editing ? (
         <div style={{ flex: 1 }}>
+          <div style={styles.formatToolbar}>
+            <button
+              type="button" title="Bold" style={styles.fmtBtn}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => applyFormatMarker(editInputRef, editContent, '**', setEditContent)}
+            ><strong>B</strong></button>
+            <button
+              type="button" title="Italic" style={styles.fmtBtn}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => applyFormatMarker(editInputRef, editContent, '*', setEditContent)}
+            ><em>I</em></button>
+            <button
+              type="button" title="Underline" style={styles.fmtBtn}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => applyFormatWrap(editInputRef, editContent, '__', '__', setEditContent)}
+            ><span style={{ textDecoration: 'underline' }}>U</span></button>
+            <button
+              type="button" title="Divider line" style={styles.fmtBtn}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => insertAtCursor(editInputRef, editContent, '\n---\n', setEditContent)}
+            >―</button>
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button" title="Highlight" style={styles.fmtBtn}
+                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onClick={() => setEditHighlightOpen(v => !v)}
+              >🖍</button>
+              {editHighlightOpen && (
+                <div
+                  style={styles.highlightPicker}
+                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                >
+                  {HIGHLIGHT_COLORS.map((c, idx) => (
+                    <button
+                      key={c.name}
+                      type="button"
+                      title={c.name}
+                      style={{ ...styles.swatch, background: c.bg }}
+                      onClick={() => {
+                        applyFormatWrap(editInputRef, editContent, `==${idx + 1}:`, '==', setEditContent);
+                        setEditHighlightOpen(false);
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
           <textarea
             ref={editInputRef}
             rows={1}
@@ -1685,6 +1847,27 @@ const styles = {
   },
   mentionName: { fontSize: '13px', fontWeight: 600 },
   mentionTitle: { fontSize: '11px', color: 'rgba(255,255,255,0.35)' },
+  formatToolbar: {
+    display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '6px',
+  },
+  fmtBtn: {
+    minWidth: '30px', height: '28px', padding: '0 7px',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '6px', color: 'rgba(255,255,255,0.75)', cursor: 'pointer',
+    fontSize: '13px', fontFamily: 'inherit', lineHeight: 1,
+  },
+  highlightPicker: {
+    position: 'absolute', bottom: '36px', left: 0, zIndex: 50,
+    display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px',
+    padding: '8px', background: '#1a1a2e',
+    border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px',
+    boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+  },
+  swatch: {
+    width: '22px', height: '22px', borderRadius: '5px',
+    border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer', padding: 0,
+  },
   inputForm: {
     display: 'flex', gap: '8px',
   },
@@ -1775,8 +1958,13 @@ const msgStyles = {
     border: '1px solid rgba(99,102,241,0.4)', borderRadius: '8px',
     color: '#fff', fontSize: '14px', fontFamily: 'inherit', outline: 'none',
     boxSizing: 'border-box',
-    resize: 'none', lineHeight: 1.5, minHeight: '36px', maxHeight: '186px',
+    // Fixed 8-row height (14px × 1.5 line-height × 8 + 16px padding + 2px
+    // border ≈ 186px) shown by default; scrolls internally past 8 rows.
+    resize: 'none', lineHeight: 1.5, height: '186px',
     overflow: 'auto',
+  },
+  divider: {
+    border: 'none', borderTop: '1px solid rgba(255,255,255,0.15)', margin: '8px 0',
   },
   bulletList: {
     margin: '4px 0', paddingLeft: '20px', listStyleType: 'disc',
