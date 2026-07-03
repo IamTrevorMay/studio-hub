@@ -1602,8 +1602,12 @@ export default function Calendar({ onNavigate }) {
                     onClick={(e) => {
                       if (wasDragging.current || timeDragRef.current) return;
                       e.stopPropagation();
+                      // The column scrolls with the grid, so its rect.top already
+                      // reflects scroll — adding scrollTop again double-counts and
+                      // pushed the time ~7h later (the PT offset when scrolled to
+                      // the workday). Use the column-relative offset directly.
                       const rect = e.currentTarget.getBoundingClientRect();
-                      const y = e.clientY - rect.top + (timeGridRef.current?.scrollTop || 0);
+                      const y = e.clientY - rect.top;
                       const totalMinutes = Math.floor(y / HOUR_HEIGHT * 60);
                       const snapped = Math.floor(totalMinutes / 15) * 15;
                       openNewEventModalAtTime(date, Math.min(Math.max(snapped, 0), 1425));
@@ -1748,8 +1752,11 @@ export default function Calendar({ onNavigate }) {
                   onClick={(e) => {
                     if (wasDragging.current || timeDragRef.current) return;
                     e.stopPropagation();
+                    // Column scrolls with the grid, so rect.top already reflects
+                    // scroll — don't add scrollTop again (double-count shifted the
+                    // populated time ~7h later).
                     const rect = e.currentTarget.getBoundingClientRect();
-                    const y = e.clientY - rect.top + (timeGridRef.current?.scrollTop || 0);
+                    const y = e.clientY - rect.top;
                     const totalMinutes = Math.floor(y / HOUR_HEIGHT * 60);
                     const snapped = Math.floor(totalMinutes / 15) * 15;
                     openNewEventModalAtTime(viewDate, Math.min(Math.max(snapped, 0), 1425));
