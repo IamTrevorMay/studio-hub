@@ -96,7 +96,8 @@ export default function CalendarMobile() {
         .select('*, creator:profiles!created_by(id, full_name)')
         // Include recurring events regardless of range — their original dates may
         // predate the window but their occurrences fall inside it (expanded below).
-        .or(`and(end_date.gte.${start.toISOString()},start_date.lte.${end.toISOString()}),recurrence_rule.neq.null`)
+        // `not.is.null` — `neq.null` compiles to `<> NULL` (never true) and drops recurring series.
+        .or(`and(end_date.gte.${start.toISOString()},start_date.lte.${end.toISOString()}),recurrence_rule.not.is.null`)
         .order('start_date', { ascending: true });
       if (error) throw error;
       setEvents(data || []);

@@ -382,7 +382,10 @@ export default function Calendar({ onNavigate }) {
       const { data, error } = await supabase
         .from('calendar_events')
         .select('*, creator:profiles!created_by(id, full_name)')
-        .or(`and(end_date.gte.${bufferStart.toISOString()},start_date.lte.${bufferEnd.toISOString()}),recurrence_rule.neq.null`)
+        // `not.is.null` — NOT `neq.null`, which PostgREST compiles to `<> NULL`
+        // (never true), silently dropping every recurring series from months
+        // whose base row doesn't overlap the window.
+        .or(`and(end_date.gte.${bufferStart.toISOString()},start_date.lte.${bufferEnd.toISOString()}),recurrence_rule.not.is.null`)
         .order('start_date', { ascending: true });
       if (error) throw error;
       setCalendarEvents(data || []);
@@ -524,8 +527,15 @@ export default function Calendar({ onNavigate }) {
     setLoadingPosts(true);
     setMetricoolError(null);
     try {
-      const startStr = start.toISOString().split('.')[0];
-      const endStr = end.toISOString().split('.')[0];
+      // The endpoint is told timezone=America/Los_Angeles, so send PT wall-clock
+      // datetimes, not UTC (toISOString() shifted the window ~7-8h, dropping
+      // early-morning first-day posts off the grid).
+      const ptWall = (d) => new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+      }).format(d).replace(', ', 'T');
+      const startStr = ptWall(start);
+      const endStr = ptWall(end);
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Not authenticated');
       const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;

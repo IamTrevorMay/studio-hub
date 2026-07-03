@@ -463,10 +463,13 @@ export default function Research() {
   // Inbox state fetching
   const fetchInboxState = useCallback(async () => {
     try {
+      // Fetch ALL state rows (including archived) so inboxItems can hide archived
+      // items. Previously archived rows were filtered out here, which made an
+      // archived item lose its state row and reappear as UNREAD (inflating the
+      // badge) since inboxItems never consulted archived_at.
       const { data, error } = await supabase
         .from('research_inbox_state')
-        .select('*')
-        .is('archived_at', null);
+        .select('*');
       if (!error) setInboxState(data || []);
     } catch (err) {
       console.error('Error fetching inbox state:', err);
@@ -484,6 +487,7 @@ export default function Research() {
     for (const brief of briefs) {
       const key = `brief-${brief.date}`;
       const state = stateMap[key];
+      if (state?.archived_at) continue; // archived items are hidden from the inbox
       items.push({
         type: 'brief',
         date: brief.date,
@@ -499,6 +503,7 @@ export default function Research() {
       seenCardDates.add(entry.date);
       const key = `cards-${entry.date}`;
       const state = stateMap[key];
+      if (state?.archived_at) continue; // archived items are hidden from the inbox
       const topNames = entry.cards.slice(0, 3).map(c => c.pitcher_name).join(', ');
       items.push({
         type: 'cards',
@@ -512,6 +517,7 @@ export default function Research() {
     for (const trend of trends) {
       const key = `trends-${trend.date}`;
       const state = stateMap[key];
+      if (state?.archived_at) continue; // archived items are hidden from the inbox
       items.push({
         type: 'trends',
         date: trend.date,
@@ -546,7 +552,15 @@ export default function Research() {
   }, [profile?.id]);
 
   const archiveInboxItem = useCallback(async (type, date) => {
-    setInboxState(prev => prev.filter(r => !(r.item_type === type && r.item_date === date)));
+    // Mark the state row archived (don't drop it) so inboxItems hides it while
+    // keeping its read state — dropping it made the item reappear as unread.
+    const archivedAt = new Date().toISOString();
+    setInboxState(prev => {
+      const exists = prev.find(r => r.item_type === type && r.item_date === date);
+      if (exists) return prev.map(r => r.item_type === type && r.item_date === date
+        ? { ...r, read: true, archived_at: archivedAt } : r);
+      return [...prev, { item_type: type, item_date: date, read: true, archived_at: archivedAt }];
+    });
     try {
       await supabase.from('research_inbox_state').upsert(
         { user_id: profile?.id, item_type: type, item_date: date, read: true, archived_at: new Date().toISOString() },
