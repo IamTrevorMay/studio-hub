@@ -135,14 +135,16 @@ export default function Messages({ onNavigate }) {
   const fetchMessages = useCallback(async (conversationId) => {
     setLoadingMessages(true);
     try {
+      // Newest 100 then reverse — ascending+limit returned the OLDEST 100 and
+      // hid the live conversation once a thread passed 100 messages.
       const { data, error } = await supabase
         .from('direct_messages')
         .select('*, profile:profiles(id, full_name, nickname, title)')
         .eq('conversation_id', conversationId)
-        .order('created_at', { ascending: true })
+        .order('created_at', { ascending: false })
         .limit(100);
       if (error) throw error;
-      setMessages(data || []);
+      setMessages((data || []).slice().reverse());
     } catch (err) {
       console.error('Error:', err);
       setMessages([]);

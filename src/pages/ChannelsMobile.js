@@ -139,14 +139,15 @@ function ChannelView({ channel, profileId, teamMembers, refreshKey }) {
   useEffect(() => {
     let cancelled = false;
     async function load() {
+      // Newest 100 then reverse — ascending+limit showed the oldest 100.
       const { data } = await supabase
         .from('channel_messages')
         .select('*, profile:profiles(id, full_name, nickname, title)')
         .eq('channel_id', channel.id)
-        .order('created_at', { ascending: true })
+        .order('created_at', { ascending: false })
         .limit(100);
       if (!cancelled) {
-        setMessages(data || []);
+        setMessages((data || []).slice().reverse());
         setLoading(false);
       }
     }

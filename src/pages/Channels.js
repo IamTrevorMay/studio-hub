@@ -182,14 +182,17 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   const fetchMessages = useCallback(async (channelId) => {
     setLoadingMessages(true);
     try {
+      // Fetch the NEWEST 100 (desc + limit), then reverse to chronological order.
+      // Ordering ascending with a limit returned the OLDEST 100 and hid the live
+      // conversation in any channel with >100 messages.
       const { data, error } = await supabase
         .from('channel_messages')
         .select('*, profile:profiles(id, full_name, nickname, title, avatar_url)')
         .eq('channel_id', channelId)
-        .order('created_at', { ascending: true })
+        .order('created_at', { ascending: false })
         .limit(100);
       if (error) throw error;
-      setMessages(data || []);
+      setMessages((data || []).slice().reverse());
     } catch (err) {
       console.error('Error:', err);
       setMessages([]);
@@ -232,7 +235,8 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
           .select('*, profile:profiles(id, full_name, nickname, title, avatar_url)')
           .eq('id', payload.new.id)
           .single();
-        if (data && mounted) setMessages(prev => [...prev, data]);
+        // Dedup by id — a realtime reconnect/redelivery can re-fire INSERT.
+        if (data && mounted) setMessages(prev => prev.some(m => m.id === data.id) ? prev : [...prev, data]);
       })
       .on('postgres_changes', {
         event: 'UPDATE', schema: 'public', table: 'channel_messages',
