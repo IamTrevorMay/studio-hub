@@ -7,6 +7,13 @@ import { getDisplayName, getDisplayInitial } from '../lib/displayName';
 import { useConfirm } from '../contexts/ConfirmContext';
 
 
+// A conversation is unread when its latest message came from someone else and
+// arrived after the current user's read cursor (last_read_at on their participant row).
+function isConvoUnread(lastMsg, myLastReadAt, myId) {
+  if (!lastMsg || lastMsg.user_id === myId) return false;
+  return !myLastReadAt || new Date(lastMsg.created_at) > new Date(myLastReadAt);
+}
+
 function applyFormatMarker(textareaRef, text, marker, setter) {
   const el = textareaRef.current;
   if (!el) return;
@@ -80,7 +87,7 @@ export default function Messages({ onNavigate }) {
       const enriched = await Promise.all((convos || []).map(async (convo) => {
         const { data: participants } = await supabase
           .from('conversation_participants')
-          .select('user_id, profile:profiles(id, full_name, nickname, title)')
+          .select('user_id, last_read_at, profile:profiles(id, full_name, nickname, title)')
           .eq('conversation_id', convo.id);
 
         // Get last message
@@ -92,10 +99,12 @@ export default function Messages({ onNavigate }) {
           .limit(1)
           .maybeSingle(); // empty conversations would 406/PGRST116 with .single()
 
+        const myLastReadAt = participants?.find(p => p.user_id === profile.id)?.last_read_at;
         return {
           ...convo,
           participants: participants || [],
           lastMessage: lastMsg,
+          unread: isConvoUnread(lastMsg, myLastReadAt, profile.id),
         };
       }));
 
@@ -168,11 +177,50 @@ export default function Messages({ onNavigate }) {
     }
   }, [profile?.id, fetchUnreadDms]);
 
+  // Keep a ref to the active conversation so the always-on list subscription can
+  // read it without tearing down + re-subscribing every time it changes.
+  const activeConversationRef = useRef(null);
+  useEffect(() => { activeConversationRef.current = activeConversation; }, [activeConversation]);
+
   useEffect(() => {
     if (!activeConversation) return;
     fetchMessages(activeConversation.id);
     markConversationRead(activeConversation.id);
+    // Opening a conversation clears its unread badge immediately.
+    setConversations(prev => prev.map(c => (c.id === activeConversation.id ? { ...c, unread: false } : c)));
   }, [activeConversation, fetchMessages, markConversationRead]);
+
+  // Always-on subscription across ALL the user's conversations: when a new
+  // message lands in any of them, bump that conversation to the top (iMessage-
+  // style) and flag it unread unless it's the one currently open or from self.
+  const convoIdsKey = conversations.map(c => c.id).join(',');
+  useEffect(() => {
+    if (!profile?.id || !convoIdsKey) return;
+    const ids = new Set(convoIdsKey.split(','));
+    const channel = supabase
+      .channel(`dm-list-${profile.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'direct_messages',
+      }, (payload) => {
+        const m = payload.new;
+        if (!ids.has(m.conversation_id)) return;
+        setConversations(prev => {
+          const idx = prev.findIndex(c => c.id === m.conversation_id);
+          if (idx === -1) return prev;
+          const isActive = activeConversationRef.current?.id === m.conversation_id;
+          const updated = {
+            ...prev[idx],
+            lastMessage: { content: m.content, created_at: m.created_at, user_id: m.user_id },
+            unread: isActive ? false : (m.user_id !== profile.id ? true : prev[idx].unread),
+          };
+          const rest = prev.filter((_, i) => i !== idx);
+          return [updated, ...rest].sort((a, b) =>
+            new Date(b.lastMessage?.created_at || b.created_at) - new Date(a.lastMessage?.created_at || a.created_at));
+        });
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [profile?.id, convoIdsKey]);
 
   // Auto-grow the message textarea to fit its content (capped at 150px).
   useEffect(() => {
@@ -529,17 +577,24 @@ export default function Messages({ onNavigate }) {
                 }
               </div>
               <div style={styles.convoInfo}>
-                <div style={styles.convoName}>{getConvoDisplayName(convo)}</div>
+                <div style={{ ...styles.convoName, ...(convo.unread ? styles.convoNameUnread : {}) }}>
+                  {getConvoDisplayName(convo)}
+                </div>
                 {convo.lastMessage && (
-                  <div style={styles.convoLastMsg}>
+                  <div style={{ ...styles.convoLastMsg, ...(convo.unread ? styles.convoLastMsgUnread : {}) }}>
                     {convo.lastMessage.content.substring(0, 40)}
                     {convo.lastMessage.content.length > 40 ? '...' : ''}
                   </div>
                 )}
               </div>
-              {convo.lastMessage && (
-                <span style={styles.convoTime}>{formatTime(convo.lastMessage.created_at)}</span>
-              )}
+              <div style={styles.convoMeta}>
+                {convo.lastMessage && (
+                  <span style={{ ...styles.convoTime, ...(convo.unread ? styles.convoTimeUnread : {}) }}>
+                    {formatTime(convo.lastMessage.created_at)}
+                  </span>
+                )}
+                {convo.unread && <span style={styles.convoUnreadDot} />}
+              </div>
             </button>
           ))}
 
@@ -891,12 +946,23 @@ const styles = {
     fontSize: '14px', fontWeight: 600, color: '#e2e8f0',
     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
   },
+  convoNameUnread: { color: '#fff', fontWeight: 700 },
   convoLastMsg: {
     fontSize: '12px', color: 'rgba(255,255,255,0.35)',
     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
     marginTop: '2px',
   },
+  convoLastMsgUnread: { color: 'rgba(255,255,255,0.7)', fontWeight: 600 },
+  convoMeta: {
+    display: 'flex', flexDirection: 'column', alignItems: 'flex-end',
+    gap: '5px', flexShrink: 0,
+  },
   convoTime: { fontSize: '11px', color: 'rgba(255,255,255,0.25)', flexShrink: 0 },
+  convoTimeUnread: { color: '#818cf8' },
+  convoUnreadDot: {
+    width: '9px', height: '9px', borderRadius: '50%',
+    background: '#6366f1', flexShrink: 0,
+  },
   emptyConvos: { textAlign: 'center', padding: '40px 20px' },
   emptyText: { color: 'rgba(255,255,255,0.4)', fontSize: '14px', margin: '0 0 4px 0' },
   emptySubtext: { color: 'rgba(255,255,255,0.25)', fontSize: '12px', margin: 0 },
