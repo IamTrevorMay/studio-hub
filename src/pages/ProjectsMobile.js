@@ -3,18 +3,22 @@ import { supabase } from '../supabaseClient';
 import FullScreenSheet from '../components/mobile/FullScreenSheet';
 import { mobileTokens } from '../utils/mobileTokens';
 
-const STATUSES = ['concept', 'script', 'production', 'edit', 'review', 'published'];
+// Must mirror desktop Projects.js exactly — the DB status enum is
+// queue/write/pre_production/film/review/edit/post_production/publish. The old
+// mobile values (concept/script/production/published) matched no real rows, so
+// published projects leaked into "Active" and the status chips matched nothing.
+const STATUSES = ['queue', 'write', 'pre_production', 'film', 'review', 'edit', 'post_production', 'publish'];
 const STATUS_LABELS = {
-  concept: 'Idea', script: 'Script', production: 'Production',
-  edit: 'Edit', review: 'Review', published: 'Published',
+  queue: 'Queue', write: 'Write', pre_production: 'Pre-Production', film: 'Film',
+  review: 'Review', edit: 'Edit', post_production: 'Post-Production', publish: 'Published',
 };
 const STATUS_COLORS = {
-  concept: '#8b5cf6', script: '#3b82f6', production: '#f59e0b',
-  edit: '#f97316', review: '#ec4899', published: '#22c55e',
+  queue: '#8b5cf6', write: '#3b82f6', pre_production: '#0ea5e9', film: '#f59e0b',
+  review: '#ec4899', edit: '#f97316', post_production: '#a855f7', publish: '#22c55e',
 };
 const TYPE_LABELS = {
-  youtube_video: 'YouTube', short_form: 'Short Form', social_post: 'Social',
-  podcast: 'Podcast', substack_article: 'Substack', other: 'Other',
+  mayday_video: 'Mayday Video', tm_baseball_video: 'TM Baseball Video',
+  podcast: 'Podcast', short_form: 'Short Form',
 };
 
 // Default filter shows everything except published/archived (matches the
@@ -53,7 +57,7 @@ export default function ProjectsMobile() {
   const visible = useMemo(() => {
     return projects.filter((p) => {
       if (p.is_archived) return false;
-      if (filter === 'active') return p.status !== 'published';
+      if (filter === 'active') return p.status !== 'publish';
       if (filter === 'all') return true;
       return p.status === filter;
     });
