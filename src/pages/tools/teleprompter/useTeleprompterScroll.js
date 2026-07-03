@@ -47,6 +47,10 @@ export default function useTeleprompterScroll(speed, isPlaying) {
     const SCROLL_STEP = 60;
     const handleKeyDown = (e) => {
       if (!scrollRef.current) return;
+      // Don't hijack arrows while typing in an input or the contentEditable
+      // script editor — the caret needs them to move vertically.
+      const tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         scrollRef.current.scrollTop += SCROLL_STEP;

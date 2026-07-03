@@ -26,7 +26,9 @@ export default function usePedalScroll(scrollRef) {
   useEffect(() => {
     function onKeyDown(e) {
       const tag = e.target.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      // Also bail inside the contentEditable script editor (a DIV) so a/b can be
+      // typed — the tag check alone let the pedal handler swallow those letters.
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
       if (e.key === 'a' || e.key === 'A') {
         e.preventDefault();
         if (directionRef.current !== -1) {

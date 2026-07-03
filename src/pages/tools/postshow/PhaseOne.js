@@ -218,13 +218,18 @@ export default function PhaseOne({ session, onSessionChange, recipients, setting
   const sourceFile = session.sourceFileName;
   const framePerfect = settings.framePerfect !== false;
 
-  // Revoke object URLs on unmount so we don't leak memory
+  // Revoke object URLs on unmount so we don't leak memory. The source + clip URLs
+  // are minted AFTER mount (file select / ffmpeg export) on new session objects,
+  // so a []-dep cleanup capturing the mount-time session revoked nothing — leaking
+  // multi-GB video Blobs. Read the latest session from a ref instead.
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
   useEffect(() => {
     return () => {
-      if (session._sourceObjectUrl) URL.revokeObjectURL(session._sourceObjectUrl);
-      (session.clips || []).forEach(c => { if (c._outputUrl) URL.revokeObjectURL(c._outputUrl); });
+      const s = sessionRef.current;
+      if (s?._sourceObjectUrl) URL.revokeObjectURL(s._sourceObjectUrl);
+      (s?.clips || []).forEach(c => { if (c._outputUrl) URL.revokeObjectURL(c._outputUrl); });
     };
-    // eslint-disable-next-line
   }, []);
 
   const updateClips = useCallback((newClips) => {

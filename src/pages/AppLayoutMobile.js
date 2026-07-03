@@ -157,7 +157,7 @@ const TAB_LABELS = NAV_ITEMS.reduce((acc, item) => { acc[item.key] = item.label;
 });
 
 export default function AppLayoutMobile() {
-  const { profile, signOut, isAdmin, isAssistant, isPartner, isFreelancer } = useAuth();
+  const { profile, signOut, isAdmin, isAssistant, isPartner, isFreelancer, restrictedNavKeys } = useAuth();
   const { unreadNotificationCount, markDashboardSeen, refreshNotifications } = useNotifications();
   const { getResolvedNav } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => getTabFromPath() || localStorage.getItem('studio-hub-tab') || 'dashboard');
@@ -199,12 +199,22 @@ export default function AppLayoutMobile() {
     }
   }, [isFreelancer]); // eslint-disable-line
 
+  // Restricted-nav route guard (mirror desktop AppLayout). Without this, a role
+  // whose nav keys are restricted (e.g. director_creative/director_comms, who are
+  // admin-tier so isAdmin is true) could still open a restricted page directly.
+  useEffect(() => {
+    if (restrictedNavKeys?.has(activeTab)) {
+      setActiveTab(isFreelancer ? 'fl_dashboard' : 'dashboard');
+    }
+    // eslint-disable-next-line
+  }, [activeTab, restrictedNavKeys, isFreelancer]);
+
   // Pin non-admins to Work View; persist mode across reloads.
   useEffect(() => { if (!isAdmin && mode !== 'work') setMode('work'); }, [isAdmin, mode]);
   useEffect(() => { localStorage.setItem('studio-hub-mode', mode); }, [mode]);
 
   const resolvedNav = stripExcludedFolders(
-    getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isFreelancer, profile)
+    getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isFreelancer, profile, restrictedNavKeys)
   );
   const adminModeKeySet = getAdminModeKeySet(resolvedNav);
 
