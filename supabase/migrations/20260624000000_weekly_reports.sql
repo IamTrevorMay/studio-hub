@@ -20,7 +20,11 @@ create unique index if not exists weekly_reports_week_start_uniq
 
 alter table public.weekly_reports enable row level security;
 
-create policy "weekly_reports_admin_all" on public.weekly_reports
-  for all using (
-    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
-  );
+do $$ begin
+  if not exists (select 1 from pg_policies where policyname = 'weekly_reports_admin_all' and tablename = 'weekly_reports') then
+    create policy "weekly_reports_admin_all" on public.weekly_reports
+      for all using (
+        exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
+      );
+  end if;
+end $$;

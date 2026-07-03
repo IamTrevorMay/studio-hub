@@ -53,19 +53,31 @@ alter table public.job_application_events enable row level security;
 alter table public.job_email_templates    enable row level security;
 alter table public.job_listing_views      enable row level security;
 
-create policy job_app_events_admin_all on public.job_application_events
-  for all to authenticated
-  using (exists (select 1 from public.profiles where id = auth.uid() and role = 'admin'))
-  with check (exists (select 1 from public.profiles where id = auth.uid() and role = 'admin'));
+do $$ begin
+  if not exists (select 1 from pg_policies where policyname = 'job_app_events_admin_all' and tablename = 'job_application_events') then
+    create policy job_app_events_admin_all on public.job_application_events
+      for all to authenticated
+      using (exists (select 1 from public.profiles where id = auth.uid() and role = 'admin'))
+      with check (exists (select 1 from public.profiles where id = auth.uid() and role = 'admin'));
+  end if;
+end $$;
 
-create policy job_email_templates_admin_all on public.job_email_templates
-  for all to authenticated
-  using (exists (select 1 from public.profiles where id = auth.uid() and role = 'admin'))
-  with check (exists (select 1 from public.profiles where id = auth.uid() and role = 'admin'));
+do $$ begin
+  if not exists (select 1 from pg_policies where policyname = 'job_email_templates_admin_all' and tablename = 'job_email_templates') then
+    create policy job_email_templates_admin_all on public.job_email_templates
+      for all to authenticated
+      using (exists (select 1 from public.profiles where id = auth.uid() and role = 'admin'))
+      with check (exists (select 1 from public.profiles where id = auth.uid() and role = 'admin'));
+  end if;
+end $$;
 
-create policy job_listing_views_admin_read on public.job_listing_views
-  for select to authenticated
-  using (exists (select 1 from public.profiles where id = auth.uid() and role = 'admin'));
+do $$ begin
+  if not exists (select 1 from pg_policies where policyname = 'job_listing_views_admin_read' and tablename = 'job_listing_views') then
+    create policy job_listing_views_admin_read on public.job_listing_views
+      for select to authenticated
+      using (exists (select 1 from public.profiles where id = auth.uid() and role = 'admin'));
+  end if;
+end $$;
 -- Inserts (views) and status lookups come via service-role edge fns; no public policy.
 
 -- ─── Seed default email templates ────────────────────────────────────────

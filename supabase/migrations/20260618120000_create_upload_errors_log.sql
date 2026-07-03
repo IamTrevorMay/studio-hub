@@ -22,13 +22,21 @@ create index if not exists upload_errors_created_at_idx on public.upload_errors 
 alter table public.upload_errors enable row level security;
 
 -- Any signed-in user may log their own upload failure (client-side capture).
-create policy "users insert own upload errors"
-  on public.upload_errors for insert
-  to authenticated
-  with check (user_id = auth.uid());
+do $$ begin
+  if not exists (select 1 from pg_policies where policyname = 'users insert own upload errors' and tablename = 'upload_errors') then
+    create policy "users insert own upload errors"
+      on public.upload_errors for insert
+      to authenticated
+      with check (user_id = auth.uid());
+  end if;
+end $$;
 
 -- Admins can read the log.
-create policy "admins read upload errors"
-  on public.upload_errors for select
-  to authenticated
-  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'));
+do $$ begin
+  if not exists (select 1 from pg_policies where policyname = 'admins read upload errors' and tablename = 'upload_errors') then
+    create policy "admins read upload errors"
+      on public.upload_errors for select
+      to authenticated
+      using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'));
+  end if;
+end $$;
