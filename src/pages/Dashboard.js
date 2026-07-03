@@ -87,6 +87,9 @@ export default function Dashboard({ onNavigate }) {
   const [titleDraft, setTitleDraft] = useState(profile?.title || '');
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(profile?.full_name || '');
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarHover, setAvatarHover] = useState(false);
+  const avatarInputRef = useRef(null);
 
   // Cross-component refresh counters
   const [boardVersion, setBoardVersion] = useState(0);   // SprintBoard changed → SprintPanel re-fetches
@@ -662,6 +665,30 @@ export default function Dashboard({ onNavigate }) {
     await updateProfile({ full_name: nameDraft.trim() });
     await supabase.auth.updateUser({ data: { full_name: nameDraft.trim() } });
     setEditingName(false);
+  }
+
+  async function handleAvatarUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file || !profile?.id) return;
+    setAvatarUploading(true);
+    try {
+      const ext = (file.name.split('.').pop() || 'png').toLowerCase();
+      const path = `${profile.id}/avatar.${ext}`;
+      const { error: uploadErr } = await supabase.storage
+        .from('avatars')
+        .upload(path, file, { upsert: true });
+      if (uploadErr) throw uploadErr;
+      const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path);
+      // Cache-bust so the new image shows immediately.
+      const url = `${publicUrl}?t=${Date.now()}`;
+      await updateProfile({ avatar_url: url });
+    } catch (err) {
+      console.error('Error uploading avatar:', err);
+      alert('Could not upload photo: ' + err.message);
+    } finally {
+      setAvatarUploading(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
+    }
   }
 
   // ── Team status handlers ──
@@ -1301,9 +1328,30 @@ export default function Dashboard({ onNavigate }) {
 
       {/* Profile Card */}
       <div style={styles.profileCard}>
-        <div style={styles.profileAvatar}>
-          {profile?.full_name?.charAt(0)?.toUpperCase()}
-        </div>
+        <label
+          style={styles.profileAvatarUpload}
+          title="Click to upload a profile picture"
+          onMouseEnter={() => setAvatarHover(true)}
+          onMouseLeave={() => setAvatarHover(false)}
+        >
+          {profile?.avatar_url ? (
+            <img src={profile.avatar_url} alt="" style={styles.profileAvatarImg} />
+          ) : (
+            <div style={styles.profileAvatar}>
+              {profile?.full_name?.charAt(0)?.toUpperCase()}
+            </div>
+          )}
+          <div style={{ ...styles.profileAvatarHover, opacity: (avatarHover || avatarUploading) ? 1 : 0 }}>
+            {avatarUploading ? '…' : '📷'}
+          </div>
+          <input
+            ref={avatarInputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={handleAvatarUpload}
+          />
+        </label>
         <div style={styles.profileInfo}>
           {editingName ? (
             <div style={styles.titleEdit}>
@@ -2159,6 +2207,33 @@ const styles = {
     fontWeight: 700,
     color: '#fff',
     flexShrink: 0,
+  },
+  profileAvatarUpload: {
+    position: 'relative',
+    width: '60px',
+    height: '60px',
+    flexShrink: 0,
+    cursor: 'pointer',
+    display: 'block',
+  },
+  profileAvatarImg: {
+    width: '60px',
+    height: '60px',
+    borderRadius: '16px',
+    objectFit: 'cover',
+    display: 'block',
+  },
+  profileAvatarHover: {
+    position: 'absolute',
+    inset: 0,
+    borderRadius: '16px',
+    background: 'rgba(0,0,0,0.45)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '20px',
+    opacity: 0,
+    transition: 'opacity 0.15s',
   },
   profileInfo: {
     flex: 1,
