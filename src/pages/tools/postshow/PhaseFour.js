@@ -57,6 +57,7 @@ export default function PhaseFour({ session, onSessionChange, recipients }) {
     setDriveSelected(new Set());
     try {
       const { data: { session: authSession } } = await supabase.auth.getSession();
+      if (!authSession?.access_token) throw new Error('Not authenticated');
       const resp = await fetch(
         `${SUPABASE_URL}/functions/v1/drive-list-clips?folderId=${encodeURIComponent(alanaFolderId)}`,
         { headers: { Authorization: `Bearer ${authSession.access_token}` } },

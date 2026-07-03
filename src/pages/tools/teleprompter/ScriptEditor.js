@@ -227,7 +227,7 @@ export default function ScriptEditor({ script, onChange, onClose }) {
                   <div style={styles.scriptInfo}>
                     <span style={styles.scriptName}>{s.name}</span>
                     <span style={styles.scriptMeta}>
-                      {formatDate(s.created_at)} &middot; {s.content.replace(/<[^>]*>/g, '').length.toLocaleString()} chars
+                      {formatDate(s.created_at)} &middot; {(s.content || '').replace(/<[^>]*>/g, '').length.toLocaleString()} chars
                     </span>
                   </div>
                   <div style={styles.scriptActions}>

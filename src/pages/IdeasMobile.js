@@ -28,7 +28,8 @@ export default function IdeasMobile() {
     const { data, error } = await supabase
       .from('write_ideas')
       .select('id, text, checked, position, category, created_by, created_at, updated_at')
-      .order('position', { ascending: true });
+      .order('position', { ascending: true })
+      .order('created_at', { ascending: true });
     if (error) { console.error('Ideas load error:', error); return; }
     const grouped = Object.fromEntries(CATEGORY_KEYS.map((k) => [k, []]));
     for (const row of data || []) {

@@ -285,15 +285,18 @@ export default function Ops() {
                   </td>
                   <td style={styles.td}><TimeCell value={job.last_run_at} /></td>
                   <td style={styles.td}>
-                    {job.last_status && (
-                      <span style={{
-                        ...styles.statusBadge,
-                        background: job.last_status === 'succeeded' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
-                        color: job.last_status === 'succeeded' ? '#22c55e' : '#ef4444',
-                      }}>
+                    {job.last_status && (() => {
+                      const inProgress = job.last_status === 'running' || job.last_status === 'starting';
+                      const bg = job.last_status === 'succeeded' ? 'rgba(34,197,94,0.15)'
+                        : inProgress ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)';
+                      const fg = job.last_status === 'succeeded' ? '#22c55e'
+                        : inProgress ? '#f59e0b' : '#ef4444';
+                      return (
+                      <span style={{ ...styles.statusBadge, background: bg, color: fg }}>
                         {job.last_status}
                       </span>
-                    )}
+                      );
+                    })()}
                   </td>
                 </tr>
               ))}

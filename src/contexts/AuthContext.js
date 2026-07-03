@@ -97,6 +97,10 @@ export function AuthProvider({ children }) {
 
         setProfile(data);
         setAuthError(null);
+        // A healthy profile fetch means the session is fine — clear any prior
+        // transient-failure count so unrelated blips hours apart don't add up to
+        // the 3-strike nuke.
+        authFailureCount.current = 0;
         return data;
       } catch (error) {
         console.error(`Profile fetch attempt ${attempt + 1} failed:`, error);

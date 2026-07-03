@@ -819,7 +819,7 @@ function ReviewPlayer({ review, onBack, profile, isAdmin }) {
             key={m.id}
             onClick={(e) => { e.stopPropagation(); seekTo(m.timestamp_seconds); }}
             style={{ ...styles.timelineMarker, left: `${m.pct}%` }}
-            title={`${formatTimestamp(m.timestamp_seconds)} — ${m.commenter?.full_name}: ${m.content.substring(0, 40)}`}
+            title={`${formatTimestamp(m.timestamp_seconds)} — ${m.commenter?.full_name}: ${(m.content || '').substring(0, 40)}`}
           />
         ))}
       </div>
