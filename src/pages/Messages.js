@@ -60,6 +60,8 @@ export default function Messages({ onNavigate }) {
   const [contextMenu, setContextMenu] = useState(null); // { convo, x, y }
   const [renamingConvo, setRenamingConvo] = useState(null); // convo being renamed
   const [renameValue, setRenameValue] = useState('');
+  const groupImageInputRef = useRef(null);
+  const groupImageConvoRef = useRef(null); // convo whose photo is being set
 
   const fetchConversations = useCallback(async () => {
     if (!profile?.id) return;
@@ -340,6 +342,42 @@ export default function Messages({ onNavigate }) {
     setRenamingConvo(null);
   }
 
+  // Group creator picks a custom photo shown as the conversation icon. The
+  // context-menu item stores the convo and opens this hidden file input.
+  function startGroupImage(convo) {
+    setContextMenu(null);
+    groupImageConvoRef.current = convo;
+    groupImageInputRef.current?.click();
+  }
+
+  async function handleGroupImageUpload(e) {
+    const file = e.target.files?.[0];
+    const convo = groupImageConvoRef.current;
+    if (file && convo && profile?.id) {
+      try {
+        const ext = (file.name.split('.').pop() || 'png').toLowerCase();
+        // Path starts with the uploader's id so the avatars-bucket RLS
+        // (foldername[1] = auth.uid()) permits the write.
+        const path = `${profile.id}/group-${convo.id}.${ext}`;
+        const { error: uploadErr } = await supabase.storage
+          .from('avatars')
+          .upload(path, file, { upsert: true });
+        if (uploadErr) throw uploadErr;
+        const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path);
+        const image_url = `${publicUrl}?t=${Date.now()}`;
+        const { error } = await supabase.from('conversations').update({ image_url }).eq('id', convo.id);
+        if (error) throw error;
+        setConversations(prev => prev.map(c => (c.id === convo.id ? { ...c, image_url } : c)));
+        if (activeConversation?.id === convo.id) setActiveConversation(prev => ({ ...prev, image_url }));
+      } catch (err) {
+        console.error('Error setting group photo:', err);
+        alert('Could not set group photo: ' + err.message);
+      }
+    }
+    groupImageConvoRef.current = null;
+    if (groupImageInputRef.current) groupImageInputRef.current.value = '';
+  }
+
   async function handleEditMessage(messageId, newContent) {
     const trimmed = newContent.trim();
     if (!trimmed) return;
@@ -571,7 +609,9 @@ export default function Messages({ onNavigate }) {
               }}
             >
               <div style={styles.convoAvatar}>
-                {convo.is_group ? (
+                {convo.is_group && convo.image_url ? (
+                  <img src={convo.image_url} alt="" style={styles.convoAvatarImg} />
+                ) : convo.is_group ? (
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" />
                   </svg>
@@ -615,7 +655,9 @@ export default function Messages({ onNavigate }) {
           <>
             <div style={styles.chatHeader}>
               <div style={styles.chatHeaderAvatar}>
-                {activeConversation.is_group ? '👥' : getConvoInitial(activeConversation)}
+                {activeConversation.is_group && activeConversation.image_url ? (
+                  <img src={activeConversation.image_url} alt="" style={styles.chatHeaderAvatarImg} />
+                ) : activeConversation.is_group ? '👥' : getConvoInitial(activeConversation)}
               </div>
               <h2 style={styles.chatHeaderName}>{getConvoDisplayName(activeConversation)}</h2>
             </div>
@@ -698,9 +740,14 @@ export default function Messages({ onNavigate }) {
           <div style={styles.contextOverlay} onClick={() => setContextMenu(null)} onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }} />
           <div style={{ ...styles.contextMenu, top: contextMenu.y, left: contextMenu.x }}>
             {contextMenu.convo.is_group && contextMenu.convo.created_by === profile?.id && (
-              <button style={styles.contextItem} onClick={() => startRename(contextMenu.convo)}>
-                Rename group
-              </button>
+              <>
+                <button style={styles.contextItem} onClick={() => startRename(contextMenu.convo)}>
+                  Rename group
+                </button>
+                <button style={styles.contextItem} onClick={() => startGroupImage(contextMenu.convo)}>
+                  {contextMenu.convo.image_url ? 'Change group photo' : 'Add group photo'}
+                </button>
+              </>
             )}
             <button
               style={{ ...styles.contextItem, color: '#f87171' }}
@@ -734,6 +781,14 @@ export default function Messages({ onNavigate }) {
           </form>
         </div>
       )}
+
+      <input
+        ref={groupImageInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={handleGroupImageUpload}
+      />
     </div>
   );
 }
@@ -945,6 +1000,9 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     fontSize: '16px', fontWeight: 700, color: '#fff', flexShrink: 0,
   },
+  convoAvatarImg: {
+    width: '40px', height: '40px', borderRadius: '10px', objectFit: 'cover',
+  },
   convoInfo: { flex: 1, minWidth: 0 },
   convoName: {
     fontSize: '14px', fontWeight: 600, color: '#e2e8f0',
@@ -980,6 +1038,9 @@ const styles = {
     background: 'linear-gradient(135deg, #6366f1, #818cf8)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     fontSize: '16px', fontWeight: 700, color: '#fff',
+  },
+  chatHeaderAvatarImg: {
+    width: '36px', height: '36px', borderRadius: '10px', objectFit: 'cover',
   },
   chatHeaderName: { fontSize: '16px', fontWeight: 600, color: '#e2e8f0', margin: 0 },
   messagesArea: { flex: 1, overflow: 'auto', padding: '16px 24px' },
