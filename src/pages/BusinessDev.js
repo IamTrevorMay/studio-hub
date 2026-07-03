@@ -695,6 +695,11 @@ export default function BusinessDev() {
   async function confirmDeletePhase() {
     if (!deletingPhase) return;
     if (deleteConfirmText !== deletingPhase.name) return;
+    // Cascade deletes bd_initiatives + bd_tasks, but not the personal_tasks
+    // mirrors keyed on bd_task_id — remove those for every task under the phase.
+    const initIds = new Set(initiatives.filter(i => i.phase_id === deletingPhase.id).map(i => i.id));
+    const taskIds = tasks.filter(t => initIds.has(t.initiative_id)).map(t => t.id);
+    if (taskIds.length) await supabase.from('personal_tasks').delete().in('bd_task_id', taskIds);
     await supabase.from('bd_phases').delete().eq('id', deletingPhase.id);
     cancelDeletePhase();
     fetchAll();
@@ -810,6 +815,11 @@ export default function BusinessDev() {
   }
   async function handleDeleteInit(id) {
     if (!(await confirm('Delete this initiative and all its tasks?'))) return;
+    // bd_tasks cascade in the DB, but the personal_tasks mirror keyed on
+    // bd_task_id does not — drop those mirrors first so they don't orphan in
+    // owners' backlogs.
+    const taskIds = tasks.filter(t => t.initiative_id === id).map(t => t.id);
+    if (taskIds.length) await supabase.from('personal_tasks').delete().in('bd_task_id', taskIds);
     await supabase.from('bd_initiatives').delete().eq('id', id);
     fetchAll();
   }

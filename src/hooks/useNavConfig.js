@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { canAccessBroadcast } from '../lib/rolePermissions';
+import { useAuth } from '../contexts/AuthContext';
 
 // Some pages are admin-only by default but should also be visible to a
 // specific non-admin role. Add overrides here as more producer-tier
@@ -22,15 +23,13 @@ export default function useNavConfig() {
   const [saving, setSaving] = useState(false);
   const channelRef = useRef(null);
 
-  // Track tab-restored events to force subscription rebuild
-  const [refreshKey, setRefreshKey] = useState(0);
-  useEffect(() => {
-    const handler = () => setRefreshKey(k => k + 1);
-    window.addEventListener('app-tab-restored', handler);
-    return () => window.removeEventListener('app-tab-restored', handler);
-  }, []);
+  // Rebuild the realtime subscription whenever the app-wide refreshKey bumps
+  // (AuthContext bumps it after the WebSocket reconnects on tab-refocus). The
+  // previous code listened for an `app-tab-restored` event that was never
+  // dispatched anywhere, so the nav_config channel went stale after tab-away.
+  const { refreshKey } = useAuth();
 
-  // Fetch on mount + rebuild subscription on tab restore
+  // Fetch on mount + rebuild subscription on refreshKey change
   useEffect(() => {
     let cancelled = false;
     async function load() {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -46,20 +46,24 @@ export default function Resources() {
     return data;
   }, []);
 
+  const loadSeqRef = useRef(0);
   const fetchItems = useCallback(async (folderId) => {
+    const seq = ++loadSeqRef.current;
     setLoading(true);
     setError(null);
     try {
       const query = folderId ? `folderId=${encodeURIComponent(folderId)}` : '';
       const data = await callFn('GET', query);
+      if (seq !== loadSeqRef.current) return; // a newer navigation superseded this
       setItems(data.items || []);
       if (!rootId && data.rootId) setRootId(data.rootId);
     } catch (err) {
+      if (seq !== loadSeqRef.current) return; // a newer navigation superseded this
       console.error('Error fetching Drive items:', err);
       setError(err.message);
       setItems([]);
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) setLoading(false);
     }
   }, [callFn, rootId]);
 

@@ -42,6 +42,7 @@ const DRAG_MOVE_THRESHOLD = 10;
 export default function SprintBoardMobile({ profile }) {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeSprint, setActiveSprint] = useState(null);
   const [editingTask, setEditingTask] = useState(null);
   const [collapsed, setCollapsed] = useState(() => ({ done: true, backlog: true }));
   const [showQuickAdd, setShowQuickAdd] = useState(false);
@@ -88,6 +89,30 @@ export default function SprintBoardMobile({ profile }) {
   }, [profile?.id]);
 
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
+
+  // Fetch the current week's active sprint so tasks dropped into sprint columns
+  // get its sprint_id (mirrors desktop SprintBoard). Without this, sprint tasks
+  // moved on mobile stay sprint_id=null and vanish from sprint progress.
+  useEffect(() => {
+    if (!profile?.id) return;
+    let cancelled = false;
+    (async () => {
+      const now = new Date();
+      const day = now.getDay(); // 0=Sun
+      const monday = new Date(now);
+      monday.setDate(now.getDate() - (day === 0 ? 6 : day - 1));
+      monday.setHours(0, 0, 0, 0);
+      const startDate = monday.toISOString().split('T')[0];
+      const { data, error } = await supabase
+        .from('sprints')
+        .select('*')
+        .eq('user_id', profile.id)
+        .eq('start_date', startDate)
+        .maybeSingle();
+      if (!cancelled && !error) setActiveSprint(data && data.status === 'active' ? data : null);
+    })();
+    return () => { cancelled = true; };
+  }, [profile?.id]);
 
   async function addTask(text) {
     const content = (text || '').trim();
@@ -250,6 +275,12 @@ export default function SprintBoardMobile({ profile }) {
           updates.completed_at = new Date().toISOString();
         } else if (task.status === 'done') {
           updates.completed_at = null;
+        }
+        const isSprintCol = ['ready', 'in_progress', 'holding', 'done'].includes(dropTargetId);
+        if (isSprintCol && activeSprint && !task.sprint_id) {
+          updates.sprint_id = activeSprint.id;
+        } else if (!isSprintCol && task.sprint_id) {
+          updates.sprint_id = null;
         }
         updateTask(task.id, updates);
 

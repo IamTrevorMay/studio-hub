@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
@@ -68,20 +68,24 @@ export default function Assets() {
   useEffect(() => { checkHealth(); }, [checkHealth, refreshKey]);
 
   // Fetch directory listing
+  const loadSeqRef = useRef(0);
   const fetchListing = useCallback(async (dirPath) => {
+    const seq = ++loadSeqRef.current;
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams({ path: dirPath || '', sort: sortBy, order: sortOrder });
       const res = await fetch(`${API_BASE}/api/nas/list?${params}`);
       const data = await res.json();
+      if (seq !== loadSeqRef.current) return; // a newer navigation superseded this
       if (data.error) throw new Error(data.error);
       setItems(data.items || []);
     } catch (err) {
+      if (seq !== loadSeqRef.current) return; // a newer navigation superseded this
       setError(err.message);
       setItems([]);
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) setLoading(false);
     }
   }, [sortBy, sortOrder]);
 

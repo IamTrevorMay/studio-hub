@@ -78,7 +78,8 @@ export default function AdminPanelMobile() {
     }
   }
 
-  const pendingInvites = invitations.filter((i) => !i.accepted_at);
+  const memberEmails = new Set(team.map((m) => m.email?.toLowerCase()).filter(Boolean));
+  const pendingInvites = invitations.filter((i) => !i.accepted_at && !memberEmails.has(i.email?.toLowerCase()));
 
   return (
     <div style={styles.root}>

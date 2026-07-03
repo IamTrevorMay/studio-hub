@@ -7,6 +7,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+import { ptDayKey } from '../lib/ptDate';
 
 import SprintBoard from '../components/SprintBoard';
 import SprintPanel from '../components/SprintPanel';
@@ -226,7 +227,7 @@ export default function Dashboard({ onNavigate }) {
   }, [profile?.id]);
 
   const now = new Date();
-  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const todayStr = ptDayKey(now);
 
   const fetchTeamProfiles = useCallback(async () => {
     if (!profile?.id) return;

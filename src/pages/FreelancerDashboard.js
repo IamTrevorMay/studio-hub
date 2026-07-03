@@ -90,6 +90,9 @@ export default function FreelancerDashboard({ onNavigate }) {
   const [dismissedAnnouncementIds, setDismissedAnnouncementIds] = useState(new Set());
   const [notifsExpanded, setNotifsExpanded] = useState(false);
 
+  // In-flight guard so double-clicking Submit/Start doesn't double-fire notifications
+  const statusChangingRef = useRef(new Set());
+
   // ── Data Fetching ──────────────────────────────────────────────
 
   const fetchAssignments = useCallback(async () => {
@@ -217,29 +220,37 @@ export default function FreelancerDashboard({ onNavigate }) {
   // ── Handlers ───────────────────────────────────────────────────
 
   async function handleStatusChange(assignment, newStatus) {
-    const updates = { status: newStatus, updated_at: new Date().toISOString() };
-    if (newStatus === 'completed') updates.completed_at = new Date().toISOString();
-    await supabase.from('freelancer_assignments').update(updates).eq('id', assignment.id);
+    if (statusChangingRef.current.has(assignment.id)) return; // guard double-click
+    statusChangingRef.current.add(assignment.id);
+    try {
+      const updates = { status: newStatus, updated_at: new Date().toISOString() };
+      if (newStatus === 'completed') updates.completed_at = new Date().toISOString();
+      await supabase.from('freelancer_assignments').update(updates).eq('id', assignment.id);
 
-    if (newStatus === 'completed' && assignment.created_by) {
-      await supabase.from('notifications').insert({
-        user_id: assignment.created_by,
-        type: 'fl_assignment_completed',
-        title: 'Assignment Completed',
-        body: `${profile.full_name} completed "${assignment.title}"`,
-        link_tab: 'freelancers',
-        link_target: assignment.id,
-      });
+      if (newStatus === 'completed' && assignment.created_by) {
+        await supabase.from('notifications').insert({
+          user_id: assignment.created_by,
+          type: 'fl_assignment_completed',
+          title: 'Assignment Completed',
+          body: `${profile.full_name} completed "${assignment.title}"`,
+          link_tab: 'freelancers',
+          link_target: assignment.id,
+        });
 
-      supabase.functions.invoke('send-notification-email', {
-        body: {
-          trigger_key: 'fl_assignment_completed',
-          recipient_id: assignment.created_by,
-          context: { assignment_title: assignment.title, person_name: profile.full_name },
-        },
-      }).catch(() => {});
+        supabase.functions.invoke('send-notification-email', {
+          body: {
+            trigger_key: 'fl_assignment_completed',
+            recipient_id: assignment.created_by,
+            context: { assignment_title: assignment.title, person_name: profile.full_name },
+          },
+        }).catch(() => {});
+      }
+      fetchAssignments();
+    } catch (err) {
+      console.error('handleStatusChange failed', err);
+    } finally {
+      statusChangingRef.current.delete(assignment.id);
     }
-    fetchAssignments();
   }
 
   async function handleDeclineAssignment(assignment) {
@@ -309,37 +320,42 @@ export default function FreelancerDashboard({ onNavigate }) {
   async function handleCompleteWithHours() {
     if (!hoursModalAssignment || !hoursInput) return;
     setHoursSubmitting(true);
-    const hours = parseFloat(hoursInput);
-    const updates = {
-      status: 'completed',
-      completed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      hours_spent: hours,
-    };
-    await supabase.from('freelancer_assignments').update(updates).eq('id', hoursModalAssignment.id);
+    try {
+      const hours = parseFloat(hoursInput);
+      const updates = {
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        hours_spent: hours,
+      };
+      await supabase.from('freelancer_assignments').update(updates).eq('id', hoursModalAssignment.id);
 
-    if (hoursModalAssignment.created_by) {
-      await supabase.from('notifications').insert({
-        user_id: hoursModalAssignment.created_by,
-        type: 'fl_assignment_completed',
-        title: 'Assignment Completed',
-        body: `${profile.full_name} completed "${hoursModalAssignment.title}" (${hours}h)`,
-        link_tab: 'freelancers',
-        link_target: hoursModalAssignment.id,
-      });
+      if (hoursModalAssignment.created_by) {
+        await supabase.from('notifications').insert({
+          user_id: hoursModalAssignment.created_by,
+          type: 'fl_assignment_completed',
+          title: 'Assignment Completed',
+          body: `${profile.full_name} completed "${hoursModalAssignment.title}" (${hours}h)`,
+          link_tab: 'freelancers',
+          link_target: hoursModalAssignment.id,
+        });
 
-      supabase.functions.invoke('send-notification-email', {
-        body: {
-          trigger_key: 'fl_assignment_completed',
-          recipient_id: hoursModalAssignment.created_by,
-          context: { assignment_title: hoursModalAssignment.title, person_name: profile.full_name },
-        },
-      }).catch(() => {});
+        supabase.functions.invoke('send-notification-email', {
+          body: {
+            trigger_key: 'fl_assignment_completed',
+            recipient_id: hoursModalAssignment.created_by,
+            context: { assignment_title: hoursModalAssignment.title, person_name: profile.full_name },
+          },
+        }).catch(() => {});
+      }
+      setHoursModalAssignment(null);
+      setHoursInput('');
+      fetchAssignments();
+    } catch (err) {
+      console.error('handleCompleteWithHours failed', err);
+    } finally {
+      setHoursSubmitting(false);
     }
-    setHoursModalAssignment(null);
-    setHoursInput('');
-    setHoursSubmitting(false);
-    fetchAssignments();
   }
 
   async function handleStuck(assignment) {

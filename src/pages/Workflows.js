@@ -30,6 +30,8 @@ export default function Workflows() {
   const [autoRuns, setAutoRuns] = useState([]);
   const [showRunsExpanded, setShowRunsExpanded] = useState(false);
   const [autoSaving, setAutoSaving] = useState(false);
+  const [creatingAuto, setCreatingAuto] = useState(false);
+  const [creatingBoard, setCreatingBoard] = useState(false);
   const [showNewAutoModal, setShowNewAutoModal] = useState(false);
   const [newAutoName, setNewAutoName] = useState('');
   const [newAutoTriggerType, setNewAutoTriggerType] = useState('schedule');
@@ -154,28 +156,33 @@ export default function Workflows() {
   };
 
   const handleCreateAutomation = async () => {
-    if (!newAutoName.trim()) return;
-    const { data, error } = await supabase
-      .from('automations')
-      .insert({
-        name: newAutoName.trim(),
-        trigger_type: newAutoTriggerType,
-        trigger_config: newAutoTriggerType === 'schedule'
-          ? { type: 'days_of_month', days: [], hour_pt: 8 }
-          : { event: '', source: '' },
-        actions: [],
-        is_enabled: false,
-        created_by: profile?.id || null,
-      })
-      .select()
-      .single();
-    if (error) { showToast(error.message, 'error'); return; }
-    setShowNewAutoModal(false);
-    setNewAutoName('');
-    await fetchAutomations();
-    setSelectedAutoId(data.id);
-    setDrilledView({ type: 'automation', id: data.id });
-    showToast('Automation created');
+    if (!newAutoName.trim() || creatingAuto) return;
+    setCreatingAuto(true);
+    try {
+      const { data, error } = await supabase
+        .from('automations')
+        .insert({
+          name: newAutoName.trim(),
+          trigger_type: newAutoTriggerType,
+          trigger_config: newAutoTriggerType === 'schedule'
+            ? { type: 'days_of_month', days: [], hour_pt: 8 }
+            : { event: '', source: '' },
+          actions: [],
+          is_enabled: false,
+          created_by: profile?.id || null,
+        })
+        .select()
+        .single();
+      if (error) { showToast(error.message, 'error'); return; }
+      setShowNewAutoModal(false);
+      setNewAutoName('');
+      await fetchAutomations();
+      setSelectedAutoId(data.id);
+      setDrilledView({ type: 'automation', id: data.id });
+      showToast('Automation created');
+    } finally {
+      setCreatingAuto(false);
+    }
   };
 
   const saveAutomation = async () => {
@@ -279,33 +286,38 @@ export default function Workflows() {
 
   const createBoard = async () => {
     const name = newBoardName.trim();
-    if (!name) return;
-    const slug = name.toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
-    const { data, error } = await supabase
-      .from('workflows')
-      .insert({ name, slug: `${slug}_${Date.now().toString(36)}`, is_active: true, source: 'data', trigger_mode: 'manual' })
-      .select('id, slug, name, description, is_active, trigger_mode, trigger_config')
-      .single();
-    if (error) { showToast(error.message, 'error'); return; }
+    if (!name || creatingBoard) return;
+    setCreatingBoard(true);
+    try {
+      const slug = name.toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
+      const { data, error } = await supabase
+        .from('workflows')
+        .insert({ name, slug: `${slug}_${Date.now().toString(36)}`, is_active: true, source: 'data', trigger_mode: 'manual' })
+        .select('id, slug, name, description, is_active, trigger_mode, trigger_config')
+        .single();
+      if (error) { showToast(error.message, 'error'); return; }
 
-    // Auto-create a "Complete" terminal column.
-    await supabase.from('workflow_steps').insert({
-      workflow_id: data.id,
-      step_key: 'complete',
-      title_template: 'Complete',
-      position: 9999,
-      assignee_type: 'static',
-      action_type: 'complete',
-      action_label: 'Done',
-      is_terminal: true,
-      entry_action_type: 'create_task',
-    });
+      // Auto-create a "Complete" terminal column.
+      await supabase.from('workflow_steps').insert({
+        workflow_id: data.id,
+        step_key: 'complete',
+        title_template: 'Complete',
+        position: 9999,
+        assignee_type: 'static',
+        action_type: 'complete',
+        action_label: 'Done',
+        is_terminal: true,
+        entry_action_type: 'create_task',
+      });
 
-    setBoards(prev => [...prev, data]);
-    setShowNewBoardModal(false);
-    setNewBoardName('');
-    setDrilledView({ type: 'flow', id: data.id });
-    showToast('Flow created');
+      setBoards(prev => [...prev, data]);
+      setShowNewBoardModal(false);
+      setNewBoardName('');
+      setDrilledView({ type: 'flow', id: data.id });
+      showToast('Flow created');
+    } finally {
+      setCreatingBoard(false);
+    }
   };
 
   // ─── Context menu ────────────────────────────────────────
@@ -1193,6 +1205,10 @@ export default function Workflows() {
         sprintHoldingTaskIds={sprintHoldingTaskIds}
         sprintDoneTaskIds={sprintDoneTaskIds}
         onTaskClick={(task, person, groupKey) => {
+          // Skip synthesized pseudo-tasks (sprint-*/progress-card-*) — their
+          // ids aren't real DB uuids, so the editor save would error/no-op.
+          if (!task || typeof task.id !== 'string') return;
+          if (task.id.startsWith('sprint-') || task.id.startsWith('progress-card-')) return;
           if (groupKey === 'contractors') {
             // Contractor rows store freelancer_assignments shape — the row
             // already has the columns ContractorAssignmentModal expects.
@@ -1223,7 +1239,7 @@ export default function Workflows() {
             </div>
             <div style={styles.modalActions}>
               <button style={styles.cancelBtn} onClick={() => setShowNewBoardModal(false)}>Cancel</button>
-              <button style={styles.createBtn} onClick={createBoard} disabled={!newBoardName.trim()}>Create</button>
+              <button style={styles.createBtn} onClick={createBoard} disabled={!newBoardName.trim() || creatingBoard}>{creatingBoard ? 'Creating…' : 'Create'}</button>
             </div>
           </div>
         </div>
@@ -1257,7 +1273,7 @@ export default function Workflows() {
             </div>
             <div style={styles.modalActions}>
               <button style={styles.cancelBtn} onClick={() => setShowNewAutoModal(false)}>Cancel</button>
-              <button style={styles.createBtn} onClick={handleCreateAutomation} disabled={!newAutoName.trim()}>Create</button>
+              <button style={styles.createBtn} onClick={handleCreateAutomation} disabled={!newAutoName.trim() || creatingAuto}>{creatingAuto ? 'Creating…' : 'Create'}</button>
             </div>
           </div>
         </div>

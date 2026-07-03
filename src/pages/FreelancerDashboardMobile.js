@@ -218,7 +218,6 @@ function AssignmentDetail({ assignmentId, assignment, profile, onChanged }) {
     if (!text.trim() || posting) return;
     setPosting(true);
     const body = text.trim();
-    setText('');
     try {
       await supabase.from('freelancer_assignment_comments').insert({
         assignment_id: assignmentId,
@@ -235,6 +234,9 @@ function AssignmentDetail({ assignmentId, assignment, profile, onChanged }) {
           link_target: assignmentId,
         });
       }
+      setText(''); // clear only after successful insert
+    } catch (err) {
+      console.error('postComment failed', err); // keep typed text on failure
     } finally {
       setPosting(false);
     }

@@ -844,13 +844,13 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
       {templates.length > 0 && (
         <div style={styles.templatesSection}>
           <h2 style={styles.templatesSectionTitle}>📋 Templates</h2>
-          {['whiteboard', 'stickyboard', 'document', 'storyboard', 'screenplay'].map(type => {
+          {['whiteboard', 'stickyboard', 'document', 'storyboard', 'screenwriter'].map(type => {
             const typeTemplates = templates.filter(t => t.type === type);
             if (typeTemplates.length === 0) return null;
             return (
               <div key={type} style={styles.templateGroup}>
                 <h3 style={styles.templateGroupTitle}>
-                  {DOC_TYPES[type].icon} {DOC_TYPES[type].label}
+                  {DOC_TYPES[type]?.icon} {DOC_TYPES[type]?.label}
                 </h3>
                 <div style={styles.templateList}>
                   {typeTemplates.map(t => (
