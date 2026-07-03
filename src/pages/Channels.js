@@ -1419,7 +1419,9 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
                 messageGroups.map((group, gi) => (
                   <div key={group.messages[0]?.id || gi} style={msgStyles.group}>
                     <div style={msgStyles.avatar}>
-                      {getDisplayInitial(group.user)}
+                      {group.user?.avatar_url ? (
+                        <img src={group.user.avatar_url} alt="" style={msgStyles.avatarImg} />
+                      ) : getDisplayInitial(group.user)}
                     </div>
                     <div style={msgStyles.content}>
                       <div style={msgStyles.header}>
@@ -2208,6 +2210,9 @@ const msgStyles = {
     background: 'linear-gradient(135deg, #6366f1, #818cf8)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     fontSize: '14px', fontWeight: 700, color: '#fff', flexShrink: 0,
+  },
+  avatarImg: {
+    width: '36px', height: '36px', borderRadius: '10px', objectFit: 'cover',
   },
   content: { flex: 1, minWidth: 0 },
   header: {

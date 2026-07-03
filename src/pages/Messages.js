@@ -87,7 +87,7 @@ export default function Messages({ onNavigate }) {
       const enriched = await Promise.all((convos || []).map(async (convo) => {
         const { data: participants } = await supabase
           .from('conversation_participants')
-          .select('user_id, last_read_at, profile:profiles(id, full_name, nickname, title)')
+          .select('user_id, last_read_at, profile:profiles(id, full_name, nickname, title, avatar_url)')
           .eq('conversation_id', convo.id);
 
         // Get last message
@@ -124,7 +124,7 @@ export default function Messages({ onNavigate }) {
   const fetchTeamMembers = useCallback(async () => {
     if (!profile?.id) return;
     try {
-      const { data } = await supabase.from('profiles').select('id, full_name, nickname, title')
+      const { data } = await supabase.from('profiles').select('id, full_name, nickname, title, avatar_url')
         .neq('id', profile.id);
       setTeamMembers(data || []);
     } catch (err) {
@@ -148,7 +148,7 @@ export default function Messages({ onNavigate }) {
       // hid the live conversation once a thread passed 100 messages.
       const { data, error } = await supabase
         .from('direct_messages')
-        .select('*, profile:profiles(id, full_name, nickname, title)')
+        .select('*, profile:profiles(id, full_name, nickname, title, avatar_url)')
         .eq('conversation_id', conversationId)
         .order('created_at', { ascending: false })
         .limit(100);
@@ -240,7 +240,7 @@ export default function Messages({ onNavigate }) {
       }, async (payload) => {
         const { data } = await supabase
           .from('direct_messages')
-          .select('*, profile:profiles(id, full_name, nickname, title)')
+          .select('*, profile:profiles(id, full_name, nickname, title, avatar_url)')
           .eq('id', payload.new.id)
           .single();
         // Dedup by id — reconnect/resubscribe can redeliver, and the deps below
@@ -537,7 +537,9 @@ export default function Messages({ onNavigate }) {
                     ...(selectedUsers.includes(m.id) ? styles.userItemSelected : {}),
                   }}
                 >
-                  <div style={styles.userAvatar}>{getDisplayInitial(m)}</div>
+                  <div style={styles.userAvatar}>
+                    {m.avatar_url ? <img src={m.avatar_url} alt="" style={styles.avatarImg32} /> : getDisplayInitial(m)}
+                  </div>
                   <div style={{ flex: 1 }}>
                     <div style={styles.userItemName}>{getDisplayName(m)}</div>
                     <div style={styles.userItemTitle}>{m.title || 'Team Member'}</div>
@@ -808,7 +810,9 @@ function DmMessage({ msg, isOwn, showAvatar, formatContent, formatTime, onEdit, 
       onMouseLeave={() => setHovered(false)}
     >
       {!isOwn && showAvatar && (
-        <div style={styles.msgAvatar}>{getDisplayInitial(msg.profile)}</div>
+        <div style={styles.msgAvatar}>
+          {msg.profile?.avatar_url ? <img src={msg.profile.avatar_url} alt="" style={styles.avatarImg32} /> : getDisplayInitial(msg.profile)}
+        </div>
       )}
       {!isOwn && !showAvatar && <div style={{ width: '32px' }} />}
 
@@ -991,6 +995,9 @@ const styles = {
     background: 'rgba(99,102,241,0.2)', display: 'flex',
     alignItems: 'center', justifyContent: 'center',
     fontSize: '12px', fontWeight: 600, color: '#a5b4fc', flexShrink: 0,
+  },
+  avatarImg32: {
+    width: '32px', height: '32px', borderRadius: '8px', objectFit: 'cover',
   },
   msgBubble: {
     maxWidth: '65%', padding: '10px 14px',

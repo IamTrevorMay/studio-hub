@@ -1552,7 +1552,9 @@ export default function Dashboard({ onNavigate }) {
                           opacity: isOoo ? 0.7 : effectiveStatus === 'offline' ? 0.5 : 1,
                         }}>
                           <div style={styles.teamMemberAvatar}>
-                            {member.full_name?.charAt(0)?.toUpperCase() || '?'}
+                            {member.avatar_url ? (
+                              <img src={member.avatar_url} alt="" style={styles.teamMemberAvatarImg} />
+                            ) : (member.full_name?.charAt(0)?.toUpperCase() || '?')}
                             <span style={{ ...styles.statusIndicator, background: dotColor }} />
                           </div>
                           <div style={{ flex: 1, minWidth: 0 }}>
@@ -2821,6 +2823,9 @@ const styles = {
     color: '#fff',
     flexShrink: 0,
     position: 'relative',
+  },
+  teamMemberAvatarImg: {
+    width: '36px', height: '36px', borderRadius: '10px', objectFit: 'cover',
   },
   statusIndicator: {
     position: 'absolute',

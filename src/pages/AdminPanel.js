@@ -523,7 +523,9 @@ export default function AdminPanel({ initialTab }) {
             {teamMembers.map(member => (
               <div key={member.id} style={styles.teamItem}>
                 <div style={styles.teamAvatar}>
-                  {member.full_name?.charAt(0)?.toUpperCase()}
+                  {member.avatar_url ? (
+                    <img src={member.avatar_url} alt="" style={styles.teamAvatarImg} />
+                  ) : member.full_name?.charAt(0)?.toUpperCase()}
                 </div>
                 <div style={styles.teamInfo}>
                   <div style={styles.teamName}>
@@ -832,6 +834,9 @@ const styles = {
     background: 'linear-gradient(135deg, #6366f1, #818cf8)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     fontSize: '16px', fontWeight: 700, color: '#fff', flexShrink: 0,
+  },
+  teamAvatarImg: {
+    width: '40px', height: '40px', borderRadius: '10px', objectFit: 'cover',
   },
   teamInfo: { flex: 1 },
   teamName: {
