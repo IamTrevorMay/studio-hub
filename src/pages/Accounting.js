@@ -3,6 +3,8 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { DonutChart, TrendChart, formatCompact } from '../lib/charts';
 import { fetchAllRows } from './analytics/utils';
+import BankAccountsTab from '../components/accounting/BankAccountsTab';
+import TransactionsTab from '../components/accounting/TransactionsTab';
 
 // Revenue (income) categories the Tiller sync writes into revenue_transactions.
 // Mirrors INCOME_CATEGORIES + the meta map that used to live in Analytics.js.
@@ -49,9 +51,11 @@ const DATE_RANGES = [
 ];
 
 const TABS = [
-  { key: 'overview', label: 'Overview' },
-  { key: 'revenue',  label: 'Revenue' },
-  { key: 'expenses', label: 'Expenses' },
+  { key: 'overview',     label: 'Overview' },
+  { key: 'revenue',      label: 'Revenue' },
+  { key: 'expenses',     label: 'Expenses' },
+  { key: 'transactions', label: 'Transactions' },
+  { key: 'accounts',     label: 'Accounts' },
 ];
 
 // The two businesses synced from their own Tiller sheets. Rows predating the
@@ -165,17 +169,23 @@ export default function Accounting() {
     // fetches silently understated revenue/expense/net/margin. Prev-period
     // queries also need a deterministic .order() for stable pagination.
     const [revCur, revOld, expCur, expOld, campaigns, deliverables] = await Promise.all([
+      // is_transfer=false: inter-account transfers from the Plaid feed are
+      // flagged, not deleted — they must not count as revenue or expense.
       fetchAllRows(supabase.from('revenue_transactions')
         .select('date, description, category, amount_cents, account, business')
+        .eq('is_transfer', false)
         .gte('date', start).lte('date', end).order('date', { ascending: false })),
       fetchAllRows(supabase.from('revenue_transactions')
         .select('date, category, amount_cents, business')
+        .eq('is_transfer', false)
         .gte('date', prevStart).lt('date', start).order('date', { ascending: false })),
       fetchAllRows(supabase.from('expense_transactions')
         .select('date, description, category, amount_cents, account, business')
+        .eq('is_transfer', false)
         .gte('date', start).lte('date', end).order('date', { ascending: false })),
       fetchAllRows(supabase.from('expense_transactions')
         .select('date, category, amount_cents, business')
+        .eq('is_transfer', false)
         .gte('date', prevStart).lt('date', start).order('date', { ascending: false })),
       // Sponsor revenue pipeline (range-independent current snapshot).
       supabase.from('sponsor_campaigns').select('id, payment_status, apply_agency_fee, fully_delivered_at'),
@@ -199,15 +209,23 @@ export default function Accounting() {
     return () => controller.abort();
   }, [load]);
 
-  // Trigger the Tiller sync edge function to pull fresh transactions from the
-  // Google Sheet into revenue_transactions / expense_transactions, then re-read
-  // the tables for the current range.
+  // Pull fresh transactions from both feeds — Tiller (legacy, until cutover)
+  // and Plaid (bank connections) — then re-read the tables for the current
+  // range. Either feed failing doesn't block the other.
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     setRefreshError(null);
     try {
-      const { error } = await supabase.functions.invoke('sync-tiller', { body: {} });
-      if (error) throw error;
+      const results = await Promise.allSettled([
+        supabase.functions.invoke('sync-tiller', { body: {} }),
+        supabase.functions.invoke('plaid-sync', { body: {} }),
+      ]);
+      const failed = results
+        .map((r, i) => ({ r, name: i === 0 ? 'Tiller' : 'Plaid' }))
+        .filter(({ r }) => r.status === 'rejected' || r.value?.error);
+      if (failed.length > 0) {
+        setRefreshError(`${failed.map(f => f.name).join(' + ')} sync failed. Data may be partial.`);
+      }
       await load();
     } catch (err) {
       setRefreshError(err?.message || 'Sync failed. Please try again.');
@@ -252,13 +270,13 @@ export default function Accounting() {
               ...styles.refreshBtn,
               ...(refreshing || loading ? styles.refreshBtnDisabled : {}),
             }}
-            title="Sync transactions from Tiller"
+            title="Sync transactions from Tiller + bank feeds"
           >
             <span style={{
               ...styles.refreshIcon,
               ...(refreshing ? styles.refreshIconSpin : {}),
             }}>↻</span>
-            {refreshing ? 'Syncing…' : 'Sync Tiller'}
+            {refreshing ? 'Syncing…' : 'Sync'}
           </button>
         </div>
       </div>
@@ -297,13 +315,21 @@ export default function Accounting() {
           accentColor="#22c55e"
           sponsorPipeline={sponsorPipeline}
         />
-      ) : (
+      ) : tab === 'expenses' ? (
         <BusinessTabbedView
           mode="expense"
           data={expenses} prevData={expensesPrev}
           maydayMeta={EXPENSE_CATEGORY_META}
           accentColor="#ef4444"
         />
+      ) : tab === 'transactions' ? (
+        <TransactionsTab
+          revenueMeta={REVENUE_CATEGORY_META}
+          expenseMeta={EXPENSE_CATEGORY_META}
+          onChanged={load}
+        />
+      ) : (
+        <BankAccountsTab onSynced={load} />
       )}
     </div>
   );
