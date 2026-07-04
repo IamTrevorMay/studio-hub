@@ -254,6 +254,20 @@ export default function DeliverablesMobile() {
                           <span style={{ ...styles.detailValue, color: '#c084fc' }}>{ev.title}</span>
                         </div>
                       )}
+                      {d.video_url && (
+                        <div style={styles.detailRow}>
+                          <span style={styles.detailLabel}>Finished Video</span>
+                          <a
+                            href={d.video_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            style={{ ...styles.detailValue, color: '#86efac', textDecoration: 'underline' }}
+                          >
+                            link
+                          </a>
+                        </div>
+                      )}
                       {(d.ad_copy || d.notes) && (
                         <div style={{ marginTop: 8 }}>
                           <span style={styles.detailLabel}>Ad Copy</span>

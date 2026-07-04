@@ -28,12 +28,6 @@ const REVIEW_STATUS_OPTIONS = [
 ];
 const REVIEW_STATUS_BY_VALUE = REVIEW_STATUS_OPTIONS.reduce((acc, o) => { acc[o.value] = o; return acc; }, {});
 
-const FILM_STATUS_OPTIONS = [
-  { value: 'not_ready', label: 'Not Ready', bg: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.55)' },
-  { value: 'ready', label: 'Ready', bg: 'rgba(34,197,94,0.15)', color: '#22c55e' },
-];
-const FILM_STATUS_BY_VALUE = FILM_STATUS_OPTIONS.reduce((acc, o) => { acc[o.value] = o; return acc; }, {});
-
 export default function Deliverables({ initialBrandId, onBrandOpened }) {
   const { profile, isAdmin, refreshKey } = useAuth();
   const confirm = useConfirm();
@@ -75,6 +69,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
   const [deliverableVideoEventId, setDeliverableVideoEventId] = useState('');
   const [deliverableChannel, setDeliverableChannel] = useState('');
   const [deliverableReviewStatus, setDeliverableReviewStatus] = useState('not_submitted');
+  const [deliverableVideoUrl, setDeliverableVideoUrl] = useState('');
 
   // Video events for deliverable linking
   const [videoEvents, setVideoEvents] = useState([]);
@@ -119,7 +114,8 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
   const [cardContextMenu, setCardContextMenu] = useState(null); // { x, y, deliverable }
   const [beatSheetDropdownId, setBeatSheetDropdownId] = useState(null); // deliverable id showing beat sheet picker
   const [reviewDropdownId, setReviewDropdownId] = useState(null); // deliverable id showing review-status picker
-  const [filmDropdownId, setFilmDropdownId] = useState(null); // deliverable id showing film-status picker
+  const [videoLinkModal, setVideoLinkModal] = useState(null); // deliverable pending finished-video link
+  const [videoLinkInput, setVideoLinkInput] = useState('');
 
   // Table sorting + delivered toggle
   const [sortCol, setSortCol] = useState('schedule'); // default sort by schedule date
@@ -605,6 +601,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
     setDeliverablePay(''); setDeliverableBeatSheetId(''); setDeliverableVideoEventId('');
     setDeliverableChannel('');
     setDeliverableReviewStatus('not_submitted');
+    setDeliverableVideoUrl('');
     setEditingDeliverable(null); setShowDeliverableForm(null);
   }
 
@@ -620,6 +617,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
     setDeliverableVideoEventId(d.video_event_id || '');
     setDeliverableChannel(d.channel || '');
     setDeliverableReviewStatus(d.review_status || 'not_submitted');
+    setDeliverableVideoUrl(d.video_url || '');
     setEditingDeliverable(d.id);
     setShowDeliverableForm(d.campaign_id);
   }
@@ -643,6 +641,8 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         video_event_id: deliverableVideoEventId || null,
         channel: deliverableChannel || null,
         review_status: deliverableReviewStatus || 'not_submitted',
+        video_url: deliverableVideoUrl.trim() || null,
+        delivered: !!deliverableVideoUrl.trim(),
         updated_at: new Date().toISOString(),
       }).eq('id', editingDeliverable);
       if (error) { alert('Error updating deliverable: ' + error.message); return; }
@@ -685,6 +685,8 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         video_event_id: deliverableVideoEventId || null,
         channel: deliverableChannel || null,
         review_status: deliverableReviewStatus || 'not_submitted',
+        video_url: deliverableVideoUrl.trim() || null,
+        delivered: !!deliverableVideoUrl.trim(),
       }).select().single();
       if (error) { alert('Error creating deliverable: ' + error.message); return; }
 
@@ -765,15 +767,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
     fetchSponsors();
   }
 
-  async function handleToggleDelivered(deliverableId, currentValue) {
-    const newValue = !currentValue;
-    await supabase.from('sponsor_deliverables').update({
-      delivered: newValue,
-      updated_at: new Date().toISOString(),
-    }).eq('id', deliverableId);
-    fetchSponsors();
-  }
-
   // Inline assign video event to deliverable from card dropdown
   async function handleInlineAssignVideo(deliverableId, videoEventId) {
     const { error } = await supabase.from('sponsor_deliverables').update({
@@ -804,12 +797,24 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
     fetchSponsors();
   }
 
-  async function handleInlineSetFilmStatus(deliverableId, status) {
-    setFilmDropdownId(null);
-    await supabase.from('sponsor_deliverables').update({
-      film_status: status,
+  // Save finished-video link + mark delivered (from the "Video" button modal)
+  function openVideoLinkModal(d) {
+    setVideoLinkInput(d.video_url || '');
+    setVideoLinkModal(d);
+  }
+  async function handleSaveVideoLink(e) {
+    if (e) e.preventDefault();
+    if (!videoLinkModal) return;
+    const url = videoLinkInput.trim();
+    if (!url) return;
+    const { error } = await supabase.from('sponsor_deliverables').update({
+      video_url: url,
+      delivered: true,
       updated_at: new Date().toISOString(),
-    }).eq('id', deliverableId);
+    }).eq('id', videoLinkModal.id);
+    if (error) { alert('Error saving video link: ' + error.message); return; }
+    setVideoLinkModal(null);
+    setVideoLinkInput('');
     fetchSponsors();
   }
 
@@ -1206,17 +1211,32 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
     return (
       <div key={d.id} style={styles.deliverableRow}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, flexWrap: 'wrap' }}>
-          <button
-            onClick={(e) => { e.stopPropagation(); handleToggleDelivered(d.id, d.delivered); }}
-            style={{
-              padding: '3px 10px', borderRadius: '6px', border: 'none', cursor: 'pointer',
-              fontSize: '11px', fontWeight: 600, fontFamily: 'inherit', transition: 'all 0.15s',
-              background: d.delivered ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.06)',
-              color: d.delivered ? '#86efac' : 'rgba(255,255,255,0.7)',
-            }}
-          >
-            {d.delivered ? 'Delivered' : 'Open'}
-          </button>
+          {d.delivered && d.video_url ? (
+            <a
+              href={d.video_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                padding: '3px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 600,
+                background: 'rgba(34,197,94,0.15)', color: '#86efac', textDecoration: 'none',
+              }}
+              title={d.video_url}
+            >
+              link
+            </a>
+          ) : (
+            <button
+              onClick={(e) => { e.stopPropagation(); openVideoLinkModal(d); }}
+              style={{
+                padding: '3px 10px', borderRadius: '6px', border: 'none', cursor: 'pointer',
+                fontSize: '11px', fontWeight: 600, fontFamily: 'inherit', transition: 'all 0.15s',
+                background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)',
+              }}
+            >
+              Video
+            </button>
+          )}
           <span style={{ fontSize: '14px', flexShrink: 0 }}>{DELIVERABLE_TYPES[d.deliverable_type]?.icon || '\u{1F4CB}'}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: '13px', color: d.delivered ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.85)', textDecoration: d.delivered ? 'line-through' : 'none' }}>
@@ -1286,12 +1306,25 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
             </span>
           )}
         </div>
-        <button
-          onClick={(e) => { e.stopPropagation(); handleToggleDelivered(d.id, d.delivered); }}
-          style={{ ...styles.delivToggle, ...(delivered ? styles.delivToggleDone : {}) }}
-        >
-          {delivered ? '\u2713 Delivered' : 'Mark Delivered'}
-        </button>
+        {delivered && d.video_url ? (
+          <a
+            href={d.video_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            style={{ ...styles.delivToggle, ...styles.delivToggleDone, textDecoration: 'none', display: 'block', textAlign: 'center' }}
+            title={d.video_url}
+          >
+            {'\u2713'} link
+          </a>
+        ) : (
+          <button
+            onClick={(e) => { e.stopPropagation(); openVideoLinkModal(d); }}
+            style={{ ...styles.delivToggle, ...(delivered ? styles.delivToggleDone : {}) }}
+          >
+            {delivered ? '\u2713 Delivered' : 'Video'}
+          </button>
+        )}
       </div>
     );
   }
@@ -1462,12 +1495,11 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                   <th style={thStyle} onClick={() => handleSort('sponsor')}>Sponsor{sortArrow('sponsor')}</th>
                   <th style={styles.tableTh}>Brief</th>
                   <th style={thStyle} onClick={() => handleSort('channel')}>Channel{sortArrow('channel')}</th>
-                  <th style={styles.tableTh}>Film</th>
                   <th style={styles.tableTh}>Review</th>
                   <th style={thStyle} onClick={() => handleSort('schedule')}>Schedule{sortArrow('schedule')}</th>
                   <th style={styles.tableTh}>Beat Sheet</th>
                   <th style={{ ...thStyle, textAlign: 'right' }} onClick={() => handleSort('pay')}>Pay{sortArrow('pay')}</th>
-                  <th style={styles.tableTh}>Delivered</th>
+                  <th style={styles.tableTh}>Video</th>
                 </tr>
               </thead>
               <tbody>
@@ -1549,42 +1581,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                             {CHANNEL_COLORS[d.channel].label}
                           </span>
                         )}
-                      </td>
-                      {/* Film Status */}
-                      <td style={{ ...styles.tableTd, position: 'relative' }}>
-                        {(() => {
-                          const f = FILM_STATUS_BY_VALUE[d.film_status] || FILM_STATUS_BY_VALUE.not_ready;
-                          const isOpen = filmDropdownId === d.id;
-                          return (
-                            <>
-                              <span
-                                role="button"
-                                tabIndex={0}
-                                onClick={(e) => { e.stopPropagation(); setFilmDropdownId(isOpen ? null : d.id); }}
-                                style={{ ...styles.chip, fontWeight: 600, background: f.bg, color: f.color, cursor: 'pointer' }}
-                              >
-                                {f.label}
-                              </span>
-                              {isOpen && (
-                                <div style={styles.inlineDropdown}>
-                                  {FILM_STATUS_OPTIONS.map(o => (
-                                    <button
-                                      key={o.value}
-                                      style={{
-                                        ...styles.inlineDropdownItem,
-                                        color: o.color,
-                                        fontWeight: d.film_status === o.value ? 700 : 500,
-                                      }}
-                                      onClick={(e) => { e.stopPropagation(); handleInlineSetFilmStatus(d.id, o.value); }}
-                                    >
-                                      {o.label}
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
-                            </>
-                          );
-                        })()}
                       </td>
                       {/* Review Status */}
                       <td style={{ ...styles.tableTd, position: 'relative' }}>
@@ -1688,14 +1684,27 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                           </span>
                         )}
                       </td>
-                      {/* Delivered */}
+                      {/* Video */}
                       <td style={styles.tableTd}>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleToggleDelivered(d.id, d.delivered); }}
-                          style={{ ...styles.delivToggle, ...(d.delivered ? styles.delivToggleDone : {}), padding: '3px 10px', fontSize: '11px' }}
-                        >
-                          {d.delivered ? '✓' : '—'}
-                        </button>
+                        {d.delivered && d.video_url ? (
+                          <a
+                            href={d.video_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            style={{ ...styles.delivToggle, ...styles.delivToggleDone, padding: '3px 10px', fontSize: '11px', textDecoration: 'none' }}
+                            title={d.video_url}
+                          >
+                            link
+                          </a>
+                        ) : (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); openVideoLinkModal(d); }}
+                            style={{ ...styles.delivToggle, padding: '3px 10px', fontSize: '11px' }}
+                          >
+                            Video
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -2378,6 +2387,16 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                               ))}
                             </select>
                           </div>
+                          <div style={styles.field}>
+                            <label style={styles.label}>Video Link</label>
+                            <input
+                              type="url"
+                              value={deliverableVideoUrl}
+                              onChange={e => setDeliverableVideoUrl(e.target.value)}
+                              placeholder="https://youtube.com/..."
+                              style={styles.input}
+                            />
+                          </div>
                         </div>
                         <div style={styles.field}>
                           <label style={styles.label}>Ad Copy</label>
@@ -2454,6 +2473,48 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
 
       {/* Schedule Calendar Modal */}
       {renderScheduleCalendarModal()}
+
+      {/* Finished Video Link Modal */}
+      {videoLinkModal && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}
+          onMouseDown={(e) => { if (e.target === e.currentTarget) { setVideoLinkModal(null); setVideoLinkInput(''); } }}
+        >
+          <form
+            onSubmit={handleSaveVideoLink}
+            style={{ background: '#1a1a2e', borderRadius: '14px', width: '92vw', maxWidth: '440px', border: '1px solid rgba(255,255,255,0.1)', padding: '22px' }}
+          >
+            <h3 style={{ margin: '0 0 4px', fontSize: '16px', fontWeight: 600, color: '#fff' }}>Finished Video</h3>
+            <p style={{ margin: '0 0 16px', fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>
+              Paste the link to the finished video. Saving marks this deliverable delivered.
+            </p>
+            <input
+              type="url"
+              autoFocus
+              value={videoLinkInput}
+              onChange={e => setVideoLinkInput(e.target.value)}
+              placeholder="https://youtube.com/..."
+              style={{ ...styles.input, width: '100%', boxSizing: 'border-box' }}
+            />
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '18px' }}>
+              <button
+                type="button"
+                onClick={() => { setVideoLinkModal(null); setVideoLinkInput(''); }}
+                style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', background: 'transparent', color: 'rgba(255,255,255,0.7)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={!videoLinkInput.trim()}
+                style={{ padding: '8px 14px', borderRadius: '8px', border: 'none', background: videoLinkInput.trim() ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.06)', color: videoLinkInput.trim() ? '#86efac' : 'rgba(255,255,255,0.35)', fontSize: '13px', fontWeight: 600, cursor: videoLinkInput.trim() ? 'pointer' : 'default', fontFamily: 'inherit' }}
+              >
+                Accept
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* ====== ADD BRIEF MODAL ====== */}
       {adCopyModalOpen && editingDeliverable && (() => {
@@ -2653,12 +2714,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         <div
           style={{ position: 'fixed', inset: 0, zIndex: 49 }}
           onMouseDown={() => setReviewDropdownId(null)}
-        />
-      )}
-      {filmDropdownId && (
-        <div
-          style={{ position: 'fixed', inset: 0, zIndex: 49 }}
-          onMouseDown={() => setFilmDropdownId(null)}
         />
       )}
     </div>
