@@ -33,6 +33,7 @@ import Workflows from './WorkflowsMobile';
 import Freelancers from './FreelancersMobile';
 import Ops from './OpsMobile';
 import Analytics from './AnalyticsMobile';
+import Tracking from './TrackingMobile';
 // Goals page is sunset on desktop; mobile mirrors that — import + nav
 // entry + route case removed. Re-add when goals comes back, if ever.
 
@@ -53,6 +54,7 @@ const NAV_ITEMS = [
   { key: 'projects', label: 'Projects' },
   { key: 'resources', label: 'Resources' },
   { key: 'analytics', label: 'Analytics', adminOnly: true },
+  { key: 'tracking', label: 'Tracking', adminOnly: true },
   { key: 'workflows', label: 'Workflows', adminOnly: true },
   { key: 'freelancers', label: 'Contractors', adminOnly: true },
   { key: 'research', label: 'News' },
@@ -71,11 +73,11 @@ const VALID_TAB_KEYS = new Set(NAV_ITEMS.map((i) => i.key).concat('admin', 'ops'
 // Admin Mode (mirrors desktop AppLayout pattern). Mode flips the drawer
 // between an everyday "Work View" and an admin-focused list. Mobile
 // only surfaces admin pages that have a *Mobile build today — the
-// other desktop admin pages (payroll/tracking/accounting/freelancers/
-// workflows/jobs/ops) get omitted entirely instead of stubbed.
+// other desktop admin pages (payroll/accounting/jobs) get omitted
+// entirely instead of stubbed.
 //
 // Keep this list in sync as new *Mobile pages ship.
-const MOBILE_ADMIN_PAGE_KEYS = ['workflows', 'freelancers', 'ops', 'analytics', 'business_dev', 'invoicing'];
+const MOBILE_ADMIN_PAGE_KEYS = ['workflows', 'freelancers', 'ops', 'analytics', 'tracking', 'business_dev', 'invoicing'];
 // Full desktop admin-only set so Work View can hide every key that's
 // considered admin, even ones without a mobile build (so a non-mobile
 // admin page never sneaks into the Work drawer via NAV_ITEMS).
@@ -391,6 +393,7 @@ function renderActiveTab({ activeTab, isAdmin, isAssistant, isPartner, isFreelan
   if (activeTab === 'freelancers' && !isAdmin) return null;
   if (activeTab === 'ops' && !isAdmin) return null;
   if (activeTab === 'analytics' && !isAdmin) return null;
+  if (activeTab === 'tracking' && !isAdmin) return null;
 
   switch (activeTab) {
     case 'dashboard': return <Dashboard onNavigate={navigateTo} />;
@@ -408,6 +411,7 @@ function renderActiveTab({ activeTab, isAdmin, isAssistant, isPartner, isFreelan
     case 'freelancers': return <Freelancers />;
     case 'ops': return <Ops />;
     case 'analytics': return <Analytics />;
+    case 'tracking': return <Tracking />;
     case 'channels': return <Channels initialChannelName={navTarget} onChannelOpened={() => setNavTarget(null)} />;
     case 'messages': return <Messages onNavigate={navigateTo} />;
     case 'admin': return <AdminPanel />;
