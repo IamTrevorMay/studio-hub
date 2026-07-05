@@ -96,7 +96,7 @@ function isCurrentWeek(start) {
 }
 
 // ─── TaskCard ───────────────────────────────────────────────
-function TaskCard({ task, index, onClick, projectsMap, campaignsMap, bucketMap, readOnly }) {
+function TaskCard({ task, index, onClick, onContextMenu, projectsMap, campaignsMap, bucketMap, readOnly }) {
   const cat = CATEGORY_OPTIONS.find(c => c.value === task.category);
   const subcat = SUBCATEGORY_OPTIONS.find(c => c.value === task.subcategory);
   const bucket = task.bucket && bucketMap ? bucketMap[task.bucket] : null;
@@ -110,6 +110,7 @@ function TaskCard({ task, index, onClick, projectsMap, campaignsMap, bucketMap, 
           {...provided.draggableProps}
           {...provided.dragHandleProps}
           onClick={() => !readOnly && onClick(task)}
+          onContextMenu={onContextMenu && !readOnly ? (e) => onContextMenu(e, task) : undefined}
           style={{
             ...cardStyle,
             borderLeft: priorityColor ? `3px solid ${priorityColor}` : '3px solid transparent',
@@ -581,6 +582,7 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
   }, []);
   const [loading, setLoading] = useState(true);
   const [editingTask, setEditingTask] = useState(null);
+  const [cardMenu, setCardMenu] = useState(null); // { taskId, x, y }
   const isNewTaskRef = useRef(false);
   const [projects, setProjects] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
@@ -1028,6 +1030,36 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
   }
 
 
+  // ── Duplicate task (right-click menu) ──
+  async function duplicateTask(id) {
+    const source = tasksRef.current.find(t => t.id === id);
+    if (!source || !profile?.id) return;
+    try {
+      const { data, error } = await supabase.from('personal_tasks').insert({
+        created_by: profile.id,
+        content: source.content,
+        status: source.status,
+        position: source.position + 1,
+        category: source.category,
+        subcategory: source.subcategory,
+        bucket: source.bucket,
+        priority: source.priority,
+        due_date: source.due_date,
+        project_id: source.project_id,
+        campaign_id: source.campaign_id,
+        concept_id: source.concept_id,
+        project_stage: source.project_stage,
+        sprint_id: source.sprint_id,
+        completed_at: source.completed_at,
+      }).select().single();
+      if (error) throw error;
+      setTasks(prev => [...prev, data]);
+      if (onBoardChange) onBoardChange();
+    } catch (err) {
+      console.error('Error duplicating task:', err);
+    }
+  }
+
   // ── Drag-and-drop handler ──
   // Reindexes the entire destination column so positions never collide.
   async function onDragEnd(result) {
@@ -1151,6 +1183,23 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
 
     if (onBoardChange) onBoardChange();
   }
+
+  // ── Close the card context menu on any click, Escape, or scroll ──
+  useEffect(() => {
+    if (!cardMenu) return;
+    function close(e) {
+      if (e.type === 'keydown' && e.key !== 'Escape') return;
+      setCardMenu(null);
+    }
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [cardMenu]);
 
   // ── Get visible tasks for a column ──
   function getVisibleTasks(columnId) {
@@ -1295,6 +1344,7 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
                           task={task}
                           index={i}
                           onClick={setEditingTask}
+                          onContextMenu={(e, t) => { e.preventDefault(); setCardMenu({ taskId: t.id, x: e.clientX, y: e.clientY }); }}
                           projectsMap={projectsMap}
                           campaignsMap={campaignsMap}
                           bucketMap={bucketMap}
@@ -1404,6 +1454,7 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
                           task={task}
                           index={i}
                           onClick={setEditingTask}
+                          onContextMenu={(e, t) => { e.preventDefault(); setCardMenu({ taskId: t.id, x: e.clientX, y: e.clientY }); }}
                           projectsMap={projectsMap}
                           campaignsMap={campaignsMap}
                           readOnly={false}
@@ -1418,6 +1469,23 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
           })}
         </div>
       </DragDropContext>
+
+      {/* Card right-click menu */}
+      {cardMenu && (
+        <div
+          style={{ ...cardMenuStyle, top: cardMenu.y, left: cardMenu.x }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <button
+            style={cardMenuItemStyle}
+            onClick={() => { setCardMenu(null); duplicateTask(cardMenu.taskId); }}
+          >Duplicate</button>
+          <button
+            style={{ ...cardMenuItemStyle, color: '#ef4444' }}
+            onClick={() => { setCardMenu(null); deleteTask(cardMenu.taskId); }}
+          >Delete</button>
+        </div>
+      )}
 
       {/* Detail modals */}
       {editingTask && (
@@ -1472,6 +1540,19 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
 // ─── Styles ─────────────────────────────────────────────────
 const sectionStyle = {
   marginBottom: '32px',
+};
+
+const cardMenuStyle = {
+  position: 'fixed', zIndex: 1000, minWidth: '140px',
+  background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)',
+  borderRadius: '8px', padding: '4px', display: 'flex', flexDirection: 'column',
+  boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+};
+
+const cardMenuItemStyle = {
+  padding: '8px 10px', background: 'none', border: 'none', textAlign: 'left',
+  color: 'rgba(255,255,255,0.8)', fontSize: '13px', fontFamily: 'inherit',
+  cursor: 'pointer', borderRadius: '6px', width: '100%',
 };
 
 const sectionTitleStyle = {
