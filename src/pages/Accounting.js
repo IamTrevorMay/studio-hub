@@ -17,6 +17,8 @@ const REVENUE_CATEGORY_META = {
   'Merch Income':       { label: 'Merch',        color: '#f97316' },
   'Facebook Income':    { label: 'Facebook',     color: '#1877F2' },
   'Services':           { label: 'Appearances',  color: '#f59e0b' },
+  'Interest':           { label: 'Interest',     color: '#84cc16' },
+  'Reimbursement':      { label: 'Reimbursement', color: '#94a3b8' },
 };
 
 // Expense categories. Must stay aligned with EXPENSE_CATEGORIES in

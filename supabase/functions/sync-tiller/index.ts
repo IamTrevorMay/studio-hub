@@ -40,7 +40,14 @@ const INCOME_CATEGORIES = new Set([
   "Merch Income",
   "Facebook Income",
   "Services",
+  "Interest",
+  "Reimbursement",
 ]);
+
+// Rule categories that represent money moving between own accounts — matching
+// rows get is_transfer=true so they're excluded from P&L (mirrors the old
+// Tiller doc, where Loan Repayment and Funding were typed "Transfer").
+const TRANSFER_RULE_CATEGORIES = new Set(["Transfer", "Loan Repayment", "Funding"]);
 
 // Mayday Media operating expense categories. Must stay aligned with
 // EXPENSE_CATEGORY_META in src/pages/Accounting.js.
@@ -101,6 +108,11 @@ type Source = {
   categoryMode: "whitelist" | "sign" | "app";
   columns: FixedColumns | "detect";
   idPrefix: string;
+  // Rows dated before this (YYYY-MM-DD) are skipped. Set on the Mayday source
+  // because history through 2026-06-25 was imported verbatim from the old
+  // Tiller doc (source='tiller_v1', see import-tiller-v1); the live sheet only
+  // owns dates after the cutover.
+  minDate?: string;
 };
 
 const SOURCES: Source[] = [
@@ -113,6 +125,7 @@ const SOURCES: Source[] = [
     categoryMode: "app",
     columns: "detect",
     idPrefix: "tillerv2",
+    minDate: "2026-06-26",
   },
   {
     business: "neptune_performance",
@@ -398,6 +411,7 @@ Deno.serve(async (req: Request) => {
           t.category = rule.category;
           t.categorized_by = "rule";
           t.review_status = "confirmed";
+          if (TRANSFER_RULE_CATEGORIES.has(rule.category)) t.is_transfer = true;
         }
       }
 
@@ -484,6 +498,7 @@ Deno.serve(async (req: Request) => {
           const row = rows[i];
           const dateStr = parseDate((row[cols.date] || "").trim());
           if (!dateStr) continue;
+          if (src.minDate && dateStr < src.minDate) continue;
 
           const amountCents = parseAmount(row[cols.amount] || "0");
           if (amountCents === 0) continue;
