@@ -154,7 +154,7 @@ export default function TransactionsTab({ revenueMeta, expenseMeta, onChanged })
       {inbox.length === 0 ? (
         <p style={styles.emptyText}>All caught up — nothing awaiting review.</p>
       ) : (
-        <div style={styles.list}>
+        <div style={styles.inboxGrid}>
           {inbox.map(row => {
             const options = categoryOptions(row);
             const draft = drafts[row.id] ?? row.category;
@@ -411,6 +411,7 @@ const styles = {
   },
 
   list: { display: 'flex', flexDirection: 'column', gap: 6 },
+  inboxGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 6 },
   row: {
     background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
     borderRadius: 8, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8,
