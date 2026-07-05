@@ -452,6 +452,10 @@ export default function UnifiedBoard() {
                 ))}
               </div>
 
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button onClick={() => setNewProjectOpen(true)} style={s.primaryBtn}>+ New Project</button>
+              </div>
+
               <BacklogSection
                 projects={backlogProjects}
                 canDragProject={canDrag}
