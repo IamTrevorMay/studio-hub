@@ -303,11 +303,30 @@ function CsvImport({ onImported }) {
     setImporting(true);
     setResult(null);
     try {
-      const { data, error } = await supabase.functions.invoke('import-transactions', {
-        body: { rows: parsed.rows, business, accountLabel, positiveIs },
-      });
-      if (error) throw error;
-      setResult(data);
+      // Chunked: the edge fn caps rows per request, and smaller batches keep
+      // each call inside the function timeout when Claude categorization runs.
+      const CHUNK = 500;
+      const totals = { imported: 0, skipped_duplicates: 0, skipped_invalid: 0, ai_categorized: 0 };
+      for (let i = 0; i < parsed.rows.length; i += CHUNK) {
+        const { data, error } = await supabase.functions.invoke('import-transactions', {
+          body: { rows: parsed.rows.slice(i, i + CHUNK), business, accountLabel, positiveIs },
+        });
+        if (error) {
+          // FunctionsHttpError hides the real message in context — dig it out
+          let msg = error.message;
+          try {
+            const body = await error.context?.json?.();
+            if (body?.error) msg = body.error;
+          } catch { /* keep generic message */ }
+          throw new Error(msg);
+        }
+        totals.imported += data.imported || 0;
+        totals.skipped_duplicates += data.skipped_duplicates || 0;
+        totals.skipped_invalid += data.skipped_invalid || 0;
+        totals.ai_categorized += data.ai_categorized || 0;
+        setResult({ ...totals, progress: `${Math.min(i + CHUNK, parsed.rows.length)}/${parsed.rows.length}` });
+      }
+      setResult(totals);
       setParsed(null);
       onImported();
     } catch (err) {
