@@ -3,9 +3,10 @@
 // merchant-rule manager. Transactions already count in reports before review —
 // this tab is for corrections, not gatekeeping.
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
+import { parseTransactionsCsv } from '../../lib/csvImport';
 
 const BUSINESSES = {
   mayday_media:        { label: 'Mayday', color: '#6366f1' },
@@ -140,6 +141,8 @@ export default function TransactionsTab({ revenueMeta, expenseMeta, onChanged })
     <div>
       {error && <div style={styles.errorBanner}>{error}</div>}
 
+      <CsvImport onImported={() => { load(); if (onChanged) onChanged(); }} />
+
       {/* ── Review inbox ── */}
       <div style={styles.sectionHeader}>
         <h2 style={styles.sectionTitle}>Review inbox</h2>
@@ -271,6 +274,104 @@ export default function TransactionsTab({ revenueMeta, expenseMeta, onChanged })
   );
 }
 
+// Manual CSV upload — fallback ingestion when the bank feed is down or has a
+// gap. Amex statement exports work out of the box (positive = charge).
+function CsvImport({ onImported }) {
+  const [parsed, setParsed] = useState(null); // { fileName, rows, errors }
+  const [business, setBusiness] = useState('mayday_media');
+  const [accountLabel, setAccountLabel] = useState('Amex Business');
+  const [positiveIs, setPositiveIs] = useState('expense');
+  const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState(null); // response summary or { error }
+  const fileRef = useRef(null);
+
+  function handleFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setResult(null);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const { rows, errors } = parseTransactionsCsv(String(reader.result));
+      setParsed({ fileName: file.name, rows, errors });
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // same file re-selectable
+  }
+
+  async function runImport() {
+    if (!parsed?.rows?.length) return;
+    setImporting(true);
+    setResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke('import-transactions', {
+        body: { rows: parsed.rows, business, accountLabel, positiveIs },
+      });
+      if (error) throw error;
+      setResult(data);
+      setParsed(null);
+      onImported();
+    } catch (err) {
+      setResult({ error: err?.message || 'Import failed' });
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  return (
+    <div style={styles.importCard}>
+      <div style={styles.importHeader}>
+        <h2 style={styles.sectionTitle}>Import CSV</h2>
+        <span style={styles.importHint}>Amex statement exports work as-is</span>
+        <button onClick={() => fileRef.current?.click()} style={styles.importPickBtn}>
+          Choose file
+        </button>
+        <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={handleFile} style={{ display: 'none' }} />
+      </div>
+
+      {parsed && (
+        <div style={styles.importBody}>
+          <div style={styles.importMeta}>
+            <span style={styles.importFileName}>{parsed.fileName}</span>
+            <span style={styles.importCount}>{parsed.rows.length} rows parsed</span>
+            {parsed.errors.length > 0 && (
+              <span style={styles.importWarn}>{parsed.errors.length} rows skipped</span>
+            )}
+          </div>
+          {parsed.rows.length > 0 && (
+            <div style={styles.importControls}>
+              <select value={business} onChange={e => setBusiness(e.target.value)} style={styles.categorySelect}>
+                <option value="mayday_media">Mayday</option>
+                <option value="neptune_performance">Neptune</option>
+              </select>
+              <input
+                value={accountLabel}
+                onChange={e => setAccountLabel(e.target.value)}
+                placeholder="Account label"
+                style={styles.categoryInput}
+              />
+              <select value={positiveIs} onChange={e => setPositiveIs(e.target.value)} style={styles.categorySelect}>
+                <option value="expense">positive = charge (Amex)</option>
+                <option value="revenue">positive = income</option>
+              </select>
+              <button onClick={runImport} disabled={importing} style={styles.confirmBtn}>
+                {importing ? 'Importing…' : `Import ${parsed.rows.length} rows`}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {result && (
+        <div style={result.error ? styles.importResultError : styles.importResult}>
+          {result.error
+            ? result.error
+            : `Imported ${result.imported} · ${result.skipped_duplicates} duplicates skipped · ${result.ai_categorized} AI-categorized${result.skipped_invalid ? ` · ${result.skipped_invalid} invalid` : ''}`}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const styles = {
   errorBanner: {
     padding: '10px 14px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
@@ -335,5 +436,31 @@ const styles = {
   deleteBtn: {
     background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', fontSize: 13,
     cursor: 'pointer', fontFamily: 'inherit', padding: '2px 6px',
+  },
+
+  importCard: {
+    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: 10, padding: '12px 14px', marginBottom: 24,
+  },
+  importHeader: { display: 'flex', alignItems: 'center', gap: 10 },
+  importHint: { fontSize: 12, color: 'rgba(255,255,255,0.35)', flex: 1 },
+  importPickBtn: {
+    padding: '6px 12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 6, color: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: 600,
+    cursor: 'pointer', fontFamily: 'inherit',
+  },
+  importBody: { marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 },
+  importMeta: { display: 'flex', alignItems: 'baseline', gap: 10 },
+  importFileName: { fontSize: 13, fontWeight: 600, color: '#fff' },
+  importCount: { fontSize: 12, color: 'rgba(255,255,255,0.5)' },
+  importWarn: { fontSize: 12, color: '#fbbf24' },
+  importControls: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  importResult: {
+    marginTop: 10, padding: '8px 12px', background: 'rgba(34,197,94,0.1)',
+    border: '1px solid rgba(34,197,94,0.3)', borderRadius: 6, color: '#4ade80', fontSize: 12,
+  },
+  importResultError: {
+    marginTop: 10, padding: '8px 12px', background: 'rgba(239,68,68,0.1)',
+    border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, color: '#fca5a5', fontSize: 12,
   },
 };
