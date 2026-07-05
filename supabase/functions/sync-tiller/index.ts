@@ -1,14 +1,24 @@
 // supabase/functions/sync-tiller/index.ts
 // Deploy with: supabase functions deploy sync-tiller --no-verify-jwt
-// Reads transactions from one Tiller Google Sheet per business and upserts them
-// into revenue_transactions / expense_transactions, tagged by business.
+// Reads transactions from Tiller Google Sheets and upserts them into
+// revenue_transactions / expense_transactions, tagged by business.
 // Cron: daily at 7am UTC
 //
+// Modes per source:
+//   "app":       import EVERY money row; the sheet's Category column is
+//                ignored — categorization happens in this app (rules → Claude
+//                → review inbox on the Accounting page). The sheet's stable
+//                Transaction ID is the dedup key, and existing rows only get
+//                date/description/amount/account refreshed so app-side
+//                category fixes are never clobbered. (Mayday)
+//   "sign":      every positive row is income, negative is expense, sheet
+//                categories kept as-is. (Neptune — its taxonomy is its own)
+//   "whitelist": legacy — split income/expense by the category sets below,
+//                unlisted rows dropped. (retired with the old Mayday sheet)
+//
 // Each source is reconciled independently: after a successful pull, any
-// Tiller-sourced row for that business not stamped in this run is deleted
-// (removed from the sheet, or a leftover from an older id scheme). A source
-// that fails to fetch/parse is skipped without touching its existing data and
-// without aborting the other sources.
+// Tiller-sourced row for that business not stamped in this run is deleted.
+// A source that fails to fetch/parse is skipped without touching its data.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -19,7 +29,8 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-// Mayday Media income categories. Used only by the "whitelist" categoryMode.
+// Mayday Media income categories. Used by the legacy "whitelist" mode and as
+// the allowed set for Claude suggestions in "app" mode.
 const INCOME_CATEGORIES = new Set([
   "YouTube Income",
   "TikTok Income",
@@ -31,11 +42,8 @@ const INCOME_CATEGORIES = new Set([
   "Services",
 ]);
 
-// Mayday Media operating expense categories. Excludes financing (Funding, Loan
-// Repayment), offsets (Reimbursement), and net-positive bookkeeping (Interest)
-// so the Expenses page reflects actual outflows. New Tiller categories that
-// should be tracked need to be added here AND in EXPENSE_CATEGORY_META in
-// src/pages/Accounting.js.
+// Mayday Media operating expense categories. Must stay aligned with
+// EXPENSE_CATEGORY_META in src/pages/Accounting.js.
 const EXPENSE_CATEGORIES = new Set([
   "Employees",
   "Rent & Utilities",
@@ -57,11 +65,7 @@ const EXPENSE_CATEGORIES = new Set([
   "Taxes",
 ]);
 
-// Non-operating categories excluded from sign-based sources (Neptune). These
-// are capital movements / offsets, not earned income or real outflows: counting
-// owner funding as "revenue" or transfers as "expense" would distort the P&L.
-// Matched case-insensitively. Mirrors the exclusions baked into Mayday's
-// income/expense whitelists.
+// Non-operating categories excluded from sign-based sources (Neptune).
 const EXCLUDED_CATEGORIES = new Set([
   "funding",
   "loan repayment",
@@ -79,34 +83,36 @@ const EXCLUDED_CATEGORIES = new Set([
   "credit card payment",
 ]);
 
-type FixedColumns = { headerRow: number; date: number; description: number; category: number; amount: number; account: number };
+// Per-run Claude cap in "app" mode — keeps a big backlog from blowing the
+// edge function timeout. Leftovers stay Uncategorized/auto; the
+// categorize-backlog function (or the next sync) picks them up.
+const AI_LIMIT_DEFAULT = 150;
+
+type FixedColumns = {
+  headerRow: number; date: number; description: number; category: number;
+  amount: number; account: number; txnId?: number; hint?: number; accountId?: number;
+};
 
 type Source = {
   business: string;
   spreadsheetId: string;
-  // Identify the tab either by name or by gid (resolved to a name at runtime).
   sheetName?: string;
   gid?: number;
-  // "whitelist": split income/expense by the category sets above (Mayday).
-  // "sign": every positive row is income, every negative row is expense, all
-  //         categories kept as-is (Neptune — its category taxonomy is its own).
-  categoryMode: "whitelist" | "sign";
-  // Fixed column layout, or "detect" to find columns from the header row.
+  categoryMode: "whitelist" | "sign" | "app";
   columns: FixedColumns | "detect";
-  // Prefix for transaction_id. Keeps ids unique across businesses; Mayday keeps
-  // the bare "tiller" prefix so its existing rows are not re-churned.
   idPrefix: string;
 };
 
 const SOURCES: Source[] = [
   {
+    // New unified Mayday sheet (2026-07): Tiller pulls the bank feeds
+    // (3 Amex + City National), this app owns all categorization.
     business: "mayday_media",
-    spreadsheetId: "1xbF4vHvt1d_VBAW4gpm7fu6D084CMFm-XQ_WDGoEAGA",
+    spreadsheetId: "1K56_Bj6zX-zd-BKJhrG56bKd1WXYnZjTNdMB7dE_UYg",
     sheetName: "Transactions",
-    categoryMode: "whitelist",
-    // This sheet has a leading empty column A; data starts in column B.
-    columns: { headerRow: 0, date: 1, description: 2, category: 3, amount: 4, account: 5 },
-    idPrefix: "tiller",
+    categoryMode: "app",
+    columns: "detect",
+    idPrefix: "tillerv2",
   },
   {
     business: "neptune_performance",
@@ -181,9 +187,8 @@ async function resolveSheetName(spreadsheetId: string, gid: number, token: strin
   return sheet.properties.title as string;
 }
 
-// Find column indices from a Tiller header row (Date / Description / Category /
-// Amount / Account). Scans the first several rows so a layout with leading
-// blank/title rows still works.
+// Find column indices from a Tiller header row. Scans the first several rows
+// so a layout with leading blank/title rows still works.
 function detectColumns(rows: string[][]): FixedColumns | null {
   for (let i = 0; i < Math.min(rows.length, 10); i++) {
     const cells = (rows[i] || []).map((c) => (c || "").trim().toLowerCase());
@@ -201,6 +206,9 @@ function detectColumns(rows: string[][]): FixedColumns | null {
       description: find("description", "full description", "name"),
       category: find("category"),
       account: find("account", "account name"),
+      txnId: find("transaction id"),
+      hint: find("category hint"),
+      accountId: find("account id"),
     };
   }
   return null;
@@ -215,7 +223,52 @@ type Tx = {
   account: string;
   business: string;
   last_seen_at: string;
+  // app-mode extras (absent for legacy modes so their upsert payloads and
+  // conflict-update behavior stay byte-identical to before)
+  source?: string;
+  categorized_by?: string;
+  review_status?: string;
+  is_transfer?: boolean;
+  _hint?: string; // not persisted — Claude signal only
+  _kind?: "revenue" | "expense";
+  _accId?: string; // not persisted — generation-dedup only
 };
+
+// Yodlee connection repairs re-pull history under fresh transaction ids (same
+// account!), so the sheet holds the same transaction once per pull generation.
+// Yodlee ids are hex-timestamped: ids minted in the same pull batch share a
+// prefix, re-pulled copies get a much later one. When identical rows
+// (date/amount/description/account) span multiple id generations, keep only
+// the newest generation's copies. Same-generation repeats (e.g. three
+// same-price subway taps in one batch) all survive. Known blind spot: a legit
+// same-day same-amount repeat whose legs posted in different pull batches
+// would be wrongly collapsed — rare enough to accept.
+const GEN_PREFIX_LEN = 8;
+
+function txnGeneration(t: Tx): string | null {
+  // `tillerv2_<yodleeId>`; natural-key fallback rows have no generation.
+  const m = t.transaction_id.match(/^tillerv2_([0-9a-f]{8,24})$/);
+  return m ? m[1].slice(0, GEN_PREFIX_LEN) : null;
+}
+
+function dedupeGenerations(txs: Tx[]): { kept: Tx[]; dropped: number } {
+  const groups = new Map<string, Tx[]>();
+  for (const t of txs) {
+    const key = `${t.date}|${t.amount_cents}|${t.description}|${t.account}`;
+    (groups.get(key) ?? groups.set(key, []).get(key)!).push(t);
+  }
+  const drop = new Set<string>();
+  for (const group of groups.values()) {
+    const gens = [...new Set(group.map(txnGeneration).filter(Boolean))] as string[];
+    if (gens.length < 2) continue;
+    const newest = gens.sort().pop();
+    for (const t of group) {
+      const g = txnGeneration(t);
+      if (g && g !== newest) drop.add(t.transaction_id);
+    }
+  }
+  return { kept: txs.filter((t) => !drop.has(t.transaction_id)), dropped: drop.size };
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -260,6 +313,9 @@ Deno.serve(async (req: Request) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+    const body = await req.json().catch(() => ({}));
+    const skipAi = body.skipAi === true;
+    const aiLimit = Number.isFinite(body.aiLimit) ? body.aiLimit : AI_LIMIT_DEFAULT;
 
     // Single timestamp for this run. Every upserted row is stamped with it;
     // anything for a freshly-pulled business not stamped this run is pruned.
@@ -270,7 +326,7 @@ Deno.serve(async (req: Request) => {
     async function upsertBatched(table: string, txs: Tx[]): Promise<{ upserted: number; errors: number }> {
       let upserted = 0, errors = 0;
       for (let i = 0; i < txs.length; i += 200) {
-        const batch = txs.slice(i, i + 200);
+        const batch = txs.slice(i, i + 200).map(({ _hint, _kind, _accId, ...t }) => t);
         const { error, data: result } = await supabase
           .from(table)
           .upsert(batch, { onConflict: "transaction_id" })
@@ -290,8 +346,9 @@ Deno.serve(async (req: Request) => {
     //   - any upsert error → skip
     //   - >20% drop vs prior row count → skip (truncated Sheets response,
     //     partial network read, etc. would otherwise blow away real rows).
-    //     Cold-start (existing <= 5) is exempt; the threshold is for stable
-    //     tables with meaningful history.
+    //     Cold-start (existing <= 5) is exempt.
+    // Only source='tiller' rows are prunable — Plaid/manual rows are not the
+    // sheet's to reconcile.
     async function reconcile(table: string, business: string, sourceParsed: number, errors: number): Promise<number> {
       if (sourceParsed === 0 || errors > 0) {
         console.log(`${table}/${business} reconcile skipped (sourceParsed=${sourceParsed}, errors=${errors})`);
@@ -300,7 +357,8 @@ Deno.serve(async (req: Request) => {
       const { count: existing } = await supabase
         .from(table)
         .select("id", { count: "exact", head: true })
-        .eq("business", business);
+        .eq("business", business)
+        .eq("source", "tiller");
       if ((existing || 0) > 5 && sourceParsed < (existing || 0) * 0.8) {
         console.warn(
           `${table}/${business} reconcile BAILED: sourceParsed=${sourceParsed} vs existing=${existing} (>20% drop). ` +
@@ -312,12 +370,88 @@ Deno.serve(async (req: Request) => {
         .from(table)
         .delete({ count: "exact" })
         .eq("business", business)
+        .eq("source", "tiller")
         .or(`last_seen_at.is.null,last_seen_at.neq.${runStamp}`);
       if (error) {
         console.error(`${table}/${business} reconcile error:`, error.message);
         return 0;
       }
       return count || 0;
+    }
+
+    // Rules → Claude categorization for app-mode rows that are NEW (existing
+    // rows keep their app-side categories untouched).
+    async function categorizeAppRows(txs: Tx[], business: string): Promise<number> {
+      const { data: rules } = await supabase
+        .from("category_rules").select("*")
+        .order("priority", { ascending: false });
+      for (const t of txs) {
+        const desc = t.description.toUpperCase();
+        const rule = (rules || []).find((r) =>
+          r.txn_kind === t._kind &&
+          (!r.business || r.business === business) &&
+          (r.match_type === "exact"
+            ? desc === r.pattern.toUpperCase()
+            : desc.includes(r.pattern.toUpperCase()))
+        );
+        if (rule) {
+          t.category = rule.category;
+          t.categorized_by = "rule";
+          t.review_status = "confirmed";
+        }
+      }
+
+      let aiDone = 0;
+      const uncat = txs.filter((t) => t.category === "Uncategorized");
+      const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");
+      if (skipAi || !anthropicKey || uncat.length === 0) return 0;
+
+      const targets = uncat.slice(0, aiLimit);
+      for (let i = 0; i < targets.length; i += 50) {
+        const chunk = targets.slice(i, i + 50);
+        try {
+          const prompt = [
+            "Categorize these bank transactions for a creator business (Mayday Media). Respond ONLY with a JSON array of category strings, one per transaction, same order.",
+            "",
+            "revenue MUST be one of: " + JSON.stringify([...INCOME_CATEGORIES]),
+            "expense MUST be one of: " + JSON.stringify([...EXPENSE_CATEGORIES]),
+            "A transaction that moves money between the business's own accounts (credit card payments, internal transfers) should be \"Transfer\".",
+            "The `hint` field is Tiller's rough guess — a useful signal, not ground truth. Note: hint=Transfers is often wrong for payroll (Gusto) and payment processors (Venmo payouts); judge by the description.",
+            "If genuinely unknowable, use \"Uncategorized\".",
+            "",
+            "Transactions:",
+            JSON.stringify(chunk.map((t) => ({
+              description: t.description, amount: t.amount_cents / 100,
+              kind: t._kind, hint: t._hint || null,
+            }))),
+          ].join("\n");
+          const res = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": anthropicKey,
+              "anthropic-version": "2023-06-01",
+            },
+            body: JSON.stringify({
+              model: Deno.env.get("CLAUDE_MODEL") || "claude-sonnet-4-6",
+              max_tokens: 4000,
+              messages: [{ role: "user", content: prompt }],
+            }),
+          });
+          const json = await res.json();
+          const text = json.content?.[0]?.text || "[]";
+          const cats = JSON.parse(text.slice(text.indexOf("["), text.lastIndexOf("]") + 1));
+          chunk.forEach((t, idx) => {
+            const cat = typeof cats[idx] === "string" ? cats[idx] : "Uncategorized";
+            if (cat === "Transfer") { t.category = "Transfer"; t.is_transfer = true; }
+            else t.category = cat;
+            aiDone++;
+          });
+        } catch (err) {
+          console.error("Claude categorization failed for chunk:", err);
+        }
+      }
+      return aiDone;
     }
 
     const results: Record<string, unknown>[] = [];
@@ -338,6 +472,9 @@ Deno.serve(async (req: Request) => {
 
         const cols = src.columns === "detect" ? detectColumns(rows) : src.columns;
         if (!cols) throw new Error("Could not detect Date/Amount columns in header");
+        if (src.categoryMode === "app" && (cols.txnId == null || cols.txnId === -1)) {
+          throw new Error("app mode requires a 'Transaction ID' column in the sheet");
+        }
 
         const incomeTxs: Tx[] = [];
         const expenseTxs: Tx[] = [];
@@ -360,45 +497,127 @@ Deno.serve(async (req: Request) => {
             isIncome = INCOME_CATEGORIES.has(category) && amountCents > 0;
             isExpense = EXPENSE_CATEGORIES.has(category) && amountCents < 0;
             if (!isIncome && !isExpense) continue;
-          } else {
+          } else if (src.categoryMode === "sign") {
             // sign mode: every inflow is income, every outflow is expense —
             // except non-operating categories (owner funding, transfers, …).
             if (EXCLUDED_CATEGORIES.has(category.toLowerCase())) continue;
             isIncome = amountCents > 0;
             isExpense = amountCents < 0;
+          } else {
+            // app mode: everything imports; the sheet category is ignored.
+            isIncome = amountCents > 0;
+            isExpense = amountCents < 0;
           }
 
-          // Stable id from the transaction's own fields + an occurrence index
-          // for exact duplicates. Never tied to the sheet row number (those
-          // shift on reorder and would re-duplicate the whole sheet).
-          const descSlug = description.replace(/\W+/g, "_");
-          const accountSlug = account.replace(/\W+/g, "_");
-          const naturalKey = `${dateStr}_${amountCents}_${accountSlug}_${descSlug}`;
-          const occ = (occurrence.get(naturalKey) || 0) + 1;
-          occurrence.set(naturalKey, occ);
+          let transactionId: string;
+          if (src.categoryMode === "app") {
+            const sheetTxnId = (row[cols.txnId!] || "").trim();
+            if (sheetTxnId) {
+              transactionId = `${src.idPrefix}_${sheetTxnId}`;
+            } else {
+              // Rare rows without a Yodlee id fall back to the natural key.
+              const naturalKey = `${dateStr}_${amountCents}_${account.replace(/\W+/g, "_")}_${description.replace(/\W+/g, "_")}`;
+              const occ = (occurrence.get(naturalKey) || 0) + 1;
+              occurrence.set(naturalKey, occ);
+              transactionId = `${src.idPrefix}_nk_${naturalKey}_${occ}`;
+            }
+          } else {
+            // Stable id from the transaction's own fields + an occurrence index
+            // for exact duplicates. Never tied to the sheet row number.
+            const naturalKey = `${dateStr}_${amountCents}_${account.replace(/\W+/g, "_")}_${description.replace(/\W+/g, "_")}`;
+            const occ = (occurrence.get(naturalKey) || 0) + 1;
+            occurrence.set(naturalKey, occ);
+            transactionId = `${src.idPrefix}_${naturalKey}_${occ}`;
+          }
 
           // Expenses stored as positive cents so the Expenses page can sum and
           // chart without flipping signs on every render.
           const tx: Tx = {
-            transaction_id: `${src.idPrefix}_${naturalKey}_${occ}`,
+            transaction_id: transactionId,
             date: dateStr,
             description,
-            category: category || "Uncategorized",
+            category: src.categoryMode === "app" ? "Uncategorized" : (category || "Uncategorized"),
             amount_cents: isExpense ? -amountCents : amountCents,
             account,
             business: src.business,
             last_seen_at: runStamp,
           };
+          if (src.categoryMode === "app") {
+            tx._hint = (cols.hint != null && cols.hint !== -1 ? row[cols.hint] || "" : "").trim();
+            tx._kind = isIncome ? "revenue" : "expense";
+            tx._accId = (cols.accountId != null && cols.accountId !== -1 ? row[cols.accountId] || "" : "").trim();
+          }
           if (isIncome) incomeTxs.push(tx);
           else expenseTxs.push(tx);
         }
 
+        let aiCategorized = 0;
+        let generationDupesDropped = 0;
+        if (src.categoryMode === "app") {
+          const incomeDedup = dedupeGenerations(incomeTxs);
+          const expenseDedup = dedupeGenerations(expenseTxs);
+          incomeTxs.length = 0; incomeTxs.push(...incomeDedup.kept);
+          expenseTxs.length = 0; expenseTxs.push(...expenseDedup.kept);
+          generationDupesDropped = incomeDedup.dropped + expenseDedup.dropped;
+          // App-side category fixes must survive re-syncs, but Postgres checks
+          // NOT NULL on the proposed tuple BEFORE conflict resolution — a
+          // payload without `category` fails even for existing rows. So
+          // existing rows echo their current category fields back verbatim:
+          // the conflict-update rewrites them to the same values (no clobber)
+          // and every row shares one payload shape.
+          type Meta = { category: string; categorized_by: string; review_status: string; is_transfer: boolean; source: string };
+          const existingMeta = new Map<string, Meta>();
+          for (const [table, txs] of [["revenue_transactions", incomeTxs], ["expense_transactions", expenseTxs]] as const) {
+            const ids = txs.map((t) => t.transaction_id);
+            for (let i = 0; i < ids.length; i += 200) {
+              const { data } = await supabase.from(table)
+                .select("transaction_id, category, categorized_by, review_status, is_transfer, source")
+                .in("transaction_id", ids.slice(i, i + 200));
+              (data || []).forEach((r) => existingMeta.set(r.transaction_id, r));
+            }
+          }
+          const newTxs: Tx[] = [];
+          for (const t of [...incomeTxs, ...expenseTxs]) {
+            const meta = existingMeta.get(t.transaction_id);
+            if (meta) {
+              t.category = meta.category;
+              t.categorized_by = meta.categorized_by;
+              t.review_status = meta.review_status;
+              t.is_transfer = meta.is_transfer;
+              t.source = meta.source;
+            } else {
+              t.source = "tiller";
+              t.categorized_by = "ai";
+              t.review_status = "auto";
+              t.is_transfer = false;
+              newTxs.push(t);
+            }
+          }
+          aiCategorized = await categorizeAppRows(newTxs, src.business);
+          const incomeRes = await upsertBatched("revenue_transactions", incomeTxs);
+          const expenseRes = await upsertBatched("expense_transactions", expenseTxs);
+          const incomePruned = await reconcile("revenue_transactions", src.business, incomeTxs.length, incomeRes.errors);
+          const expensePruned = await reconcile("expense_transactions", src.business, expenseTxs.length, expenseRes.errors);
+          results.push({
+            business: src.business,
+            sheet: sheetName,
+            total_rows_read: rows.length - (cols.headerRow + 1),
+            income_transactions: incomeTxs.length,
+            income_upserted: incomeRes.upserted,
+            income_pruned: incomePruned,
+            expense_transactions: expenseTxs.length,
+            expense_upserted: expenseRes.upserted,
+            expense_pruned: expensePruned,
+            ai_categorized: aiCategorized,
+            generation_dupes_dropped: generationDupesDropped,
+          });
+          console.log(`Tiller sync ${src.business}: ${incomeTxs.length} income / ${expenseTxs.length} expense`);
+          continue;
+        }
+
         const incomeRes = await upsertBatched("revenue_transactions", incomeTxs);
         const expenseRes = await upsertBatched("expense_transactions", expenseTxs);
-        // Reconcile each table against ITS OWN parsed count. Passing the combined
-        // total let a table whose category parsed to 0 this run still clear its
-        // zero-guard (because the other category was populated) and delete all of
-        // its rows.
+        // Reconcile each table against ITS OWN parsed count.
         const incomePruned = await reconcile("revenue_transactions", src.business, incomeTxs.length, incomeRes.errors);
         const expensePruned = await reconcile("expense_transactions", src.business, expenseTxs.length, expenseRes.errors);
 
