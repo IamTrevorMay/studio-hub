@@ -48,7 +48,7 @@ export default function SprintRetroModal({ sprint, completedCount, completedPoin
             {rolledBackCount > 0 && (
               <div>
                 <span style={{ fontSize: '22px', fontWeight: 700, color: '#f59e0b' }}>{rolledBackCount}</span>
-                <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginLeft: '4px' }}>→ backlog</span>
+                <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginLeft: '4px' }}>→ next sprint</span>
               </div>
             )}
           </div>

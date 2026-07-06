@@ -943,11 +943,13 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
       .update({ status: 'completed', velocity: completedPoints, archived_at: new Date().toISOString(), updated_at: new Date().toISOString() })
       .eq('id', activeSprint.id);
 
-    // Roll incomplete tasks (ready, in_progress, holding) back to backlog
+    // Detach incomplete tasks (ready, in_progress, holding) from the sprint but
+    // keep their status so startSprint's orphan adoption carries them into the
+    // next sprint in the same columns.
     if (incompleteTasks.length > 0) {
       await supabase
         .from('personal_tasks')
-        .update({ sprint_id: null, status: 'backlog', updated_at: new Date().toISOString() })
+        .update({ sprint_id: null, updated_at: new Date().toISOString() })
         .in('id', incompleteTasks.map(t => t.id));
     }
 
