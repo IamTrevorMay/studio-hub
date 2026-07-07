@@ -95,6 +95,26 @@ export function NotificationProvider({ children }) {
     localStorage.setItem('dashboard_last_seen', new Date().toISOString());
   }, []);
 
+  // Fire a native OS notification for a freshly-inserted notifications row.
+  // Only when the user opted in (profiles.desktop_notifications_enabled),
+  // the browser permission is granted, and the tab is in the background.
+  const desktopNotifEnabled = profile?.desktop_notifications_enabled === true;
+  const fireDesktopNotification = useCallback((row) => {
+    if (!desktopNotifEnabled) return;
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    if (!document.hidden) return;
+    try {
+      const n = new Notification(row?.title || 'Mayday Studio', {
+        body: row?.body || '',
+        icon: '/logo.png',
+        tag: row?.id ? `mayday-notif-${row.id}` : undefined,
+      });
+      n.onclick = () => { window.focus(); n.close(); };
+    } catch (e) {
+      // Notification constructor can throw on unsupported platforms — ignore
+    }
+  }, [desktopNotifEnabled]);
+
   // Initial fetch + real-time subscriptions + 5-min fallback poll
   useEffect(() => {
     if (!user || !profile) return;
@@ -109,6 +129,7 @@ export function NotificationProvider({ children }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'announcement_reads' }, () => refreshNotifications())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'channel_messages' }, () => fetchUnreadMentions())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => refreshNotifications())
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${profile.id}` }, (payload) => fireDesktopNotification(payload.new))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'ad_read_proposals' }, () => refreshNotifications())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'freelancer_documents' }, () => refreshNotifications())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'freelancer_assignments' }, () => refreshNotifications())
@@ -125,7 +146,7 @@ export function NotificationProvider({ children }) {
       supabase.removeChannel(channel);
       clearInterval(interval);
     };
-  }, [user, profile, refreshNotifications, fetchUnreadMentions, fetchUnreadDms, refreshKey]);
+  }, [user, profile, refreshNotifications, fetchUnreadMentions, fetchUnreadDms, fireDesktopNotification, refreshKey]);
 
   const value = {
     unreadAnnouncementCount,

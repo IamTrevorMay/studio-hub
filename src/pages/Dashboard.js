@@ -8,6 +8,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { ptDayKey } from '../lib/ptDate';
+import { colors, spacing, fontSizes, fontWeights } from '../lib/styleTokens';
+import { modalOverlay, modal as modalShell, button as buttonRecipe } from '../lib/styleRecipes';
 
 import SprintBoard from '../components/SprintBoard';
 import SprintPanel from '../components/SprintPanel';
@@ -66,6 +68,40 @@ const PRIORITY_COLORS = {
 };
 const PRIORITY_OPTIONS = [10, 9, 8, 6, 5, 4, 3, 2, 1];
 
+function ToggleSwitch({ on, onClick, disabled }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        position: 'relative',
+        width: '40px',
+        height: '22px',
+        borderRadius: '11px',
+        border: 'none',
+        background: on ? colors.success.fg : 'rgba(255,255,255,0.15)',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.4 : 1,
+        transition: 'background 0.2s',
+        padding: 0,
+        flexShrink: 0,
+      }}
+    >
+      <div style={{
+        position: 'absolute',
+        top: '2px',
+        left: on ? '20px' : '2px',
+        width: '18px',
+        height: '18px',
+        borderRadius: '50%',
+        background: '#fff',
+        transition: 'left 0.2s',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+      }} />
+    </button>
+  );
+}
+
 function sortByPriority(items, completedKey = 'checked') {
   return [...items].sort((a, b) => {
     const ac = a[completedKey] ? 1 : 0;
@@ -90,6 +126,12 @@ export default function Dashboard({ onNavigate }) {
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarHover, setAvatarHover] = useState(false);
   const avatarInputRef = useRef(null);
+
+  // Settings modal (cogwheel on profile card)
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [notifPermission, setNotifPermission] = useState(
+    typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
+  );
 
   // Cross-component refresh counters
   const [boardVersion, setBoardVersion] = useState(0);   // SprintBoard changed → SprintPanel re-fetches
@@ -658,6 +700,22 @@ export default function Dashboard({ onNavigate }) {
   async function handleTitleSave() {
     await updateProfile({ title: titleDraft });
     setEditingTitle(false);
+  }
+
+  async function handleDesktopNotifToggle() {
+    if (profile?.desktop_notifications_enabled === true) {
+      await updateProfile({ desktop_notifications_enabled: false });
+      return;
+    }
+    if (typeof Notification === 'undefined') return;
+    let perm = Notification.permission;
+    if (perm === 'default') {
+      perm = await Notification.requestPermission();
+    }
+    setNotifPermission(perm);
+    if (perm === 'granted') {
+      await updateProfile({ desktop_notifications_enabled: true });
+    }
   }
 
   async function handleNameSave() {
@@ -1399,6 +1457,15 @@ export default function Dashboard({ onNavigate }) {
           )}
           <p style={styles.profileEmail}>{profile?.email}</p>
         </div>
+        <button
+          onClick={() => setShowSettingsModal(true)}
+          style={styles.settingsCog}
+          title="Settings"
+          onMouseEnter={(e) => { e.currentTarget.style.color = colors.textMuted; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = colors.textDim; }}
+        >
+          ⚙
+        </button>
       </div>
 
       {/* Two-column layout */}
@@ -1989,65 +2056,73 @@ export default function Dashboard({ onNavigate }) {
       </div>
       </div>
 
-      {/* Morty Mascot Controls */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '12px',
-        padding: '16px 0',
-        marginTop: '24px',
-        borderTop: '1px solid rgba(255,255,255,0.06)',
-      }}>
-        <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.35)' }}>Morty</span>
-        <button
-          onClick={() => updateProfile({ mascot_enabled: profile?.mascot_enabled === false ? true : false })}
-          style={{
-            position: 'relative',
-            width: '40px',
-            height: '22px',
-            borderRadius: '11px',
-            border: 'none',
-            background: profile?.mascot_enabled !== false ? '#22c55e' : 'rgba(255,255,255,0.15)',
-            cursor: 'pointer',
-            transition: 'background 0.2s',
-            padding: 0,
-            flexShrink: 0,
-          }}
+      {/* Settings Modal */}
+      {showSettingsModal && (
+        <div
+          style={modalOverlay()}
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setShowSettingsModal(false); }}
         >
-          <div style={{
-            position: 'absolute',
-            top: '2px',
-            left: profile?.mascot_enabled !== false ? '20px' : '2px',
-            width: '18px',
-            height: '18px',
-            borderRadius: '50%',
-            background: '#fff',
-            transition: 'left 0.2s',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-          }} />
-        </button>
-        {isAdmin && profile?.mascot_enabled !== false && (
-          <button
-            onClick={() => window.dispatchEvent(new Event('summon-morty'))}
-            style={{
-              padding: '4px 10px',
-              borderRadius: '6px',
-              border: '1px solid rgba(99,102,241,0.3)',
-              background: 'rgba(99,102,241,0.1)',
-              color: '#a5b4fc',
-              fontSize: '11px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              fontFamily: 'inherit',
-              transition: 'all 0.15s',
-            }}
-            title="Summon Morty now"
-          >
-            Summon
-          </button>
-        )}
-      </div>
+          <div style={{ ...modalShell({ width: 420 }), fontFamily: 'inherit' }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{
+              margin: `0 0 ${spacing.xl}px`,
+              fontSize: fontSizes.xl,
+              fontWeight: fontWeights.bold,
+              color: colors.text,
+            }}>
+              Settings
+            </h3>
+
+            {/* Desktop Notifications */}
+            <div style={styles.settingsRow}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={styles.settingsLabel}>Desktop Notifications</div>
+                <div style={styles.settingsCaption}>
+                  {notifPermission === 'denied'
+                    ? 'Blocked in browser settings — allow notifications for this site to enable'
+                    : notifPermission === 'unsupported'
+                      ? 'Not supported in this browser'
+                      : 'OS alerts for new notifications while this tab is in the background'}
+                </div>
+              </div>
+              <ToggleSwitch
+                on={profile?.desktop_notifications_enabled === true && notifPermission === 'granted'}
+                onClick={handleDesktopNotifToggle}
+                disabled={notifPermission === 'denied' || notifPermission === 'unsupported'}
+              />
+            </div>
+
+            {/* Morty */}
+            <div style={styles.settingsRow}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={styles.settingsLabel}>Morty</div>
+                <div style={styles.settingsCaption}>Mascot appearances around the app</div>
+              </div>
+              {isAdmin && profile?.mascot_enabled !== false && (
+                <button
+                  onClick={() => window.dispatchEvent(new Event('summon-morty'))}
+                  style={{ ...buttonRecipe({ variant: 'ghost', size: 'sm' }), color: colors.accentFg, borderColor: colors.accentBorder, fontFamily: 'inherit' }}
+                  title="Summon Morty now"
+                >
+                  Summon
+                </button>
+              )}
+              <ToggleSwitch
+                on={profile?.mascot_enabled !== false}
+                onClick={() => updateProfile({ mascot_enabled: profile?.mascot_enabled === false ? true : false })}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: spacing.xl }}>
+              <button
+                onClick={() => setShowSettingsModal(false)}
+                style={{ ...buttonRecipe({ variant: 'secondary', size: 'md' }), fontFamily: 'inherit' }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Announcement rich content styles */}
       <style>{`
@@ -2240,6 +2315,37 @@ const styles = {
   profileInfo: {
     flex: 1,
     minWidth: '200px',
+  },
+  settingsCog: {
+    marginLeft: 'auto',
+    alignSelf: 'flex-start',
+    background: 'transparent',
+    border: 'none',
+    color: colors.textDim,
+    fontSize: '20px',
+    cursor: 'pointer',
+    padding: `${spacing.xs}px`,
+    lineHeight: 1,
+    transition: 'color 0.15s',
+    flexShrink: 0,
+  },
+  settingsRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: `${spacing.md}px`,
+    padding: `${spacing.md}px 0`,
+    borderBottom: `1px solid ${colors.border}`,
+  },
+  settingsLabel: {
+    fontSize: `${fontSizes.lg}px`,
+    fontWeight: fontWeights.semibold,
+    color: colors.text,
+  },
+  settingsCaption: {
+    fontSize: `${fontSizes.sm}px`,
+    color: colors.textSubtle,
+    marginTop: '2px',
+    lineHeight: 1.4,
   },
   profileName: {
     fontSize: '20px',
