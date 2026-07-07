@@ -82,7 +82,7 @@ const NAV_ITEMS = [
   { key: 'accounting', label: 'Accounting', icon: ExpensesIcon, adminOnly: true },
   { key: 'research', label: 'News', icon: ResearchIcon },
   { key: 'calendar', label: 'Calendar', icon: CalendarIcon },
-  { key: 'business_dev', label: 'Business Dev', icon: BusinessDevIcon, adminOnly: true },
+  { key: 'business_dev', label: 'Roadmap', icon: BusinessDevIcon, adminOnly: true },
   { key: 'payroll', label: 'Payroll', icon: PayrollIcon, adminOnly: true },
   { key: 'invoicing', label: 'Invoicing', icon: InvoicingIcon, adminOnly: true },
   { key: 'freelancers', label: 'Contractors', icon: FreelancersIcon, adminOnly: true },
@@ -103,16 +103,17 @@ const ADMIN_ESSENTIAL_FOLDER_IDS = new Set(['pre_production', 'filming', 'post_p
 // Admin-only page entries appended after a divider.
 const ADMIN_PAGE_NAV = [
   { type: 'item', key: 'workflows', label: 'Workflows' },
-  { type: 'item', key: 'freelancers', label: 'Contractors' },
   { type: 'item', key: 'tracking', label: 'Tracking' },
   { type: 'item', key: 'analytics', label: 'Analytics' },
   { type: 'item', key: 'accounting', label: 'Accounting' },
-  { type: 'item', key: 'invoicing', label: 'Invoicing' },
   { type: 'item', key: 'payroll', label: 'Payroll' },
-  { type: 'item', key: 'business_dev', label: 'Business Dev' },
-  { type: 'item', key: 'mailer', label: 'Mailer' },
-  { type: 'item', key: 'jobs', label: 'Jobs' },
+  { type: 'item', key: 'business_dev', label: 'Roadmap' },
   { type: 'item', key: 'ops', label: 'Ops' },
+  { type: 'folder', id: 'admin_tools', label: 'Tools', collapsed: true },
+  { type: 'item', key: 'invoicing', label: 'Invoicing', folderId: 'admin_tools' },
+  { type: 'item', key: 'freelancers', label: 'Contractors', folderId: 'admin_tools' },
+  { type: 'item', key: 'mailer', label: 'Mailer', folderId: 'admin_tools' },
+  { type: 'item', key: 'jobs', label: 'Jobs', folderId: 'admin_tools' },
   { type: 'item', key: 'admin', label: 'Admin Settings' },
 ];
 // Build Admin Mode sidebar: essential items/folders from resolved nav, divider, admin pages.
@@ -157,8 +158,14 @@ function buildWorkNav(nav) {
   return items.filter(e => !(e.type === 'folder' && !childCount[e.id]));
 }
 
+// Public URL aliases — the page is presented as "Roadmap" but keeps its
+// internal business_dev key (nav config, permissions, bd_* tables).
+const TAB_KEY_ALIASES = { roadmap: 'business_dev' };
+const TAB_KEY_TO_PATH = { business_dev: 'roadmap' };
+
 function getTabFromPath() {
-  const path = window.location.pathname.replace(/^\/+/, '').split('/')[0];
+  let path = window.location.pathname.replace(/^\/+/, '').split('/')[0];
+  path = TAB_KEY_ALIASES[path] || path;
   if (path && VALID_TAB_KEYS.has(path)) return path;
   return null;
 }
@@ -333,9 +340,10 @@ export default function AppLayout() {
   // Persist active tab to localStorage and URL, reset scroll
   useEffect(() => {
     localStorage.setItem('studio-hub-tab', activeTab);
+    const tabPath = TAB_KEY_TO_PATH[activeTab] || activeTab;
     const segments = window.location.pathname.replace(/^\/+/, '').split('/');
-    if (segments[0] !== activeTab) {
-      window.history.pushState({}, '', '/' + activeTab);
+    if (segments[0] !== tabPath && segments[0] !== activeTab) {
+      window.history.pushState({}, '', '/' + tabPath);
     }
     if (mainContentRef.current) mainContentRef.current.scrollTop = 0;
   }, [activeTab]);
@@ -1358,11 +1366,20 @@ function DocumentsIcon({ active }) {
   );
 }
 
+function ToolsFolderIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <path d="M12.7 5.3a3.5 3.5 0 014.6-.9l-2.5 2.5.8 1.5 1.5.8 2.5-2.5a3.5 3.5 0 01-5.2 4.3l-6.6 6.6a1.6 1.6 0 01-2.3-2.3l6.6-6.6a3.5 3.5 0 01.6-3.4z" strokeLinejoin="round" transform="scale(0.82) translate(1.5 1.5)" />
+    </svg>
+  );
+}
+
 const FOLDER_ICON_MAP = {
   pre_production: PreProductionIcon,
   filming: FilmingIcon,
   post_production: PostProductionIcon,
   core_team: CoreTeamIcon,
+  admin_tools: ToolsFolderIcon,
 };
 
 function formatNotifTime(dateStr) {

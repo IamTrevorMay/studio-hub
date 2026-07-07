@@ -24,7 +24,7 @@ const PAGES = [
   { key: 'research', label: 'Research' },
   { key: 'calendar', label: 'Calendar' },
   { key: 'analytics', label: 'Analytics' },
-  { key: 'business_dev', label: 'Business Dev' },
+  { key: 'business_dev', label: 'Roadmap' },
   { key: 'invoicing', label: 'Invoicing' },
   { key: 'channels', label: 'Channels' },
   { key: 'messages', label: 'Messages' },

@@ -1091,13 +1091,13 @@ export default function BusinessDev() {
   // Render
   // ─────────────────────────────────────────────
   if (!isAdmin && !isPartner) return <div style={styles.page}><div style={styles.loading}>Access restricted.</div></div>;
-  if (loading)  return <div style={styles.page}><div style={styles.loading}>Loading Business Dev...</div></div>;
+  if (loading)  return <div style={styles.page}><div style={styles.loading}>Loading Roadmap...</div></div>;
 
   return (
     <div style={styles.page}>
       <div style={styles.pageHeader}>
         <div>
-          <h1 style={styles.pageTitle}>Business Dev</h1>
+          <h1 style={styles.pageTitle}>Roadmap</h1>
           <p style={styles.pageSubtitle}>Multi-phase program tracker</p>
         </div>
         {isAdmin && <button onClick={openCreatePhase} style={styles.primaryBtn}>+ Phase</button>}

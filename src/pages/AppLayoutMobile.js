@@ -59,7 +59,7 @@ const NAV_ITEMS = [
   { key: 'freelancers', label: 'Contractors', adminOnly: true },
   { key: 'research', label: 'News' },
   { key: 'calendar', label: 'Calendar' },
-  { key: 'business_dev', label: 'Business Dev', adminOnly: true },
+  { key: 'business_dev', label: 'Roadmap', adminOnly: true },
   { key: 'invoicing', label: 'Invoicing' },
   { key: 'ops', label: 'Ops', adminOnly: true },
   { key: 'deliverables', label: 'Deliverables' },

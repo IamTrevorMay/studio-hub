@@ -115,7 +115,7 @@ export default function useNavConfig() {
     if (isPartner) {
       return [
         { type: 'item', key: 'dashboard', label: 'Dashboard' },
-        { type: 'item', key: 'business_dev', label: 'Business Dev' },
+        { type: 'item', key: 'business_dev', label: 'Roadmap' },
       ];
     }
 

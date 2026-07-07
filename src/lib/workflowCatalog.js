@@ -65,7 +65,7 @@ export const NAVIGATE_TARGETS = [
   { value: 'analytics', label: 'Analytics' },
   { value: 'dashboard', label: 'Dashboard' },
   { value: 'freelancers', label: 'Freelancers' },
-  { value: 'business_dev', label: 'Business Dev' },
+  { value: 'business_dev', label: 'Roadmap' },
 ];
 
 // ─── Outcome style pills ────────────────────────────────────
