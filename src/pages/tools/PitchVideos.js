@@ -273,9 +273,36 @@ export default function PitchVideos({ onBack }) {
   };
 
   // ─── Local download ───────────────────────────────────────────────────────
-  const downloadClip = async (row) => {
+  // Archived clips stream from the Mayday NAS; unarchived ones resolve the
+  // Savant CDN mp4 on demand (MLB's CDN allows cross-origin fetches), so any
+  // pitch with a clip is downloadable with the formatted filename.
+  const getPlayableUrl = async (row) => {
+    if (row.video_url) return row.video_url;
+    const key = rowKey(row);
+    if (savantMp4[key] !== undefined) return savantMp4[key];
     try {
-      const res = await fetch(row.video_url);
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(
+        `/api/pitch-video?game_pk=${row.game_pk}&ab=${row.at_bat_number}&pitch=${row.pitch_number}&resolve_mp4=true`,
+        { headers: { Authorization: `Bearer ${session.access_token}` } },
+      );
+      const json = await res.json().catch(() => ({}));
+      const url = json?.row?.savant_mp4_url || null;
+      setSavantMp4((m) => ({ ...m, [key]: url }));
+      return url;
+    } catch {
+      return null;
+    }
+  };
+
+  const downloadClip = async (row) => {
+    const src = await getPlayableUrl(row);
+    if (!src) {
+      if (row.savant_url) window.open(row.savant_url, '_blank', 'noopener');
+      return false;
+    }
+    try {
+      const res = await fetch(src);
       if (!res.ok) throw new Error(`fetch ${res.status}`);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -288,7 +315,7 @@ export default function PitchVideos({ onBack }) {
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
       return true;
     } catch {
-      window.open(row.video_url, '_blank', 'noopener');
+      window.open(src, '_blank', 'noopener');
       return false;
     }
   };
@@ -680,21 +707,20 @@ export default function PitchVideos({ onBack }) {
                           <td style={styles.td}>{row.inning ?? '—'}</td>
                           <td style={styles.td}>{outcome(row)}</td>
                           <td style={{ ...styles.td, textAlign: 'right', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
-                            {row.video_url ? (
-                              <>
-                                <button style={styles.rowBtn} title="Download clip" onClick={() => downloadClip(row)}>
-                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
-                                  </svg>
-                                </button>
-                                <button style={{ ...styles.rowBtn, marginLeft: '5px' }} title="Upload to Drive" onClick={() => openDrivePicker([row])}>
-                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" />
-                                  </svg>
-                                </button>
-                              </>
-                            ) : (
-                              <span style={styles.pendingTag} title={`Status: ${row.status}`}>{row.status}</span>
+                            {!row.video_url && (
+                              <span style={{ ...styles.pendingTag, marginRight: '6px' }} title={`Status: ${row.status} — downloads via Savant CDN`}>{row.status}</span>
+                            )}
+                            <button style={styles.rowBtn} title={row.video_url ? 'Download clip' : 'Download via Savant'} onClick={() => downloadClip(row)}>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
+                              </svg>
+                            </button>
+                            {row.video_url && (
+                              <button style={{ ...styles.rowBtn, marginLeft: '5px' }} title="Upload to Drive" onClick={() => openDrivePicker([row])}>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" />
+                                </svg>
+                              </button>
                             )}
                           </td>
                         </tr>
@@ -779,11 +805,9 @@ export default function PitchVideos({ onBack }) {
                   <button style={styles.navBtn} onClick={modalNext} disabled={modal.index === modal.clips.length - 1}>Next ›</button>
                 </>
               )}
+              <button style={styles.batchBtn} onClick={() => downloadClip(modalClip)}>Download</button>
               {modalClip.video_url && (
-                <>
-                  <button style={styles.batchBtn} onClick={() => downloadClip(modalClip)}>Download</button>
-                  <button style={styles.batchBtn} onClick={() => openDrivePicker([modalClip])}>Upload to Drive</button>
-                </>
+                <button style={styles.batchBtn} onClick={() => openDrivePicker([modalClip])}>Upload to Drive</button>
               )}
               <a href={modalClip.savant_url} target="_blank" rel="noreferrer" style={styles.link}>Savant ↗</a>
             </div>
