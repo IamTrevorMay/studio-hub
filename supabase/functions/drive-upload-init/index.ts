@@ -39,6 +39,10 @@ async function logServerError(row: Record<string, unknown>): Promise<void> {
 // folder, nothing else.
 const SUBMISSIONS_FOLDER_ID = "1r1dENUCjNSs57MjidYbE2rWrbMKXpLM0";
 
+// Shared "Pitch Videos" folder — the Pitch Video Search tool (all roles)
+// uploads clips here via the pitch-video-drive folder picker.
+const PITCH_VIDEOS_FOLDER_ID = "1evC6T-cSra_KF89QzQ0KhDeXR5a4a2g1";
+
 // Walk a folder's parent chain to confirm it lives under one of the allowed
 // roots, so a non-admin can't target an arbitrary Drive folder by id.
 async function isDescendantOf(accessToken: string, fileId: string, rootId: string): Promise<boolean> {
@@ -150,7 +154,7 @@ Deno.serve(async (req: Request) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      const roots = [SUBMISSIONS_FOLDER_ID];
+      const roots = [SUBMISSIONS_FOLDER_ID, PITCH_VIDEOS_FOLDER_ID];
       if (profile.assigned_drive_folder_id) roots.push(profile.assigned_drive_folder_id);
 
       // Per-assignment submit-folder overrides: trust any folder an admin set as

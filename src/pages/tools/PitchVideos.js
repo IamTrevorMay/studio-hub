@@ -1,12 +1,22 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../../supabaseClient';
+import { useAuth } from '../../contexts/AuthContext';
 import PlayerSearchField from './graphics/PlayerSearchField';
 
-// Pitch Videos — search the Savant clip archive (Triton pitch_videos index +
-// Mayday Cloud NAS) and download clips. Talks to the same-origin
-// /api/pitch-video proxy, which validates the Mayday JWT and holds the
-// Triton consumer key server-side. video_url on each row streams straight
-// from Mayday Cloud with range support, so it drops into <video> as-is.
+// Pitch Video Search — search the Savant clip archive (Triton pitch_videos
+// index + Mayday Cloud NAS), review clips in a modal, and download them
+// locally or upload to the shared Pitch Videos folder on Google Drive.
+//
+// Layout: left filter column · results table · right History drawer
+// (collapsed by default). History is global — every executed search is
+// logged to pitch_video_searches with the user's name, and clicking an
+// entry re-fills the filter panel so the search can be re-run or adjusted.
+//
+// Search goes through the same-origin /api/pitch-video proxy (Mayday JWT +
+// server-side Triton consumer key). Drive uploads reuse the platform's
+// resumable-upload pattern: pitch-video-drive lists/creates folders under
+// the shared root; drive-upload-init opens the session; the browser PUTs
+// clip bytes straight to Drive.
 
 const PITCH_TYPES = [
   ['FF', 'Four-Seam'], ['SI', 'Sinker'], ['FC', 'Cutter'],
@@ -46,38 +56,147 @@ const EMPTY_FILTERS = {
   onlyArchived: true,
 };
 
+const DRIVE_FN_URL = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/pitch-video-drive`;
+const UPLOAD_INIT_URL = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/drive-upload-init`;
+const DRIVE_ROOT = { id: '1evC6T-cSra_KF89QzQ0KhDeXR5a4a2g1', name: 'Pitch Videos' };
+
 function label(s) {
-  return s.replace(/_/g, ' ');
+  return String(s || '').replace(/_/g, ' ');
 }
 
-function fmtCount(row) {
-  return `${row.balls ?? '–'}-${row.strikes ?? '–'}`;
+function titleCase(s) {
+  return label(s).replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function fmtResult(row) {
-  if (row.events) return label(row.events);
-  return row.description ? label(row.description) : '—';
+// "Palmquist, Carson" → "Carson Palmquist"
+function flipName(name) {
+  const parts = String(name || '').split(',');
+  if (parts.length === 2) return `${parts[1].trim()} ${parts[0].trim()}`;
+  return String(name || '').trim();
 }
 
-// "Palmquist, Carson" + row → Palmquist_Carson_2026-07-04_SI_g822716-ab1-p1.mp4
+function outcome(row) {
+  return titleCase(row.events || row.description || 'Unknown');
+}
+
+// [Pitcher] to [Hitter] [Pitch Type] [Count] [Outcome].mp4
 function clipFilename(row) {
-  const name = String(row.player_name || 'unknown')
-    .replace(/[^a-zA-Z0-9, ]/g, '')
-    .replace(/,?\s+/g, '_');
-  return `${name}_${row.game_date}_${row.pitch_type || 'NA'}_g${row.game_pk}-ab${row.at_bat_number}-p${row.pitch_number}.mp4`;
+  const raw = `${flipName(row.player_name)} to ${flipName(row.batter_name)} ${row.pitch_type || 'NA'} ${row.balls ?? '-'}-${row.strikes ?? '-'} ${outcome(row)}`;
+  return `${raw.replace(/[^\w\-. ]+/g, '').replace(/\s+/g, ' ').trim()}.mp4`;
+}
+
+function rowKey(row) {
+  return `${row.game_pk}-${row.at_bat_number}-${row.pitch_number}`;
+}
+
+function timeAgo(iso) {
+  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+// Compact human summary of a filter set for the History drawer.
+function summarizeFilters(f) {
+  const bits = [];
+  if (f.pitcher?.playerName) bits.push(f.pitcher.playerName);
+  if (f.batter?.playerName) bits.push(`vs ${f.batter.playerName}`);
+  if (f.team) bits.push(f.team);
+  if (f.pitchTypes?.length) bits.push(f.pitchTypes.join('/'));
+  if (f.event) bits.push(label(f.event));
+  if (f.description) bits.push(label(f.description));
+  if (f.gameYear) bits.push(f.gameYear);
+  if (f.dateFrom || f.dateTo) bits.push(`${f.dateFrom || '…'}→${f.dateTo || '…'}`);
+  if (f.veloMin || f.veloMax) bits.push(`${f.veloMin || '…'}–${f.veloMax || '…'} mph`);
+  if (f.balls !== '' && f.balls != null) bits.push(`${f.balls}-${f.strikes !== '' && f.strikes != null ? f.strikes : 'x'}`);
+  else if (f.strikes !== '' && f.strikes != null) bits.push(`x-${f.strikes}`);
+  if (f.stand) bits.push(`bat ${f.stand}`);
+  if (f.pThrows) bits.push(`thr ${f.pThrows}`);
+  if (f.inning) bits.push(`inn ${f.inning}`);
+  return bits.length ? bits.join(' · ') : 'all pitches';
 }
 
 export default function PitchVideos({ onBack }) {
+  const { profile } = useAuth();
+
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [rows, setRows] = useState(null); // null = not searched yet
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState(null);
-  const [selected, setSelected] = useState(null);
-  const [batch, setBatch] = useState(null); // { done, total, failed } while running
+
+  // Row selection for batch actions
+  const [selectedKeys, setSelectedKeys] = useState(() => new Set());
+
+  // Review modal: { clips: [row...], index } — single view is a 1-clip playlist
+  const [modal, setModal] = useState(null);
+
+  // Global history drawer
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [history, setHistory] = useState([]);
+
+  // Drive upload flow
+  const [drivePicker, setDrivePicker] = useState(null); // { rows: [row...] }
+  const [driveFolders, setDriveFolders] = useState([]);
+  const [drivePath, setDrivePath] = useState([DRIVE_ROOT]); // breadcrumb
+  const [driveLoading, setDriveLoading] = useState(false);
+  const [driveError, setDriveError] = useState(null);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [uploadState, setUploadState] = useState(null); // { done, total, failed, current }
+
+  // Local batch download progress
+  const [batch, setBatch] = useState(null);
   const batchCancelRef = useRef(false);
 
   const setF = (patch) => setFilters((f) => ({ ...f, ...patch }));
 
+  // ─── History: load + realtime ────────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('pitch_video_searches')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (!cancelled && data) setHistory(data);
+    })();
+
+    const channel = supabase
+      .channel('pitch_video_searches_feed')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'pitch_video_searches' }, (payload) => {
+        setHistory((h) => [payload.new, ...h].slice(0, 50));
+      })
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const logSearch = useCallback(async (f, resultCount) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      // Skip exact-duplicate back-to-back runs by the same user.
+      const latestOwn = history.find((h) => h.user_id === user.id);
+      if (latestOwn && JSON.stringify(latestOwn.filters) === JSON.stringify(f)) return;
+      await supabase.from('pitch_video_searches').insert({
+        user_id: user.id,
+        user_name: profile?.full_name || user.email,
+        filters: f,
+        result_count: resultCount,
+      });
+    } catch { /* history is best-effort */ }
+  }, [history, profile]);
+
+  const applyHistoryEntry = (entry) => {
+    setFilters({ ...EMPTY_FILTERS, ...(entry.filters || {}) });
+  };
+
+  // ─── Search ───────────────────────────────────────────────────────────────
   const buildQuery = useCallback(() => {
     const q = new URLSearchParams();
     const f = filters;
@@ -104,7 +223,6 @@ export default function PitchVideos({ onBack }) {
 
   const runSearch = async () => {
     const q = buildQuery();
-    // The API requires at least one filter beyond paging.
     const meaningful = [...q.keys()].filter((k) => !['limit', 'offset'].includes(k));
     if (meaningful.length === 0) {
       setSearchError('Set at least one filter first.');
@@ -112,7 +230,7 @@ export default function PitchVideos({ onBack }) {
     }
     setSearching(true);
     setSearchError(null);
-    setSelected(null);
+    setSelectedKeys(new Set());
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Not authenticated');
@@ -121,7 +239,9 @@ export default function PitchVideos({ onBack }) {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || `Search failed (${res.status})`);
-      setRows(json.rows || []);
+      const result = json.rows || [];
+      setRows(result);
+      logSearch(filters, result.length);
     } catch (err) {
       setSearchError(err.message || 'Search failed');
       setRows(null);
@@ -130,8 +250,24 @@ export default function PitchVideos({ onBack }) {
     }
   };
 
-  // Fetch the clip bytes and save under a readable filename. Falls back to
-  // opening the stream URL directly if the blob fetch fails (e.g. CORS).
+  // ─── Selection ────────────────────────────────────────────────────────────
+  const archivedRows = (rows || []).filter((r) => r.video_url);
+  const selectedRows = archivedRows.filter((r) => selectedKeys.has(rowKey(r)));
+  const allSelected = archivedRows.length > 0 && selectedRows.length === archivedRows.length;
+
+  const toggleKey = (key) => {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    setSelectedKeys(allSelected ? new Set() : new Set(archivedRows.map(rowKey)));
+  };
+
+  // ─── Local download ───────────────────────────────────────────────────────
   const downloadClip = async (row) => {
     try {
       const res = await fetch(row.video_url);
@@ -152,8 +288,7 @@ export default function PitchVideos({ onBack }) {
     }
   };
 
-  const runBatchDownload = async () => {
-    const targets = (rows || []).filter((r) => r.video_url);
+  const runBatchDownload = async (targets) => {
     if (!targets.length) return;
     batchCancelRef.current = false;
     setBatch({ done: 0, total: targets.length, failed: 0 });
@@ -165,8 +300,137 @@ export default function PitchVideos({ onBack }) {
     setBatch(null);
   };
 
-  const archivedCount = (rows || []).filter((r) => r.video_url).length;
+  // ─── Drive upload ─────────────────────────────────────────────────────────
+  const loadDriveFolders = useCallback(async (parentId) => {
+    setDriveLoading(true);
+    setDriveError(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${DRIVE_FN_URL}?parentId=${encodeURIComponent(parentId)}`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || `Folder list failed (${res.status})`);
+      setDriveFolders(json.folders || []);
+    } catch (err) {
+      setDriveError(err.message || 'Failed to list folders');
+      setDriveFolders([]);
+    } finally {
+      setDriveLoading(false);
+    }
+  }, []);
 
+  const openDrivePicker = (targets) => {
+    if (!targets.length) return;
+    setDrivePicker({ rows: targets });
+    setDrivePath([DRIVE_ROOT]);
+    setNewFolderName('');
+    setUploadState(null);
+    loadDriveFolders(DRIVE_ROOT.id);
+  };
+
+  const enterFolder = (folder) => {
+    setDrivePath((p) => [...p, folder]);
+    loadDriveFolders(folder.id);
+  };
+
+  const jumpToCrumb = (idx) => {
+    const next = drivePath.slice(0, idx + 1);
+    setDrivePath(next);
+    loadDriveFolders(next[next.length - 1].id);
+  };
+
+  const createFolder = async () => {
+    const name = newFolderName.trim();
+    if (!name) return;
+    setCreatingFolder(true);
+    setDriveError(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const parentId = drivePath[drivePath.length - 1].id;
+      const res = await fetch(DRIVE_FN_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ parentId, name }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || `Create failed (${res.status})`);
+      setNewFolderName('');
+      enterFolder(json.folder);
+    } catch (err) {
+      setDriveError(err.message || 'Failed to create folder');
+    } finally {
+      setCreatingFolder(false);
+    }
+  };
+
+  const uploadToDrive = async () => {
+    if (!drivePicker) return;
+    const targets = drivePicker.rows;
+    const parentFolderId = drivePath[drivePath.length - 1].id;
+    const { data: { session } } = await supabase.auth.getSession();
+    setUploadState({ done: 0, total: targets.length, failed: 0, current: '' });
+
+    for (let i = 0; i < targets.length; i++) {
+      const row = targets[i];
+      const filename = clipFilename(row);
+      setUploadState((u) => u && ({ ...u, current: filename }));
+      try {
+        const clipRes = await fetch(row.video_url);
+        if (!clipRes.ok) throw new Error(`clip fetch ${clipRes.status}`);
+        const blob = await clipRes.blob();
+
+        const initRes = await fetch(UPLOAD_INIT_URL, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ filename, parentFolderId, mimeType: 'video/mp4', sizeBytes: blob.size }),
+        });
+        const initJson = await initRes.json().catch(() => ({}));
+        if (!initRes.ok || !initJson.uploadUrl) {
+          throw new Error(initJson.error || `Upload init failed (${initRes.status})`);
+        }
+
+        const putRes = await fetch(initJson.uploadUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'video/mp4' },
+          body: blob,
+        });
+        if (!putRes.ok) throw new Error(`Drive PUT ${putRes.status}`);
+        setUploadState((u) => u && ({ ...u, done: i + 1 }));
+      } catch (err) {
+        setUploadState((u) => u && ({ ...u, done: i + 1, failed: u.failed + 1 }));
+      }
+    }
+    setUploadState((u) => u && ({ ...u, current: '' }));
+  };
+
+  // ─── Modal player ─────────────────────────────────────────────────────────
+  const openSingle = (row) => setModal({ clips: [row], index: 0 });
+  const openPlaylist = () => {
+    if (selectedRows.length) setModal({ clips: selectedRows, index: 0 });
+  };
+  const modalClip = modal ? modal.clips[modal.index] : null;
+  const modalNext = () => setModal((m) => m && ({ ...m, index: Math.min(m.index + 1, m.clips.length - 1) }));
+  const modalPrev = () => setModal((m) => m && ({ ...m, index: Math.max(m.index - 1, 0) }));
+
+  useEffect(() => {
+    if (!modal) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setModal(null);
+      if (e.key === 'ArrowRight') modalNext();
+      if (e.key === 'ArrowLeft') modalPrev();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [modal]);
+
+  // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div style={styles.container}>
       <div style={styles.header}>
@@ -175,13 +439,23 @@ export default function PitchVideos({ onBack }) {
             <path d="M19 12H5M12 19l-7-7 7-7" />
           </svg>
         </button>
-        <span style={styles.headerTitle}>Pitch Videos</span>
-        <span style={styles.headerSub}>Savant clip archive search</span>
+        <span style={styles.headerTitle}>Pitch Video Search</span>
+        <span style={styles.headerSub}>Savant clip archive</span>
+        <div style={{ flex: 1 }} />
+        <button
+          style={{ ...styles.drawerToggle, ...(drawerOpen ? styles.drawerToggleOn : null) }}
+          onClick={() => setDrawerOpen((o) => !o)}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 3" />
+          </svg>
+          History
+        </button>
       </div>
 
-      {/* Filter bar */}
-      <div style={styles.filterCard}>
-        <div style={styles.filterGrid}>
+      <div style={styles.body}>
+        {/* ── Left: filter column ── */}
+        <div style={styles.filterCol}>
           <div style={styles.filterField}>
             <label style={styles.filterLabel}>Pitcher</label>
             <PlayerSearchField
@@ -202,13 +476,29 @@ export default function PitchVideos({ onBack }) {
           </div>
           <div style={styles.filterField}>
             <label style={styles.filterLabel}>Team</label>
-            <input
-              style={styles.input}
-              value={filters.team}
-              maxLength={3}
-              placeholder="e.g. PIT"
-              onChange={(e) => setF({ team: e.target.value })}
-            />
+            <input style={styles.input} value={filters.team} maxLength={3} placeholder="e.g. PIT" onChange={(e) => setF({ team: e.target.value })} />
+          </div>
+          <div style={styles.filterField}>
+            <label style={styles.filterLabel}>Pitch types</label>
+            <div style={styles.chipRow}>
+              {PITCH_TYPES.map(([code, name]) => {
+                const on = filters.pitchTypes.includes(code);
+                return (
+                  <button
+                    key={code}
+                    title={name}
+                    onClick={() => setF({
+                      pitchTypes: on
+                        ? filters.pitchTypes.filter((c) => c !== code)
+                        : [...filters.pitchTypes, code],
+                    })}
+                    style={{ ...styles.chip, ...(on ? styles.chipOn : null) }}
+                  >
+                    {code}
+                  </button>
+                );
+              })}
+            </div>
           </div>
           <div style={styles.filterField}>
             <label style={styles.filterLabel}>Result (event)</label>
@@ -226,19 +516,12 @@ export default function PitchVideos({ onBack }) {
           </div>
           <div style={styles.filterField}>
             <label style={styles.filterLabel}>Season</label>
-            <input
-              style={styles.input}
-              value={filters.gameYear}
-              placeholder="2026"
-              onChange={(e) => setF({ gameYear: e.target.value.replace(/\D/g, '').slice(0, 4) })}
-            />
+            <input style={styles.input} value={filters.gameYear} placeholder="2026" onChange={(e) => setF({ gameYear: e.target.value.replace(/\D/g, '').slice(0, 4) })} />
           </div>
           <div style={styles.filterField}>
             <label style={styles.filterLabel}>Date from / to</label>
-            <div style={styles.pairRow}>
-              <input type="date" style={styles.input} value={filters.dateFrom} onChange={(e) => setF({ dateFrom: e.target.value })} />
-              <input type="date" style={styles.input} value={filters.dateTo} onChange={(e) => setF({ dateTo: e.target.value })} />
-            </div>
+            <input type="date" style={styles.input} value={filters.dateFrom} onChange={(e) => setF({ dateFrom: e.target.value })} />
+            <input type="date" style={{ ...styles.input, marginTop: '6px' }} value={filters.dateTo} onChange={(e) => setF({ dateTo: e.target.value })} />
           </div>
           <div style={styles.filterField}>
             <label style={styles.filterLabel}>Velo (mph)</label>
@@ -277,191 +560,282 @@ export default function PitchVideos({ onBack }) {
           </div>
           <div style={styles.filterField}>
             <label style={styles.filterLabel}>Inning</label>
-            <input
-              style={styles.input}
-              value={filters.inning}
-              placeholder="any"
-              onChange={(e) => setF({ inning: e.target.value.replace(/\D/g, '').slice(0, 2) })}
-            />
+            <input style={styles.input} value={filters.inning} placeholder="any" onChange={(e) => setF({ inning: e.target.value.replace(/\D/g, '').slice(0, 2) })} />
           </div>
-        </div>
-
-        {/* Pitch type chips */}
-        <div style={styles.chipRow}>
-          {PITCH_TYPES.map(([code, name]) => {
-            const on = filters.pitchTypes.includes(code);
-            return (
-              <button
-                key={code}
-                title={name}
-                onClick={() => setF({
-                  pitchTypes: on
-                    ? filters.pitchTypes.filter((c) => c !== code)
-                    : [...filters.pitchTypes, code],
-                })}
-                style={{ ...styles.chip, ...(on ? styles.chipOn : null) }}
-              >
-                {code}
-              </button>
-            );
-          })}
-        </div>
-
-        <div style={styles.filterActions}>
           <label style={styles.archToggle}>
-            <input
-              type="checkbox"
-              checked={filters.onlyArchived}
-              onChange={(e) => setF({ onlyArchived: e.target.checked })}
-            />
-            Archived only (instantly playable)
+            <input type="checkbox" checked={filters.onlyArchived} onChange={(e) => setF({ onlyArchived: e.target.checked })} />
+            Archived only
           </label>
-          <div style={{ flex: 1 }} />
-          <button style={styles.clearFiltersBtn} onClick={() => setFilters(EMPTY_FILTERS)}>Clear</button>
-          <button style={styles.searchBtn} onClick={runSearch} disabled={searching}>
-            {searching ? 'Searching…' : 'Search'}
-          </button>
+
+          <div style={styles.filterActions}>
+            <button style={styles.clearFiltersBtn} onClick={() => setFilters(EMPTY_FILTERS)}>Clear</button>
+            <button style={styles.searchBtn} onClick={runSearch} disabled={searching}>
+              {searching ? 'Searching…' : 'Search'}
+            </button>
+          </div>
+          {searchError && <div style={styles.errorMsg}>{searchError}</div>}
         </div>
-        {searchError && <div style={styles.errorMsg}>{searchError}</div>}
+
+        {/* ── Center: results ── */}
+        <div style={styles.resultsCol}>
+          {rows === null ? (
+            <div style={styles.placeholder}>Set filters on the left and run a search.</div>
+          ) : (
+            <>
+              <div style={styles.resultsBar}>
+                <span style={styles.resultsCount}>
+                  {rows.length} pitches · {archivedRows.length} with video
+                  {selectedRows.length > 0 && ` · ${selectedRows.length} selected`}
+                </span>
+                <div style={{ flex: 1 }} />
+                {batch ? (
+                  <>
+                    <span style={styles.batchProgress}>
+                      Downloading {batch.done}/{batch.total}{batch.failed ? ` (${batch.failed} failed)` : ''}
+                    </span>
+                    <button style={styles.clearFiltersBtn} onClick={() => { batchCancelRef.current = true; }}>Cancel</button>
+                  </>
+                ) : selectedRows.length > 0 ? (
+                  <>
+                    <button style={styles.batchBtn} onClick={openPlaylist}>View selected</button>
+                    <button style={styles.batchBtn} onClick={() => runBatchDownload(selectedRows)}>Download</button>
+                    <button style={styles.batchBtn} onClick={() => openDrivePicker(selectedRows)}>Upload to Drive</button>
+                    <button style={styles.clearFiltersBtn} onClick={() => setSelectedKeys(new Set())}>Clear</button>
+                  </>
+                ) : archivedRows.length > 0 && (
+                  <>
+                    <button style={styles.batchBtn} onClick={() => runBatchDownload(archivedRows)}>Download all ({archivedRows.length})</button>
+                    <button style={styles.batchBtn} onClick={() => openDrivePicker(archivedRows)}>Upload all to Drive</button>
+                  </>
+                )}
+              </div>
+
+              <div style={styles.tableScroll}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...styles.th, width: '34px' }}>
+                        <input type="checkbox" checked={allSelected} onChange={toggleAll} title="Select all with video" />
+                      </th>
+                      {['Date', 'Pitcher', 'Batter', 'Pitch', 'Velo', 'Count', 'Inn', 'Result', ''].map((h, i) => (
+                        <th key={i} style={styles.th}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => {
+                      const key = rowKey(row);
+                      const checked = selectedKeys.has(key);
+                      return (
+                        <tr
+                          key={key}
+                          onClick={() => openSingle(row)}
+                          style={{ ...styles.tr, ...(checked ? styles.trSelected : null) }}
+                        >
+                          <td style={styles.td} onClick={(e) => e.stopPropagation()}>
+                            {row.video_url && (
+                              <input type="checkbox" checked={checked} onChange={() => toggleKey(key)} />
+                            )}
+                          </td>
+                          <td style={styles.td}>{row.game_date}</td>
+                          <td style={styles.td}>{row.player_name}</td>
+                          <td style={styles.td}>{row.batter_name}</td>
+                          <td style={styles.td}>{row.pitch_type || '—'}</td>
+                          <td style={styles.td}>{row.release_speed ? row.release_speed.toFixed(1) : '—'}</td>
+                          <td style={styles.td}>{row.balls ?? '–'}-{row.strikes ?? '–'}</td>
+                          <td style={styles.td}>{row.inning ?? '—'}</td>
+                          <td style={styles.td}>{outcome(row)}</td>
+                          <td style={{ ...styles.td, textAlign: 'right', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+                            {row.video_url ? (
+                              <>
+                                <button style={styles.rowBtn} title="Download clip" onClick={() => downloadClip(row)}>
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
+                                  </svg>
+                                </button>
+                                <button style={{ ...styles.rowBtn, marginLeft: '5px' }} title="Upload to Drive" onClick={() => openDrivePicker([row])}>
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" />
+                                  </svg>
+                                </button>
+                              </>
+                            ) : (
+                              <span style={styles.pendingTag} title={`Status: ${row.status}`}>{row.status}</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {rows.length === 0 && (
+                      <tr><td colSpan={10} style={styles.emptyCell}>No pitches matched these filters.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* ── Right: history drawer ── */}
+        {drawerOpen && (
+          <div style={styles.drawer}>
+            <div style={styles.drawerHeader}>
+              <span style={styles.drawerTitle}>Search History</span>
+              <button style={styles.drawerClose} onClick={() => setDrawerOpen(false)} title="Collapse">×</button>
+            </div>
+            <div style={styles.drawerList}>
+              {history.length === 0 && <div style={styles.drawerEmpty}>No searches yet.</div>}
+              {history.map((entry) => (
+                <button key={entry.id} style={styles.historyItem} onClick={() => applyHistoryEntry(entry)}>
+                  <div style={styles.historyTop}>
+                    <span style={styles.historyUser}>{entry.user_name || 'Unknown'}</span>
+                    <span style={styles.historyTime}>{timeAgo(entry.created_at)}</span>
+                  </div>
+                  <div style={styles.historySummary}>{summarizeFilters(entry.filters || {})}</div>
+                  {entry.result_count != null && (
+                    <div style={styles.historyCount}>{entry.result_count} results</div>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Results + preview */}
-      {rows !== null && (
-        <div style={styles.resultsWrap}>
-          <div style={styles.resultsCol}>
-            <div style={styles.resultsBar}>
-              <span style={styles.resultsCount}>
-                {rows.length} pitches · {archivedCount} with video
+      {/* ── Review modal ── */}
+      {modal && modalClip && (
+        <div style={styles.modalBackdrop} onClick={() => setModal(null)}>
+          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <div style={styles.modalTitle}>
+                {flipName(modalClip.player_name)} to {flipName(modalClip.batter_name)}
+                <span style={styles.modalSub}>
+                  {' '}· {modalClip.pitch_name || modalClip.pitch_type}{modalClip.release_speed ? ` ${modalClip.release_speed.toFixed(1)} mph` : ''}
+                  {' '}· {modalClip.balls ?? '–'}-{modalClip.strikes ?? '–'} · {outcome(modalClip)}
+                </span>
+              </div>
+              <button style={styles.drawerClose} onClick={() => setModal(null)} title="Close">×</button>
+            </div>
+            {modalClip.video_url ? (
+              <video
+                key={rowKey(modalClip)}
+                src={modalClip.video_url}
+                controls
+                autoPlay
+                onEnded={() => { if (modal.index < modal.clips.length - 1) modalNext(); }}
+                style={styles.modalVideo}
+              />
+            ) : (
+              <div style={styles.noVideo}>
+                Clip not archived yet ({modalClip.status}).{' '}
+                <a href={modalClip.savant_url} target="_blank" rel="noreferrer" style={styles.link}>Watch on Savant</a>
+              </div>
+            )}
+            <div style={styles.modalFooter}>
+              <span style={styles.modalMeta}>
+                {modalClip.away_team} @ {modalClip.home_team} · {modalClip.game_date} · {modalClip.inning_topbot} {modalClip.inning}
               </span>
               <div style={{ flex: 1 }} />
-              {batch ? (
+              {modal.clips.length > 1 && (
                 <>
-                  <span style={styles.batchProgress}>
-                    Downloading {batch.done}/{batch.total}{batch.failed ? ` (${batch.failed} failed)` : ''}
-                  </span>
-                  <button style={styles.clearFiltersBtn} onClick={() => { batchCancelRef.current = true; }}>
-                    Cancel
-                  </button>
+                  <button style={styles.navBtn} onClick={modalPrev} disabled={modal.index === 0}>‹ Prev</button>
+                  <span style={styles.modalCounter}>{modal.index + 1} / {modal.clips.length}</span>
+                  <button style={styles.navBtn} onClick={modalNext} disabled={modal.index === modal.clips.length - 1}>Next ›</button>
                 </>
-              ) : (
-                archivedCount > 0 && (
-                  <button style={styles.batchBtn} onClick={runBatchDownload}>
-                    Download all ({archivedCount})
-                  </button>
-                )
               )}
-            </div>
-
-            <div style={styles.tableScroll}>
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    {['Date', 'Pitcher', 'Batter', 'Pitch', 'Velo', 'Count', 'Inn', 'Result', ''].map((h, i) => (
-                      <th key={i} style={styles.th}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => {
-                    const key = `${row.game_pk}-${row.at_bat_number}-${row.pitch_number}`;
-                    const isSel = selected && `${selected.game_pk}-${selected.at_bat_number}-${selected.pitch_number}` === key;
-                    return (
-                      <tr
-                        key={key}
-                        onClick={() => setSelected(row)}
-                        style={{ ...styles.tr, ...(isSel ? styles.trSelected : null) }}
-                      >
-                        <td style={styles.td}>{row.game_date}</td>
-                        <td style={styles.td}>{row.player_name}</td>
-                        <td style={styles.td}>{row.batter_name}</td>
-                        <td style={styles.td}>{row.pitch_type || '—'}</td>
-                        <td style={styles.td}>{row.release_speed ? row.release_speed.toFixed(1) : '—'}</td>
-                        <td style={styles.td}>{fmtCount(row)}</td>
-                        <td style={styles.td}>{row.inning ?? '—'}</td>
-                        <td style={styles.td}>{fmtResult(row)}</td>
-                        <td style={{ ...styles.td, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                          {row.video_url ? (
-                            <button
-                              style={styles.rowBtn}
-                              title="Download clip"
-                              onClick={(e) => { e.stopPropagation(); downloadClip(row); }}
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
-                              </svg>
-                            </button>
-                          ) : (
-                            <span style={styles.pendingTag} title={`Status: ${row.status}`}>{row.status}</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {rows.length === 0 && (
-                    <tr><td colSpan={9} style={styles.emptyCell}>No pitches matched these filters.</td></tr>
-                  )}
-                </tbody>
-              </table>
+              {modalClip.video_url && (
+                <>
+                  <button style={styles.batchBtn} onClick={() => downloadClip(modalClip)}>Download</button>
+                  <button style={styles.batchBtn} onClick={() => openDrivePicker([modalClip])}>Upload to Drive</button>
+                </>
+              )}
+              <a href={modalClip.savant_url} target="_blank" rel="noreferrer" style={styles.link}>Savant ↗</a>
             </div>
           </div>
+        </div>
+      )}
 
-          {/* Preview panel */}
-          <div style={styles.previewCol}>
-            {selected ? (
-              <>
-                {selected.video_url ? (
-                  <video
-                    key={`${selected.game_pk}-${selected.at_bat_number}-${selected.pitch_number}`}
-                    src={selected.video_url}
-                    controls
-                    autoPlay
-                    style={styles.video}
-                  />
+      {/* ── Drive picker modal ── */}
+      {drivePicker && (
+        <div style={styles.modalBackdrop} onClick={() => !uploadState && setDrivePicker(null)}>
+          <div style={{ ...styles.modalCard, width: '520px' }} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <div style={styles.modalTitle}>
+                Upload {drivePicker.rows.length} clip{drivePicker.rows.length > 1 ? 's' : ''} to Drive
+              </div>
+              <button style={styles.drawerClose} onClick={() => setDrivePicker(null)} title="Close">×</button>
+            </div>
+
+            {uploadState ? (
+              <div style={styles.uploadStatus}>
+                {uploadState.done < uploadState.total ? (
+                  <>
+                    <div style={styles.uploadBarOuter}>
+                      <div style={{ ...styles.uploadBarInner, width: `${(uploadState.done / uploadState.total) * 100}%` }} />
+                    </div>
+                    <div style={styles.uploadLabel}>
+                      Uploading {uploadState.done + 1}/{uploadState.total}
+                      {uploadState.failed ? ` · ${uploadState.failed} failed` : ''}
+                    </div>
+                    {uploadState.current && <div style={styles.uploadCurrent}>{uploadState.current}</div>}
+                  </>
                 ) : (
-                  <div style={styles.noVideo}>
-                    Clip not archived yet ({selected.status}).{' '}
-                    <a href={selected.savant_url} target="_blank" rel="noreferrer" style={styles.link}>
-                      Watch on Savant
-                    </a>
-                  </div>
+                  <>
+                    <div style={styles.uploadDone}>
+                      {uploadState.total - uploadState.failed}/{uploadState.total} uploaded
+                      {uploadState.failed ? ` — ${uploadState.failed} failed` : ' ✓'}
+                    </div>
+                    <button style={styles.searchBtn} onClick={() => setDrivePicker(null)}>Done</button>
+                  </>
                 )}
-                <div style={styles.metaCard}>
-                  <div style={styles.metaTitle}>
-                    {selected.player_name} vs {selected.batter_name}
-                  </div>
-                  <div style={styles.metaGrid}>
-                    <span style={styles.metaKey}>Pitch</span>
-                    <span style={styles.metaVal}>
-                      {selected.pitch_name || selected.pitch_type || '—'}
-                      {selected.release_speed ? ` · ${selected.release_speed.toFixed(1)} mph` : ''}
-                    </span>
-                    <span style={styles.metaKey}>Result</span>
-                    <span style={styles.metaVal}>{fmtResult(selected)}</span>
-                    <span style={styles.metaKey}>Count</span>
-                    <span style={styles.metaVal}>{fmtCount(selected)}, {selected.outs_when_up ?? '–'} out</span>
-                    <span style={styles.metaKey}>Game</span>
-                    <span style={styles.metaVal}>
-                      {selected.away_team} @ {selected.home_team} · {selected.game_date} · {selected.inning_topbot} {selected.inning}
-                    </span>
-                    {selected.launch_speed != null && (
-                      <>
-                        <span style={styles.metaKey}>Contact</span>
-                        <span style={styles.metaVal}>{selected.launch_speed} mph EV · {selected.launch_angle}°</span>
-                      </>
-                    )}
-                  </div>
-                  <div style={styles.metaActions}>
-                    {selected.video_url && (
-                      <button style={styles.searchBtn} onClick={() => downloadClip(selected)}>Download</button>
-                    )}
-                    <a href={selected.savant_url} target="_blank" rel="noreferrer" style={styles.link}>
-                      Savant ↗
-                    </a>
-                  </div>
+              </div>
+            ) : (
+              <>
+                <div style={styles.crumbRow}>
+                  {drivePath.map((crumb, i) => (
+                    <React.Fragment key={crumb.id}>
+                      {i > 0 && <span style={styles.crumbSep}>/</span>}
+                      <button style={styles.crumb} onClick={() => jumpToCrumb(i)}>{crumb.name}</button>
+                    </React.Fragment>
+                  ))}
+                </div>
+
+                <div style={styles.folderList}>
+                  {driveLoading && <div style={styles.drawerEmpty}>Loading…</div>}
+                  {!driveLoading && driveFolders.length === 0 && (
+                    <div style={styles.drawerEmpty}>No subfolders.</div>
+                  )}
+                  {!driveLoading && driveFolders.map((f) => (
+                    <button key={f.id} style={styles.folderItem} onClick={() => enterFolder(f)}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+                      </svg>
+                      {f.name}
+                    </button>
+                  ))}
+                </div>
+
+                <div style={styles.newFolderRow}>
+                  <input
+                    style={styles.input}
+                    value={newFolderName}
+                    placeholder="New folder name…"
+                    onChange={(e) => setNewFolderName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') createFolder(); }}
+                  />
+                  <button style={styles.clearFiltersBtn} onClick={createFolder} disabled={creatingFolder || !newFolderName.trim()}>
+                    {creatingFolder ? 'Creating…' : 'Create'}
+                  </button>
+                </div>
+
+                {driveError && <div style={styles.errorMsg}>{driveError}</div>}
+
+                <div style={styles.modalFooter}>
+                  <span style={styles.modalMeta}>Destination: {drivePath[drivePath.length - 1].name}</span>
+                  <div style={{ flex: 1 }} />
+                  <button style={styles.searchBtn} onClick={uploadToDrive}>Upload here</button>
                 </div>
               </>
-            ) : (
-              <div style={styles.previewEmpty}>Select a pitch to preview the clip</div>
             )}
           </div>
         </div>
@@ -475,7 +849,8 @@ const styles = {
     minHeight: '100vh',
     background: '#0f0f1a',
     color: '#e2e8f0',
-    padding: '0 0 40px 0',
+    display: 'flex',
+    flexDirection: 'column',
   },
   header: {
     display: 'flex',
@@ -496,31 +871,44 @@ const styles = {
     justifyContent: 'center',
     cursor: 'pointer',
   },
-  headerTitle: {
-    fontSize: '18px',
-    fontWeight: 700,
-  },
-  headerSub: {
+  headerTitle: { fontSize: '18px', fontWeight: 700 },
+  headerSub: { fontSize: '13px', color: 'rgba(255,255,255,0.35)' },
+  drawerToggle: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    background: 'rgba(255,255,255,0.05)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '8px',
+    color: 'rgba(255,255,255,0.6)',
+    padding: '7px 14px',
     fontSize: '13px',
-    color: 'rgba(255,255,255,0.35)',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
   },
-  filterCard: {
-    margin: '20px 32px 0',
-    background: 'rgba(255,255,255,0.02)',
-    border: '1px solid rgba(255,255,255,0.06)',
-    borderRadius: '12px',
-    padding: '16px',
+  drawerToggleOn: {
+    background: 'rgba(99,102,241,0.15)',
+    borderColor: 'rgba(99,102,241,0.4)',
+    color: '#a5b4fc',
   },
-  filterGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))',
-    gap: '12px',
+  body: {
+    display: 'flex',
+    flex: 1,
+    minHeight: 0,
+    alignItems: 'stretch',
   },
-  filterField: {
+  filterCol: {
+    width: '260px',
+    flexShrink: 0,
+    padding: '18px',
+    borderRight: '1px solid rgba(255,255,255,0.06)',
+    overflowY: 'auto',
+    maxHeight: 'calc(100vh - 75px)',
     display: 'flex',
     flexDirection: 'column',
-    gap: '5px',
+    gap: '14px',
   },
+  filterField: { display: 'flex', flexDirection: 'column', gap: '5px' },
   filterLabel: {
     fontSize: '11px',
     fontWeight: 600,
@@ -540,22 +928,14 @@ const styles = {
     boxSizing: 'border-box',
     colorScheme: 'dark',
   },
-  pairRow: {
-    display: 'flex',
-    gap: '6px',
-  },
-  chipRow: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: '6px',
-    marginTop: '14px',
-  },
+  pairRow: { display: 'flex', gap: '6px' },
+  chipRow: { display: 'flex', flexWrap: 'wrap', gap: '5px' },
   chip: {
     background: 'rgba(255,255,255,0.04)',
     border: '1px solid rgba(255,255,255,0.08)',
     borderRadius: '999px',
     color: 'rgba(255,255,255,0.55)',
-    padding: '4px 12px',
+    padding: '3px 10px',
     fontSize: '12px',
     fontWeight: 600,
     cursor: 'pointer',
@@ -566,12 +946,6 @@ const styles = {
     borderColor: 'rgba(99,102,241,0.5)',
     color: '#a5b4fc',
   },
-  filterActions: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    marginTop: '14px',
-  },
   archToggle: {
     display: 'flex',
     alignItems: 'center',
@@ -580,6 +954,7 @@ const styles = {
     color: 'rgba(255,255,255,0.6)',
     cursor: 'pointer',
   },
+  filterActions: { display: 'flex', gap: '8px' },
   clearFiltersBtn: {
     background: 'rgba(255,255,255,0.05)',
     border: '1px solid rgba(255,255,255,0.08)',
@@ -600,58 +975,45 @@ const styles = {
     fontWeight: 600,
     cursor: 'pointer',
     fontFamily: 'inherit',
+    flex: 1,
   },
   batchBtn: {
     background: 'rgba(99,102,241,0.15)',
     border: '1px solid rgba(99,102,241,0.4)',
     borderRadius: '8px',
     color: '#a5b4fc',
-    padding: '7px 16px',
+    padding: '7px 14px',
     fontSize: '13px',
     fontWeight: 600,
     cursor: 'pointer',
     fontFamily: 'inherit',
   },
-  batchProgress: {
-    fontSize: '13px',
-    color: '#a5b4fc',
-  },
-  errorMsg: {
-    marginTop: '10px',
-    color: '#f87171',
-    fontSize: '13px',
-  },
-  resultsWrap: {
-    display: 'flex',
-    gap: '20px',
-    margin: '20px 32px 0',
-    alignItems: 'flex-start',
-  },
+  batchProgress: { fontSize: '13px', color: '#a5b4fc' },
+  errorMsg: { color: '#f87171', fontSize: '13px' },
   resultsCol: {
     flex: 1,
     minWidth: 0,
-  },
-  resultsBar: {
+    padding: '18px 24px',
     display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    marginBottom: '10px',
+    flexDirection: 'column',
   },
-  resultsCount: {
-    fontSize: '13px',
-    color: 'rgba(255,255,255,0.45)',
+  placeholder: {
+    padding: '80px 20px',
+    textAlign: 'center',
+    color: 'rgba(255,255,255,0.3)',
+    fontSize: '14px',
   },
+  resultsBar: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', flexWrap: 'wrap' },
+  resultsCount: { fontSize: '13px', color: 'rgba(255,255,255,0.45)' },
   tableScroll: {
     overflow: 'auto',
-    maxHeight: 'calc(100vh - 340px)',
+    flex: 1,
+    minHeight: 0,
+    maxHeight: 'calc(100vh - 175px)',
     border: '1px solid rgba(255,255,255,0.06)',
     borderRadius: '12px',
   },
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse',
-    fontSize: '13px',
-  },
+  table: { width: '100%', borderCollapse: 'collapse', fontSize: '13px' },
   th: {
     position: 'sticky',
     top: 0,
@@ -666,17 +1028,9 @@ const styles = {
     borderBottom: '1px solid rgba(255,255,255,0.08)',
     zIndex: 1,
   },
-  tr: {
-    cursor: 'pointer',
-    borderBottom: '1px solid rgba(255,255,255,0.04)',
-  },
-  trSelected: {
-    background: 'rgba(99,102,241,0.12)',
-  },
-  td: {
-    padding: '8px 12px',
-    whiteSpace: 'nowrap',
-  },
+  tr: { cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' },
+  trSelected: { background: 'rgba(99,102,241,0.12)' },
+  td: { padding: '8px 12px', whiteSpace: 'nowrap' },
   rowBtn: {
     background: 'rgba(255,255,255,0.05)',
     border: '1px solid rgba(255,255,255,0.08)',
@@ -689,81 +1043,141 @@ const styles = {
     justifyContent: 'center',
     cursor: 'pointer',
   },
-  pendingTag: {
-    fontSize: '11px',
-    color: 'rgba(255,255,255,0.3)',
-    fontStyle: 'italic',
-  },
-  emptyCell: {
-    padding: '28px',
-    textAlign: 'center',
-    color: 'rgba(255,255,255,0.35)',
-  },
-  previewCol: {
-    width: '420px',
+  pendingTag: { fontSize: '11px', color: 'rgba(255,255,255,0.3)', fontStyle: 'italic' },
+  emptyCell: { padding: '28px', textAlign: 'center', color: 'rgba(255,255,255,0.35)' },
+  drawer: {
+    width: '320px',
     flexShrink: 0,
-    position: 'sticky',
-    top: '20px',
+    borderLeft: '1px solid rgba(255,255,255,0.06)',
+    display: 'flex',
+    flexDirection: 'column',
+    maxHeight: 'calc(100vh - 75px)',
   },
-  video: {
+  drawerHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '14px 16px',
+    borderBottom: '1px solid rgba(255,255,255,0.06)',
+  },
+  drawerTitle: { fontSize: '14px', fontWeight: 700 },
+  drawerClose: {
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: '20px',
+    cursor: 'pointer',
+    lineHeight: 1,
+    padding: '2px 6px',
+  },
+  drawerList: { overflowY: 'auto', flex: 1, padding: '8px' },
+  drawerEmpty: { padding: '24px', textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: '13px' },
+  historyItem: {
+    display: 'block',
     width: '100%',
-    borderRadius: '12px',
-    background: '#000',
+    textAlign: 'left',
+    background: 'rgba(255,255,255,0.02)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '10px',
+    padding: '10px 12px',
+    marginBottom: '8px',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    color: '#e2e8f0',
+  },
+  historyTop: { display: 'flex', justifyContent: 'space-between', marginBottom: '4px' },
+  historyUser: { fontSize: '12px', fontWeight: 700, color: '#a5b4fc' },
+  historyTime: { fontSize: '11px', color: 'rgba(255,255,255,0.3)' },
+  historySummary: { fontSize: '12px', color: 'rgba(255,255,255,0.7)', lineHeight: 1.4 },
+  historyCount: { fontSize: '11px', color: 'rgba(255,255,255,0.35)', marginTop: '3px' },
+  modalBackdrop: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,0.7)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+  },
+  modalCard: {
+    background: '#16162a',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '14px',
+    width: '720px',
+    maxWidth: '92vw',
+    maxHeight: '90vh',
+    overflow: 'auto',
+    padding: '16px',
+  },
+  modalHeader: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '12px' },
+  modalTitle: { fontSize: '15px', fontWeight: 700 },
+  modalSub: { fontWeight: 400, color: 'rgba(255,255,255,0.5)', fontSize: '13px' },
+  modalVideo: { width: '100%', borderRadius: '10px', background: '#000' },
+  modalFooter: { display: 'flex', alignItems: 'center', gap: '10px', marginTop: '12px', flexWrap: 'wrap' },
+  modalMeta: { fontSize: '12px', color: 'rgba(255,255,255,0.4)' },
+  modalCounter: { fontSize: '13px', color: 'rgba(255,255,255,0.6)', minWidth: '52px', textAlign: 'center' },
+  navBtn: {
+    background: 'rgba(255,255,255,0.05)',
     border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '8px',
+    color: '#e2e8f0',
+    padding: '7px 14px',
+    fontSize: '13px',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
   },
   noVideo: {
     padding: '40px 20px',
     textAlign: 'center',
     background: 'rgba(255,255,255,0.02)',
-    border: '1px solid rgba(255,255,255,0.06)',
-    borderRadius: '12px',
+    borderRadius: '10px',
     color: 'rgba(255,255,255,0.5)',
     fontSize: '13px',
   },
-  previewEmpty: {
-    padding: '60px 20px',
-    textAlign: 'center',
-    background: 'rgba(255,255,255,0.02)',
-    border: '1px dashed rgba(255,255,255,0.1)',
-    borderRadius: '12px',
-    color: 'rgba(255,255,255,0.3)',
-    fontSize: '13px',
-  },
-  metaCard: {
-    marginTop: '12px',
-    background: 'rgba(255,255,255,0.02)',
-    border: '1px solid rgba(255,255,255,0.06)',
-    borderRadius: '12px',
-    padding: '16px',
-  },
-  metaTitle: {
-    fontSize: '15px',
-    fontWeight: 700,
-    marginBottom: '10px',
-  },
-  metaGrid: {
-    display: 'grid',
-    gridTemplateColumns: '70px 1fr',
-    rowGap: '6px',
-    columnGap: '10px',
-    fontSize: '13px',
-  },
-  metaKey: {
-    color: 'rgba(255,255,255,0.4)',
-  },
-  metaVal: {
-    color: '#e2e8f0',
-    textTransform: 'capitalize',
-  },
-  metaActions: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '14px',
-    marginTop: '14px',
-  },
-  link: {
+  link: { color: '#a5b4fc', fontSize: '13px', textDecoration: 'none' },
+  crumbRow: { display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap', marginBottom: '10px' },
+  crumb: {
+    background: 'none',
+    border: 'none',
     color: '#a5b4fc',
     fontSize: '13px',
-    textDecoration: 'none',
+    cursor: 'pointer',
+    padding: '2px 4px',
+    fontFamily: 'inherit',
   },
+  crumbSep: { color: 'rgba(255,255,255,0.3)', fontSize: '13px' },
+  folderList: {
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '10px',
+    maxHeight: '260px',
+    overflowY: 'auto',
+    marginBottom: '10px',
+  },
+  folderItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    width: '100%',
+    textAlign: 'left',
+    background: 'none',
+    border: 'none',
+    borderBottom: '1px solid rgba(255,255,255,0.04)',
+    color: '#e2e8f0',
+    padding: '9px 12px',
+    fontSize: '13px',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  newFolderRow: { display: 'flex', gap: '8px', marginBottom: '6px' },
+  uploadStatus: { padding: '20px 8px', display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'stretch' },
+  uploadBarOuter: {
+    height: '8px',
+    borderRadius: '999px',
+    background: 'rgba(255,255,255,0.06)',
+    overflow: 'hidden',
+  },
+  uploadBarInner: { height: '100%', background: '#6366f1', transition: 'width 0.25s' },
+  uploadLabel: { fontSize: '13px', color: 'rgba(255,255,255,0.7)' },
+  uploadCurrent: { fontSize: '12px', color: 'rgba(255,255,255,0.4)', wordBreak: 'break-all' },
+  uploadDone: { fontSize: '14px', fontWeight: 600, color: '#a5b4fc', textAlign: 'center' },
 };
