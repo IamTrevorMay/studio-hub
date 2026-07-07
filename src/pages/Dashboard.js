@@ -1469,7 +1469,8 @@ export default function Dashboard({ onNavigate }) {
           onMouseEnter={(e) => { e.currentTarget.style.color = colors.textMuted; }}
           onMouseLeave={(e) => { e.currentTarget.style.color = colors.textDim; }}
         >
-          ⚙
+          <span style={styles.settingsCogIcon}>⚙</span>
+          Settings
         </button>
       </div>
 
@@ -2318,16 +2319,25 @@ const styles = {
   },
   settingsCog: {
     marginLeft: 'auto',
-    alignSelf: 'flex-start',
-    background: 'transparent',
-    border: 'none',
+    alignSelf: 'center',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '8px',
     color: colors.textDim,
-    fontSize: '20px',
+    fontSize: '13px',
+    fontFamily: 'inherit',
     cursor: 'pointer',
-    padding: `${spacing.xs}px`,
+    padding: `${spacing.xs}px ${spacing.md}px`,
     lineHeight: 1,
     transition: 'color 0.15s',
     flexShrink: 0,
+  },
+  settingsCogIcon: {
+    fontSize: '16px',
+    lineHeight: 1,
   },
   settingsRow: {
     display: 'flex',
