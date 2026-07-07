@@ -161,6 +161,26 @@ export default function MessagesMobile({ onNavigate }) {
     return (m.nickname || '').toLowerCase().includes(needle) || (m.full_name || '').toLowerCase().includes(needle);
   });
 
+  // While a conversation is open, one history entry sits on the stack so the
+  // phone's back button/gesture returns to the thread list instead of leaving
+  // the Messages tab. The sheet's chevron goes through history.back() too, so
+  // popstate is the single close path and the stack never accumulates entries.
+  useEffect(() => {
+    if (!activeConvo) return undefined;
+    window.history.pushState({ maydayConvo: activeConvo.id }, '');
+    const onPop = () => setActiveConvo(null);
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [activeConvo?.id]);
+
+  function closeActiveConvo() {
+    if (window.history.state?.maydayConvo) {
+      window.history.back();
+    } else {
+      setActiveConvo(null);
+    }
+  }
+
   // Long-press a thread to open its action sheet (mobile equivalent of right-click).
   function startPress(convo) {
     longPressFired.current = false;
@@ -191,7 +211,7 @@ export default function MessagesMobile({ onNavigate }) {
       .eq('conversation_id', convo.id)
       .eq('user_id', profile.id);
     if (error) { console.error('Error leaving conversation:', error); return; }
-    if (activeConvo?.id === convo.id) setActiveConvo(null);
+    if (activeConvo?.id === convo.id) closeActiveConvo();
     setConversations((prev) => prev.filter((c) => c.id !== convo.id));
   }
 
@@ -254,7 +274,7 @@ export default function MessagesMobile({ onNavigate }) {
 
       <FullScreenSheet
         open={!!activeConvo}
-        onClose={() => setActiveConvo(null)}
+        onClose={closeActiveConvo}
         title={activeConvo ? convoName(activeConvo) : ''}
       >
         {activeConvo && (
