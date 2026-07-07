@@ -58,6 +58,7 @@ export default function Messages({ onNavigate }) {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [loading, setLoading] = useState(true);
   const [contextMenu, setContextMenu] = useState(null); // { convo, x, y }
+  const [replyingTo, setReplyingTo] = useState(null); // message being replied to
   const [renamingConvo, setRenamingConvo] = useState(null); // convo being renamed
   const [renameValue, setRenameValue] = useState('');
   const groupImageInputRef = useRef(null);
@@ -150,7 +151,7 @@ export default function Messages({ onNavigate }) {
       // hid the live conversation once a thread passed 100 messages.
       const { data, error } = await supabase
         .from('direct_messages')
-        .select('*, profile:profiles(id, full_name, nickname, title, avatar_url)')
+        .select('*, profile:profiles(id, full_name, nickname, title, avatar_url), reply_to:direct_messages!reply_to_id(id, content, user_id, profile:profiles(id, full_name, nickname))')
         .eq('conversation_id', conversationId)
         .order('created_at', { ascending: false })
         .limit(100);
@@ -186,6 +187,7 @@ export default function Messages({ onNavigate }) {
 
   useEffect(() => {
     if (!activeConversation) return;
+    setReplyingTo(null);
     fetchMessages(activeConversation.id);
     markConversationRead(activeConversation.id);
     // Opening a conversation clears its unread badge immediately.
@@ -242,7 +244,7 @@ export default function Messages({ onNavigate }) {
       }, async (payload) => {
         const { data } = await supabase
           .from('direct_messages')
-          .select('*, profile:profiles(id, full_name, nickname, title, avatar_url)')
+          .select('*, profile:profiles(id, full_name, nickname, title, avatar_url), reply_to:direct_messages!reply_to_id(id, content, user_id, profile:profiles(id, full_name, nickname))')
           .eq('id', payload.new.id)
           .single();
         // Dedup by id — reconnect/resubscribe can redeliver, and the deps below
@@ -282,9 +284,19 @@ export default function Messages({ onNavigate }) {
       conversation_id: activeConversation.id,
       user_id: profile.id,
       content,
+      reply_to_id: replyingTo?.id || null,
     });
-    if (!error) setNewMessage(''); // only clear on success — don't silently drop the message
+    if (!error) {
+      setNewMessage(''); // only clear on success — don't silently drop the message
+      setReplyingTo(null);
+    }
     sendingRef.current = false;
+  }
+
+  // Right-click "Reply" on a message: show the quoted bar and focus the composer.
+  function startReply(msg) {
+    setReplyingTo(msg);
+    inputRef.current?.focus();
   }
 
   async function handleLeaveConversation(convo) {
@@ -683,6 +695,7 @@ export default function Messages({ onNavigate }) {
                       formatTime={formatTime}
                       onEdit={handleEditMessage}
                       onDelete={handleDeleteMessage}
+                      onReply={startReply}
                     />
                   );
                 })
@@ -691,6 +704,20 @@ export default function Messages({ onNavigate }) {
             </div>
 
             <div style={styles.inputWrap}>
+              {replyingTo && (
+                <div style={styles.replyBar}>
+                  <div style={styles.replyBarAccent} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={styles.replyBarName}>
+                      Replying to {replyingTo.user_id === profile?.id ? 'yourself' : getDisplayName(replyingTo.profile)}
+                    </div>
+                    <div style={styles.replyBarSnippet}>
+                      {replyingTo.content.substring(0, 120)}{replyingTo.content.length > 120 ? '…' : ''}
+                    </div>
+                  </div>
+                  <button onClick={() => setReplyingTo(null)} style={styles.replyBarClose} title="Cancel reply">✕</button>
+                </div>
+              )}
               <form onSubmit={handleSendMessage} style={styles.inputForm}>
                 <textarea
                   ref={inputRef}
@@ -793,9 +820,10 @@ export default function Messages({ onNavigate }) {
   );
 }
 
-function DmMessage({ msg, isOwn, showAvatar, formatContent, formatTime, onEdit, onDelete }) {
+function DmMessage({ msg, isOwn, showAvatar, formatContent, formatTime, onEdit, onDelete, onReply }) {
   const [hovered, setHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState(null); // { x, y } from right-click
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(msg.content);
   const menuRef = useRef(null);
@@ -840,6 +868,17 @@ function DmMessage({ msg, isOwn, showAvatar, formatContent, formatTime, onEdit, 
   function handleCopy() {
     navigator.clipboard.writeText(msg.content).catch(() => {});
     setMenuOpen(false);
+    setCtxMenu(null);
+  }
+  function handleReply() {
+    onReply(msg);
+    setMenuOpen(false);
+    setCtxMenu(null);
+  }
+  // Clicking the quoted snippet jumps to the original message (if still loaded).
+  function scrollToOriginal() {
+    document.getElementById(`dm-msg-${msg.reply_to.id}`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
   function handleEditKeyDown(e) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -860,9 +899,15 @@ function DmMessage({ msg, isOwn, showAvatar, formatContent, formatTime, onEdit, 
 
   return (
     <div
+      id={`dm-msg-${msg.id}`}
       style={{ ...styles.msgRow, justifyContent: isOwn ? 'flex-end' : 'flex-start' }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onContextMenu={(e) => {
+        if (editing) return;
+        e.preventDefault();
+        setCtxMenu({ x: e.clientX, y: e.clientY });
+      }}
     >
       {!isOwn && showAvatar && (
         <div style={styles.msgAvatar}>
@@ -882,6 +927,7 @@ function DmMessage({ msg, isOwn, showAvatar, formatContent, formatTime, onEdit, 
           </button>
           {menuOpen && (
             <div ref={menuRef} style={styles.msgMenuDropdown}>
+              <button onClick={handleReply} style={styles.msgMenuItem}>↩️ Reply</button>
               <button onClick={handleStartEdit} style={styles.msgMenuItem}>✏️ Edit</button>
               <button onClick={handleCopy} style={styles.msgMenuItem}>📋 Copy</button>
               <button
@@ -893,6 +939,32 @@ function DmMessage({ msg, isOwn, showAvatar, formatContent, formatTime, onEdit, 
             </div>
           )}
         </div>
+      )}
+
+      {/* Right-click context menu (iOS Messages-style reply) */}
+      {ctxMenu && (
+        <>
+          <div
+            style={styles.contextOverlay}
+            onClick={() => setCtxMenu(null)}
+            onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }}
+          />
+          <div style={{ ...styles.contextMenu, top: ctxMenu.y, left: ctxMenu.x }}>
+            <button onClick={handleReply} style={styles.contextItem}>↩️ Reply</button>
+            <button onClick={handleCopy} style={styles.contextItem}>📋 Copy</button>
+            {isOwn && (
+              <>
+                <button onClick={() => { setCtxMenu(null); handleStartEdit(); }} style={styles.contextItem}>✏️ Edit</button>
+                <button
+                  onClick={() => { setCtxMenu(null); onDelete(msg.id); }}
+                  style={{ ...styles.contextItem, color: '#fca5a5' }}
+                >
+                  🗑 Delete
+                </button>
+              </>
+            )}
+          </div>
+        </>
       )}
 
       <div style={{
@@ -922,6 +994,20 @@ function DmMessage({ msg, isOwn, showAvatar, formatContent, formatTime, onEdit, 
           </>
         ) : (
           <>
+            {msg.reply_to_id && (
+              msg.reply_to ? (
+                <div style={styles.msgReplyQuote} onClick={scrollToOriginal} title="Go to original message">
+                  <div style={styles.msgReplyQuoteName}>{getDisplayName(msg.reply_to.profile)}</div>
+                  <div style={styles.msgReplyQuoteText}>
+                    {msg.reply_to.content.substring(0, 100)}{msg.reply_to.content.length > 100 ? '…' : ''}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ ...styles.msgReplyQuote, cursor: 'default', fontStyle: 'italic' }}>
+                  <div style={styles.msgReplyQuoteText}>Original message deleted</div>
+                </div>
+              )
+            )}
             <div style={styles.msgContent}>
               {formatContent(msg.content)}
               {msg.edited_at && <span style={styles.msgEditedTag}>(edited)</span>}
@@ -1121,6 +1207,41 @@ const styles = {
   },
   inputWrap: {
     padding: '12px 24px 16px', flexShrink: 0,
+  },
+  replyBar: {
+    display: 'flex', alignItems: 'center', gap: '10px',
+    padding: '8px 12px', marginBottom: '8px',
+    background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.15)',
+    borderRadius: '10px',
+  },
+  replyBarAccent: {
+    width: '3px', alignSelf: 'stretch', borderRadius: '2px',
+    background: '#6366f1', flexShrink: 0,
+  },
+  replyBarName: {
+    fontSize: '12px', fontWeight: 600, color: '#a5b4fc',
+  },
+  replyBarSnippet: {
+    fontSize: '12px', color: 'rgba(255,255,255,0.45)',
+    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+  },
+  replyBarClose: {
+    background: 'none', border: 'none', cursor: 'pointer',
+    color: 'rgba(255,255,255,0.4)', fontSize: '13px', padding: '4px 6px',
+    fontFamily: 'inherit', flexShrink: 0,
+  },
+  msgReplyQuote: {
+    borderLeft: '2px solid rgba(99,102,241,0.6)',
+    background: 'rgba(255,255,255,0.04)',
+    borderRadius: '6px', padding: '5px 9px', marginBottom: '6px',
+    cursor: 'pointer',
+  },
+  msgReplyQuoteName: {
+    fontSize: '11px', fontWeight: 600, color: '#a5b4fc',
+  },
+  msgReplyQuoteText: {
+    fontSize: '12px', color: 'rgba(255,255,255,0.45)', lineHeight: 1.4,
+    wordBreak: 'break-word',
   },
   inputForm: {
     display: 'flex', gap: '8px', alignItems: 'flex-end',
