@@ -131,6 +131,11 @@ export default function PitchVideos({ onBack }) {
   // Review modal: { clips: [row...], index } — single view is a 1-clip playlist
   const [modal, setModal] = useState(null);
 
+  // Live-resolved CDN mp4s for not-yet-archived clips, keyed by rowKey.
+  // undefined = not tried, null = resolving failed, string = playable URL.
+  const [savantMp4, setSavantMp4] = useState({});
+  const [resolvingKey, setResolvingKey] = useState(null);
+
   // Global history drawer
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [history, setHistory] = useState([]);
@@ -430,6 +435,35 @@ export default function PitchVideos({ onBack }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [modal]);
 
+  // When a not-yet-archived clip is opened, ask Triton to live-resolve the
+  // Savant CDN mp4 so it can play in the modal instead of linking out.
+  useEffect(() => {
+    const clip = modal ? modal.clips[modal.index] : null;
+    if (!clip || clip.video_url) return undefined;
+    const key = rowKey(clip);
+    if (savantMp4[key] !== undefined) return undefined;
+    let cancelled = false;
+    (async () => {
+      setResolvingKey(key);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch(
+          `/api/pitch-video?game_pk=${clip.game_pk}&ab=${clip.at_bat_number}&pitch=${clip.pitch_number}&resolve_mp4=true`,
+          { headers: { Authorization: `Bearer ${session.access_token}` } },
+        );
+        const json = await res.json().catch(() => ({}));
+        if (!cancelled) {
+          setSavantMp4((m) => ({ ...m, [key]: json?.row?.savant_mp4_url || null }));
+        }
+      } catch {
+        if (!cancelled) setSavantMp4((m) => ({ ...m, [key]: null }));
+      } finally {
+        if (!cancelled) setResolvingKey((k) => (k === key ? null : k));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [modal, savantMp4]);
+
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div style={styles.container}>
@@ -716,19 +750,21 @@ export default function PitchVideos({ onBack }) {
               </div>
               <button style={styles.drawerClose} onClick={() => setModal(null)} title="Close">×</button>
             </div>
-            {modalClip.video_url ? (
+            {(modalClip.video_url || savantMp4[rowKey(modalClip)]) ? (
               <video
                 key={rowKey(modalClip)}
-                src={modalClip.video_url}
+                src={modalClip.video_url || savantMp4[rowKey(modalClip)]}
                 controls
                 autoPlay
                 onEnded={() => { if (modal.index < modal.clips.length - 1) modalNext(); }}
                 style={styles.modalVideo}
               />
+            ) : resolvingKey === rowKey(modalClip) ? (
+              <div style={styles.noVideo}>Loading clip from Savant…</div>
             ) : (
               <div style={styles.noVideo}>
-                Clip not archived yet ({modalClip.status}).{' '}
-                <a href={modalClip.savant_url} target="_blank" rel="noreferrer" style={styles.link}>Watch on Savant</a>
+                No clip available for this pitch ({modalClip.status}).{' '}
+                <a href={modalClip.savant_url} target="_blank" rel="noreferrer" style={styles.link}>Try Savant</a>
               </div>
             )}
             <div style={styles.modalFooter}>
