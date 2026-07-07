@@ -1384,6 +1384,11 @@ export default function Dashboard({ onNavigate }) {
         </div>
       </div>
 
+      {/* Two-column layout */}
+      <div style={{ display: 'flex', gap: '28px', alignItems: 'flex-start' }}>
+      {/* Left Column */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+
       {/* Profile Card */}
       <div style={styles.profileCard}>
         <label
@@ -1467,11 +1472,6 @@ export default function Dashboard({ onNavigate }) {
           ⚙
         </button>
       </div>
-
-      {/* Two-column layout */}
-      <div style={{ display: 'flex', gap: '28px', alignItems: 'flex-start' }}>
-      {/* Left Column */}
-      <div style={{ flex: 2, minWidth: 0 }}>
 
       {/* Announcements */}
       <div style={{ ...styles.itineraryCard, marginBottom: '36px' }}>
@@ -2046,7 +2046,7 @@ export default function Dashboard({ onNavigate }) {
 
       </div>
       {/* Right Column */}
-      <div style={{ flex: 3, minWidth: 0 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
         <h2 style={styles.sectionTitle}>Sprint</h2>
         {/* Sprint Planning */}
         {!isPartner && <SprintPanel profile={profile} boardVersion={boardVersion} onSprintChange={() => setSprintVersion(v => v + 1)} />}
