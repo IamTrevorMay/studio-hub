@@ -67,7 +67,7 @@ const NAV_ITEMS = [
   { key: 'teleprompter', label: 'Teleprompter', icon: ToolsIcon },
   { key: 'broadcast', label: 'Broadcast', icon: ToolsIcon, adminOnly: true, hidden: true },
   { key: 'telestration', label: 'Telestrator', icon: ToolsIcon },
-  { key: 'pitch_videos', label: 'Pitch Video Search', icon: ToolsIcon },
+  { key: 'pitch_videos', label: 'Pitch Video Search', icon: CameraIcon },
   { key: 'post_show', label: 'Clipping Tool', icon: ToolsIcon },
   { key: 'timeline', label: 'Timeline', icon: ToolsIcon },
   { key: 'mailer', label: 'Mailer', icon: MailerIcon, adminOnly: true },
@@ -199,6 +199,7 @@ const NAV_ICON_MAP = {
   teleprompter: ToolsIcon,
   broadcast: ToolsIcon,
   telestration: ToolsIcon,
+  pitch_videos: CameraIcon,
   post_show: ToolsIcon,
   timeline: ToolsIcon,
   mailer: MailerIcon,
@@ -1217,6 +1218,15 @@ function ToolsIcon({ active }) {
       <path d="M14.5 3.5a2.5 2.5 0 00-3.54 0L9.5 5l5 5 1.46-1.46a2.5 2.5 0 000-3.54l-1.46-1.5z" />
       <path d="M9.5 5L3 11.5V15h3.5L13 8.5" />
       <path d="M7.5 12.5L5 15" />
+    </svg>
+  );
+}
+
+function CameraIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <rect x="2" y="5.5" width="11" height="9" rx="2" />
+      <path d="M13 9.5l5-2.5v6l-5-2.5" strokeLinejoin="round" />
     </svg>
   );
 }
