@@ -31,6 +31,7 @@ import Teleprompter from './tools/Teleprompter';
 import Organize from './tools/Organize';
 import PostShow from './tools/PostShow';
 import Telestration from './tools/Telestration';
+import PitchVideos from './tools/PitchVideos';
 import Timeline from './tools/Timeline';
 import Broadcast from './tools/Broadcast';
 import Mailer from './tools/Mailer';
@@ -66,6 +67,7 @@ const NAV_ITEMS = [
   { key: 'teleprompter', label: 'Teleprompter', icon: ToolsIcon },
   { key: 'broadcast', label: 'Broadcast', icon: ToolsIcon, adminOnly: true, hidden: true },
   { key: 'telestration', label: 'Telestrator', icon: ToolsIcon },
+  { key: 'pitch_videos', label: 'Pitch Video Search', icon: ToolsIcon },
   { key: 'post_show', label: 'Clipping Tool', icon: ToolsIcon },
   { key: 'timeline', label: 'Timeline', icon: ToolsIcon },
   { key: 'mailer', label: 'Mailer', icon: MailerIcon, adminOnly: true },
@@ -810,6 +812,7 @@ export default function AppLayout() {
           {activeTab === 'screenwriter' && <PageErrorBoundary key="screenwriter"><Screenwriter initialScriptId={navTarget} onScriptOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {activeTab === 'teleprompter' && <PageErrorBoundary key="teleprompter"><Teleprompter onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {activeTab === 'telestration' && <PageErrorBoundary key="telestration"><Telestration onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
+          {activeTab === 'pitch_videos' && <PageErrorBoundary key="pitch_videos"><PitchVideos onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {activeTab === 'post_show' && <PageErrorBoundary key="post_show"><PostShow onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {activeTab === 'timeline' && <PageErrorBoundary key="timeline"><Timeline /></PageErrorBoundary>}
           {activeTab === 'organize' && <PageErrorBoundary key="organize"><Organize onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}

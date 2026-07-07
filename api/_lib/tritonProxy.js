@@ -17,7 +17,7 @@ const { createClient } = require('@supabase/supabase-js');
 
 const DEFAULT_TRITON_ORIGIN = 'https://www.tritonapex.io';
 
-async function proxyToTriton(req, res, path) {
+async function proxyToTriton(req, res, path, opts = {}) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'authorization, content-type, apikey');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -65,7 +65,10 @@ async function proxyToTriton(req, res, path) {
   try {
     upstream = await fetch(upstreamUrl, {
       method: 'GET',
-      headers: { 'Accept': 'application/json' },
+      // upstreamHeaders lets a route add auth for key-protected Triton
+      // endpoints (e.g. pitch-video's Bearer consumer key) without the
+      // key ever reaching the browser.
+      headers: { 'Accept': 'application/json', ...(opts.upstreamHeaders || {}) },
       // 25s ceiling for very large heatmap queries
       signal: AbortSignal.timeout(25_000),
     });

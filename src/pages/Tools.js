@@ -4,6 +4,7 @@ import Teleprompter from './tools/Teleprompter';
 import Organize from './tools/Organize';
 import PostShow from './tools/PostShow';
 import Telestration from './tools/Telestration';
+import PitchVideos from './tools/PitchVideos';
 
 const TOOLS = [
   {
@@ -36,6 +37,12 @@ const TOOLS = [
     name: 'Telestration',
     description: 'Video annotation tool for drawing over footage frame-by-frame. Break down plays, highlight technique, and export.',
     color: '#38bdf8',
+  },
+  {
+    key: 'pitch-videos',
+    name: 'Pitch Videos',
+    description: 'Search the Savant pitch clip archive by player, pitch type, result, count, and more — preview and download clips.',
+    color: '#f59e0b',
   },
 {
     key: 'assets',
@@ -82,6 +89,9 @@ export default function Tools({ onNavigate }) {
   }
   if (activeTool === 'telestration') {
     return <Telestration onBack={() => setActiveTool(null)} />;
+  }
+  if (activeTool === 'pitch-videos') {
+    return <PitchVideos onBack={() => setActiveTool(null)} />;
   }
 
   return (
