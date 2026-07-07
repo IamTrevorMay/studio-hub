@@ -13,6 +13,7 @@ import { modalOverlay, modal as modalShell, button as buttonRecipe } from '../li
 
 import SprintBoard from '../components/SprintBoard';
 import SprintPanel from '../components/SprintPanel';
+import NotificationSettings from '../components/NotificationSettings';
 import MyTasks from './MyTasks';
 
 const STATUS_COLORS = {
@@ -129,9 +130,6 @@ export default function Dashboard({ onNavigate }) {
 
   // Settings modal (cogwheel on profile card)
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [notifPermission, setNotifPermission] = useState(
-    typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
-  );
 
   // Cross-component refresh counters
   const [boardVersion, setBoardVersion] = useState(0);   // SprintBoard changed → SprintPanel re-fetches
@@ -700,22 +698,6 @@ export default function Dashboard({ onNavigate }) {
   async function handleTitleSave() {
     await updateProfile({ title: titleDraft });
     setEditingTitle(false);
-  }
-
-  async function handleDesktopNotifToggle() {
-    if (profile?.desktop_notifications_enabled === true) {
-      await updateProfile({ desktop_notifications_enabled: false });
-      return;
-    }
-    if (typeof Notification === 'undefined') return;
-    let perm = Notification.permission;
-    if (perm === 'default') {
-      perm = await Notification.requestPermission();
-    }
-    setNotifPermission(perm);
-    if (perm === 'granted') {
-      await updateProfile({ desktop_notifications_enabled: true });
-    }
   }
 
   async function handleNameSave() {
@@ -2073,24 +2055,8 @@ export default function Dashboard({ onNavigate }) {
               Settings
             </h3>
 
-            {/* Desktop Notifications */}
-            <div style={styles.settingsRow}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={styles.settingsLabel}>Desktop Notifications</div>
-                <div style={styles.settingsCaption}>
-                  {notifPermission === 'denied'
-                    ? 'Blocked in browser settings — allow notifications for this site to enable'
-                    : notifPermission === 'unsupported'
-                      ? 'Not supported in this browser'
-                      : 'OS alerts for new notifications while this tab is in the background'}
-                </div>
-              </div>
-              <ToggleSwitch
-                on={profile?.desktop_notifications_enabled === true && notifPermission === 'granted'}
-                onClick={handleDesktopNotifToggle}
-                disabled={notifPermission === 'denied' || notifPermission === 'unsupported'}
-              />
-            </div>
+            {/* Desktop + Mobile notification sections */}
+            <NotificationSettings />
 
             {/* Morty */}
             <div style={styles.settingsRow}>

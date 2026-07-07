@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from './AuthContext';
+import { isTypeEnabled } from '../lib/notificationPrefs';
 
 const NotificationContext = createContext({});
 
@@ -97,10 +98,13 @@ export function NotificationProvider({ children }) {
 
   // Fire a native OS notification for a freshly-inserted notifications row.
   // Only when the user opted in (profiles.desktop_notifications_enabled),
-  // the browser permission is granted, and the tab is in the background.
+  // the row's category is enabled in their desktop prefs, the browser
+  // permission is granted, and the tab is in the background.
   const desktopNotifEnabled = profile?.desktop_notifications_enabled === true;
+  const notificationPrefs = profile?.notification_prefs;
   const fireDesktopNotification = useCallback((row) => {
     if (!desktopNotifEnabled) return;
+    if (!isTypeEnabled(notificationPrefs, 'desktop', row?.type)) return;
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
     if (!document.hidden) return;
     try {
@@ -113,7 +117,7 @@ export function NotificationProvider({ children }) {
     } catch (e) {
       // Notification constructor can throw on unsupported platforms — ignore
     }
-  }, [desktopNotifEnabled]);
+  }, [desktopNotifEnabled, notificationPrefs]);
 
   // Initial fetch + real-time subscriptions + 5-min fallback poll
   useEffect(() => {

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import SprintBoardMobile from '../components/SprintBoardMobile';
+import NotificationSettings from '../components/NotificationSettings';
 import MyTasks from './MyTasks';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
 
@@ -49,6 +50,7 @@ const ALL_TABS = [
 export default function DashboardMobile({ onNavigate }) {
   const { profile, isAdmin } = useAuth();
   const [activeTab, setActiveTab] = useState('tasks');
+  const [showSettings, setShowSettings] = useState(false);
 
   const visibleTabs = ALL_TABS;
 
@@ -56,11 +58,24 @@ export default function DashboardMobile({ onNavigate }) {
     <div style={styles.root}>
       <header style={styles.greeting}>
         <div style={styles.avatar}>{profile?.full_name?.charAt(0)?.toUpperCase() || '?'}</div>
-        <div>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div style={styles.greetSmall}>{greet()},</div>
           <div style={styles.greetName}>{profile?.full_name?.split(' ')[0] || 'there'}</div>
         </div>
+        <button onClick={() => setShowSettings(true)} style={styles.settingsBtn} title="Notification settings">⚙</button>
       </header>
+
+      {showSettings && (
+        <div style={styles.settingsOverlay} onClick={(e) => { if (e.target === e.currentTarget) setShowSettings(false); }}>
+          <div style={styles.settingsSheet}>
+            <div style={styles.settingsSheetHeader}>
+              <div style={styles.settingsSheetTitle}>Notifications</div>
+              <button onClick={() => setShowSettings(false)} style={styles.settingsCloseBtn}>Done</button>
+            </div>
+            <NotificationSettings />
+          </div>
+        </div>
+      )}
 
       <div style={styles.tabBar} role="tablist">
         {visibleTabs.map((t) => (
@@ -588,6 +603,52 @@ const styles = {
     fontSize: mobileTokens.font.lg,
     fontWeight: 700,
     flexShrink: 0,
+  },
+  settingsBtn: {
+    ...mobileTapButton,
+    width: 40,
+    height: 40,
+    borderRadius: mobileTokens.radius.md,
+    border: '1px solid rgba(255,255,255,0.08)',
+    background: 'rgba(255,255,255,0.04)',
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 18,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  settingsOverlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,0.6)',
+    zIndex: 1000,
+    display: 'flex',
+    alignItems: 'flex-end',
+  },
+  settingsSheet: {
+    width: '100%',
+    maxHeight: '85vh',
+    overflowY: 'auto',
+    background: '#16162a',
+    borderRadius: '16px 16px 0 0',
+    padding: `${mobileTokens.space.lg}px ${mobileTokens.space.lg}px calc(${mobileTokens.space.lg}px + env(safe-area-inset-bottom))`,
+  },
+  settingsSheetHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: mobileTokens.space.md,
+  },
+  settingsSheetTitle: { fontSize: mobileTokens.font.lg, fontWeight: 700, color: '#fff' },
+  settingsCloseBtn: {
+    ...mobileTapButton,
+    border: 'none',
+    background: 'transparent',
+    color: '#a5b4fc',
+    fontSize: mobileTokens.font.md,
+    fontWeight: 600,
+    padding: '6px 8px',
   },
   greetSmall: { fontSize: mobileTokens.font.sm, color: 'rgba(255,255,255,0.5)' },
   greetName: {

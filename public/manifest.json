@@ -1,0 +1,22 @@
+{
+  "name": "Mayday Studio",
+  "short_name": "Mayday",
+  "description": "Mayday Studio - Team Intranet",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f0f1a",
+  "theme_color": "#0f0f1a",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "1000x1000",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}
