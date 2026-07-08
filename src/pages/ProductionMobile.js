@@ -244,28 +244,6 @@ function SheetEditor({ sheet, onSheetUpdated }) {
     else commit(next);
   }
 
-  // ─── Beat media (graphics / videos) ────────────────────────
-  async function uploadMedia(beatId, field, file) {
-    if (!file) return;
-    const ext = (file.name.split('.').pop() || 'bin').toLowerCase();
-    const path = `${beatId}/${field}/${crypto.randomUUID()}.${ext}`;
-    const { error } = await supabase.storage.from('beat-media').upload(path, file, { upsert: false });
-    if (error) { alert('Upload failed: ' + error.message); return; }
-    const { data: pub } = supabase.storage.from('beat-media').getPublicUrl(path);
-    const mediaObj = { url: pub.publicUrl, path, name: file.name };
-    // Append to whichever bucket (graphics/videos) the caller is using.
-    const beat = findBeat(items, beatId);
-    if (!beat) return;
-    updateBeat(beatId, { [field]: [...(beat[field] || []), mediaObj] });
-  }
-  function removeMedia(beatId, field, index) {
-    const beat = findBeat(items, beatId);
-    if (!beat) return;
-    const arr = [...(beat[field] || [])];
-    arr.splice(index, 1);
-    updateBeat(beatId, { [field]: arr });
-  }
-
   // ─── Segment mutations ─────────────────────────────────────
   function addSegment() { commit([...items, newSegment()]); }
   function updateSegment(segId, patch) {
@@ -382,8 +360,6 @@ function SheetEditor({ sheet, onSheetUpdated }) {
                           accent={it.color}
                           onUpdate={updateBeat}
                           onDelete={deleteBeat}
-                          onUpload={uploadMedia}
-                          onRemoveMedia={removeMedia}
                           onAdd={() => addBeatAt(it.id)}
                         />
                       )}
@@ -400,8 +376,6 @@ function SheetEditor({ sheet, onSheetUpdated }) {
                         accent={null}
                         onUpdate={(patch) => updateBeat(it.id, patch)}
                         onDelete={() => deleteBeat(it.id)}
-                        onUpload={(field, file) => uploadMedia(it.id, field, file)}
-                        onRemoveMedia={(field, idx) => removeMedia(it.id, field, idx)}
                       />
                       <div style={editStyles.divider} />
                     </div>
@@ -424,16 +398,6 @@ function SheetEditor({ sheet, onSheetUpdated }) {
       </div>
     </div>
   );
-}
-
-function findBeat(items, beatId) {
-  for (const it of items) {
-    if (isSegment(it)) {
-      const m = it.children?.find((b) => b.id === beatId);
-      if (m) return m;
-    } else if (it.id === beatId) return it;
-  }
-  return null;
 }
 
 // ─── Segment header ───────────────────────────────────────────
@@ -471,7 +435,7 @@ function SegmentHeader({ segment, dragHandleProps, collapsed, onToggleCollapse, 
 
 // ─── Beat list (used inside segments + at top level) ──────────
 
-function BeatList({ droppableId, beats, accent, onUpdate, onDelete, onUpload, onRemoveMedia, onAdd }) {
+function BeatList({ droppableId, beats, accent, onUpdate, onDelete, onAdd }) {
   return (
     <Droppable droppableId={droppableId} type="ANY">
       {(prov) => (
@@ -486,8 +450,6 @@ function BeatList({ droppableId, beats, accent, onUpdate, onDelete, onUpload, on
                     accent={accent}
                     onUpdate={(patch) => onUpdate(b.id, patch)}
                     onDelete={() => onDelete(b.id)}
-                    onUpload={(field, file) => onUpload(b.id, field, file)}
-                    onRemoveMedia={(field, idx) => onRemoveMedia(b.id, field, idx)}
                   />
                   <div style={editStyles.divider} />
                 </div>
@@ -506,7 +468,11 @@ function BeatList({ droppableId, beats, accent, onUpdate, onDelete, onUpload, on
 
 // ─── Beat card ────────────────────────────────────────────────
 
-function BeatCard({ beat, dragHandleProps, accent, onUpdate, onDelete, onUpload, onRemoveMedia }) {
+// Field semantics mirror the desktop beat row: `title` is the beat's content
+// ("Beat..."), `context` is opt-in behind a "+ Context" button, graphics and
+// videos are plain text tag lists (no uploads), notes at the end.
+function BeatCard({ beat, dragHandleProps, accent, onUpdate, onDelete }) {
+  const [showContext, setShowContext] = useState(!!beat.context);
   return (
     <article style={{ ...editStyles.beatCard, borderLeft: accent ? `3px solid ${accent}` : '3px solid transparent' }}>
       <div style={editStyles.beatHeader}>
@@ -515,72 +481,94 @@ function BeatCard({ beat, dragHandleProps, accent, onUpdate, onDelete, onUpload,
         <span style={{ flex: 1 }} />
         <button onClick={onDelete} style={editStyles.beatDeleteBtn} aria-label="Delete beat">×</button>
       </div>
-      <input
+      <textarea
         value={beat.title || ''}
         onChange={(e) => onUpdate({ title: e.target.value })}
-        placeholder="Title"
-        style={editStyles.beatTitleInput}
+        rows={3}
+        placeholder="Beat..."
+        style={editStyles.beatContentInput}
       />
-      <textarea
-        value={beat.context || ''}
-        onChange={(e) => onUpdate({ context: e.target.value })}
-        rows={4}
-        placeholder="What happens here?"
-        style={editStyles.beatContextInput}
+      {showContext ? (
+        <textarea
+          value={beat.context || ''}
+          onChange={(e) => onUpdate({ context: e.target.value })}
+          rows={3}
+          placeholder="Context..."
+          style={editStyles.beatContextInput}
+        />
+      ) : (
+        <button onClick={() => setShowContext(true)} style={editStyles.addContextBtn}>
+          + Context
+        </button>
+      )}
+
+      <TagField
+        label="Graphics"
+        tags={beat.graphics || []}
+        addPlaceholder="+ add graphic"
+        onChange={(arr) => onUpdate({ graphics: arr })}
       />
+      <TagField
+        label="Videos"
+        tags={beat.videos || []}
+        addPlaceholder="+ add video"
+        onChange={(arr) => onUpdate({ videos: arr })}
+      />
+
       <textarea
         value={beat.notes || ''}
         onChange={(e) => onUpdate({ notes: e.target.value })}
         rows={2}
-        placeholder="Notes"
+        placeholder="Notes..."
         style={editStyles.beatNotesInput}
-      />
-
-      <MediaList
-        label="Graphics"
-        items={beat.graphics || []}
-        accept="image/*"
-        onPick={(file) => onUpload('graphics', file)}
-        onRemove={(idx) => onRemoveMedia('graphics', idx)}
-      />
-      <MediaList
-        label="Videos"
-        items={beat.videos || []}
-        accept="video/*"
-        onPick={(file) => onUpload('videos', file)}
-        onRemove={(idx) => onRemoveMedia('videos', idx)}
       />
     </article>
   );
 }
 
-function MediaList({ label, items, accept, onPick, onRemove }) {
-  const inputRef = useRef(null);
+// Text tag list matching the desktop graphics/videos columns. Entries added
+// on Enter or blur. Legacy items can be objects (old uploads / b-roll
+// suggestions) — shown as link chips so they stay accessible and removable.
+function TagField({ label, tags, addPlaceholder, onChange }) {
+  const [draft, setDraft] = useState('');
+  const commitDraft = () => {
+    const v = draft.trim();
+    if (!v) return;
+    onChange([...tags, v]);
+    setDraft('');
+  };
+  const removeAt = (idx) => {
+    const next = [...tags];
+    next.splice(idx, 1);
+    onChange(next);
+  };
   return (
-    <div style={editStyles.mediaSection}>
-      <div style={editStyles.mediaLabel}>{label} ({items.length})</div>
-      {items.length > 0 && (
-        <div style={editStyles.mediaChips}>
-          {items.map((m, i) => (
-            <div key={(m.path || m.url) + i} style={editStyles.mediaChip}>
-              <a href={m.url} target="_blank" rel="noopener noreferrer" style={editStyles.mediaName}>
-                {m.name || `${label} ${i + 1}`}
-              </a>
-              <button onClick={() => onRemove(i)} style={editStyles.mediaRemove} aria-label="Remove">×</button>
-            </div>
-          ))}
-        </div>
-      )}
-      <input
-        ref={inputRef}
-        type="file"
-        accept={accept}
-        style={{ display: 'none' }}
-        onChange={(e) => { const f = e.target.files?.[0]; if (f) onPick(f); e.target.value = ''; }}
-      />
-      <button onClick={() => inputRef.current?.click()} style={editStyles.mediaAddBtn}>
-        + Add {label.toLowerCase()}
-      </button>
+    <div style={editStyles.tagSection}>
+      <div style={editStyles.tagLabel}>{label}</div>
+      <div style={editStyles.tagChips}>
+        {tags.map((t, i) => {
+          const isObj = typeof t === 'object' && t !== null;
+          const text = isObj ? (t.title || t.name || 'media') : t;
+          return (
+            <span key={`${text}-${i}`} style={editStyles.tagChip}>
+              {isObj && t.url ? (
+                <a href={t.url} target="_blank" rel="noopener noreferrer" style={editStyles.tagChipLink}>{text}</a>
+              ) : (
+                <span style={editStyles.tagChipText}>{text}</span>
+              )}
+              <button onClick={() => removeAt(i)} style={editStyles.tagRemove} aria-label="Remove">×</button>
+            </span>
+          );
+        })}
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitDraft(); } }}
+          onBlur={commitDraft}
+          placeholder={addPlaceholder}
+          style={editStyles.tagInput}
+        />
+      </div>
     </div>
   );
 }
@@ -756,9 +744,9 @@ const editStyles = {
     justifyContent: 'center',
     fontFamily: 'inherit',
   },
-  beatTitleInput: {
-    height: mobileTokens.tap,
-    padding: `0 ${mobileTokens.space.md}px`,
+  // The beat's content — mirrors the desktop "Beat..." column textarea.
+  beatContentInput: {
+    padding: mobileTokens.space.md,
     background: 'rgba(255,255,255,0.04)',
     border: '1px solid rgba(255,255,255,0.08)',
     borderRadius: mobileTokens.radius.sm,
@@ -766,6 +754,20 @@ const editStyles = {
     fontSize: mobileTokens.font.md,
     fontWeight: 600,
     outline: 'none',
+    fontFamily: 'inherit',
+    resize: 'vertical',
+    minHeight: 72,
+    lineHeight: 1.45,
+  },
+  addContextBtn: {
+    alignSelf: 'flex-start',
+    padding: '4px 8px',
+    background: 'transparent',
+    border: 'none',
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: mobileTokens.font.sm,
+    fontWeight: 600,
+    cursor: 'pointer',
     fontFamily: 'inherit',
   },
   beatContextInput: {
@@ -890,36 +892,39 @@ const editStyles = {
     minHeight: 56,
     lineHeight: 1.45,
   },
-  mediaSection: { display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 },
-  mediaLabel: {
+  // Text tag lists mirroring the desktop graphics/videos columns.
+  tagSection: { display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 },
+  tagLabel: {
     fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.45)',
     letterSpacing: 0.5, textTransform: 'uppercase',
   },
-  mediaChips: { display: 'flex', flexDirection: 'column', gap: 4 },
-  mediaChip: {
-    display: 'flex', alignItems: 'center', gap: 6,
-    padding: '6px 10px', background: 'rgba(99,102,241,0.1)',
+  tagChips: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4 },
+  tagChip: {
+    display: 'inline-flex', alignItems: 'center', gap: 4,
+    padding: '4px 8px', background: 'rgba(99,102,241,0.1)',
     border: '1px solid rgba(99,102,241,0.25)',
     borderRadius: mobileTokens.radius.sm,
+    maxWidth: '100%',
   },
-  mediaName: {
-    flex: 1, minWidth: 0, color: '#c7d2fe',
-    fontSize: mobileTokens.font.sm, textDecoration: 'none',
+  tagChipText: {
+    color: '#c7d2fe', fontSize: mobileTokens.font.sm,
     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
   },
-  mediaRemove: {
-    width: 22, height: 22, background: 'transparent', border: 'none',
-    color: '#f87171', cursor: 'pointer', fontSize: 16,
-    fontFamily: 'inherit', lineHeight: 1, flexShrink: 0,
+  tagChipLink: {
+    color: '#c7d2fe', fontSize: mobileTokens.font.sm, textDecoration: 'underline',
+    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
   },
-  mediaAddBtn: {
-    ...mobileTapButton,
-    minHeight: 36, padding: '6px 10px',
-    background: 'transparent',
+  tagRemove: {
+    width: 20, height: 20, background: 'transparent', border: 'none',
+    color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: 14,
+    fontFamily: 'inherit', lineHeight: 1, flexShrink: 0, padding: 0,
+  },
+  tagInput: {
+    flex: 1, minWidth: 110, height: 32,
+    padding: '0 8px', background: 'transparent',
     border: '1px dashed rgba(255,255,255,0.15)',
     borderRadius: mobileTokens.radius.sm,
-    color: 'rgba(255,255,255,0.55)',
-    fontSize: mobileTokens.font.sm, fontWeight: 600,
-    flexDirection: 'row',
+    color: '#e2e8f0', fontSize: mobileTokens.font.sm,
+    outline: 'none', fontFamily: 'inherit',
   },
 };
