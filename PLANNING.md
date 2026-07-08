@@ -861,6 +861,41 @@ Only `broadcast/*` (covered by the separate 2026-06-12 hardening pass) not re-sw
 **The entire app — pages, mobile variants, components, edge functions, and editor
 internals — is now comprehensively audited.**
 
+## Analytics Ingest Audit (2026-07-08)
+
+Cross-checked the Analytics page code, all cron/edge-function definitions in the
+repo, and the **live** pg_cron schedule + table freshness in production (live DB
+is ground truth — several migrations were superseded without a paper trail).
+Core ingest is healthy: all 36 live cron jobs succeeded every run over the
+audited 7 days. Nothing below has been fixed yet.
+
+### How ingestion works
+`sync-*` edge functions (staggered 1:01–1:13 UTC nightly; sync-youtube every 6h)
+write `platform_daily_metrics`, `audience_snapshots`, `content_items` +
+`content_metrics`, and `revenue_events`. The Analytics UI reads almost entirely
+from the materialized view `daily_platform_rollups`, which aggregates those four
+tables and filters `platform_accounts.is_active = true`. `run-backfills` (every
+2h) re-runs syncs from `sync_backfill_queue`, so ingestion-log run counts
+legitimately exceed cron cadence (~3 metricool runs/day) — not a duplicate cron.
+
+### Findings (open)
+
+| # | Finding | Recommended action |
+|---|---|---|
+| 1 | **Redundant cron**: job 1 `refresh-daily-rollups` (every 6h, direct `REFRESH MATERIALIZED VIEW`) duplicates job 77 `hourly-refresh-rollups` (hourly, calls `refresh_daily_platform_rollups()` — identical refresh, verified from function source) | Unschedule job 1 |
+| 2 | **Substack zombie**: `sync-substack` runs daily and logs "success" but newest Substack row in `platform_daily_metrics` / `audience_snapshots` is **2026-03-05** — Analytics digest shows a 4-month-old supporter count (known: needs Gmail-parse source) | Fix source or unschedule |
+| 3 | **Dead Twitter account**: `platform_accounts` twitter row still `is_active = true` with zero metric/snapshot rows ever; Metricool dropped Twitter (X API), last zero-record pass 2026-07-06 | Set `is_active = false` |
+| 4 | **18 orphaned deployed edge functions** (live on Supabase, deleted from repo, nothing invokes them): `sync-meta`, `sync-tiktok`, `metricool-create-post`, `gmail-*` (×5), `generate-report`, `generate-section`, `imagine-render`, `public-subscribe`, `twitch-auth-url`, `voice-transcribe`, `workflow-brief-complete`, `workflow-cleanup-test`, `workflow-list-actions` | Delete deployments |
+| 5 | **12 failed backfill entries** in `sync_backfill_queue` (2026-07-03 → 07-06); not retry-looping but unexamined | Inspect failures |
+| 6 | **sync-youtube content staleness persists** (known issue): 0 new content records in 14 days across 140 runs; daily channel metrics still update fine | Monitor / API-key investigation |
+
+### Verified healthy (checked, not assumed)
+- Fourthwall writes `revenue_events` (not platform metrics) by design — 90 records/14d
+- `sync-simplecast` live since ~2026-06-28 (cron `13 1 * * *`), writing `platform_daily_metrics` + `content_items`
+- `sync-youtube-dimensions` complements (doesn't duplicate) `sync-youtube`
+- Jobs the migration history made look dead are all live and succeeding: `nightly-prune-beat-versions`, `sync-progress-cards`, `minutely-drive-watch-poll`, `daily-bd-due-notifications`
+- `receive-newsletter` / `ingest-newsletter` are fully gone (repo **and** deployment) — CLAUDE.md note "exist but unused" is stale
+
 ## Known Issues
 
 ### Open GitHub Issues
