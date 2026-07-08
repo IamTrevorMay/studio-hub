@@ -119,6 +119,43 @@ export function NotificationProvider({ children }) {
     }
   }, [desktopNotifEnabled, notificationPrefs]);
 
+  // Desktop notification for an incoming DM. DMs don't create notifications
+  // rows (they'd flood the bell), so this fires straight off the
+  // direct_messages realtime stream under the 'messages' category pref.
+  // Mobile push for DMs comes from the forward_dm_to_push DB trigger.
+  const fireDmDesktopNotification = useCallback(async (row) => {
+    if (!row || !profile?.id || row.user_id === profile.id) return;
+    if (!desktopNotifEnabled) return;
+    if (!isTypeEnabled(notificationPrefs, 'desktop', 'message')) return;
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    if (!document.hidden) return;
+    try {
+      // Confirm we're actually in this conversation — the realtime stream is
+      // unfiltered, so don't trust the row alone.
+      const { data: member } = await supabase
+        .from('conversation_participants')
+        .select('user_id')
+        .eq('conversation_id', row.conversation_id)
+        .eq('user_id', profile.id)
+        .maybeSingle();
+      if (!member) return;
+      const { data: sender } = await supabase
+        .from('profiles')
+        .select('nickname, full_name')
+        .eq('id', row.user_id)
+        .maybeSingle();
+      const senderName = sender?.nickname || sender?.full_name || 'Someone';
+      fireDesktopNotification({
+        id: row.id,
+        type: 'message',
+        title: `New message from ${senderName}`,
+        body: (row.content || '').substring(0, 100),
+      });
+    } catch (e) {
+      // best-effort — never let a notification lookup break the app
+    }
+  }, [profile?.id, desktopNotifEnabled, notificationPrefs, fireDesktopNotification]);
+
   // Initial fetch + real-time subscriptions + 5-min fallback poll
   useEffect(() => {
     if (!user || !profile) return;
@@ -127,7 +164,7 @@ export function NotificationProvider({ children }) {
     fetchUnreadDms();
 
     const channel = supabase.channel('notification-changes')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'direct_messages' }, () => fetchUnreadDms())
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'direct_messages' }, (payload) => { fetchUnreadDms(); fireDmDesktopNotification(payload.new); })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversation_participants', filter: `user_id=eq.${profile.id}` }, () => fetchUnreadDms())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements' }, () => refreshNotifications())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'announcement_reads' }, () => refreshNotifications())
@@ -150,7 +187,7 @@ export function NotificationProvider({ children }) {
       supabase.removeChannel(channel);
       clearInterval(interval);
     };
-  }, [user, profile, refreshNotifications, fetchUnreadMentions, fetchUnreadDms, fireDesktopNotification, refreshKey]);
+  }, [user, profile, refreshNotifications, fetchUnreadMentions, fetchUnreadDms, fireDesktopNotification, fireDmDesktopNotification, refreshKey]);
 
   const value = {
     unreadAnnouncementCount,

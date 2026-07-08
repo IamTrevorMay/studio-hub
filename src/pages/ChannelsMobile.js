@@ -662,6 +662,21 @@ function ChannelView({ channel, channels, profileId, teamMembers, refreshKey, on
         content,
         mentions,
       });
+      // Notify mentioned users (mirrors desktop Channels.js)
+      const me = teamMembers.find((m) => m.id === profileId);
+      const notifs = mentions
+        .filter((uid) => uid !== profileId)
+        .map((uid) => ({
+          user_id: uid,
+          type: 'mention',
+          title: `${getDisplayName(me) || 'Someone'} mentioned you in #${channel.name}`,
+          body: content.substring(0, 100),
+          link_tab: 'channels',
+          link_target: channel.name,
+        }));
+      if (notifs.length > 0) {
+        await supabase.from('notifications').insert(notifs);
+      }
     } finally {
       sendingRef.current = false;
     }

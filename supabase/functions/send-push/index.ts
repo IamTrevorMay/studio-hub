@@ -29,15 +29,16 @@ function jsonResp(body: Record<string, unknown>, status = 200) {
 const TYPE_TO_CATEGORY: Record<string, string> = {
   task_assigned: "tasks",
   assignment: "tasks",
-  automation: "automations",
+  automation: "tasks",
   ooo_request: "team",
-  status_change: "team",
+  mention: "messages",
+  message: "messages",
 };
 
 function categoryForType(type: string | null): string {
   if (!type) return "other";
   if (TYPE_TO_CATEGORY[type]) return TYPE_TO_CATEGORY[type];
-  if (type.startsWith("bd_")) return "roadmap";
+  if (type.startsWith("bd_")) return "tasks";
   if (type.startsWith("fl_")) return "contractors";
   return "other";
 }
