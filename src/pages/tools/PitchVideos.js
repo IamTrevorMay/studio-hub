@@ -708,7 +708,7 @@ export default function PitchVideos({ onBack }) {
                           <td style={styles.td}>{outcome(row)}</td>
                           <td style={{ ...styles.td, textAlign: 'right', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
                             {!row.video_url && (
-                              <span style={{ ...styles.pendingTag, marginRight: '6px' }} title={`Status: ${row.status} — downloads via Savant CDN`}>{row.status}</span>
+                              <span style={{ ...styles.pendingTag, marginRight: '6px' }} title={`Status: ${row.status || 'not archived'} — downloads via Savant CDN`}>{row.status || 'not archived'}</span>
                             )}
                             <button style={styles.rowBtn} title={row.video_url ? 'Download clip' : 'Download via Savant'} onClick={() => downloadClip(row)}>
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
