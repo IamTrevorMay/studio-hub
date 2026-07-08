@@ -118,7 +118,31 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
   // Context menu + inline dropdowns for upcoming cards
   const [cardContextMenu, setCardContextMenu] = useState(null); // { x, y, deliverable }
   const [beatSheetDropdownId, setBeatSheetDropdownId] = useState(null); // deliverable id showing beat sheet picker
-  const [reviewDropdownId, setReviewDropdownId] = useState(null); // deliverable id showing review-status picker
+  const [reviewDropdownId, setReviewDropdownId] = useState(null); // deliverable id showing status picker
+  // Screen coords for the open inline dropdown. Position: fixed so the menu
+  // escapes the table's overflowX container instead of being clipped by it.
+  // Shared by both dropdowns — the click-away overlay guarantees only one is
+  // open at a time. Clamped so the menu never runs off the viewport.
+  const [inlineDropdownPos, setInlineDropdownPos] = useState({ top: 0, left: 0 });
+  const openInlineDropdownAt = (el) => {
+    const r = el.getBoundingClientRect();
+    setInlineDropdownPos({
+      top: Math.min(r.bottom + 4, window.innerHeight - 212),
+      left: Math.min(r.left, window.innerWidth - 236),
+    });
+  };
+  // Fixed-positioned menus don't follow their chip when the page scrolls —
+  // close instead of drifting. Scrolls inside the menu itself are fine.
+  useEffect(() => {
+    if (!reviewDropdownId && !beatSheetDropdownId) return;
+    const onScroll = (e) => {
+      if (e.target instanceof Element && e.target.closest('[data-inline-dropdown]')) return;
+      setReviewDropdownId(null);
+      setBeatSheetDropdownId(null);
+    };
+    window.addEventListener('scroll', onScroll, true);
+    return () => window.removeEventListener('scroll', onScroll, true);
+  }, [reviewDropdownId, beatSheetDropdownId]);
   const [videoLinkModal, setVideoLinkModal] = useState(null); // deliverable pending finished-video link
   const [videoLinkInput, setVideoLinkInput] = useState('');
 
@@ -1597,13 +1621,13 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                               <span
                                 role="button"
                                 tabIndex={0}
-                                onClick={(e) => { e.stopPropagation(); setReviewDropdownId(isOpen ? null : d.id); }}
+                                onClick={(e) => { e.stopPropagation(); if (!isOpen) openInlineDropdownAt(e.currentTarget); setReviewDropdownId(isOpen ? null : d.id); }}
                                 style={{ ...styles.chip, fontWeight: 600, background: r.bg, color: r.color, cursor: 'pointer' }}
                               >
                                 {r.label}
                               </span>
                               {isOpen && (
-                                <div style={styles.inlineDropdown}>
+                                <div data-inline-dropdown style={{ ...styles.inlineDropdown, position: 'fixed', top: inlineDropdownPos.top, left: inlineDropdownPos.left, marginTop: 0 }}>
                                   {REVIEW_STATUS_OPTIONS.map(o => (
                                     <button
                                       key={o.value}
@@ -1651,12 +1675,12 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                             color: linkedSheet ? '#a5b4fc' : '#fca5a5',
                             cursor: 'pointer',
                           }}
-                          onClick={(e) => { e.stopPropagation(); setBeatSheetDropdownId(isBSOpen ? null : d.id); }}
+                          onClick={(e) => { e.stopPropagation(); if (!isBSOpen) openInlineDropdownAt(e.currentTarget); setBeatSheetDropdownId(isBSOpen ? null : d.id); }}
                         >
                           {linkedSheet ? linkedSheet.title : 'Unassigned'}
                         </span>
                         {isBSOpen && (
-                          <div style={styles.inlineDropdown}>
+                          <div data-inline-dropdown style={{ ...styles.inlineDropdown, position: 'fixed', top: inlineDropdownPos.top, left: inlineDropdownPos.left, marginTop: 0 }}>
                             {(() => {
                               const available = getAvailableBeatSheets(d.id);
                               if (available.length === 0) return <div style={styles.inlineDropdownEmpty}>No available beat sheets</div>;
