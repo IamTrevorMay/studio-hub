@@ -14,11 +14,14 @@ const CHANNEL_COLORS = {
   tmb: { bg: 'rgba(239,68,68,0.12)', color: '#fca5a5', label: 'TMB' },
   socials: { bg: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)', label: 'SOC' },
 };
-// Mirrors desktop Deliverables Review column (read-only on mobile).
+// Mirrors desktop Deliverables Status column (read-only on mobile).
 const REVIEW_STATUS_BY_VALUE = {
-  not_submitted: { label: 'Not Submitted', bg: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.55)' },
-  pending: { label: 'Pending', bg: 'rgba(245,158,11,0.15)', color: '#fbbf24' },
-  accepted: { label: 'Accepted', bg: 'rgba(34,197,94,0.15)', color: '#22c55e' },
+  queued: { label: 'Queued', bg: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.55)' },
+  writing: { label: 'Writing', bg: 'rgba(99,102,241,0.15)', color: '#a5b4fc' },
+  filming: { label: 'Filming', bg: 'rgba(168,85,247,0.15)', color: '#c084fc' },
+  ready_for_review: { label: 'Ready for Review', bg: 'rgba(245,158,11,0.15)', color: '#fbbf24' },
+  in_review: { label: 'In Review', bg: 'rgba(14,165,233,0.15)', color: '#38bdf8' },
+  complete: { label: 'Complete', bg: 'rgba(34,197,94,0.15)', color: '#22c55e' },
 };
 
 export default function DeliverablesMobile() {
@@ -216,7 +219,7 @@ export default function DeliverablesMobile() {
                       <span style={{ ...styles.chip, background: 'rgba(34,197,94,0.15)', color: '#22c55e' }}>{'✓'} Delivered</span>
                     )}
                     {(() => {
-                      const r = REVIEW_STATUS_BY_VALUE[d.review_status] || REVIEW_STATUS_BY_VALUE.not_submitted;
+                      const r = REVIEW_STATUS_BY_VALUE[d.review_status] || REVIEW_STATUS_BY_VALUE.queued;
                       return <span style={{ ...styles.chip, background: r.bg, color: r.color }}>{r.label}</span>;
                     })()}
                     {ev ? (

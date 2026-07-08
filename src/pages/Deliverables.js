@@ -21,10 +21,15 @@ const CHANNEL_COLORS = {
   tmb: { bg: 'rgba(239,68,68,0.12)', color: '#fca5a5', label: 'TM Baseball' },
   socials: { bg: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)', label: 'Social' },
 };
+// Production-pipeline statuses for the Status column (stored in
+// sponsor_deliverables.review_status — values enforced by a DB check).
 const REVIEW_STATUS_OPTIONS = [
-  { value: 'not_submitted', label: 'Not Submitted', bg: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.55)' },
-  { value: 'pending', label: 'Pending', bg: 'rgba(245,158,11,0.15)', color: '#fbbf24' },
-  { value: 'accepted', label: 'Accepted', bg: 'rgba(34,197,94,0.15)', color: '#22c55e' },
+  { value: 'queued', label: 'Queued', bg: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.55)' },
+  { value: 'writing', label: 'Writing', bg: 'rgba(99,102,241,0.15)', color: '#a5b4fc' },
+  { value: 'filming', label: 'Filming', bg: 'rgba(168,85,247,0.15)', color: '#c084fc' },
+  { value: 'ready_for_review', label: 'Ready for Review', bg: 'rgba(245,158,11,0.15)', color: '#fbbf24' },
+  { value: 'in_review', label: 'In Review', bg: 'rgba(14,165,233,0.15)', color: '#38bdf8' },
+  { value: 'complete', label: 'Complete', bg: 'rgba(34,197,94,0.15)', color: '#22c55e' },
 ];
 const REVIEW_STATUS_BY_VALUE = REVIEW_STATUS_OPTIONS.reduce((acc, o) => { acc[o.value] = o; return acc; }, {});
 
@@ -68,7 +73,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
   const [deliverableBeatSheetId, setDeliverableBeatSheetId] = useState('');
   const [deliverableVideoEventId, setDeliverableVideoEventId] = useState('');
   const [deliverableChannel, setDeliverableChannel] = useState('');
-  const [deliverableReviewStatus, setDeliverableReviewStatus] = useState('not_submitted');
+  const [deliverableReviewStatus, setDeliverableReviewStatus] = useState('queued');
   const [deliverableVideoUrl, setDeliverableVideoUrl] = useState('');
 
   // Video events for deliverable linking
@@ -600,7 +605,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
     setDeliverablePlatforms([]); setDeliverableNeedsReview(false); setDeliverableBrandId('');
     setDeliverablePay(''); setDeliverableBeatSheetId(''); setDeliverableVideoEventId('');
     setDeliverableChannel('');
-    setDeliverableReviewStatus('not_submitted');
+    setDeliverableReviewStatus('queued');
     setDeliverableVideoUrl('');
     setEditingDeliverable(null); setShowDeliverableForm(null);
   }
@@ -616,7 +621,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
     setDeliverableBeatSheetId(d.beat_sheet_id || '');
     setDeliverableVideoEventId(d.video_event_id || '');
     setDeliverableChannel(d.channel || '');
-    setDeliverableReviewStatus(d.review_status || 'not_submitted');
+    setDeliverableReviewStatus(d.review_status || 'queued');
     setDeliverableVideoUrl(d.video_url || '');
     setEditingDeliverable(d.id);
     setShowDeliverableForm(d.campaign_id);
@@ -640,7 +645,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         beat_sheet_id: deliverableBeatSheetId || null,
         video_event_id: deliverableVideoEventId || null,
         channel: deliverableChannel || null,
-        review_status: deliverableReviewStatus || 'not_submitted',
+        review_status: deliverableReviewStatus || 'queued',
         video_url: deliverableVideoUrl.trim() || null,
         delivered: !!deliverableVideoUrl.trim(),
         updated_at: new Date().toISOString(),
@@ -684,7 +689,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         beat_sheet_id: deliverableBeatSheetId || null,
         video_event_id: deliverableVideoEventId || null,
         channel: deliverableChannel || null,
-        review_status: deliverableReviewStatus || 'not_submitted',
+        review_status: deliverableReviewStatus || 'queued',
         video_url: deliverableVideoUrl.trim() || null,
         delivered: !!deliverableVideoUrl.trim(),
       }).select().single();
@@ -1495,11 +1500,11 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                   <th style={thStyle} onClick={() => handleSort('sponsor')}>Sponsor{sortArrow('sponsor')}</th>
                   <th style={styles.tableTh}>Brief</th>
                   <th style={thStyle} onClick={() => handleSort('channel')}>Channel{sortArrow('channel')}</th>
-                  <th style={styles.tableTh}>Review</th>
+                  <th style={styles.tableTh}>Status</th>
                   <th style={thStyle} onClick={() => handleSort('schedule')}>Schedule{sortArrow('schedule')}</th>
                   <th style={styles.tableTh}>Beat Sheet</th>
                   <th style={{ ...thStyle, textAlign: 'right' }} onClick={() => handleSort('pay')}>Pay{sortArrow('pay')}</th>
-                  <th style={styles.tableTh}>Video</th>
+                  <th style={styles.tableTh}>Delivered</th>
                 </tr>
               </thead>
               <tbody>
@@ -1582,10 +1587,10 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                           </span>
                         )}
                       </td>
-                      {/* Review Status */}
+                      {/* Status */}
                       <td style={{ ...styles.tableTd, position: 'relative' }}>
                         {(() => {
-                          const r = REVIEW_STATUS_BY_VALUE[d.review_status] || REVIEW_STATUS_BY_VALUE.not_submitted;
+                          const r = REVIEW_STATUS_BY_VALUE[d.review_status] || REVIEW_STATUS_BY_VALUE.queued;
                           const isOpen = reviewDropdownId === d.id;
                           return (
                             <>
@@ -2356,7 +2361,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                             </select>
                           </div>
                           <div style={styles.field}>
-                            <label style={styles.label}>Review Status</label>
+                            <label style={styles.label}>Status</label>
                             <select value={deliverableReviewStatus} onChange={e => setDeliverableReviewStatus(e.target.value)} style={styles.select}>
                               {REVIEW_STATUS_OPTIONS.map(o => (
                                 <option key={o.value} value={o.value}>{o.label}</option>
