@@ -830,7 +830,7 @@ export default function AppLayout() {
           {activeTab === 'graphics' && <PageErrorBoundary key="graphics"><Graphics onBack={() => setActiveTab('dashboard')} /></PageErrorBoundary>}
           {isAdmin && activeTab === 'analytics' && <PageErrorBoundary key="analytics"><Analytics /></PageErrorBoundary>}
           {isAdmin && activeTab === 'tracking' && <PageErrorBoundary key="tracking"><Tracking /></PageErrorBoundary>}
-          {isAdmin && activeTab === 'accounting' && <PageErrorBoundary key="accounting"><Accounting /></PageErrorBoundary>}
+          {isAdmin && activeTab === 'accounting' && <PageErrorBoundary key="accounting"><Accounting initialTab={navTarget} onTabOpened={() => setNavTarget(null)} /></PageErrorBoundary>}
           {activeTab === 'research' && <PageErrorBoundary key="research"><Research /></PageErrorBoundary>}
           {activeTab === 'research_docs' && <PageErrorBoundary key="research_docs"><ResearchDocs /></PageErrorBoundary>}
           {activeTab === 'reviews' && <PageErrorBoundary key="reviews"><Reviews /></PageErrorBoundary>}

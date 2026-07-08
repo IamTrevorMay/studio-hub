@@ -5,6 +5,7 @@ import { DonutChart, TrendChart, formatCompact } from '../lib/charts';
 import { fetchAllRows } from './analytics/utils';
 import BankAccountsTab from '../components/accounting/BankAccountsTab';
 import TransactionsTab from '../components/accounting/TransactionsTab';
+import MonthlyReportsTab from '../components/accounting/MonthlyReportsTab';
 
 // Revenue (income) categories the Tiller sync writes into revenue_transactions.
 // Mirrors INCOME_CATEGORIES + the meta map that used to live in Analytics.js.
@@ -58,6 +59,7 @@ const TABS = [
   { key: 'expenses',     label: 'Expenses' },
   { key: 'transactions', label: 'Transactions' },
   { key: 'accounts',     label: 'Accounts' },
+  { key: 'reports',      label: 'Reports' },
 ];
 
 // The two businesses synced from their own Tiller sheets. Rows predating the
@@ -147,10 +149,18 @@ function pctDelta(curr, prev) {
 }
 
 // ── Page ────────────────────────────────────────────────────────────────────
-export default function Accounting() {
+export default function Accounting({ initialTab, onTabOpened }) {
   const { isAdmin } = useAuth();
   const [rangeKey, setRangeKey] = useState('90d');
   const [tab, setTab] = useState('overview');
+
+  // Deep-link from bell notifications (link_target = a tab key, e.g. 'reports')
+  useEffect(() => {
+    if (initialTab && TABS.some(t => t.key === initialTab)) {
+      setTab(initialTab);
+      onTabOpened?.();
+    }
+  }, [initialTab, onTabOpened]);
 
   const [revenue, setRevenue]       = useState([]);
   const [revenuePrev, setRevenuePrev] = useState([]);
@@ -250,20 +260,23 @@ export default function Accounting() {
       <div style={styles.header}>
         <h1 style={styles.title}>Accounting</h1>
         <div style={styles.headerControls}>
-          <div style={styles.rangeBar}>
-            {DATE_RANGES.map(r => (
-              <button
-                key={r.key}
-                onClick={() => setRangeKey(r.key)}
-                style={{
-                  ...styles.rangePill,
-                  ...(rangeKey === r.key ? styles.rangePillActive : {}),
-                }}
-              >
-                {r.label}
-              </button>
-            ))}
-          </div>
+          {/* Range pills don't apply to monthly reports (they have their own month picker) */}
+          {tab !== 'reports' && (
+            <div style={styles.rangeBar}>
+              {DATE_RANGES.map(r => (
+                <button
+                  key={r.key}
+                  onClick={() => setRangeKey(r.key)}
+                  style={{
+                    ...styles.rangePill,
+                    ...(rangeKey === r.key ? styles.rangePillActive : {}),
+                  }}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          )}
           <button
             type="button"
             onClick={handleRefresh}
@@ -330,6 +343,8 @@ export default function Accounting() {
           expenseMeta={EXPENSE_CATEGORY_META}
           onChanged={load}
         />
+      ) : tab === 'reports' ? (
+        <MonthlyReportsTab />
       ) : (
         <BankAccountsTab onSynced={load} />
       )}
