@@ -151,7 +151,7 @@ export default function Messages({ onNavigate }) {
       // hid the live conversation once a thread passed 100 messages.
       const { data, error } = await supabase
         .from('direct_messages')
-        .select('*, profile:profiles(id, full_name, nickname, title, avatar_url), reply_to:direct_messages!reply_to_id(id, content, user_id, profile:profiles(id, full_name, nickname))')
+        .select('*, profile:profiles(id, full_name, nickname, title, avatar_url), reply_to:reply_to_id(id, content, user_id, profile:profiles(id, full_name, nickname))')
         .eq('conversation_id', conversationId)
         .order('created_at', { ascending: false })
         .limit(100);
@@ -244,7 +244,7 @@ export default function Messages({ onNavigate }) {
       }, async (payload) => {
         const { data } = await supabase
           .from('direct_messages')
-          .select('*, profile:profiles(id, full_name, nickname, title, avatar_url), reply_to:direct_messages!reply_to_id(id, content, user_id, profile:profiles(id, full_name, nickname))')
+          .select('*, profile:profiles(id, full_name, nickname, title, avatar_url), reply_to:reply_to_id(id, content, user_id, profile:profiles(id, full_name, nickname))')
           .eq('id', payload.new.id)
           .single();
         // Dedup by id — reconnect/resubscribe can redeliver, and the deps below
