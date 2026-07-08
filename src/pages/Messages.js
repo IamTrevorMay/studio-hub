@@ -927,14 +927,14 @@ function DmMessage({ msg, isOwn, showAvatar, formatContent, formatTime, onEdit, 
           </button>
           {menuOpen && (
             <div ref={menuRef} style={styles.msgMenuDropdown}>
-              <button onClick={handleReply} style={styles.msgMenuItem}>↩️ Reply</button>
-              <button onClick={handleStartEdit} style={styles.msgMenuItem}>✏️ Edit</button>
-              <button onClick={handleCopy} style={styles.msgMenuItem}>📋 Copy</button>
+              <button onClick={handleReply} style={styles.msgMenuItem}>Reply</button>
+              <button onClick={handleStartEdit} style={styles.msgMenuItem}>Edit</button>
+              <button onClick={handleCopy} style={styles.msgMenuItem}>Copy</button>
               <button
                 onClick={() => { onDelete(msg.id); setMenuOpen(false); }}
                 style={{ ...styles.msgMenuItem, color: '#fca5a5' }}
               >
-                🗑 Delete
+                Delete
               </button>
             </div>
           )}
@@ -950,16 +950,16 @@ function DmMessage({ msg, isOwn, showAvatar, formatContent, formatTime, onEdit, 
             onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }}
           />
           <div style={{ ...styles.contextMenu, top: ctxMenu.y, left: ctxMenu.x }}>
-            <button onClick={handleReply} style={styles.contextItem}>↩️ Reply</button>
-            <button onClick={handleCopy} style={styles.contextItem}>📋 Copy</button>
+            <button onClick={handleReply} style={styles.contextItem}>Reply</button>
+            <button onClick={handleCopy} style={styles.contextItem}>Copy</button>
             {isOwn && (
               <>
-                <button onClick={() => { setCtxMenu(null); handleStartEdit(); }} style={styles.contextItem}>✏️ Edit</button>
+                <button onClick={() => { setCtxMenu(null); handleStartEdit(); }} style={styles.contextItem}>Edit</button>
                 <button
                   onClick={() => { setCtxMenu(null); onDelete(msg.id); }}
                   style={{ ...styles.contextItem, color: '#fca5a5' }}
                 >
-                  🗑 Delete
+                  Delete
                 </button>
               </>
             )}

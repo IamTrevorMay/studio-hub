@@ -300,7 +300,7 @@ export default function Resources() {
                 setContextMenu(null);
               }}
             >
-              ✏️ Rename
+              Rename
             </button>
             {contextMenu.item.type === 'doc' && contextMenu.item.url && (
               <button
@@ -310,7 +310,7 @@ export default function Resources() {
                   setContextMenu(null);
                 }}
               >
-                🔗 Open in Drive
+                Open in Drive
               </button>
             )}
             <button
@@ -320,7 +320,7 @@ export default function Resources() {
                 setContextMenu(null);
               }}
             >
-              🗑 Delete
+              Delete
             </button>
           </div>
         </>

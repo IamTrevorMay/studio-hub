@@ -1771,7 +1771,7 @@ function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, formatCo
               <div ref={menuRef} style={msgStyles.menuDropdown}>
                 {canEdit && (
                   <button onClick={handleStartEdit} style={msgStyles.menuItem}>
-                    ✏️ Edit
+                    Edit
                   </button>
                 )}
                 {canPin && (
@@ -1779,18 +1779,18 @@ function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, formatCo
                     onClick={() => { onPin(msg.id, msg.is_pinned); setMenuOpen(false); }}
                     style={msgStyles.menuItem}
                   >
-                    📌 {msg.is_pinned ? 'Unpin' : 'Pin'}
+                    {msg.is_pinned ? 'Unpin' : 'Pin'}
                   </button>
                 )}
                 <button onClick={handleCopy} style={msgStyles.menuItem}>
-                  📋 Copy
+                  Copy
                 </button>
                 {canDelete && (
                   <button
                     onClick={() => { onDelete(msg.id); setMenuOpen(false); }}
                     style={{ ...msgStyles.menuItem, color: '#fca5a5' }}
                   >
-                    🗑 Delete
+                    Delete
                   </button>
                 )}
               </div>
