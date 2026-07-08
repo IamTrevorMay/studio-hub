@@ -867,7 +867,9 @@ Cross-checked the Analytics page code, all cron/edge-function definitions in the
 repo, and the **live** pg_cron schedule + table freshness in production (live DB
 is ground truth — several migrations were superseded without a paper trail).
 Core ingest is healthy: all 36 live cron jobs succeeded every run over the
-audited 7 days. Nothing below has been fixed yet.
+audited 7 days. **Cleanup applied 2026-07-08** (migration
+`20260708210000_analytics_ingest_cleanup.sql` + CLI deletes) — see per-finding
+status below.
 
 ### How ingestion works
 `sync-*` edge functions (staggered 1:01–1:13 UTC nightly; sync-youtube every 6h)
@@ -878,16 +880,22 @@ tables and filters `platform_accounts.is_active = true`. `run-backfills` (every
 2h) re-runs syncs from `sync_backfill_queue`, so ingestion-log run counts
 legitimately exceed cron cadence (~3 metricool runs/day) — not a duplicate cron.
 
-### Findings (open)
+### Findings
 
-| # | Finding | Recommended action |
+| # | Finding | Status |
 |---|---|---|
-| 1 | **Redundant cron**: job 1 `refresh-daily-rollups` (every 6h, direct `REFRESH MATERIALIZED VIEW`) duplicates job 77 `hourly-refresh-rollups` (hourly, calls `refresh_daily_platform_rollups()` — identical refresh, verified from function source) | Unschedule job 1 |
-| 2 | **Substack zombie**: `sync-substack` runs daily and logs "success" but newest Substack row in `platform_daily_metrics` / `audience_snapshots` is **2026-03-05** — Analytics digest shows a 4-month-old supporter count (known: needs Gmail-parse source) | Fix source or unschedule |
-| 3 | **Dead Twitter account**: `platform_accounts` twitter row still `is_active = true` with zero metric/snapshot rows ever; Metricool dropped Twitter (X API), last zero-record pass 2026-07-06 | Set `is_active = false` |
-| 4 | **18 orphaned deployed edge functions** (live on Supabase, deleted from repo, nothing invokes them): `sync-meta`, `sync-tiktok`, `metricool-create-post`, `gmail-*` (×5), `generate-report`, `generate-section`, `imagine-render`, `public-subscribe`, `twitch-auth-url`, `voice-transcribe`, `workflow-brief-complete`, `workflow-cleanup-test`, `workflow-list-actions` | Delete deployments |
-| 5 | **12 failed backfill entries** in `sync_backfill_queue` (2026-07-03 → 07-06); not retry-looping but unexamined | Inspect failures |
-| 6 | **sync-youtube content staleness persists** (known issue): 0 new content records in 14 days across 140 runs; daily channel metrics still update fine | Monitor / API-key investigation |
+| 1 | **Redundant cron**: job 1 `refresh-daily-rollups` (every 6h, direct `REFRESH MATERIALIZED VIEW`) duplicated job 77 `hourly-refresh-rollups` (hourly, calls `refresh_daily_platform_rollups()` — identical refresh, verified from function source) | ✅ Unscheduled 07-08 |
+| 2 | **Substack zombie**: `sync-substack` runs daily and logs "success" but newest Substack row in `platform_daily_metrics` / `audience_snapshots` is **2026-03-05** — Analytics digest shows a 4-month-old supporter count (known: needs Gmail-parse source) | **Open** — needs decision: build Gmail-parse source or unschedule |
+| 3 | **Dead Twitter account**: `platform_accounts` twitter row was `is_active = true` with zero metric/snapshot rows ever; Metricool dropped Twitter (X API) | ✅ `is_active = false` 07-08 |
+| 4 | **18 orphaned deployed edge functions** (live on Supabase, deleted from repo, nothing invokes them): `sync-meta`, `sync-tiktok`, `metricool-create-post`, `gmail-*` (×5), `generate-report`, `generate-section`, `imagine-render`, `public-subscribe`, `twitch-auth-url`, `voice-transcribe`, `workflow-brief-complete`, `workflow-cleanup-test`, `workflow-list-actions` | ✅ All 18 deleted 07-08 (`public-subscribe` verified safe first: `newsletter_subscribers` empty, 0 enabled `report_configs`; recoverable from git history) |
+| 5 | **12 failed backfill entries** in `sync_backfill_queue` (2026-07-03 → 07-06) | ✅ Explained: integrity checker enqueued gap-backfills for the 3 platforms that can't backfill (twitter/substack/fourthwall); stopped 07-06 when checker was tuned. Inert residue, left in place |
+| 6 | **sync-youtube content staleness persists** (known issue): 0 new content records in 14 days across 140 runs; daily channel metrics still update fine | **Open** — monitor / API-key investigation |
+
+### New follow-up (found during cleanup)
+- **`run-reports` cron may be a zombie too**: runs `run-report` daily at 15:05 UTC
+  and succeeds, but `report_configs` has **0 enabled rows** and
+  `newsletter_subscribers` is **empty** — the public-report/newsletter feature it
+  serves never launched. Candidate for unscheduling (not touched; needs decision).
 
 ### Verified healthy (checked, not assumed)
 - Fourthwall writes `revenue_events` (not platform metrics) by design — 90 records/14d
