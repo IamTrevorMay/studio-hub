@@ -541,3 +541,7 @@ const s = {
   thanksBody: { fontSize: 15, color: 'rgba(255,255,255,0.7)', lineHeight: 1.6, margin: 0 },
   footer: { marginTop: 48, paddingTop: 20, borderTop: '1px solid rgba(255,255,255,0.06)', fontSize: 12, color: 'rgba(255,255,255,0.3)', textAlign: 'center' },
 };
+
+// Reused by the admin Jobs page draft-preview modal so previews render
+// exactly like this public page.
+export { StructuredDescription, TYPE_LABEL, MODE_LABEL, Field, s as publicStyles };

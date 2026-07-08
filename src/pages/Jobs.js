@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { fetchAllRows } from './analytics/utils';
+import { StructuredDescription, TYPE_LABEL, MODE_LABEL, Field, publicStyles } from './public/PublicCareers';
 
 // Admin-only Jobs page: manage public listings, review applications, and run
 // onboarding for accepted hires. Public board + edge functions live elsewhere.
@@ -100,6 +101,7 @@ function Badge({ children }) {
 const LISTING_STATUSES = ['all', 'draft', 'open', 'closed'];
 function ListingsTab({ listings, applications, onChange, showToast }) {
   const [editing, setEditing] = useState(null); // listing obj or {} for new
+  const [preview, setPreview] = useState(null); // listing obj being previewed
   const [fStatus, setFStatus] = useState('open');
   const filtered = fStatus === 'all' ? listings : listings.filter(l => l.status === fStatus);
   const counts = LISTING_STATUSES.reduce((acc, s) => {
@@ -185,6 +187,7 @@ function ListingsTab({ listings, applications, onChange, showToast }) {
                 </div>
                 <div style={st.listingActions}>
                   <button style={st.smallBtn} onClick={() => setEditing(l)}>Edit</button>
+                  {l.status === 'draft' && <button style={st.smallBtn} onClick={() => setPreview(l)}>Preview</button>}
                   {l.status !== 'open' && <button style={st.smallBtn} onClick={() => setStatus(l, 'open')}>Publish</button>}
                   {l.status === 'open' && <button style={st.smallBtn} onClick={() => setStatus(l, 'closed')}>Close</button>}
                   {l.status === 'open' && <button style={st.smallBtn} onClick={() => copyLink(l)}>Copy link</button>}
@@ -196,6 +199,78 @@ function ListingsTab({ listings, applications, onChange, showToast }) {
         </div>
       )}
       {editing && <ListingModal listing={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); onChange(); }} showToast={showToast} />}
+      {preview && <ListingPreviewModal listing={preview} onClose={() => setPreview(null)} />}
+    </div>
+  );
+}
+
+// Full-screen preview of how a listing renders on the public /careers page.
+// Reuses the public page's components and styles; the apply form is a
+// disabled mock so nothing can be submitted from a preview.
+function ListingPreviewModal({ listing, onClose }) {
+  const ps = publicStyles;
+  const structured = parseStructured(listing.description);
+  const questions = Array.isArray(listing.screening_questions) ? listing.screening_questions : [];
+  return (
+    <div style={st.previewOverlay} onClick={onClose}>
+      <div style={st.previewShell} onClick={e => e.stopPropagation()}>
+        <div style={st.previewBar}>
+          <span style={st.previewBarLabel}>Preview — how this listing appears on the public careers page</span>
+          <button style={st.smallBtn} onClick={onClose}>Close</button>
+        </div>
+        <div style={{ ...ps.page, minHeight: 0, flex: 1, overflowY: 'auto' }}>
+          <div style={ps.wrap}>
+            <header style={ps.header}>
+              <div style={ps.logo}>Mayday</div>
+              <div style={ps.headerTag}>Careers</div>
+            </header>
+            <div style={{ ...ps.back, cursor: 'default' }}>← All roles</div>
+            <h1 style={ps.h1}>{listing.title || 'Untitled role'}</h1>
+            <div style={ps.detailMeta}>
+              {listing.department && <span style={ps.metaTag}>{listing.department}</span>}
+              {listing.employment_type && <span style={ps.metaTag}>{TYPE_LABEL[listing.employment_type]}</span>}
+              {listing.work_mode && <span style={ps.metaTag}>{MODE_LABEL[listing.work_mode]}{listing.location ? ` · ${listing.location}` : ''}</span>}
+              {listing.comp_range && <span style={ps.metaComp}>{listing.comp_range}</span>}
+            </div>
+            {structured ? (
+              <StructuredDescription data={structured} />
+            ) : listing.description ? (
+              <div style={ps.description}>{listing.description}</div>
+            ) : null}
+            <div style={ps.formCard}>
+              <h2 style={ps.formTitle}>Apply for this role</h2>
+              <div style={ps.formGrid}>
+                <Field label="Full name *"><input style={ps.input} disabled /></Field>
+                <Field label="Email *"><input style={ps.input} type="email" disabled /></Field>
+              </div>
+              <Field label="Phone"><input style={ps.input} disabled /></Field>
+              <Field label="Résumé / CV (PDF, max 5MB)"><input style={ps.file} type="file" disabled /></Field>
+              <Field label="Portfolio / work links (one per line)"><textarea style={ps.textarea} rows={3} disabled /></Field>
+              <Field label="Anything else? (cover note)"><textarea style={ps.textarea} rows={4} disabled /></Field>
+              {questions.map((q, i) => (
+                <Field key={i} label={`${q.label}${q.required ? ' *' : ''}`}>
+                  {q.type === 'long' ? (
+                    <textarea style={ps.textarea} rows={3} disabled />
+                  ) : (q.type === 'yesno' || q.type === 'select') ? (
+                    <select style={ps.input} disabled><option>—</option></select>
+                  ) : (
+                    <input style={ps.input} disabled />
+                  )}
+                </Field>
+              ))}
+              <label style={{ ...ps.consentRow, cursor: 'default' }}>
+                <input type="checkbox" disabled style={{ marginTop: 3 }} />
+                <span style={ps.consentText}>
+                  I consent to Mayday storing the information in this application for recruiting purposes, as described in the{' '}
+                  <span style={ps.consentLink}>privacy notice</span>.
+                </span>
+              </label>
+              <button style={{ ...ps.submit, opacity: 0.5, cursor: 'default' }} disabled>Submit application</button>
+            </div>
+            <footer style={ps.footer}>© {new Date().getFullYear()} Mayday</footer>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -237,27 +312,44 @@ function ListingModal({ listing, onClose, onSaved, showToast }) {
       : [],
   );
   const [saving, setSaving] = useState(false);
+  const [preview, setPreview] = useState(null);
   const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
   const setQ = (i, k, v) => setQuestions(prev => prev.map((x, j) => j === i ? { ...x, [k]: v } : x));
+
+  const buildStructured = () => ({
+    structured: true, subtitle: f.subtitle, intro: f.intro,
+    responsibilities: f.responsibilities, requirements: f.requirements,
+    reporting: f.reporting, compensation: f.compensation,
+    how_to_apply: f.how_to_apply, apply_email: f.apply_email,
+    warning: f.warning, subject_line: f.subject_line,
+  });
+  const buildQuestions = () => questions
+    .map(q => ({
+      label: q.label.trim(), type: q.type, required: !!q.required,
+      ...(q.type === 'select' ? { options: q.options.split('\n').map(o => o.trim()).filter(Boolean) } : {}),
+    }))
+    .filter(q => q.label);
+
+  // Snapshot of the current (possibly unsaved) form state, shaped like a
+  // public listing row so the preview modal renders it verbatim.
+  const openPreview = () => setPreview({
+    title: f.title.trim(),
+    description: JSON.stringify(buildStructured()),
+    department: f.department.trim() || null,
+    employment_type: f.employment_type || null,
+    work_mode: f.work_mode || null,
+    location: f.location.trim() || null,
+    comp_range: f.comp_range.trim() || null,
+    screening_questions: buildQuestions(),
+  });
 
   const save = async (forceStatus) => {
     if (!f.title.trim()) { showToast('Title is required', 'error'); return; }
     setSaving(true);
     const status = forceStatus || f.status;
-    const structured = {
-      structured: true, subtitle: f.subtitle, intro: f.intro,
-      responsibilities: f.responsibilities, requirements: f.requirements,
-      reporting: f.reporting, compensation: f.compensation,
-      how_to_apply: f.how_to_apply, apply_email: f.apply_email,
-      warning: f.warning, subject_line: f.subject_line,
-    };
+    const structured = buildStructured();
     const cleanChecklist = checklist.map(c => ({ label: c.label.trim() })).filter(c => c.label);
-    const cleanQuestions = questions
-      .map(q => ({
-        label: q.label.trim(), type: q.type, required: !!q.required,
-        ...(q.type === 'select' ? { options: q.options.split('\n').map(o => o.trim()).filter(Boolean) } : {}),
-      }))
-      .filter(q => q.label);
+    const cleanQuestions = buildQuestions();
     const payload = {
       title: f.title.trim(), description: JSON.stringify(structured),
       employment_type: f.employment_type || null, work_mode: f.work_mode || null,
@@ -366,12 +458,14 @@ function ListingModal({ listing, onClose, onSaved, showToast }) {
           <button style={{ ...st.smallBtn, marginTop: 4 }} onClick={() => setChecklist(prev => [...prev, { label: '' }])}>+ Add item</button>
         </div>
         <div style={st.modalActions}>
+          <button style={{ ...st.smallBtn, marginRight: 'auto' }} onClick={openPreview} title="Preview how this listing renders on the public careers page">Preview</button>
           <button style={st.cancelBtn} onClick={onClose}>Cancel</button>
           <button style={st.primaryBtn} onClick={() => save()} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
           {f.status !== 'open' && (
             <button style={{ ...st.primaryBtn, background: '#16a34a' }} onClick={() => save('open')} disabled={saving} title="Save and set status to Open">{saving ? 'Saving…' : 'Save & Publish'}</button>
           )}
         </div>
+        {preview && <ListingPreviewModal listing={preview} onClose={() => setPreview(null)} />}
       </div>
     </div>
   );
@@ -921,6 +1015,10 @@ const st = {
   td: { padding: '12px', fontSize: 13.5, color: 'rgba(255,255,255,0.85)', verticalAlign: 'top' },
   subEmail: { fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 2 },
   overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 },
+  previewOverlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: 20 },
+  previewShell: { display: 'flex', flexDirection: 'column', width: 900, maxWidth: '96vw', height: '92vh', background: '#0f0f1a', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16, overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.6)' },
+  previewBar: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '10px 16px', background: 'rgba(99,102,241,0.12)', borderBottom: '1px solid rgba(99,102,241,0.25)', flexShrink: 0 },
+  previewBarLabel: { fontSize: 12.5, fontWeight: 600, color: '#a5b4fc' },
   modal: { background: '#15151f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 22, width: 560, maxWidth: '92vw', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.6)' },
   modalTitle: { fontSize: 18, fontWeight: 700, color: '#fff', margin: '0 0 16px' },
   modalGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 },
