@@ -82,6 +82,8 @@ ${JSON.stringify(summary, null, 2)}
 
 Write a concise weekly readout. Be specific and quantitative (cite the actual numbers/deltas). No fluff.
 
+Do NOT discuss revenue, monetization, RPM, or money in any form — revenue is tracked elsewhere. Focus exclusively on audience, reach, content performance, and publishing cadence.
+
 Respond with ONLY a JSON object:
 {"headline":"one punchy sentence on the week","wins":["..."],"watch_outs":["..."],"recommendations":["concrete next step", "..."]}
 3-4 items max per list. If data is sparse, say so honestly rather than inventing.`;
@@ -476,12 +478,14 @@ Deno.serve(async (req: Request) => {
       cadence,
     };
 
-    // compact summary for the model (no nested deltas noise beyond totals)
+    // compact summary for the model (no nested deltas noise beyond totals).
+    // Revenue is deliberately excluded — raw numbers stay in `data` for the UI,
+    // but the narrative must not analyze money (tracked elsewhere).
+    const { revenue_cents: _rev, ...totalsForModel } = data.totals;
     const summary = {
       window: data.window,
-      totals: data.totals,
+      totals: totalsForModel,
       audience: data.audience,
-      revenue: { ...data.revenue, by_platform: data.revenue.by_platform },
       top_content: topContent.map((c) => ({ title: c.title, platform: c.platform, views: c.views })),
       cadence,
     };
