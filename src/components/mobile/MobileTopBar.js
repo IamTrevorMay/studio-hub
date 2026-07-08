@@ -45,7 +45,9 @@ const styles = {
     alignItems: 'center',
     gap: mobileTokens.space.sm,
     padding: `${mobileTokens.space.sm}px ${mobileTokens.space.md}px`,
-    height: mobileTokens.topBarHeight,
+    // minHeight, not height: the safe-area paddingTop (border-box) must grow
+    // the bar in standalone/home-screen mode instead of squeezing the row out.
+    minHeight: mobileTokens.topBarHeight,
     background: 'rgba(15,15,30,0.95)',
     backdropFilter: 'blur(12px)',
     WebkitBackdropFilter: 'blur(12px)',
