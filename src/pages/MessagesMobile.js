@@ -6,6 +6,7 @@ import BottomSheet from '../components/mobile/BottomSheet';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { ReactionChips, ReactionBar, toggleReaction } from '../components/MessageReactions';
 
 function applyFormatMarker(textareaRef, text, marker, setter) {
   const el = textareaRef.current;
@@ -398,7 +399,8 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState('');
-  const [actionMsg, setActionMsg] = useState(null); // own message whose action sheet is open
+  const [actionMsg, setActionMsg] = useState(null); // message whose action sheet is open (long-press)
+  const [replyingTo, setReplyingTo] = useState(null); // message being replied to (quoted above composer)
   const [editingId, setEditingId] = useState(null);
   const [editContent, setEditContent] = useState('');
   const sendingRef = useRef(false);
@@ -415,7 +417,7 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
       // Newest 100 then reverse — ascending+limit showed the oldest 100.
       const { data } = await supabase
         .from('direct_messages')
-        .select('*, profile:profiles(id, full_name, nickname, title)')
+        .select('*, profile:profiles(id, full_name, nickname, title), reply_to:reply_to_id(id, content, user_id, profile:profiles(id, full_name, nickname))')
         .eq('conversation_id', conversation.id)
         .order('created_at', { ascending: false })
         .limit(100);
@@ -437,7 +439,7 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
       }, async (payload) => {
         const { data } = await supabase
           .from('direct_messages')
-          .select('*, profile:profiles(id, full_name, nickname, title)')
+          .select('*, profile:profiles(id, full_name, nickname, title), reply_to:reply_to_id(id, content, user_id, profile:profiles(id, full_name, nickname))')
           .eq('id', payload.new.id)
           .single();
         // Dedup by id — reconnect can redeliver the same row.
@@ -448,7 +450,7 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
         filter: `conversation_id=eq.${conversation.id}`,
       }, (payload) => {
         setMessages((prev) => prev.map((m) => (m.id === payload.new.id
-          ? { ...m, content: payload.new.content, edited_at: payload.new.edited_at }
+          ? { ...m, content: payload.new.content, edited_at: payload.new.edited_at, reactions: payload.new.reactions }
           : m)));
       })
       .on('postgres_changes', {
@@ -481,8 +483,10 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
       conversation_id: conversation.id,
       user_id: profileId,
       content,
+      reply_to_id: replyingTo?.id || null,
     });
     if (error) setText(content); // restore the typed message on failure instead of silently losing it
+    else setReplyingTo(null);
     sendingRef.current = false;
   }
 
@@ -500,13 +504,32 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
     }
   }, [editContent]);
 
-  // Long-press an own message to open its action sheet.
+  // Long-press any message to open its action sheet (react / reply; edit &
+  // delete only on own messages).
   function startPress(m) {
     pressFired.current = false;
     pressTimer.current = setTimeout(() => { pressFired.current = true; setActionMsg(m); }, 500);
   }
   function cancelPress() {
     if (pressTimer.current) clearTimeout(pressTimer.current);
+  }
+
+  function startReply(m) {
+    setActionMsg(null);
+    setReplyingTo(m);
+    inputRef.current?.focus();
+  }
+
+  // Toggle an emoji reaction; patch state from the RPC's returned reactions so
+  // the reactor sees it instantly (other viewers get the realtime UPDATE).
+  async function react(messageId, emoji) {
+    setActionMsg(null);
+    try {
+      const reactions = await toggleReaction('dm', messageId, emoji);
+      setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, reactions } : m)));
+    } catch (err) {
+      console.error('Error toggling reaction:', err);
+    }
   }
 
   function startEdit(m) {
@@ -615,10 +638,10 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
             return (
               <div key={m.id} style={{ ...convoStyles.bubbleRow, justifyContent: mine ? 'flex-end' : 'flex-start' }}>
                 <div
-                  onTouchStart={mine && !isEditing ? () => startPress(m) : undefined}
-                  onTouchEnd={mine ? cancelPress : undefined}
-                  onTouchMove={mine ? cancelPress : undefined}
-                  onContextMenu={mine && !isEditing ? (e) => { e.preventDefault(); setActionMsg(m); } : undefined}
+                  onTouchStart={!isEditing ? () => startPress(m) : undefined}
+                  onTouchEnd={cancelPress}
+                  onTouchMove={cancelPress}
+                  onContextMenu={!isEditing ? (e) => { e.preventDefault(); setActionMsg(m); } : undefined}
                   style={{
                     ...convoStyles.bubble,
                     background: mine ? 'linear-gradient(135deg, #6366f1, #818cf8)' : 'rgba(255,255,255,0.06)',
@@ -645,10 +668,31 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
                     </div>
                   ) : (
                     <>
+                      {m.reply_to_id && (
+                        <div style={{
+                          borderLeft: '2px solid rgba(255,255,255,0.4)',
+                          padding: '2px 8px',
+                          marginBottom: 6,
+                          borderRadius: 4,
+                          background: 'rgba(0,0,0,0.15)',
+                        }}>
+                          {m.reply_to ? (
+                            <>
+                              <div style={{ fontSize: 11, fontWeight: 700, opacity: 0.85 }}>{getDisplayName(m.reply_to.profile)}</div>
+                              <div style={{ fontSize: 12, opacity: 0.7, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {m.reply_to.content.substring(0, 100)}{m.reply_to.content.length > 100 ? '…' : ''}
+                              </div>
+                            </>
+                          ) : (
+                            <div style={{ fontSize: 12, opacity: 0.6, fontStyle: 'italic' }}>Original message deleted</div>
+                          )}
+                        </div>
+                      )}
                       <div>
                         {renderContent(m.content)}
                         {m.edited_at && <span style={convoStyles.editedTag}> (edited)</span>}
                       </div>
+                      <ReactionChips reactions={m.reactions} userId={profileId} onToggle={(emoji) => react(m.id, emoji)} />
                       <div style={{ ...convoStyles.bubbleTime, color: mine ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.4)' }}>
                         {formatTime(m.created_at)}
                       </div>
@@ -662,6 +706,31 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
         <div ref={endRef} />
       </div>
       <form onSubmit={send} style={{ ...convoStyles.composer, paddingBottom: `calc(${mobileTokens.space.md}px + ${mobileTokens.safeBottom})` }}>
+        {replyingTo && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '6px 10px', marginBottom: 6,
+            background: 'rgba(99,102,241,0.1)',
+            borderLeft: '2px solid #6366f1', borderRadius: 6,
+          }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#a5b4fc' }}>
+                Replying to {getDisplayName(replyingTo.profile) || 'message'}
+              </div>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {replyingTo.content}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReplyingTo(null)}
+              style={{ border: 'none', background: 'transparent', color: 'rgba(255,255,255,0.6)', fontSize: 16, padding: 4 }}
+              aria-label="Cancel reply"
+            >
+              {'✕'}
+            </button>
+          </div>
+        )}
         <div style={convoStyles.composerRow}>
           <textarea
             ref={inputRef}
@@ -699,16 +768,24 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
       <BottomSheet open={!!actionMsg} onClose={() => setActionMsg(null)} title="Message">
         {actionMsg && (
           <div style={styles.newPanel}>
-            <button style={styles.actionRow} onClick={() => startEdit(actionMsg)}>Edit</button>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 4 }}>
+              <ReactionBar onPick={(emoji) => react(actionMsg.id, emoji)} />
+            </div>
+            <button style={styles.actionRow} onClick={() => startReply(actionMsg)}>Reply</button>
             <button
               style={styles.actionRow}
               onClick={() => { navigator.clipboard.writeText(actionMsg.content).catch(() => {}); setActionMsg(null); }}
             >
               Copy
             </button>
-            <button style={{ ...styles.actionRow, color: '#f87171' }} onClick={() => deleteMsg(actionMsg.id)}>
-              Delete
-            </button>
+            {actionMsg.user_id === profileId && (
+              <>
+                <button style={styles.actionRow} onClick={() => startEdit(actionMsg)}>Edit</button>
+                <button style={{ ...styles.actionRow, color: '#f87171' }} onClick={() => deleteMsg(actionMsg.id)}>
+                  Delete
+                </button>
+              </>
+            )}
           </div>
         )}
       </BottomSheet>

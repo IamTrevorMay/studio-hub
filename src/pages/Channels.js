@@ -6,6 +6,7 @@ import { useNotifications } from '../contexts/NotificationContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
+import { ReactionChips, ReactionBar, toggleReaction } from '../components/MessageReactions';
 
 // Roles that can be individually granted channel access via the admin
 // "Set Permissions" menu. Admin-tier roles (admin, director_creative,
@@ -494,7 +495,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
       }, (payload) => {
         if (!mounted) return;
         setMessages(prev => prev.map(m => m.id === payload.new.id
-          ? { ...m, content: payload.new.content, edited_at: payload.new.edited_at, is_pinned: payload.new.is_pinned }
+          ? { ...m, content: payload.new.content, edited_at: payload.new.edited_at, is_pinned: payload.new.is_pinned, reactions: payload.new.reactions }
           : m
         ));
         fetchPinnedMessages(activeChannel.id);
@@ -577,6 +578,17 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
     await supabase.from('channel_messages').delete().eq('id', messageId);
     setMessages(prev => prev.filter(m => m.id !== messageId));
     if (activeChannel) fetchPinnedMessages(activeChannel.id);
+  }
+
+  // Toggle an emoji reaction; patch state from the RPC's returned reactions so
+  // the reactor sees it instantly (other viewers get the realtime UPDATE).
+  async function handleToggleReaction(messageId, emoji) {
+    try {
+      const reactions = await toggleReaction('channel', messageId, emoji);
+      setMessages(prev => prev.map(m => (m.id === messageId ? { ...m, reactions } : m)));
+    } catch (err) {
+      console.error('Error toggling reaction:', err);
+    }
   }
 
   // Drag-and-drop reorder AND move channels between groups. Droppable ids are
@@ -1439,6 +1451,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
                           onPin={handlePinMessage}
                           onEdit={handleEditMessage}
                           onDelete={handleDeleteMessage}
+                          onReact={handleToggleReaction}
                           formatContent={formatMessageContent}
                         />
                       ))}
@@ -1638,9 +1651,10 @@ function GroupHeader({
   );
 }
 
-function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, formatContent, rowId, isHighlighted }) {
+function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, onReact, formatContent, rowId, isHighlighted }) {
   const [hovered, setHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState(null); // { x, y } from right-click — emoji reaction bar
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(msg.content);
   const menuRef = useRef(null);
@@ -1731,7 +1745,28 @@ function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, formatCo
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => { setHovered(false); }}
+      onContextMenu={(e) => {
+        if (editing) return;
+        e.preventDefault();
+        setCtxMenu({ x: e.clientX, y: e.clientY });
+      }}
     >
+      {ctxMenu && (
+        <>
+          <div
+            style={{ position: 'fixed', inset: 0, zIndex: 99 }}
+            onClick={() => setCtxMenu(null)}
+            onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }}
+          />
+          <div style={{
+            position: 'fixed', top: ctxMenu.y, left: Math.min(ctxMenu.x, window.innerWidth - 240), zIndex: 100,
+            background: '#1e1e36', border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: '10px', boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+          }}>
+            <ReactionBar onPick={(emoji) => { onReact(msg.id, emoji); setCtxMenu(null); }} />
+          </div>
+        </>
+      )}
       {editing ? (
         <div style={{ flex: 1 }}>
           <FormatToolbar targetRef={editInputRef} value={editContent} setValue={setEditContent} />
@@ -1755,6 +1790,7 @@ function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, formatCo
             {msg.is_pinned && <span style={msgStyles.pinBadge}>📌</span>}
             {formatContent(msg.content)}
             {msg.edited_at && <span style={msgStyles.editedTag}>(edited)</span>}
+            <ReactionChips reactions={msg.reactions} userId={profileId} onToggle={(emoji) => onReact(msg.id, emoji)} />
           </div>
           <div style={{ position: 'relative', flexShrink: 0 }}>
             <button

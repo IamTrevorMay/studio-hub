@@ -5,6 +5,7 @@ import { useNotifications } from '../contexts/NotificationContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { ReactionChips, ReactionBar, toggleReaction } from '../components/MessageReactions';
 
 
 // A conversation is unread when its latest message came from someone else and
@@ -258,7 +259,7 @@ export default function Messages({ onNavigate }) {
         filter: `conversation_id=eq.${activeConversation.id}`,
       }, (payload) => {
         setMessages(prev => prev.map(m => (m.id === payload.new.id
-          ? { ...m, content: payload.new.content, edited_at: payload.new.edited_at }
+          ? { ...m, content: payload.new.content, edited_at: payload.new.edited_at, reactions: payload.new.reactions }
           : m)));
       })
       .on('postgres_changes', {
@@ -297,6 +298,17 @@ export default function Messages({ onNavigate }) {
   function startReply(msg) {
     setReplyingTo(msg);
     inputRef.current?.focus();
+  }
+
+  // Toggle an emoji reaction; patch state from the RPC's returned reactions so
+  // the reactor sees it instantly (other viewers get the realtime UPDATE).
+  async function handleToggleReaction(messageId, emoji) {
+    try {
+      const reactions = await toggleReaction('dm', messageId, emoji);
+      setMessages(prev => prev.map(m => (m.id === messageId ? { ...m, reactions } : m)));
+    } catch (err) {
+      console.error('Error toggling reaction:', err);
+    }
   }
 
   async function handleLeaveConversation(convo) {
@@ -696,6 +708,8 @@ export default function Messages({ onNavigate }) {
                       onEdit={handleEditMessage}
                       onDelete={handleDeleteMessage}
                       onReply={startReply}
+                      onReact={handleToggleReaction}
+                      userId={profile?.id}
                     />
                   );
                 })
@@ -820,7 +834,7 @@ export default function Messages({ onNavigate }) {
   );
 }
 
-function DmMessage({ msg, isOwn, showAvatar, formatContent, formatTime, onEdit, onDelete, onReply }) {
+function DmMessage({ msg, isOwn, showAvatar, formatContent, formatTime, onEdit, onDelete, onReply, onReact, userId }) {
   const [hovered, setHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [ctxMenu, setCtxMenu] = useState(null); // { x, y } from right-click
@@ -950,6 +964,8 @@ function DmMessage({ msg, isOwn, showAvatar, formatContent, formatTime, onEdit, 
             onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }}
           />
           <div style={{ ...styles.contextMenu, top: ctxMenu.y, left: ctxMenu.x }}>
+            <ReactionBar onPick={(emoji) => { onReact(msg.id, emoji); setCtxMenu(null); }} />
+            <div style={{ height: '1px', background: 'rgba(255,255,255,0.08)', margin: '2px 0' }} />
             <button onClick={handleReply} style={styles.contextItem}>Reply</button>
             <button onClick={handleCopy} style={styles.contextItem}>Copy</button>
             {isOwn && (
@@ -1012,6 +1028,7 @@ function DmMessage({ msg, isOwn, showAvatar, formatContent, formatTime, onEdit, 
               {formatContent(msg.content)}
               {msg.edited_at && <span style={styles.msgEditedTag}>(edited)</span>}
             </div>
+            <ReactionChips reactions={msg.reactions} userId={userId} onToggle={(emoji) => onReact(msg.id, emoji)} />
             <div style={styles.msgTime}>{formatTime(msg.created_at)}</div>
           </>
         )}

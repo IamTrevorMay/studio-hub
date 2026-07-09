@@ -5,6 +5,7 @@ import { useNotifications } from '../contexts/NotificationContext';
 import FullScreenSheet from '../components/mobile/FullScreenSheet';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
+import { ReactionChips, toggleReaction } from '../components/MessageReactions';
 
 // Note: "Channels" here is the Slack-style team-chat channel list, not platform
 // analytics channels. Mobile mirrors the desktop chat UX, slimmed: grouped channel
@@ -611,7 +612,7 @@ function ChannelView({ channel, channels, profileId, teamMembers, refreshKey, on
         filter: `channel_id=eq.${channel.id}`,
       }, (payload) => {
         setMessages((prev) => prev.map((m) => m.id === payload.new.id
-          ? { ...m, content: payload.new.content, edited_at: payload.new.edited_at, is_pinned: payload.new.is_pinned }
+          ? { ...m, content: payload.new.content, edited_at: payload.new.edited_at, is_pinned: payload.new.is_pinned, reactions: payload.new.reactions }
           : m
         ));
         fetchPinned();
@@ -679,6 +680,17 @@ function ChannelView({ channel, channels, profileId, teamMembers, refreshKey, on
       }
     } finally {
       sendingRef.current = false;
+    }
+  }
+
+  // Toggle an emoji reaction (tap an existing chip); patch state from the
+  // RPC's returned reactions — other viewers get the realtime UPDATE.
+  async function react(messageId, emoji) {
+    try {
+      const reactions = await toggleReaction('channel', messageId, emoji);
+      setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, reactions } : m)));
+    } catch (err) {
+      console.error('Error toggling reaction:', err);
     }
   }
 
@@ -791,6 +803,7 @@ function ChannelView({ channel, channels, profileId, teamMembers, refreshKey, on
                     {m.is_pinned && <span style={chatStyles.pinBadge}>📌</span>}
                     {formatMessageContent(m.content, channels, onSwitchChannel)}
                     {m.edited_at && <span style={chatStyles.editedTag}>(edited)</span>}
+                    <ReactionChips reactions={m.reactions} userId={profileId} onToggle={(emoji) => react(m.id, emoji)} />
                   </div>
                 ))}
               </div>
