@@ -96,6 +96,15 @@ export function NotificationProvider({ children }) {
     localStorage.setItem('dashboard_last_seen', new Date().toISOString());
   }, []);
 
+  // Browser tab badge: prefix the title with the combined unread count
+  // (DMs + channel mentions + bell notifications). Counts update in
+  // realtime above, so the title tracks reads/arrivals live.
+  useEffect(() => {
+    const count = unreadMessageCount + unreadMentionChannelIds.length + unreadNotificationCount;
+    document.title = count > 0 ? `(${count > 99 ? '99+' : count}) Mayday Studio` : 'Mayday Studio';
+    return () => { document.title = 'Mayday Studio'; };
+  }, [unreadMessageCount, unreadMentionChannelIds, unreadNotificationCount]);
+
   // Fire a native OS notification for a freshly-inserted notifications row.
   // Only when the user opted in (profiles.desktop_notifications_enabled),
   // the row's category is enabled in their desktop prefs, the browser
