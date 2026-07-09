@@ -302,6 +302,18 @@ export default function Calendar({ onNavigate }) {
   const [savingEvent, setSavingEvent] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [showGuestDropdown, setShowGuestDropdown] = useState(false);
+  // Screen coords + width for the guest dropdown. Position: fixed so it
+  // escapes the event modal's overflow:auto instead of being clipped.
+  // Clamped so the 200px-max list never runs off the viewport.
+  const [guestDropdownPos, setGuestDropdownPos] = useState({ top: 0, left: 0, width: 0 });
+  const openGuestDropdownAt = (el) => {
+    const r = el.getBoundingClientRect();
+    setGuestDropdownPos({
+      top: Math.min(r.bottom + 4, window.innerHeight - 208),
+      left: Math.min(r.left, window.innerWidth - r.width - 8),
+      width: r.width,
+    });
+  };
   const [expandedSocialDays, setExpandedSocialDays] = useState({});
   const [showCustomRecurrence, setShowCustomRecurrence] = useState(false);
   const [recurrencePrompt, setRecurrencePrompt] = useState(null); // { action: 'edit'|'delete', event }
@@ -338,6 +350,18 @@ export default function Calendar({ onNavigate }) {
   function toggleFilter(key) {
     setVisibleFilters(prev => ({ ...prev, [key]: !prev[key] }));
   }
+
+  // The fixed-positioned guest dropdown doesn't follow the modal when it
+  // scrolls — close instead of drifting. Scrolls inside the list are fine.
+  useEffect(() => {
+    if (!showGuestDropdown) return;
+    const onScroll = (e) => {
+      if (e.target instanceof Element && e.target.closest('[data-guest-dropdown]')) return;
+      setShowGuestDropdown(false);
+    };
+    window.addEventListener('scroll', onScroll, true);
+    return () => window.removeEventListener('scroll', onScroll, true);
+  }, [showGuestDropdown]);
 
   useEffect(() => {
     function handleClick(e) {
@@ -2424,7 +2448,7 @@ export default function Calendar({ onNavigate }) {
               <label style={styles.formLabel}>Team Members</label>
               <div
                 style={styles.guestSelector}
-                onClick={() => setShowGuestDropdown(!showGuestDropdown)}
+                onClick={(e) => { if (!showGuestDropdown) openGuestDropdownAt(e.currentTarget); setShowGuestDropdown(!showGuestDropdown); }}
               >
                 {eventForm.guests.length === 0 ? (
                   <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: '13px' }}>Assign team members...</span>
@@ -2443,7 +2467,7 @@ export default function Calendar({ onNavigate }) {
                 )}
               </div>
               {showGuestDropdown && (
-                <div style={styles.guestDropdownList}>
+                <div data-guest-dropdown style={{ ...styles.guestDropdownList, position: 'fixed', top: guestDropdownPos.top, left: guestDropdownPos.left, right: 'auto', width: guestDropdownPos.width, marginTop: 0 }}>
                   {hubUsers.filter(u => u.id !== profile?.id).map(u => {
                     const isSelected = eventForm.guests.includes(u.id);
                     return (
