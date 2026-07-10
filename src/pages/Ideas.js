@@ -13,8 +13,21 @@ const CATEGORIES = [
 
 const CATEGORY_KEYS = CATEGORIES.map((c) => c.key);
 
+// Maps Ideas columns to the `type` used by Projects cards.
+const CATEGORY_TO_PROJECT_TYPE = {
+  mayday_videos: 'mayday_video',
+  tm_baseball_videos: 'tm_baseball_video',
+  short_form_only: 'short_form',
+  podcast_only: 'podcast',
+};
+
+const IDEA_FIELDS = 'id, text, checked, position, category, context, created_by, created_at, updated_at, creator:profiles!created_by(full_name)';
+
 export default function Ideas() {
   const { profile } = useAuth();
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [sending, setSending] = useState(false);
   // Items keyed by category for O(1) column lookup + per-column ordering.
   const [byCategory, setByCategory] = useState(() =>
     Object.fromEntries(CATEGORY_KEYS.map((k) => [k, []]))
@@ -23,7 +36,7 @@ export default function Ideas() {
   const fetchAll = useCallback(async () => {
     const { data, error } = await supabase
       .from('write_ideas')
-      .select('id, text, checked, position, category, created_by, created_at, updated_at')
+      .select(IDEA_FIELDS)
       // position is reindexed per-category, so add created_at as a deterministic
       // tiebreak — otherwise within-column order can shuffle between reloads.
       .order('position', { ascending: true })
@@ -117,7 +130,7 @@ export default function Ideas() {
         category,
         created_by: profile.id,
       })
-      .select('id, text, checked, position, category, created_by, created_at, updated_at')
+      .select(IDEA_FIELDS)
       .single();
     if (error) {
       console.error('Error adding idea:', error);
@@ -180,13 +193,97 @@ export default function Ideas() {
     }
   }
 
+  async function saveContext(id, category, newContext) {
+    const value = (newContext || '').trim() || null;
+    setByCategory((prev) => ({
+      ...prev,
+      [category]: prev[category].map((i) => (i.id === id ? { ...i, context: value } : i)),
+    }));
+    const { error } = await supabase
+      .from('write_ideas')
+      .update({ context: value, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) {
+      console.error('Error saving idea context:', error);
+      fetchAll();
+    }
+  }
+
+  function toggleSelect(id) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }
+
+  async function sendSelectedToProjects() {
+    const items = CATEGORY_KEYS.flatMap((k) => byCategory[k] || []).filter((i) => selectedIds.has(i.id));
+    if (items.length === 0 || sending) return;
+    setSending(true);
+    const rows = items.map((i) => ({
+      name: i.text,
+      type: CATEGORY_TO_PROJECT_TYPE[i.category] || 'mayday_video',
+      status: 'queue',
+      start_column: 'queue',
+      notes: i.context || null,
+      stage_config: {},
+      created_by: profile?.id || null,
+    }));
+    const { error } = await supabase.from('projects').insert(rows);
+    if (error) {
+      alert(`Could not add to Projects: ${error.message}`);
+      setSending(false);
+      return;
+    }
+    // Project cards created — remove the exported ideas from the board.
+    const ids = items.map((i) => i.id);
+    const { error: delError } = await supabase.from('write_ideas').delete().in('id', ids);
+    if (delError) console.error('Error removing exported ideas:', delError);
+    setByCategory((prev) => {
+      const next = {};
+      for (const k of CATEGORY_KEYS) next[k] = (prev[k] || []).filter((i) => !selectedIds.has(i.id));
+      return next;
+    });
+    setSending(false);
+    exitSelectMode();
+  }
+
   return (
     <div style={styles.page}>
       <header style={styles.header}>
-        <h1 style={styles.pageTitle}>Ideas</h1>
-        <p style={styles.pageSubtitle}>
-          Sort ideas across categories. Drag items to move them between columns.
-        </p>
+        <div>
+          <h1 style={styles.pageTitle}>Ideas</h1>
+          <p style={styles.pageSubtitle}>
+            Sort ideas across categories. Drag items to move them between columns.
+          </p>
+        </div>
+        <div style={styles.headerActions}>
+          {selectMode ? (
+            <>
+              <button
+                onClick={sendSelectedToProjects}
+                disabled={selectedIds.size === 0 || sending}
+                style={{
+                  ...styles.addToProjectsBtn,
+                  opacity: selectedIds.size === 0 || sending ? 0.4 : 1,
+                  cursor: selectedIds.size === 0 || sending ? 'default' : 'pointer',
+                }}
+              >
+                {sending ? 'Adding…' : `Add to Projects (${selectedIds.size})`}
+              </button>
+              <button onClick={exitSelectMode} style={styles.selectCancelBtn}>Cancel</button>
+            </>
+          ) : (
+            <button onClick={() => setSelectMode(true)} style={styles.selectBtn}>Select</button>
+          )}
+        </div>
       </header>
 
       <DragDropContext onDragEnd={handleDragEnd}>
@@ -200,6 +297,10 @@ export default function Ideas() {
               onToggle={toggleItem}
               onDelete={(id) => deleteItem(id, cat.key)}
               onSaveEdit={(id, text) => saveEdit(id, cat.key, text)}
+              onSaveContext={(id, text) => saveContext(id, cat.key, text)}
+              selectMode={selectMode}
+              selectedIds={selectedIds}
+              onToggleSelect={toggleSelect}
             />
           ))}
         </div>
@@ -208,11 +309,13 @@ export default function Ideas() {
   );
 }
 
-function Column({ category, items, onAdd, onToggle, onDelete, onSaveEdit }) {
+function Column({ category, items, onAdd, onToggle, onDelete, onSaveEdit, onSaveContext, selectMode, selectedIds, onToggleSelect }) {
   const [showInput, setShowInput] = useState(false);
   const [newText, setNewText] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [editingText, setEditingText] = useState('');
+  const [contextEditingId, setContextEditingId] = useState(null);
+  const [contextDraft, setContextDraft] = useState('');
 
   function commitNew() {
     onAdd(newText);
@@ -224,6 +327,17 @@ function Column({ category, items, onAdd, onToggle, onDelete, onSaveEdit }) {
     onSaveEdit(id, editingText);
     setEditingId(null);
     setEditingText('');
+  }
+
+  function openContextEditor(item) {
+    setContextEditingId(item.id);
+    setContextDraft(item.context || '');
+  }
+
+  function commitContext(id) {
+    onSaveContext(id, contextDraft);
+    setContextEditingId(null);
+    setContextDraft('');
   }
 
   return (
@@ -291,14 +405,35 @@ function Column({ category, items, onAdd, onToggle, onDelete, onSaveEdit }) {
                       ...provided.draggableProps.style,
                     }}
                   >
-                    <div style={styles.item}>
-                      <div {...provided.dragHandleProps} style={styles.dragHandle}>⠿</div>
-                      <input
-                        type="checkbox"
-                        checked={item.checked}
-                        onChange={() => onToggle(item.id)}
-                        style={styles.checkbox}
-                      />
+                    <div
+                      style={{
+                        ...styles.item,
+                        ...(selectMode ? styles.itemSelectable : {}),
+                        ...(selectMode && selectedIds.has(item.id) ? styles.itemSelected : {}),
+                      }}
+                      onClick={selectMode ? () => onToggleSelect(item.id) : undefined}
+                    >
+                      <div
+                        {...provided.dragHandleProps}
+                        style={{ ...styles.dragHandle, ...(selectMode ? { display: 'none' } : {}) }}
+                      >⠿</div>
+                      {selectMode ? (
+                        <div
+                          style={{
+                            ...styles.selectCircle,
+                            ...(selectedIds.has(item.id) ? styles.selectCircleOn : {}),
+                          }}
+                        >
+                          {selectedIds.has(item.id) ? '✓' : ''}
+                        </div>
+                      ) : (
+                        <input
+                          type="checkbox"
+                          checked={item.checked}
+                          onChange={() => onToggle(item.id)}
+                          style={styles.checkbox}
+                        />
+                      )}
                       {editingId === item.id ? (
                         <input
                           value={editingText}
@@ -318,20 +453,60 @@ function Column({ category, items, onAdd, onToggle, onDelete, onSaveEdit }) {
                             textDecoration: item.checked ? 'line-through' : 'none',
                             opacity: item.checked ? 0.45 : 1,
                           }}
-                          onDoubleClick={() => {
+                          onDoubleClick={selectMode ? undefined : () => {
                             setEditingId(item.id);
                             setEditingText(item.text);
                           }}
-                          title="Double-click to edit"
+                          title={selectMode ? undefined : 'Double-click to edit'}
                         >
                           {item.text}
                         </span>
                       )}
-                      <button
-                        onClick={() => onDelete(item.id)}
-                        style={styles.deleteBtn}
-                        title="Delete"
-                      >✕</button>
+                      {!selectMode && (
+                        <button
+                          onClick={() => onDelete(item.id)}
+                          style={styles.deleteBtn}
+                          title="Delete"
+                        >✕</button>
+                      )}
+                    </div>
+                    {contextEditingId === item.id ? (
+                      <div style={styles.contextEditWrap}>
+                        <textarea
+                          value={contextDraft}
+                          onChange={(e) => setContextDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') { setContextEditingId(null); setContextDraft(''); }
+                          }}
+                          placeholder="Add notes, angles, references..."
+                          style={styles.contextTextarea}
+                          rows={4}
+                          autoFocus
+                        />
+                        <div style={styles.contextBtnRow}>
+                          <button onClick={() => commitContext(item.id)} style={styles.contextSaveBtn}>Save</button>
+                          <button
+                            onClick={() => { setContextEditingId(null); setContextDraft(''); }}
+                            style={styles.contextCancelBtn}
+                          >Cancel</button>
+                        </div>
+                      </div>
+                    ) : item.context ? (
+                      <div
+                        style={styles.contextText}
+                        onClick={selectMode ? () => onToggleSelect(item.id) : () => openContextEditor(item)}
+                        title={selectMode ? undefined : 'Click to edit context'}
+                      >
+                        {item.context}
+                      </div>
+                    ) : null}
+                    <div style={styles.metaRow}>
+                      <span style={styles.creatorName}>{item.creator?.full_name || 'Unknown'}</span>
+                      {!selectMode && contextEditingId !== item.id && (
+                        <button onClick={() => openContextEditor(item)} style={styles.contextLink}>
+                          {item.context ? 'edit context' : '+ context'}
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
@@ -350,7 +525,46 @@ function Column({ category, items, onAdd, onToggle, onDelete, onSaveEdit }) {
 
 const styles = {
   page: { padding: '32px 40px', minHeight: '100vh' },
-  header: { marginBottom: '24px' },
+  header: {
+    marginBottom: '24px',
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: '16px',
+    flexWrap: 'wrap',
+  },
+  headerActions: { display: 'flex', gap: '8px', flexShrink: 0 },
+  selectBtn: {
+    padding: '8px 16px',
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: '8px',
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  addToProjectsBtn: {
+    padding: '8px 16px',
+    background: '#6366f1',
+    border: 'none',
+    borderRadius: '8px',
+    color: '#fff',
+    fontSize: '13px',
+    fontWeight: 600,
+    fontFamily: 'inherit',
+  },
+  selectCancelBtn: {
+    padding: '8px 16px',
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '8px',
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: '13px',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
   pageTitle: { fontSize: '28px', fontWeight: 700, color: '#ffffff', margin: '0 0 6px 0', letterSpacing: '-0.5px' },
   pageSubtitle: { fontSize: '13px', color: 'rgba(255,255,255,0.45)', margin: 0 },
   boardRow: {
@@ -447,6 +661,85 @@ const styles = {
   listDraggingOver: { background: 'rgba(99,102,241,0.06)' },
   itemWrap: { borderRadius: '6px' },
   item: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 4px' },
+  itemSelectable: { cursor: 'pointer', borderRadius: '6px' },
+  itemSelected: { background: 'rgba(99,102,241,0.12)' },
+  selectCircle: {
+    width: '16px',
+    height: '16px',
+    borderRadius: '50%',
+    border: '1.5px solid rgba(255,255,255,0.3)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '10px',
+    color: '#fff',
+    flexShrink: 0,
+    boxSizing: 'border-box',
+  },
+  selectCircleOn: {
+    background: '#6366f1',
+    border: '1.5px solid #6366f1',
+  },
+  metaRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    padding: '0 4px 4px 34px',
+  },
+  creatorName: { fontSize: '11px', color: 'rgba(255,255,255,0.3)' },
+  contextLink: {
+    background: 'none',
+    border: 'none',
+    color: 'rgba(165,180,252,0.7)',
+    fontSize: '11px',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    padding: 0,
+  },
+  contextText: {
+    fontSize: '12px',
+    color: 'rgba(255,255,255,0.5)',
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+    padding: '0 4px 4px 34px',
+    cursor: 'text',
+  },
+  contextEditWrap: { padding: '4px 4px 6px 34px' },
+  contextTextarea: {
+    width: '100%',
+    padding: '8px 10px',
+    background: 'rgba(255,255,255,0.05)',
+    border: '1px solid rgba(99,102,241,0.4)',
+    borderRadius: '8px',
+    color: '#fff',
+    fontSize: '12px',
+    fontFamily: 'inherit',
+    outline: 'none',
+    resize: 'vertical',
+    boxSizing: 'border-box',
+  },
+  contextBtnRow: { display: 'flex', gap: '6px', marginTop: '6px' },
+  contextSaveBtn: {
+    padding: '5px 12px',
+    background: '#6366f1',
+    border: 'none',
+    borderRadius: '6px',
+    color: '#fff',
+    fontSize: '12px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  contextCancelBtn: {
+    padding: '5px 12px',
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '6px',
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: '12px',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
   dragHandle: {
     color: 'rgba(255,255,255,0.2)',
     fontSize: '14px',

@@ -16,18 +16,31 @@ const CATEGORIES = [
 ];
 const CATEGORY_KEYS = CATEGORIES.map((c) => c.key);
 
+// Maps Ideas columns to the `type` used by Projects cards.
+const CATEGORY_TO_PROJECT_TYPE = {
+  mayday_videos: 'mayday_video',
+  tm_baseball_videos: 'tm_baseball_video',
+  short_form_only: 'short_form',
+  podcast_only: 'podcast',
+};
+
+const IDEA_FIELDS = 'id, text, checked, position, category, context, created_by, created_at, updated_at, creator:profiles!created_by(full_name)';
+
 export default function IdeasMobile() {
   const { profile } = useAuth();
   const [byCategory, setByCategory] = useState(() =>
     Object.fromEntries(CATEGORY_KEYS.map((k) => [k, []])),
   );
   const [activeIdx, setActiveIdx] = useState(0);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [sending, setSending] = useState(false);
   const scrollerRef = useRef(null);
 
   const fetchAll = useCallback(async () => {
     const { data, error } = await supabase
       .from('write_ideas')
-      .select('id, text, checked, position, category, created_by, created_at, updated_at')
+      .select(IDEA_FIELDS)
       .order('position', { ascending: true })
       .order('created_at', { ascending: true });
     if (error) { console.error('Ideas load error:', error); return; }
@@ -81,7 +94,7 @@ export default function IdeasMobile() {
     const { data, error } = await supabase
       .from('write_ideas')
       .insert({ text: trimmed, checked: false, position: nextPosition, category, created_by: profile.id })
-      .select('id, text, checked, position, category, created_by, created_at, updated_at')
+      .select(IDEA_FIELDS)
       .single();
     if (error) { alert(`Could not save: ${error.message}`); return; }
     setByCategory((prev) => ({ ...prev, [category]: [...(prev[category] || []), data] }));
@@ -153,6 +166,65 @@ export default function IdeasMobile() {
     if (error) { console.error(error); fetchAll(); }
   }
 
+  async function saveContext(id, category, newContext) {
+    const value = (newContext || '').trim() || null;
+    setByCategory((prev) => ({
+      ...prev,
+      [category]: prev[category].map((i) => (i.id === id ? { ...i, context: value } : i)),
+    }));
+    const { error } = await supabase
+      .from('write_ideas')
+      .update({ context: value, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) { console.error(error); fetchAll(); }
+  }
+
+  function toggleSelect(id) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }
+
+  async function sendSelectedToProjects() {
+    const items = CATEGORY_KEYS.flatMap((k) => byCategory[k] || []).filter((i) => selectedIds.has(i.id));
+    if (items.length === 0 || sending) return;
+    setSending(true);
+    const rows = items.map((i) => ({
+      name: i.text,
+      type: CATEGORY_TO_PROJECT_TYPE[i.category] || 'mayday_video',
+      status: 'queue',
+      start_column: 'queue',
+      notes: i.context || null,
+      stage_config: {},
+      created_by: profile?.id || null,
+    }));
+    const { error } = await supabase.from('projects').insert(rows);
+    if (error) {
+      alert(`Could not add to Projects: ${error.message}`);
+      setSending(false);
+      return;
+    }
+    // Project cards created — remove the exported ideas from the board.
+    const ids = items.map((i) => i.id);
+    const { error: delError } = await supabase.from('write_ideas').delete().in('id', ids);
+    if (delError) console.error('Error removing exported ideas:', delError);
+    setByCategory((prev) => {
+      const next = {};
+      for (const k of CATEGORY_KEYS) next[k] = (prev[k] || []).filter((i) => !selectedIds.has(i.id));
+      return next;
+    });
+    setSending(false);
+    exitSelectMode();
+  }
+
   return (
     <div style={styles.page}>
       <div style={styles.header}>
@@ -161,6 +233,24 @@ export default function IdeasMobile() {
           <span style={styles.countPill}>
             {(byCategory[CATEGORIES[activeIdx].key] || []).length}
           </span>
+          <div style={{ flex: 1 }} />
+          {selectMode ? (
+            <>
+              <button
+                onClick={sendSelectedToProjects}
+                disabled={selectedIds.size === 0 || sending}
+                style={{
+                  ...styles.addToProjectsBtn,
+                  opacity: selectedIds.size === 0 || sending ? 0.4 : 1,
+                }}
+              >
+                {sending ? 'Adding…' : `Add to Projects (${selectedIds.size})`}
+              </button>
+              <button onClick={exitSelectMode} style={styles.selectCancelBtn}>✕</button>
+            </>
+          ) : (
+            <button onClick={() => setSelectMode(true)} style={styles.selectBtn}>Select</button>
+          )}
         </div>
         <div style={styles.dots}>
           {CATEGORIES.map((c, i) => (
@@ -189,6 +279,10 @@ export default function IdeasMobile() {
             onDelete={(id) => deleteItem(id, cat.key)}
             onSaveEdit={(id, text) => saveEdit(id, cat.key, text)}
             onMove={(id, toCat) => moveItem(id, cat.key, toCat)}
+            onSaveContext={(id, text) => saveContext(id, cat.key, text)}
+            selectMode={selectMode}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelect}
           />
         ))}
       </div>
@@ -196,12 +290,25 @@ export default function IdeasMobile() {
   );
 }
 
-function Column({ category, allCategories, items, onAdd, onToggle, onDelete, onSaveEdit, onMove }) {
+function Column({ category, allCategories, items, onAdd, onToggle, onDelete, onSaveEdit, onMove, onSaveContext, selectMode, selectedIds, onToggleSelect }) {
   const [showInput, setShowInput] = useState(false);
   const [newText, setNewText] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [editingText, setEditingText] = useState('');
   const [menuFor, setMenuFor] = useState(null);
+  const [contextEditingId, setContextEditingId] = useState(null);
+  const [contextDraft, setContextDraft] = useState('');
+
+  function openContextEditor(item) {
+    setContextEditingId(item.id);
+    setContextDraft(item.context || '');
+  }
+
+  function commitContext(id) {
+    onSaveContext(id, contextDraft);
+    setContextEditingId(null);
+    setContextDraft('');
+  }
 
   return (
     <section style={styles.column}>
@@ -211,47 +318,103 @@ function Column({ category, allCategories, items, onAdd, onToggle, onDelete, onS
         )}
         {items.map((item) => {
           const isEditing = editingId === item.id;
+          const isSelected = selectMode && selectedIds.has(item.id);
           return (
-            <div key={item.id} style={styles.row}>
-              <button
-                onClick={() => onToggle(item.id)}
-                style={{ ...styles.check, ...(item.checked ? styles.checkOn : {}) }}
-                aria-label={item.checked ? 'Uncheck' : 'Check'}
-              >
-                {item.checked ? '✓' : ''}
-              </button>
-              {isEditing ? (
-                <input
-                  autoFocus
-                  value={editingText}
-                  onChange={(e) => setEditingText(e.target.value)}
-                  onBlur={() => { onSaveEdit(item.id, editingText); setEditingId(null); setEditingText(''); }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') { e.target.blur(); }
-                    if (e.key === 'Escape') { setEditingId(null); setEditingText(''); }
-                  }}
-                  style={styles.editInput}
-                />
-              ) : (
-                <button
-                  onClick={() => { setEditingId(item.id); setEditingText(item.text); }}
+            <div
+              key={item.id}
+              style={{ ...styles.row, ...(isSelected ? styles.rowSelected : {}) }}
+              onClick={selectMode ? () => onToggleSelect(item.id) : undefined}
+            >
+              {selectMode ? (
+                <div
                   style={{
-                    ...styles.text,
-                    textDecoration: item.checked ? 'line-through' : 'none',
-                    color: item.checked ? 'rgba(255,255,255,0.4)' : '#e2e8f0',
+                    ...styles.check,
+                    borderRadius: '50%',
+                    ...(isSelected ? styles.checkOn : {}),
                   }}
                 >
-                  {item.text}
+                  {isSelected ? '✓' : ''}
+                </div>
+              ) : (
+                <button
+                  onClick={() => onToggle(item.id)}
+                  style={{ ...styles.check, ...(item.checked ? styles.checkOn : {}) }}
+                  aria-label={item.checked ? 'Uncheck' : 'Check'}
+                >
+                  {item.checked ? '✓' : ''}
                 </button>
               )}
-              <button
-                onClick={() => setMenuFor(menuFor === item.id ? null : item.id)}
-                style={styles.menuBtn}
-                aria-label="More"
-              >
-                ⋯
-              </button>
-              {menuFor === item.id && (
+              <div style={styles.rowMain}>
+                {isEditing ? (
+                  <input
+                    autoFocus
+                    value={editingText}
+                    onChange={(e) => setEditingText(e.target.value)}
+                    onBlur={() => { onSaveEdit(item.id, editingText); setEditingId(null); setEditingText(''); }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') { e.target.blur(); }
+                      if (e.key === 'Escape') { setEditingId(null); setEditingText(''); }
+                    }}
+                    style={styles.editInput}
+                  />
+                ) : (
+                  <button
+                    onClick={selectMode ? undefined : () => { setEditingId(item.id); setEditingText(item.text); }}
+                    style={{
+                      ...styles.text,
+                      textDecoration: item.checked ? 'line-through' : 'none',
+                      color: item.checked ? 'rgba(255,255,255,0.4)' : '#e2e8f0',
+                      ...(selectMode ? { cursor: 'default', pointerEvents: 'none' } : {}),
+                    }}
+                  >
+                    {item.text}
+                  </button>
+                )}
+                {contextEditingId === item.id ? (
+                  <div style={styles.contextEditWrap}>
+                    <textarea
+                      value={contextDraft}
+                      onChange={(e) => setContextDraft(e.target.value)}
+                      placeholder="Add notes, angles, references..."
+                      style={styles.contextTextarea}
+                      rows={4}
+                      autoFocus
+                    />
+                    <div style={styles.contextBtnRow}>
+                      <button onClick={() => commitContext(item.id)} style={styles.contextSaveBtn}>Save</button>
+                      <button
+                        onClick={() => { setContextEditingId(null); setContextDraft(''); }}
+                        style={styles.contextCancelBtn}
+                      >Cancel</button>
+                    </div>
+                  </div>
+                ) : item.context ? (
+                  <div
+                    style={styles.contextText}
+                    onClick={selectMode ? undefined : () => openContextEditor(item)}
+                  >
+                    {item.context}
+                  </div>
+                ) : null}
+                <div style={styles.metaRow}>
+                  <span style={styles.creatorName}>{item.creator?.full_name || 'Unknown'}</span>
+                  {!selectMode && contextEditingId !== item.id && (
+                    <button onClick={() => openContextEditor(item)} style={styles.contextLink}>
+                      {item.context ? 'edit context' : '+ context'}
+                    </button>
+                  )}
+                </div>
+              </div>
+              {!selectMode && (
+                <button
+                  onClick={() => setMenuFor(menuFor === item.id ? null : item.id)}
+                  style={styles.menuBtn}
+                  aria-label="More"
+                >
+                  ⋯
+                </button>
+              )}
+              {menuFor === item.id && !selectMode && (
                 <div style={styles.menu} onClick={(e) => e.stopPropagation()}>
                   {allCategories.filter((c) => c.key !== category.key).map((c) => (
                     <button
@@ -311,6 +474,23 @@ const styles = {
   page: { height: '100%', display: 'flex', flexDirection: 'column', background: '#0f0f1a', color: '#e2e8f0' },
   header: { padding: '14px 16px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)' },
   titleRow: { display: 'flex', alignItems: 'center', gap: 10 },
+  selectBtn: {
+    padding: '6px 12px', background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8,
+    color: 'rgba(255,255,255,0.75)', fontSize: 12, fontWeight: 600,
+    cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
+  },
+  addToProjectsBtn: {
+    padding: '6px 12px', background: '#6366f1', border: 'none',
+    borderRadius: 8, color: '#fff', fontSize: 12, fontWeight: 600,
+    cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
+  },
+  selectCancelBtn: {
+    padding: '6px 10px', background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8,
+    color: 'rgba(255,255,255,0.6)', fontSize: 12,
+    cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
+  },
   pageTitle: { margin: 0, fontSize: 18, fontWeight: 700, color: '#fff' },
   countPill: {
     fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.6)',
@@ -343,10 +523,44 @@ const styles = {
   },
   empty: { padding: 40, textAlign: 'center', color: 'rgba(255,255,255,0.35)', fontSize: 13 },
   row: {
-    display: 'flex', alignItems: 'center', gap: 10,
+    display: 'flex', alignItems: 'flex-start', gap: 10,
     padding: '10px 12px', background: 'rgba(255,255,255,0.03)',
     border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10,
     position: 'relative',
+  },
+  rowSelected: {
+    background: 'rgba(99,102,241,0.12)',
+    border: '1px solid rgba(99,102,241,0.4)',
+  },
+  rowMain: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 },
+  metaRow: { display: 'flex', alignItems: 'center', gap: 10 },
+  creatorName: { fontSize: 11, color: 'rgba(255,255,255,0.3)' },
+  contextLink: {
+    background: 'none', border: 'none', color: 'rgba(165,180,252,0.7)',
+    fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', padding: 0,
+  },
+  contextText: {
+    fontSize: 12, color: 'rgba(255,255,255,0.5)',
+    whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+  },
+  contextEditWrap: { display: 'flex', flexDirection: 'column', gap: 6 },
+  contextTextarea: {
+    width: '100%', padding: '8px 10px', background: 'rgba(0,0,0,0.25)',
+    border: '1px solid rgba(99,102,241,0.4)', borderRadius: 8,
+    color: '#fff', fontSize: 13, fontFamily: 'inherit', outline: 'none',
+    resize: 'vertical', boxSizing: 'border-box',
+  },
+  contextBtnRow: { display: 'flex', gap: 6 },
+  contextSaveBtn: {
+    padding: '6px 14px', background: '#6366f1', border: 'none',
+    borderRadius: 6, color: '#fff', fontSize: 12, fontWeight: 600,
+    cursor: 'pointer', fontFamily: 'inherit',
+  },
+  contextCancelBtn: {
+    padding: '6px 14px', background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6,
+    color: 'rgba(255,255,255,0.6)', fontSize: 12,
+    cursor: 'pointer', fontFamily: 'inherit',
   },
   check: {
     flex: '0 0 24px', width: 24, height: 24,
