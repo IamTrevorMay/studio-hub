@@ -23,11 +23,22 @@ const CATEGORY_TO_PROJECT_TYPE = {
 
 const IDEA_FIELDS = 'id, text, checked, position, category, context, created_by, created_at, updated_at, creator:profiles!created_by(full_name)';
 
+// Stable per-user name color, hashed from the profile id so desktop and
+// mobile agree without storing anything.
+const USER_COLORS = ['#a5b4fc', '#86efac', '#fcd34d', '#f9a8d4', '#93c5fd', '#fca5a5', '#c4b5fd', '#5eead4', '#fdba74'];
+function userColor(userId) {
+  if (!userId) return 'rgba(255,255,255,0.3)';
+  let h = 0;
+  for (let i = 0; i < userId.length; i++) h = (h * 31 + userId.charCodeAt(i)) >>> 0;
+  return USER_COLORS[h % USER_COLORS.length];
+}
+
 export default function Ideas() {
   const { profile } = useAuth();
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [sending, setSending] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState(null); // { x, y, id, category }
   // Items keyed by category for O(1) column lookup + per-column ordering.
   const [byCategory, setByCategory] = useState(() =>
     Object.fromEntries(CATEGORY_KEYS.map((k) => [k, []]))
@@ -295,7 +306,10 @@ export default function Ideas() {
               items={byCategory[cat.key] || []}
               onAdd={(text) => addItem(cat.key, text)}
               onToggle={toggleItem}
-              onDelete={(id) => deleteItem(id, cat.key)}
+              onItemContextMenu={(e, item) => {
+                e.preventDefault();
+                setCtxMenu({ x: e.clientX, y: e.clientY, id: item.id, category: cat.key });
+              }}
               onSaveEdit={(id, text) => saveEdit(id, cat.key, text)}
               onSaveContext={(id, text) => saveContext(id, cat.key, text)}
               selectMode={selectMode}
@@ -305,11 +319,29 @@ export default function Ideas() {
           ))}
         </div>
       </DragDropContext>
+
+      {ctxMenu && (
+        <>
+          <div
+            style={styles.ctxOverlay}
+            onClick={() => setCtxMenu(null)}
+            onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }}
+          />
+          <div style={{ ...styles.ctxMenu, top: ctxMenu.y, left: ctxMenu.x }}>
+            <button
+              style={{ ...styles.ctxItem, color: '#f87171' }}
+              onClick={() => { deleteItem(ctxMenu.id, ctxMenu.category); setCtxMenu(null); }}
+            >
+              Delete
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
-function Column({ category, items, onAdd, onToggle, onDelete, onSaveEdit, onSaveContext, selectMode, selectedIds, onToggleSelect }) {
+function Column({ category, items, onAdd, onToggle, onItemContextMenu, onSaveEdit, onSaveContext, selectMode, selectedIds, onToggleSelect }) {
   const [showInput, setShowInput] = useState(false);
   const [newText, setNewText] = useState('');
   const [editingId, setEditingId] = useState(null);
@@ -412,6 +444,7 @@ function Column({ category, items, onAdd, onToggle, onDelete, onSaveEdit, onSave
                         ...(selectMode && selectedIds.has(item.id) ? styles.itemSelected : {}),
                       }}
                       onClick={selectMode ? () => onToggleSelect(item.id) : undefined}
+                      onContextMenu={selectMode ? undefined : (e) => onItemContextMenu(e, item)}
                     >
                       <div
                         {...provided.dragHandleProps}
@@ -462,13 +495,6 @@ function Column({ category, items, onAdd, onToggle, onDelete, onSaveEdit, onSave
                           {item.text}
                         </span>
                       )}
-                      {!selectMode && (
-                        <button
-                          onClick={() => onDelete(item.id)}
-                          style={styles.deleteBtn}
-                          title="Delete"
-                        >✕</button>
-                      )}
                     </div>
                     {contextEditingId === item.id ? (
                       <div style={styles.contextEditWrap}>
@@ -501,7 +527,7 @@ function Column({ category, items, onAdd, onToggle, onDelete, onSaveEdit, onSave
                       </div>
                     ) : null}
                     <div style={styles.metaRow}>
-                      <span style={styles.creatorName}>{item.creator?.full_name || 'Unknown'}</span>
+                      <span style={{ ...styles.creatorName, color: userColor(item.created_by) }}>{item.creator?.full_name || 'Unknown'}</span>
                       {!selectMode && contextEditingId !== item.id && (
                         <button onClick={() => openContextEditor(item)} style={styles.contextLink}>
                           {item.context ? 'edit context' : '+ context'}
@@ -761,14 +787,30 @@ const styles = {
     fontFamily: 'inherit',
     outline: 'none',
   },
-  deleteBtn: {
+  ctxOverlay: { position: 'fixed', inset: 0, zIndex: 999 },
+  ctxMenu: {
+    position: 'fixed',
+    zIndex: 1000,
+    background: '#1e1e32',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: '10px',
+    padding: '4px',
+    minWidth: '140px',
+    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+  },
+  ctxItem: {
+    display: 'block',
+    width: '100%',
+    textAlign: 'left',
     background: 'none',
     border: 'none',
-    color: '#ef4444',
+    borderRadius: '6px',
+    padding: '8px 12px',
+    color: '#e2e8f0',
+    fontSize: '13px',
+    fontWeight: 500,
     cursor: 'pointer',
-    fontSize: '12px',
-    padding: '4px',
-    opacity: 0.6,
+    fontFamily: 'inherit',
   },
   emptyText: { color: 'rgba(255,255,255,0.35)', fontSize: '13px', margin: '8px 4px 4px 4px' },
 };

@@ -26,6 +26,16 @@ const CATEGORY_TO_PROJECT_TYPE = {
 
 const IDEA_FIELDS = 'id, text, checked, position, category, context, created_by, created_at, updated_at, creator:profiles!created_by(full_name)';
 
+// Stable per-user name color, hashed from the profile id — same palette and
+// hash as the desktop Ideas page so colors match across devices.
+const USER_COLORS = ['#a5b4fc', '#86efac', '#fcd34d', '#f9a8d4', '#93c5fd', '#fca5a5', '#c4b5fd', '#5eead4', '#fdba74'];
+function userColor(userId) {
+  if (!userId) return 'rgba(255,255,255,0.3)';
+  let h = 0;
+  for (let i = 0; i < userId.length; i++) h = (h * 31 + userId.charCodeAt(i)) >>> 0;
+  return USER_COLORS[h % USER_COLORS.length];
+}
+
 export default function IdeasMobile() {
   const { profile } = useAuth();
   const [byCategory, setByCategory] = useState(() =>
@@ -397,7 +407,7 @@ function Column({ category, allCategories, items, onAdd, onToggle, onDelete, onS
                   </div>
                 ) : null}
                 <div style={styles.metaRow}>
-                  <span style={styles.creatorName}>{item.creator?.full_name || 'Unknown'}</span>
+                  <span style={{ ...styles.creatorName, color: userColor(item.created_by) }}>{item.creator?.full_name || 'Unknown'}</span>
                   {!selectMode && contextEditingId !== item.id && (
                     <button onClick={() => openContextEditor(item)} style={styles.contextLink}>
                       {item.context ? 'edit context' : '+ context'}
