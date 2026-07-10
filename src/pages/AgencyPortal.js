@@ -324,6 +324,7 @@ export default function AgencyPortal() {
               <AgencyThread
                 comments={commentsByEntity[key] || []}
                 onPost={(body) => postComment('deliverable', d.id, body)}
+                onRefresh={fetchAll}
                 emptyText="Start the conversation — the Mayday team is notified of every comment."
               />
             </td>
@@ -366,6 +367,7 @@ export default function AgencyPortal() {
             <AgencyThread
               comments={commentsByEntity[key] || []}
               onPost={(body) => postComment('proposal', p.id, body)}
+              onRefresh={fetchAll}
               emptyText="Questions about this proposal? Leave a note for the team."
             />
           </div>

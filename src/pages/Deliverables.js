@@ -2897,6 +2897,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
           <AgencyThread
             comments={agencyThreadFor(agencyThreadTarget.type, agencyThreadTarget.id)}
             onPost={postAgencyComment}
+            onRefresh={fetchAgencyComments}
             emptyText="No comments yet — anything posted here is visible to the agency."
           />
         </Modal>
