@@ -34,6 +34,7 @@ import Freelancers from './FreelancersMobile';
 import Ops from './OpsMobile';
 import Analytics from './AnalyticsMobile';
 import Tracking from './TrackingMobile';
+import AgencyPortal from './AgencyPortal';
 // Goals page is sunset on desktop; mobile mirrors that — import + nav
 // entry + route case removed. Re-add when goals comes back, if ever.
 
@@ -159,7 +160,7 @@ const TAB_LABELS = NAV_ITEMS.reduce((acc, item) => { acc[item.key] = item.label;
 });
 
 export default function AppLayoutMobile() {
-  const { profile, signOut, isAdmin, isAssistant, isPartner, isFreelancer, restrictedNavKeys } = useAuth();
+  const { profile, signOut, isAdmin, isAssistant, isPartner, isAgency, isFreelancer, restrictedNavKeys } = useAuth();
   const { unreadNotificationCount, markDashboardSeen, refreshNotifications } = useNotifications();
   const { getResolvedNav } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => getTabFromPath() || localStorage.getItem('studio-hub-tab') || 'dashboard');
@@ -315,6 +316,11 @@ export default function AppLayoutMobile() {
   }
 
   const title = TAB_LABELS[activeTab] || 'Mayday Studio';
+
+  // Agency accounts get the locked, chrome-free portal (mirror desktop).
+  if (isAgency) {
+    return <AgencyPortal />;
+  }
 
   return (
     <div style={styles.layout}>

@@ -195,6 +195,18 @@ Freelancer-facing portal with locked sidebar nav. Accessible when `profile.role 
 - **Drive folders**: `drive-list-contractor-folders` edge function → lists root + one level of nested subfolders
 - **Mascot toggle**: Morty on/off via `profiles.mascot_enabled`, toggle on FreelancerProfile avatar row
 
+## Agency Portal
+
+Read-only deliverables portal for the ad agency partner. Role `agency` (distinct from `partner`, which is the Business Dev roadmap portal). Invite via AdminPanel role select.
+
+- **Page**: `src/pages/AgencyPortal.js` — locked, sidebar-free page rendered by an early return in `AppLayout.js` / `AppLayoutMobile.js` when `isAgency`
+- **Data access (RLS)**: agency accounts are excluded from the staff-wide policies on `sponsors`, `sponsor_deliverables`, `sponsor_campaigns`, `campaign_briefs`, `revenue_events`, `beat_sheets`, `calendar_events`, `read_slot_limits` via `is_agency()`. They read through trimmed SECURITY DEFINER views: `agency_deliverables` (no pay / notes / ad_copy) and `agency_briefs` (no source_text)
+- **Comments**: `agency_comments` table, polymorphic (`entity_type` deliverable|proposal). BEFORE INSERT trigger forces `author_id = auth.uid()` and snapshots `author_role` — never trusted from the client. Shared UI: `src/components/AgencyThread.js` (used by portal + admin Deliverables page)
+- **Proposals**: agency submits into existing `ad_read_proposals` (own rows only, pending only); admins confirm/decline with the existing flow
+- **Notifications**: `get_notification_summary` returns `agency_unresolved_count` for admin-tier roles (admin + both directors). A thread is unresolved when the latest comment is from the agency; a pending agency proposal with no replies is also unresolved. Any admin-tier reply clears it for everyone. Badge shows on the Deliverables sidebar tab; amber dots on rows/proposals in Deliverables.js
+- **Freshness**: portal polls every 20s + realtime on `agency_comments` / own `ad_read_proposals` (deliverable rows are outside the agency's RLS read set, so no postgres_changes for them)
+- Migration: `20260709190000_agency_portal.sql`
+
 ## Admin Mode / Work Mode
 
 Two sidebar modes toggled via button at bottom of sidebar (`AppLayout.js`).

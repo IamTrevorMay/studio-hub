@@ -459,6 +459,7 @@ export function AuthProvider({ children }) {
     isStrictAdmin: profile?.role === 'admin',
     isAssistant: profile?.role === 'assistant',
     isPartner: profile?.role === 'partner',
+    isAgency: profile?.role === 'agency',
     isFreelancer: profile?.role === 'freelancer',
     isProducer: profile?.role === 'producer',
     canPost: profile?.role === 'admin' || profile?.posting_allowed === true,
