@@ -11,7 +11,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const STAGES = ["queue", "write", "pre_production", "film", "review", "edit", "post_production", "publish"] as const;
+const STAGES = ["queue", "research", "write", "pre_production", "film", "review", "edit", "post_production", "publish"] as const;
 type Stage = typeof STAGES[number];
 const BACKLOG_STAGE = "backlog" as const;
 const ALL_TARGETS = [...STAGES, BACKLOG_STAGE];
@@ -19,6 +19,7 @@ const ALL_TARGETS = [...STAGES, BACKLOG_STAGE];
 const STAGE_LABELS: Record<string, Record<Stage, string>> = {
   mayday_video: {
     queue: "Queue",
+    research: "Research",
     write: "Beat Sheet + Broadcast",
     pre_production: "Filming Prep",
     film: "Film + Assign Editor",
@@ -29,6 +30,7 @@ const STAGE_LABELS: Record<string, Record<Stage, string>> = {
   },
   tm_baseball_video: {
     queue: "Queue",
+    research: "Research",
     write: "Beat Sheet",
     pre_production: "Pre-Production",
     film: "Film",
@@ -39,6 +41,7 @@ const STAGE_LABELS: Record<string, Record<Stage, string>> = {
   },
   podcast: {
     queue: "Queue",
+    research: "Research",
     write: "Outline",
     pre_production: "Prep Guest + Rundown",
     film: "Record",
@@ -49,6 +52,7 @@ const STAGE_LABELS: Record<string, Record<Stage, string>> = {
   },
   short_form: {
     queue: "Queue",
+    research: "Research",
     write: "Concept",
     pre_production: "Pre-Production",
     film: "Capture",
@@ -287,7 +291,7 @@ Deno.serve(async (req: Request) => {
     .update({ status: "complete", completed_at: new Date().toISOString() })
     .eq("related_entity_type", "project")
     .eq("related_entity_id", project.id)
-    .eq("step_key", currentStage)
+    .in("step_key", currentStage === "research" ? ["research", "research_scope"] : [currentStage])
     .in("status", ["pending", "active", "on_hold"])
     .select("id");
 
@@ -304,6 +308,53 @@ Deno.serve(async (req: Request) => {
   const prevLabel = labelFor(project.type, currentStage);
 
   const taskTitle = `${project.name} — ${targetLabel}`;
+
+  // Research stage: instead of fanning out to stage assignees, hand the
+  // scope owner a "Set Research Scope" task. Its step_key is
+  // 'research_scope' (not 'research') so completing it never auto-advances
+  // the card — only the researcher tasks it spawns (step_key 'research')
+  // trigger the all-done advance to Write in workflow-complete-task.
+  const RESEARCH_SCOPE_OWNER = "c3290048-436b-46c6-b3f0-fdf7923d0c3b"; // Trevor May
+  if (resolvedTargetStage === "research") {
+    const { data: scopeTask, error: scopeErr } = await admin
+      .from("tasks")
+      .insert({
+        step_key: "research_scope",
+        title: `${project.name} — Set Research Scope`,
+        description: "Define the research scope and assign researchers. The card moves to Write once every researcher marks their task complete.",
+        assignee_id: RESEARCH_SCOPE_OWNER,
+        status: "pending",
+        related_entity_type: "project",
+        related_entity_id: project.id,
+        due_date: project.deadline,
+        created_by: actorId,
+      })
+      .select("id")
+      .single();
+    if (scopeErr || !scopeTask) {
+      console.error("Failed to insert research scope task:", scopeErr?.message);
+    } else {
+      newTaskIds.push(scopeTask.id);
+      await admin.from("notifications").insert({
+        user_id: RESEARCH_SCOPE_OWNER,
+        type: "task_assigned",
+        title: `Set research scope: ${project.name}`,
+        body: "Card entered Research — set the scope and assign researchers.",
+        link_tab: "my_tasks",
+        link_target: scopeTask.id,
+        is_read: false,
+      });
+    }
+    return jsonResp({
+      project_id: project.id,
+      from_stage: currentStage,
+      target_stage: resolvedTargetStage,
+      direction: isBackward ? "backward" : "forward",
+      closed_tasks: (closedTasks || []).length,
+      new_task_ids: newTaskIds,
+      assignee_count: 0,
+    });
+  }
 
   for (const userId of assigneeIds) {
     const stageDesc = descriptionFor(project.type, resolvedTargetStage, userId);

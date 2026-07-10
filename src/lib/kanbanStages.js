@@ -1,13 +1,14 @@
 // Unified Content Kanban — shared stage constants.
 // Mirror this file in supabase/functions/card-move/index.ts when changing labels.
 
-export const CANONICAL_STAGES = ['queue', 'write', 'pre_production', 'film', 'review', 'edit', 'post_production', 'publish'];
+export const CANONICAL_STAGES = ['queue', 'research', 'write', 'pre_production', 'film', 'review', 'edit', 'post_production', 'publish'];
 
 export const BACKLOG_STAGE = 'backlog';
 
 export const STAGE_LABELS_BY_TYPE = {
   mayday_video: {
     queue: 'Queue',
+    research: 'Research',
     write: 'Beat Sheet + Broadcast',
     pre_production: 'Filming Prep',
     film: 'Film + Assign Editor',
@@ -18,6 +19,7 @@ export const STAGE_LABELS_BY_TYPE = {
   },
   tm_baseball_video: {
     queue: 'Queue',
+    research: 'Research',
     write: 'Beat Sheet',
     pre_production: 'Pre-Production',
     film: 'Film',
@@ -28,6 +30,7 @@ export const STAGE_LABELS_BY_TYPE = {
   },
   podcast: {
     queue: 'Queue',
+    research: 'Research',
     write: 'Outline',
     pre_production: 'Prep Guest + Rundown',
     film: 'Record',
@@ -38,6 +41,7 @@ export const STAGE_LABELS_BY_TYPE = {
   },
   short_form: {
     queue: 'Queue',
+    research: 'Research',
     write: 'Concept',
     pre_production: 'Pre-Production',
     film: 'Capture',
@@ -86,8 +90,8 @@ export const STAGE_DESCRIPTIONS_BY_TYPE = {
 export const TYPE_DEFAULT_SKIPS = {
   mayday_video: [],
   tm_baseball_video: [],
-  podcast: ['review'],
-  short_form: ['pre_production', 'review'],
+  podcast: ['research', 'review'],
+  short_form: ['research', 'pre_production', 'review'],
 };
 
 // Default stage assignees seeded into project_stage_assignments on creation, keyed by type → stage → [profile id].
@@ -143,6 +147,7 @@ export function typeColors(projectType) {
 export const STAGE_COLORS = {
   queue:           '#8b5cf6',
   backlog:         '#64748b',
+  research:        '#14b8a6',
   write:           '#3b82f6',
   pre_production:  '#0ea5e9',
   film:            '#f59e0b',

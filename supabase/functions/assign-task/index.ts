@@ -55,10 +55,14 @@ Deno.serve(async (req: Request) => {
 
     // Optional template: reuse a workflow block's action/modal as a one-off.
     // Whitelisted so a client can't set an arbitrary step_key.
-    const TEMPLATE_KEYS = ["write_ad_reads", "collect_brief", "connect_to_video", "background_research"];
+    const TEMPLATE_KEYS = ["write_ad_reads", "collect_brief", "connect_to_video", "background_research", "research"];
     // Entity-based templates link to a deliverable/campaign record. Others
     // (e.g. background_research) carry a link_url instead of a related entity.
-    const ENTITY_TEMPLATES = ["write_ad_reads", "collect_brief", "connect_to_video"];
+    // "research" is the project-kanban Research stage task (spawned from the
+    // Set Research Scope modal): tied to a project AND carrying a research
+    // doc link. Completing all of a project's 'research' tasks auto-advances
+    // the card to Write (see workflow-complete-task).
+    const ENTITY_TEMPLATES = ["write_ad_reads", "collect_brief", "connect_to_video", "research"];
     const reqStepKey = (body.step_key as string) || "direct_task";
     const stepKey = TEMPLATE_KEYS.includes(reqStepKey) ? reqStepKey : "direct_task";
     const isEntityTemplate = ENTITY_TEMPLATES.includes(stepKey);
@@ -72,7 +76,7 @@ Deno.serve(async (req: Request) => {
     if (isEntityTemplate && !relId) {
       return jsonResp({ error: "a record must be selected for this template" }, 400);
     }
-    if (stepKey === "background_research" && !linkUrl) {
+    if ((stepKey === "background_research" || stepKey === "research") && !linkUrl) {
       return jsonResp({ error: "a research doc is required for Background Research" }, 400);
     }
 

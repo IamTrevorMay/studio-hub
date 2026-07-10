@@ -7,13 +7,13 @@ import { mobileTokens } from '../utils/mobileTokens';
 // queue/write/pre_production/film/review/edit/post_production/publish. The old
 // mobile values (concept/script/production/published) matched no real rows, so
 // published projects leaked into "Active" and the status chips matched nothing.
-const STATUSES = ['queue', 'write', 'pre_production', 'film', 'review', 'edit', 'post_production', 'publish'];
+const STATUSES = ['queue', 'research', 'write', 'pre_production', 'film', 'review', 'edit', 'post_production', 'publish'];
 const STATUS_LABELS = {
-  queue: 'Queue', write: 'Write', pre_production: 'Pre-Production', film: 'Film',
+  queue: 'Queue', research: 'Research', write: 'Write', pre_production: 'Pre-Production', film: 'Film',
   review: 'Review', edit: 'Edit', post_production: 'Post-Production', publish: 'Published',
 };
 const STATUS_COLORS = {
-  queue: '#8b5cf6', write: '#3b82f6', pre_production: '#0ea5e9', film: '#f59e0b',
+  queue: '#8b5cf6', research: '#14b8a6', write: '#3b82f6', pre_production: '#0ea5e9', film: '#f59e0b',
   review: '#ec4899', edit: '#f97316', post_production: '#a855f7', publish: '#22c55e',
 };
 const TYPE_LABELS = {

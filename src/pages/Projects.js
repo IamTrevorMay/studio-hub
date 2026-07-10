@@ -11,9 +11,9 @@ import { callEdgeFn } from '../lib/edgeFn';
 import { fetchAllRows } from './analytics/utils';
 
 
-const STATUSES = ['queue', 'write', 'pre_production', 'film', 'review', 'edit', 'post_production', 'publish'];
+const STATUSES = ['queue', 'research', 'write', 'pre_production', 'film', 'review', 'edit', 'post_production', 'publish'];
 const STATUS_LABELS = {
-  queue: 'Queue', write: 'Write', pre_production: 'Pre-Production', film: 'Film',
+  queue: 'Queue', research: 'Research', write: 'Write', pre_production: 'Pre-Production', film: 'Film',
   review: 'Review', edit: 'Edit', post_production: 'Post-Production', publish: 'Published',
 };
 const STATUS_COLORS = {

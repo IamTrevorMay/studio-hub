@@ -392,7 +392,7 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
   );
 }
 
-function PeopleChips({ label, people, selected, onToggle }) {
+export function PeopleChips({ label, people, selected, onToggle }) {
   if (people.length === 0) return null;
   return (
     <div style={{ marginBottom: 8 }}>

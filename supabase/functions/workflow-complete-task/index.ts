@@ -149,7 +149,7 @@ Deno.serve(async (req: Request) => {
 
       if (!openTasks || openTasks.length === 0) {
         // All stage tasks done — call card-move to advance the project.
-        const STAGES = ["queue","write","pre_production","film","review","edit","post_production","publish"];
+        const STAGES = ["queue","research","write","pre_production","film","review","edit","post_production","publish"];
         const currentIdx = STAGES.indexOf(task.step_key);
         if (currentIdx >= 0 && currentIdx < STAGES.length - 1) {
           const nextStage = STAGES[currentIdx + 1];

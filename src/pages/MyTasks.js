@@ -5,6 +5,7 @@ import { useNotifications } from '../contexts/NotificationContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { getStepAction } from '../lib/workflowSteps';
 import { getWorkflowModal } from '../lib/workflowModals';
+import ResearchScopeModal from '../components/ResearchScopeModal';
 
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL || '';
 
@@ -198,6 +199,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
   const [showCompleted, setShowCompleted] = useState(false);
   const [completedTasks, setCompletedTasks] = useState([]);
   const [openModal, setOpenModal] = useState(null); // { task, ModalComponent }
+  const [scopeModalTask, setScopeModalTask] = useState(null); // "Set Research Scope" task
   const [confirmTask, setConfirmTask] = useState(null); // task pending confirmation
   const [deliverableMeta, setDeliverableMeta] = useState({}); // { [deliverable_id]: { title, due_date } }
   const [projectMeta, setProjectMeta] = useState({}); // { [project_id]: { name, type } }
@@ -372,7 +374,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
     const unique = [...new Set(ids)];
     supabase
       .from('projects')
-      .select('id, name, type')
+      .select('id, name, type, deadline')
       .in('id', unique)
       .then(({ data }) => {
         if (!data) return;
@@ -727,6 +729,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
           const isConfirmAutomation = task.step_key === 'confirm_automation';
           const isWriteAdRead = action.type === 'write_ad_read';
           const isBackgroundResearch = task.step_key === 'background_research';
+          const isResearchScope = task.step_key === 'research_scope' && !task.workflow_instance_id;
           const isMaydayWrite = task.related_entity_type === 'project'
             && task.step_key === 'write'
             && projectMeta[task.related_entity_id]?.type === 'mayday_video';
@@ -871,6 +874,14 @@ export default function MyTasks({ onNavigate, embedded = false }) {
                   <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', fontStyle: 'italic' }}>
                     {action.label}
                   </span>
+                ) : isResearchScope ? (
+                    <button
+                      style={styles.primaryBtn}
+                      onClick={() => setScopeModalTask(task)}
+                      disabled={isCompleting}
+                    >
+                      Set Scope
+                    </button>
                 ) : (action.type === 'external_link' || task.link_url) ? (
                     <button
                       style={styles.primaryBtn}
@@ -1174,6 +1185,24 @@ export default function MyTasks({ onNavigate, embedded = false }) {
           onClose={() => setOpenModal(null)}
         />
       )}
+
+      {/* Set Research Scope modal — submitting spawns researcher tasks, then
+          completes this scope task (research_scope never auto-advances). */}
+      <ResearchScopeModal
+        open={!!scopeModalTask}
+        project={scopeModalTask ? {
+          id: scopeModalTask.related_entity_id,
+          name: projectMeta[scopeModalTask.related_entity_id]?.name
+            || (scopeModalTask.title || '').replace(/ — Set Research Scope$/, ''),
+          deadline: projectMeta[scopeModalTask.related_entity_id]?.deadline || '',
+        } : null}
+        onClose={() => setScopeModalTask(null)}
+        onSubmitted={async () => {
+          const t = scopeModalTask;
+          setScopeModalTask(null);
+          if (t) await handleComplete(t);
+        }}
+      />
 
       {/* Confirm complete dialog */}
       {confirmTask && (
