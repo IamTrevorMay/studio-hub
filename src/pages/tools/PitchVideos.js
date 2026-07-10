@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { zipSync } from 'fflate';
 import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
 import PlayerSearchField from './graphics/PlayerSearchField';
@@ -457,14 +458,57 @@ export default function PitchVideos({ onBack }) {
     }
   };
 
+  const fetchClipBytes = async (row) => {
+    const src = await getPlayableUrl(row);
+    if (!src) return null;
+    try {
+      const res = await fetch(src);
+      if (!res.ok) throw new Error(`fetch ${res.status}`);
+      return new Uint8Array(await res.arrayBuffer());
+    } catch {
+      return null;
+    }
+  };
+
+  // Browsers block every programmatic download after the first one in a
+  // batch (no user activation), so multi-clip downloads are bundled into a
+  // single zip. Store mode — the mp4s don't recompress.
   const runBatchDownload = async (targets) => {
     if (!targets.length) return;
+    if (targets.length === 1) {
+      setBatch({ done: 0, total: 1, failed: 0 });
+      await downloadClip(targets[0]);
+      setBatch(null);
+      return;
+    }
     batchCancelRef.current = false;
     setBatch({ done: 0, total: targets.length, failed: 0 });
+    const files = {};
     for (let i = 0; i < targets.length; i++) {
-      if (batchCancelRef.current) break;
-      const ok = await downloadClip(targets[i]);
-      setBatch((b) => b && ({ ...b, done: i + 1, failed: b.failed + (ok ? 0 : 1) }));
+      if (batchCancelRef.current) { setBatch(null); return; }
+      const bytes = await fetchClipBytes(targets[i]);
+      if (bytes) {
+        let name = clipFilename(targets[i]);
+        if (files[name]) {
+          const base = name.replace(/\.mp4$/, '');
+          let n = 2;
+          while (files[`${base} (${n}).mp4`]) n++;
+          name = `${base} (${n}).mp4`;
+        }
+        files[name] = [bytes, { level: 0 }];
+      }
+      setBatch((b) => b && ({ ...b, done: i + 1, failed: b.failed + (bytes ? 0 : 1) }));
+    }
+    if (Object.keys(files).length > 0) {
+      const blob = new Blob([zipSync(files)], { type: 'application/zip' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `pitch-clips-${new Date().toISOString().slice(0, 10)}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
     }
     setBatch(null);
   };
