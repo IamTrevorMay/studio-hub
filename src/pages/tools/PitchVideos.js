@@ -270,9 +270,13 @@ export default function PitchVideos({ onBack }) {
   };
 
   // ─── Selection ────────────────────────────────────────────────────────────
+  // Any pitch can be selected (playlists + downloads resolve Savant mp4s on
+  // demand); Drive upload still needs the archived NAS copy, so it filters
+  // to selectedRows.
   const archivedRows = (rows || []).filter((r) => r.video_url);
-  const selectedRows = archivedRows.filter((r) => selectedKeys.has(rowKey(r)));
-  const allSelected = archivedRows.length > 0 && selectedRows.length === archivedRows.length;
+  const selectedAnyRows = (rows || []).filter((r) => selectedKeys.has(rowKey(r)));
+  const selectedRows = selectedAnyRows.filter((r) => r.video_url);
+  const allSelected = (rows || []).length > 0 && selectedAnyRows.length === rows.length;
 
   const toggleKey = (key) => {
     setSelectedKeys((prev) => {
@@ -283,7 +287,7 @@ export default function PitchVideos({ onBack }) {
   };
 
   const toggleAll = () => {
-    setSelectedKeys(allSelected ? new Set() : new Set(archivedRows.map(rowKey)));
+    setSelectedKeys(allSelected ? new Set() : new Set((rows || []).map(rowKey)));
   };
 
   // ─── Playlists ────────────────────────────────────────────────────────────
@@ -578,7 +582,7 @@ export default function PitchVideos({ onBack }) {
   // ─── Modal player ─────────────────────────────────────────────────────────
   const openSingle = (row) => setModal({ clips: [row], index: 0 });
   const openPlaylist = () => {
-    if (selectedRows.length) setModal({ clips: selectedRows, index: 0 });
+    if (selectedAnyRows.length) setModal({ clips: selectedAnyRows, index: 0 });
   };
   const modalClip = modal ? modal.clips[modal.index] : null;
   const modalNext = () => setModal((m) => m && ({ ...m, index: Math.min(m.index + 1, m.clips.length - 1) }));
@@ -627,6 +631,34 @@ export default function PitchVideos({ onBack }) {
   // ─── Playlist view ────────────────────────────────────────────────────────
   const activePlaylist = playlists.find((p) => p.id === activePlaylistId) || null;
   const playClip = playlistItems[playIndex]?.clip || null;
+  const playClipKey = playClip ? rowKey(playClip) : null;
+  const playSrc = playClip ? (playClip.video_url || savantMp4[playClipKey]) : null;
+
+  // Unarchived playlist clips: live-resolve the Savant CDN mp4 when they come
+  // up for playback (same path as the review modal).
+  useEffect(() => {
+    if (view !== 'playlist' || !playClip || playClip.video_url) return undefined;
+    const key = rowKey(playClip);
+    if (savantMp4[key] !== undefined) return undefined;
+    let cancelled = false;
+    (async () => {
+      setResolvingKey(key);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch(
+          `/api/pitch-video?game_pk=${playClip.game_pk}&ab=${playClip.at_bat_number}&pitch=${playClip.pitch_number}&resolve_mp4=true`,
+          { headers: { Authorization: `Bearer ${session.access_token}` } },
+        );
+        const json = await res.json().catch(() => ({}));
+        if (!cancelled) setSavantMp4((m) => ({ ...m, [key]: json?.row?.savant_mp4_url || null }));
+      } catch {
+        if (!cancelled) setSavantMp4((m) => ({ ...m, [key]: null }));
+      } finally {
+        if (!cancelled) setResolvingKey((k) => (k === key ? null : k));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [view, playClip, savantMp4]);
 
   function renderPlaylistView() {
     return (
@@ -702,7 +734,7 @@ export default function PitchVideos({ onBack }) {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={styles.queueItemTitle}>{idx + 1}. {flipName(c.player_name)}</div>
                       <div style={styles.queueItemSub}>
-                        {c.pitch_name || c.pitch_type}{c.release_speed ? ` · ${c.release_speed.toFixed(1)}` : ''} · {outcome(c)}
+                        {c.pitch_name || c.pitch_type}{c.release_speed ? ` · ${c.release_speed.toFixed(1)}` : ''} · {outcome(c)}{!c.video_url ? ' · Savant' : ''}
                       </div>
                     </div>
                     <div style={styles.queueItemBtns} onClick={(e) => e.stopPropagation()}>
@@ -719,10 +751,10 @@ export default function PitchVideos({ onBack }) {
 
         {/* ── Center: player ── */}
         <div style={styles.playerCol}>
-          {playClip ? (
+          {playClip && playSrc ? (
             <PlaylistPlayer
               key={playlistItems[playIndex]?.id}
-              clip={playClip}
+              src={playSrc}
               index={playIndex}
               total={playlistItems.length}
               autoAdvance={autoAdvance}
@@ -731,6 +763,19 @@ export default function PitchVideos({ onBack }) {
               onNext={() => setPlayIndex((i) => Math.min(playlistItems.length - 1, i + 1))}
               onEnded={() => { if (autoAdvance) setPlayIndex((i) => (i < playlistItems.length - 1 ? i + 1 : i)); }}
             />
+          ) : playClip && savantMp4[playClipKey] === undefined ? (
+            <div style={styles.placeholder}>Loading clip from Savant…</div>
+          ) : playClip ? (
+            <div style={styles.placeholder}>
+              <div>
+                No clip available for this pitch.{' '}
+                <a href={playClip.savant_url} target="_blank" rel="noreferrer" style={styles.link}>Try Savant ↗</a>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '14px' }}>
+                <button style={styles.navBtn} onClick={() => setPlayIndex((i) => Math.max(0, i - 1))} disabled={playIndex === 0}>‹ Prev</button>
+                <button style={styles.navBtn} onClick={() => setPlayIndex((i) => Math.min(playlistItems.length - 1, i + 1))} disabled={playIndex >= playlistItems.length - 1}>Next ›</button>
+              </div>
+            </div>
           ) : (
             <div style={styles.placeholder}>
               {activePlaylistId ? 'This playlist is empty.' : 'Select a playlist on the left.'}
@@ -914,7 +959,7 @@ export default function PitchVideos({ onBack }) {
               <div style={styles.resultsBar}>
                 <span style={styles.resultsCount}>
                   {rows.length} pitches · {archivedRows.length} with video
-                  {selectedRows.length > 0 && ` · ${selectedRows.length} selected`}
+                  {selectedAnyRows.length > 0 && ` · ${selectedAnyRows.length} selected`}
                 </span>
                 <div style={{ flex: 1 }} />
                 {batch ? (
@@ -924,12 +969,14 @@ export default function PitchVideos({ onBack }) {
                     </span>
                     <button style={styles.clearFiltersBtn} onClick={() => { batchCancelRef.current = true; }}>Cancel</button>
                   </>
-                ) : selectedRows.length > 0 ? (
+                ) : selectedAnyRows.length > 0 ? (
                   <>
                     <button style={styles.batchBtn} onClick={openPlaylist}>View selected</button>
-                    <button style={styles.batchBtn} onClick={() => setAddPicker({ rows: selectedRows })}>Add to playlist</button>
-                    <button style={styles.batchBtn} onClick={() => runBatchDownload(selectedRows)}>Download</button>
-                    <button style={styles.batchBtn} onClick={() => openDrivePicker(selectedRows)}>Upload to Drive</button>
+                    <button style={styles.batchBtn} onClick={() => setAddPicker({ rows: selectedAnyRows })}>Add to playlist</button>
+                    <button style={styles.batchBtn} onClick={() => runBatchDownload(selectedAnyRows)}>Download</button>
+                    {selectedRows.length > 0 && (
+                      <button style={styles.batchBtn} onClick={() => openDrivePicker(selectedRows)}>Upload to Drive</button>
+                    )}
                     <button style={styles.clearFiltersBtn} onClick={() => setSelectedKeys(new Set())}>Clear</button>
                   </>
                 ) : archivedRows.length > 0 && (
@@ -945,7 +992,7 @@ export default function PitchVideos({ onBack }) {
                   <thead>
                     <tr>
                       <th style={{ ...styles.th, width: '34px' }}>
-                        <input type="checkbox" checked={allSelected} onChange={toggleAll} title="Select all with video" />
+                        <input type="checkbox" checked={allSelected} onChange={toggleAll} title="Select all" />
                       </th>
                       {['Date', 'Pitcher', 'Batter', 'Pitch', 'Velo', 'Count', 'Inn', 'Result', ''].map((h, i) => (
                         <th key={i} style={styles.th}>{h}</th>
@@ -963,9 +1010,7 @@ export default function PitchVideos({ onBack }) {
                           style={{ ...styles.tr, ...(checked ? styles.trSelected : null) }}
                         >
                           <td style={styles.td} onClick={(e) => e.stopPropagation()}>
-                            {row.video_url && (
-                              <input type="checkbox" checked={checked} onChange={() => toggleKey(key)} />
-                            )}
+                            <input type="checkbox" checked={checked} onChange={() => toggleKey(key)} />
                           </td>
                           <td style={styles.td}>{row.game_date}</td>
                           <td style={styles.td}>{row.player_name}</td>
@@ -1234,7 +1279,7 @@ export default function PitchVideos({ onBack }) {
 const PLAYBACK_RATES = [0.25, 0.5, 1, 2];
 const FRAME_S = 1 / 30;
 
-function PlaylistPlayer({ clip, index, total, autoAdvance, onToggleAutoAdvance, onPrev, onNext, onEnded }) {
+function PlaylistPlayer({ src, index, total, autoAdvance, onToggleAutoAdvance, onPrev, onNext, onEnded }) {
   const videoRef = useRef(null);
   const wrapRef = useRef(null);
   const [playing, setPlaying] = useState(false);
@@ -1242,8 +1287,6 @@ function PlaylistPlayer({ clip, index, total, autoAdvance, onToggleAutoAdvance, 
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [muted, setMuted] = useState(false);
-
-  const src = clip.video_url;
 
   const setPlaybackRate = useCallback((r) => {
     setRate(r);
