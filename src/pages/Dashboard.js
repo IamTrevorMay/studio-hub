@@ -62,6 +62,15 @@ const DELIVERABLE_STAGE_LABELS = {
 const CHECKIN_COLORS = { 1: '#ef4444', 2: '#f97316', 3: '#eab308', 4: '#84cc16', 5: '#22c55e' };
 const CHECKIN_LABELS = { 1: 'Red', 2: 'Orange', 3: 'Yellow', 4: 'Light Green', 5: 'Green' };
 
+// Team card subsections, grouped by role. Agencies sit with partners.
+// Roles not listed anywhere fall back to Core Team so new roles never vanish.
+const TEAM_ROLE_SECTIONS = [
+  { label: 'Core Team', roles: ['admin', 'director_creative', 'director_comms', 'producer', 'assistant', 'member'] },
+  { label: 'Contractors', roles: ['freelancer'] },
+  { label: 'Partners', roles: ['partner', 'agency'] },
+];
+const NON_CORE_ROLES = new Set(TEAM_ROLE_SECTIONS.slice(1).flatMap((s) => s.roles));
+
 const PRIORITY_COLORS = {
   10: '#ef4444', 9: '#f97316', 8: '#fb923c',
   6: '#fbbf24', 5: '#eab308', 4: '#a3e635',
@@ -278,7 +287,7 @@ export default function Dashboard({ onNavigate }) {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, full_name, title, avatar_url, status, status_note, last_seen_at')
+        .select('id, full_name, title, avatar_url, status, status_note, last_seen_at, role')
         .order('full_name');
       if (error) throw error;
       setTeamProfiles(data || []);
@@ -1586,12 +1595,19 @@ export default function Dashboard({ onNavigate }) {
                 <p style={styles.emptyText}>Loading...</p>
               ) : (
                 <div style={styles.teamList}>
-                  {teamProfiles
-                    .sort((a, b) => {
-                      const order = { online: 0, busy: 1, offline: 2 };
-                      return (order[getEffectiveStatus(a)] ?? 2) - (order[getEffectiveStatus(b)] ?? 2);
-                    })
-                    .map(member => {
+                  {TEAM_ROLE_SECTIONS.map((section) => {
+                    const members = teamProfiles
+                      .filter((m) => section.roles.includes(m.role)
+                        || (section.label === 'Core Team' && !NON_CORE_ROLES.has(m.role)))
+                      .sort((a, b) => {
+                        const order = { online: 0, busy: 1, offline: 2 };
+                        return (order[getEffectiveStatus(a)] ?? 2) - (order[getEffectiveStatus(b)] ?? 2);
+                      });
+                    if (members.length === 0) return null;
+                    return (
+                      <div key={section.label}>
+                        <div style={styles.teamGroupLabel}>{section.label}</div>
+                        {members.map(member => {
                       const isOoo = approvedOooToday.includes(member.id);
                       const effectiveStatus = getEffectiveStatus(member);
                       const dotColor = isOoo ? '#f97316' : effectiveStatus === 'online' ? '#22c55e' : effectiveStatus === 'busy' ? '#f59e0b' : '#6b7280';
@@ -1625,7 +1641,10 @@ export default function Dashboard({ onNavigate }) {
                           </span>
                         </div>
                       );
-                    })}
+                        })}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -2883,6 +2902,14 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     gap: '2px',
+  },
+  teamGroupLabel: {
+    fontSize: '11px',
+    fontWeight: 700,
+    color: 'rgba(255,255,255,0.35)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+    padding: '12px 12px 4px',
   },
   teamMember: {
     display: 'flex',
