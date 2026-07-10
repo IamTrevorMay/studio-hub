@@ -19,6 +19,7 @@ import '@xyflow/react/dist/style.css';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { TextStyle, FontFamily, FontSize } from '@tiptap/extension-text-style';
+import TextAlign from '@tiptap/extension-text-align';
 import Highlight from '@tiptap/extension-highlight';
 import DOMPurify from 'dompurify';
 import { supabase } from '../../supabaseClient';
@@ -75,6 +76,17 @@ const HANDLE_STYLE = {
   border: '1px solid #0f0f1a',
 };
 
+function AlignIcon({ align }) {
+  const alignItems = align === 'left' ? 'flex-start' : align === 'center' ? 'center' : 'flex-end';
+  return (
+    <span style={{ display: 'flex', flexDirection: 'column', gap: 2, width: 12, alignItems }}>
+      <span style={{ width: 12, borderTop: '1.5px solid currentColor' }} />
+      <span style={{ width: 7, borderTop: '1.5px solid currentColor' }} />
+      <span style={{ width: 12, borderTop: '1.5px solid currentColor' }} />
+    </span>
+  );
+}
+
 function escapeHtml(s) {
   return (s || '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 }
@@ -98,6 +110,7 @@ function CardEditor({ initialHtml, active, onCommit }) {
       TextStyle,
       FontFamily,
       FontSize,
+      TextAlign.configure({ types: ['paragraph'] }),
       Highlight.configure({ multicolor: true }),
     ],
     content: initialHtml || '<p></p>',
@@ -158,6 +171,17 @@ function CardEditor({ initialHtml, active, onCommit }) {
           <button style={btn(editor.isActive('bold'))} onClick={() => editor.chain().focus().toggleBold().run()} title="Bold"><b>B</b></button>
           <button style={btn(editor.isActive('italic'))} onClick={() => editor.chain().focus().toggleItalic().run()} title="Italic"><i>I</i></button>
           <button style={btn(editor.isActive('underline'))} onClick={() => editor.chain().focus().toggleUnderline().run()} title="Underline"><u>U</u></button>
+          <span style={styles.fmtDivider} />
+          {['left', 'center', 'right'].map((a) => (
+            <button
+              key={a}
+              style={btn(editor.isActive({ textAlign: a }))}
+              onClick={() => editor.chain().focus().setTextAlign(a).run()}
+              title={`Align ${a}`}
+            >
+              <AlignIcon align={a} />
+            </button>
+          ))}
           <span style={styles.fmtDivider} />
           {HIGHLIGHT_COLORS.map((c) => (
             <button
