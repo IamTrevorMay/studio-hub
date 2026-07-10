@@ -127,6 +127,17 @@ export default function Resources() {
     fetchCanvases();
   }
 
+  async function handleDuplicateCanvas(c) {
+    const { data, error: readErr } = await supabase
+      .from('canvases').select('content').eq('id', c.id).single();
+    if (readErr) { alert('Failed to duplicate canvas: ' + readErr.message); return; }
+    const { error: err } = await supabase
+      .from('canvases')
+      .insert({ title: `${c.title} (copy)`, content: data?.content || {}, created_by: profile.id });
+    if (err) { alert('Failed to duplicate canvas: ' + err.message); return; }
+    fetchCanvases();
+  }
+
   async function handleDeleteCanvas(c) {
     if (!(await confirm(`Delete the canvas "${c.title}"? This can't be undone.`))) return;
     const { error: err } = await supabase.from('canvases').delete().eq('id', c.id);
@@ -446,6 +457,17 @@ export default function Resources() {
             >
               Rename
             </button>
+            {contextMenu.item.type === 'canvas' && (
+              <button
+                style={styles.contextMenuItem}
+                onClick={() => {
+                  handleDuplicateCanvas(contextMenu.item.raw);
+                  setContextMenu(null);
+                }}
+              >
+                Duplicate
+              </button>
+            )}
             {contextMenu.item.type === 'doc' && contextMenu.item.url && (
               <button
                 style={styles.contextMenuItem}
