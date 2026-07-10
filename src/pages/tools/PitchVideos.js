@@ -152,6 +152,20 @@ export default function PitchVideos({ onBack }) {
 
   // Local batch download progress
   const [batch, setBatch] = useState(null);
+
+  // Playlist view — DB-backed personal playlists (pitch_playlists +
+  // pitch_playlist_items, RLS owner-only). Items snapshot the pitch row as
+  // jsonb so playback works without re-querying Triton.
+  const [view, setView] = useState('search'); // 'search' | 'playlist'
+  const [playlists, setPlaylists] = useState([]);
+  const [activePlaylistId, setActivePlaylistId] = useState(null);
+  const [playlistItems, setPlaylistItems] = useState([]);
+  const [playlistLoading, setPlaylistLoading] = useState(false);
+  const [playIndex, setPlayIndex] = useState(0);
+  const [autoAdvance, setAutoAdvance] = useState(false);
+  const [addPicker, setAddPicker] = useState(null); // { rows } → playlist picker modal
+  const [newPlaylistName, setNewPlaylistName] = useState('');
+  const [addBusy, setAddBusy] = useState(false);
   const batchCancelRef = useRef(false);
 
   const setF = (patch) => setFilters((f) => ({ ...f, ...patch }));
@@ -270,6 +284,125 @@ export default function PitchVideos({ onBack }) {
 
   const toggleAll = () => {
     setSelectedKeys(allSelected ? new Set() : new Set(archivedRows.map(rowKey)));
+  };
+
+  // ─── Playlists ────────────────────────────────────────────────────────────
+  const fetchPlaylists = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('pitch_playlists')
+      .select('*, pitch_playlist_items(count)')
+      .order('created_at', { ascending: true });
+    if (error) { console.error('Error fetching playlists:', error); return; }
+    setPlaylists(data || []);
+  }, []);
+
+  useEffect(() => { fetchPlaylists(); }, [fetchPlaylists]);
+
+  const fetchPlaylistItems = useCallback(async (playlistId) => {
+    if (!playlistId) { setPlaylistItems([]); return; }
+    setPlaylistLoading(true);
+    const { data, error } = await supabase
+      .from('pitch_playlist_items')
+      .select('*')
+      .eq('playlist_id', playlistId)
+      .order('position', { ascending: true });
+    if (error) console.error('Error fetching playlist items:', error);
+    setPlaylistItems(data || []);
+    setPlaylistLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchPlaylistItems(activePlaylistId);
+    setPlayIndex(0);
+  }, [activePlaylistId, fetchPlaylistItems]);
+
+  // Keep the playing index inside the queue when items are removed
+  useEffect(() => {
+    setPlayIndex((i) => Math.min(i, Math.max(0, playlistItems.length - 1)));
+  }, [playlistItems.length]);
+
+  const createPlaylist = async (name) => {
+    const trimmed = (name || '').trim();
+    if (!trimmed) return null;
+    const { data, error } = await supabase
+      .from('pitch_playlists')
+      .insert({ name: trimmed, created_by: profile.id })
+      .select()
+      .single();
+    if (error) { console.error('Error creating playlist:', error); return null; }
+    await fetchPlaylists();
+    return data;
+  };
+
+  const addRowsToPlaylist = async (playlistId, rowsToAdd) => {
+    setAddBusy(true);
+    try {
+      const { data: existing } = await supabase
+        .from('pitch_playlist_items')
+        .select('row_key, position')
+        .eq('playlist_id', playlistId);
+      const seen = new Set((existing || []).map((r) => r.row_key));
+      let pos = (existing || []).reduce((m, r) => Math.max(m, r.position), -1) + 1;
+      const payload = rowsToAdd
+        .filter((r) => !seen.has(rowKey(r)))
+        .map((r) => ({ playlist_id: playlistId, row_key: rowKey(r), clip: r, position: pos++ }));
+      if (payload.length) {
+        const { error } = await supabase.from('pitch_playlist_items').insert(payload);
+        if (error) throw error;
+      }
+      setAddPicker(null);
+      setSelectedKeys(new Set());
+      fetchPlaylists();
+      if (playlistId === activePlaylistId) fetchPlaylistItems(playlistId);
+    } catch (err) {
+      console.error('Error adding to playlist:', err);
+      alert('Could not add clips to the playlist.');
+    } finally {
+      setAddBusy(false);
+    }
+  };
+
+  const deletePlaylist = async (playlistId) => {
+    const pl = playlists.find((p) => p.id === playlistId);
+    if (!window.confirm(`Delete playlist "${pl?.name || ''}" and its queue?`)) return;
+    await supabase.from('pitch_playlists').delete().eq('id', playlistId);
+    if (activePlaylistId === playlistId) setActivePlaylistId(null);
+    fetchPlaylists();
+  };
+
+  const renamePlaylist = async (playlistId) => {
+    const pl = playlists.find((p) => p.id === playlistId);
+    const name = window.prompt('Rename playlist', pl?.name || '');
+    if (!name || !name.trim()) return;
+    await supabase.from('pitch_playlists')
+      .update({ name: name.trim(), updated_at: new Date().toISOString() })
+      .eq('id', playlistId);
+    fetchPlaylists();
+  };
+
+  const removePlaylistItem = async (itemId) => {
+    const idx = playlistItems.findIndex((it) => it.id === itemId);
+    setPlaylistItems((prev) => prev.filter((it) => it.id !== itemId));
+    if (idx !== -1 && idx < playIndex) setPlayIndex((i) => Math.max(0, i - 1));
+    await supabase.from('pitch_playlist_items').delete().eq('id', itemId);
+    fetchPlaylists();
+  };
+
+  const movePlaylistItem = async (idx, dir) => {
+    const j = idx + dir;
+    if (j < 0 || j >= playlistItems.length) return;
+    const a = playlistItems[idx];
+    const b = playlistItems[j];
+    const next = [...playlistItems];
+    next[idx] = { ...b, position: a.position };
+    next[j] = { ...a, position: b.position };
+    setPlaylistItems(next);
+    if (playIndex === idx) setPlayIndex(j);
+    else if (playIndex === j) setPlayIndex(idx);
+    await Promise.all([
+      supabase.from('pitch_playlist_items').update({ position: b.position }).eq('id', a.id),
+      supabase.from('pitch_playlist_items').update({ position: a.position }).eq('id', b.id),
+    ]);
   };
 
   // ─── Local download ───────────────────────────────────────────────────────
@@ -491,6 +624,123 @@ export default function PitchVideos({ onBack }) {
     return () => { cancelled = true; };
   }, [modal, savantMp4]);
 
+  // ─── Playlist view ────────────────────────────────────────────────────────
+  const activePlaylist = playlists.find((p) => p.id === activePlaylistId) || null;
+  const playClip = playlistItems[playIndex]?.clip || null;
+
+  function renderPlaylistView() {
+    return (
+      <>
+        {/* ── Left: playlist info column (replaces filters) ── */}
+        <div style={styles.filterCol}>
+          <div style={styles.filterField}>
+            <label style={styles.filterLabel}>Playlist</label>
+            <select
+              style={styles.input}
+              value={activePlaylistId || ''}
+              onChange={(e) => setActivePlaylistId(e.target.value || null)}
+            >
+              <option value="">Select a playlist…</option>
+              {playlists.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.pitch_playlist_items?.[0]?.count ?? 0})
+                </option>
+              ))}
+            </select>
+            {activePlaylist && (
+              <div style={styles.pairRow}>
+                <button style={styles.plMgmtBtn} onClick={() => renamePlaylist(activePlaylist.id)}>Rename</button>
+                <button style={{ ...styles.plMgmtBtn, color: '#fca5a5' }} onClick={() => deletePlaylist(activePlaylist.id)}>Delete</button>
+              </div>
+            )}
+          </div>
+
+          {playClip && (
+            <div style={styles.playInfo}>
+              <label style={styles.filterLabel}>Now playing</label>
+              <div style={styles.playInfoName}>{flipName(playClip.player_name)}</div>
+              <div style={styles.playInfoSub}>to {flipName(playClip.batter_name)}</div>
+              <div style={styles.playInfoGrid}>
+                <span style={styles.playInfoKey}>Pitch</span>
+                <span>{playClip.pitch_name || playClip.pitch_type || '—'}</span>
+                <span style={styles.playInfoKey}>Velo</span>
+                <span>{playClip.release_speed ? `${playClip.release_speed.toFixed(1)} mph` : '—'}</span>
+                <span style={styles.playInfoKey}>Count</span>
+                <span>{playClip.balls ?? '–'}-{playClip.strikes ?? '–'}</span>
+                <span style={styles.playInfoKey}>Result</span>
+                <span>{outcome(playClip)}</span>
+                <span style={styles.playInfoKey}>Game</span>
+                <span>{playClip.away_team} @ {playClip.home_team}</span>
+                <span style={styles.playInfoKey}>Date</span>
+                <span>{playClip.game_date}</span>
+                <span style={styles.playInfoKey}>Inning</span>
+                <span>{playClip.inning_topbot} {playClip.inning}</span>
+              </div>
+              <a href={playClip.savant_url} target="_blank" rel="noreferrer" style={styles.link}>Savant ↗</a>
+            </div>
+          )}
+
+          <div style={{ ...styles.filterField, flex: 1, minHeight: 0 }}>
+            <label style={styles.filterLabel}>Queue ({playlistItems.length})</label>
+            <div style={styles.queueList}>
+              {playlistLoading && <div style={styles.drawerEmpty}>Loading…</div>}
+              {!playlistLoading && !activePlaylistId && (
+                <div style={styles.drawerEmpty}>Pick a playlist, or select pitches in Search and hit “Add to playlist”.</div>
+              )}
+              {!playlistLoading && activePlaylistId && playlistItems.length === 0 && (
+                <div style={styles.drawerEmpty}>Empty — add pitches from the Search view.</div>
+              )}
+              {playlistItems.map((it, idx) => {
+                const c = it.clip || {};
+                const current = idx === playIndex;
+                return (
+                  <div
+                    key={it.id}
+                    style={{ ...styles.queueItem, ...(current ? styles.queueItemOn : null) }}
+                    onClick={() => setPlayIndex(idx)}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={styles.queueItemTitle}>{idx + 1}. {flipName(c.player_name)}</div>
+                      <div style={styles.queueItemSub}>
+                        {c.pitch_name || c.pitch_type}{c.release_speed ? ` · ${c.release_speed.toFixed(1)}` : ''} · {outcome(c)}
+                      </div>
+                    </div>
+                    <div style={styles.queueItemBtns} onClick={(e) => e.stopPropagation()}>
+                      <button style={styles.queueBtn} onClick={() => movePlaylistItem(idx, -1)} disabled={idx === 0} title="Move up">↑</button>
+                      <button style={styles.queueBtn} onClick={() => movePlaylistItem(idx, 1)} disabled={idx === playlistItems.length - 1} title="Move down">↓</button>
+                      <button style={styles.queueBtn} onClick={() => removePlaylistItem(it.id)} title="Remove">×</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Center: player ── */}
+        <div style={styles.playerCol}>
+          {playClip ? (
+            <PlaylistPlayer
+              key={playlistItems[playIndex]?.id}
+              clip={playClip}
+              index={playIndex}
+              total={playlistItems.length}
+              autoAdvance={autoAdvance}
+              onToggleAutoAdvance={() => setAutoAdvance((v) => !v)}
+              onPrev={() => setPlayIndex((i) => Math.max(0, i - 1))}
+              onNext={() => setPlayIndex((i) => Math.min(playlistItems.length - 1, i + 1))}
+              onEnded={() => { if (autoAdvance) setPlayIndex((i) => (i < playlistItems.length - 1 ? i + 1 : i)); }}
+            />
+          ) : (
+            <div style={styles.placeholder}>
+              {activePlaylistId ? 'This playlist is empty.' : 'Select a playlist on the left.'}
+            </div>
+          )}
+        </div>
+      </>
+    );
+  }
+
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div style={styles.container}>
@@ -502,7 +752,22 @@ export default function PitchVideos({ onBack }) {
         </button>
         <span style={styles.headerTitle}>Pitch Video Search</span>
         <span style={styles.headerSub}>Savant clip archive</span>
+        <div style={styles.viewTabs}>
+          <button
+            style={{ ...styles.viewTab, ...(view === 'search' ? styles.viewTabOn : null) }}
+            onClick={() => setView('search')}
+          >
+            Search
+          </button>
+          <button
+            style={{ ...styles.viewTab, ...(view === 'playlist' ? styles.viewTabOn : null) }}
+            onClick={() => setView('playlist')}
+          >
+            Playlist
+          </button>
+        </div>
         <div style={{ flex: 1 }} />
+        {view === 'search' && (
         <button
           style={{ ...styles.drawerToggle, ...(drawerOpen ? styles.drawerToggleOn : null) }}
           onClick={() => setDrawerOpen((o) => !o)}
@@ -512,9 +777,12 @@ export default function PitchVideos({ onBack }) {
           </svg>
           History
         </button>
+        )}
       </div>
 
       <div style={styles.body}>
+        {view === 'playlist' && renderPlaylistView()}
+        {view === 'search' && (<>
         {/* ── Left: filter column ── */}
         <div style={styles.filterCol}>
           <div style={styles.filterField}>
@@ -659,6 +927,7 @@ export default function PitchVideos({ onBack }) {
                 ) : selectedRows.length > 0 ? (
                   <>
                     <button style={styles.batchBtn} onClick={openPlaylist}>View selected</button>
+                    <button style={styles.batchBtn} onClick={() => setAddPicker({ rows: selectedRows })}>Add to playlist</button>
                     <button style={styles.batchBtn} onClick={() => runBatchDownload(selectedRows)}>Download</button>
                     <button style={styles.batchBtn} onClick={() => openDrivePicker(selectedRows)}>Upload to Drive</button>
                     <button style={styles.clearFiltersBtn} onClick={() => setSelectedKeys(new Set())}>Clear</button>
@@ -760,6 +1029,7 @@ export default function PitchVideos({ onBack }) {
             </div>
           </div>
         )}
+        </>)}
       </div>
 
       {/* ── Review modal ── */}
@@ -810,6 +1080,59 @@ export default function PitchVideos({ onBack }) {
                 <button style={styles.batchBtn} onClick={() => openDrivePicker([modalClip])}>Upload to Drive</button>
               )}
               <a href={modalClip.savant_url} target="_blank" rel="noreferrer" style={styles.link}>Savant ↗</a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Add-to-playlist picker modal ── */}
+      {addPicker && (
+        <div style={styles.modalBackdrop} onClick={() => !addBusy && setAddPicker(null)}>
+          <div style={{ ...styles.modalCard, width: '420px' }} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <div style={styles.modalTitle}>
+                Add {addPicker.rows.length} clip{addPicker.rows.length > 1 ? 's' : ''} to playlist
+              </div>
+              <button style={styles.drawerClose} onClick={() => setAddPicker(null)} title="Close">×</button>
+            </div>
+            <div style={styles.playlistPickList}>
+              {playlists.map((p) => (
+                <button
+                  key={p.id}
+                  style={styles.playlistPickItem}
+                  disabled={addBusy}
+                  onClick={() => addRowsToPlaylist(p.id, addPicker.rows)}
+                >
+                  <span>{p.name}</span>
+                  <span style={styles.playlistPickCount}>{p.pitch_playlist_items?.[0]?.count ?? 0}</span>
+                </button>
+              ))}
+              {playlists.length === 0 && (
+                <div style={styles.drawerEmpty}>No playlists yet — create one below.</div>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: '8px', padding: '4px 16px 16px' }}>
+              <input
+                style={styles.input}
+                value={newPlaylistName}
+                placeholder="New playlist name"
+                onChange={(e) => setNewPlaylistName(e.target.value)}
+                onKeyDown={(e) => e.stopPropagation()}
+              />
+              <button
+                style={styles.batchBtn}
+                disabled={addBusy || !newPlaylistName.trim()}
+                onClick={async () => {
+                  const pl = await createPlaylist(newPlaylistName);
+                  if (pl) {
+                    setNewPlaylistName('');
+                    await addRowsToPlaylist(pl.id, addPicker.rows);
+                    setActivePlaylistId(pl.id);
+                  }
+                }}
+              >
+                Create + add
+              </button>
             </div>
           </div>
         </div>
@@ -900,6 +1223,132 @@ export default function PitchVideos({ onBack }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Playlist player ─────────────────────────────────────────────────────────
+// Custom <video> chrome: scrubber, quarter/half/normal/double speed, and
+// single-frame stepping. Savant broadcast clips are ~30fps, so a "frame"
+// is 1/30s (the <video> element exposes no real frame API).
+const PLAYBACK_RATES = [0.25, 0.5, 1, 2];
+const FRAME_S = 1 / 30;
+
+function PlaylistPlayer({ clip, index, total, autoAdvance, onToggleAutoAdvance, onPrev, onNext, onEnded }) {
+  const videoRef = useRef(null);
+  const wrapRef = useRef(null);
+  const [playing, setPlaying] = useState(false);
+  const [rate, setRate] = useState(1);
+  const [time, setTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [muted, setMuted] = useState(false);
+
+  const src = clip.video_url;
+
+  const setPlaybackRate = useCallback((r) => {
+    setRate(r);
+    if (videoRef.current) videoRef.current.playbackRate = r;
+  }, []);
+
+  const togglePlay = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) v.play().catch(() => {}); else v.pause();
+  }, []);
+
+  const stepFrame = useCallback((dir) => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.pause();
+    const max = isFinite(v.duration) ? v.duration : Number.MAX_SAFE_INTEGER;
+    v.currentTime = Math.min(Math.max(0, v.currentTime + dir * FRAME_S), max);
+  }, []);
+
+  // Keyboard: ←→ frame step · ↑↓ prev/next clip · space play/pause ·
+  // , ¼× · . ½× · / 1×
+  useEffect(() => {
+    const onKey = (e) => {
+      const tag = (e.target.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable) return;
+      if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(1); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(-1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); onPrev(); }
+      else if (e.key === 'ArrowDown') { e.preventDefault(); onNext(); }
+      else if (e.key === ' ') { e.preventDefault(); togglePlay(); }
+      else if (e.key === ',') setPlaybackRate(0.25);
+      else if (e.key === '.') setPlaybackRate(0.5);
+      else if (e.key === '/') setPlaybackRate(1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [stepFrame, togglePlay, onPrev, onNext, setPlaybackRate]);
+
+  const fmt = (s) => {
+    if (!isFinite(s)) return '0:00.00';
+    const m = Math.floor(s / 60);
+    return `${m}:${(s - m * 60).toFixed(2).padStart(5, '0')}`;
+  };
+
+  return (
+    <div ref={wrapRef} style={styles.playerWrap}>
+      <video
+        ref={videoRef}
+        src={src}
+        autoPlay
+        muted={muted}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onTimeUpdate={(e) => setTime(e.target.currentTime)}
+        onLoadedMetadata={(e) => { setDuration(e.target.duration || 0); e.target.playbackRate = rate; }}
+        onEnded={onEnded}
+        onClick={togglePlay}
+        style={styles.playerVideo}
+      />
+      <div style={styles.playerControls}>
+        <input
+          type="range"
+          min={0}
+          max={duration || 0}
+          step={FRAME_S}
+          value={Math.min(time, duration || 0)}
+          onChange={(e) => {
+            const v = videoRef.current;
+            if (v) v.currentTime = Number(e.target.value);
+            setTime(Number(e.target.value));
+          }}
+          style={styles.scrubber}
+        />
+        <div style={styles.controlRow}>
+          <button style={styles.ctrlBtn} onClick={onPrev} disabled={index === 0} title="Previous clip (↑)">⏮</button>
+          <button style={styles.ctrlBtn} onClick={() => stepFrame(-1)} title="Frame back (←)">‹｜</button>
+          <button style={{ ...styles.ctrlBtn, ...styles.playBtn }} onClick={togglePlay} title="Play / pause (space)">
+            {playing ? '❚❚' : '▶'}
+          </button>
+          <button style={styles.ctrlBtn} onClick={() => stepFrame(1)} title="Frame forward (→)">｜›</button>
+          <button style={styles.ctrlBtn} onClick={onNext} disabled={index >= total - 1} title="Next clip (↓)">⏭</button>
+          <span style={styles.timeLabel}>{fmt(time)} / {fmt(duration)}</span>
+          <div style={{ flex: 1 }} />
+          {PLAYBACK_RATES.map((r) => (
+            <button
+              key={r}
+              style={{ ...styles.rateBtn, ...(rate === r ? styles.rateBtnOn : null) }}
+              onClick={() => setPlaybackRate(r)}
+              title={r === 0.25 ? 'Quarter speed (,)' : r === 0.5 ? 'Half speed (.)' : r === 1 ? 'Normal speed (/)' : 'Double speed'}
+            >
+              {r === 0.25 ? '¼×' : r === 0.5 ? '½×' : `${r}×`}
+            </button>
+          ))}
+          <button style={styles.ctrlBtn} onClick={() => setMuted((m) => !m)} title={muted ? 'Unmute' : 'Mute'}>
+            {muted ? '🔇' : '🔊'}
+          </button>
+          <button style={styles.ctrlBtn} onClick={() => wrapRef.current?.requestFullscreen?.()} title="Fullscreen">⛶</button>
+          <label style={styles.autoAdvToggle} title="Play the next clip automatically when this one ends">
+            <input type="checkbox" checked={autoAdvance} onChange={onToggleAutoAdvance} />
+            Auto-advance
+          </label>
+          <span style={styles.counterLabel}>{index + 1} / {total}</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1240,4 +1689,224 @@ const styles = {
   uploadLabel: { fontSize: '13px', color: 'rgba(255,255,255,0.7)' },
   uploadCurrent: { fontSize: '12px', color: 'rgba(255,255,255,0.4)', wordBreak: 'break-all' },
   uploadDone: { fontSize: '14px', fontWeight: 600, color: '#a5b4fc', textAlign: 'center' },
+
+  // ── Playlist view ──
+  viewTabs: {
+    display: 'flex',
+    gap: '4px',
+    marginLeft: '16px',
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '8px',
+    padding: '3px',
+  },
+  viewTab: {
+    background: 'none',
+    border: 'none',
+    borderRadius: '6px',
+    color: 'rgba(255,255,255,0.55)',
+    padding: '5px 14px',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  viewTabOn: {
+    background: 'rgba(99,102,241,0.18)',
+    color: '#a5b4fc',
+  },
+  plMgmtBtn: {
+    flex: 1,
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '8px',
+    color: 'rgba(255,255,255,0.6)',
+    padding: '5px 8px',
+    fontSize: '12px',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    marginTop: '6px',
+  },
+  playInfo: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '10px',
+    padding: '12px',
+  },
+  playInfoName: { fontSize: '15px', fontWeight: 700, color: '#fff' },
+  playInfoSub: { fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginBottom: '6px' },
+  playInfoGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'auto 1fr',
+    columnGap: '12px',
+    rowGap: '4px',
+    fontSize: '12px',
+    color: 'rgba(255,255,255,0.75)',
+    marginBottom: '6px',
+  },
+  playInfoKey: {
+    color: 'rgba(255,255,255,0.35)',
+    textTransform: 'uppercase',
+    fontSize: '10px',
+    letterSpacing: '0.4px',
+    alignSelf: 'center',
+  },
+  queueList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+    overflowY: 'auto',
+    minHeight: 0,
+    flex: 1,
+  },
+  queueItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.05)',
+    borderRadius: '8px',
+    padding: '7px 9px',
+    cursor: 'pointer',
+  },
+  queueItemOn: {
+    background: 'rgba(99,102,241,0.14)',
+    borderColor: 'rgba(99,102,241,0.45)',
+  },
+  queueItemTitle: {
+    fontSize: '12px',
+    fontWeight: 600,
+    color: '#e2e8f0',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  queueItemSub: {
+    fontSize: '11px',
+    color: 'rgba(255,255,255,0.4)',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  queueItemBtns: { display: 'flex', gap: '2px', flexShrink: 0 },
+  queueBtn: {
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.35)',
+    cursor: 'pointer',
+    fontSize: '12px',
+    padding: '2px 4px',
+    fontFamily: 'inherit',
+  },
+  playerCol: {
+    flex: 1,
+    minWidth: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    padding: '18px 24px',
+  },
+  playerWrap: {
+    display: 'flex',
+    flexDirection: 'column',
+    flex: 1,
+    minHeight: 0,
+    background: '#000',
+    borderRadius: '12px',
+    overflow: 'hidden',
+    border: '1px solid rgba(255,255,255,0.08)',
+  },
+  playerVideo: {
+    flex: 1,
+    minHeight: 0,
+    width: '100%',
+    objectFit: 'contain',
+    background: '#000',
+    cursor: 'pointer',
+  },
+  playerControls: {
+    background: 'rgba(15,15,26,0.98)',
+    borderTop: '1px solid rgba(255,255,255,0.08)',
+    padding: '8px 14px 10px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+  },
+  scrubber: { width: '100%', accentColor: '#6366f1', cursor: 'pointer' },
+  controlRow: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
+  ctrlBtn: {
+    background: 'rgba(255,255,255,0.05)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '7px',
+    color: '#e2e8f0',
+    padding: '5px 9px',
+    fontSize: '13px',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    lineHeight: 1,
+  },
+  playBtn: {
+    background: 'rgba(99,102,241,0.2)',
+    borderColor: 'rgba(99,102,241,0.5)',
+    color: '#a5b4fc',
+    padding: '5px 14px',
+  },
+  rateBtn: {
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '999px',
+    color: 'rgba(255,255,255,0.5)',
+    padding: '4px 10px',
+    fontSize: '12px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  rateBtnOn: {
+    background: 'rgba(99,102,241,0.18)',
+    borderColor: 'rgba(99,102,241,0.5)',
+    color: '#a5b4fc',
+  },
+  timeLabel: {
+    fontSize: '12px',
+    color: 'rgba(255,255,255,0.55)',
+    fontVariantNumeric: 'tabular-nums',
+    marginLeft: '6px',
+  },
+  counterLabel: { fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginLeft: '4px' },
+  autoAdvToggle: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '5px',
+    fontSize: '12px',
+    color: 'rgba(255,255,255,0.6)',
+    cursor: 'pointer',
+    marginLeft: '8px',
+    userSelect: 'none',
+  },
+  playlistPickList: {
+    display: 'flex',
+    flexDirection: 'column',
+    maxHeight: '280px',
+    overflowY: 'auto',
+    padding: '4px 16px 12px',
+    gap: '4px',
+  },
+  playlistPickItem: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '8px',
+    color: '#e2e8f0',
+    padding: '9px 12px',
+    fontSize: '13px',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    textAlign: 'left',
+  },
+  playlistPickCount: { fontSize: '11px', color: 'rgba(255,255,255,0.35)' },
 };
