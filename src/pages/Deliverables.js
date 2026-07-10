@@ -17,7 +17,7 @@ export const DELIVERABLE_TYPES = {
 const DELIVERABLE_PLATFORMS = ['YouTube', 'TikTok', 'Instagram', 'X/Twitter', 'Facebook', 'Substack', 'Podcast'];
 const SPONSOR_STATUS_COLORS = { active: '#10b981', completed: '#6366f1', cancelled: '#ef4444' };
 const PAYMENT_STATUS_COLORS = { unpaid: '#ef4444', partial: '#f59e0b', paid: '#10b981' };
-const CHANNEL_COLORS = {
+export const CHANNEL_COLORS = {
   mayday: { bg: 'rgba(99,102,241,0.12)', color: '#a5b4fc', label: 'Mayday' },
   tmb: { bg: 'rgba(239,68,68,0.12)', color: '#fca5a5', label: 'TM Baseball' },
   socials: { bg: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)', label: 'Social' },
@@ -76,6 +76,8 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
   const [deliverableChannel, setDeliverableChannel] = useState('');
   const [deliverableReviewStatus, setDeliverableReviewStatus] = useState('queued');
   const [deliverableVideoUrl, setDeliverableVideoUrl] = useState('');
+  const [deliverableReviewDue, setDeliverableReviewDue] = useState('');
+  const [reviewDueEditId, setReviewDueEditId] = useState(null);
 
   // Video events for deliverable linking
   const [videoEvents, setVideoEvents] = useState([]);
@@ -651,6 +653,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
     setDeliverableChannel('');
     setDeliverableReviewStatus('queued');
     setDeliverableVideoUrl('');
+    setDeliverableReviewDue('');
     setEditingDeliverable(null); setShowDeliverableForm(null);
   }
 
@@ -667,6 +670,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
     setDeliverableChannel(d.channel || '');
     setDeliverableReviewStatus(d.review_status || 'queued');
     setDeliverableVideoUrl(d.video_url || '');
+    setDeliverableReviewDue(d.review_due || '');
     setEditingDeliverable(d.id);
     setShowDeliverableForm(d.campaign_id);
   }
@@ -692,6 +696,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         review_status: deliverableReviewStatus || 'queued',
         video_url: deliverableVideoUrl.trim() || null,
         delivered: !!deliverableVideoUrl.trim(),
+        review_due: deliverableReviewDue || null,
         updated_at: new Date().toISOString(),
       }).eq('id', editingDeliverable);
       if (error) { alert('Error updating deliverable: ' + error.message); return; }
@@ -736,6 +741,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         review_status: deliverableReviewStatus || 'queued',
         video_url: deliverableVideoUrl.trim() || null,
         delivered: !!deliverableVideoUrl.trim(),
+        review_due: deliverableReviewDue || null,
       }).select().single();
       if (error) { alert('Error creating deliverable: ' + error.message); return; }
 
@@ -864,6 +870,18 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
     if (error) { alert('Error saving video link: ' + error.message); return; }
     setVideoLinkModal(null);
     setVideoLinkInput('');
+    fetchSponsors();
+  }
+
+  // Inline "Review Due" chip on the table — date the ad must be submitted
+  // for review by. Saves on picker change; empty value clears.
+  async function handleSaveReviewDue(id, value) {
+    setReviewDueEditId(null);
+    const { error } = await supabase.from('sponsor_deliverables').update({
+      review_due: value || null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', id);
+    if (error) { alert('Error saving review due date: ' + error.message); return; }
     fetchSponsors();
   }
 
@@ -1595,6 +1613,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                   <th style={styles.tableTh}>Brief</th>
                   <th style={thStyle} onClick={() => handleSort('channel')}>Channel{sortArrow('channel')}</th>
                   <th style={styles.tableTh}>Status</th>
+                  <th style={styles.tableTh}>Review Due</th>
                   <th style={styles.tableTh}>{'💬'}</th>
                   <th style={thStyle} onClick={() => handleSort('schedule')}>Schedule{sortArrow('schedule')}</th>
                   <th style={styles.tableTh}>Beat Sheet</th>
@@ -1715,6 +1734,47 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                                 </div>
                               )}
                             </>
+                          );
+                        })()}
+                      </td>
+                      {/* Review Due */}
+                      <td style={styles.tableTd}>
+                        {reviewDueEditId === d.id ? (
+                          <input
+                            type="date"
+                            autoFocus
+                            defaultValue={d.review_due || ''}
+                            onChange={(e) => handleSaveReviewDue(d.id, e.target.value)}
+                            onBlur={() => setReviewDueEditId(null)}
+                            onKeyDown={(e) => { if (e.key === 'Escape') setReviewDueEditId(null); }}
+                            style={{
+                              background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(99,102,241,0.5)',
+                              borderRadius: '6px', color: '#fff', fontSize: '11px', padding: '2px 6px',
+                              fontFamily: 'inherit', outline: 'none', colorScheme: 'dark',
+                            }}
+                          />
+                        ) : (() => {
+                          const now = new Date();
+                          const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                          const pendingReview = ['queued', 'writing', 'filming'].includes(d.review_status || 'queued');
+                          const overdue = d.review_due && pendingReview && d.review_due < todayKey;
+                          return (
+                            <span
+                              style={{
+                                ...styles.chip,
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                background: overdue ? 'rgba(239,68,68,0.12)' : 'rgba(56,189,248,0.1)',
+                                color: overdue ? '#fca5a5' : d.review_due ? '#38bdf8' : 'rgba(255,255,255,0.35)',
+                                ...(d.review_due ? {} : { background: 'rgba(255,255,255,0.05)' }),
+                              }}
+                              onClick={(e) => { e.stopPropagation(); setReviewDueEditId(d.id); }}
+                              title="Date the ad must be submitted for review by"
+                            >
+                              {d.review_due
+                                ? new Date(d.review_due + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                : 'Set date'}
+                            </span>
                           );
                         })()}
                       </td>
@@ -2445,6 +2505,10 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                           <div style={styles.field}>
                             <label style={styles.label}>Due Month</label>
                             <input type="month" value={dueDate} onChange={e => setDueDate(e.target.value)} style={styles.input} />
+                          </div>
+                          <div style={styles.field}>
+                            <label style={styles.label}>Review Due</label>
+                            <input type="date" value={deliverableReviewDue} onChange={e => setDeliverableReviewDue(e.target.value)} style={styles.input} />
                           </div>
                           <div style={styles.field}>
                             <label style={styles.label}>Platforms</label>

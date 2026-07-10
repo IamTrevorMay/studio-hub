@@ -5,7 +5,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import AgencyThread from '../components/AgencyThread';
-import { DELIVERABLE_TYPES, REVIEW_STATUS_OPTIONS } from './Deliverables';
+import { DELIVERABLE_TYPES, REVIEW_STATUS_OPTIONS, CHANNEL_COLORS } from './Deliverables';
 import { colors, spacing, radii, fontSizes, fontWeights, fontFamily, shadows, zIndex } from '../lib/styleTokens';
 import { button, input, pill, modalOverlay, modal } from '../lib/styleRecipes';
 
@@ -199,15 +199,34 @@ export default function AgencyPortal() {
     }
   }
 
-  const upcoming = deliverables.filter((d) => !d.delivered);
-  const completed = deliverables.filter((d) => d.delivered);
+  // Post date drives the table order; unscheduled (TBD) rows sink to the
+  // bottom, ordered by internal due date.
+  const byPostDate = (a, b) => {
+    if (a.post_date && b.post_date) return a.post_date < b.post_date ? -1 : 1;
+    if (a.post_date) return -1;
+    if (b.post_date) return 1;
+    return (a.due_date || '9999') < (b.due_date || '9999') ? -1 : 1;
+  };
+  const upcoming = deliverables.filter((d) => !d.delivered).sort(byPostDate);
+  const completed = deliverables.filter((d) => d.delivered).sort(byPostDate);
 
-  function renderThreadToggle(entityType, entityId) {
+  function renderThreadToggle(entityType, entityId, { link = false } = {}) {
     const key = `${entityType}:${entityId}`;
     const thread = commentsByEntity[key] || [];
     const last = thread[thread.length - 1];
     const hasTeamReply = last && last.author_role !== 'agency';
     const isOpen = openThreadKey === key;
+    if (link) {
+      return (
+        <button
+          onClick={() => setOpenThreadKey(isOpen ? null : key)}
+          style={{ ...styles.linkBtn, ...(isOpen ? { color: colors.text } : {}) }}
+        >
+          {thread.length > 0 ? `${thread.length} comment${thread.length === 1 ? '' : 's'}` : 'Comment'}
+          {hasTeamReply && !isOpen && <span style={styles.replyDot} />}
+        </button>
+      );
+    }
     return (
       <button
         onClick={() => setOpenThreadKey(isOpen ? null : key)}
@@ -219,53 +238,98 @@ export default function AgencyPortal() {
     );
   }
 
-  function renderDeliverableCard(d) {
+  function renderDeliverableRow(d) {
     const statusOpt = REVIEW_STATUS_BY_VALUE[d.review_status] || REVIEW_STATUS_OPTIONS[0];
-    const typeInfo = DELIVERABLE_TYPES[d.deliverable_type];
     const dBriefs = briefs.filter((b) => b.campaign_id && b.campaign_id === d.campaign_id);
     const key = `deliverable:${d.id}`;
-    const overdue = !d.delivered && isPastDue(d.due_date);
+    const channelInfo = d.channel ? CHANNEL_COLORS[d.channel] : null;
+    // post_date is the linked video event's timestamptz — a full timestamp, so
+    // (unlike the date-only strings ptDate guards) it must go through Date for
+    // the local-timezone day, not a UTC string slice.
+    const postDate = d.post_date ? new Date(d.post_date) : null;
+    const postDateKey = postDate
+      ? `${postDate.getFullYear()}-${String(postDate.getMonth() + 1).padStart(2, '0')}-${String(postDate.getDate()).padStart(2, '0')}`
+      : null;
+    const overdue = !d.delivered && postDateKey && isPastDue(postDateKey);
     return (
-      <div key={d.id} style={styles.card}>
-        <div style={styles.cardTop}>
-          <div style={styles.cardTitleWrap}>
-            <span style={styles.cardTitle}>{typeInfo?.icon ? `${typeInfo.icon} ` : ''}{d.title || typeInfo?.label || 'Deliverable'}</span>
-            <div style={styles.cardMetaRow}>
-              {d.brand_name && <span style={styles.brandChip}>{d.brand_name}</span>}
-              {!d.brand_name && d.sponsor_name && <span style={styles.brandChip}>{d.sponsor_name}</span>}
-              {typeInfo && <span style={styles.metaText}>{typeInfo.label}</span>}
-              {(d.platforms || []).length > 0 && <span style={styles.metaText}>{d.platforms.join(' · ')}</span>}
-            </div>
-          </div>
-          <div style={styles.cardRight}>
-            <span style={{ ...styles.statusPill, background: statusOpt.bg, color: statusOpt.color }}>
+      <React.Fragment key={d.id}>
+        <tr style={d.delivered ? { opacity: 0.5 } : undefined}>
+          <td style={{ ...styles.td, whiteSpace: 'nowrap', ...(overdue ? { color: colors.danger.fgSoft } : {}) }}>
+            {postDate
+              ? postDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+              : <span style={styles.tbd}>TBD</span>}
+          </td>
+          <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
+            {d.due_date
+              ? new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+              : <span style={styles.tbd}>—</span>}
+          </td>
+          <td style={styles.td}>
+            {(d.brand_name || d.sponsor_name)
+              ? <span style={{ ...styles.chip, background: colors.accentSoft, color: colors.accentFg }}>{d.brand_name || d.sponsor_name}</span>
+              : <span style={styles.tbd}>—</span>}
+          </td>
+          <td style={styles.td}>
+            {channelInfo
+              ? <span style={{ ...styles.chip, background: channelInfo.bg, color: channelInfo.color }}>{channelInfo.label}</span>
+              : <span style={styles.tbd}>—</span>}
+          </td>
+          <td style={styles.td}>
+            <span style={{ ...styles.chip, fontWeight: 600, background: statusOpt.bg, color: statusOpt.color }}>
               {d.delivered ? 'Delivered' : statusOpt.label}
             </span>
-            <span style={{ ...styles.dueDate, ...(overdue ? { color: colors.danger.fgSoft } : {}) }}>
-              Due {fmtDate(d.due_date)}
-            </span>
-          </div>
-        </div>
-        <div style={styles.cardActions}>
-          {dBriefs.map((b) => (
-            b.url
-              ? <a key={b.id} href={b.url} target="_blank" rel="noopener noreferrer" style={styles.briefLink}>📄 {b.label || 'Brief'}</a>
-              : b.onepager_md
-                ? <button key={b.id} onClick={() => setBriefModal({ label: b.label || d.brand_name || 'Brief', onepager_md: b.onepager_md })} style={styles.briefLink}>📄 {b.label || 'Brief'}</button>
-                : null
-          ))}
-          {renderThreadToggle('deliverable', d.id)}
-        </div>
+          </td>
+          <td style={styles.td}>
+            {d.review_due ? (() => {
+              // Read-only for agency; red while past due and the ad hasn't
+              // reached review yet (mirrors the internal table).
+              const pendingReview = ['queued', 'writing', 'filming'].includes(d.review_status || 'queued');
+              const overdue = pendingReview && isPastDue(d.review_due);
+              return (
+                <span style={{
+                  ...styles.chip,
+                  fontWeight: 600,
+                  background: overdue ? 'rgba(239,68,68,0.12)' : 'rgba(56,189,248,0.1)',
+                  color: overdue ? '#fca5a5' : '#38bdf8',
+                }}>
+                  {fmtDate(d.review_due)}
+                </span>
+              );
+            })() : <span style={styles.tbd}>—</span>}
+          </td>
+          <td style={styles.td}>
+            {dBriefs.length === 0 && <span style={styles.tbd}>—</span>}
+            <div style={{ display: 'flex', gap: spacing.sm, flexWrap: 'wrap' }}>
+              {dBriefs.map((b) => (
+                b.url
+                  ? <a key={b.id} href={b.url} target="_blank" rel="noopener noreferrer" style={styles.tableLink} title={b.label}>{b.label || 'Open brief'}</a>
+                  : b.onepager_md
+                    ? <button key={b.id} onClick={() => setBriefModal({ label: b.label || d.brand_name || 'Brief', onepager_md: b.onepager_md })} style={{ ...styles.linkBtn, ...styles.tableLink }} title={b.label}>{b.label || 'Open brief'}</button>
+                    : null
+              ))}
+            </div>
+          </td>
+          <td style={styles.td}>
+            {d.delivered && d.video_url
+              ? <a href={d.video_url} target="_blank" rel="noopener noreferrer" style={styles.tableLink} title={d.video_url}>Watch</a>
+              : <span style={styles.tbd}>—</span>}
+          </td>
+          <td style={{ ...styles.td, textAlign: 'right' }}>
+            {renderThreadToggle('deliverable', d.id, { link: true })}
+          </td>
+        </tr>
         {openThreadKey === key && (
-          <div style={styles.threadWrap}>
-            <AgencyThread
-              comments={commentsByEntity[key] || []}
-              onPost={(body) => postComment('deliverable', d.id, body)}
-              emptyText="Start the conversation — the Mayday team is notified of every comment."
-            />
-          </div>
+          <tr>
+            <td colSpan={9} style={styles.threadCell}>
+              <AgencyThread
+                comments={commentsByEntity[key] || []}
+                onPost={(body) => postComment('deliverable', d.id, body)}
+                emptyText="Start the conversation — the Mayday team is notified of every comment."
+              />
+            </td>
+          </tr>
         )}
-      </div>
+      </React.Fragment>
     );
   }
 
@@ -329,29 +393,50 @@ export default function AgencyPortal() {
       <main style={styles.main}>
         <section style={styles.section}>
           <div style={styles.sectionHead}>
-            <h2 style={styles.sectionTitle}>Upcoming Deliverables</h2>
-            <span style={styles.sectionCount}>{upcoming.length}</span>
-          </div>
-          {loading && <div style={styles.emptyState}>Loading…</div>}
-          {!loading && upcoming.length === 0 && <div style={styles.emptyState}>Nothing in the pipeline right now.</div>}
-          {upcoming.map(renderDeliverableCard)}
-          {completed.length > 0 && (
-            <button onClick={() => setShowCompleted((v) => !v)} style={styles.completedToggle}>
-              {showCompleted ? '▾' : '▸'} Delivered ({completed.length})
-            </button>
-          )}
-          {showCompleted && completed.map(renderDeliverableCard)}
-        </section>
-
-        <section style={styles.section}>
-          <div style={styles.sectionHead}>
-            <h2 style={styles.sectionTitle}>Your Proposals</h2>
+            <h2 style={styles.sectionTitle}>Proposals</h2>
             <button onClick={() => { setShowProposalForm(true); setFormError(''); }} style={button({ variant: 'primary', size: 'sm' })}>
               + Submit Proposal
             </button>
           </div>
           {!loading && proposals.length === 0 && <div style={styles.emptyState}>No proposals yet — submit one to get a campaign on the books.</div>}
           {proposals.map(renderProposalCard)}
+        </section>
+
+        <section style={styles.section}>
+          <div style={styles.sectionHead}>
+            <h2 style={styles.sectionTitle}>Upcoming Deliverables</h2>
+            <span style={styles.sectionCount}>{upcoming.length}</span>
+          </div>
+          {loading && <div style={styles.emptyState}>Loading…</div>}
+          {!loading && upcoming.length === 0 && !showCompleted && <div style={styles.emptyState}>Nothing in the pipeline right now.</div>}
+          {(upcoming.length > 0 || (showCompleted && completed.length > 0)) && (
+            <div style={styles.tableWrap}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>Post Date</th>
+                    <th style={styles.th}>Month</th>
+                    <th style={styles.th}>Brand</th>
+                    <th style={styles.th}>Channel</th>
+                    <th style={styles.th}>Status</th>
+                    <th style={styles.th}>Review Due</th>
+                    <th style={styles.th}>Brief</th>
+                    <th style={styles.th}>Reference Video</th>
+                    <th style={{ ...styles.th, textAlign: 'right' }}>💬</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {upcoming.map(renderDeliverableRow)}
+                  {showCompleted && completed.map(renderDeliverableRow)}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {completed.length > 0 && (
+            <button onClick={() => setShowCompleted((v) => !v)} style={styles.completedToggle}>
+              {showCompleted ? '▾' : '▸'} Delivered ({completed.length})
+            </button>
+          )}
         </section>
       </main>
 
@@ -480,7 +565,8 @@ const styles = {
     display: 'inline-block',
   },
   main: {
-    maxWidth: 860,
+    // 60% of the viewport on desktop; floor keeps phones from cramping.
+    maxWidth: 'max(60%, 340px)',
     margin: '0 auto',
     padding: `${spacing.xxl}px ${spacing.xl}px ${spacing.xxxl * 2}px`,
     display: 'flex',
@@ -510,6 +596,73 @@ const styles = {
     borderRadius: radii.lg,
     padding: spacing.lg,
     boxShadow: shadows.sm,
+  },
+  tableWrap: {
+    background: colors.bgRaised,
+    border: `1px solid ${colors.border}`,
+    borderRadius: radii.lg,
+    boxShadow: shadows.sm,
+    overflowX: 'auto',
+  },
+  table: {
+    width: '100%',
+    borderCollapse: 'collapse',
+  },
+  th: {
+    textAlign: 'left',
+    padding: `${spacing.md}px ${spacing.lg}px`,
+    fontSize: fontSizes.xs,
+    fontWeight: fontWeights.semibold,
+    color: colors.textSubtle,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    borderBottom: `1px solid ${colors.border}`,
+    whiteSpace: 'nowrap',
+  },
+  td: {
+    padding: `${spacing.md}px ${spacing.lg}px`,
+    fontSize: fontSizes.sm,
+    color: colors.textMuted,
+    borderTop: `1px solid ${colors.border}`,
+    verticalAlign: 'middle',
+  },
+  tbd: { color: colors.textDim, fontSize: fontSizes.xs },
+  // Plain links for the Brief / comment columns, matching the internal table.
+  tableLink: {
+    color: '#a5b4fc',
+    textDecoration: 'underline',
+    fontSize: '12px',
+    maxWidth: 240,
+    display: 'inline-block',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    verticalAlign: 'middle',
+  },
+  linkBtn: {
+    background: 'transparent',
+    border: 'none',
+    padding: 0,
+    color: '#a5b4fc',
+    textDecoration: 'underline',
+    textUnderlineOffset: 2,
+    fontSize: '12px',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    whiteSpace: 'nowrap',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  // Same chip shape the internal Deliverables table uses.
+  chip: {
+    fontSize: '9px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px',
+    whiteSpace: 'nowrap', letterSpacing: '0.2px',
+  },
+  threadCell: {
+    padding: `${spacing.md}px ${spacing.lg}px ${spacing.lg}px`,
+    borderTop: `1px solid ${colors.border}`,
+    background: colors.bgHover,
   },
   cardTop: { display: 'flex', justifyContent: 'space-between', gap: spacing.lg, flexWrap: 'wrap' },
   cardTitleWrap: { display: 'flex', flexDirection: 'column', gap: spacing.xs, minWidth: 200, flex: 1 },
