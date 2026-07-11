@@ -118,6 +118,23 @@ Deno.serve(async (req: Request) => {
     const body = await req.json().catch(() => ({}));
     const op = body.op;
 
+    // Drive discovery — the docs don't pin down a single list endpoint, so
+    // try the likely ones and return whatever responds. Used by the UI to
+    // help correct a bad SHADE_DRIVE_ID ("Drive not found").
+    if (op === "drives") {
+      const attempts = ["/workspaces/drives", "/workspaces", "/drives"];
+      for (const path of attempts) {
+        try {
+          const resp = await fetch(`${SHADE_API}${path}`, { headers: { Authorization: apiKey } });
+          if (resp.ok) {
+            const data = await resp.json();
+            return json({ endpoint: path, data });
+          }
+        } catch { /* try next */ }
+      }
+      return json({ error: "Could not list drives from the Shade API" }, 502);
+    }
+
     if (op === "search") {
       const payload: Record<string, unknown> = {
         drive_id: driveId,

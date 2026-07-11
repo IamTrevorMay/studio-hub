@@ -5,11 +5,13 @@ import { useAuth } from '../../contexts/AuthContext';
 
 // Assets view of the Asset Search tool — AI index search over the Shade
 // drive via the shade-search edge function. Mirrors the Pitches view's
-// conventions: results table with row selection, personal playlists
-// (asset_playlists + asset_playlist_items, RLS owner-only, items snapshot
-// the asset as jsonb), review modal that walks a queue, and bulk download
-// bundled into a client-side zip (browsers block programmatic downloads
-// after the first without user activation).
+// layout and conventions: left panel with the Search/Playlist toggle on
+// top, then the query + type filters (or playlist picker); results table
+// on the right. Personal playlists (asset_playlists + asset_playlist_items,
+// RLS owner-only, items snapshot the asset as jsonb), review modal that
+// walks a queue, and bulk download bundled into a client-side zip
+// (browsers block programmatic downloads after the first without user
+// activation).
 //
 // Playback/previews use Shade signed URLs (fine as media src); download
 // bytes stream through the edge function because the storage host's CORS
@@ -49,6 +51,23 @@ function downloadName(asset) {
   return name;
 }
 
+// Walk an arbitrary Shade drives/workspaces response and collect anything
+// that looks like a drive: an object with a uuid id and a name.
+function collectDrives(node, out = [], depth = 0) {
+  if (!node || depth > 6) return out;
+  if (Array.isArray(node)) {
+    node.forEach((n) => collectDrives(n, out, depth + 1));
+    return out;
+  }
+  if (typeof node === 'object') {
+    if (typeof node.id === 'string' && /^[0-9a-f-]{32,36}$/i.test(node.id) && (node.name || node.title)) {
+      out.push({ id: node.id, name: node.name || node.title });
+    }
+    Object.values(node).forEach((v) => collectDrives(v, out, depth + 1));
+  }
+  return out;
+}
+
 export default function ShadeAssets() {
   const { profile } = useAuth();
 
@@ -59,6 +78,7 @@ export default function ShadeAssets() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState(null);
   const [notConfigured, setNotConfigured] = useState(false);
+  const [driveHelp, setDriveHelp] = useState(null); // [{id, name}] when drive_id is wrong
 
   const [selectedIds, setSelectedIds] = useState(() => new Set());
 
@@ -101,6 +121,7 @@ export default function ShadeAssets() {
     if (searching) return;
     setSearching(true);
     setSearchError(null);
+    setDriveHelp(null);
     setSelectedIds(new Set());
     try {
       const json = await callFn({ op: 'search', query, types, limit: 100 });
@@ -108,6 +129,16 @@ export default function ShadeAssets() {
     } catch (err) {
       setSearchError(err.message);
       setAssets([]);
+      // A wrong SHADE_DRIVE_ID comes back as "Drive not found" — list what
+      // the API key can actually see so the secret can be corrected.
+      if (/drive not found/i.test(err.message)) {
+        try {
+          const json = await callFn({ op: 'drives' });
+          const found = collectDrives(json.data);
+          const seen = new Set();
+          setDriveHelp(found.filter((d) => !seen.has(d.id) && seen.add(d.id)));
+        } catch { /* leave driveHelp null */ }
+      }
     } finally {
       setSearching(false);
     }
@@ -294,6 +325,16 @@ export default function ShadeAssets() {
     fetchPlaylists();
   };
 
+  const renamePlaylist = async (playlistId) => {
+    const pl = playlists.find((p) => p.id === playlistId);
+    const name = window.prompt('Rename playlist', pl?.name || '');
+    if (!name || !name.trim()) return;
+    await supabase.from('asset_playlists')
+      .update({ name: name.trim(), updated_at: new Date().toISOString() })
+      .eq('id', playlistId);
+    fetchPlaylists();
+  };
+
   const deletePlaylist = async (playlistId) => {
     const pl = playlists.find((p) => p.id === playlistId);
     if (!window.confirm(`Delete playlist "${pl?.name || ''}" and its queue?`)) return;
@@ -302,9 +343,27 @@ export default function ShadeAssets() {
     fetchPlaylists();
   };
 
+  const activePlaylist = playlists.find((p) => p.id === activePlaylistId);
   const playlistAssets = playlistItems.map((it) => it.asset);
 
   // ─── Render pieces ────────────────────────────────────────────────────────
+  const renderViewToggle = () => (
+    <div style={styles.viewTabs}>
+      <button
+        style={{ ...styles.viewTab, ...(view === 'search' ? styles.viewTabOn : null) }}
+        onClick={() => setView('search')}
+      >
+        Search
+      </button>
+      <button
+        style={{ ...styles.viewTab, ...(view === 'playlist' ? styles.viewTabOn : null) }}
+        onClick={() => setView('playlist')}
+      >
+        Playlist
+      </button>
+    </div>
+  );
+
   const renderModal = () => {
     if (!modal || !modalAsset) return null;
     const url = resolved[modalAsset.id];
@@ -348,7 +407,7 @@ export default function ShadeAssets() {
               disabled={modal.index === 0}
               onClick={() => setModal((m) => ({ ...m, index: m.index - 1 }))}
             >← Prev</button>
-            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.35)', alignSelf: 'center' }}>
+            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.35)', alignSelf: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {modalAsset.path}
             </span>
             <button
@@ -402,7 +461,7 @@ export default function ShadeAssets() {
                 placeholder="New playlist name…"
                 style={{ ...styles.input, flex: 1 }}
               />
-              <button type="submit" style={styles.primaryBtn}>Create</button>
+              <button type="submit" style={{ ...styles.primaryBtn, flex: 'none', padding: '8px 14px' }}>Create</button>
             </form>
           </div>
         </div>
@@ -464,10 +523,10 @@ export default function ShadeAssets() {
     </div>
   );
 
-  // ─── Views ────────────────────────────────────────────────────────────────
+  // ─── Layout: left panel + results column (mirrors the Pitches view) ──────
   if (notConfigured) {
     return (
-      <div style={styles.placeholder}>
+      <div style={{ ...styles.placeholder, flex: 1 }}>
         <div style={{ fontSize: '32px', marginBottom: '12px' }}>🔌</div>
         Shade isn't connected yet. Add <code>SHADE_API_KEY</code> and <code>SHADE_DRIVE_ID</code> to
         the Supabase edge function secrets, then reload.
@@ -476,119 +535,163 @@ export default function ShadeAssets() {
   }
 
   return (
-    <div style={styles.wrap}>
-      <div style={styles.subTabs}>
-        <button style={{ ...styles.subTab, ...(view === 'search' ? styles.subTabOn : null) }} onClick={() => setView('search')}>Search</button>
-        <button style={{ ...styles.subTab, ...(view === 'playlist' ? styles.subTabOn : null) }} onClick={() => setView('playlist')}>Playlists</button>
-        <div style={{ flex: 1 }} />
+    <>
+      {/* ── Left: search / playlist panel ── */}
+      <div style={styles.filterCol}>
+        {renderViewToggle()}
+
+        {view === 'search' && (
+          <>
+            <div style={styles.filterField}>
+              <label style={styles.filterLabel}>Describe what you need</label>
+              <textarea
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); runSearch(); }
+                }}
+                rows={3}
+                placeholder='"crowd reaction home run night game"'
+                style={{ ...styles.input, resize: 'vertical', minHeight: '58px' }}
+              />
+            </div>
+            <div style={styles.filterField}>
+              <label style={styles.filterLabel}>Asset types</label>
+              <div style={styles.chipRow}>
+                <button
+                  type="button"
+                  style={{ ...styles.chip, ...(types.length === 0 ? styles.chipOn : null) }}
+                  onClick={() => setTypes([])}
+                >All</button>
+                {TYPE_FILTERS.map((t) => (
+                  <button
+                    key={t.key}
+                    type="button"
+                    style={{ ...styles.chip, ...(types.includes(t.key) ? styles.chipOn : null) }}
+                    onClick={() => toggleType(t.key)}
+                  >{t.label}</button>
+                ))}
+              </div>
+            </div>
+            <button style={styles.primaryBtn} disabled={searching} onClick={() => runSearch()}>
+              {searching ? 'Searching…' : 'Search'}
+            </button>
+            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', lineHeight: 1.5 }}>
+              The AI index matches on visual content, transcripts, and metadata — not just filenames.
+            </div>
+          </>
+        )}
+
+        {view === 'playlist' && (
+          <div style={styles.filterField}>
+            <label style={styles.filterLabel}>Playlist</label>
+            <select
+              style={styles.input}
+              value={activePlaylistId || ''}
+              onChange={(e) => setActivePlaylistId(e.target.value || null)}
+            >
+              <option value="">Select a playlist…</option>
+              {playlists.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.asset_playlist_items?.[0]?.count ?? 0})
+                </option>
+              ))}
+            </select>
+            {activePlaylist && (
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button style={styles.plMgmtBtn} onClick={() => renamePlaylist(activePlaylist.id)}>Rename</button>
+                <button style={{ ...styles.plMgmtBtn, color: '#fca5a5' }} onClick={() => deletePlaylist(activePlaylist.id)}>Delete</button>
+              </div>
+            )}
+          </div>
+        )}
+
         {batch && (
           <span style={styles.batchProgress}>
             {batch.total > 1 ? `Bundling ${batch.done}/${batch.total}…` : 'Downloading…'}
             {batch.failed > 0 ? ` (${batch.failed} failed)` : ''}
             {batch.total > 1 && (
-              <button style={{ ...styles.rowBtn, width: 'auto', padding: '0 8px', marginLeft: '8px' }} onClick={() => { batchCancelRef.current = true; }}>Cancel</button>
+              <button
+                style={{ ...styles.rowBtn, width: 'auto', padding: '0 8px', marginLeft: '8px' }}
+                onClick={() => { batchCancelRef.current = true; }}
+              >Cancel</button>
             )}
           </span>
         )}
       </div>
 
-      {view === 'search' && (
-        <>
-          <form onSubmit={runSearch} style={styles.searchBar}>
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder='Describe what you need — "crowd reaction home run night game"…'
-              style={{ ...styles.input, flex: 1, padding: '10px 14px', fontSize: '14px' }}
-            />
-            <button type="submit" disabled={searching} style={styles.primaryBtn}>
-              {searching ? 'Searching…' : 'Search'}
-            </button>
-          </form>
-          <div style={styles.chipRow}>
-            <button
-              type="button"
-              style={{ ...styles.chip, ...(types.length === 0 ? styles.chipOn : null) }}
-              onClick={() => setTypes([])}
-            >All types</button>
-            {TYPE_FILTERS.map((t) => (
-              <button
-                key={t.key}
-                type="button"
-                style={{ ...styles.chip, ...(types.includes(t.key) ? styles.chipOn : null) }}
-                onClick={() => toggleType(t.key)}
-              >{t.label}</button>
-            ))}
-          </div>
-
-          {searchError && <div style={styles.errorMsg}>{searchError}</div>}
-
-          {selectedIds.size > 0 && (
-            <div style={styles.selectionBar}>
-              <span style={{ fontSize: '13px', color: '#a5b4fc' }}>{selectedIds.size} selected</span>
-              <button style={styles.batchBtn} onClick={() => setAddPicker({ assets: selectedAssets })}>+ Playlist</button>
-              <button style={styles.batchBtn} onClick={() => runBatchDownload(selectedAssets)} disabled={!!batch}>
-                Download{selectedIds.size > 1 ? ' (.zip)' : ''}
-              </button>
-              <button style={{ ...styles.chip, marginLeft: '2px' }} onClick={() => setSelectedIds(new Set())}>Clear</button>
-            </div>
-          )}
-
-          {assets === null && !searching && (
-            <div style={styles.placeholder}>
-              Search the Shade drive by describing the footage, image, or file you need.<br />
-              The AI index matches on visual content, transcripts, and metadata — not just filenames.
-            </div>
-          )}
-          {assets !== null && assets.length === 0 && !searching && !searchError && (
-            <div style={styles.placeholder}>No assets matched. Try broader wording or fewer type filters.</div>
-          )}
-          {assets !== null && assets.length > 0 && (
-            <>
-              <div style={styles.resultsBar}>
-                <span style={styles.resultsCount}>{assets.length} result{assets.length === 1 ? '' : 's'}</span>
-                <button
-                  style={styles.chip}
-                  onClick={() => setSelectedIds(new Set(assets.map((a) => a.id)))}
-                >Select all</button>
-              </div>
-              {renderTable(assets)}
-            </>
-          )}
-        </>
-      )}
-
-      {view === 'playlist' && (
-        <div style={styles.playlistWrap}>
-          <div style={styles.playlistCol}>
-            {playlists.map((pl) => (
-              <div
-                key={pl.id}
-                style={{ ...styles.playlistRow, ...(activePlaylistId === pl.id ? styles.playlistRowOn : null) }}
-                onClick={() => setActivePlaylistId(pl.id)}
-              >
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pl.name}</span>
-                <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: '12px', flexShrink: 0 }}>
-                  {pl.asset_playlist_items?.[0]?.count ?? 0}
-                </span>
-                <button
-                  style={{ ...styles.rowBtn, color: '#f87171', flexShrink: 0 }}
-                  title="Delete playlist"
-                  onClick={(e) => { e.stopPropagation(); deletePlaylist(pl.id); }}
-                >✕</button>
-              </div>
-            ))}
-            {playlists.length === 0 && (
-              <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: '13px', padding: '8px 4px' }}>
-                No playlists yet — select search results and hit “+ Playlist”.
+      {/* ── Right: results / playlist queue ── */}
+      <div style={styles.resultsCol}>
+        {view === 'search' && (
+          <>
+            {searchError && <div style={styles.errorMsg}>{searchError}</div>}
+            {driveHelp && (
+              <div style={styles.driveHelp}>
+                {driveHelp.length > 0 ? (
+                  <>
+                    <div style={{ fontWeight: 700, marginBottom: '6px' }}>
+                      SHADE_DRIVE_ID doesn't match a drive this API key can see. Drives available to the key:
+                    </div>
+                    {driveHelp.map((d) => (
+                      <div key={d.id} style={{ marginBottom: '2px' }}>
+                        {d.name} — <code style={{ userSelect: 'all' }}>{d.id}</code>
+                      </div>
+                    ))}
+                    <div style={{ marginTop: '6px', color: 'rgba(255,255,255,0.45)' }}>
+                      Update the secret and re-run: <code>supabase secrets set SHADE_DRIVE_ID=…</code>
+                    </div>
+                  </>
+                ) : (
+                  <>SHADE_DRIVE_ID doesn't match a drive this API key can see, and the key can't list drives.
+                  Grab the drive UUID from the Shade web app URL and update the secret.</>
+                )}
               </div>
             )}
-          </div>
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-            {!activePlaylistId && <div style={styles.placeholder}>Pick a playlist to review its queue.</div>}
+
+            {selectedIds.size > 0 && (
+              <div style={styles.selectionBar}>
+                <span style={{ fontSize: '13px', color: '#a5b4fc' }}>{selectedIds.size} selected</span>
+                <button style={styles.batchBtn} onClick={() => setAddPicker({ assets: selectedAssets })}>+ Playlist</button>
+                <button style={styles.batchBtn} onClick={() => runBatchDownload(selectedAssets)} disabled={!!batch}>
+                  Download{selectedIds.size > 1 ? ' (.zip)' : ''}
+                </button>
+                <button style={{ ...styles.chip, marginLeft: '2px' }} onClick={() => setSelectedIds(new Set())}>Clear</button>
+              </div>
+            )}
+
+            {assets === null && !searching && !searchError && (
+              <div style={styles.placeholder}>
+                Search the Shade drive by describing the footage, image, or file you need.
+              </div>
+            )}
+            {assets !== null && assets.length === 0 && !searching && !searchError && (
+              <div style={styles.placeholder}>No assets matched. Try broader wording or fewer type filters.</div>
+            )}
+            {assets !== null && assets.length > 0 && (
+              <>
+                <div style={styles.resultsBar}>
+                  <span style={styles.resultsCount}>{assets.length} result{assets.length === 1 ? '' : 's'}</span>
+                  <button
+                    style={styles.chip}
+                    onClick={() => setSelectedIds(new Set(assets.map((a) => a.id)))}
+                  >Select all</button>
+                </div>
+                {renderTable(assets)}
+              </>
+            )}
+          </>
+        )}
+
+        {view === 'playlist' && (
+          <>
+            {!activePlaylistId && (
+              <div style={styles.placeholder}>
+                Pick a playlist, or select assets in Search and hit “+ Playlist”.
+              </div>
+            )}
             {activePlaylistId && playlistLoading && <div style={styles.placeholder}>Loading…</div>}
             {activePlaylistId && !playlistLoading && playlistItems.length === 0 && (
-              <div style={styles.placeholder}>This playlist is empty.</div>
+              <div style={styles.placeholder}>This playlist is empty — add assets from the Search view.</div>
             )}
             {activePlaylistId && !playlistLoading && playlistItems.length > 0 && (
               <>
@@ -602,43 +705,61 @@ export default function ShadeAssets() {
                 {renderTable(playlistAssets, { fromPlaylist: true })}
               </>
             )}
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </div>
 
       {renderModal()}
       {renderAddPicker()}
-    </div>
+    </>
   );
 }
 
 const styles = {
-  wrap: {
-    flex: 1,
-    minWidth: 0,
-    padding: '18px 24px',
+  filterCol: {
+    width: '260px',
+    flexShrink: 0,
+    padding: '18px',
+    borderRight: '1px solid rgba(255,255,255,0.06)',
+    overflowY: 'auto',
+    maxHeight: 'calc(100vh - 75px)',
     display: 'flex',
     flexDirection: 'column',
-    gap: '12px',
+    gap: '14px',
   },
-  subTabs: { display: 'flex', alignItems: 'center', gap: '6px' },
-  subTab: {
+  filterField: { display: 'flex', flexDirection: 'column', gap: '5px' },
+  filterLabel: {
+    fontSize: '11px',
+    fontWeight: 600,
+    letterSpacing: '0.4px',
+    textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.4)',
+  },
+  viewTabs: {
+    display: 'flex',
+    gap: '4px',
     background: 'rgba(255,255,255,0.04)',
     border: '1px solid rgba(255,255,255,0.08)',
     borderRadius: '8px',
+    padding: '3px',
+    boxSizing: 'border-box',
+  },
+  viewTab: {
+    flex: 1,
+    background: 'none',
+    border: 'none',
+    borderRadius: '6px',
     color: 'rgba(255,255,255,0.55)',
-    padding: '6px 16px',
+    padding: '5px 14px',
     fontSize: '13px',
     fontWeight: 600,
     cursor: 'pointer',
     fontFamily: 'inherit',
   },
-  subTabOn: {
+  viewTabOn: {
     background: 'rgba(99,102,241,0.18)',
-    borderColor: 'rgba(99,102,241,0.5)',
     color: '#a5b4fc',
   },
-  searchBar: { display: 'flex', gap: '8px' },
   input: {
     background: 'rgba(255,255,255,0.04)',
     border: '1px solid rgba(255,255,255,0.08)',
@@ -647,6 +768,7 @@ const styles = {
     padding: '7px 10px',
     fontSize: '13px',
     fontFamily: 'inherit',
+    width: '100%',
     boxSizing: 'border-box',
     colorScheme: 'dark',
     outline: 'none',
@@ -658,6 +780,18 @@ const styles = {
     color: '#fff',
     padding: '8px 22px',
     fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  plMgmtBtn: {
+    flex: 1,
+    background: 'rgba(255,255,255,0.05)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '8px',
+    color: 'rgba(255,255,255,0.6)',
+    padding: '6px 0',
+    fontSize: '12px',
     fontWeight: 600,
     cursor: 'pointer',
     fontFamily: 'inherit',
@@ -679,7 +813,7 @@ const styles = {
     borderColor: 'rgba(99,102,241,0.5)',
     color: '#a5b4fc',
   },
-  selectionBar: { display: 'flex', alignItems: 'center', gap: '8px' },
+  selectionBar: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' },
   batchBtn: {
     background: 'rgba(99,102,241,0.15)',
     border: '1px solid rgba(99,102,241,0.4)',
@@ -691,9 +825,26 @@ const styles = {
     cursor: 'pointer',
     fontFamily: 'inherit',
   },
-  batchProgress: { fontSize: '13px', color: '#a5b4fc', display: 'flex', alignItems: 'center' },
-  errorMsg: { color: '#f87171', fontSize: '13px' },
-  resultsBar: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '2px' },
+  batchProgress: { fontSize: '13px', color: '#a5b4fc', display: 'flex', alignItems: 'center', flexWrap: 'wrap' },
+  errorMsg: { color: '#f87171', fontSize: '13px', marginBottom: '10px' },
+  driveHelp: {
+    background: 'rgba(245,158,11,0.08)',
+    border: '1px solid rgba(245,158,11,0.3)',
+    borderRadius: '10px',
+    padding: '12px 14px',
+    fontSize: '13px',
+    color: '#fcd34d',
+    marginBottom: '12px',
+    lineHeight: 1.5,
+  },
+  resultsCol: {
+    flex: 1,
+    minWidth: 0,
+    padding: '18px 24px',
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  resultsBar: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' },
   resultsCount: { fontSize: '13px', color: 'rgba(255,255,255,0.45)' },
   placeholder: {
     padding: '80px 20px',
@@ -706,7 +857,7 @@ const styles = {
     overflow: 'auto',
     flex: 1,
     minHeight: 0,
-    maxHeight: 'calc(100vh - 260px)',
+    maxHeight: 'calc(100vh - 175px)',
     border: '1px solid rgba(255,255,255,0.06)',
     borderRadius: '12px',
   },
@@ -741,31 +892,6 @@ const styles = {
     justifyContent: 'center',
     cursor: 'pointer',
     fontFamily: 'inherit',
-  },
-  playlistWrap: { display: 'flex', gap: '18px', flex: 1, minHeight: 0 },
-  playlistCol: {
-    width: '240px',
-    flexShrink: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '6px',
-    overflowY: 'auto',
-  },
-  playlistRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    padding: '9px 12px',
-    background: 'rgba(255,255,255,0.03)',
-    border: '1px solid rgba(255,255,255,0.06)',
-    borderRadius: '10px',
-    fontSize: '13px',
-    fontWeight: 600,
-    cursor: 'pointer',
-  },
-  playlistRowOn: {
-    background: 'rgba(99,102,241,0.12)',
-    borderColor: 'rgba(99,102,241,0.4)',
   },
   modalOverlay: {
     position: 'fixed',

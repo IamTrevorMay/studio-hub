@@ -712,11 +712,32 @@ export default function PitchVideos({ onBack }) {
     return () => { cancelled = true; };
   }, [view, playClip, savantMp4]);
 
+  // Search ↔ Playlist toggle pinned to the top of the left panel in both views.
+  function renderViewToggle() {
+    return (
+      <div style={{ ...styles.viewTabs, marginLeft: 0, width: '100%', boxSizing: 'border-box' }}>
+        <button
+          style={{ ...styles.viewTab, flex: 1, ...(view === 'search' ? styles.viewTabOn : null) }}
+          onClick={() => setView('search')}
+        >
+          Search
+        </button>
+        <button
+          style={{ ...styles.viewTab, flex: 1, ...(view === 'playlist' ? styles.viewTabOn : null) }}
+          onClick={() => setView('playlist')}
+        >
+          Playlist
+        </button>
+      </div>
+    );
+  }
+
   function renderPlaylistView() {
     return (
       <>
         {/* ── Left: playlist info column (replaces filters) ── */}
         <div style={styles.filterCol}>
+          {renderViewToggle()}
           <div style={styles.filterField}>
             <label style={styles.filterLabel}>Playlist</label>
             <select
@@ -863,22 +884,6 @@ export default function PitchVideos({ onBack }) {
             Assets
           </button>
         </div>
-        {section === 'pitches' && (
-        <div style={styles.viewTabs}>
-          <button
-            style={{ ...styles.viewTab, ...(view === 'search' ? styles.viewTabOn : null) }}
-            onClick={() => setView('search')}
-          >
-            Search
-          </button>
-          <button
-            style={{ ...styles.viewTab, ...(view === 'playlist' ? styles.viewTabOn : null) }}
-            onClick={() => setView('playlist')}
-          >
-            Playlist
-          </button>
-        </div>
-        )}
         <div style={{ flex: 1 }} />
         {section === 'pitches' && view === 'search' && (
         <button
@@ -899,6 +904,7 @@ export default function PitchVideos({ onBack }) {
         {section === 'pitches' && view === 'search' && (<>
         {/* ── Left: filter column ── */}
         <div style={styles.filterCol}>
+          {renderViewToggle()}
           <div style={styles.filterField}>
             <label style={styles.filterLabel}>Pitcher</label>
             <PlayerSearchField
