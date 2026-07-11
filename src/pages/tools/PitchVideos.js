@@ -54,7 +54,7 @@ const EMPTY_FILTERS = {
   balls: '',
   strikes: '',
   inning: '',
-  onlyArchived: true,
+  onlyArchived: false,
 };
 
 const DRIVE_FN_URL = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/pitch-video-drive`;

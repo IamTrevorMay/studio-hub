@@ -15,7 +15,6 @@ export default function Resources() {
   const [error, setError] = useState(null);
   const [rootId, setRootId] = useState(null);
   const [path, setPath] = useState([]); // breadcrumb stack: [{ id, name }]
-  const [view, setView] = useState('files'); // 'files' | 'canvases'
 
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [folderName, setFolderName] = useState('');
@@ -23,9 +22,8 @@ export default function Resources() {
   const [docTitle, setDocTitle] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // Canvases view
+  // Canvases section (root level only — canvases aren't tied to Drive folders)
   const [canvases, setCanvases] = useState([]);
-  const [canvasesLoading, setCanvasesLoading] = useState(false);
   const [showCreateCanvas, setShowCreateCanvas] = useState(false);
   const [canvasTitle, setCanvasTitle] = useState('');
   const [openCanvas, setOpenCanvas] = useState(null); // { id, title }
@@ -81,22 +79,23 @@ export default function Resources() {
     fetchItems(currentFolderId || null);
   }, [profile?.id, currentFolderId, fetchItems]);
 
-  useVisibilityRefresh(() => fetchItems(currentFolderId || null));
+  useVisibilityRefresh(() => {
+    fetchItems(currentFolderId || null);
+    fetchCanvases();
+  });
 
   const fetchCanvases = useCallback(async () => {
-    setCanvasesLoading(true);
     const { data, error: err } = await supabase
       .from('canvases')
       .select('id, title, updated_at, creator:profiles!created_by(full_name)')
       .order('updated_at', { ascending: false });
     if (err) console.error('Error fetching canvases:', err);
     setCanvases(data || []);
-    setCanvasesLoading(false);
   }, []);
 
   useEffect(() => {
-    if (view === 'canvases' && profile?.id) fetchCanvases();
-  }, [view, profile?.id, fetchCanvases]);
+    if (profile?.id) fetchCanvases();
+  }, [profile?.id, fetchCanvases]);
 
   async function handleCreateCanvas(e) {
     e.preventDefault();
@@ -242,101 +241,46 @@ export default function Resources() {
       <div style={styles.topBar}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <h1 style={styles.pageTitle}>Resources</h1>
-          {view === 'files' ? (
-            <div style={styles.breadcrumb}>
-              <button onClick={() => navigateTo(-1)} style={styles.crumbBtn}>HOW WE WORK</button>
-              {path.map((p, i) => (
-                <React.Fragment key={p.id}>
-                  <span style={styles.crumbSep}>›</span>
-                  <button onClick={() => navigateTo(i)} style={styles.crumbBtn}>{p.name}</button>
-                </React.Fragment>
-              ))}
-            </div>
-          ) : (
-            <div style={styles.breadcrumb}>
-              <span style={styles.crumbBtn}>SHARED CANVASES</span>
-            </div>
-          )}
+          <div style={styles.breadcrumb}>
+            <button onClick={() => navigateTo(-1)} style={styles.crumbBtn}>HOW WE WORK</button>
+            {path.map((p, i) => (
+              <React.Fragment key={p.id}>
+                <span style={styles.crumbSep}>›</span>
+                <button onClick={() => navigateTo(i)} style={styles.crumbBtn}>{p.name}</button>
+              </React.Fragment>
+            ))}
+          </div>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <div style={styles.viewSwitch}>
-            <button
-              onClick={() => setView('files')}
-              style={{ ...styles.viewTab, ...(view === 'files' ? styles.viewTabActive : {}) }}
-            >Files</button>
-            <button
-              onClick={() => setView('canvases')}
-              style={{ ...styles.viewTab, ...(view === 'canvases' ? styles.viewTabActive : {}) }}
-            >Canvases</button>
-          </div>
-          {view === 'files' ? (
-            <>
-              <button onClick={() => { setShowCreateFolder(!showCreateFolder); setShowCreateDoc(false); }} style={styles.secondaryBtn}>
-                {showCreateFolder ? '✕ Cancel' : '+ New Folder'}
-              </button>
-              <button onClick={() => { setShowCreateDoc(!showCreateDoc); setShowCreateFolder(false); }} style={styles.addBtn}>
-                {showCreateDoc ? '✕ Cancel' : '+ New Document'}
-              </button>
-            </>
-          ) : (
-            <button onClick={() => setShowCreateCanvas(!showCreateCanvas)} style={styles.addBtn}>
-              {showCreateCanvas ? '✕ Cancel' : '+ New Canvas'}
-            </button>
-          )}
+          <button onClick={() => { setShowCreateCanvas(!showCreateCanvas); setShowCreateFolder(false); setShowCreateDoc(false); }} style={styles.secondaryBtn}>
+            {showCreateCanvas ? '✕ Cancel' : '+ New Canvas'}
+          </button>
+          <button onClick={() => { setShowCreateFolder(!showCreateFolder); setShowCreateDoc(false); setShowCreateCanvas(false); }} style={styles.secondaryBtn}>
+            {showCreateFolder ? '✕ Cancel' : '+ New Folder'}
+          </button>
+          <button onClick={() => { setShowCreateDoc(!showCreateDoc); setShowCreateFolder(false); setShowCreateCanvas(false); }} style={styles.addBtn}>
+            {showCreateDoc ? '✕ Cancel' : '+ New Document'}
+          </button>
         </div>
       </div>
 
-      {view === 'canvases' && (
-        <>
-          {showCreateCanvas && (
-            <form onSubmit={handleCreateCanvas} style={styles.createForm}>
-              <input
-                autoFocus
-                value={canvasTitle}
-                onChange={(e) => setCanvasTitle(e.target.value)}
-                placeholder="Canvas title..."
-                required
-                style={styles.input}
-              />
-              <button type="submit" disabled={busy} style={styles.submitBtn}>
-                {busy ? 'Creating...' : 'Create Canvas'}
-              </button>
-            </form>
-          )}
-          {canvasesLoading ? (
-            <p style={styles.emptyText}>Loading…</p>
-          ) : canvases.length === 0 ? (
-            <div style={styles.emptyCard}>
-              <p style={styles.emptyText}>No canvases yet. Create one to start mapping ideas.</p>
-            </div>
-          ) : (
-            <div style={styles.docGrid}>
-              {canvases.map((c) => (
-                <ItemCard
-                  key={c.id}
-                  item={{ id: c.id, name: c.title, type: 'canvas', owner: c.creator?.full_name, modifiedTime: c.updated_at }}
-                  icon="🗺️"
-                  onOpen={() => setOpenCanvas({ id: c.id, title: c.title })}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setContextMenu({ x: e.clientX, y: e.clientY, item: { id: c.id, name: c.title, type: 'canvas', raw: c } });
-                  }}
-                  renamingId={renamingId}
-                  renameValue={renameValue}
-                  onRenameChange={setRenameValue}
-                  onRenameCommit={() => handleRenameCanvas(c.id, renameValue)}
-                  onRenameCancel={() => { setRenamingId(null); setRenameValue(''); }}
-                  onDelete={() => handleDeleteCanvas(c)}
-                  compact
-                />
-              ))}
-            </div>
-          )}
-        </>
+      {showCreateCanvas && (
+        <form onSubmit={handleCreateCanvas} style={styles.createForm}>
+          <input
+            autoFocus
+            value={canvasTitle}
+            onChange={(e) => setCanvasTitle(e.target.value)}
+            placeholder="Canvas title..."
+            required
+            style={styles.input}
+          />
+          <button type="submit" disabled={busy} style={styles.submitBtn}>
+            {busy ? 'Creating...' : 'Create Canvas'}
+          </button>
+        </form>
       )}
 
-      {view === 'files' && showCreateFolder && (
+      {showCreateFolder && (
         <form onSubmit={handleCreateFolder} style={styles.createForm}>
           <input
             autoFocus
@@ -352,7 +296,7 @@ export default function Resources() {
         </form>
       )}
 
-      {view === 'files' && showCreateDoc && (
+      {showCreateDoc && (
         <form onSubmit={handleCreateDoc} style={styles.createForm}>
           <input
             autoFocus
@@ -368,13 +312,41 @@ export default function Resources() {
         </form>
       )}
 
-      {view === 'files' && error && (
+      {error && (
         <div style={styles.errorCard}>
           <p style={styles.errorText}>Error: {error}</p>
         </div>
       )}
 
-      {view === 'files' && (loading ? (
+      {path.length === 0 && canvases.length > 0 && (
+        <div style={{ marginBottom: '28px' }}>
+          <h2 style={styles.sectionTitle}>Canvases</h2>
+          <div style={styles.docGrid}>
+            {canvases.map((c) => (
+              <ItemCard
+                key={c.id}
+                item={{ id: c.id, name: c.title, type: 'canvas', owner: c.creator?.full_name, modifiedTime: c.updated_at }}
+                icon="🗺️"
+                onOpen={() => setOpenCanvas({ id: c.id, title: c.title })}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setContextMenu({ x: e.clientX, y: e.clientY, item: { id: c.id, name: c.title, type: 'canvas', raw: c } });
+                }}
+                renamingId={renamingId}
+                renameValue={renameValue}
+                onRenameChange={setRenameValue}
+                onRenameCommit={() => handleRenameCanvas(c.id, renameValue)}
+                onRenameCancel={() => { setRenamingId(null); setRenameValue(''); }}
+                onDelete={() => handleDeleteCanvas(c)}
+                compact
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {loading ? (
         <p style={styles.emptyText}>Loading…</p>
       ) : items.length === 0 ? (
         <div style={styles.emptyCard}>
@@ -441,7 +413,7 @@ export default function Resources() {
             </div>
           )}
         </>
-      ))}
+      )}
 
       {contextMenu && (
         <>
@@ -544,9 +516,6 @@ const styles = {
   crumbBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.55)', fontSize: '13px', cursor: 'pointer', padding: 0, fontFamily: 'inherit', fontWeight: 500 },
   crumbSep: { color: 'rgba(255,255,255,0.25)', fontSize: '13px' },
   addBtn: { padding: '10px 20px', background: 'linear-gradient(135deg, #6366f1, #818cf8)', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
-  viewSwitch: { display: 'flex', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', padding: '3px', gap: '2px' },
-  viewTab: { padding: '7px 16px', background: 'transparent', border: 'none', borderRadius: '8px', color: 'rgba(255,255,255,0.5)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
-  viewTabActive: { background: 'rgba(99,102,241,0.2)', color: '#a5b4fc' },
   secondaryBtn: { padding: '10px 20px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', color: '#e2e8f0', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   createForm: { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', padding: '20px', marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '12px' },
   input: { padding: '10px 14px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', fontFamily: 'inherit', outline: 'none' },

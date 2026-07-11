@@ -18,7 +18,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import { TextStyle, FontFamily, FontSize } from '@tiptap/extension-text-style';
+import { TextStyle, FontFamily, FontSize, Color } from '@tiptap/extension-text-style';
 import TextAlign from '@tiptap/extension-text-align';
 import Highlight from '@tiptap/extension-highlight';
 import DOMPurify from 'dompurify';
@@ -66,6 +66,8 @@ const FONTS = [
 ];
 const FONT_SIZES = [10, 12, 13, 14, 16, 18, 20, 24, 28, 32, 40, 48];
 const HIGHLIGHT_COLORS = ['#fde047', '#86efac', '#93c5fd', '#f9a8d4', '#fdba74'];
+// First entry (white) unsets the color mark back to the default text color.
+const TEXT_COLORS = ['#ffffff', '#f87171', '#fbbf24', '#4ade80', '#60a5fa', '#a78bfa', '#f472b6'];
 
 const GOOGLE_FONTS_URL = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Roboto+Slab:wght@400;700&family=Playfair+Display:wght@400;700&family=Merriweather:wght@400;700&family=Bebas+Neue&family=Caveat:wght@400;700&family=Permanent+Marker&family=JetBrains+Mono:wght@400;700&display=swap';
 
@@ -110,6 +112,7 @@ function CardEditor({ initialHtml, active, onCommit }) {
       TextStyle,
       FontFamily,
       FontSize,
+      Color,
       TextAlign.configure({ types: ['paragraph'] }),
       Highlight.configure({ multicolor: true }),
     ],
@@ -181,6 +184,17 @@ function CardEditor({ initialHtml, active, onCommit }) {
             >
               <AlignIcon align={a} />
             </button>
+          ))}
+          <span style={styles.fmtDivider} />
+          {TEXT_COLORS.map((c, i) => (
+            <button
+              key={c}
+              style={{ ...styles.textColorDot, background: c, outline: (i === 0 ? !textStyleAttrs.color : textStyleAttrs.color === c) ? '2px solid #fff' : 'none' }}
+              onClick={() => (i === 0
+                ? editor.chain().focus().unsetColor().run()
+                : editor.chain().focus().setColor(c).run())}
+              title={i === 0 ? 'Default text color' : 'Text color'}
+            />
           ))}
           <span style={styles.fmtDivider} />
           {HIGHLIGHT_COLORS.map((c) => (
@@ -722,6 +736,14 @@ const styles = {
     width: 14,
     height: 14,
     borderRadius: '3px',
+    border: '1px solid rgba(0,0,0,0.3)',
+    cursor: 'pointer',
+    padding: 0,
+  },
+  textColorDot: {
+    width: 14,
+    height: 14,
+    borderRadius: '50%',
     border: '1px solid rgba(0,0,0,0.3)',
     cursor: 'pointer',
     padding: 0,
