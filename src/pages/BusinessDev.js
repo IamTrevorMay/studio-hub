@@ -4,6 +4,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+import usePersistedTab from '../hooks/usePersistedTab';
 import { fetchAllRows } from './analytics/utils';
 
 // ════════════════════════════════════════════════════════════
@@ -203,7 +204,7 @@ export default function BusinessDev() {
   const [loading, setLoading] = useState(true);
 
   // View
-  const [view, setView] = useState('phases'); // phases | timeline | calendar | mine
+  const [view, setView] = usePersistedTab('business-dev-view', 'phases', ['phases', 'timeline', 'calendar', 'mine']); // phases | timeline | calendar | mine
 
   // UI state
   const [expandedPhases, setExpandedPhases] = useState({}); // phaseId -> bool

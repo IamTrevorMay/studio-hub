@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import usePersistedTab from '../../hooks/usePersistedTab';
 import { SUPPORTED_EXTENSIONS, TYPE_OPTIONS, SUBTYPE_MAP, getFileExtension, getMediaCategory, sanitizeFilename } from './organize/organizeConstants';
 import { readMetadata, writeMetadata, readBackup, writeBackup, deleteBackup } from './organize/organizeStorage';
 import { autotagFiles } from './organize/autotag';
@@ -110,7 +111,7 @@ export default function Organize({ onBack }) {
     prevFilesRef.current.forEach(f => { if (f.thumbUrl) URL.revokeObjectURL(f.thumbUrl); });
   }, []);
   const [metadata, setMetadata] = useState({});
-  const [viewMode, setViewMode] = useState('grid');
+  const [viewMode, setViewMode] = usePersistedTab('organize-view', 'grid', ['grid', 'list']);
   const [previewFile, setPreviewFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [organizing, setOrganizing] = useState(false);

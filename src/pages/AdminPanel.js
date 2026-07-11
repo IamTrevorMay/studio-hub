@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+import usePersistedTab from '../hooks/usePersistedTab';
 
 
 const FREELANCER_TITLES = [
@@ -33,7 +34,7 @@ export default function AdminPanel({ initialTab }) {
   const [inviteSuccess, setInviteSuccess] = useState('');
   const [inviteError, setInviteError] = useState('');
   const [titlePickerFor, setTitlePickerFor] = useState(null);
-  const [activeTab, setActiveTab] = useState(initialTab || 'invite');
+  const [activeTab, setActiveTab] = usePersistedTab('admin-panel', 'invite', ['invite', 'team', 'google', 'notifications']);
 
   // Google Calendar state
   const [gcalConnection, setGcalConnection] = useState(null);

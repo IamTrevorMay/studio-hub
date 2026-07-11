@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
 import { useConfirm } from '../../contexts/ConfirmContext';
+import usePersistedTab from '../../hooks/usePersistedTab';
 import { PHASES, PHASE_COLORS } from './postshow/postShowConstants';
 import { loadSession, saveSession, loadSettings, saveSettings } from './postshow/postShowStorage';
 import PhaseOne from './postshow/PhaseOne';
@@ -182,7 +183,7 @@ function SettingsPanel({ settings, onSettingsChange, recipients, onRecipientsCha
 export default function PostShow({ onBack }) {
   const { isAdmin, profile } = useAuth();
   const confirm = useConfirm();
-  const [activePhase, setActivePhase] = useState('cut');
+  const [activePhase, setActivePhase] = usePersistedTab('post-show-phase', 'cut', ['cut', 'upload', 'kanban', 'history']);
   const [session, setSession] = useState(loadSession);
   const [recipients, setRecipients] = useState([]);
   const [settings, setSettings] = useState(loadSettings);

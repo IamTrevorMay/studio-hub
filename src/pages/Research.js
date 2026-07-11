@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { tritonSupabase } from '../tritonClient';
 import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+import usePersistedTab from '../hooks/usePersistedTab';
 import DOMPurify from 'dompurify';
 
 
@@ -22,7 +23,7 @@ function timeAgo(dateStr) {
 export default function Research() {
   const { profile, refreshKey } = useAuth();
   const [view, setView] = useState('feed'); // feed | reader
-  const [section, setSection] = useState('inbox');
+  const [section, setSection] = usePersistedTab('research-section', 'inbox', SECTIONS);
   const [articles, setArticles] = useState([]);
   const [feeds, setFeeds] = useState([]);
   const [loading, setLoading] = useState(true);

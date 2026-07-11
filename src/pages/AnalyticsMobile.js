@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import usePersistedTab from '../hooks/usePersistedTab';
 import { callEdgeFn } from '../lib/edgeFn';
 import { mobileTokens } from '../utils/mobileTokens';
 import { daysAgoStr, todayStr, formatCompact, formatCurrency, pctChange } from './analytics/utils';
@@ -36,7 +37,7 @@ const fmtSigned = (n) => `${n >= 0 ? '+' : ''}${Number(n || 0).toLocaleString()}
 
 export default function AnalyticsMobile() {
   const { isAdmin } = useAuth();
-  const [tab, setTab] = useState('weekly');
+  const [tab, setTab] = usePersistedTab('analytics-tab-mobile', 'weekly', ['weekly', 'kpis']);
 
   if (!isAdmin) return <p style={styles.empty}>Analytics is admin-only.</p>;
 

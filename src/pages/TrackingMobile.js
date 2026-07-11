@@ -8,6 +8,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { ptRangeToUtc } from '../lib/ptDate';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+import usePersistedTab from '../hooks/usePersistedTab';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
 
 // Same source-of-truth columns as desktop Tracking.js.
@@ -91,7 +92,7 @@ async function fetchAllRows(query) {
 
 export default function TrackingMobile() {
   const { isAdmin } = useAuth();
-  const [tab, setTab] = useState('Posts');
+  const [tab, setTab] = usePersistedTab('tracking-tab-mobile', 'Posts', ['Posts', 'Progress']);
 
   // ── Posts state ──
   const [postsMonth, setPostsMonth] = useState(new Date().getMonth());

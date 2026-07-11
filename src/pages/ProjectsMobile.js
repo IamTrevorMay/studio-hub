@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import FullScreenSheet from '../components/mobile/FullScreenSheet';
 import { mobileTokens } from '../utils/mobileTokens';
+import usePersistedTab from '../hooks/usePersistedTab';
 
 // Must mirror desktop Projects.js exactly — the DB status enum is
 // queue/write/pre_production/film/review/edit/post_production/publish. The old
@@ -28,7 +29,7 @@ const DEFAULT_FILTER = 'active';
 export default function ProjectsMobile() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState(DEFAULT_FILTER);
+  const [filter, setFilter] = usePersistedTab('projects-filter-mobile', DEFAULT_FILTER, ['active', 'all', ...STATUSES]);
   const [selected, setSelected] = useState(null);
 
   const fetchProjects = useCallback(async () => {

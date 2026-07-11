@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import FullScreenSheet from '../components/mobile/FullScreenSheet';
 import BottomSheet from '../components/mobile/BottomSheet';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
+import usePersistedTab from '../hooks/usePersistedTab';
 
 // Statuses match desktop (draft / sent / paid). Overdue is derived from due_date.
 const STATUSES = [
@@ -50,7 +51,7 @@ export default function InvoicingMobile() {
   const [invoices, setInvoices] = useState([]);
   const [contacts, setContacts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('outstanding');
+  const [filter, setFilter] = usePersistedTab('invoicing-filter-mobile', 'outstanding', ['outstanding', 'paid', 'all']);
   const [editing, setEditing] = useState(null); // null | 'new' | invoice row
 
   const fetchAll = useCallback(async () => {

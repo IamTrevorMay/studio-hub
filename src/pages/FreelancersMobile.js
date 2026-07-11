@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import BottomSheet from '../components/mobile/BottomSheet';
 import ContractorAssignmentModal from '../components/ContractorAssignmentModal';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
+import usePersistedTab from '../hooks/usePersistedTab';
 
 // Mobile Contractors: list-and-tap design for the three things an admin
 // reaches for from a phone — review/edit contractor assignments, comment
@@ -32,7 +33,7 @@ function fmtShortDate(d) {
 
 export default function FreelancersMobile() {
   const { profile, isAdmin } = useAuth();
-  const [tab, setTab] = useState('Assignments');
+  const [tab, setTab] = usePersistedTab('freelancers-tab-mobile', 'Assignments', ['Assignments', 'Hours']);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState(null);
   const [openAssignment, setOpenAssignment] = useState(null);

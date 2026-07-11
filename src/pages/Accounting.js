@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import usePersistedTab from '../hooks/usePersistedTab';
 import { DonutChart, TrendChart, formatCompact } from '../lib/charts';
 import { fetchAllRows } from './analytics/utils';
 import BankAccountsTab from '../components/accounting/BankAccountsTab';
@@ -152,7 +153,7 @@ function pctDelta(curr, prev) {
 export default function Accounting({ initialTab, onTabOpened }) {
   const { isAdmin } = useAuth();
   const [rangeKey, setRangeKey] = useState('90d');
-  const [tab, setTab] = useState('overview');
+  const [tab, setTab] = usePersistedTab('accounting', 'overview', ['overview', 'revenue', 'expenses', 'transactions', 'accounts', 'reports']);
 
   // Deep-link from bell notifications (link_target = a tab key, e.g. 'reports')
   useEffect(() => {

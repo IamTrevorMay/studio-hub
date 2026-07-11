@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { zipSync } from 'fflate';
 import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
+import usePersistedTab from '../../hooks/usePersistedTab';
 
 // Assets view of the Asset Search tool — folder browsing + AI index search
 // over the Shade drive via the shade-search edge function. Default view
@@ -73,7 +74,7 @@ function collectDrives(node, out = [], depth = 0) {
 export default function ShadeAssets() {
   const { profile } = useAuth();
 
-  const [view, setView] = useState('search'); // 'search' | 'playlist'
+  const [view, setView] = usePersistedTab('shade-assets-view', 'search', ['search', 'playlist']); // 'search' | 'playlist'
   const [query, setQuery] = useState('');
   const [types, setTypes] = useState([]); // empty = everything
   const [assets, setAssets] = useState(null); // null = not searched yet

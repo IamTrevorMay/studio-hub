@@ -13,18 +13,41 @@ export default function Workflows() {
   const { isAdmin, profile } = useAuth();
 
   // ── Grid + drill-in state ──
-  const [drilledView, setDrilledView] = useState(null); // null | { type: 'flow', id } | { type: 'automation', id }
+  // null | { type: 'flow', id } | { type: 'automation', id } — persisted to
+  // localStorage (JSON, since usePersistedTab is string-only) so a refresh
+  // reopens the drilled flow/automation. Stale ids are reconciled below.
+  const [drilledView, setDrilledView] = useState(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem('tab:workflows-drilled'));
+      if (
+        stored && typeof stored === 'object' &&
+        ['flow', 'automation'].includes(stored.type) &&
+        typeof stored.id === 'string' && stored.id
+      ) {
+        return { type: stored.type, id: stored.id };
+      }
+    } catch { /* missing/corrupt entry or storage unavailable — start at grid */ }
+    return null;
+  });
+  useEffect(() => {
+    try {
+      if (drilledView) localStorage.setItem('tab:workflows-drilled', JSON.stringify(drilledView));
+      else localStorage.removeItem('tab:workflows-drilled');
+    } catch { /* ignore */ }
+  }, [drilledView]);
   const [toast, setToast] = useState(null);
 
   // ── Boards (flows) state ──
   const [boards, setBoards] = useState([]);
   const [boardsLoading, setBoardsLoading] = useState(true);
+  const [boardsLoaded, setBoardsLoaded] = useState(false); // first successful fetch done
   const [showNewBoardModal, setShowNewBoardModal] = useState(false);
   const [newBoardName, setNewBoardName] = useState('');
 
   // ── Automations state ──
   const [automations, setAutomations] = useState([]);
   const [automationsLoading, setAutomationsLoading] = useState(false);
+  const [automationsLoaded, setAutomationsLoaded] = useState(false); // first successful fetch done
   const [selectedAutoId, setSelectedAutoId] = useState(null);
   const [autoForm, setAutoForm] = useState(null);
   const [autoRuns, setAutoRuns] = useState([]);
@@ -81,6 +104,7 @@ export default function Workflows() {
         .order('created_at', { ascending: true });
       if (error) throw error;
       setBoards(data || []);
+      setBoardsLoaded(true);
     } catch (err) {
       console.error('Error fetching boards:', err);
     } finally {
@@ -103,6 +127,7 @@ export default function Workflows() {
         .order('created_at', { ascending: true });
       if (error) throw error;
       setAutomations(data || []);
+      setAutomationsLoaded(true);
     } catch (err) {
       console.error('Error fetching automations:', err);
     } finally {
@@ -113,6 +138,30 @@ export default function Workflows() {
   useEffect(() => {
     if (isAdmin) fetchAutomations();
   }, [isAdmin, fetchAutomations]);
+
+  // ─── Reconcile a restored drilled view once data loads ─────
+  // A persisted flow/automation id may have been deleted (or, for
+  // automations, restored without selectedAutoId set) — fall back to the
+  // grid when the id is gone, and hook the automation editor back up
+  // when it exists.
+  useEffect(() => {
+    if (drilledView?.type !== 'flow' || !boardsLoaded) return;
+    if (!boards.some(b => b.id === drilledView.id)) setDrilledView(null);
+  }, [drilledView, boards, boardsLoaded]);
+
+  useEffect(() => {
+    if (drilledView?.type !== 'automation') return;
+    // Automations are only fetched for admins — a restored automation drill
+    // for a non-admin would otherwise hang on a loading screen.
+    if (!isAdmin) { setDrilledView(null); setSelectedAutoId(null); return; }
+    if (!automationsLoaded) return;
+    if (!automations.some(a => a.id === drilledView.id)) {
+      setDrilledView(null);
+      setSelectedAutoId(null);
+    } else if (selectedAutoId !== drilledView.id) {
+      setSelectedAutoId(drilledView.id);
+    }
+  }, [drilledView, automations, automationsLoaded, selectedAutoId, isAdmin]);
 
   // Load automation detail when selected
   useEffect(() => {

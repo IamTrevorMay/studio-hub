@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { fetchAllRows } from './analytics/utils';
 import { StructuredDescription, TYPE_LABEL, MODE_LABEL, Field, publicStyles } from './public/PublicCareers';
+import usePersistedTab from '../hooks/usePersistedTab';
 
 // Admin-only Jobs page: manage public listings, review applications, and run
 // onboarding for accepted hires. Public board + edge functions live elsewhere.
@@ -28,7 +29,7 @@ function fmtDate(d) {
 }
 
 export default function Jobs({ initialApplicationId, onApplicationOpened }) {
-  const [tab, setTab] = useState('listings');
+  const [tab, setTab] = usePersistedTab('jobs-tab', 'listings', ['listings', 'applications', 'onboarding', 'analytics', 'settings']);
   const [listings, setListings] = useState([]);
   const [applications, setApplications] = useState([]);
   const [onboarding, setOnboarding] = useState([]);

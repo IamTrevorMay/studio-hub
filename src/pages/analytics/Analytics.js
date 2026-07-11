@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
 import useVisibilityRefresh from '../../hooks/useVisibilityRefresh';
+import usePersistedTab from '../../hooks/usePersistedTab';
 import YouTubeStudioAdvanced from '../YouTubeStudioAdvanced';
 import ContentHealthDashboard from '../ContentHealthDashboard';
 
@@ -125,7 +126,7 @@ export default function Analytics() {
   // Platform digest strip (collapsible under KPIs)
   const [showDigest, setShowDigest] = useState(false);
 
-  const [viewMode, setViewMode] = useState('dashboard');
+  const [viewMode, setViewMode] = usePersistedTab('analytics-view', 'dashboard', ['dashboard', 'compare', 'weekly', 'advanced', 'health']);
 
   // Analysis tools
   const [showAnalysis, setShowAnalysis] = useState(false);

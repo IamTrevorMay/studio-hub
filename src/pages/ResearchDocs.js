@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+import usePersistedTab from '../hooks/usePersistedTab';
 import {
   RESEARCH_FN_URL as FN_URL,
   RESEARCH_FIELDS as FIELDS,
@@ -76,7 +77,7 @@ export default function ResearchDocs() {
   const confirm = useConfirm();
 
   // Tab state
-  const [section, setSection] = useState('documents');
+  const [section, setSection] = usePersistedTab('research-docs-section', 'documents', ['documents', 'stats']);
 
   // ─── Documents state ───
   const [items, setItems] = useState([]);

@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import usePersistedTab from '../hooks/usePersistedTab';
 import BottomSheet from '../components/mobile/BottomSheet';
 import { mobileTokens } from '../utils/mobileTokens';
 import { expandRecurringEvents } from '../lib/recurrence';
@@ -51,7 +52,7 @@ function fmtTime(iso, allDay) {
 
 export default function CalendarMobile() {
   const { profile } = useAuth();
-  const [view, setView] = useState('agenda'); // 'agenda' | 'month'
+  const [view, setView] = usePersistedTab('calendar-view-mobile', 'agenda', ['agenda', 'month']); // 'agenda' | 'month'
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedEvent, setSelectedEvent] = useState(null);

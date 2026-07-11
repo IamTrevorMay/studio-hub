@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
+import usePersistedTab from '../../hooks/usePersistedTab';
 import BlockEditor from './mailer/BlockEditor';
 import CampaignPreview from './mailer/CampaignPreview';
 import CsvImportModal from './mailer/CsvImportModal';
@@ -22,7 +23,7 @@ const TABS = ['Campaigns', 'Audiences', 'Subscribers', 'Sends', 'Settings'];
 
 export default function Mailer({ onBack }) {
   const { isAdmin } = useAuth();
-  const [tab, setTab] = useState('Campaigns');
+  const [tab, setTab] = usePersistedTab('mailer-tab', 'Campaigns', TABS);
 
   if (!isAdmin) {
     return (

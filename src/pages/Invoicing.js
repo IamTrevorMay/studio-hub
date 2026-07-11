@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+import usePersistedTab from '../hooks/usePersistedTab';
 import jsPDF from 'jspdf';
 
 // ════════════════════════════════════════════════════════════
@@ -347,7 +348,7 @@ export default function Invoicing() {
   const [loading, setLoading] = useState(true);
 
   // View
-  const [view, setView] = useState('dashboard');
+  const [view, setView] = usePersistedTab('invoicing-view', 'dashboard', ['dashboard', 'list', 'calendar']);
 
   // Editor
   const [editingInvoiceId, setEditingInvoiceId] = useState(null);

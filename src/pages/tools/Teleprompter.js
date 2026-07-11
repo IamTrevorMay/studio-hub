@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import usePersistedTab from '../../hooks/usePersistedTab';
 import useCamera from './teleprompter/useCamera';
 import MonitorMode from './teleprompter/MonitorMode';
 import TeleprompterMode from './teleprompter/TeleprompterMode';
 import { loadSettings, saveSettings, loadScript, saveScript } from './teleprompter/teleprompterStorage';
 
 export default function Teleprompter({ onBack }) {
-  const [mode, setMode] = useState('teleprompter'); // 'monitor' | 'teleprompter'
+  const [mode, setMode] = usePersistedTab('teleprompter-mode', 'teleprompter', ['teleprompter', 'monitor']); // 'monitor' | 'teleprompter'
   const [settings, setSettings] = useState(loadSettings);
   const [script, setScript] = useState(loadScript);
   const [focusMode, setFocusMode] = useState(false);

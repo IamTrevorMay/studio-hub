@@ -9,6 +9,7 @@ import UnifiedBoard from './projects/UnifiedBoard';
 import { labelFor as stageTaskLabel } from '../lib/kanbanStages';
 import { callEdgeFn } from '../lib/edgeFn';
 import { fetchAllRows } from './analytics/utils';
+import usePersistedTab from '../hooks/usePersistedTab';
 
 
 const STATUSES = ['queue', 'research', 'write', 'pre_production', 'film', 'review', 'edit', 'post_production', 'publish'];
@@ -53,7 +54,7 @@ export default function Projects({ onNavigate }) {
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('projects_view') || 'board');
   const [showArchived, setShowArchived] = useState(false);
   const [rowCtxMenu, setRowCtxMenu] = useState(null); // { x, y, project }
-  const [activeSection, setActiveSection] = useState('projects');
+  const [activeSection, setActiveSection] = usePersistedTab('projects-section', 'projects', ['projects', 'shorts']);
 
   // Shorts Queue state
   const [shorts, setShorts] = useState([]);

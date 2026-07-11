@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+import usePersistedTab from '../hooks/usePersistedTab';
 
 
 const API_BASE = process.env.REACT_APP_API_URL || 'https://assets.maydaystudio.net';
@@ -50,7 +51,7 @@ export default function Assets() {
   const [searchResults, setSearchResults] = useState(null);
   const [sortBy, setSortBy] = useState('name');
   const [sortOrder, setSortOrder] = useState('asc');
-  const [viewMode, setViewMode] = useState('grid');
+  const [viewMode, setViewMode] = usePersistedTab('assets-view', 'grid', ['grid', 'list']);
   const [error, setError] = useState(null);
 
   // Health check on mount

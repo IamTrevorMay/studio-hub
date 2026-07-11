@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { zipSync } from 'fflate';
 import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
+import usePersistedTab from '../../hooks/usePersistedTab';
 import PlayerSearchField from './graphics/PlayerSearchField';
 import ShadeAssets from './ShadeAssets';
 
@@ -160,12 +161,12 @@ export default function PitchVideos({ onBack }) {
 
   // Top-level section: Pitches (Savant clip archive, everything below) or
   // Assets (Shade drive AI search — self-contained in ShadeAssets).
-  const [section, setSection] = useState('pitches'); // 'pitches' | 'assets'
+  const [section, setSection] = usePersistedTab('asset-search-section', 'pitches', ['pitches', 'assets']); // 'pitches' | 'assets'
 
   // Playlist view — DB-backed personal playlists (pitch_playlists +
   // pitch_playlist_items, RLS owner-only). Items snapshot the pitch row as
   // jsonb so playback works without re-querying Triton.
-  const [view, setView] = useState('search'); // 'search' | 'playlist'
+  const [view, setView] = usePersistedTab('pitch-videos-view', 'search', ['search', 'playlist']); // 'search' | 'playlist'
   const [playlists, setPlaylists] = useState([]);
   const [activePlaylistId, setActivePlaylistId] = useState(null);
   const [playlistItems, setPlaylistItems] = useState([]);

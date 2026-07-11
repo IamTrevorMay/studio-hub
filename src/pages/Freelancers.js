@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { fetchAllRows } from './analytics/utils';
+import usePersistedTab from '../hooks/usePersistedTab';
 
 const TABS = ['Assignments', 'Hours', 'Documents', 'Team'];
 
@@ -29,7 +30,7 @@ const FREELANCER_TITLES = [
 
 function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
   const { profile, isAdmin } = useAuth();
-  const [activeTab, setActiveTab] = useState('Assignments');
+  const [activeTab, setActiveTab] = usePersistedTab('freelancers-tab', 'Assignments', ['Assignments', 'Hours', 'Documents', 'Team']);
 
   /* ── Team state ── */
   const [freelancers, setFreelancers] = useState([]);

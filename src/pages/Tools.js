@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { supabase } from '../supabaseClient';
+import usePersistedTab from '../hooks/usePersistedTab';
 import Teleprompter from './tools/Teleprompter';
 import Organize from './tools/Organize';
 import PostShow from './tools/PostShow';
@@ -76,7 +77,8 @@ async function openTritonTool(targetPath) {
 }
 
 export default function Tools({ onNavigate }) {
-  const [activeTool, setActiveTool] = useState(null);
+  // Only the tools that render in-page (external/navigate tools never set activeTool)
+  const [activeTool, setActiveTool] = usePersistedTab('tools-active', null, ['teleprompter', 'organize', 'post-show', 'telestration', 'pitch-videos']);
 
   if (activeTool === 'teleprompter') {
     return <Teleprompter onBack={() => setActiveTool(null)} />;

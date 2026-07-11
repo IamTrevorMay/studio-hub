@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import BottomSheet from '../components/mobile/BottomSheet';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
+import usePersistedTab from '../hooks/usePersistedTab';
 
 // Mobile Ops dashboard. Read-only mirror of the desktop page focused on
 // the "is anything on fire" use case: platform health at a glance,
@@ -48,7 +49,7 @@ const TABS = ['Health', 'Runs', 'Cron'];
 
 export default function OpsMobile() {
   const { isAdmin } = useAuth();
-  const [tab, setTab] = useState('Health');
+  const [tab, setTab] = usePersistedTab('ops-tab-mobile', 'Health', ['Health', 'Runs', 'Cron']);
   const [accounts, setAccounts] = useState([]);
   const [logs, setLogs] = useState([]);
   const [cronJobs, setCronJobs] = useState([]);

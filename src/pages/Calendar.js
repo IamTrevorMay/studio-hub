@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+import usePersistedTab from '../hooks/usePersistedTab';
 
 
 const STATUSES = ['concept', 'script', 'production', 'edit', 'review', 'published'];
@@ -292,7 +293,7 @@ export default function Calendar({ onNavigate }) {
   const [loading, setLoading] = useState(true);
   const [loadingPosts, setLoadingPosts] = useState(false);
   const [viewDate, setViewDate] = useState(new Date());
-  const [viewMode, setViewMode] = useState('month');
+  const [viewMode, setViewMode] = usePersistedTab('calendar-view', 'month', ['month', 'week', 'day']);
   const [showMetricool, setShowMetricool] = useState(true);
   const [metricoolError, setMetricoolError] = useState(null);
   const [activeTooltip, setActiveTooltip] = useState(null);
