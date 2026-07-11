@@ -319,31 +319,27 @@ export default function Resources() {
       )}
 
       {path.length === 0 && canvases.length > 0 && (
-        <div style={{ marginBottom: '28px' }}>
-          <h2 style={styles.sectionTitle}>Canvases</h2>
-          <div style={styles.docGrid}>
-            {canvases.map((c) => (
-              <ItemCard
-                key={c.id}
-                item={{ id: c.id, name: c.title, type: 'canvas', owner: c.creator?.full_name, modifiedTime: c.updated_at }}
-                icon="🗺️"
-                onOpen={() => setOpenCanvas({ id: c.id, title: c.title })}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setContextMenu({ x: e.clientX, y: e.clientY, item: { id: c.id, name: c.title, type: 'canvas', raw: c } });
-                }}
-                renamingId={renamingId}
-                renameValue={renameValue}
-                onRenameChange={setRenameValue}
-                onRenameCommit={() => handleRenameCanvas(c.id, renameValue)}
-                onRenameCancel={() => { setRenamingId(null); setRenameValue(''); }}
-                onDelete={() => handleDeleteCanvas(c)}
-                compact
-              />
-            ))}
-          </div>
-        </div>
+        <ListSection title="Canvases">
+          {canvases.map((c) => (
+            <ItemRow
+              key={c.id}
+              item={{ id: c.id, name: c.title, type: 'canvas', owner: c.creator?.full_name, modifiedTime: c.updated_at }}
+              icon="🗺️"
+              onOpen={() => setOpenCanvas({ id: c.id, title: c.title })}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setContextMenu({ x: e.clientX, y: e.clientY, item: { id: c.id, name: c.title, type: 'canvas', raw: c } });
+              }}
+              renamingId={renamingId}
+              renameValue={renameValue}
+              onRenameChange={setRenameValue}
+              onRenameCommit={() => handleRenameCanvas(c.id, renameValue)}
+              onRenameCancel={() => { setRenamingId(null); setRenameValue(''); }}
+              onDelete={() => handleDeleteCanvas(c)}
+            />
+          ))}
+        </ListSection>
       )}
 
       {loading ? (
@@ -358,59 +354,52 @@ export default function Resources() {
         </div>
       ) : (
         <>
-          {folders.length > 0 && (
-            <div style={{ marginBottom: '28px' }}>
-              <h2 style={styles.sectionTitle}>Folders</h2>
-              <div style={styles.folderGrid}>
-                {folders.map(item => (
-                  <ItemCard
-                    key={item.id}
-                    item={item}
-                    icon="📁"
-                    onOpen={() => openItem(item)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setContextMenu({ x: e.clientX, y: e.clientY, item });
-                    }}
-                    renamingId={renamingId}
-                    renameValue={renameValue}
-                    onRenameChange={setRenameValue}
-                    onRenameCommit={() => handleRename(item.id, renameValue)}
-                    onRenameCancel={() => { setRenamingId(null); setRenameValue(''); }}
-                    onDelete={() => handleDelete(item)}
-                  />
-                ))}
-              </div>
-            </div>
+          {docs.length > 0 && (
+            <ListSection title="Documents">
+              {docs.map(item => (
+                <ItemRow
+                  key={item.id}
+                  item={item}
+                  icon="📝"
+                  onOpen={() => openItem(item)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setContextMenu({ x: e.clientX, y: e.clientY, item });
+                  }}
+                  renamingId={renamingId}
+                  renameValue={renameValue}
+                  onRenameChange={setRenameValue}
+                  onRenameCommit={() => handleRename(item.id, renameValue)}
+                  onRenameCancel={() => { setRenamingId(null); setRenameValue(''); }}
+                  onDelete={() => handleDelete(item)}
+                />
+              ))}
+            </ListSection>
           )}
 
-          {docs.length > 0 && (
-            <div>
-              <h2 style={styles.sectionTitle}>Documents</h2>
-              <div style={styles.docGrid}>
-                {docs.map(item => (
-                  <ItemCard
-                    key={item.id}
-                    item={item}
-                    icon="📝"
-                    onOpen={() => openItem(item)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setContextMenu({ x: e.clientX, y: e.clientY, item });
-                    }}
-                    renamingId={renamingId}
-                    renameValue={renameValue}
-                    onRenameChange={setRenameValue}
-                    onRenameCommit={() => handleRename(item.id, renameValue)}
-                    onRenameCancel={() => { setRenamingId(null); setRenameValue(''); }}
-                    onDelete={() => handleDelete(item)}
-                    compact
-                  />
-                ))}
-              </div>
-            </div>
+          {folders.length > 0 && (
+            <ListSection title="Folders">
+              {folders.map(item => (
+                <ItemRow
+                  key={item.id}
+                  item={item}
+                  icon="📁"
+                  onOpen={() => openItem(item)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setContextMenu({ x: e.clientX, y: e.clientY, item });
+                  }}
+                  renamingId={renamingId}
+                  renameValue={renameValue}
+                  onRenameChange={setRenameValue}
+                  onRenameCommit={() => handleRename(item.id, renameValue)}
+                  onRenameCancel={() => { setRenamingId(null); setRenameValue(''); }}
+                  onDelete={() => handleDelete(item)}
+                />
+              ))}
+            </ListSection>
           )}
         </>
       )}
@@ -468,39 +457,54 @@ export default function Resources() {
   );
 }
 
-function ItemCard({ item, icon, onOpen, onContextMenu, renamingId, renameValue, onRenameChange, onRenameCommit, onRenameCancel, onDelete, compact }) {
+function ListSection({ title, children }) {
+  return (
+    <div style={{ marginBottom: '28px' }}>
+      <h2 style={styles.sectionTitle}>{title}</h2>
+      <div style={styles.listCard}>
+        <div style={styles.listHeader}>
+          <div>Name</div>
+          <div>Owner</div>
+          <div>Modified</div>
+          <div />
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ItemRow({ item, icon, onOpen, onContextMenu, renamingId, renameValue, onRenameChange, onRenameCommit, onRenameCancel, onDelete }) {
   const isRenaming = renamingId === item.id;
   return (
-    <div
-      style={compact ? styles.docCard : styles.folderCard}
-      onClick={onOpen}
-      onContextMenu={onContextMenu}
-    >
-      <div style={compact ? styles.docCardIcon : { fontSize: '28px', marginBottom: '8px' }}>{icon}</div>
-      {isRenaming ? (
-        <input
-          autoFocus
-          value={renameValue}
-          onChange={(e) => onRenameChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') onRenameCommit();
-            if (e.key === 'Escape') onRenameCancel();
-          }}
-          onBlur={onRenameCommit}
-          onClick={(e) => e.stopPropagation()}
-          style={styles.renameInput}
-        />
-      ) : (
-        <div style={compact ? styles.docCardTitle : styles.folderCardName}>{item.name}</div>
-      )}
-      <div style={styles.docCardMeta}>
-        {item.owner ? `${item.owner} · ` : ''}
+    <div style={styles.listRow} onClick={onOpen} onContextMenu={onContextMenu}>
+      <div style={styles.rowName}>
+        <span style={styles.rowIcon}>{icon}</span>
+        {isRenaming ? (
+          <input
+            autoFocus
+            value={renameValue}
+            onChange={(e) => onRenameChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') onRenameCommit();
+              if (e.key === 'Escape') onRenameCancel();
+            }}
+            onBlur={onRenameCommit}
+            onClick={(e) => e.stopPropagation()}
+            style={styles.renameInput}
+          />
+        ) : (
+          <span style={styles.rowTitle}>{item.name}</span>
+        )}
+      </div>
+      <div style={styles.rowMeta}>{item.owner || ''}</div>
+      <div style={styles.rowMeta}>
         {item.modifiedTime ? new Date(item.modifiedTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}
       </div>
-      <div style={styles.docCardActions}>
+      <div>
         <button
           onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          style={styles.docActionBtn}
+          style={styles.rowActionBtn}
           title="Delete"
         >✕</button>
       </div>
@@ -521,16 +525,14 @@ const styles = {
   input: { padding: '10px 14px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', fontFamily: 'inherit', outline: 'none' },
   submitBtn: { padding: '10px 20px', background: '#6366f1', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', alignSelf: 'flex-start' },
   sectionTitle: { fontSize: '13px', fontWeight: 700, color: 'rgba(255,255,255,0.55)', margin: '0 0 12px 0', textTransform: 'uppercase', letterSpacing: '0.5px' },
-  folderGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '14px' },
-  folderCard: { background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', padding: '18px', cursor: 'pointer', transition: 'border-color 0.15s', position: 'relative' },
-  folderCardName: { fontSize: '15px', fontWeight: 600, color: '#ffffff', marginBottom: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  docGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' },
-  docCard: { background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', padding: '16px', cursor: 'pointer', transition: 'border-color 0.15s', position: 'relative' },
-  docCardIcon: { fontSize: '24px', marginBottom: '8px' },
-  docCardTitle: { fontSize: '14px', fontWeight: 600, color: '#e2e8f0', marginBottom: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  docCardMeta: { fontSize: '11px', color: 'rgba(255,255,255,0.3)' },
-  docCardActions: { position: 'absolute', top: '8px', right: '8px', display: 'flex', gap: '2px' },
-  docActionBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '13px', padding: '4px' },
+  listCard: { background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', overflow: 'hidden' },
+  listHeader: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 200px 110px 36px', alignItems: 'center', gap: '12px', padding: '10px 16px', fontSize: '11px', fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid rgba(255,255,255,0.06)' },
+  listRow: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 200px 110px 36px', alignItems: 'center', gap: '12px', padding: '10px 16px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' },
+  rowName: { display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 },
+  rowIcon: { fontSize: '16px', flexShrink: 0 },
+  rowTitle: { fontSize: '14px', fontWeight: 600, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  rowMeta: { fontSize: '12px', color: 'rgba(255,255,255,0.35)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  rowActionBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '13px', padding: '4px' },
   emptyCard: { background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.08)', borderRadius: '14px', padding: '40px', textAlign: 'center' },
   emptyText: { color: 'rgba(255,255,255,0.35)', fontSize: '14px', margin: 0 },
   errorCard: { background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '12px', padding: '14px 18px', marginBottom: '20px' },
@@ -538,5 +540,5 @@ const styles = {
   contextOverlay: { position: 'fixed', inset: 0, zIndex: 999 },
   contextMenu: { position: 'fixed', zIndex: 1000, background: '#1e1e32', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '10px', padding: '4px', minWidth: '180px', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' },
   contextMenuItem: { display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '8px 12px', background: 'none', border: 'none', borderRadius: '6px', color: '#e2e8f0', fontSize: '13px', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' },
-  renameInput: { width: '100%', padding: '4px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(99,102,241,0.5)', borderRadius: '6px', color: '#fff', fontSize: '14px', fontWeight: 600, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', marginBottom: '4px' },
+  renameInput: { width: '100%', padding: '4px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(99,102,241,0.5)', borderRadius: '6px', color: '#fff', fontSize: '14px', fontWeight: 600, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' },
 };

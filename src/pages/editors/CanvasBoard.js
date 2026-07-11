@@ -223,6 +223,8 @@ function CardNode({ id, data, selected }) {
   const color = COLOR_BY_KEY[data.color] || CARD_COLORS[0];
   const strokeWidth = data.strokeWidth ?? 2;
   const rounded = data.rounded !== false;
+  const transparent = data.transparent === true;
+  const fill = transparent ? 'transparent' : color.bg;
   // Legacy cards stored plain text in data.label.
   const html = data.html != null ? data.html : `<p>${escapeHtml(data.label).replace(/\n/g, '<br/>')}</p>`;
   const isSvgShape = shape === 'diamond' || shape === 'triangle';
@@ -260,6 +262,15 @@ function CardNode({ id, data, selected }) {
               }}
             />
           ))}
+          <button
+            onClick={() => updateNodeData(id, { transparent: !transparent })}
+            title="Transparent fill"
+            style={{
+              ...styles.colorDot,
+              background: 'linear-gradient(135deg, transparent 42%, #f87171 46%, #f87171 54%, transparent 58%)',
+              outline: transparent ? '2px solid #fff' : 'none',
+            }}
+          />
           <span style={styles.fmtDivider} />
           {SHAPES.map((s) => (
             <button
@@ -298,7 +309,7 @@ function CardNode({ id, data, selected }) {
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={styles.shapeSvg}>
           <polygon
             points={shape === 'diamond' ? '50,1 99,50 50,99 1,50' : '50,2 98,98 2,98'}
-            fill={color.bg}
+            fill={fill}
             stroke={borderColor}
             strokeWidth={strokeWidth}
             vectorEffect="non-scaling-stroke"
@@ -309,10 +320,10 @@ function CardNode({ id, data, selected }) {
         <div style={{
           position: 'absolute',
           inset: 0,
-          background: color.bg,
+          background: fill,
           border: `${strokeWidth}px solid ${borderColor}`,
           borderRadius: shape === 'ellipse' ? '50%' : rounded ? 10 : 0,
-          boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
+          boxShadow: transparent ? 'none' : '0 4px 16px rgba(0,0,0,0.35)',
           boxSizing: 'border-box',
         }} />
       )}
