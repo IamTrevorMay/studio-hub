@@ -40,8 +40,8 @@ const TOOLS = [
   },
   {
     key: 'pitch-videos',
-    name: 'Pitch Videos',
-    description: 'Search the Savant pitch clip archive by player, pitch type, result, count, and more — preview and download clips.',
+    name: 'Asset Search',
+    description: 'Search the Savant pitch clip archive (Pitches) or the Shade drive with AI index search (Assets) — preview, playlist, and download.',
     color: '#f59e0b',
   },
 {

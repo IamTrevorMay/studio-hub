@@ -1,0 +1,856 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { zipSync } from 'fflate';
+import { supabase } from '../../supabaseClient';
+import { useAuth } from '../../contexts/AuthContext';
+
+// Assets view of the Asset Search tool — AI index search over the Shade
+// drive via the shade-search edge function. Mirrors the Pitches view's
+// conventions: results table with row selection, personal playlists
+// (asset_playlists + asset_playlist_items, RLS owner-only, items snapshot
+// the asset as jsonb), review modal that walks a queue, and bulk download
+// bundled into a client-side zip (browsers block programmatic downloads
+// after the first without user activation).
+//
+// Playback/previews use Shade signed URLs (fine as media src); download
+// bytes stream through the edge function because the storage host's CORS
+// isn't ours to configure.
+
+const FN_URL = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/shade-search`;
+
+const TYPE_FILTERS = [
+  { key: 'VIDEO', label: 'Videos' },
+  { key: 'IMAGE', label: 'Images' },
+  { key: 'AUDIO', label: 'Audio' },
+  { key: 'DOCUMENT', label: 'Docs' },
+];
+
+const TYPE_ICONS = { VIDEO: '🎬', IMAGE: '🖼️', AUDIO: '🎧', DOCUMENT: '📄' };
+
+function typeIcon(type) {
+  return TYPE_ICONS[String(type || '').toUpperCase()] || '📦';
+}
+
+function fmtSize(bytes) {
+  if (bytes == null) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function fmtDate(iso) {
+  return iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+}
+
+function downloadName(asset) {
+  const name = asset.name || 'asset';
+  const ext = asset.extension ? String(asset.extension).replace(/^\./, '') : '';
+  if (ext && !name.toLowerCase().endsWith(`.${ext.toLowerCase()}`)) return `${name}.${ext}`;
+  return name;
+}
+
+export default function ShadeAssets() {
+  const { profile } = useAuth();
+
+  const [view, setView] = useState('search'); // 'search' | 'playlist'
+  const [query, setQuery] = useState('');
+  const [types, setTypes] = useState([]); // empty = everything
+  const [assets, setAssets] = useState(null); // null = not searched yet
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState(null);
+  const [notConfigured, setNotConfigured] = useState(false);
+
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+
+  // Review modal: { list: [asset...], index }
+  const [modal, setModal] = useState(null);
+  const [resolved, setResolved] = useState({}); // asset id → signed url | null
+
+  // Playlists (owner-only, mirror of pitch playlists)
+  const [playlists, setPlaylists] = useState([]);
+  const [activePlaylistId, setActivePlaylistId] = useState(null);
+  const [playlistItems, setPlaylistItems] = useState([]);
+  const [playlistLoading, setPlaylistLoading] = useState(false);
+  const [addPicker, setAddPicker] = useState(null); // { assets } → picker modal
+  const [newPlaylistName, setNewPlaylistName] = useState('');
+
+  const [batch, setBatch] = useState(null); // { done, total, failed }
+  const batchCancelRef = useRef(false);
+
+  const callFn = useCallback(async (body, raw = false) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Not authenticated');
+    const res = await fetch(FN_URL, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (raw) return res;
+    const json = await res.json().catch(() => ({}));
+    if (res.status === 503) {
+      setNotConfigured(true);
+      throw new Error(json.error || 'Shade integration not configured');
+    }
+    if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
+    return json;
+  }, []);
+
+  // ─── Search ───────────────────────────────────────────────────────────────
+  const runSearch = async (e) => {
+    if (e) e.preventDefault();
+    if (searching) return;
+    setSearching(true);
+    setSearchError(null);
+    setSelectedIds(new Set());
+    try {
+      const json = await callFn({ op: 'search', query, types, limit: 100 });
+      setAssets(json.assets || []);
+    } catch (err) {
+      setSearchError(err.message);
+      setAssets([]);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const toggleType = (key) => {
+    setTypes((ts) => (ts.includes(key) ? ts.filter((t) => t !== key) : [...ts, key]));
+  };
+
+  const toggleSelected = (id) => {
+    setSelectedIds((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const selectedAssets = (assets || []).filter((a) => selectedIds.has(a.id));
+
+  // ─── Signed URL resolution (cached per asset) ─────────────────────────────
+  const resolveAsset = useCallback(async (asset) => {
+    if (resolved[asset.id] !== undefined) return resolved[asset.id];
+    try {
+      const json = await callFn({ op: 'resolve', asset_id: asset.id, proxy_id: asset.proxy_id });
+      const url = json.url || null;
+      setResolved((m) => ({ ...m, [asset.id]: url }));
+      return url;
+    } catch {
+      setResolved((m) => ({ ...m, [asset.id]: null }));
+      return null;
+    }
+  }, [callFn, resolved]);
+
+  // Pre-resolve the asset shown in the modal.
+  const modalAsset = modal ? modal.list[modal.index] : null;
+  useEffect(() => {
+    if (modalAsset && resolved[modalAsset.id] === undefined) resolveAsset(modalAsset);
+  }, [modalAsset, resolved, resolveAsset]);
+
+  useEffect(() => {
+    if (!modal) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setModal(null);
+      if (e.key === 'ArrowRight') setModal((m) => m && ({ ...m, index: Math.min(m.index + 1, m.list.length - 1) }));
+      if (e.key === 'ArrowLeft') setModal((m) => m && ({ ...m, index: Math.max(m.index - 1, 0) }));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [modal]);
+
+  // ─── Downloads ────────────────────────────────────────────────────────────
+  const fetchAssetBytes = async (asset) => {
+    try {
+      const res = await callFn({ op: 'fetch', asset_id: asset.id, proxy_id: asset.proxy_id }, true);
+      if (!res.ok) return null;
+      return new Uint8Array(await res.arrayBuffer());
+    } catch {
+      return null;
+    }
+  };
+
+  const saveBlob = (blob, name) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  };
+
+  const downloadAsset = async (asset) => {
+    setBatch({ done: 0, total: 1, failed: 0 });
+    const bytes = await fetchAssetBytes(asset);
+    if (bytes) saveBlob(new Blob([bytes]), downloadName(asset));
+    else alert('Could not download this asset — Shade has no rendition for it yet.');
+    setBatch(null);
+  };
+
+  const runBatchDownload = async (targets) => {
+    if (!targets.length) return;
+    if (targets.length === 1) { await downloadAsset(targets[0]); return; }
+    batchCancelRef.current = false;
+    setBatch({ done: 0, total: targets.length, failed: 0 });
+    const files = {};
+    for (let i = 0; i < targets.length; i++) {
+      if (batchCancelRef.current) { setBatch(null); return; }
+      const bytes = await fetchAssetBytes(targets[i]);
+      if (bytes) {
+        let name = downloadName(targets[i]);
+        if (files[name]) {
+          const dot = name.lastIndexOf('.');
+          const base = dot > 0 ? name.slice(0, dot) : name;
+          const ext = dot > 0 ? name.slice(dot) : '';
+          let n = 2;
+          while (files[`${base} (${n})${ext}`]) n++;
+          name = `${base} (${n})${ext}`;
+        }
+        files[name] = [bytes, { level: 0 }];
+      }
+      setBatch((b) => b && ({ ...b, done: i + 1, failed: b.failed + (bytes ? 0 : 1) }));
+    }
+    if (Object.keys(files).length > 0) {
+      const blob = new Blob([zipSync(files)], { type: 'application/zip' });
+      saveBlob(blob, `assets-${new Date().toISOString().slice(0, 10)}.zip`);
+    }
+    setBatch(null);
+  };
+
+  // ─── Playlists ────────────────────────────────────────────────────────────
+  const fetchPlaylists = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('asset_playlists')
+      .select('*, asset_playlist_items(count)')
+      .order('updated_at', { ascending: false });
+    if (error) { console.error('Error fetching asset playlists:', error); return; }
+    setPlaylists(data || []);
+  }, []);
+
+  useEffect(() => {
+    if (profile?.id) fetchPlaylists();
+  }, [profile?.id, fetchPlaylists]);
+
+  const fetchPlaylistItems = useCallback(async (playlistId) => {
+    if (!playlistId) { setPlaylistItems([]); return; }
+    setPlaylistLoading(true);
+    const { data, error } = await supabase
+      .from('asset_playlist_items')
+      .select('*')
+      .eq('playlist_id', playlistId)
+      .order('position');
+    if (error) console.error('Error fetching asset playlist items:', error);
+    setPlaylistItems(data || []);
+    setPlaylistLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchPlaylistItems(activePlaylistId);
+  }, [activePlaylistId, fetchPlaylistItems]);
+
+  const createPlaylist = async (name) => {
+    const { data, error } = await supabase
+      .from('asset_playlists')
+      .insert({ name, created_by: profile.id })
+      .select()
+      .single();
+    if (error) { console.error('Error creating asset playlist:', error); return null; }
+    fetchPlaylists();
+    return data;
+  };
+
+  const addAssetsToPlaylist = async (playlistId, assetsToAdd) => {
+    try {
+      const { data: existing } = await supabase
+        .from('asset_playlist_items')
+        .select('asset_key, position')
+        .eq('playlist_id', playlistId);
+      const have = new Set((existing || []).map((r) => r.asset_key));
+      let pos = (existing || []).reduce((m, r) => Math.max(m, r.position), -1) + 1;
+      const payload = assetsToAdd
+        .filter((a) => !have.has(a.id))
+        .map((a) => ({ playlist_id: playlistId, asset_key: a.id, asset: a, position: pos++ }));
+      if (payload.length > 0) {
+        const { error } = await supabase.from('asset_playlist_items').insert(payload);
+        if (error) throw error;
+        await supabase.from('asset_playlists')
+          .update({ updated_at: new Date().toISOString() })
+          .eq('id', playlistId);
+      }
+      fetchPlaylists();
+      if (playlistId === activePlaylistId) fetchPlaylistItems(playlistId);
+      setAddPicker(null);
+      setSelectedIds(new Set());
+    } catch (err) {
+      console.error('Error adding to asset playlist:', err);
+      alert('Could not add assets to the playlist.');
+    }
+  };
+
+  const removePlaylistItem = async (itemId) => {
+    await supabase.from('asset_playlist_items').delete().eq('id', itemId);
+    fetchPlaylistItems(activePlaylistId);
+    fetchPlaylists();
+  };
+
+  const deletePlaylist = async (playlistId) => {
+    const pl = playlists.find((p) => p.id === playlistId);
+    if (!window.confirm(`Delete playlist "${pl?.name || ''}" and its queue?`)) return;
+    await supabase.from('asset_playlists').delete().eq('id', playlistId);
+    if (activePlaylistId === playlistId) setActivePlaylistId(null);
+    fetchPlaylists();
+  };
+
+  const playlistAssets = playlistItems.map((it) => it.asset);
+
+  // ─── Render pieces ────────────────────────────────────────────────────────
+  const renderModal = () => {
+    if (!modal || !modalAsset) return null;
+    const url = resolved[modalAsset.id];
+    const kind = String(modalAsset.type || '').toUpperCase();
+    return (
+      <div style={styles.modalOverlay} onClick={() => setModal(null)}>
+        <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+          <div style={styles.modalHead}>
+            <span style={{ fontSize: '15px', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {typeIcon(kind)} {modalAsset.name}
+            </span>
+            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.35)' }}>
+              {modal.index + 1} / {modal.list.length}
+            </span>
+            <div style={{ flex: 1 }} />
+            <button style={styles.modalBtn} onClick={() => downloadAsset(modalAsset)}>Download</button>
+            <button style={styles.modalClose} onClick={() => setModal(null)}>✕</button>
+          </div>
+          <div style={styles.modalBody}>
+            {url === undefined && <div style={styles.modalMsg}>Loading…</div>}
+            {url === null && <div style={styles.modalMsg}>No preview available for this asset.</div>}
+            {url && kind === 'VIDEO' && (
+              <video key={modalAsset.id} src={url} controls autoPlay style={styles.modalMedia} />
+            )}
+            {url && kind === 'IMAGE' && (
+              <img key={modalAsset.id} src={url} alt={modalAsset.name} style={styles.modalMedia} />
+            )}
+            {url && kind === 'AUDIO' && (
+              <audio key={modalAsset.id} src={url} controls autoPlay style={{ width: '90%' }} />
+            )}
+            {url && kind !== 'VIDEO' && kind !== 'IMAGE' && kind !== 'AUDIO' && (
+              <div style={styles.modalMsg}>
+                <div style={{ fontSize: '44px', marginBottom: '10px' }}>{typeIcon(kind)}</div>
+                No inline preview for this file type — use Download.
+              </div>
+            )}
+          </div>
+          <div style={styles.modalNav}>
+            <button
+              style={{ ...styles.modalBtn, opacity: modal.index === 0 ? 0.35 : 1 }}
+              disabled={modal.index === 0}
+              onClick={() => setModal((m) => ({ ...m, index: m.index - 1 }))}
+            >← Prev</button>
+            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.35)', alignSelf: 'center' }}>
+              {modalAsset.path}
+            </span>
+            <button
+              style={{ ...styles.modalBtn, opacity: modal.index >= modal.list.length - 1 ? 0.35 : 1 }}
+              disabled={modal.index >= modal.list.length - 1}
+              onClick={() => setModal((m) => ({ ...m, index: m.index + 1 }))}
+            >Next →</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderAddPicker = () => {
+    if (!addPicker) return null;
+    return (
+      <div style={styles.modalOverlay} onClick={() => setAddPicker(null)}>
+        <div style={{ ...styles.modal, maxWidth: '400px' }} onClick={(e) => e.stopPropagation()}>
+          <div style={styles.modalHead}>
+            <span style={{ fontSize: '15px', fontWeight: 700 }}>
+              Add {addPicker.assets.length} asset{addPicker.assets.length === 1 ? '' : 's'} to playlist
+            </span>
+            <div style={{ flex: 1 }} />
+            <button style={styles.modalClose} onClick={() => setAddPicker(null)}>✕</button>
+          </div>
+          <div style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '320px', overflowY: 'auto' }}>
+            {playlists.map((pl) => (
+              <button key={pl.id} style={styles.pickerRow} onClick={() => addAssetsToPlaylist(pl.id, addPicker.assets)}>
+                <span>{pl.name}</span>
+                <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: '12px' }}>
+                  {pl.asset_playlist_items?.[0]?.count ?? 0} items
+                </span>
+              </button>
+            ))}
+            {playlists.length === 0 && (
+              <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: '13px', padding: '4px 2px' }}>No playlists yet.</div>
+            )}
+            <form
+              style={{ display: 'flex', gap: '6px', marginTop: '8px' }}
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!newPlaylistName.trim()) return;
+                const pl = await createPlaylist(newPlaylistName.trim());
+                setNewPlaylistName('');
+                if (pl) addAssetsToPlaylist(pl.id, addPicker.assets);
+              }}
+            >
+              <input
+                value={newPlaylistName}
+                onChange={(e) => setNewPlaylistName(e.target.value)}
+                placeholder="New playlist name…"
+                style={{ ...styles.input, flex: 1 }}
+              />
+              <button type="submit" style={styles.primaryBtn}>Create</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderTable = (rows, { fromPlaylist } = {}) => (
+    <div style={styles.tableScroll}>
+      <table style={styles.table}>
+        <thead>
+          <tr>
+            {!fromPlaylist && <th style={{ ...styles.th, width: '30px' }} />}
+            <th style={{ ...styles.th, width: '54px' }} />
+            <th style={styles.th}>Name</th>
+            <th style={styles.th}>Type</th>
+            <th style={styles.th}>Size</th>
+            <th style={styles.th}>Modified</th>
+            <th style={styles.th}>Path</th>
+            <th style={{ ...styles.th, width: '70px' }} />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((asset, i) => (
+            <tr
+              key={fromPlaylist ? playlistItems[i].id : asset.id}
+              style={{ ...styles.tr, ...(selectedIds.has(asset.id) && !fromPlaylist ? styles.trSelected : null) }}
+              onClick={() => setModal({ list: rows, index: i })}
+            >
+              {!fromPlaylist && (
+                <td style={styles.td} onClick={(e) => { e.stopPropagation(); toggleSelected(asset.id); }}>
+                  <input type="checkbox" readOnly checked={selectedIds.has(asset.id)} style={{ cursor: 'pointer' }} />
+                </td>
+              )}
+              <td style={styles.td}>
+                {asset.thumbnail
+                  ? <img src={asset.thumbnail} alt="" style={styles.thumb} />
+                  : <span style={{ fontSize: '18px' }}>{typeIcon(asset.type)}</span>}
+              </td>
+              <td style={{ ...styles.td, maxWidth: '340px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{asset.name}</td>
+              <td style={styles.td}>{String(asset.type || '').toLowerCase()}</td>
+              <td style={styles.td}>{fmtSize(asset.size_bytes)}</td>
+              <td style={styles.td}>{fmtDate(asset.updated)}</td>
+              <td style={{ ...styles.td, maxWidth: '260px', overflow: 'hidden', textOverflow: 'ellipsis', color: 'rgba(255,255,255,0.35)' }}>{asset.path}</td>
+              <td style={styles.td} onClick={(e) => e.stopPropagation()}>
+                <button style={styles.rowBtn} title="Download" onClick={() => downloadAsset(asset)}>↓</button>
+                {fromPlaylist && (
+                  <button
+                    style={{ ...styles.rowBtn, color: '#f87171', marginLeft: '4px' }}
+                    title="Remove from playlist"
+                    onClick={() => removePlaylistItem(playlistItems[i].id)}
+                  >✕</button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  // ─── Views ────────────────────────────────────────────────────────────────
+  if (notConfigured) {
+    return (
+      <div style={styles.placeholder}>
+        <div style={{ fontSize: '32px', marginBottom: '12px' }}>🔌</div>
+        Shade isn't connected yet. Add <code>SHADE_API_KEY</code> and <code>SHADE_DRIVE_ID</code> to
+        the Supabase edge function secrets, then reload.
+      </div>
+    );
+  }
+
+  return (
+    <div style={styles.wrap}>
+      <div style={styles.subTabs}>
+        <button style={{ ...styles.subTab, ...(view === 'search' ? styles.subTabOn : null) }} onClick={() => setView('search')}>Search</button>
+        <button style={{ ...styles.subTab, ...(view === 'playlist' ? styles.subTabOn : null) }} onClick={() => setView('playlist')}>Playlists</button>
+        <div style={{ flex: 1 }} />
+        {batch && (
+          <span style={styles.batchProgress}>
+            {batch.total > 1 ? `Bundling ${batch.done}/${batch.total}…` : 'Downloading…'}
+            {batch.failed > 0 ? ` (${batch.failed} failed)` : ''}
+            {batch.total > 1 && (
+              <button style={{ ...styles.rowBtn, width: 'auto', padding: '0 8px', marginLeft: '8px' }} onClick={() => { batchCancelRef.current = true; }}>Cancel</button>
+            )}
+          </span>
+        )}
+      </div>
+
+      {view === 'search' && (
+        <>
+          <form onSubmit={runSearch} style={styles.searchBar}>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder='Describe what you need — "crowd reaction home run night game"…'
+              style={{ ...styles.input, flex: 1, padding: '10px 14px', fontSize: '14px' }}
+            />
+            <button type="submit" disabled={searching} style={styles.primaryBtn}>
+              {searching ? 'Searching…' : 'Search'}
+            </button>
+          </form>
+          <div style={styles.chipRow}>
+            <button
+              type="button"
+              style={{ ...styles.chip, ...(types.length === 0 ? styles.chipOn : null) }}
+              onClick={() => setTypes([])}
+            >All types</button>
+            {TYPE_FILTERS.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                style={{ ...styles.chip, ...(types.includes(t.key) ? styles.chipOn : null) }}
+                onClick={() => toggleType(t.key)}
+              >{t.label}</button>
+            ))}
+          </div>
+
+          {searchError && <div style={styles.errorMsg}>{searchError}</div>}
+
+          {selectedIds.size > 0 && (
+            <div style={styles.selectionBar}>
+              <span style={{ fontSize: '13px', color: '#a5b4fc' }}>{selectedIds.size} selected</span>
+              <button style={styles.batchBtn} onClick={() => setAddPicker({ assets: selectedAssets })}>+ Playlist</button>
+              <button style={styles.batchBtn} onClick={() => runBatchDownload(selectedAssets)} disabled={!!batch}>
+                Download{selectedIds.size > 1 ? ' (.zip)' : ''}
+              </button>
+              <button style={{ ...styles.chip, marginLeft: '2px' }} onClick={() => setSelectedIds(new Set())}>Clear</button>
+            </div>
+          )}
+
+          {assets === null && !searching && (
+            <div style={styles.placeholder}>
+              Search the Shade drive by describing the footage, image, or file you need.<br />
+              The AI index matches on visual content, transcripts, and metadata — not just filenames.
+            </div>
+          )}
+          {assets !== null && assets.length === 0 && !searching && !searchError && (
+            <div style={styles.placeholder}>No assets matched. Try broader wording or fewer type filters.</div>
+          )}
+          {assets !== null && assets.length > 0 && (
+            <>
+              <div style={styles.resultsBar}>
+                <span style={styles.resultsCount}>{assets.length} result{assets.length === 1 ? '' : 's'}</span>
+                <button
+                  style={styles.chip}
+                  onClick={() => setSelectedIds(new Set(assets.map((a) => a.id)))}
+                >Select all</button>
+              </div>
+              {renderTable(assets)}
+            </>
+          )}
+        </>
+      )}
+
+      {view === 'playlist' && (
+        <div style={styles.playlistWrap}>
+          <div style={styles.playlistCol}>
+            {playlists.map((pl) => (
+              <div
+                key={pl.id}
+                style={{ ...styles.playlistRow, ...(activePlaylistId === pl.id ? styles.playlistRowOn : null) }}
+                onClick={() => setActivePlaylistId(pl.id)}
+              >
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pl.name}</span>
+                <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: '12px', flexShrink: 0 }}>
+                  {pl.asset_playlist_items?.[0]?.count ?? 0}
+                </span>
+                <button
+                  style={{ ...styles.rowBtn, color: '#f87171', flexShrink: 0 }}
+                  title="Delete playlist"
+                  onClick={(e) => { e.stopPropagation(); deletePlaylist(pl.id); }}
+                >✕</button>
+              </div>
+            ))}
+            {playlists.length === 0 && (
+              <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: '13px', padding: '8px 4px' }}>
+                No playlists yet — select search results and hit “+ Playlist”.
+              </div>
+            )}
+          </div>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+            {!activePlaylistId && <div style={styles.placeholder}>Pick a playlist to review its queue.</div>}
+            {activePlaylistId && playlistLoading && <div style={styles.placeholder}>Loading…</div>}
+            {activePlaylistId && !playlistLoading && playlistItems.length === 0 && (
+              <div style={styles.placeholder}>This playlist is empty.</div>
+            )}
+            {activePlaylistId && !playlistLoading && playlistItems.length > 0 && (
+              <>
+                <div style={styles.resultsBar}>
+                  <span style={styles.resultsCount}>{playlistItems.length} asset{playlistItems.length === 1 ? '' : 's'}</span>
+                  <button style={styles.batchBtn} onClick={() => setModal({ list: playlistAssets, index: 0 })}>▶ Review all</button>
+                  <button style={styles.batchBtn} onClick={() => runBatchDownload(playlistAssets)} disabled={!!batch}>
+                    Download all{playlistItems.length > 1 ? ' (.zip)' : ''}
+                  </button>
+                </div>
+                {renderTable(playlistAssets, { fromPlaylist: true })}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {renderModal()}
+      {renderAddPicker()}
+    </div>
+  );
+}
+
+const styles = {
+  wrap: {
+    flex: 1,
+    minWidth: 0,
+    padding: '18px 24px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px',
+  },
+  subTabs: { display: 'flex', alignItems: 'center', gap: '6px' },
+  subTab: {
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '8px',
+    color: 'rgba(255,255,255,0.55)',
+    padding: '6px 16px',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  subTabOn: {
+    background: 'rgba(99,102,241,0.18)',
+    borderColor: 'rgba(99,102,241,0.5)',
+    color: '#a5b4fc',
+  },
+  searchBar: { display: 'flex', gap: '8px' },
+  input: {
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '8px',
+    color: '#e2e8f0',
+    padding: '7px 10px',
+    fontSize: '13px',
+    fontFamily: 'inherit',
+    boxSizing: 'border-box',
+    colorScheme: 'dark',
+    outline: 'none',
+  },
+  primaryBtn: {
+    background: '#6366f1',
+    border: 'none',
+    borderRadius: '8px',
+    color: '#fff',
+    padding: '8px 22px',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  chipRow: { display: 'flex', flexWrap: 'wrap', gap: '5px' },
+  chip: {
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '999px',
+    color: 'rgba(255,255,255,0.55)',
+    padding: '3px 10px',
+    fontSize: '12px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  chipOn: {
+    background: 'rgba(99,102,241,0.18)',
+    borderColor: 'rgba(99,102,241,0.5)',
+    color: '#a5b4fc',
+  },
+  selectionBar: { display: 'flex', alignItems: 'center', gap: '8px' },
+  batchBtn: {
+    background: 'rgba(99,102,241,0.15)',
+    border: '1px solid rgba(99,102,241,0.4)',
+    borderRadius: '8px',
+    color: '#a5b4fc',
+    padding: '7px 14px',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  batchProgress: { fontSize: '13px', color: '#a5b4fc', display: 'flex', alignItems: 'center' },
+  errorMsg: { color: '#f87171', fontSize: '13px' },
+  resultsBar: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '2px' },
+  resultsCount: { fontSize: '13px', color: 'rgba(255,255,255,0.45)' },
+  placeholder: {
+    padding: '80px 20px',
+    textAlign: 'center',
+    color: 'rgba(255,255,255,0.3)',
+    fontSize: '14px',
+    lineHeight: 1.6,
+  },
+  tableScroll: {
+    overflow: 'auto',
+    flex: 1,
+    minHeight: 0,
+    maxHeight: 'calc(100vh - 260px)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '12px',
+  },
+  table: { width: '100%', borderCollapse: 'collapse', fontSize: '13px' },
+  th: {
+    position: 'sticky',
+    top: 0,
+    background: '#16162a',
+    textAlign: 'left',
+    padding: '9px 12px',
+    fontSize: '11px',
+    fontWeight: 600,
+    letterSpacing: '0.4px',
+    textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.4)',
+    borderBottom: '1px solid rgba(255,255,255,0.08)',
+    zIndex: 1,
+  },
+  tr: { cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' },
+  trSelected: { background: 'rgba(99,102,241,0.12)' },
+  td: { padding: '8px 12px', whiteSpace: 'nowrap' },
+  thumb: { width: '44px', height: '28px', objectFit: 'cover', borderRadius: '4px', display: 'block' },
+  rowBtn: {
+    background: 'rgba(255,255,255,0.05)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '6px',
+    color: '#a5b4fc',
+    width: '26px',
+    height: '26px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  playlistWrap: { display: 'flex', gap: '18px', flex: 1, minHeight: 0 },
+  playlistCol: {
+    width: '240px',
+    flexShrink: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+    overflowY: 'auto',
+  },
+  playlistRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '9px 12px',
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '10px',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
+  },
+  playlistRowOn: {
+    background: 'rgba(99,102,241,0.12)',
+    borderColor: 'rgba(99,102,241,0.4)',
+  },
+  modalOverlay: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 2000,
+    background: 'rgba(0,0,0,0.75)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '24px',
+  },
+  modal: {
+    background: '#12121f',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '14px',
+    width: '100%',
+    maxWidth: '900px',
+    maxHeight: '90vh',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+  },
+  modalHead: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    padding: '14px 18px',
+    borderBottom: '1px solid rgba(255,255,255,0.06)',
+    minWidth: 0,
+  },
+  modalBody: {
+    flex: 1,
+    minHeight: '320px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: '#000',
+  },
+  modalMedia: { maxWidth: '100%', maxHeight: '62vh', display: 'block' },
+  modalMsg: { color: 'rgba(255,255,255,0.4)', fontSize: '14px', textAlign: 'center', padding: '40px' },
+  modalNav: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '10px',
+    padding: '12px 18px',
+    borderTop: '1px solid rgba(255,255,255,0.06)',
+    minWidth: 0,
+  },
+  modalBtn: {
+    background: 'rgba(99,102,241,0.15)',
+    border: '1px solid rgba(99,102,241,0.4)',
+    borderRadius: '8px',
+    color: '#a5b4fc',
+    padding: '7px 14px',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  modalClose: {
+    background: 'rgba(255,255,255,0.05)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '8px',
+    color: 'rgba(255,255,255,0.6)',
+    width: '30px',
+    height: '30px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+  },
+  pickerRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '10px',
+    padding: '9px 12px',
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '10px',
+    color: '#e2e8f0',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    textAlign: 'left',
+  },
+};

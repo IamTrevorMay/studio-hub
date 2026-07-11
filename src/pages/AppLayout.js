@@ -68,7 +68,7 @@ const NAV_ITEMS = [
   { key: 'teleprompter', label: 'Teleprompter', icon: ToolsIcon },
   { key: 'broadcast', label: 'Broadcast', icon: ToolsIcon, adminOnly: true, hidden: true },
   { key: 'telestration', label: 'Telestrator', icon: ToolsIcon },
-  { key: 'pitch_videos', label: 'Pitch Video Search', icon: CameraIcon },
+  { key: 'pitch_videos', label: 'Asset Search', icon: CameraIcon },
   { key: 'post_show', label: 'Clipping Tool', icon: ToolsIcon },
   { key: 'timeline', label: 'Timeline', icon: ToolsIcon },
   { key: 'mailer', label: 'Mailer', icon: MailerIcon, adminOnly: true },

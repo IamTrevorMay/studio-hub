@@ -3,8 +3,12 @@ import { zipSync } from 'fflate';
 import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
 import PlayerSearchField from './graphics/PlayerSearchField';
+import ShadeAssets from './ShadeAssets';
 
-// Pitch Video Search — search the Savant clip archive (Triton pitch_videos
+// Asset Search — two sections behind header tabs: Pitches (this file's
+// search below) and Assets (ShadeAssets.js, AI search over the Shade drive).
+//
+// Pitches — search the Savant clip archive (Triton pitch_videos
 // index + Mayday Cloud NAS), review clips in a modal, and download them
 // locally or upload to the shared Pitch Videos folder on Google Drive.
 //
@@ -153,6 +157,10 @@ export default function PitchVideos({ onBack }) {
 
   // Local batch download progress
   const [batch, setBatch] = useState(null);
+
+  // Top-level section: Pitches (Savant clip archive, everything below) or
+  // Assets (Shade drive AI search — self-contained in ShadeAssets).
+  const [section, setSection] = useState('pitches'); // 'pitches' | 'assets'
 
   // Playlist view — DB-backed personal playlists (pitch_playlists +
   // pitch_playlist_items, RLS owner-only). Items snapshot the pitch row as
@@ -839,8 +847,23 @@ export default function PitchVideos({ onBack }) {
             <path d="M19 12H5M12 19l-7-7 7-7" />
           </svg>
         </button>
-        <span style={styles.headerTitle}>Pitch Video Search</span>
-        <span style={styles.headerSub}>Savant clip archive</span>
+        <span style={styles.headerTitle}>Asset Search</span>
+        <span style={styles.headerSub}>{section === 'pitches' ? 'Savant clip archive' : 'Shade drive'}</span>
+        <div style={styles.viewTabs}>
+          <button
+            style={{ ...styles.viewTab, ...(section === 'pitches' ? styles.viewTabOn : null) }}
+            onClick={() => setSection('pitches')}
+          >
+            Pitches
+          </button>
+          <button
+            style={{ ...styles.viewTab, ...(section === 'assets' ? styles.viewTabOn : null) }}
+            onClick={() => setSection('assets')}
+          >
+            Assets
+          </button>
+        </div>
+        {section === 'pitches' && (
         <div style={styles.viewTabs}>
           <button
             style={{ ...styles.viewTab, ...(view === 'search' ? styles.viewTabOn : null) }}
@@ -855,8 +878,9 @@ export default function PitchVideos({ onBack }) {
             Playlist
           </button>
         </div>
+        )}
         <div style={{ flex: 1 }} />
-        {view === 'search' && (
+        {section === 'pitches' && view === 'search' && (
         <button
           style={{ ...styles.drawerToggle, ...(drawerOpen ? styles.drawerToggleOn : null) }}
           onClick={() => setDrawerOpen((o) => !o)}
@@ -870,8 +894,9 @@ export default function PitchVideos({ onBack }) {
       </div>
 
       <div style={styles.body}>
-        {view === 'playlist' && renderPlaylistView()}
-        {view === 'search' && (<>
+        {section === 'assets' && <ShadeAssets />}
+        {section === 'pitches' && view === 'playlist' && renderPlaylistView()}
+        {section === 'pitches' && view === 'search' && (<>
         {/* ── Left: filter column ── */}
         <div style={styles.filterCol}>
           <div style={styles.filterField}>
