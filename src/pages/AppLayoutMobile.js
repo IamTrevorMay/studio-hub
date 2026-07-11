@@ -49,7 +49,6 @@ const NAV_ITEMS = [
   { key: 'broadcast', label: 'Broadcast', external: { url: 'https://www.tritonapex.io/broadcast' } },
   { key: 'telestration', label: 'Telestrator' },
   { key: 'post_show', label: 'Clipping Tool' },
-  { key: 'assets', label: 'Assets Library', external: { url: 'https://www.mayday.systems/' } },
   { key: 'reviews', label: 'Reviews' },
   { key: 'organize', label: 'Organize' },
   { key: 'projects', label: 'Projects' },

@@ -66,14 +66,13 @@ const NAV_ITEMS = [
   { key: 'research_docs', label: 'Research', icon: ResourcesIcon },
   { key: 'screenwriter', label: 'Screenwriter', icon: IdeationIcon },
   { key: 'teleprompter', label: 'Teleprompter', icon: ToolsIcon },
-  { key: 'broadcast', label: 'Broadcast', icon: ToolsIcon, adminOnly: true, hidden: true },
+  { key: 'broadcast', label: 'Broadcast', icon: ToolsIcon, adminOnly: true },
   { key: 'telestration', label: 'Telestrator', icon: ToolsIcon },
   { key: 'pitch_videos', label: 'Asset Search', icon: CameraIcon },
   { key: 'post_show', label: 'Clipping Tool', icon: ToolsIcon },
-  { key: 'timeline', label: 'Timeline', icon: ToolsIcon },
+  { key: 'timeline', label: 'Timeline', icon: ToolsIcon, adminOnly: true },
   { key: 'mailer', label: 'Mailer', icon: MailerIcon, adminOnly: true },
-  { key: 'graphics', label: 'Graphics', icon: GraphicsIcon },
-  { key: 'assets', label: 'Assets Library', icon: ResourcesIcon, external: { url: 'https://www.mayday.systems/' } },
+  { key: 'graphics', label: 'Graphics', icon: GraphicsIcon, adminOnly: true },
   { key: 'reviews', label: 'Reviews', icon: ReviewsIcon },
   { key: 'organize', label: 'Organize', icon: ToolsIcon },
   { key: 'deliverables', label: 'Deliverables', icon: DeliverablesIcon },
@@ -96,8 +95,20 @@ const NAV_ITEMS = [
 const VALID_TAB_KEYS = new Set(NAV_ITEMS.map(item => item.key).concat('admin', 'ops', 'fl_dashboard', 'fl_hours', 'fl_profile', 'fl_notifications', 'fl_documents', 'fl_assignments', 'fl_submit', 'ideas'));
 
 // ─── Modes ──────────────────────────────────────────────────
+// Beta pages: still under refinement. Grouped in a "Beta" folder at the bottom
+// of Admin Mode and visible only to the owner account below — no other role
+// (or admin) sees them anywhere in the nav.
+const BETA_OWNER_EMAIL = 'trevormayofficial@gmail.com';
+const BETA_PAGE_KEYS = ['broadcast', 'timeline', 'graphics', 'mailer'];
+const BETA_PAGE_NAV = [
+  { type: 'folder', id: 'beta', label: 'Beta', collapsed: true },
+  { type: 'item', key: 'broadcast', label: 'Broadcast', folderId: 'beta' },
+  { type: 'item', key: 'timeline', label: 'Timeline', folderId: 'beta' },
+  { type: 'item', key: 'graphics', label: 'Graphics', folderId: 'beta' },
+  { type: 'item', key: 'mailer', label: 'Mailer', folderId: 'beta' },
+];
 // Admin-only pages that live in Admin Mode and are hidden from the Work View.
-const ADMIN_PAGE_KEYS = ['payroll', 'analytics', 'tracking', 'accounting', 'business_dev', 'freelancers', 'workflows', 'jobs', 'invoicing', 'ops', 'mailer'];
+const ADMIN_PAGE_KEYS = ['payroll', 'analytics', 'tracking', 'accounting', 'business_dev', 'freelancers', 'workflows', 'jobs', 'invoicing', 'ops', ...BETA_PAGE_KEYS];
 // Everyday anchors kept at the top of the Admin Mode sidebar (items + folders).
 const ADMIN_ESSENTIAL_KEYS = ['dashboard', 'projects', 'calendar', 'deliverables', 'channels', 'messages'];
 const ADMIN_ESSENTIAL_FOLDER_IDS = new Set(['pre_production', 'filming', 'post_production']);
@@ -113,12 +124,12 @@ const ADMIN_PAGE_NAV = [
   { type: 'folder', id: 'admin_tools', label: 'Tools', collapsed: true },
   { type: 'item', key: 'invoicing', label: 'Invoicing', folderId: 'admin_tools' },
   { type: 'item', key: 'freelancers', label: 'Contractors', folderId: 'admin_tools' },
-  { type: 'item', key: 'mailer', label: 'Mailer', folderId: 'admin_tools' },
   { type: 'item', key: 'jobs', label: 'Jobs', folderId: 'admin_tools' },
   { type: 'item', key: 'admin', label: 'Admin Settings' },
 ];
-// Build Admin Mode sidebar: essential items/folders from resolved nav, divider, admin pages.
-function buildAdminNav(resolvedNav) {
+// Build Admin Mode sidebar: essential items/folders from resolved nav, divider,
+// admin pages, then the Beta folder for the beta owner only.
+function buildAdminNav(resolvedNav, isBetaOwner) {
   const essentialKeySet = new Set(ADMIN_ESSENTIAL_KEYS);
   const top = [];
   // Pull essential items and folders (with their children) from resolved nav
@@ -131,11 +142,12 @@ function buildAdminNav(resolvedNav) {
       top.push(entry);
     }
   }
-  return [...top, { type: 'divider' }, ...ADMIN_PAGE_NAV];
+  return [...top, { type: 'divider' }, ...ADMIN_PAGE_NAV, ...(isBetaOwner ? BETA_PAGE_NAV : [])];
 }
 // Collect all valid tab keys for admin mode (essential items + folder children + admin pages).
-function getAdminModeKeys(resolvedNav) {
+function getAdminModeKeys(resolvedNav, isBetaOwner) {
   const keys = new Set([...ADMIN_ESSENTIAL_KEYS, ...ADMIN_PAGE_KEYS, 'admin']);
+  if (!isBetaOwner) BETA_PAGE_KEYS.forEach(k => keys.delete(k));
   for (const entry of resolvedNav) {
     if (entry.type === 'item' && entry.folderId && ADMIN_ESSENTIAL_FOLDER_IDS.has(entry.folderId)) {
       keys.add(entry.key);
@@ -286,8 +298,12 @@ export default function AppLayout() {
     localStorage.setItem('studio-hub-mode', mode);
   }, [mode]);
 
-  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isFreelancer, profile, restrictedNavKeys);
-  const adminModeKeys = getAdminModeKeys(resolvedNav);
+  const isBetaOwner = isAdmin && profile?.email === BETA_OWNER_EMAIL;
+  // Beta pages never surface through the regular nav (or the nav editor) —
+  // they exist only inside the Beta folder appended for the beta owner.
+  const resolvedNav = getResolvedNav(NAV_ITEMS, isAdmin, isPartner, isFreelancer, profile, restrictedNavKeys)
+    .filter(e => !(e.type === 'item' && BETA_PAGE_KEYS.includes(e.key)));
+  const adminModeKeys = getAdminModeKeys(resolvedNav, isBetaOwner);
 
   // On load (and when mode flips), keep the open page consistent with the mode.
   useEffect(() => {
@@ -318,7 +334,7 @@ export default function AppLayout() {
 
   // Mode-filtered nav. Admin-only pages live in Admin Mode and disappear from
   // the default Work View; flipping the bottom button swaps the sidebar.
-  const adminNav = buildAdminNav(resolvedNav).filter(
+  const adminNav = buildAdminNav(resolvedNav, isBetaOwner).filter(
     (e) => e.type !== 'item' || !restrictedNavKeys?.has(e.key),
   );
   const displayNav = ((mode === 'admin' && isAdmin) ? adminNav : buildWorkNav(resolvedNav))
@@ -1387,12 +1403,23 @@ function ToolsFolderIcon({ active }) {
   );
 }
 
+function BetaFolderIcon({ active }) {
+  // Lab flask — marks the Beta folder of pages still under refinement.
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <path d="M8 2.5h4M9 2.5v5L4.5 15a2 2 0 001.7 3h7.6a2 2 0 001.7-3L11 7.5v-5" strokeLinejoin="round" strokeLinecap="round" />
+      <path d="M6.5 12.5h7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 const FOLDER_ICON_MAP = {
   pre_production: PreProductionIcon,
   filming: FilmingIcon,
   post_production: PostProductionIcon,
   core_team: CoreTeamIcon,
   admin_tools: ToolsFolderIcon,
+  beta: BetaFolderIcon,
 };
 
 function formatNotifTime(dateStr) {
@@ -1454,6 +1481,8 @@ const styles = {
   },
   nav: {
     flex: 1,
+    minHeight: 0,
+    overflowY: 'auto',
     display: 'flex',
     flexDirection: 'column',
     padding: '12px 10px',
