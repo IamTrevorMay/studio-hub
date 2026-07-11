@@ -3,8 +3,10 @@ import { zipSync } from 'fflate';
 import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
 
-// Assets view of the Asset Search tool — AI index search over the Shade
-// drive via the shade-search edge function. Mirrors the Pitches view's
+// Assets view of the Asset Search tool — folder browsing + AI index search
+// over the Shade drive via the shade-search edge function. Default view
+// browses the drive's folders (drill-in with breadcrumbs); a query narrows
+// recursively within the browsed folder. Mirrors the Pitches view's
 // layout and conventions: left panel with the Search/Playlist toggle on
 // top, then the query + type filters (or playlist picker); results table
 // on the right. Personal playlists (asset_playlists + asset_playlist_items,
@@ -80,6 +82,11 @@ export default function ShadeAssets() {
   const [notConfigured, setNotConfigured] = useState(false);
   const [driveHelp, setDriveHelp] = useState(null); // [{id, name}] when drive_id is wrong
 
+  // Folder browsing (default view; search narrows within the browsed folder)
+  const [browsePath, setBrowsePath] = useState('/');
+  const [browse, setBrowse] = useState(null); // { folders, assets } for browsePath
+  const [browseLoading, setBrowseLoading] = useState(false);
+
   const [selectedIds, setSelectedIds] = useState(() => new Set());
 
   // Review modal: { list: [asset...], index }
@@ -115,30 +122,62 @@ export default function ShadeAssets() {
     return json;
   }, []);
 
-  // ─── Search ───────────────────────────────────────────────────────────────
+  // A wrong SHADE_DRIVE_ID comes back as "Drive not found" — list what
+  // the API key can actually see so the secret can be corrected.
+  const noteShadeError = useCallback(async (err) => {
+    setSearchError(err.message);
+    if (/drive not found/i.test(err.message)) {
+      try {
+        const json = await callFn({ op: 'drives' });
+        const found = collectDrives(json);
+        const seen = new Set();
+        setDriveHelp(found.filter((d) => !seen.has(d.id) && seen.add(d.id)));
+      } catch { /* leave driveHelp null */ }
+    }
+  }, [callFn]);
+
+  // ─── Browse (default folder view) ─────────────────────────────────────────
+  const loadBrowse = useCallback(async (path) => {
+    setBrowseLoading(true);
+    setSearchError(null);
+    setDriveHelp(null);
+    try {
+      const json = await callFn({ op: 'browse', path });
+      setBrowse({ folders: json.folders || [], assets: json.assets || [] });
+    } catch (err) {
+      setBrowse({ folders: [], assets: [] });
+      await noteShadeError(err);
+    } finally {
+      setBrowseLoading(false);
+    }
+  }, [callFn, noteShadeError]);
+
+  useEffect(() => { loadBrowse('/'); }, [loadBrowse]);
+
+  // Navigating always drops back out of search results into browsing.
+  const openFolder = (path) => {
+    setAssets(null);
+    setQuery('');
+    setSelectedIds(new Set());
+    setBrowsePath(path);
+    loadBrowse(path);
+  };
+
+  // ─── Search (narrows within the browsed folder, recursive) ────────────────
   const runSearch = async (e) => {
     if (e) e.preventDefault();
     if (searching) return;
+    if (!query.trim()) { setAssets(null); setSearchError(null); return; } // empty query = back to browsing
     setSearching(true);
     setSearchError(null);
     setDriveHelp(null);
     setSelectedIds(new Set());
     try {
-      const json = await callFn({ op: 'search', query, types, limit: 100 });
+      const json = await callFn({ op: 'search', query, types, limit: 100, path: browsePath });
       setAssets(json.assets || []);
     } catch (err) {
-      setSearchError(err.message);
       setAssets([]);
-      // A wrong SHADE_DRIVE_ID comes back as "Drive not found" — list what
-      // the API key can actually see so the secret can be corrected.
-      if (/drive not found/i.test(err.message)) {
-        try {
-          const json = await callFn({ op: 'drives' });
-          const found = collectDrives(json.data);
-          const seen = new Set();
-          setDriveHelp(found.filter((d) => !seen.has(d.id) && seen.add(d.id)));
-        } catch { /* leave driveHelp null */ }
-      }
+      await noteShadeError(err);
     } finally {
       setSearching(false);
     }
@@ -156,7 +195,20 @@ export default function ShadeAssets() {
     });
   };
 
-  const selectedAssets = (assets || []).filter((a) => selectedIds.has(a.id));
+  // Type chips filter browse listings client-side (search applies them server-side).
+  const browseAssets = (browse?.assets || []).filter(
+    (a) => types.length === 0 || types.includes(String(a.type || '').toUpperCase())
+  );
+  const visibleAssets = assets !== null ? assets : browseAssets;
+  const selectedAssets = visibleAssets.filter((a) => selectedIds.has(a.id));
+
+  const crumbs = [
+    { name: 'All Assets', path: '/' },
+    ...browsePath.split('/').filter(Boolean).map((seg, i, arr) => ({
+      name: seg,
+      path: `/${arr.slice(0, i + 1).join('/')}`,
+    })),
+  ];
 
   // ─── Signed URL resolution (cached per asset) ─────────────────────────────
   const resolveAsset = useCallback(async (asset) => {
@@ -469,7 +521,7 @@ export default function ShadeAssets() {
     );
   };
 
-  const renderTable = (rows, { fromPlaylist } = {}) => (
+  const renderTable = (rows, { fromPlaylist, folders } = {}) => (
     <div style={styles.tableScroll}>
       <table style={styles.table}>
         <thead>
@@ -485,6 +537,14 @@ export default function ShadeAssets() {
           </tr>
         </thead>
         <tbody>
+          {(folders || []).map((f) => (
+            <tr key={f.path} style={styles.tr} onClick={() => openFolder(f.path)}>
+              <td style={styles.td} />
+              <td style={styles.td}><span style={{ fontSize: '18px' }}>📁</span></td>
+              <td style={{ ...styles.td, fontWeight: 600 }} colSpan={5}>{f.name}</td>
+              <td style={styles.td} />
+            </tr>
+          ))}
           {rows.map((asset, i) => (
             <tr
               key={fromPlaylist ? playlistItems[i].id : asset.id}
@@ -578,6 +638,9 @@ export default function ShadeAssets() {
             </button>
             <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', lineHeight: 1.5 }}>
               The AI index matches on visual content, transcripts, and metadata — not just filenames.
+              {browsePath !== '/' && (
+                <> Searching inside <span style={{ color: '#a5b4fc' }}>📁 {crumbs[crumbs.length - 1].name}</span> (subfolders included).</>
+              )}
             </div>
           </>
         )}
@@ -659,22 +722,68 @@ export default function ShadeAssets() {
               </div>
             )}
 
-            {assets === null && !searching && !searchError && (
-              <div style={styles.placeholder}>
-                Search the Shade drive by describing the footage, image, or file you need.
-              </div>
+            <div style={styles.crumbBar}>
+              {crumbs.map((c, i) => (
+                <React.Fragment key={c.path}>
+                  {i > 0 && <span style={styles.crumbSep}>›</span>}
+                  <button
+                    style={{
+                      ...styles.crumb,
+                      ...(i === crumbs.length - 1 && assets === null ? styles.crumbOn : null),
+                    }}
+                    onClick={() => openFolder(c.path)}
+                  >{i === 0 ? c.name : `📁 ${c.name}`}</button>
+                </React.Fragment>
+              ))}
+              {assets !== null && <span style={styles.crumbSep}>› search results</span>}
+            </div>
+
+            {/* Browsing (no search results active) */}
+            {assets === null && browseLoading && (
+              <div style={styles.placeholder}>Loading folder…</div>
             )}
+            {assets === null && !browseLoading && browse && (
+              browse.folders.length === 0 && browseAssets.length === 0 ? (
+                !searchError && <div style={styles.placeholder}>This folder is empty.</div>
+              ) : (
+                <>
+                  <div style={styles.resultsBar}>
+                    <span style={styles.resultsCount}>
+                      {browse.folders.length > 0 && `${browse.folders.length} folder${browse.folders.length === 1 ? '' : 's'}`}
+                      {browse.folders.length > 0 && browseAssets.length > 0 && ' · '}
+                      {browseAssets.length > 0 && `${browseAssets.length} file${browseAssets.length === 1 ? '' : 's'}`}
+                    </span>
+                    {browseAssets.length > 0 && (
+                      <button
+                        style={styles.chip}
+                        onClick={() => setSelectedIds(new Set(browseAssets.map((a) => a.id)))}
+                      >Select all</button>
+                    )}
+                  </div>
+                  {renderTable(browseAssets, { folders: browse.folders })}
+                </>
+              )
+            )}
+
+            {/* Search results */}
             {assets !== null && assets.length === 0 && !searching && !searchError && (
               <div style={styles.placeholder}>No assets matched. Try broader wording or fewer type filters.</div>
             )}
             {assets !== null && assets.length > 0 && (
               <>
                 <div style={styles.resultsBar}>
-                  <span style={styles.resultsCount}>{assets.length} result{assets.length === 1 ? '' : 's'}</span>
+                  <span style={styles.resultsCount}>
+                    {assets.length} result{assets.length === 1 ? '' : 's'}
+                    {browsePath !== '/' ? ` in ${crumbs[crumbs.length - 1].name}` : ''}
+                  </span>
                   <button
                     style={styles.chip}
                     onClick={() => setSelectedIds(new Set(assets.map((a) => a.id)))}
                   >Select all</button>
+                  <button
+                    style={styles.chip}
+                    onClick={() => { setAssets(null); setQuery(''); }}
+                  >✕ Clear search</button>
                 </div>
                 {renderTable(assets)}
               </>
@@ -845,6 +954,20 @@ const styles = {
     flexDirection: 'column',
   },
   resultsBar: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' },
+  crumbBar: { display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap', marginBottom: '10px' },
+  crumb: {
+    background: 'none',
+    border: 'none',
+    borderRadius: '6px',
+    color: 'rgba(255,255,255,0.55)',
+    padding: '4px 8px',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  crumbOn: { color: '#e2e8f0', background: 'rgba(255,255,255,0.05)' },
+  crumbSep: { color: 'rgba(255,255,255,0.25)', fontSize: '13px' },
   resultsCount: { fontSize: '13px', color: 'rgba(255,255,255,0.45)' },
   placeholder: {
     padding: '80px 20px',

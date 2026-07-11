@@ -3,8 +3,13 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // Shade drive proxy for the Asset Search tool (Assets view).
 // Ops (POST { op, ... }):
-//   search  { query, types?, limit?, offset? } → trimmed asset list from
-//            Shade's AI index search (POST /search)
+//   browse  { path? }                          → folders + files directly at
+//            path (GET /search/folders + POST /search/files, non-recursive),
+//            for the default folder-browsing view
+//   search  { query, types?, limit?, offset?, path? } → trimmed asset list
+//            from Shade's AI index search. With a path, scopes to that
+//            folder recursively (POST /search/files); at root uses the
+//            drive-wide POST /search
 //   resolve { asset_id, proxy_id? }            → playable/downloadable signed
 //            URL (video/audio proxy redirect, else largest preview image)
 //   fetch   { asset_id, proxy_id? }            → streams the file bytes
@@ -153,6 +158,31 @@ async function resolveUrl(apiKey: string, driveId: string, assetId: string, prox
   return withUrl[withUrl.length - 1].signed_url;
 }
 
+// /search/folders responses vary (array of path strings or of objects);
+// normalize to { path, name } sorted by name.
+function normalizeFolders(data: any): Array<{ path: string; name: string }> {
+  const raw = Array.isArray(data) ? data : data?.folders || data?.results || data?.items || [];
+  const out: Array<{ path: string; name: string }> = [];
+  const seen = new Set<string>();
+  for (const f of raw) {
+    let p: string | null = null;
+    if (typeof f === "string") p = f;
+    else if (f && typeof f === "object") p = f.path || f.full_path || f.key || null;
+    if (!p) continue;
+    p = p.replace(/\/+$/, "");
+    if (!p || seen.has(p)) continue;
+    seen.add(p);
+    const name = (f && typeof f === "object" && f.name) || p.split("/").filter(Boolean).pop() || p;
+    out.push({ path: p, name });
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
+}
+
+function extractAssetList(data: any): any[] {
+  return Array.isArray(data) ? data : data.assets || data.results || data.items || [];
+}
+
 // AssetDTO carries more than the UI needs (job states, full metadata blobs);
 // trim to what the results table, review modal, and playlist snapshot use.
 function trimAsset(a: any) {
@@ -219,21 +249,59 @@ Deno.serve(async (req: Request) => {
       return json({ drives });
     }
 
-    if (op === "search") {
-      const payload: Record<string, unknown> = {
-        limit: Math.min(parseInt(body.limit, 10) || 60, 200),
-        offset: parseInt(body.offset, 10) || 0,
-      };
-      if (body.query && String(body.query).trim()) payload.query = String(body.query).trim();
+    if (op === "browse") {
+      const path = typeof body.path === "string" && body.path.trim() ? body.path.trim() : "/";
+      const qs = `drive_id=${encodeURIComponent(driveId)}&path=${encodeURIComponent(path)}&limit=200`;
+      const [foldersResp, filesResp] = await Promise.all([
+        fetch(`${SHADE_API}/search/folders?${qs}`, { headers: { Authorization: apiKey } }),
+        fetch(`${SHADE_API}/search/files`, {
+          method: "POST",
+          headers: { Authorization: apiKey, "Content-Type": "application/json" },
+          body: JSON.stringify({ drive_id: driveId, path, recursive: false, limit: 200, offset: 0 }),
+        }),
+      ]);
+      if (!foldersResp.ok && !filesResp.ok) {
+        const errText = await filesResp.text();
+        return json({ error: `Shade browse failed: ${filesResp.status} ${errText.slice(0, 300)}` }, 502);
+      }
+      const folders = foldersResp.ok ? normalizeFolders(await foldersResp.json()) : [];
+      const assets = filesResp.ok ? extractAssetList(await filesResp.json()).map(trimAsset) : [];
+      return json({ folders, assets, path, drive_id: driveId });
+    }
 
-      const resp = await rawSearch(apiKey, driveId, payload);
+    if (op === "search") {
+      const limit = Math.min(parseInt(body.limit, 10) || 60, 200);
+      const offset = parseInt(body.offset, 10) || 0;
+      const query = body.query && String(body.query).trim() ? String(body.query).trim() : null;
+      const path = typeof body.path === "string" && body.path.trim() && body.path.trim() !== "/"
+        ? body.path.trim()
+        : null;
+
+      let resp: Response;
+      if (path) {
+        // Folder-scoped search: /search/files supports path + recursive.
+        resp = await fetch(`${SHADE_API}/search/files`, {
+          method: "POST",
+          headers: { Authorization: apiKey, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            drive_id: driveId,
+            path,
+            recursive: true,
+            limit,
+            offset,
+            ...(query ? { query } : {}),
+          }),
+        });
+      } else {
+        const payload: Record<string, unknown> = { limit, offset };
+        if (query) payload.query = query;
+        resp = await rawSearch(apiKey, driveId, payload);
+      }
       if (!resp.ok) {
         const errText = await resp.text();
         return json({ error: `Shade search failed: ${resp.status} ${errText.slice(0, 300)}` }, 502);
       }
-      const data = await resp.json();
-      const rawList = Array.isArray(data) ? data : data.assets || data.results || data.items || [];
-      let assets = rawList.map(trimAsset);
+      let assets = extractAssetList(await resp.json()).map(trimAsset);
       // Type filtering is done here rather than via Shade's filter DSL —
       // the trimmed list is small and this keeps the request shape simple.
       if (Array.isArray(body.types) && body.types.length > 0) {
