@@ -19,8 +19,16 @@ import usePersistedTab from '../../hooks/usePersistedTab';
 // Playback/previews use Shade signed URLs (fine as media src); download
 // bytes stream through the edge function because the storage host's CORS
 // isn't ours to configure.
+//
+// Upload to Drive reuses the Pitches view's plumbing: pitch-video-drive
+// lists/creates folders under the shared root, drive-upload-init opens a
+// resumable session, and the browser PUTs the bytes (fetched from Shade
+// via the edge function) straight to Drive.
 
 const FN_URL = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/shade-search`;
+const DRIVE_FN_URL = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/pitch-video-drive`;
+const UPLOAD_INIT_URL = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/drive-upload-init`;
+const DRIVE_ROOT = { id: '1evC6T-cSra_KF89QzQ0KhDeXR5a4a2g1', name: 'Pitch Videos' };
 
 const TYPE_FILTERS = [
   { key: 'VIDEO', label: 'Videos' },
@@ -52,6 +60,20 @@ function downloadName(asset) {
   const ext = asset.extension ? String(asset.extension).replace(/^\./, '') : '';
   if (ext && !name.toLowerCase().endsWith(`.${ext.toLowerCase()}`)) return `${name}.${ext}`;
   return name;
+}
+
+const MIME_BY_EXT = {
+  mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm', mkv: 'video/x-matroska',
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp',
+  mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', aac: 'audio/aac', flac: 'audio/flac',
+  pdf: 'application/pdf',
+};
+
+function assetMime(asset) {
+  const ext = String(asset.extension || downloadName(asset).split('.').pop() || '')
+    .replace(/^\./, '')
+    .toLowerCase();
+  return MIME_BY_EXT[ext] || 'application/octet-stream';
 }
 
 // Walk an arbitrary Shade drives/workspaces response and collect anything
@@ -104,6 +126,16 @@ export default function ShadeAssets() {
 
   const [batch, setBatch] = useState(null); // { done, total, failed }
   const batchCancelRef = useRef(false);
+
+  // Upload-to-Drive picker (mirrors the Pitches view's flow)
+  const [drivePicker, setDrivePicker] = useState(null); // { assets: [asset...] }
+  const [drivePath, setDrivePath] = useState([DRIVE_ROOT]); // breadcrumb
+  const [driveFolders, setDriveFolders] = useState([]);
+  const [driveLoading, setDriveLoading] = useState(false);
+  const [driveError, setDriveError] = useState(null);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [uploadState, setUploadState] = useState(null); // { done, total, failed, current }
 
   const callFn = useCallback(async (body, raw = false) => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -302,6 +334,111 @@ export default function ShadeAssets() {
     setBatch(null);
   };
 
+  // ─── Upload to Drive ──────────────────────────────────────────────────────
+  const loadDriveFolders = useCallback(async (parentId) => {
+    setDriveLoading(true);
+    setDriveError(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${DRIVE_FN_URL}?parentId=${encodeURIComponent(parentId)}`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || `Folder list failed (${res.status})`);
+      setDriveFolders(json.folders || []);
+    } catch (err) {
+      setDriveError(err.message || 'Failed to list folders');
+      setDriveFolders([]);
+    } finally {
+      setDriveLoading(false);
+    }
+  }, []);
+
+  const openDrivePicker = (targets) => {
+    if (!targets.length) return;
+    setDrivePicker({ assets: targets });
+    setDrivePath([DRIVE_ROOT]);
+    setNewFolderName('');
+    setUploadState(null);
+    setDriveError(null);
+    loadDriveFolders(DRIVE_ROOT.id);
+  };
+
+  const enterDriveFolder = (folder) => {
+    setDrivePath((p) => [...p, folder]);
+    loadDriveFolders(folder.id);
+  };
+
+  const jumpToDriveCrumb = (idx) => {
+    const next = drivePath.slice(0, idx + 1);
+    setDrivePath(next);
+    loadDriveFolders(next[next.length - 1].id);
+  };
+
+  const createDriveFolder = async () => {
+    const name = newFolderName.trim();
+    if (!name) return;
+    setCreatingFolder(true);
+    setDriveError(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const parentId = drivePath[drivePath.length - 1].id;
+      const res = await fetch(DRIVE_FN_URL, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parentId, name }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || `Create failed (${res.status})`);
+      setNewFolderName('');
+      enterDriveFolder(json.folder);
+    } catch (err) {
+      setDriveError(err.message || 'Failed to create folder');
+    } finally {
+      setCreatingFolder(false);
+    }
+  };
+
+  const uploadToDrive = async () => {
+    if (!drivePicker) return;
+    const targets = drivePicker.assets;
+    const parentFolderId = drivePath[drivePath.length - 1].id;
+    const { data: { session } } = await supabase.auth.getSession();
+    setUploadState({ done: 0, total: targets.length, failed: 0, current: '' });
+
+    for (let i = 0; i < targets.length; i++) {
+      const asset = targets[i];
+      const filename = downloadName(asset);
+      setUploadState((u) => u && ({ ...u, current: filename }));
+      try {
+        const bytes = await fetchAssetBytes(asset);
+        if (!bytes) throw new Error('no rendition');
+        const mimeType = assetMime(asset);
+
+        const initRes = await fetch(UPLOAD_INIT_URL, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename, parentFolderId, mimeType, sizeBytes: bytes.length }),
+        });
+        const initJson = await initRes.json().catch(() => ({}));
+        if (!initRes.ok || !initJson.uploadUrl) {
+          throw new Error(initJson.error || `Upload init failed (${initRes.status})`);
+        }
+
+        const putRes = await fetch(initJson.uploadUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': mimeType },
+          body: new Blob([bytes], { type: mimeType }),
+        });
+        if (!putRes.ok) throw new Error(`Drive PUT ${putRes.status}`);
+        setUploadState((u) => u && ({ ...u, done: i + 1 }));
+      } catch (err) {
+        setUploadState((u) => u && ({ ...u, done: i + 1, failed: u.failed + 1 }));
+      }
+    }
+    setUploadState((u) => u && ({ ...u, current: '' }));
+  };
+
   // ─── Playlists ────────────────────────────────────────────────────────────
   const fetchPlaylists = useCallback(async () => {
     const { data, error } = await supabase
@@ -433,6 +570,7 @@ export default function ShadeAssets() {
             </span>
             <div style={{ flex: 1 }} />
             <button style={styles.modalBtn} onClick={() => downloadAsset(modalAsset)}>Download</button>
+            <button style={styles.modalBtn} onClick={() => openDrivePicker([modalAsset])}>Upload to Drive</button>
             <button style={styles.modalClose} onClick={() => setModal(null)}>✕</button>
           </div>
           <div style={styles.modalBody}>
@@ -522,6 +660,100 @@ export default function ShadeAssets() {
     );
   };
 
+  const renderDrivePicker = () => {
+    if (!drivePicker) return null;
+    return (
+      <div style={styles.modalOverlay} onClick={() => !uploadState && setDrivePicker(null)}>
+        <div style={{ ...styles.modal, maxWidth: '520px' }} onClick={(e) => e.stopPropagation()}>
+          <div style={styles.modalHead}>
+            <span style={{ fontSize: '15px', fontWeight: 700 }}>
+              Upload {drivePicker.assets.length} asset{drivePicker.assets.length === 1 ? '' : 's'} to Drive
+            </span>
+            <div style={{ flex: 1 }} />
+            <button style={styles.modalClose} onClick={() => setDrivePicker(null)}>✕</button>
+          </div>
+
+          {uploadState ? (
+            <div style={styles.uploadStatus}>
+              {uploadState.done < uploadState.total ? (
+                <>
+                  <div style={styles.uploadBarOuter}>
+                    <div style={{ ...styles.uploadBarInner, width: `${(uploadState.done / uploadState.total) * 100}%` }} />
+                  </div>
+                  <div style={{ fontSize: '13px', color: '#a5b4fc' }}>
+                    Uploading {uploadState.done + 1}/{uploadState.total}
+                    {uploadState.failed ? ` · ${uploadState.failed} failed` : ''}
+                  </div>
+                  {uploadState.current && (
+                    <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.35)', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {uploadState.current}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: uploadState.failed ? '#fcd34d' : '#4ade80' }}>
+                    {uploadState.total - uploadState.failed}/{uploadState.total} uploaded
+                    {uploadState.failed ? ` — ${uploadState.failed} failed` : ' ✓'}
+                  </div>
+                  <button style={styles.primaryBtn} onClick={() => setDrivePicker(null)}>Done</button>
+                </>
+              )}
+            </div>
+          ) : (
+            <>
+              <div style={{ ...styles.crumbBar, padding: '12px 18px 0', marginBottom: 0 }}>
+                {drivePath.map((crumb, i) => (
+                  <React.Fragment key={crumb.id}>
+                    {i > 0 && <span style={styles.crumbSep}>/</span>}
+                    <button style={styles.crumb} onClick={() => jumpToDriveCrumb(i)}>{crumb.name}</button>
+                  </React.Fragment>
+                ))}
+              </div>
+
+              <div style={styles.folderList}>
+                {driveLoading && <div style={styles.folderEmpty}>Loading…</div>}
+                {!driveLoading && driveFolders.length === 0 && <div style={styles.folderEmpty}>No subfolders.</div>}
+                {!driveLoading && driveFolders.map((f) => (
+                  <button key={f.id} style={styles.folderItem} onClick={() => enterDriveFolder(f)}>
+                    📁 {f.name}
+                  </button>
+                ))}
+              </div>
+
+              <div style={styles.newFolderRow}>
+                <input
+                  style={{ ...styles.input, flex: 1 }}
+                  value={newFolderName}
+                  placeholder="New folder name…"
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') createDriveFolder(); }}
+                />
+                <button
+                  style={{ ...styles.primaryBtn, flex: 'none' }}
+                  onClick={createDriveFolder}
+                  disabled={creatingFolder || !newFolderName.trim()}
+                >
+                  {creatingFolder ? 'Creating…' : 'Create'}
+                </button>
+              </div>
+
+              {driveError && <div style={{ ...styles.errorMsg, padding: '0 18px', marginBottom: 0 }}>{driveError}</div>}
+
+              <div style={styles.drivePickerFooter}>
+                <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.45)' }}>
+                  Destination: {drivePath[drivePath.length - 1].name}
+                </span>
+                <div style={{ flex: 1 }} />
+                <button style={styles.primaryBtn} onClick={uploadToDrive}>Upload here</button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const renderTable = (rows, { fromPlaylist, folders } = {}) => (
     <div style={styles.tableScroll}>
       <table style={styles.table}>
@@ -534,7 +766,7 @@ export default function ShadeAssets() {
             <th style={styles.th}>Size</th>
             <th style={styles.th}>Modified</th>
             <th style={styles.th}>Path</th>
-            <th style={{ ...styles.th, width: '70px' }} />
+            <th style={{ ...styles.th, width: '100px' }} />
           </tr>
         </thead>
         <tbody>
@@ -569,6 +801,11 @@ export default function ShadeAssets() {
               <td style={{ ...styles.td, maxWidth: '260px', overflow: 'hidden', textOverflow: 'ellipsis', color: 'rgba(255,255,255,0.35)' }}>{asset.path}</td>
               <td style={styles.td} onClick={(e) => e.stopPropagation()}>
                 <button style={styles.rowBtn} title="Download" onClick={() => downloadAsset(asset)}>↓</button>
+                <button
+                  style={{ ...styles.rowBtn, marginLeft: '4px' }}
+                  title="Upload to Drive"
+                  onClick={() => openDrivePicker([asset])}
+                >↑</button>
                 {fromPlaylist && (
                   <button
                     style={{ ...styles.rowBtn, color: '#f87171', marginLeft: '4px' }}
@@ -719,6 +956,7 @@ export default function ShadeAssets() {
                 <button style={styles.batchBtn} onClick={() => runBatchDownload(selectedAssets)} disabled={!!batch}>
                   Download{selectedIds.size > 1 ? ' (.zip)' : ''}
                 </button>
+                <button style={styles.batchBtn} onClick={() => openDrivePicker(selectedAssets)}>Upload to Drive</button>
                 <button style={{ ...styles.chip, marginLeft: '2px' }} onClick={() => setSelectedIds(new Set())}>Clear</button>
               </div>
             )}
@@ -811,6 +1049,7 @@ export default function ShadeAssets() {
                   <button style={styles.batchBtn} onClick={() => runBatchDownload(playlistAssets)} disabled={!!batch}>
                     Download all{playlistItems.length > 1 ? ' (.zip)' : ''}
                   </button>
+                  <button style={styles.batchBtn} onClick={() => openDrivePicker(playlistAssets)}>Upload all to Drive</button>
                 </div>
                 {renderTable(playlistAssets, { fromPlaylist: true })}
               </>
@@ -821,6 +1060,7 @@ export default function ShadeAssets() {
 
       {renderModal()}
       {renderAddPicker()}
+      {renderDrivePicker()}
     </>
   );
 }
@@ -1086,6 +1326,68 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     cursor: 'pointer',
+  },
+  folderList: {
+    margin: '10px 18px 0',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '10px',
+    minHeight: '160px',
+    maxHeight: '260px',
+    overflowY: 'auto',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '2px',
+    padding: '6px',
+  },
+  folderItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    background: 'none',
+    border: 'none',
+    borderRadius: '8px',
+    color: '#e2e8f0',
+    padding: '8px 10px',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    textAlign: 'left',
+  },
+  folderEmpty: {
+    color: 'rgba(255,255,255,0.3)',
+    fontSize: '13px',
+    textAlign: 'center',
+    padding: '30px 10px',
+  },
+  newFolderRow: { display: 'flex', gap: '6px', padding: '10px 18px 0' },
+  drivePickerFooter: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    padding: '14px 18px',
+    marginTop: '12px',
+    borderTop: '1px solid rgba(255,255,255,0.06)',
+  },
+  uploadStatus: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '10px',
+    padding: '34px 24px',
+  },
+  uploadBarOuter: {
+    width: '100%',
+    height: '8px',
+    background: 'rgba(255,255,255,0.06)',
+    borderRadius: '999px',
+    overflow: 'hidden',
+  },
+  uploadBarInner: {
+    height: '100%',
+    background: '#6366f1',
+    borderRadius: '999px',
+    transition: 'width 0.3s',
   },
   pickerRow: {
     display: 'flex',

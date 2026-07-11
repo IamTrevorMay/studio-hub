@@ -734,6 +734,9 @@ export default function PitchVideos({ onBack }) {
   }
 
   function renderPlaylistView() {
+    const playlistClips = playlistItems.map((it) => it.clip).filter(Boolean);
+    // Drive uploads pull from video_url directly, so only archived clips qualify.
+    const playlistArchived = playlistClips.filter((c) => c.video_url);
     return (
       <>
         {/* ── Left: playlist info column (replaces filters) ── */}
@@ -758,6 +761,31 @@ export default function PitchVideos({ onBack }) {
                 <button style={styles.plMgmtBtn} onClick={() => renamePlaylist(activePlaylist.id)}>Rename</button>
                 <button style={{ ...styles.plMgmtBtn, color: '#fca5a5' }} onClick={() => deletePlaylist(activePlaylist.id)}>Delete</button>
               </div>
+            )}
+            {playlistClips.length > 0 && (
+              <div style={styles.pairRow}>
+                <button style={styles.plMgmtBtn} onClick={() => runBatchDownload(playlistClips)} disabled={!!batch}>
+                  Download{playlistClips.length > 1 ? ' (.zip)' : ''}
+                </button>
+                <button
+                  style={{ ...styles.plMgmtBtn, ...(playlistArchived.length === 0 ? { opacity: 0.4, cursor: 'default' } : null) }}
+                  title={playlistArchived.length === 0
+                    ? 'No archived clips in this playlist — unarchived pitches upload via Savant only'
+                    : `Upload ${playlistArchived.length} archived clip${playlistArchived.length === 1 ? '' : 's'} to Drive`}
+                  onClick={() => playlistArchived.length > 0 && openDrivePicker(playlistArchived)}
+                >
+                  Upload to Drive
+                </button>
+              </div>
+            )}
+            {batch && (
+              <span style={styles.batchProgress}>
+                Downloading {batch.done}/{batch.total}{batch.failed ? ` (${batch.failed} failed)` : ''}
+                <button
+                  style={{ ...styles.plMgmtBtn, flex: 'none', padding: '2px 8px', marginLeft: '8px' }}
+                  onClick={() => { batchCancelRef.current = true; }}
+                >Cancel</button>
+              </span>
             )}
           </div>
 

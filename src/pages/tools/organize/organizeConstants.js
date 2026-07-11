@@ -9,14 +9,14 @@ export const SUBTYPE_MAP = {
 };
 
 export const SUPPORTED_EXTENSIONS = new Set([
-  'png', 'jpg', 'jpeg', 'avif',
-  'mov', 'mp4',
+  'png', 'jpg', 'jpeg', 'avif', 'webp',
+  'mov', 'mp4', 'qt',
   'wav', 'mp3',
 ]);
 
-export const VIDEO_EXTENSIONS = new Set(['mov', 'mp4']);
+export const VIDEO_EXTENSIONS = new Set(['mov', 'mp4', 'qt']);
 export const AUDIO_EXTENSIONS = new Set(['wav', 'mp3']);
-export const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'avif']);
+export const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'avif', 'webp']);
 
 export function getFileExtension(name) {
   return (name.split('.').pop() || '').toLowerCase();

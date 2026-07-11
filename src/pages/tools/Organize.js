@@ -565,7 +565,7 @@ export default function Organize({ onBack }) {
         <div style={styles.emptyState}>
           <h3 style={styles.emptyTitle}>No Media Files Found</h3>
           <p style={styles.emptyText}>
-            No supported files (png, jpg, avif, mov, mp4, wav, mp3) were found in the selected folder.
+            No supported files (png, jpg, avif, webp, mov, mp4, qt, wav, mp3) were found in the selected folder.
           </p>
         </div>
       )}
