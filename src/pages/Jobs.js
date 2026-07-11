@@ -69,7 +69,16 @@ export default function Jobs({ initialApplicationId, onApplicationOpened }) {
     <div style={st.page}>
       {toast && <div style={{ ...st.toast, background: toast.type === 'error' ? '#dc2626' : '#16a34a' }}>{toast.message}</div>}
 
-      <h1 style={st.h1}>Jobs</h1>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <h1 style={st.h1}>Jobs</h1>
+        <button
+          style={{ ...st.smallBtn, marginBottom: 16 }}
+          title="Open the live public careers page in a new tab"
+          onClick={() => window.open('/careers', '_blank', 'noopener')}
+        >
+          Preview Public Page ↗
+        </button>
+      </div>
       <div style={st.tabs}>
         <Tab on={tab === 'listings'} onClick={() => setTab('listings')}>Listings {counts.open ? <Badge>{counts.open} open</Badge> : null}</Tab>
         <Tab on={tab === 'applications'} onClick={() => setTab('applications')}>Applications {counts.newApps ? <Badge>{counts.newApps} new</Badge> : null}</Tab>
