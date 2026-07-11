@@ -110,7 +110,11 @@ Deno.serve(async (req: Request) => {
     }
 
     const apiKey = Deno.env.get("SHADE_API_KEY");
-    const driveId = Deno.env.get("SHADE_DRIVE_ID");
+    // Tolerate a pasted label around the id ("Mayday Media — <uuid>") —
+    // Shade's API 422s on anything that isn't a bare UUID.
+    const driveId = (Deno.env.get("SHADE_DRIVE_ID") || "").match(
+      /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/
+    )?.[0];
     if (!apiKey || !driveId) {
       return json({ error: "Shade integration not configured (SHADE_API_KEY / SHADE_DRIVE_ID)" }, 503);
     }
