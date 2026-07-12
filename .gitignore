@@ -9,5 +9,6 @@ supabase/.temp
 api/.env
 google-drive-account.json
 *-service-account.json
-.claude/
+.claude/*
+!.claude/agents/
 .env*
