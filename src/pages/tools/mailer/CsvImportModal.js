@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { supabase } from '../../../supabaseClient';
+import backdropDismiss from '../../../lib/backdropDismiss';
 
 // CSV → mailer_subscribers (+ optional audience attach).
 // Header row required. Recognized columns: email (required), name,
@@ -112,7 +113,7 @@ export default function CsvImportModal({ open, onClose, audiences, onImported })
 
   if (!open) return null;
   return (
-    <div style={styles.overlay} onClick={onClose}>
+    <div style={styles.overlay} {...backdropDismiss(onClose)}>
       <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
         <div style={styles.header}>
           <h2 style={styles.title}>Import subscribers from CSV</h2>

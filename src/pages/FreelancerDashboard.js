@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import useRealtimeTable from '../hooks/useRealtimeTable';
 import { logUploadError } from '../lib/uploadErrors';
+import backdropDismiss from '../lib/backdropDismiss';
 
 const SUBMISSIONS_FOLDER_ID = '1r1dENUCjNSs57MjidYbE2rWrbMKXpLM0';
 
@@ -925,7 +926,7 @@ export default function FreelancerDashboard({ onNavigate }) {
 
       {/* Hours Modal */}
       {completeConfirmAssignment && (
-        <div style={styles.modalOverlay} onClick={() => setCompleteConfirmAssignment(null)}>
+        <div style={styles.modalOverlay} {...backdropDismiss(() => setCompleteConfirmAssignment(null))}>
           <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
             <h3 style={styles.modalTitle}>Mark Complete</h3>
             <p style={styles.modalSubtitle}>Are you sure you want to mark "{completeConfirmAssignment.title}" as complete?</p>
@@ -953,7 +954,7 @@ export default function FreelancerDashboard({ onNavigate }) {
       )}
 
       {hoursModalAssignment && (
-        <div style={styles.modalOverlay} onClick={() => setHoursModalAssignment(null)}>
+        <div style={styles.modalOverlay} {...backdropDismiss(() => setHoursModalAssignment(null))}>
           <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
             <h3 style={styles.modalTitle}>Report Hours</h3>
             <p style={styles.modalSubtitle}>{hoursModalAssignment.title}</p>
@@ -1072,7 +1073,7 @@ function AssignmentSubmitModal({ assignment, folderId, onUploadSuccess, onClose 
   }
 
   return (
-    <div style={submitStyles.overlay} onClick={onClose}>
+    <div style={submitStyles.overlay} {...backdropDismiss(onClose)}>
       <div style={submitStyles.modal} onClick={e => e.stopPropagation()}>
         <div style={submitStyles.header}>
           <span style={submitStyles.title}>Submit — {assignment.title}</span>

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { colors, spacing, radii, fontSizes, fontWeights, shadows, zIndex } from '../../../lib/styleTokens';
+import backdropDismiss from '../../../lib/backdropDismiss';
 
 // Modal UI for connecting to a local OBS Studio instance. Lets the user
 // pick scene + start/stop streaming. Connection state lives in useObs.
@@ -36,7 +37,7 @@ export default function OBSSettings({ obs, onClose }) {
   }
 
   return (
-    <div style={styles.backdrop} onClick={onClose}>
+    <div style={styles.backdrop} {...backdropDismiss(onClose)}>
       <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
         <div style={styles.title}>OBS WebSocket</div>
 

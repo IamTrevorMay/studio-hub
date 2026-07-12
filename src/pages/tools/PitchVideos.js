@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import usePersistedTab from '../../hooks/usePersistedTab';
 import PlayerSearchField from './graphics/PlayerSearchField';
 import ShadeAssets from './ShadeAssets';
+import backdropDismiss from '../../lib/backdropDismiss';
 
 // Asset Search — two sections behind header tabs: Pitches (this file's
 // search below) and Assets (ShadeAssets.js, AI search over the Shade drive).
@@ -1183,7 +1184,7 @@ export default function PitchVideos({ onBack }) {
 
       {/* ── Review modal ── */}
       {modal && modalClip && (
-        <div style={styles.modalBackdrop} onClick={() => setModal(null)}>
+        <div style={styles.modalBackdrop} {...backdropDismiss(() => setModal(null))}>
           <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
               <div style={styles.modalTitle}>
@@ -1236,7 +1237,7 @@ export default function PitchVideos({ onBack }) {
 
       {/* ── Add-to-playlist picker modal ── */}
       {addPicker && (
-        <div style={styles.modalBackdrop} onClick={() => !addBusy && setAddPicker(null)}>
+        <div style={styles.modalBackdrop} {...backdropDismiss(() => !addBusy && setAddPicker(null))}>
           <div style={{ ...styles.modalCard, width: '420px' }} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
               <div style={styles.modalTitle}>
@@ -1289,7 +1290,7 @@ export default function PitchVideos({ onBack }) {
 
       {/* ── Drive picker modal ── */}
       {drivePicker && (
-        <div style={styles.modalBackdrop} onClick={() => !uploadState && setDrivePicker(null)}>
+        <div style={styles.modalBackdrop} {...backdropDismiss(() => !uploadState && setDrivePicker(null))}>
           <div style={{ ...styles.modalCard, width: '520px' }} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
               <div style={styles.modalTitle}>

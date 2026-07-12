@@ -1,12 +1,13 @@
 import React from 'react';
 import { getMediaCategory } from './organizeConstants';
+import backdropDismiss from '../../../lib/backdropDismiss';
 
 export default function MediaPreview({ file, onClose }) {
   if (!file) return null;
   const category = getMediaCategory(file.ext);
 
   return (
-    <div style={styles.overlay} onClick={onClose}>
+    <div style={styles.overlay} {...backdropDismiss(onClose)}>
       <div style={styles.modal} onClick={e => e.stopPropagation()}>
         <button style={styles.closeBtn} onClick={onClose}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

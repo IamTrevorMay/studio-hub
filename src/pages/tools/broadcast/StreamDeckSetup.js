@@ -1,12 +1,13 @@
 import React from 'react';
 import { colors, spacing, radii, fontSizes, fontWeights, shadows, zIndex } from '../../../lib/styleTokens';
+import backdropDismiss from '../../../lib/backdropDismiss';
 
 // Lightweight setup card / modal for the StreamDeck WebHID flow. Shows
 // supported state, prompts for device picker, lets user disconnect.
 
 export default function StreamDeckSetup({ deck, onClose }) {
   return (
-    <div style={styles.backdrop} onClick={onClose}>
+    <div style={styles.backdrop} {...backdropDismiss(onClose)}>
       <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
         <div style={styles.title}>StreamDeck</div>
         {!deck.supported && (

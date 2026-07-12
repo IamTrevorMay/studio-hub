@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
+import backdropDismiss from '../lib/backdropDismiss';
 
 export default function FreelancerDocuments() {
   const { user } = useAuth();
@@ -151,7 +152,7 @@ export default function FreelancerDocuments() {
 
       {/* Signing Modal */}
       {signingDoc && (
-        <div style={styles.overlay} onClick={closeModal}>
+        <div style={styles.overlay} {...backdropDismiss(closeModal)}>
           <div style={styles.modal} onClick={e => e.stopPropagation()}>
             <div style={styles.modalHeader}>
               <h2 style={styles.modalTitle}>{signingDoc.title}</h2>

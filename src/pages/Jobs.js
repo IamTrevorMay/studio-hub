@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { fetchAllRows } from './analytics/utils';
 import { StructuredDescription, TYPE_LABEL, MODE_LABEL, Field, publicStyles } from './public/PublicCareers';
 import usePersistedTab from '../hooks/usePersistedTab';
+import backdropDismiss from '../lib/backdropDismiss';
 
 // Admin-only Jobs page: manage public listings, review applications, and run
 // onboarding for accepted hires. Public board + edge functions live elsewhere.
@@ -222,7 +223,7 @@ function ListingPreviewModal({ listing, onClose }) {
   const structured = parseStructured(listing.description);
   const questions = Array.isArray(listing.screening_questions) ? listing.screening_questions : [];
   return (
-    <div style={st.previewOverlay} onClick={onClose}>
+    <div style={st.previewOverlay} {...backdropDismiss(onClose)}>
       <div style={st.previewShell} onClick={e => e.stopPropagation()}>
         <div style={st.previewBar}>
           <span style={st.previewBarLabel}>Preview — how this listing appears on the public careers page</span>
@@ -385,7 +386,7 @@ function ListingModal({ listing, onClose, onSaved, showToast }) {
   };
 
   return (
-    <div style={st.overlay} onClick={onClose}>
+    <div style={st.overlay} {...backdropDismiss(onClose)}>
       <div style={st.modal} onClick={e => e.stopPropagation()}>
         <h3 style={st.modalTitle}>{listing.id ? 'Edit listing' : 'New listing'}</h3>
         <L label="Title"><input style={st.input} value={f.title} onChange={e => set('title', e.target.value)} /></L>
@@ -607,7 +608,7 @@ function ApplicationDrawer({ app, onClose, onReview, showToast, onChange }) {
   const terminal = app.status === 'accepted' || app.status === 'declined';
 
   return (
-    <div style={st.overlay} onClick={onClose}>
+    <div style={st.overlay} {...backdropDismiss(onClose)}>
       <div style={st.drawer} onClick={e => e.stopPropagation()}>
         <div style={st.drawerHead}>
           <div>

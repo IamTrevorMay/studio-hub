@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAuth } from '../../../contexts/AuthContext';
+import backdropDismiss from '../../../lib/backdropDismiss';
 
 function escapeHtml(text) {
   const el = document.createElement('span');
@@ -181,7 +182,7 @@ export default function ScriptEditor({ script, onChange, onClose }) {
   };
 
   return (
-    <div style={styles.overlay} onClick={onClose}>
+    <div style={styles.overlay} {...backdropDismiss(onClose)}>
       <div style={styles.panel} onClick={e => e.stopPropagation()}>
         <div style={styles.header}>
           <span style={styles.title}>Edit Script</span>

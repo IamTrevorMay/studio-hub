@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { mobileTokens, mobileTapButton } from '../../utils/mobileTokens';
 import { getDisplayName, getDisplayInitial } from '../../lib/displayName';
+import backdropDismiss from '../../lib/backdropDismiss';
 
 // Slide-in drawer with the full nav (already filtered for mobile by the caller),
 // plus user info + sign out at the bottom.
@@ -80,7 +81,7 @@ export default function MobileDrawer({
   });
 
   return (
-    <div style={styles.backdrop} onClick={onClose}>
+    <div style={styles.backdrop} {...backdropDismiss(onClose)}>
       <aside style={styles.drawer} onClick={(e) => e.stopPropagation()}>
         <div style={{ ...styles.logoArea, paddingTop: `calc(${mobileTokens.space.lg}px + ${mobileTokens.safeTop})` }}>
           <img src="/logo.png" alt="Mayday Studio" width="28" height="28" />

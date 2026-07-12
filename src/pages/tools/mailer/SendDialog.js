@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { Send, Beaker, X } from 'lucide-react';
+import backdropDismiss from '../../../lib/backdropDismiss';
 
 // Send dialog. Two modes:
 //   - Test send → calls mailer-send-now w/ { test_recipients }.
@@ -40,7 +41,7 @@ export default function SendDialog({ campaign, audience, onClose, onSent }) {
   }
 
   return (
-    <div style={styles.overlay} onClick={onClose}>
+    <div style={styles.overlay} {...backdropDismiss(onClose)}>
       <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
         <div style={styles.header}>
           <span style={styles.title}>Send "{campaign.name}"</span>

@@ -21,6 +21,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../supabaseClient';
+import backdropDismiss from '../lib/backdropDismiss';
 
 // ═══════════════════════════════════════════════════════════════════
 // Scoring config
@@ -621,7 +622,7 @@ function RankedTable({ videos, onSelect }) {
 function DetailPanel({ video, onClose }) {
   const hint = nextActionHint(video);
   return (
-    <div style={S.modalBackdrop} onClick={onClose}>
+    <div style={S.modalBackdrop} {...backdropDismiss(onClose)}>
       <div style={S.modal} onClick={e => e.stopPropagation()}>
         <div style={S.modalHeader}>
           <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>

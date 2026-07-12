@@ -4,6 +4,7 @@ import { tritonSupabase } from '../tritonClient';
 import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import usePersistedTab from '../hooks/usePersistedTab';
+import backdropDismiss from '../lib/backdropDismiss';
 import DOMPurify from 'dompurify';
 
 
@@ -876,7 +877,7 @@ export default function Research() {
               {selectedGraphic && (
                 <div
                   style={s.dailyLightbox}
-                  onClick={() => setSelectedGraphic(null)}
+                  {...backdropDismiss(() => setSelectedGraphic(null))}
                 >
                   <div style={s.dailyLightboxInner} onClick={e => e.stopPropagation()}>
                     <button onClick={() => setSelectedGraphic(null)} style={s.dailyLightboxClose}>

@@ -8,6 +8,7 @@ import CsvImportModal from './mailer/CsvImportModal';
 import CampaignStats from './mailer/CampaignStats';
 import SettingsPane from './mailer/SettingsPane';
 import SendDialog from './mailer/SendDialog';
+import backdropDismiss from '../../lib/backdropDismiss';
 
 // Mailer — admin-only newsletter tool.
 //
@@ -236,7 +237,7 @@ function CampaignEditor({ campaign, audiences, onClose, onSaved }) {
   }
 
   return (
-    <div style={styles.overlay} onClick={onClose}>
+    <div style={styles.overlay} {...backdropDismiss(onClose)}>
       <div style={{ ...styles.modal, width: 'min(1100px, 96vw)', height: 'min(820px, 92vh)' }} onClick={(e) => e.stopPropagation()}>
         <div style={styles.modalHeader}>
           <h2 style={styles.modalTitle}>

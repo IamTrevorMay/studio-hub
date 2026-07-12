@@ -5,6 +5,7 @@ import SprintBoardMobile from '../components/SprintBoardMobile';
 import NotificationSettings from '../components/NotificationSettings';
 import MyTasks from './MyTasks';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
+import backdropDismiss from '../lib/backdropDismiss';
 
 const EVENT_TYPE_COLORS = {
   deadline: '#ef4444', meeting: '#3b82f6', live_recording: '#22c55e',
@@ -66,7 +67,7 @@ export default function DashboardMobile({ onNavigate }) {
       </header>
 
       {showSettings && (
-        <div style={styles.settingsOverlay} onClick={(e) => { if (e.target === e.currentTarget) setShowSettings(false); }}>
+        <div style={styles.settingsOverlay} {...backdropDismiss(() => setShowSettings(false))}>
           <div style={styles.settingsSheet}>
             <div style={styles.settingsSheetHeader}>
               <div style={styles.settingsSheetTitle}>Notifications</div>

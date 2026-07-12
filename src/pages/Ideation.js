@@ -11,6 +11,7 @@ import StickyBoard from './editors/StickyBoard';
 import DocEditor from './editors/DocEditor';
 import Storyboard from './editors/Storyboard';
 import ScriptEditor from './editors/screenplay-editor/components/editor/ScriptEditor';
+import backdropDismiss from '../lib/backdropDismiss';
 
 const CONCEPT_COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#22c55e', '#3b82f6', '#ef4444', '#14b8a6'];
 const CONCEPT_CATEGORIES = [
@@ -689,7 +690,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
 
       {/* Edit Concept Modal */}
       {editingConcept && (
-        <div style={styles.modalOverlay} onClick={() => setEditingConcept(null)}>
+        <div style={styles.modalOverlay} {...backdropDismiss(() => setEditingConcept(null))}>
           <form onSubmit={handleEditConcept} style={styles.editModal} onClick={(e) => e.stopPropagation()}>
             <div style={styles.editModalHeader}>
               <h2 style={styles.editModalTitle}>Edit Concept</h2>
@@ -742,7 +743,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
 
       {/* Merge Concept Modal */}
       {mergingConcept && (
-        <div style={styles.modalOverlay} onClick={() => setMergingConcept(null)}>
+        <div style={styles.modalOverlay} {...backdropDismiss(() => setMergingConcept(null))}>
           <div style={styles.editModal} onClick={(e) => e.stopPropagation()}>
             <div style={styles.editModalHeader}>
               <h2 style={styles.editModalTitle}>Merge "{mergingConcept.name}" into...</h2>

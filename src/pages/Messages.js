@@ -6,6 +6,7 @@ import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { ReactionChips, ReactionBar, toggleReaction } from '../components/MessageReactions';
+import backdropDismiss from '../lib/backdropDismiss';
 
 
 // A conversation is unread when its latest message came from someone else and
@@ -801,7 +802,7 @@ export default function Messages({ onNavigate }) {
       )}
 
       {renamingConvo && (
-        <div style={styles.modalOverlay} onClick={() => setRenamingConvo(null)}>
+        <div style={styles.modalOverlay} {...backdropDismiss(() => setRenamingConvo(null))}>
           <form style={styles.renameModal} onClick={(e) => e.stopPropagation()} onSubmit={handleRenameSubmit}>
             <h3 style={styles.renameTitle}>Rename group</h3>
             <input
@@ -842,6 +843,18 @@ function DmMessage({ msg, isOwn, showAvatar, formatContent, formatTime, onEdit, 
   const [editContent, setEditContent] = useState(msg.content);
   const menuRef = useRef(null);
   const editInputRef = useRef(null);
+
+  // The ⋯ menu renders position: fixed so the scrollable message list can't
+  // clip it; anchored to the button, flipping above near the viewport bottom.
+  const [menuPos, setMenuPos] = useState({});
+  const openMenuAt = (el) => {
+    const r = el.getBoundingClientRect();
+    const openUp = window.innerHeight - r.bottom < 170;
+    setMenuPos({
+      right: window.innerWidth - r.right,
+      ...(openUp ? { bottom: window.innerHeight - r.top + 2 } : { top: r.bottom + 2 }),
+    });
+  };
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -933,14 +946,14 @@ function DmMessage({ msg, isOwn, showAvatar, formatContent, formatTime, onEdit, 
       {isOwn && !editing && (
         <div style={{ position: 'relative', alignSelf: 'center', flexShrink: 0 }}>
           <button
-            onClick={(e) => { e.stopPropagation(); setMenuOpen(o => !o); }}
+            onClick={(e) => { e.stopPropagation(); if (!menuOpen) openMenuAt(e.currentTarget); setMenuOpen(o => !o); }}
             style={{ ...styles.msgMenuBtn, opacity: hovered || menuOpen ? 0.7 : 0 }}
             title="More options"
           >
             ⋯
           </button>
           {menuOpen && (
-            <div ref={menuRef} style={styles.msgMenuDropdown}>
+            <div ref={menuRef} style={{ ...styles.msgMenuDropdown, position: 'fixed', top: menuPos.top, bottom: menuPos.bottom, right: menuPos.right, marginTop: 0 }}>
               <button onClick={handleReply} style={styles.msgMenuItem}>Reply</button>
               <button onClick={handleStartEdit} style={styles.msgMenuItem}>Edit</button>
               <button onClick={handleCopy} style={styles.msgMenuItem}>Copy</button>

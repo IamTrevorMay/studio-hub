@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { mobileTokens, mobileTapButton } from '../../utils/mobileTokens';
+import backdropDismiss from '../../lib/backdropDismiss';
 
 // Lightweight bottom sheet for short content (confirms, quick edit forms,
 // notification panel). Long forms/detail views should use FullScreenSheet.
@@ -51,7 +52,7 @@ export default function BottomSheet({ open, onClose, title, children, maxHeight 
   }
 
   return (
-    <div style={styles.backdrop} onClick={onClose}>
+    <div style={styles.backdrop} {...backdropDismiss(onClose)}>
       <div
         ref={sheetRef}
         style={{

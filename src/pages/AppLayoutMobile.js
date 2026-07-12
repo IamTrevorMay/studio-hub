@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { logUploadError } from '../lib/uploadErrors';
+import backdropDismiss from '../lib/backdropDismiss';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import useNavConfig from '../hooks/useNavConfig';
@@ -541,7 +542,7 @@ function SubmitModalMobile({ onClose }) {
   }
 
   return (
-    <div style={submitStyles.overlay} onClick={onClose}>
+    <div style={submitStyles.overlay} {...backdropDismiss(onClose)}>
       <div style={submitStyles.modal} onClick={e => e.stopPropagation()}>
         <div style={submitStyles.header}>
           <span style={submitStyles.title}>Submit Deliverable</span>

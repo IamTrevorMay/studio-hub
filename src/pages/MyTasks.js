@@ -6,6 +6,7 @@ import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { getStepAction } from '../lib/workflowSteps';
 import { getWorkflowModal } from '../lib/workflowModals';
 import ResearchScopeModal from '../components/ResearchScopeModal';
+import backdropDismiss from '../lib/backdropDismiss';
 
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL || '';
 
@@ -1115,7 +1116,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
 
       {/* Hold modal */}
       {holdModalTask && (
-        <div style={styles.modalOverlay} onClick={() => { setHoldModalTask(null); setHoldReason(''); }}>
+        <div style={styles.modalOverlay} {...backdropDismiss(() => { setHoldModalTask(null); setHoldReason(''); })}>
           <div style={styles.modal} onClick={e => e.stopPropagation()}>
             <h3 style={styles.modalTitle}>Put task on hold</h3>
             <p style={styles.modalSubtitle}>{holdModalTask.title}</p>
@@ -1148,7 +1149,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
 
       {/* Decline modal */}
       {declineModalTask && (
-        <div style={styles.modalOverlay} onClick={() => { setDeclineModalTask(null); setDeclineReason(''); }}>
+        <div style={styles.modalOverlay} {...backdropDismiss(() => { setDeclineModalTask(null); setDeclineReason(''); })}>
           <div style={styles.modal} onClick={e => e.stopPropagation()}>
             <h3 style={styles.modalTitle}>Decline this task?</h3>
             <p style={styles.modalSubtitle}>{declineModalTask.title}</p>
@@ -1206,7 +1207,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
 
       {/* Confirm complete dialog */}
       {confirmTask && (
-        <div style={styles.modalOverlay} onClick={() => setConfirmTask(null)}>
+        <div style={styles.modalOverlay} {...backdropDismiss(() => setConfirmTask(null))}>
           <div style={styles.modal} onClick={e => e.stopPropagation()}>
             <h3 style={styles.modalTitle}>Complete this task?</h3>
             <p style={styles.modalSubtitle}>{confirmTask.title}</p>

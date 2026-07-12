@@ -8,6 +8,7 @@ import { supabase } from '../../supabaseClient';
 import { WORKFLOWS_CREATION_DISABLED } from '../../lib/workflowApi';
 import ProgressTable from '../../components/workflows/ProgressTable';
 import TaskEditModal from '../../components/TaskEditModal';
+import backdropDismiss from '../../lib/backdropDismiss';
 
 // ─── Constants ───────────────────────────────────────────────
 
@@ -89,6 +90,22 @@ function AssigneeChips({ value, profiles, onChange, placeholder = 'Add assignee�
   const remove = (id) => onChange((value || []).filter((v) => v !== id));
   const add = (id) => { onChange([...(value || []), id]); setQ(''); };
 
+  // The menu renders position: fixed so the modal's overflowY:auto can't
+  // clip it; anchored to the field, flipping above near the viewport bottom.
+  const [menuPos, setMenuPos] = useState({});
+  const toggleMenu = () => {
+    if (!open && ref.current) {
+      const r = ref.current.getBoundingClientRect();
+      const openUp = window.innerHeight - r.bottom < 260;
+      setMenuPos({
+        left: r.left,
+        width: r.width,
+        ...(openUp ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 }),
+      });
+    }
+    setOpen((v) => !v);
+  };
+
   return (
     <div ref={ref} style={{ position: 'relative', width: '100%' }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center', marginTop: 4 }}>
@@ -98,12 +115,12 @@ function AssigneeChips({ value, profiles, onChange, placeholder = 'Add assignee�
             <button onClick={() => remove(p.id)} style={styles.chipX}>×</button>
           </span>
         ))}
-        <button onClick={() => setOpen((v) => !v)} style={styles.addChipBtn}>
+        <button onClick={toggleMenu} style={styles.addChipBtn}>
           {selected.length === 0 ? placeholder : '+'}
         </button>
       </div>
       {open && (
-        <div style={styles.chipMenu}>
+        <div style={{ ...styles.chipMenu, position: 'fixed', top: menuPos.top, bottom: menuPos.bottom, left: menuPos.left, right: 'auto', width: menuPos.width, marginTop: 0 }}>
           <input
             autoFocus
             placeholder="Search…"
@@ -272,7 +289,7 @@ function CardModal({ card, columns, profiles, signOffData, onClose, onSave, onDe
   const totalCount = currentSignOffs.length;
 
   return (
-    <div style={styles.modalOverlay} onClick={onClose}>
+    <div style={styles.modalOverlay} {...backdropDismiss(onClose)}>
       <div style={{ ...styles.modal, maxHeight: '85vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <h3 style={{ fontSize: 16, fontWeight: 700, color: '#ffffff', margin: 0 }}>Card</h3>
@@ -394,7 +411,7 @@ function CardModal({ card, columns, profiles, signOffData, onClose, onSave, onDe
 
         {/* Reassign confirmation */}
         {confirmReassign && (
-          <div style={styles.modalOverlay} onClick={() => setConfirmReassign(null)}>
+          <div style={styles.modalOverlay} {...backdropDismiss(() => setConfirmReassign(null))}>
             <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
               <h3 style={{ fontSize: 16, fontWeight: 700, color: '#ffffff', margin: '0 0 8px' }}>Reassign active task?</h3>
               <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', margin: '0 0 16px' }}>
@@ -1162,7 +1179,7 @@ export default function KanbanPanel({ boardId, onBack, showToast }) {
 
       {/* New card modal */}
       {showNewCard && (
-        <div style={styles.modalOverlay} onClick={() => setShowNewCard(false)}>
+        <div style={styles.modalOverlay} {...backdropDismiss(() => setShowNewCard(false))}>
           <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ fontSize: 16, color: '#ffffff', margin: '0 0 16px' }}>New Card</h3>
             <input

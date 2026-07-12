@@ -315,6 +315,16 @@ export default function Calendar({ onNavigate }) {
       width: r.width,
     });
   };
+  // Same fixed-position escape for the "+ Assign Deliverable" dropdown,
+  // which otherwise gets clipped by the event modal's overflow:auto.
+  const [deliverableDropdownPos, setDeliverableDropdownPos] = useState({ top: 0, left: 0 });
+  const openDeliverableDropdownAt = (el) => {
+    const r = el.getBoundingClientRect();
+    setDeliverableDropdownPos({
+      top: Math.min(r.bottom + 4, window.innerHeight - 208),
+      left: Math.min(r.left, window.innerWidth - 268),
+    });
+  };
   const [expandedSocialDays, setExpandedSocialDays] = useState({});
   const [showCustomRecurrence, setShowCustomRecurrence] = useState(false);
   const [recurrencePrompt, setRecurrencePrompt] = useState(null); // { action: 'edit'|'delete', event }
@@ -2069,13 +2079,13 @@ export default function Calendar({ onNavigate }) {
                   {isAdmin && (
                     <div ref={deliverableDropdownRef} style={{ position: 'relative', marginTop: '4px' }}>
                       <button
-                        onClick={() => setShowDeliverableDropdown(v => !v)}
+                        onClick={(e) => { if (!showDeliverableDropdown) openDeliverableDropdownAt(e.currentTarget); setShowDeliverableDropdown(v => !v); }}
                         style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: '6px', color: '#6ee7b7', fontSize: '12px', fontWeight: 600, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit' }}
                       >
                         + Assign Deliverable
                       </button>
                       {showDeliverableDropdown && (
-                        <div style={{ position: 'absolute', left: 0, top: '100%', marginTop: '4px', zIndex: 9999, background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', padding: '4px 0', minWidth: '260px', maxHeight: '200px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+                        <div style={{ position: 'fixed', left: deliverableDropdownPos.left, top: deliverableDropdownPos.top, zIndex: 9999, background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', padding: '4px 0', minWidth: '260px', maxHeight: '200px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
                           {unassignedDeliverables.length === 0 ? (
                             <div style={{ padding: '8px 12px', fontSize: '12px', color: 'rgba(255,255,255,0.3)' }}>No unassigned deliverables</div>
                           ) : (

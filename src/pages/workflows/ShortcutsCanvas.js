@@ -13,6 +13,7 @@ import {
   lookupEvent,
 } from '../../lib/workflowCatalog';
 import { listWorkflowModals } from '../../lib/workflowModals';
+import backdropDismiss from '../../lib/backdropDismiss';
 
 // ─── Visual tokens ──────────────────────────────────────────
 
@@ -1086,7 +1087,7 @@ const LIBRARY = [
 
 function ActionLibraryModal({ onPick, onClose }) {
   return (
-    <div onClick={onClose} style={{
+    <div {...backdropDismiss(onClose)} style={{
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
     }}>

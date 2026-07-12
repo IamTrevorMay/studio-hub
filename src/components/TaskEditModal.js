@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
+import backdropDismiss from '../lib/backdropDismiss';
 
 // Edit a `tasks` row. Used by the Workflows Progress section so a
 // producer can fix a title, push out the due date, reassign, or mark
@@ -100,7 +101,7 @@ export default function TaskEditModal({ open, task, profiles, onClose, onSaved, 
   function patch(p) { setForm((f) => ({ ...f, ...p })); }
 
   return (
-    <div style={styles.overlay} onClick={onClose}>
+    <div style={styles.overlay} {...backdropDismiss(onClose)}>
       <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
         <div style={styles.header}>
           <div>

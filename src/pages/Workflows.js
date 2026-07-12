@@ -7,6 +7,7 @@ import ContractorAssignmentModal from '../components/ContractorAssignmentModal';
 import TaskEditModal from '../components/TaskEditModal';
 import ProgressTable from '../components/workflows/ProgressTable';
 import { fetchAllRows } from './analytics/utils';
+import backdropDismiss from '../lib/backdropDismiss';
 
 // ─── Component ───────────────────────────────────────────────
 export default function Workflows() {
@@ -1272,7 +1273,7 @@ export default function Workflows() {
 
       {/* ── New Board Modal ── */}
       {showNewBoardModal && (
-        <div style={styles.modalOverlay} onClick={() => setShowNewBoardModal(false)}>
+        <div style={styles.modalOverlay} {...backdropDismiss(() => setShowNewBoardModal(false))}>
           <div style={styles.modal} onClick={e => e.stopPropagation()}>
             <h3 style={styles.modalTitle}>New Flow</h3>
             <div style={styles.modalField}>
@@ -1296,7 +1297,7 @@ export default function Workflows() {
 
       {/* ── New Automation Modal ── */}
       {showNewAutoModal && (
-        <div style={styles.modalOverlay} onClick={() => setShowNewAutoModal(false)}>
+        <div style={styles.modalOverlay} {...backdropDismiss(() => setShowNewAutoModal(false))}>
           <div style={styles.modal} onClick={e => e.stopPropagation()}>
             <h3 style={styles.modalTitle}>New Automation</h3>
             <div style={styles.modalField}>

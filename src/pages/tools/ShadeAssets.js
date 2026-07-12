@@ -3,6 +3,7 @@ import { zipSync } from 'fflate';
 import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
 import usePersistedTab from '../../hooks/usePersistedTab';
+import backdropDismiss from '../../lib/backdropDismiss';
 
 // Assets view of the Asset Search tool — folder browsing + AI index search
 // over the Shade drive via the shade-search edge function. Default view
@@ -559,7 +560,7 @@ export default function ShadeAssets() {
     const url = resolved[modalAsset.id];
     const kind = String(modalAsset.type || '').toUpperCase();
     return (
-      <div style={styles.modalOverlay} onClick={() => setModal(null)}>
+      <div style={styles.modalOverlay} {...backdropDismiss(() => setModal(null))}>
         <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
           <div style={styles.modalHead}>
             <span style={{ fontSize: '15px', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -615,7 +616,7 @@ export default function ShadeAssets() {
   const renderAddPicker = () => {
     if (!addPicker) return null;
     return (
-      <div style={styles.modalOverlay} onClick={() => setAddPicker(null)}>
+      <div style={styles.modalOverlay} {...backdropDismiss(() => setAddPicker(null))}>
         <div style={{ ...styles.modal, maxWidth: '400px' }} onClick={(e) => e.stopPropagation()}>
           <div style={styles.modalHead}>
             <span style={{ fontSize: '15px', fontWeight: 700 }}>
@@ -663,7 +664,7 @@ export default function ShadeAssets() {
   const renderDrivePicker = () => {
     if (!drivePicker) return null;
     return (
-      <div style={styles.modalOverlay} onClick={() => !uploadState && setDrivePicker(null)}>
+      <div style={styles.modalOverlay} {...backdropDismiss(() => !uploadState && setDrivePicker(null))}>
         <div style={{ ...styles.modal, maxWidth: '520px' }} onClick={(e) => e.stopPropagation()}>
           <div style={styles.modalHead}>
             <span style={{ fontSize: '15px', fontWeight: 700 }}>

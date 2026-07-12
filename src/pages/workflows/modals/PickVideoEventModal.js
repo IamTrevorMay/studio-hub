@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../../supabaseClient';
+import backdropDismiss from '../../../lib/backdropDismiss';
 
 const VIDEO_EVENT_TYPES = ['video_post', 'tmbb_video', 'filming', 'live_recording'];
 
@@ -71,7 +72,7 @@ export default function PickVideoEventModal({ task, onSubmit, onClose }) {
   };
 
   return (
-    <div style={styles.overlay} onClick={onClose}>
+    <div style={styles.overlay} {...backdropDismiss(onClose)}>
       <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
         <div style={styles.header}>
           <div>

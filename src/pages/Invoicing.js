@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import usePersistedTab from '../hooks/usePersistedTab';
 import jsPDF from 'jspdf';
+import backdropDismiss from '../lib/backdropDismiss';
 
 // ════════════════════════════════════════════════════════════
 // Constants
@@ -1398,7 +1399,7 @@ function InvoiceEditor({ invoiceId, invoices, contacts, contactsById, templates,
 
       {/* Save as Template modal */}
       {showSaveTemplate && (
-        <div style={styles.modalOverlay} onClick={() => setShowSaveTemplate(false)}>
+        <div style={styles.modalOverlay} {...backdropDismiss(() => setShowSaveTemplate(false))}>
           <div style={styles.modal} onClick={e => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 12px', fontSize: '16px', color: '#e2e8f0' }}>Save as Template</h3>
             <input
@@ -1489,7 +1490,7 @@ function ContactModal({ contacts, editingContact, onEditContact, profile, onClos
   });
 
   return (
-    <div style={styles.modalOverlay} onClick={onClose}>
+    <div style={styles.modalOverlay} {...backdropDismiss(onClose)}>
       <div style={{ ...styles.modal, width: '520px', maxHeight: '80vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
           <h3 style={{ margin: 0, fontSize: '16px', color: '#e2e8f0' }}>

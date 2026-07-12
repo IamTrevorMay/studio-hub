@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { RESEARCH_FIELDS, emptyResearchForm, listResearchDocs, createResearchDoc } from '../lib/researchDocs';
 import { PeopleChips } from './MemberAssignmentModal';
+import backdropDismiss from '../lib/backdropDismiss';
 
 const TEAM_ROLES = ['admin', 'assistant', 'member', 'partner'];
 
@@ -127,7 +128,7 @@ export default function ResearchScopeModal({ open, project, onClose, onSubmitted
   if (!open || !project) return null;
 
   return (
-    <div style={styles.overlay} onClick={onClose}>
+    <div style={styles.overlay} {...backdropDismiss(onClose)}>
       <div style={styles.modal} onClick={e => e.stopPropagation()}>
         <div style={styles.header}>
           <div>

@@ -15,6 +15,7 @@ import SprintBoard from '../components/SprintBoard';
 import SprintPanel from '../components/SprintPanel';
 import NotificationSettings from '../components/NotificationSettings';
 import MyTasks from './MyTasks';
+import backdropDismiss from '../lib/backdropDismiss';
 
 const STATUS_COLORS = {
   concept: '#8b5cf6',
@@ -1154,7 +1155,7 @@ export default function Dashboard({ onNavigate }) {
       </button>
     );
     return (
-      <div style={styles.announcementModalOverlay} onClick={() => setShowAnnouncementModal(false)}>
+      <div style={styles.announcementModalOverlay} {...backdropDismiss(() => setShowAnnouncementModal(false))}>
         <div style={styles.announcementModalContent} onClick={e => e.stopPropagation()}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: '#e2e8f0' }}>New Announcement</h3>

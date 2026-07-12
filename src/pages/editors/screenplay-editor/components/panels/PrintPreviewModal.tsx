@@ -62,10 +62,17 @@ export default function PrintPreviewModal({
     return () => document.removeEventListener('keydown', handle)
   }, [onClose])
 
-  // Close on backdrop click
+  // Close on backdrop click — armed only when the press started on the
+  // backdrop, so a text-selection drag that ends outside the modal (the
+  // click then targets the backdrop as common ancestor) doesn't close it.
+  const backdropPressRef = useRef(false)
+  const handleBackdropMouseDown = useCallback((e: React.MouseEvent) => {
+    backdropPressRef.current = e.target === backdropRef.current
+  }, [])
   const handleBackdropClick = useCallback(
     (e: React.MouseEvent) => {
-      if (e.target === backdropRef.current) onClose()
+      if (backdropPressRef.current && e.target === backdropRef.current) onClose()
+      backdropPressRef.current = false
     },
     [onClose]
   )

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { colors, spacing, radii, fontSizes, fontWeights, zIndex } from '../../../lib/styleTokens';
 import { supabase } from '../../../supabaseClient';
 
@@ -17,6 +17,28 @@ export default function PlayerSearchField({
   const [results, setResults] = useState([]);
   const [focused, setFocused] = useState(false);
   const [searchError, setSearchError] = useState(null);
+
+  // The field lives inside scrollable side panels (overflow: auto), which
+  // clip an absolutely-positioned menu. Render the dropdown position: fixed
+  // at screen coords instead, flipping above the input when the viewport
+  // bottom is close.
+  const inputRef = useRef(null);
+  const [menuPos, setMenuPos] = useState(null); // { left, width, top? , bottom? }
+  useEffect(() => {
+    if (!focused || results.length === 0) return;
+    const el = inputRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - r.bottom;
+    const openUp = spaceBelow < 220 && r.top > spaceBelow;
+    setMenuPos({
+      left: r.left,
+      width: r.width,
+      ...(openUp
+        ? { bottom: window.innerHeight - r.top + 4 }
+        : { top: r.bottom + 4 }),
+    });
+  }, [focused, results.length]);
 
   useEffect(() => {
     if (!query.trim()) { setResults([]); return undefined; }
@@ -76,6 +98,7 @@ export default function PlayerSearchField({
   return (
     <div style={styles.wrap}>
       <input
+        ref={inputRef}
         type="text"
         value={query}
         placeholder={placeholder || 'Search players…'}
@@ -87,8 +110,8 @@ export default function PlayerSearchField({
       {searchError && (
         <div style={styles.errorMsg}>{searchError}</div>
       )}
-      {focused && results.length > 0 && (
-        <div style={styles.dropdown}>
+      {focused && results.length > 0 && menuPos && (
+        <div style={{ ...styles.dropdown, position: 'fixed', top: menuPos.top, bottom: menuPos.bottom, left: menuPos.left, right: 'auto', width: menuPos.width, marginTop: 0 }}>
           {results.map((p, i) => {
             const id = (p && p[idKey] != null) ? p[idKey]
               : (p.pitcher != null ? p.pitcher : p.batter);

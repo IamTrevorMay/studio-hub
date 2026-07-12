@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
+import backdropDismiss from '../lib/backdropDismiss';
 
 const ConfirmContext = createContext(null);
 
@@ -29,7 +30,7 @@ export function ConfirmProvider({ children }) {
     <ConfirmContext.Provider value={confirm}>
       {children}
       {state && (
-        <div style={overlay} onClick={handleNo}>
+        <div style={overlay} {...backdropDismiss(handleNo)}>
           <div style={modal} onClick={e => e.stopPropagation()}>
             <p style={msg}>{state.message}</p>
             <div style={btnRow}>

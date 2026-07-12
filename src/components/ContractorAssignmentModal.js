@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
+import backdropDismiss from '../lib/backdropDismiss';
 
 // Create / edit a freelancer_assignments row. The Workflows Progress
 // table opens this in edit mode when a contractor row is clicked; the
@@ -164,7 +165,7 @@ export default function ContractorAssignmentModal({
   if (!open) return null;
 
   return (
-    <div style={styles.overlay} onClick={onClose}>
+    <div style={styles.overlay} {...backdropDismiss(onClose)}>
       <div style={styles.modal} onClick={e => e.stopPropagation()}>
         <div style={styles.header}>
           <div>

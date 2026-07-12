@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from '../../../supabaseClient';
+import backdropDismiss from '../../../lib/backdropDismiss';
 
 export default function AddBriefModal({ task, onSubmit, onClose }) {
   const [mode, setMode] = useState('upload');
@@ -59,7 +60,7 @@ export default function AddBriefModal({ task, onSubmit, onClose }) {
   });
 
   return (
-    <div style={styles.overlay} onClick={onClose}>
+    <div style={styles.overlay} {...backdropDismiss(onClose)}>
       <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
         <div style={styles.header}>
           <div>

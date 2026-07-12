@@ -7,6 +7,7 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
 import { ReactionChips, ReactionBar, toggleReaction } from '../components/MessageReactions';
+import backdropDismiss from '../lib/backdropDismiss';
 
 // Roles that can be individually granted channel access via the admin
 // "Set Permissions" menu. Admin-tier roles (admin, director_creative,
@@ -1288,7 +1289,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
       })()}
 
       {permsTarget && (
-        <div style={styles.modalOverlay} onMouseDown={() => setPermsTarget(null)}>
+        <div style={styles.modalOverlay} {...backdropDismiss(() => setPermsTarget(null))}>
           <div style={styles.modalCard} onMouseDown={(e) => e.stopPropagation()}>
             <h3 style={styles.modalTitle}>
               {permsTarget.kind === 'group'
@@ -1660,6 +1661,18 @@ function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, onReact,
   const menuRef = useRef(null);
   const editInputRef = useRef(null);
 
+  // The ⋯ menu renders position: fixed so the scrollable message list can't
+  // clip it; anchored to the button, flipping above near the viewport bottom.
+  const [menuPos, setMenuPos] = useState({});
+  const openMenuAt = (el) => {
+    const r = el.getBoundingClientRect();
+    const openUp = window.innerHeight - r.bottom < 170;
+    setMenuPos({
+      right: window.innerWidth - r.right,
+      ...(openUp ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 }),
+    });
+  };
+
   const isOwner = msg.user_id === profileId;
   const canEdit = isOwner;
   const canDelete = isAdmin || isOwner;
@@ -1794,7 +1807,7 @@ function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, onReact,
           </div>
           <div style={{ position: 'relative', flexShrink: 0 }}>
             <button
-              onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
+              onClick={(e) => { e.stopPropagation(); if (!menuOpen) openMenuAt(e.currentTarget); setMenuOpen(!menuOpen); }}
               style={{
                 ...msgStyles.menuBtn,
                 opacity: hovered || menuOpen ? 0.7 : 0,
@@ -1804,7 +1817,7 @@ function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, onReact,
               ⋯
             </button>
             {menuOpen && (
-              <div ref={menuRef} style={msgStyles.menuDropdown}>
+              <div ref={menuRef} style={{ ...msgStyles.menuDropdown, position: 'fixed', top: menuPos.top, bottom: menuPos.bottom, right: menuPos.right, marginTop: 0 }}>
                 {canEdit && (
                   <button onClick={handleStartEdit} style={msgStyles.menuItem}>
                     Edit

@@ -19,6 +19,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import backdropDismiss from '../lib/backdropDismiss';
 
 // ═══════════════════════════════════════════════════════════════════
 // Catalogs
@@ -1161,7 +1162,7 @@ function VideoDrilldown({ videoId, channels, dateRange, videoMeta, onClose }) {
   }, [videoId, dim, channels.join(','), dateRange.start, dateRange.end, dimensionDef]);
 
   return (
-    <div style={S.drillBackdrop} onClick={onClose}>
+    <div style={S.drillBackdrop} {...backdropDismiss(onClose)}>
       <div style={S.drillPanel} onClick={e => e.stopPropagation()}>
         <div style={S.drillHeader}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

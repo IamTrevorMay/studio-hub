@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from '../supabaseClient';
+import backdropDismiss from '../lib/backdropDismiss';
 
 export default function SprintRetroModal({ sprint, completedCount, completedPoints, rolledBackCount, onClose, onSaved }) {
   const [wentWell, setWentWell] = useState('');
@@ -29,7 +30,7 @@ export default function SprintRetroModal({ sprint, completedCount, completedPoin
   }
 
   return (
-    <div style={overlayStyle} onClick={onClose}>
+    <div style={overlayStyle} {...backdropDismiss(onClose)}>
       <div style={modalStyle} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <h3 style={{ margin: 0, fontSize: '16px', color: '#fff', fontWeight: 600 }}>Sprint Complete</h3>

@@ -3,6 +3,7 @@ import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import usePersistedTab from '../../hooks/usePersistedTab';
+import backdropDismiss from '../../lib/backdropDismiss';
 import { PHASES, PHASE_COLORS } from './postshow/postShowConstants';
 import { loadSession, saveSession, loadSettings, saveSettings } from './postshow/postShowStorage';
 import PhaseOne from './postshow/PhaseOne';
@@ -67,7 +68,7 @@ function SettingsPanel({ settings, onSettingsChange, recipients, onRecipientsCha
   }
 
   return (
-    <div style={st.settingsOverlay} onClick={onClose}>
+    <div style={st.settingsOverlay} {...backdropDismiss(onClose)}>
       <div style={st.settingsPanel} onClick={e => e.stopPropagation()}>
         <div style={st.settingsHeader}>
           <h3 style={st.settingsTitle}>Clipping Tool Settings</h3>

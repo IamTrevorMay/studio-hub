@@ -10,6 +10,7 @@ import { labelFor as stageTaskLabel } from '../lib/kanbanStages';
 import { callEdgeFn } from '../lib/edgeFn';
 import { fetchAllRows } from './analytics/utils';
 import usePersistedTab from '../hooks/usePersistedTab';
+import backdropDismiss from '../lib/backdropDismiss';
 
 
 const STATUSES = ['queue', 'research', 'write', 'pre_production', 'film', 'review', 'edit', 'post_production', 'publish'];
@@ -1863,7 +1864,7 @@ function StagePromptModal({ prompt, onSubmit, onCancel }) {
   const [postedUrl, setPostedUrl] = useState('');
 
   return (
-    <div style={styles.modalOverlay} onClick={onCancel}>
+    <div style={styles.modalOverlay} {...backdropDismiss(onCancel)}>
       <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
         {prompt.type === 'drive_link' ? (
           <>

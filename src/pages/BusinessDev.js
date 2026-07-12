@@ -6,6 +6,7 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { fetchAllRows } from './analytics/utils';
+import backdropDismiss from '../lib/backdropDismiss';
 
 // ════════════════════════════════════════════════════════════
 // Constants
@@ -1723,7 +1724,7 @@ function BdGoalFormModal({ form, setForm, editing, onSubmit, onCancel, accounts 
   }
 
   return (
-    <div style={styles.modalOverlay} onClick={onCancel}>
+    <div style={styles.modalOverlay} {...backdropDismiss(onCancel)}>
       <div style={{ ...styles.modal, borderColor: 'rgba(99,102,241,0.3)' }} onClick={e => e.stopPropagation()}>
         <div style={{ ...styles.modalTitle, color: '#a5b4fc' }}>{editing ? 'Edit Goal' : 'New Goal'}</div>
         <form onSubmit={onSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>

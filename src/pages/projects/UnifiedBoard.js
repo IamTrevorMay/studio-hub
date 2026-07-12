@@ -15,6 +15,7 @@ import {
   defaultStageConfigForType,
   defaultAssigneeRowsForType,
 } from '../../lib/kanbanStages';
+import backdropDismiss from '../../lib/backdropDismiss';
 
 const SELECT = `
   id, name, type, status, deadline, on_hold, hold_reason, archived_at, stage_config, sort_order,
@@ -1030,7 +1031,7 @@ function ActionSheet({ project, isAdmin, userId, onClose, onMove, onHold, onEdit
   });
 
   return (
-    <div style={s.mobile.sheetOverlay} onClick={onClose}>
+    <div style={s.mobile.sheetOverlay} {...backdropDismiss(onClose)}>
       <div style={s.mobile.sheet} onClick={(e) => e.stopPropagation()}>
         <div style={s.mobile.sheetTitle}>{project.name}</div>
         <div style={s.mobile.sheetSub}>{typeLabel(project.type)} · currently {project.status}</div>
@@ -1623,7 +1624,7 @@ function Field({ label, children }) {
 
 function ModalShell({ title, onClose, children, wide }) {
   return (
-    <div style={s.modalOverlay} onClick={onClose}>
+    <div style={s.modalOverlay} {...backdropDismiss(onClose)}>
       <div
         style={{ ...s.modal, maxWidth: wide ? 640 : 480 }}
         onClick={(e) => e.stopPropagation()}

@@ -8,6 +8,7 @@ import AgencyThread from '../components/AgencyThread';
 import { DELIVERABLE_TYPES, REVIEW_STATUS_OPTIONS, CHANNEL_COLORS } from './Deliverables';
 import { colors, spacing, radii, fontSizes, fontWeights, fontFamily, shadows, zIndex } from '../lib/styleTokens';
 import { button, input, pill, modalOverlay, modal } from '../lib/styleRecipes';
+import backdropDismiss from '../lib/backdropDismiss';
 
 // Read-only partner portal for the ad agency ('agency' role). Locked,
 // sidebar-free page: upcoming deliverable statuses, campaign briefs,
@@ -443,7 +444,7 @@ export default function AgencyPortal() {
       </main>
 
       {showProposalForm && (
-        <div style={modalOverlay()} onClick={() => !submitting && setShowProposalForm(false)}>
+        <div style={modalOverlay()} {...backdropDismiss(() => !submitting && setShowProposalForm(false))}>
           <div style={{ ...modal({ width: 620 }), maxHeight: '85vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
             <h3 style={styles.modalTitle}>Submit a Proposal</h3>
             <form onSubmit={handleSubmitProposal} style={styles.form}>
@@ -516,7 +517,7 @@ export default function AgencyPortal() {
       )}
 
       {briefModal && (
-        <div style={modalOverlay()} onClick={() => setBriefModal(null)}>
+        <div style={modalOverlay()} {...backdropDismiss(() => setBriefModal(null))}>
           <div style={{ ...modal({ width: 680 }), maxHeight: '85vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
             <h3 style={styles.modalTitle}>{briefModal.label}</h3>
             <div

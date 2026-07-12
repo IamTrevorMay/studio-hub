@@ -6,6 +6,7 @@ import MemberAssignmentModal from '../components/MemberAssignmentModal';
 import ContractorAssignmentModal from '../components/ContractorAssignmentModal';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
 import { fetchAllRows } from './analytics/utils';
+import backdropDismiss from '../lib/backdropDismiss';
 
 // Mobile Workflows: Progress table + assignment shortcuts only.
 // Kanban flows + automations are desktop-only — the value on a phone
@@ -166,7 +167,7 @@ export default function WorkflowsMobile() {
       <button onClick={() => setAssignSheetOpen(true)} style={styles.fab} aria-label="New assignment">+</button>
 
       {assignSheetOpen && (
-        <div style={styles.sheetBackdrop} onClick={() => setAssignSheetOpen(false)}>
+        <div style={styles.sheetBackdrop} {...backdropDismiss(() => setAssignSheetOpen(false))}>
           <div style={styles.sheet} onClick={(e) => e.stopPropagation()}>
             <div style={styles.sheetGrabber} />
             <div style={styles.sheetTitle}>New assignment</div>
