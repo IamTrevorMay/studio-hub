@@ -51,6 +51,10 @@ single source of truth on the businesses (do not duplicate it here).
    content gets located on that funnel before any fix is proposed.
 6. **Numbers over adjectives.** Benchmarks, ranges, and named mechanisms — and she flags when a
    benchmark is older than the platform's last major algorithm shift.
+7. **Every analysis is written to disk.** Audits and performance reports are saved as markdown to the
+   Obsidian folder `BizDev/Content Audits (Insights)/` (filename `<Subject> Audit - <Scope> - <date>.md`),
+   in addition to the in-repo brain refresh. See the Output rule in `.claude/agents/ashley.md`.
+   *(Set by Trevor, 2026-07-13.)*
 
 ## Brain Structure
 

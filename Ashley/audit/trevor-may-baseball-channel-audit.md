@@ -3,7 +3,7 @@ title: "Live Audit: Trevor May Baseball (YouTube)"
 domain: audit
 tags: [youtube, trevor-may-baseball, more-mayday, channel-audit, performance, packaging, opportunities]
 data_pulled: 2026-07-12
-last_updated: 2026-07-12
+last_updated: 2026-07-13
 ---
 
 # Live Audit: Trevor May Baseball (YouTube)
@@ -235,6 +235,36 @@ From titles/durations on the last ~80 uploads (both tabs). Thumbnail analysis wa
 - **Traffic sources are a lifetime snapshot (2026-05-25 only)** — no recent-window traffic mix.
 - **DB likes/comments/subs-gained under-synced for Jan–Apr 2026** (known `sync-youtube` staleness issue); RSS like counts used instead for engagement.
 - **More Mayday exact recent view counts** are rounded (public tab: "17K"), not exact.
+
+## 2026-07-13 Refresh (Long/Short conversion + recent traffic window + search)
+
+Fresh pull 2026-07-13 (DB synced through 2026-07-10). vidIQ still 0/150 (resets 2026-07-25). New this run: a **daily** `yt_dim_traffic_source` history unlocked a *recent-window* traffic mix (yesterday had only the 05-25 lifetime snapshot), plus a clean Long-vs-Short conversion split and real search-term demand. Subs: **179,000** (07-13); only **+669 in the first 13 days of July** — growth stalled.
+
+**Long vs Short conversion — last 90d** (Short = >50% of a video's traffic from SHORTS feed):
+
+| Format | Videos w/ views | Views 90d | Subs 90d | Subs/1k views | Wtd AVP |
+|---|---:|---:|---:|---:|---:|
+| Long | 269 | 3,358,122 | 5,071 | **1.51** | 24.4%* |
+| Short | 116 | 606,028 | 130 | **0.21** | 14.3% |
+
+\*Portfolio-weighted across all long-form (incl. back catalog + 68–81-min podcasts); *recent* uploads run 34–58% AVP. → Long-form converts **7× better per view**; Shorts = 15% of views, **2.5% of subs**.
+
+**Recent traffic mix — the channel has turned inward** (lifetime browse was 44.6%, Shorts 31.2%):
+
+| Source | Lifetime (05-25) | Last 90d | Last 30d |
+|---|---:|---:|---:|
+| Subscriber/browse | 44.6% | 61.4% | **70.4%** |
+| Suggested (related) | 10.8% | 14.6% | 13.9% |
+| Shorts feed | 31.2% | 12.0% | **3.5%** |
+| YouTube search | 3.2% | 3.7% | 3.9% |
+
+TMB is now coasting on its subscriber base; Shorts (a discovery leg) collapsed to 3.5% of views in 30d as output fell to ~1/week.
+
+**Search terms (90d) — the evergreen unlock.** Beyond branded "trevor may" (13.8K), TMB ranks for a pitcher's home-field keyword set it barely serves: `baseball pitches explained` (1.2K), `how to throw a forkball` (448), `sweeper vs slider` (175), `splitter pitch` (652), `forkball` (568), `slider` (557), `sweeper` (673), `different pitches in baseball`, `paul skenes mechanics`. Search is only 3.7% of views. Build keyword-first pitch-explainer long-form + Shorts. ("Pitcher DECEPTION explained" already held 55.6% AVP.)
+
+**Live packaging test:** 07-10 upload re-titled "The Most Chaotic Games in MLB History" → "10 times Major League Baseball was super weird" (25.6K, ~0.5×) — softer noun, buried number. Data gaps unchanged (impressions/CTR 0, per-source subs 0, age/gender empty). Full 07-13 readable audit: `BizDev/Content Audits (Insights)/YouTube Audit - Both Channels - 2026-07-13.md`.
+
+---
 
 ## Refresh
 

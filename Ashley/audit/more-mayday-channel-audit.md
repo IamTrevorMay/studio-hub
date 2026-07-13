@@ -3,7 +3,7 @@ title: "Live Audit: More Mayday (YouTube)"
 domain: audit
 tags: [youtube, more-mayday, channel-audit, vidiq, performance, outliers, thumbnails, titles]
 data_pulled: 2026-07-12
-last_updated: 2026-07-12
+last_updated: 2026-07-13
 ---
 
 # Live Audit: More Mayday (YouTube)
@@ -173,6 +173,32 @@ Shorts that pop are the same DNA as long-form outliers: star players (Cal Raleig
 5. **Lean into the "ex-MLB insider explains" moat and stabilize cadence at 2–3/week.** The pitcher/injury/mechanics explainers (Tyler Rogers 1.55x, pitching injury SOLVED 1.46x, Misiorowski 1.46x, Dodgers injury 2.23x) are the channel's differentiated lane no highlight-compilation channel can copy — and their views-per-sub (>1.4) says suggested traffic rewards it. Long-form output slipped from ~3/wk in May to ~2/wk in July; with trade deadline and playoff race season (peak topical demand, e.g. "10 MLB Trades" at 175 VPH), this is the wrong moment to slow down.
 
 **Bonus hygiene:** run titles through spellcheck ("Fall of Famer", "cant", "think there be") — sloppy text in an insider-authority brand undercuts the credibility that drives the best formats.
+
+---
+
+## 2026-07-13 Refresh (Long/Short conversion + recent traffic window)
+
+Fresh pull 2026-07-13 (DB synced through 2026-07-10). vidIQ still 0/150 (resets 2026-07-25). New this run: a **daily** `yt_dim_traffic_source` history (352 dates) enabled a *recent-window* traffic mix, and per-video `yt_video_daily` gave a clean Long-vs-Short subscriber-conversion split. Subs: **16,600** (07-13).
+
+**Long vs Short conversion — last 90d** (Short = >50% of a video's traffic from the SHORTS feed):
+
+| Format | Videos w/ views | Views 90d | Subs 90d | Subs/1k views | Wtd AVP |
+|---|---:|---:|---:|---:|---:|
+| Long | 145 | 1,246,055 | 2,570 | **2.06** | 34.0% |
+| Short | 128 | 396,226 | 22 | **0.06** | 14.1% |
+
+→ MM long-form converts subs **34× better per view** than Shorts. Shorts = 24% of views, **0.8% of new subs**. Notably MM long-form converts *better per view than TMB long-form* (2.06 vs 1.51) — smaller, hungrier audience.
+
+**Recent traffic mix** (was 50% Shorts / 35% browse lifetime — MM is graduating onto browse):
+
+| Source | Last 90d | Last 30d |
+|---|---:|---:|
+| Subscriber/browse | 46.0% | 46.6% |
+| Shorts feed | 34.6% | 34.4% |
+| Suggested (related) | 10.0% | 9.1% |
+| YouTube search | 2.5% | 2.6% |
+
+**Search terms (90d)** are almost entirely navigational player/team names (trevor may, ohtani, dodgers, misiorowski, brewers) — news-reactive, low evergreen value (contrast TMB's pitch-education queries). **Geography 90d:** US 82%, CA 8%, then AU/GB/JP. **Fresh Short breakout:** "Something is up with Cal Raleigh" 21K→43.3K since 07-12. Data gaps unchanged (impressions/CTR 0, per-source subs 0, age/gender empty). Full 07-13 readable audit: `BizDev/Content Audits (Insights)/YouTube Audit - Both Channels - 2026-07-13.md`.
 
 ---
 

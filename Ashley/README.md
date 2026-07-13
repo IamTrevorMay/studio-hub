@@ -11,9 +11,10 @@
 - [youtube-longform-playbook.md](applied/youtube-longform-playbook.md) — Packaging rules, retention standards, upload checklist, cadence prescriptions, Mayday! podcast plan, analytics ritual, and 10 audit-grounded fixes sequenced Now/Next/Later.
 - [weekly-schedule-trend-ops.md](applied/weekly-schedule-trend-ops.md) — The integrated weekly operating system: master posting schedule (PT slots with sports-overlay rationale), 15-min daily trend scan, Jump/Adapt/Skip gate, MLB seasonal overlays, Mayday Studio workflow mapping.
 
-## Live Audits (`audit/`) — data pulled 2026-07-12
-- [more-mayday-channel-audit.md](audit/more-mayday-channel-audit.md) — More Mayday (16.6K subs, 3.37M views): 30-video performance table, outlier multiples, Shorts analysis, cadence, packaging patterns, 5 ranked opportunities. Built from public YouTube data (vidIQ credit-blocked).
-- [trevor-may-baseball-channel-audit.md](audit/trevor-may-baseball-channel-audit.md) — @TrevorMayBaseball (179K subs, 29.3M views) vs More Mayday: trends, outliers, traffic mix, cadence, 5 ranked opportunities. Public data + the app's synced YouTube Analytics DB.
+## Live Audits (`audit/`) — data pulled 2026-07-12, refreshed 2026-07-13
+- [more-mayday-channel-audit.md](audit/more-mayday-channel-audit.md) — More Mayday (16.6K subs, 3.37M views): 30-video performance table, outlier multiples, Shorts analysis, cadence, packaging patterns, 5 ranked opportunities. **07-13 refresh:** Long/Short subscriber-conversion split (long 2.06 vs short 0.06 subs/1k) + recent traffic window. Public YouTube + synced Analytics DB (vidIQ credit-blocked).
+- [trevor-may-baseball-channel-audit.md](audit/trevor-may-baseball-channel-audit.md) — @TrevorMayBaseball (179K subs, 29.3M views) vs More Mayday: trends, outliers, traffic mix, cadence, 5 ranked opportunities. **07-13 refresh:** Long/Short conversion (1.51 vs 0.21 subs/1k), recent traffic mix (70% subscriber-fed in 30d), ranked pitch-education search demand. Public data + the app's synced YouTube Analytics DB.
+- **Readable audit reports** live outside the repo in Obsidian: `BizDev/Content Audits (Insights)/` (e.g. `YouTube Audit - Both Channels - 2026-07-13.md`). See the output rule in ASHLEY.md.
 - [competitor-benchmark.md](audit/competitor-benchmark.md) — ⚠️ BLOCKED: vidIQ had 0/150 credits (free plan, resets 2026-07-25). Contains the 12-channel candidate roster, free-tool findings, empty scaffolds, and the exact ~150-credit refresh runbook.
 - [keyword-search-gaps.md](audit/keyword-search-gaps.md) — ⚠️ Partially blocked (same reason): prioritized keyword queue, seasonal calendar, 23 ranked search-driven ideas, refresh plan pending credits.
 
