@@ -65,11 +65,13 @@ The original `captured-<runstamp>.csv` (raw union of every field) still gets wri
 Ctrl-C as the source-of-truth fallback. Phase 2 (per the plan): a Supabase push into
 `content_items` so these metrics land in the app.
 
-## `--auto` (experimental)
+## Why there's no automated mode
 
-```bash
-npm run auto
-```
+We built one and removed it. TikTok's edge flags the *automated browser session* itself —
+independent of how human the clicks are (real cursor paths, physical mouse events, randomized
+pacing all still got the IP an "Access Denied"). Chasing it just burns IP reputation for no
+real gain, and TikTok meters your own analytics back to you on purpose.
 
-Attempts to walk the Content list itself. Best-effort — the selectors may need tuning
-after we've seen the live DOM. Use `npm run capture` (human-driven) until auto is proven.
+Manual capture is the supported path and it's genuinely quick: a couple of minutes covers
+your recent videos, `parse.js` merges every session, so history accrues incrementally without
+ever needing a bulk walk. Do a handful of videos whenever you think of it.

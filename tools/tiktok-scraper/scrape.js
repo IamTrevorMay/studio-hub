@@ -4,11 +4,13 @@
 //   Launches a real Chromium window with a persistent profile (so you log in once).
 //   YOU log in and click through your own videos' analytics. This script only LISTENS:
 //   it intercepts the JSON the TikTok Studio SPA fetches to fill those panels and saves
-//   it. No auto-clicking by default — all-human interaction is the lowest bot-detection
-//   risk and doesn't depend on TikTok's (obfuscated, ever-changing) DOM.
+//   it. All-human interaction is the lowest bot-detection risk and doesn't depend on
+//   TikTok's (obfuscated, ever-changing) DOM.
 //
-//   Pass --auto to attempt automated navigation of the Content list (best-effort; the
-//   selectors may need tuning after we see the live markup).
+//   Automated navigation was tried and removed: TikTok flags the automated browser
+//   session regardless of how human the clicks are, costing IP reputation for no real
+//   gain. Manual capture is the supported path — a couple of minutes covers your recent
+//   videos, and parse.js merges sessions so history builds up incrementally.
 //
 // OUTPUT (all under ./output/, gitignored)
 //   raw/<timestamp>__<slug>.json   full intercepted payloads (source of truth)
@@ -20,9 +22,6 @@
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
-const readline = require('readline');
-
-const AUTO = process.argv.includes('--auto');
 
 const ROOT = __dirname;
 const SESSION_DIR = path.join(ROOT, '.session');
@@ -110,15 +109,8 @@ function writeCsv() {
   console.log(`Raw payloads → ${path.relative(ROOT, RAW_DIR)}/  ·  endpoints → ${path.relative(ROOT, ENDPOINTS_LOG)}`);
 }
 
-function waitForEnter(prompt) {
-  return new Promise((resolve) => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    rl.question(prompt, () => { rl.close(); resolve(); });
-  });
-}
-
 (async () => {
-  console.log(`TikTok analytics capture — ${AUTO ? 'AUTO' : 'LISTEN'} mode\n`);
+  console.log('TikTok analytics capture — LISTEN mode\n');
   const context = await chromium.launchPersistentContext(SESSION_DIR, {
     headless: false,
     viewport: { width: 1440, height: 900 },
@@ -140,7 +132,7 @@ function waitForEnter(prompt) {
   });
 
   const page = context.pages()[0] || (await context.newPage());
-  await page.goto('https://www.tiktok.com/tiktokstudio/analytics/overview', { waitUntil: 'domcontentloaded' }).catch(() => {});
+  await page.goto('https://www.tiktok.com/tiktokstudio/content', { waitUntil: 'domcontentloaded' }).catch(() => {});
 
   // Flush + exit cleanly on Ctrl-C.
   const finish = async () => {
@@ -151,29 +143,10 @@ function waitForEnter(prompt) {
   };
   process.on('SIGINT', finish);
 
-  if (!AUTO) {
-    console.log('\n1. Log into TikTok in the window if prompted.');
-    console.log('2. Go to Analytics → Content, and open each video\'s analytics one by one.');
-    console.log('   (Everything the page loads is captured automatically as you click.)');
-    console.log('3. When done, come back here and press  Ctrl-C  to write the CSV.\n');
-    // Keep the process alive; capture happens in the response handler.
-    await new Promise(() => {});
-  } else {
-    await waitForEnter('\nLog in + land on Analytics → Content, then press ENTER to auto-walk videos… ');
-    // Best-effort auto-navigation. Selectors are intentionally loose and may need tuning
-    // once we see the live DOM — the listen mode above is the reliable path meanwhile.
-    console.log('Scanning Content list…');
-    const links = await page.$$eval('a[href*="/video/"], a[href*="item_id"], [data-e2e*="video"]', (els) =>
-      [...new Set(els.map((e) => e.getAttribute('href')).filter(Boolean))]
-    ).catch(() => []);
-    console.log(`Found ${links.length} candidate video links.`);
-    for (let i = 0; i < links.length; i++) {
-      const href = links[i].startsWith('http') ? links[i] : `https://www.tiktok.com${links[i]}`;
-      console.log(`  [${i + 1}/${links.length}] ${href}`);
-      await page.goto(href, { waitUntil: 'networkidle' }).catch(() => {});
-      // human-paced, randomized
-      await page.waitForTimeout(2000 + Math.floor(Math.random() * 3000));
-    }
-    await finish();
-  }
+  console.log('\n1. Log into TikTok in the window if prompted.');
+  console.log('2. Open each video\'s analytics one at a time, then click its Viewers tab.');
+  console.log('   (Everything each page loads is captured automatically as you click.)');
+  console.log('3. When done, come back here and press  Ctrl-C  to write the CSV.\n');
+  // Keep the process alive; capture happens in the response handler.
+  await new Promise(() => {});
 })();
