@@ -1216,10 +1216,14 @@ function NewProjectModal({ onClose, onCreated, createdBy }) {
     e.preventDefault();
     if (!name.trim()) return;
     setBusy(true);
+    // Always create in Queue. Starting a card in a working column must route
+    // through card-move — the only path that fans out stage tasks. Inserting
+    // directly at a working status seeds assignees but creates zero tasks, so
+    // the start stage's assignees never get a task (sprint card / My Tasks).
     const { data: created, error } = await supabase.from('projects').insert({
       name: name.trim(),
       type,
-      status: startColumn,
+      status: 'queue',
       start_column: startColumn,
       deadline: deadline || null,
       created_by: createdBy,
@@ -1230,10 +1234,21 @@ function NewProjectModal({ onClose, onCreated, createdBy }) {
       alert(`Create failed: ${error.message}`);
       return;
     }
+    // Seed default stage assignees before moving, so card-move can fan out
+    // tasks to the start column's assignees.
     const assigneeRows = defaultAssigneeRowsForType(type, created.id);
     if (assigneeRows.length) {
       const { error: aErr } = await supabase.from('project_stage_assignments').insert(assigneeRows);
       if (aErr) console.error('Default assignee seed failed:', aErr);
+    }
+    // If the user chose to start past Queue, advance through card-move so the
+    // start stage's assignees get their tasks (sprint card or My Tasks + notify).
+    if (startColumn && startColumn !== 'queue') {
+      try {
+        await callEdgeFn('card-move', { project_id: created.id, target_stage: startColumn });
+      } catch (err) {
+        alert(`Project created in Queue, but couldn't advance to the start column: ${err.message}`);
+      }
     }
     setBusy(false);
     onCreated?.();
