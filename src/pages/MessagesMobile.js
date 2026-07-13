@@ -565,13 +565,24 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
   }
 
   function formatInline(text) {
-    const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|[@#]\w+(?:[- ]\w+)*)/g);
+    const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|https?:\/\/[^\s]+|www\.[^\s]+|[@#]\w+(?:[- ]\w+)*)/g);
     return parts.map((part, i) => {
       if (part.startsWith('**') && part.endsWith('**')) {
         return <strong key={i} style={{ fontWeight: 700 }}>{part.slice(2, -2)}</strong>;
       }
       if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
         return <em key={i} style={{ fontStyle: 'italic' }}>{part.slice(1, -1)}</em>;
+      }
+      if (/^https?:\/\//i.test(part) || /^www\./i.test(part)) {
+        const trail = part.match(/[.,!?;:]+$/);
+        const url = trail ? part.slice(0, -trail[0].length) : part;
+        const href = url.startsWith('http') ? url : `https://${url}`;
+        return (
+          <React.Fragment key={i}>
+            <a href={href} target="_blank" rel="noopener noreferrer" style={convoStyles.messageLink}>{url}</a>
+            {trail ? trail[0] : ''}
+          </React.Fragment>
+        );
       }
       if (part.startsWith('@')) {
         return <span key={i} style={convoStyles.mention}>{part}</span>;
@@ -1119,6 +1130,12 @@ const convoStyles = {
   channelLink: {
     color: '#a5b4fc',
     fontWeight: 600,
+    cursor: 'pointer',
+  },
+  messageLink: {
+    color: '#a5b4fc',
+    textDecoration: 'underline',
+    wordBreak: 'break-all',
     cursor: 'pointer',
   },
   editedTag: {
