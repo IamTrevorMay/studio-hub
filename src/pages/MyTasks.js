@@ -265,9 +265,20 @@ export default function MyTasks({ onNavigate, embedded = false }) {
         .eq('created_by', profile.id)
         .not('task_id', 'is', null);
       const sprintCardTaskIds = new Set((sprintCardRows || []).map((r) => r.task_id));
-      const assignedFiltered = (assigned || []).filter((t) =>
-        !sprintCardTaskIds.has(t.id) || (!t.workflow_instance_id && t.step_key === 'sprint')
-      );
+      // Sprint-routed users (profiles.route_tasks_to_sprint — currently only the
+      // studio owner) work ALL project/workflow stage tasks on the Sprint Board,
+      // never in My Tasks. Gate on the FLAG, not on whether a sprint card exists:
+      // if card-move ever fails to create the card, the task must still never leak
+      // here. This has regressed repeatedly — do not weaken it (see MEMORY).
+      const routeToSprint = !!profile.route_tasks_to_sprint;
+      const assignedFiltered = (assigned || []).filter((t) => {
+        const isSprintCreated = !t.workflow_instance_id && t.step_key === 'sprint';
+        if (routeToSprint && !isSprintCreated &&
+            (t.related_entity_type === 'project' || t.workflow_instance_id)) {
+          return false;
+        }
+        return !sprintCardTaskIds.has(t.id) || isSprintCreated;
+      });
 
       // Fetch sign-off tasks where this user has a pending sign-off.
       const { data: signOffRows } = await supabase

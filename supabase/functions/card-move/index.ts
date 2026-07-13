@@ -295,6 +295,18 @@ Deno.serve(async (req: Request) => {
     .in("status", ["pending", "active", "on_hold"])
     .select("id");
 
+  // Complete the sprint cards linked to those closed tasks. Without this, a
+  // force-closed stage task leaves its personal_tasks card stuck "in_progress",
+  // which lingers as a stale/duplicate card on the Sprint + Workflows boards.
+  const closedIds = (closedTasks || []).map((t) => t.id);
+  if (closedIds.length > 0) {
+    await admin
+      .from("personal_tasks")
+      .update({ status: "done", completed_at: new Date().toISOString() })
+      .in("task_id", closedIds)
+      .neq("status", "done");
+  }
+
   // Find target-stage assignees.
   const { data: targetAssignees } = await admin
     .from("project_stage_assignments")
@@ -414,7 +426,7 @@ Deno.serve(async (req: Request) => {
         .order("position", { ascending: false })
         .limit(1)
         .maybeSingle();
-      await admin.from("personal_tasks").insert({
+      const { error: cardErr } = await admin.from("personal_tasks").insert({
         created_by: userId,
         content: taskTitle,
         status: "in_progress",
@@ -423,6 +435,12 @@ Deno.serve(async (req: Request) => {
         project_id: project.id,
         sprint_id: sprint?.id || null,
       });
+      if (cardErr) {
+        // Do NOT swallow this: a missing sprint card is what strands a
+        // sprint-routed user's task (My Tasks now hides project/workflow tasks
+        // for them by flag, so a failed card = an invisible task). Log loudly.
+        console.error(`Sprint card insert FAILED for task ${task.id} (user ${userId}):`, cardErr.message);
+      }
       continue;
     }
 
