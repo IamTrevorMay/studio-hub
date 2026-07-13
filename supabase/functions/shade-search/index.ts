@@ -319,14 +319,45 @@ Deno.serve(async (req: Request) => {
 
     if (op === "fetch") {
       if (!body.asset_id) return json({ error: "asset_id required" }, 400);
-      const url = await resolveUrl(apiKey, driveId, body.asset_id, body.proxy_id);
-      if (!url) return json({ error: "No downloadable rendition for this asset" }, 404);
-      const fileResp = await fetch(url);
-      if (!fileResp.ok) return json({ error: `File fetch failed: ${fileResp.status}` }, 502);
+      // Log the precise failure point (Upload-to-Drive returned an opaque 500
+      // because this op never recorded WHY the byte-pull failed). RLS: user_id
+      // must equal auth.uid(), which userClient satisfies.
+      const logFetchErr = async (status: number, msg: string) => {
+        try {
+          await userClient.from("upload_errors").insert({
+            user_id: user.id, source: "server", phase: "fetch", status_code: status,
+            error: msg, context: { fn: "shade-search", asset_id: body.asset_id, proxy_id: body.proxy_id ?? null },
+          });
+        } catch (_e) { /* never let logging mask the real error */ }
+      };
+      let url: string | null = null;
+      try {
+        url = await resolveUrl(apiKey, driveId, body.asset_id, body.proxy_id);
+      } catch (e) {
+        await logFetchErr(500, `resolve threw: ${(e as Error).message}`);
+        return json({ error: `resolve failed: ${(e as Error).message}` }, 500);
+      }
+      if (!url) {
+        await logFetchErr(404, "No downloadable rendition for this asset");
+        return json({ error: "No downloadable rendition for this asset" }, 404);
+      }
+      let fileResp: Response;
+      try {
+        fileResp = await fetch(url);
+      } catch (e) {
+        await logFetchErr(502, `file fetch threw: ${(e as Error).message}`);
+        return json({ error: `file fetch threw: ${(e as Error).message}` }, 502);
+      }
+      if (!fileResp.ok) {
+        await logFetchErr(fileResp.status, `File fetch failed: ${fileResp.status}`);
+        return json({ error: `File fetch failed: ${fileResp.status}` }, 502);
+      }
+      const len = fileResp.headers.get("content-length");
       return new Response(fileResp.body, {
         headers: {
           ...corsHeaders,
           "Content-Type": fileResp.headers.get("content-type") || "application/octet-stream",
+          ...(len ? { "Content-Length": len } : {}),
         },
       });
     }
