@@ -31,7 +31,11 @@ npm run capture
 2. Go to **Analytics → Content**, and open each video's analytics **one at a time**.
    Everything each page loads is captured automatically as you click — you don't touch
    the terminal.
-3. When you've gone through the videos you want, return to the terminal and press
+3. **Two clicks per video:** after the Overview loads, also click the video's
+   **Viewers** tab — that's the only thing that fires the follower/non-follower split,
+   new-vs-returning %, and age/gender/location demographics. (Skip the Engagement tab:
+   its data already arrives with the Overview payloads.)
+4. When you've gone through the videos you want, return to the terminal and press
    **Ctrl-C**. The CSV is written on exit.
 
 Take it slow and human — a few seconds per video. No need to rush.
@@ -44,13 +48,22 @@ Take it slow and human — a few seconds per video. No need to rush.
 | `endpoints.log` | Every JSON endpoint URL seen, `CAPTURE` = saved |
 | `captured-<runstamp>.csv` | Best-effort flattened metrics, union of all fields |
 
-## First run is recon
+## Parse to a clean table
 
-The CSV is auto-built by unioning every field in the captured payloads, so on the first
-real run it may be wide and messy. Hand `output/raw/` + `endpoints.log` back to Claude —
-once we see TikTok's actual payload shape, the parser gets tightened to clean columns
-(Ashley's scorecard: hook / hold / amplify / convert) and, per the plan, a Supabase push
-into `content_items` gets added as phase 2.
+```bash
+npm run parse
+```
+
+Reads everything in `output/raw/` and writes `output/videos-<time>.csv` — one row per
+video with Ashley's scorecard columns: views / unique viewers / rewatch ratio, finish
+rate + avg watch time (hold), shares+saves per 1k (amplify), new followers per 1k
+(convert), follower vs non-follower split, traffic sources, demographics, and search
+terms. It merges every capture session's raw files, so re-running after each session
+gives you the freshest cumulative table. Videos missing Viewers-tab data are flagged.
+
+The original `captured-<runstamp>.csv` (raw union of every field) still gets written on
+Ctrl-C as the source-of-truth fallback. Phase 2 (per the plan): a Supabase push into
+`content_items` so these metrics land in the app.
 
 ## `--auto` (experimental)
 

@@ -6,7 +6,8 @@
   "type": "commonjs",
   "scripts": {
     "capture": "node scrape.js",
-    "auto": "node scrape.js --auto"
+    "auto": "node scrape.js --auto",
+    "parse": "node parse.js"
   },
   "dependencies": {
     "playwright": "^1.48.0"
