@@ -405,17 +405,29 @@ export default function ShadeAssets() {
     const targets = drivePicker.assets;
     const parentFolderId = drivePath[drivePath.length - 1].id;
     const { data: { session } } = await supabase.auth.getSession();
-    setUploadState({ done: 0, total: targets.length, failed: 0, current: '' });
+    setUploadState({ done: 0, total: targets.length, failed: 0, current: '', errors: [] });
 
     for (let i = 0; i < targets.length; i++) {
       const asset = targets[i];
       const filename = downloadName(asset);
+      const mimeType = assetMime(asset);
       setUploadState((u) => u && ({ ...u, current: filename }));
+      // Track the phase so a failure says exactly where it broke instead of a
+      // bare "failed". fetchAssetBytes used to swallow the reason (returned null
+      // → "no rendition"); inline it here and surface the real status.
+      let phase = 'fetch';
+      let sizeBytes = null;
       try {
-        const bytes = await fetchAssetBytes(asset);
-        if (!bytes) throw new Error('no rendition');
-        const mimeType = assetMime(asset);
+        const fetchRes = await callFn({ op: 'fetch', asset_id: asset.id, proxy_id: asset.proxy_id }, true);
+        if (!fetchRes.ok) {
+          const j = await fetchRes.json().catch(() => ({}));
+          throw new Error(j.error || `asset fetch failed (${fetchRes.status})`);
+        }
+        const bytes = new Uint8Array(await fetchRes.arrayBuffer());
+        if (!bytes.length) throw new Error('asset fetch returned 0 bytes');
+        sizeBytes = bytes.length;
 
+        phase = 'init';
         const initRes = await fetch(UPLOAD_INIT_URL, {
           method: 'POST',
           headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
@@ -423,9 +435,10 @@ export default function ShadeAssets() {
         });
         const initJson = await initRes.json().catch(() => ({}));
         if (!initRes.ok || !initJson.uploadUrl) {
-          throw new Error(initJson.error || `Upload init failed (${initRes.status})`);
+          throw new Error(initJson.error || `upload init failed (${initRes.status})`);
         }
 
+        phase = 'put';
         const putRes = await fetch(initJson.uploadUrl, {
           method: 'PUT',
           headers: { 'Content-Type': mimeType },
@@ -434,7 +447,14 @@ export default function ShadeAssets() {
         if (!putRes.ok) throw new Error(`Drive PUT ${putRes.status}`);
         setUploadState((u) => u && ({ ...u, done: i + 1 }));
       } catch (err) {
-        setUploadState((u) => u && ({ ...u, done: i + 1, failed: u.failed + 1 }));
+        const msg = `${filename}: [${phase}] ${err.message}`;
+        setUploadState((u) => u && ({ ...u, done: i + 1, failed: u.failed + 1, errors: [...(u.errors || []), msg] }));
+        // Persist the reason so it's diagnosable from the DB (source='client').
+        // RLS requires user_id = auth.uid() on insert.
+        supabase.from('upload_errors').insert({
+          user_id: profile?.id, source: 'client', phase, filename, mime_type: mimeType, size_bytes: sizeBytes,
+          error: err.message, context: { tool: 'shade-assets', asset_id: asset.id, parent_folder_id: parentFolderId },
+        }).then(() => {}, () => {});
       }
     }
     setUploadState((u) => u && ({ ...u, current: '' }));
@@ -697,6 +717,11 @@ export default function ShadeAssets() {
                     {uploadState.total - uploadState.failed}/{uploadState.total} uploaded
                     {uploadState.failed ? ` — ${uploadState.failed} failed` : ' ✓'}
                   </div>
+                  {uploadState.errors && uploadState.errors.length > 0 && (
+                    <div style={{ fontSize: '11px', color: '#fca5a5', maxHeight: '160px', overflowY: 'auto', width: '100%', textAlign: 'left', whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginTop: '4px' }}>
+                      {uploadState.errors.map((e, idx) => <div key={idx}>• {e}</div>)}
+                    </div>
+                  )}
                   <button style={styles.primaryBtn} onClick={() => setDrivePicker(null)}>Done</button>
                 </>
               )}
