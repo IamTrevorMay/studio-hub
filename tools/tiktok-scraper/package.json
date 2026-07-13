@@ -1,0 +1,14 @@
+{
+  "name": "tiktok-scraper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local, human-driven capture of TikTok Studio per-post analytics (Creator account, personal data).",
+  "type": "commonjs",
+  "scripts": {
+    "capture": "node scrape.js",
+    "auto": "node scrape.js --auto"
+  },
+  "dependencies": {
+    "playwright": "^1.48.0"
+  }
+}

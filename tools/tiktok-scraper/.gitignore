@@ -1,0 +1,6 @@
+# Auth session cookies — NEVER commit, this is a live TikTok login
+.session/
+
+# Captured data + node deps
+output/
+node_modules/
