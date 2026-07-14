@@ -574,6 +574,7 @@ Everything mobile-specific lives here. The mobile build is a parallel set of
 
 ### Pending
 - **Unified Content Kanban — mobile swipe view** — Vertical scroll one column at a time, swipe between columns, long-press menu replaces drag. Last phase of the Unified Kanban rollout (desktop board shipped; mobile view not yet built). Touchpoint: `src/pages/ProjectsMobile.js`.
+- **Ideas — Potential Titles + ratings on mobile** (2026-07-14) — Desktop `Ideas.js` shipped Potential Titles (≤5 per idea, collapsible, carried into project notes on Send to Projects) and 1–5 admin/director ratings (`idea_ratings` table, RLS-gated to admin + both directors, colors in `RATING_COLORS`). `IdeasMobile.js` deliberately deferred — mirror both there.
 
 ### Mobile-paired pages
 - `AuthPage.js` ↔ `AuthPageMobile.js`

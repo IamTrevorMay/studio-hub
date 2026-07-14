@@ -21,7 +21,13 @@ const CATEGORY_TO_PROJECT_TYPE = {
   podcast_only: 'podcast',
 };
 
-const IDEA_FIELDS = 'id, text, checked, position, category, context, created_by, created_at, updated_at, creator:profiles!created_by(full_name)';
+const IDEA_FIELDS = 'id, text, checked, position, category, context, potential_titles, created_by, created_at, updated_at, creator:profiles!created_by(full_name)';
+
+// Ratings: admins + directors only — RLS on idea_ratings enforces the same
+// set server-side, so other roles never receive rating rows at all.
+const RATER_ROLES = ['admin', 'director_creative', 'director_comms'];
+const RATING_COLORS = { 1: '#ef4444', 2: '#f97316', 3: '#facc15', 4: '#86efac', 5: '#22c55e' };
+const MAX_TITLES = 5;
 
 // Stable per-user name color, hashed from the profile id so desktop and
 // mobile agree without storing anything.
@@ -220,6 +226,72 @@ export default function Ideas() {
     }
   }
 
+  // ── Potential titles (max 5, stored on the idea row) ──
+  async function saveTitles(id, category, titles) {
+    const clean = (titles || []).map((t) => String(t).trim()).filter(Boolean).slice(0, MAX_TITLES);
+    setByCategory((prev) => ({
+      ...prev,
+      [category]: prev[category].map((i) => (i.id === id ? { ...i, potential_titles: clean } : i)),
+    }));
+    const { error } = await supabase
+      .from('write_ideas')
+      .update({ potential_titles: clean, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) {
+      console.error('Error saving titles:', error);
+      fetchAll();
+    }
+  }
+
+  // ── Ratings (admins + directors; RLS hides rows from everyone else) ──
+  const canRate = RATER_ROLES.includes(profile?.role);
+  const [ratingsByIdea, setRatingsByIdea] = useState({});
+
+  useEffect(() => {
+    if (!canRate) return undefined;
+    let alive = true;
+    (async () => {
+      const { data, error } = await supabase
+        .from('idea_ratings')
+        .select('idea_id, user_id, rating, rater:profiles!user_id(full_name)');
+      if (error) { console.error('Error fetching idea ratings:', error); return; }
+      if (!alive) return;
+      const grouped = {};
+      for (const r of data || []) (grouped[r.idea_id] = grouped[r.idea_id] || []).push(r);
+      setRatingsByIdea(grouped);
+    })();
+    return () => { alive = false; };
+  }, [canRate]);
+
+  async function rateIdea(ideaId, value) {
+    if (!canRate || !profile?.id) return;
+    const mine = (ratingsByIdea[ideaId] || []).find((r) => r.user_id === profile.id);
+    if (mine && mine.rating === value) {
+      // Clicking your current rating clears it.
+      setRatingsByIdea((prev) => ({
+        ...prev,
+        [ideaId]: (prev[ideaId] || []).filter((r) => r.user_id !== profile.id),
+      }));
+      const { error } = await supabase.from('idea_ratings').delete().eq('idea_id', ideaId).eq('user_id', profile.id);
+      if (error) console.error('Error clearing rating:', error);
+      return;
+    }
+    setRatingsByIdea((prev) => ({
+      ...prev,
+      [ideaId]: [
+        ...(prev[ideaId] || []).filter((r) => r.user_id !== profile.id),
+        { idea_id: ideaId, user_id: profile.id, rating: value, rater: { full_name: profile.full_name } },
+      ],
+    }));
+    const { error } = await supabase
+      .from('idea_ratings')
+      .upsert(
+        { idea_id: ideaId, user_id: profile.id, rating: value, updated_at: new Date().toISOString() },
+        { onConflict: 'idea_id,user_id' },
+      );
+    if (error) console.error('Error saving rating:', error);
+  }
+
   function toggleSelect(id) {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -238,15 +310,20 @@ export default function Ideas() {
     const items = CATEGORY_KEYS.flatMap((k) => byCategory[k] || []).filter((i) => selectedIds.has(i.id));
     if (items.length === 0 || sending) return;
     setSending(true);
-    const rows = items.map((i) => ({
-      name: i.text,
-      type: CATEGORY_TO_PROJECT_TYPE[i.category] || 'mayday_video',
-      status: 'queue',
-      start_column: 'queue',
-      notes: i.context || null,
-      stage_config: {},
-      created_by: profile?.id || null,
-    }));
+    const rows = items.map((i) => {
+      // Potential titles travel with the idea into the project's notes.
+      const titles = (Array.isArray(i.potential_titles) ? i.potential_titles : []).filter(Boolean);
+      const titleNote = titles.length ? `Potential titles:\n- ${titles.join('\n- ')}` : null;
+      return {
+        name: i.text,
+        type: CATEGORY_TO_PROJECT_TYPE[i.category] || 'mayday_video',
+        status: 'queue',
+        start_column: 'queue',
+        notes: [titleNote, i.context].filter(Boolean).join('\n\n') || null,
+        stage_config: {},
+        created_by: profile?.id || null,
+      };
+    });
     const { error } = await supabase.from('projects').insert(rows);
     if (error) {
       alert(`Could not add to Projects: ${error.message}`);
@@ -312,6 +389,11 @@ export default function Ideas() {
               }}
               onSaveEdit={(id, text) => saveEdit(id, cat.key, text)}
               onSaveContext={(id, text) => saveContext(id, cat.key, text)}
+              onSaveTitles={(id, titles) => saveTitles(id, cat.key, titles)}
+              canRate={canRate}
+              currentUserId={profile?.id}
+              ratingsByIdea={ratingsByIdea}
+              onRate={rateIdea}
               selectMode={selectMode}
               selectedIds={selectedIds}
               onToggleSelect={toggleSelect}
@@ -341,13 +423,25 @@ export default function Ideas() {
   );
 }
 
-function Column({ category, items, onAdd, onToggle, onItemContextMenu, onSaveEdit, onSaveContext, selectMode, selectedIds, onToggleSelect }) {
+function Column({ category, items, onAdd, onToggle, onItemContextMenu, onSaveEdit, onSaveContext, onSaveTitles, canRate, currentUserId, ratingsByIdea, onRate, selectMode, selectedIds, onToggleSelect }) {
   const [showInput, setShowInput] = useState(false);
   const [newText, setNewText] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [editingText, setEditingText] = useState('');
   const [contextEditingId, setContextEditingId] = useState(null);
   const [contextDraft, setContextDraft] = useState('');
+  // Potential Titles: collapsed map (sections default expanded) + add-input state.
+  const [titlesCollapsed, setTitlesCollapsed] = useState({});
+  const [titleAddingId, setTitleAddingId] = useState(null);
+  const [titleDraft, setTitleDraft] = useState('');
+
+  function commitTitle(item) {
+    const trimmed = titleDraft.trim();
+    const titles = Array.isArray(item.potential_titles) ? item.potential_titles : [];
+    if (trimmed) onSaveTitles(item.id, [...titles, trimmed]);
+    setTitleAddingId(null);
+    setTitleDraft('');
+  }
 
   function commitNew() {
     onAdd(newText);
@@ -495,7 +589,90 @@ function Column({ category, items, onAdd, onToggle, onItemContextMenu, onSaveEdi
                           {item.text}
                         </span>
                       )}
+                      {canRate && !selectMode && (() => {
+                        const ratings = ratingsByIdea[item.id] || [];
+                        const mine = ratings.find((r) => r.user_id === currentUserId);
+                        const avg = ratings.length ? ratings.reduce((s, r) => s + r.rating, 0) / ratings.length : null;
+                        return (
+                          <div style={styles.ratingWrap} onClick={(e) => e.stopPropagation()}>
+                            {avg != null && (
+                              <span
+                                style={{
+                                  ...styles.ratingAvg,
+                                  background: `${RATING_COLORS[Math.round(avg)]}26`,
+                                  color: RATING_COLORS[Math.round(avg)],
+                                }}
+                                title={ratings.map((r) => `${r.rater?.full_name || 'Unknown'}: ${r.rating}`).join('\n')}
+                              >
+                                {avg.toFixed(1)}
+                              </span>
+                            )}
+                            {[1, 2, 3, 4, 5].map((n) => (
+                              <button
+                                key={n}
+                                onClick={() => onRate(item.id, n)}
+                                title={`Rate ${n}${mine?.rating === n ? ' (click to clear)' : ''}`}
+                                style={{
+                                  ...styles.ratingDot,
+                                  borderColor: RATING_COLORS[n],
+                                  background: mine && n <= mine.rating ? RATING_COLORS[n] : 'transparent',
+                                }}
+                              />
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </div>
+                    {(() => {
+                      const titles = Array.isArray(item.potential_titles) ? item.potential_titles : [];
+                      const adding = titleAddingId === item.id;
+                      if (!titles.length && !adding) return null;
+                      const collapsed = !!titlesCollapsed[item.id];
+                      return (
+                        <div style={styles.titlesWrap}>
+                          <button
+                            style={styles.titlesHeader}
+                            onClick={() => setTitlesCollapsed((p) => ({ ...p, [item.id]: !collapsed }))}
+                          >
+                            {collapsed ? '▸' : '▾'} Potential Titles ({titles.length}/{MAX_TITLES})
+                          </button>
+                          {!collapsed && (
+                            <>
+                              {titles.map((t, ti) => (
+                                <div key={`${t}-${ti}`} style={styles.titleRow}>
+                                  <span style={styles.titleText}>{t}</span>
+                                  {!selectMode && (
+                                    <button
+                                      onClick={() => onSaveTitles(item.id, titles.filter((_, j) => j !== ti))}
+                                      style={styles.titleRemove}
+                                    >&times;</button>
+                                  )}
+                                </div>
+                              ))}
+                              {adding ? (
+                                <input
+                                  value={titleDraft}
+                                  onChange={(e) => setTitleDraft(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') commitTitle(item);
+                                    if (e.key === 'Escape') { setTitleAddingId(null); setTitleDraft(''); }
+                                  }}
+                                  onBlur={() => commitTitle(item)}
+                                  placeholder="Potential title…"
+                                  style={styles.titleInput}
+                                  autoFocus
+                                />
+                              ) : (!selectMode && titles.length < MAX_TITLES && (
+                                <button
+                                  onClick={() => { setTitleAddingId(item.id); setTitleDraft(''); }}
+                                  style={styles.titleAddBtn}
+                                >+ title</button>
+                              ))}
+                            </>
+                          )}
+                        </div>
+                      );
+                    })()}
                     {contextEditingId === item.id ? (
                       <div style={styles.contextEditWrap}>
                         <textarea
@@ -531,6 +708,14 @@ function Column({ category, items, onAdd, onToggle, onItemContextMenu, onSaveEdi
                       {!selectMode && contextEditingId !== item.id && (
                         <button onClick={() => openContextEditor(item)} style={styles.contextLink}>
                           {item.context ? 'edit context' : '+ context'}
+                        </button>
+                      )}
+                      {!selectMode && titleAddingId !== item.id && !(Array.isArray(item.potential_titles) ? item.potential_titles : []).length && (
+                        <button
+                          onClick={() => { setTitleAddingId(item.id); setTitleDraft(''); }}
+                          style={styles.contextLink}
+                        >
+                          + title
                         </button>
                       )}
                     </div>
@@ -721,6 +906,45 @@ const styles = {
     cursor: 'pointer',
     fontFamily: 'inherit',
     padding: 0,
+  },
+  // ── Ratings (admins + directors only) ──
+  ratingWrap: { display: 'flex', alignItems: 'center', gap: 3, marginLeft: 'auto', flexShrink: 0 },
+  ratingAvg: {
+    fontSize: '10px', fontWeight: 700, padding: '1px 5px', borderRadius: 8,
+    marginRight: 2, cursor: 'default',
+  },
+  ratingDot: {
+    width: 11, height: 11, borderRadius: '50%', border: '1.5px solid',
+    padding: 0, cursor: 'pointer', background: 'transparent',
+  },
+  // ── Potential Titles ──
+  titlesWrap: {
+    margin: '6px 0 0 34px', display: 'flex', flexDirection: 'column', gap: 3,
+  },
+  titlesHeader: {
+    background: 'none', border: 'none', color: 'rgba(255,255,255,0.45)',
+    fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+    padding: 0, textAlign: 'left',
+  },
+  titleRow: {
+    display: 'flex', alignItems: 'center', gap: 6, padding: '3px 8px',
+    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)',
+    borderRadius: 6,
+  },
+  titleText: { fontSize: '12px', color: '#cbd5e1', flex: 1, wordBreak: 'break-word' },
+  titleRemove: {
+    background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)',
+    fontSize: '13px', cursor: 'pointer', padding: 0, lineHeight: 1,
+  },
+  titleInput: {
+    padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(99,102,241,0.35)',
+    background: 'rgba(255,255,255,0.05)', color: '#e2e8f0', fontSize: '12px',
+    fontFamily: 'inherit', outline: 'none',
+  },
+  titleAddBtn: {
+    background: 'none', border: '1px dashed rgba(99,102,241,0.3)', borderRadius: 6,
+    color: 'rgba(165,180,252,0.6)', fontSize: '11px', padding: '3px 8px',
+    cursor: 'pointer', fontFamily: 'inherit', width: 'fit-content',
   },
   contextText: {
     fontSize: '12px',
