@@ -986,3 +986,156 @@ Same class as the channels bug. **Verified against live DB (`ytfjkoxowfskuibdsfe
 3. **Adoption PRs (incremental, page-by-page):** #6–8 data layer, #9–10 primitives.
 4. **Guardrails:** wire ESLint (date-slicing ban, style magic-numbers, `alert()` ban) + the standing REVOKE-PUBLIC sweep so drift can't return.
 5. **Backfill:** types (#11), styling (#12), tests (#13).
+
+---
+
+## Projects Timeline / Roadmap view (Carl design consult — 2026-07-14, PARKED)
+
+Goal (Trevor's words): "roadmap projects in the Projects tab, timeline them out to create a visual
+representation... hold a mental model of what we want to do and how we will get there."
+
+### Core insight
+Data already exists — this is a rendering layer, no schema change, no new tables:
+- Each project carries `stage_timelines` (per-stage `{ start, end }` map) — Projects.js L701, L1150–1160
+- Plus hard `deadline` + `post_time`
+- `BusinessDev.js` already has a working horizontal-Gantt renderer: `TimelineView` L2574–2680
+  (month axis, "today" line, %-offset bars, milestone diamonds; styles L3177–3220). Reuse its axis math.
+
+### The fork (Trevor's decision)
+Two different products hide in the request:
+- **A — Publishing Calendar** ("what airs when"). Unit = publish date. Swimlanes by **channel**
+  (Trevor May Baseball / More Mayday / AWA Wiffle), week X-axis, pills on `deadline`. Cadence + gaps.
+  Weekly strategist tool.
+- **B — Production Gantt** ("how we get there"). Unit = stage sequence. Multi-segment bars colored by
+  `STATUS_COLORS`, driven by `stage_timelines`. Pipeline crunch. Firefighting tool.
+
+**Carl's call: A is the frame, B is the zoom.** One "Timeline" view mode, defaults to channel-swimlanes;
+click a pill → expands inline to its stage Gantt. Macro = strategy, expand = production detail.
+Rationale: cadence-over-frequency is what grows channels; swimlane opened weekly beats Gantt opened on fire.
+
+### v1 shape (minimal-but-right)
+- Add **third view-mode button** next to List/Board (Projects.js ~L421; persist like `projects_view`).
+- Channel rows (`CHANNELS`), week axis, pills on publish date colored by `status` (`STATUS_COLORS`).
+- "Today" vertical line + week gridlines (lift `dateOffsetPct`/month-axis math from BusinessDev L2584–2597,
+  swap month buckets → week buckets).
+- **"Undated / Backlog" lane** at bottom — reuse existing `deadline`/`!deadline` split (Projects.js L358–364).
+  The gaps + backlog size ARE the insight.
+- Click pill → v1: open existing EditProjectModal (free). v1.5: inline stage-Gantt expand.
+- **Read-only for v1.**
+
+```
+Timeline    [ List | Board | ▸Timeline ]        Range: [4wk][8wk][12wk]
+────────────────────────────────────────────────────────────────────────
+            │ Jul 14   │ Jul 21   │ Jul 28   │ Aug 4    │ Aug 11  │
+            │ ┊today   │          │          │          │         │
+More Mayday │ ██Vid A  │   ██Vid B│          │  ██Vid C │         │  ← Aug gap = dead air
+TM Baseball │      ██Q&A          │ ██Drills │          │ ██Recap │
+AWA Wiffle  │          │ ██Ep 12  │          │ ██Ep 13  │         │
+────────────────────────────────────────────────────────────────────────
+   ▼ (click a pill) ── Vid A · publishes Jul 15 · More Mayday ────────────
+      write ▓▓▓  pre ▓▓  film ▓▓▓▓  edit ▓▓▓▓▓  review ▓  ▸publish ◆
+      └─ stage bars from stage_timelines, colored by STATUS_COLORS ─┘
+```
+
+### Rejected forms
+- Pure Gantt as default — trap for content team (optimizes dependency chains you don't have; your failure
+  mode is cadence, not slippage). Build Gantt as the zoom, not home.
+- Month-grid calendar (like BD Calendar tab) — loses per-channel lane comparison. Cheap v2 add, not v1.
+- Milestone dot-line — too lossy for ongoing multi-channel publishing.
+
+### Open decisions (Trevor's to make)
+1. **Default axis** — publish-date (A, Carl's pick) vs stage-sequence (B). Flip to B if daily pain is
+   "productions slipping" not "cadence gaps."
+2. **Row grouping** — channel (v1 pick) vs project_type vs assignee (assignee = resourcing view, defer).
+3. **Merge later** with BD Timeline + Calendar Google events into one org-wide view? Consciously decide
+   NOT now; keep Projects timeline scoped to projects for v1.
+4. **Editability** — read-only v1 (strong pick). Drag-to-reschedule = real eng cost (drag math, optimistic
+   write, conflict handling); add later with optimistic commit + Undo.
+
+### Highest-leverage next action
+Build channel-swimlane Timeline as 3rd view mode in Projects.js — reuse `TimelineView` axis math
+(L2584–2597), `STATUS_COLORS` (L20), `CHANNELS` (L30), dated/undated partition (L358–364). Read-only.
+
+### Notes / caveats
+- `projects_view` persists via `localStorage` (Projects.js ~L46/L59) — violates multi-machine rule. Flagged, not this feature's job.
+- Styling: use tokens/recipes from `src/lib/styleTokens.js` + `src/lib/styleRecipes.js`, never hardcode.
+- Relevant files: `src/pages/Projects.js`, `src/pages/BusinessDev.js`.
+- Carl brain gap noted: no dedicated "timeline/roadmap viz UX" reference doc yet; worth adding if this recurs.
+
+---
+
+## Ashley-in-Analytics — tactical coaching layer (Carl consult + decisions locked 2026-07-14, PARKED)
+
+Goal: surface an Ashley-style AI advisor inside the Analytics page that turns raw metrics into
+tactical, benchmarked, opinionated recommendations. Carl's verdict: **YES — build a diagnosis engine,
+NOT a chatbot.** Analytics answers "what happened" then dead-ends; Ashley is the missing "…so do this."
+
+### Locked decisions (Trevor, 2026-07-14)
+1. **Trigger:** auto-generate weekly (piggyback the Saturday `generate-weekly-report` cron, snapshot
+   stored → instant/free open) **+ admin Refresh button.** Never fire Claude on page mount.
+   **Versioned:** `ashley_reads` keeps multiple rows per week (mirror `script_review_versions`);
+   Refresh INSERTs a new version, a **Save** button pins one (`is_saved`) so actioned reads survive
+   Refresh. Resolves the regen-vs-action-state collision.
+2. **Scope:** **YouTube + TikTok**, treating **long-form and short-form individually** —
+   - YT long-form → full CTR×AVD×retention diagnostics (only `full`-coverage surface).
+   - YT Shorts → its own short-form read.
+   - TikTok short-form → reach/engagement only (views/followers/likes; NO CTR/AVD/retention —
+     Ashley must NOT fabricate TikTok retention. Reads = shares-per-reach, outlier multiple, follower conversion).
+3. **Voice:** **Ashley absorbs** the existing Weekly Report wins/watch-outs/recommendations block —
+   one tactical voice, not two bands.
+4. **Action:** **insight → action** — each point carries a "turn into task / log as decision" button
+   writing into the existing task / Business Dev system (compounding decision loop, not analytics theater).
+   Data model must leave room for this from day one.
+
+### Build (reuse existing patterns — ~90% exists)
+- **Edge fn:** clone `supabase/functions/generate-weekly-report/index.ts` → `generate-ashley-read`.
+  Aggregate the diagnostic columns (YT CTR/impressions/AVD/new-vs-returning, `content_metrics` outlier
+  multiples, `platform_daily_metrics` shares/engagement, format splits, best-post-times).
+- **System prompt = Ashley's brain:** README + 4–6 relevant playbooks/audits
+  (`Ashley/applied/youtube-longform-playbook.md`, `cross-platform/06-shortform-analytics-benchmarks.md`,
+  the two live channel audits). Cache as static string.
+- **Hard-constrain to coverage:** pass `PLATFORM_META` / `COVERAGE_META` (constants.js); forbid claims
+  beyond available data.
+- **Structured output:** `{points:[{headline, platform, surface(longform|shorts|tiktok), severity(win|watch|fix),
+  detail, source_doc, benchmark_date}]}`. `benchmark_date` stamp mandatory (staleness insurance;
+  Ashley benchmarks dated 2026-07-12, >9mo = suspect).
+- **Model:** Sonnet-class (`CLAUDE_MODEL` env, same as weekly fn).
+- **Store:** `ashley_reads` table (or reuse `weekly_reports.narrative` with an `ashley` key).
+- **UI:** one band on the **Weekly tab**, below KPIs, reusing the `NarrativeBlock` expander
+  (`src/pages/analytics/components/WeeklyReport.js` L40–54). **Two disclosure levels only** —
+  L1 = one sentence (`metric + verdict + lever`), L2 = why + specific fix + source + benchmark date.
+  Each L1 point gets the "→ task / log decision" action button (decision #4).
+
+### Traps to avoid (Carl)
+- Chatbot trap — she pushes, doesn't wait to be pulled. No primary "Ask Ashley" box.
+- Hallucinated-precision trap — coverage-constrained, esp. TikTok (see scope #2).
+- Staleness trap — date-stamp every benchmark.
+
+### Later (earn with usage)
+- Inline "Ashley reads this" chips on CTR/format/timing widgets.
+- Per-video reads on click-into-upload.
+- Instrument which points get expanded; cut never-opened point-types after 4 weeks.
+- Follow-up chat/ask affordance (only after the push layer proves itself).
+
+### Highest-leverage next action
+Clone `generate-weekly-report` → `generate-ashley-read` (Ashley brain as system context, coverage-hard-
+constrained, YT long-form + YT Shorts + TikTok as distinct surfaces, structured `points` w/ action-target
++ benchmark_date), render as one band on the Weekly tab reusing `NarrativeBlock`, wire the per-point
+"→ task/BD" action.
+
+Files that matter: `supabase/functions/generate-weekly-report/index.ts`,
+`src/pages/analytics/components/WeeklyReport.js`, `src/pages/analytics/constants.js`,
+`src/pages/analytics/Analytics.js`, `Ashley/applied/youtube-longform-playbook.md`.
+
+### FULL BUILD SPEC: `docs/ashley-analytics-spec.md` (Carl, 2026-07-14 — implementation-ready)
+DB-verified facts baked in:
+- **YT long/short split trusts `content_items.content_type`** (586 `short` / 538 `video`, all populated).
+  NO duration fallback — 347 Shorts are 61–180s and a ≤60s cutoff would misclassify them as long-form.
+  `'video'` → yt_long, `'short'` → yt_short.
+- **TikTok = account-level ONLY** — zero `content_items` TikTok rows, no per-post table in DB
+  (`tools/tiktok-scraper/` is local/file-based, not wired to Postgres). Reads from `platform_daily_metrics`
+  (+`audience_snapshots`): views, followers/delta, likes/engagement, shares-per-reach (`shares` col confirmed).
+  No per-video outliers / top-post / best-times / retention / CTR — prompt explicitly forbids fabricating them.
+- Ashley brain docs must be **vendored into the edge-fn dir** (runtime can't read `/Ashley`) — doc-divergence
+  is the main ongoing maintenance trap (spec §9.1).
+- 5 shippable phases: schema → edge fn → frontend render → cron → action wiring.
