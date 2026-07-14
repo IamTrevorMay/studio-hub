@@ -22,6 +22,7 @@ const ALLOWED_ORIGINS = new Set([
   "https://assist.mmcreate.io",
   "http://localhost:3000",
   "http://localhost:3001",
+  "http://localhost:3100",
 ]);
 
 function cors(req: Request) {
