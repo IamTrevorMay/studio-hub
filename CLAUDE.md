@@ -49,6 +49,7 @@ supabase/
 - Platform sync: `sync-youtube`, `sync-meta`, `sync-tiktok`, `sync-twitch`, `sync-fourthwall`, `sync-stripe`, `sync-substack`
 - Google Calendar: `google-auth-url`, `google-auth-callback`, `google-calendar-sync`, `google-calendar-fetch`
 - Research: `fetch-rss`, `generate-trends` (daily Claude-powered trend analysis, runs via pg_cron at 8am PT)
+- Assistant: `assistant-summary` — read-only admin snapshot (projects, sprint, deadlines, events) for the Mayday Assistant at assist.mmcreate.io. Strict-admin JWT required; CORS restricted to assist origins (function-local headers, not the shared `corsHeaders`); deployed `--no-verify-jwt`
 - All use env vars: `METRICOOL_TOKEN`, `METRICOOL_USER_ID`, `METRICOOL_BLOG_ID`, `ANTHROPIC_API_KEY`, `CRON_SECRET`, Supabase service role key
 
 ### Database
@@ -215,6 +216,7 @@ Two sidebar modes toggled via button at bottom of sidebar (`AppLayout.js`).
 - Non-admins are pinned to Work Mode
 - `ADMIN_PAGE_KEYS` array controls which pages appear only in Admin Mode
 - `ADMIN_ESSENTIAL_KEYS` (Dashboard, My Tasks, Messages) appear at top of Admin Mode sidebar too
+- Below the mode toggle: "Gerald" button (`isStrictAdmin` only) opens the Mayday Assistant at assist.mmcreate.io in a new tab
 
 ## Auth Pages
 - `AuthPage.js` (desktop) + `AuthPageMobile.js` (mobile)

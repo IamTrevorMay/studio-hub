@@ -257,7 +257,7 @@ const NAV_ICON_MAP = {
 };
 
 export default function AppLayout() {
-  const { profile, signOut, isAdmin, isAssistant, isPartner, isAgency, isFreelancer, restrictedNavKeys } = useAuth();
+  const { profile, signOut, isAdmin, isStrictAdmin, isAssistant, isPartner, isAgency, isFreelancer, restrictedNavKeys } = useAuth();
   const { unreadAnnouncementCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, agencyUnresolvedCount, unsignedDocCount, newAssignmentCount, myTaskCount, stuckCommentCount, flCommentCount, unreadMessageCount, refreshNotifications } = useNotifications();
   const { getResolvedNav, saveConfig, saving } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => {
@@ -756,6 +756,21 @@ export default function AppLayout() {
           >
             <AdminIcon active={mode === 'admin'} />
             {!sidebarCollapsed && <span>{mode === 'admin' ? 'Exit Admin Mode' : 'Admin Mode'}</span>}
+          </button>
+        )}
+
+        {/* Gerald (Mayday Assistant) - strict admin only, opens in new tab */}
+        {isStrictAdmin && (
+          <button
+            onClick={() => window.open('https://assist.mmcreate.io', '_blank', 'noopener,noreferrer')}
+            style={{
+              ...styles.navItem,
+              justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+            }}
+            title={sidebarCollapsed ? 'Gerald — Mayday Assistant' : 'Opens Gerald in a new tab'}
+          >
+            <GeraldIcon active={false} />
+            {!sidebarCollapsed && <span>Gerald</span>}
           </button>
         )}
 
@@ -1315,6 +1330,15 @@ function AdminIcon({ active }) {
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
       <circle cx="10" cy="10" r="3" />
       <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.93 4.93l1.41 1.41M13.66 13.66l1.41 1.41M4.93 15.07l1.41-1.41M13.66 6.34l1.41-1.41" />
+    </svg>
+  );
+}
+
+function GeraldIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+      <path d="M10 2l1.8 4.5L16.5 8l-4.7 1.5L10 14l-1.8-4.5L3.5 8l4.7-1.5L10 2z" strokeLinejoin="round" />
+      <path d="M16 13l.9 2.1L19 16l-2.1.9L16 19l-.9-2.1L13 16l2.1-.9L16 13z" strokeLinejoin="round" />
     </svg>
   );
 }
