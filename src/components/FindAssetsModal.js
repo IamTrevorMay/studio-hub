@@ -93,19 +93,25 @@ function flattenBeats(items) {
 
 // Build the searchable tag list from the sheet's beats. Only string tags count
 // (uploaded media objects and legacy items are skipped); notes split on commas.
-function collectItems(beats) {
+// Tags marked "done" on the beat sheet (right-click → Mark done, meaning the
+// asset was already sourced elsewhere) are excluded entirely.
+function collectItems(beats, review = {}) {
   const items = [];
+  const push = (key, beatId, beatTitle, field, tag) => {
+    if (review[key]?.status === 'done') return;
+    items.push({ key, beatId, beatTitle, field, tag });
+  };
   for (const beat of flattenBeats(beats)) {
     const beatTitle = (beat.title || '').trim();
     for (const field of ['videos', 'graphics']) {
       for (const v of beat[field] || []) {
         if (typeof v === 'string' && v.trim()) {
-          items.push({ key: `${beat.id}::${field}::${v.trim()}`, beatId: beat.id, beatTitle, field, tag: v.trim() });
+          push(`${beat.id}::${field}::${v.trim()}`, beat.id, beatTitle, field, v.trim());
         }
       }
     }
     for (const piece of String(beat.notes || '').split(',').map((s) => s.trim()).filter(Boolean)) {
-      items.push({ key: `${beat.id}::notes::${piece}`, beatId: beat.id, beatTitle, field: 'notes', tag: piece });
+      push(`${beat.id}::notes::${piece}`, beat.id, beatTitle, 'notes', piece);
     }
   }
   return items;
@@ -113,7 +119,7 @@ function collectItems(beats) {
 
 export default function FindAssetsModal({ sheetId, beats, initialReview, onClose }) {
   const confirm = useConfirm();
-  const [items] = useState(() => collectItems(beats));
+  const [items] = useState(() => collectItems(beats, initialReview || {}));
   const [review, setReview] = useState(() => ({ ...(initialReview || {}) }));
   const [searching, setSearching] = useState(false);
   // Set when the Savant archive (/api/pitch-video, /api/triton-search) errors
@@ -337,9 +343,14 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
     if (!ok) return;
     setSelectedKey(null);
     setViewerUrl(null);
-    setReview({});
-    reviewRef.current = {};
-    persist({});
+    // Preserve "done" marks — those are set on the beat sheet itself
+    // (asset sourced elsewhere), not modal suggestion state.
+    const kept = Object.fromEntries(
+      Object.entries(reviewRef.current).filter(([, v]) => v?.status === 'done'),
+    );
+    setReview(kept);
+    reviewRef.current = kept;
+    persist(kept);
     searchBatch(items);
   };
 
