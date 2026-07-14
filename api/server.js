@@ -36,6 +36,12 @@ app.use('/api/nas', nasRouter);
 const pitchVideoHandler = tryRequire('./pitch-video');
 if (pitchVideoHandler) app.all('/api/pitch-video', (req, res) => pitchVideoHandler(req, res));
 
+// Triton player-search proxy (Vercel-style handler at api/triton-search.js).
+// Used by PlayerSearchField + the Beat Sheets Find Assets modal; needs
+// TRITON_SUPABASE_URL / TRITON_SUPABASE_ANON_KEY in api/.env for local dev.
+const tritonSearchHandler = tryRequire('./triton-search');
+if (tritonSearchHandler) app.all('/api/triton-search', (req, res) => tritonSearchHandler(req, res));
+
 // Vercel-style serverless handlers live in api/broadcast/*.js as
 // `module.exports = async (req, res) => {...}`. Mount each one at
 // /api/broadcast/<name> so local dev exercises the same code path that

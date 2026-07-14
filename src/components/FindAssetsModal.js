@@ -16,6 +16,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
+import { useConfirm } from '../contexts/ConfirmContext';
 
 const SHADE_FN_URL = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/shade-search`;
 const PITCH_FN_URL = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/pitch-video-drive`;
@@ -111,9 +112,14 @@ function collectItems(beats) {
 }
 
 export default function FindAssetsModal({ sheetId, beats, initialReview, onClose }) {
+  const confirm = useConfirm();
   const [items] = useState(() => collectItems(beats));
   const [review, setReview] = useState(() => ({ ...(initialReview || {}) }));
   const [searching, setSearching] = useState(false);
+  // Set when the Savant archive (/api/pitch-video, /api/triton-search) errors
+  // — those failures were previously swallowed into "no pitch suggestions",
+  // which reads as bad search results instead of a broken pipe.
+  const [archiveWarning, setArchiveWarning] = useState(null);
   const [selectedKey, setSelectedKey] = useState(null);
   const [viewerUrl, setViewerUrl] = useState(null); // { kind: 'shade'|'pitch', url, type }
   const [viewerLoading, setViewerLoading] = useState(false);
@@ -156,19 +162,35 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
     if (event) q.set('event', event);
 
     if (playerQuery) {
-      for (const rpc of ['search_players', 'search_batters']) {
-        try {
-          const res = await fetch('/api/triton-search', {
-            method: 'POST', headers,
-            body: JSON.stringify({ rpc, params: { search_term: playerQuery, result_limit: 1 } }),
-          });
-          const json = await res.json().catch(() => ({}));
-          const hit = Array.isArray(json.rows) ? json.rows[0] : null;
-          if (hit?.player_id) {
-            q.set(rpc === 'search_players' ? 'pitcher' : 'batter', hit.player_id);
-            break;
-          }
-        } catch { /* try the next rpc */ }
+      // Try the full leftover text, then fall back to the first word — tags
+      // like "Latz Save" carry non-archive words ("save" is a game stat, not
+      // a pitch event) that would sink an exact name lookup.
+      const attempts = [playerQuery];
+      const firstWord = playerQuery.split(' ')[0];
+      if (firstWord && firstWord !== playerQuery) attempts.push(firstWord);
+      outer:
+      for (const term of attempts) {
+        for (const rpc of ['search_players', 'search_batters']) {
+          try {
+            const res = await fetch('/api/triton-search', {
+              method: 'POST', headers,
+              body: JSON.stringify({ rpc, params: { search_term: term, result_limit: 1 } }),
+            });
+            if (!res.ok) {
+              setArchiveWarning(`Player lookup failed (${res.status}) — pitch suggestions may be incomplete`);
+              continue;
+            }
+            const json = await res.json().catch(() => ({}));
+            const hit = Array.isArray(json.rows) ? json.rows[0] : null;
+            // Row id lives under `pitcher` / `batter` depending on the rpc
+            // (same fallback chain PlayerSearchField uses), not `player_id`.
+            const playerId = hit?.player_id ?? hit?.pitcher ?? hit?.batter;
+            if (playerId != null) {
+              q.set(rpc === 'search_players' ? 'pitcher' : 'batter', playerId);
+              break outer;
+            }
+          } catch { /* try the next rpc / term */ }
+        }
       }
     }
 
@@ -184,7 +206,10 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
     try {
       const res = await fetch(`/api/pitch-video?${q.toString()}`, { headers });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) return [];
+      if (!res.ok) {
+        setArchiveWarning(`Pitch archive unreachable (${json.error || res.status}) — pitch suggestions skipped`);
+        return [];
+      }
       const rows = (json.rows || []).slice().sort((a, b) => {
         const dateCmp = String(b.game_date || '').localeCompare(String(a.game_date || ''));
         if (dateCmp !== 0) return dateCmp;
@@ -202,7 +227,8 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
         game_date: row.game_date || null,
         thumbnail: null,
       }));
-    } catch {
+    } catch (e) {
+      setArchiveWarning(`Pitch archive unreachable (${e.message}) — pitch suggestions skipped`);
       return [];
     }
   }, []);
@@ -259,33 +285,50 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
     return candidates.find((c) => !exclude.has(c.id)) || null;
   }, [shadeCall, pitchSearch]);
 
+  // Search a batch of items, honoring each entry's shown/denied exclusions.
+  const searchBatch = useCallback(async (list, isCancelled = () => false) => {
+    if (!list.length) return;
+    setSearching(true);
+    for (const item of list) {
+      if (isCancelled()) return;
+      const entry = reviewRef.current[item.key] || { status: 'pending', shownIds: [], deniedIds: [] };
+      const exclude = new Set([...(entry.shownIds || []), ...(entry.deniedIds || [])]);
+      try {
+        const suggestion = await searchFor(item, exclude);
+        if (isCancelled()) return;
+        updateEntry(item.key, {
+          suggestion,
+          status: 'pending',
+          shownIds: suggestion ? [...new Set([...(entry.shownIds || []), suggestion.id])] : (entry.shownIds || []),
+        });
+      } catch (e) {
+        console.error('Find Assets search failed for', item.tag, e);
+      }
+    }
+    if (!isCancelled()) setSearching(false);
+  }, [searchFor, updateEntry]);
+
   // Initial pass: search every item that has no entry yet.
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      const fresh = items.filter((it) => !reviewRef.current[it.key]?.suggestion && !reviewRef.current[it.key]?.status?.match(/confirmed|denied/));
-      if (!fresh.length) return;
-      setSearching(true);
-      for (const item of fresh) {
-        if (cancelled) return;
-        const entry = reviewRef.current[item.key] || { status: 'pending', shownIds: [], deniedIds: [] };
-        const exclude = new Set([...(entry.shownIds || []), ...(entry.deniedIds || [])]);
-        try {
-          const suggestion = await searchFor(item, exclude);
-          if (cancelled) return;
-          updateEntry(item.key, {
-            suggestion,
-            status: 'pending',
-            shownIds: suggestion ? [...new Set([...(entry.shownIds || []), suggestion.id])] : (entry.shownIds || []),
-          });
-        } catch (e) {
-          console.error('Find Assets search failed for', item.tag, e);
-        }
-      }
-      if (!cancelled) setSearching(false);
-    })();
+    const fresh = items.filter((it) => !reviewRef.current[it.key]?.suggestion && !reviewRef.current[it.key]?.status?.match(/confirmed|denied/));
+    searchBatch(fresh, () => cancelled);
     return () => { cancelled = true; };
   }, []);
+
+  // Clear suggestions: wipe ALL review state (statuses, suggestions, and the
+  // shown/denied history — denied assets become eligible again) and search
+  // every tag from scratch.
+  const clearAll = async () => {
+    const ok = await confirm('Clear all suggestions and start over? Confirmed, denied, and re-run history will be wiped.');
+    if (!ok) return;
+    setSelectedKey(null);
+    setViewerUrl(null);
+    setReview({});
+    reviewRef.current = {};
+    persist({});
+    searchBatch(items);
+  };
 
   // Re-run: fresh suggestions for every yellow (reroll) item.
   const rerollKeys = items.filter((it) => review[it.key]?.status === 'reroll').map((it) => it.key);
@@ -453,7 +496,18 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
             {items.length} tags · {confirmed.length} confirmed
             {searching ? ' · searching…' : ''}
           </span>
+          {archiveWarning && (
+            <span style={{ fontSize: 11, color: '#fcd34d' }} title={archiveWarning}>⚠ {archiveWarning}</span>
+          )}
           <div style={{ flex: 1 }} />
+          <button
+            onClick={clearAll}
+            disabled={searching || !items.length}
+            title="Wipe every suggestion (including denied history) and search all tags again"
+            style={{ ...s.btn, color: '#fca5a5', borderColor: 'rgba(239,68,68,0.3)', opacity: searching || !items.length ? 0.4 : 1 }}
+          >
+            Clear suggestions
+          </button>
           <button onClick={rerun} disabled={!rerollKeys.length || searching} style={{ ...s.btn, opacity: rerollKeys.length && !searching ? 1 : 0.4 }}>
             ↻ Re-run ({rerollKeys.length})
           </button>
