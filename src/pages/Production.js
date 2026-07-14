@@ -147,10 +147,10 @@ export default function Production({ initialSheetId, onSheetOpened }) {
 
   // ── Find Assets ──
   const [findAssetsOpen, setFindAssetsOpen] = useState(false);
-  // Right-click menu on a B-Roll/Images tag: mark it "done" (asset already
-  // sourced elsewhere) so Find Assets skips it. Stored in
-  // beat_sheets.asset_review under the same key scheme the modal uses.
-  const [tagMenu, setTagMenu] = useState(null); // { x, y, key, done }
+  // "Done" mark on a B-Roll/Images tag (asset already sourced elsewhere) —
+  // Find Assets skips it. Stored in beat_sheets.asset_review under the same
+  // key scheme the modal uses. Surfaced through the beat context menu: a tag
+  // right-click opens the normal menu with a Mark done entry prepended.
   const tagDone = (beatId, field, tag) =>
     (activeSheet?.asset_review || {})[`${beatId}::${field}::${tag}`]?.status === 'done';
   const toggleTagDone = async (key, makeDone) => {
@@ -159,7 +159,6 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     if (makeDone) next[key] = { status: 'done' };
     else delete next[key];
     setActiveSheet((prev) => (prev ? { ...prev, asset_review: next } : prev));
-    setTagMenu(null);
     const { error } = await supabase.from('beat_sheets').update({ asset_review: next }).eq('id', activeSheet.id);
     if (error) console.error('asset_review save failed:', error.message);
   };
@@ -1258,7 +1257,11 @@ export default function Production({ initialSheetId, onSheetOpened }) {
               draggable
               onContextMenu={(e) => {
                 e.preventDefault();
-                setTagMenu({ x: e.clientX, y: e.clientY, key: `${beat.id}::graphics::${g}`, done: tagDone(beat.id, 'graphics', g) });
+                e.stopPropagation();
+                setContextMenu({
+                  x: e.clientX, y: e.clientY, beatId: beat.id, segmentId: parentSegmentId,
+                  tag: { key: `${beat.id}::graphics::${g}`, done: tagDone(beat.id, 'graphics', g) },
+                });
               }}
               onDragStart={() => { tagDragRef.current = { beatId: beat.id, field: 'graphics', fromIndex: i }; }}
               onDragOver={(e) => e.preventDefault()}
@@ -1356,7 +1359,11 @@ export default function Production({ initialSheetId, onSheetOpened }) {
               draggable
               onContextMenu={(e) => {
                 e.preventDefault();
-                setTagMenu({ x: e.clientX, y: e.clientY, key: `${beat.id}::videos::${v}`, done: tagDone(beat.id, 'videos', v) });
+                e.stopPropagation();
+                setContextMenu({
+                  x: e.clientX, y: e.clientY, beatId: beat.id, segmentId: parentSegmentId,
+                  tag: { key: `${beat.id}::videos::${v}`, done: tagDone(beat.id, 'videos', v) },
+                });
               }}
               onDragStart={() => { tagDragRef.current = { beatId: beat.id, field: 'videos', fromIndex: i }; }}
               onDragOver={(e) => e.preventDefault()}
@@ -2347,20 +2354,6 @@ export default function Production({ initialSheetId, onSheetOpened }) {
 
       {renderFolderBrowser()}
       {renderVersionHistory()}
-      {tagMenu && (
-        <>
-          <div
-            style={{ position: 'fixed', inset: 0, zIndex: 400 }}
-            onClick={() => setTagMenu(null)}
-            onContextMenu={(e) => { e.preventDefault(); setTagMenu(null); }}
-          />
-          <div style={{ ...styles.tagMenu, left: tagMenu.x, top: tagMenu.y }}>
-            <button style={styles.tagMenuBtn} onClick={() => toggleTagDone(tagMenu.key, !tagMenu.done)}>
-              {tagMenu.done ? '↺ Mark not done' : '✓ Mark done — asset sourced'}
-            </button>
-          </div>
-        </>
-      )}
       {findAssetsOpen && activeSheet && (
         <FindAssetsModal
           sheetId={activeSheet.id}
@@ -2401,6 +2394,18 @@ export default function Production({ initialSheetId, onSheetOpened }) {
               </>
             ) : (
               <>
+                {/* Tag right-click: Mark done (asset sourced elsewhere) */}
+                {contextMenu.tag && (
+                  <>
+                    <button
+                      style={{ ...styles.contextMenuItem, color: '#4ade80' }}
+                      onClick={() => { toggleTagDone(contextMenu.tag.key, !contextMenu.tag.done); setContextMenu(null); }}
+                    >
+                      {contextMenu.tag.done ? '↺ Mark not done' : '✓ Mark done — asset sourced'}
+                    </button>
+                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '4px 0' }} />
+                  </>
+                )}
                 <button
                   style={styles.contextMenuItem}
                   onClick={() => { duplicateBeat(contextMenu.beatId); setContextMenu(null); }}
@@ -2776,16 +2781,6 @@ const styles = {
   tagDone: {
     background: 'rgba(34,197,94,0.14)',
     border: '1px solid rgba(34,197,94,0.4)',
-  },
-  tagMenu: {
-    position: 'fixed', zIndex: 401, background: '#1c1c2b',
-    border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: 4,
-    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
-  },
-  tagMenuBtn: {
-    padding: '8px 12px', background: 'transparent', border: 'none',
-    textAlign: 'left', fontSize: 12, fontWeight: 600, color: '#4ade80',
-    cursor: 'pointer', fontFamily: 'inherit', borderRadius: 5, display: 'block', width: '100%',
   },
   tagText: {
     fontSize: 12,
