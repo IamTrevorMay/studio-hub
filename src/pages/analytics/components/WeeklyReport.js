@@ -3,6 +3,7 @@ import { supabase } from '../../../supabaseClient';
 import { callEdgeFn } from '../../../lib/edgeFn';
 import { useAuth } from '../../../contexts/AuthContext';
 import { MiniBar, platformColor, viz } from '../viz';
+import AshleyRead from './AshleyRead';
 
 // Weekly KPI report viewer. Reads weekly_reports snapshots (generated every
 // Saturday by the generate-weekly-report edge fn). Admins can force a refresh
@@ -33,22 +34,6 @@ function KpiCard({ label, value, d }) {
         <span style={{ color: 'rgba(255,255,255,0.15)' }}>·</span>
         <DeltaBadge label="4wk" pct={d?.vs4wk} />
       </div>
-    </div>
-  );
-}
-
-function NarrativeBlock({ title, items, color }) {
-  if (!Array.isArray(items) || !items.length) return null;
-  return (
-    <div style={{ flex: 1, minWidth: 220 }}>
-      <div style={{ ...styles.narrativeHead, color }}>{title}</div>
-      <ul style={styles.narrativeList}>
-        {items.map((x, i) => (
-          <li key={i} style={styles.narrativeItem}>
-            <span style={{ color, marginRight: 6 }}>●</span>{String(x)}
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }
@@ -139,7 +124,6 @@ function CompletenessBadge({ pct }) {
 
 function ReportBody({ report }) {
   const d = report.data || {};
-  const n = report.narrative || {};
   const totals = d.totals || {};
   const audience = d.audience || {};
   const reach = d.reach || {};
@@ -157,15 +141,6 @@ function ReportBody({ report }) {
         <CompletenessBadge pct={d.data_completeness_pct} />
       )}
 
-      {/* AI narrative unavailable banner */}
-      {d.narrative_failed && (
-        <div style={styles.aiBanner}>
-          AI summary unavailable for this report. KPI data below is still accurate.
-        </div>
-      )}
-
-      {n.headline && <div style={styles.headline}>{n.headline}</div>}
-
       {/* KPI cards */}
       <div style={styles.kpiGrid}>
         <KpiCard label="Views" value={fmtNum(totals.views?.value)} d={totals.views} />
@@ -174,16 +149,8 @@ function ReportBody({ report }) {
         <KpiCard label="Revenue" value={fmtUsd(totals.revenue_cents?.value)} d={totals.revenue_cents} />
       </div>
 
-      {/* AI narrative */}
-      {(n.wins || n.watch_outs || n.recommendations) && (
-        <div style={styles.card}>
-          <div style={styles.narrativeRow}>
-            <NarrativeBlock title="Wins" items={n.wins} color="#34d399" />
-            <NarrativeBlock title="Watch-outs" items={n.watch_outs} color="#fbbf24" />
-            <NarrativeBlock title="Recommendations" items={n.recommendations} color="#a5b4fc" />
-          </div>
-        </div>
-      )}
+      {/* Ashley's tactical read (absorbs the old wins/watch-outs/recommendations narrative) */}
+      <AshleyRead weekStart={report.week_start} />
 
       <div style={styles.twoCol}>
         {/* Audience growth by platform */}
