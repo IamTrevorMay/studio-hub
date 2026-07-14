@@ -321,6 +321,22 @@ Deno.serve(async (req: Request) => {
 
   const taskTitle = `${project.name} — ${targetLabel}`;
 
+  // Queue (and Backlog) are triage / holding columns, not work stages — they
+  // must NEVER create tasks, even if someone is seeded on the stage or a card
+  // is pulled back into them. Status is already updated and prior-stage tasks
+  // closed above; just fan out nothing and return.
+  if (resolvedTargetStage === "queue" || resolvedTargetStage === BACKLOG_STAGE) {
+    return jsonResp({
+      project_id: project.id,
+      from_stage: currentStage,
+      target_stage: resolvedTargetStage,
+      direction: isBackward ? "backward" : "forward",
+      closed_tasks: (closedTasks || []).length,
+      new_task_ids: [],
+      assignee_count: 0,
+    });
+  }
+
   // Research stage: instead of fanning out to stage assignees, hand the
   // scope owner a "Set Research Scope" task. Its step_key is
   // 'research_scope' (not 'research') so completing it never auto-advances
