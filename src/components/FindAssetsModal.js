@@ -1,18 +1,25 @@
 // Find Assets — Beat Sheets asset-suggestion review modal.
 //
-// Scans the sheet's beats and searches the asset libraries for each tag:
-//   videos (B-Roll)   → Shade Assets (VIDEO) + Pitch Videos Drive (name search)
+// Pipeline per run: (1) find-assets-enrich analyzes every tag WITH its beat's
+// script text (one batched Claude call) → cleaned queries, structured pitch
+// filters, confidence, web-search phrase. (2) Each tag searches the libraries:
+//   videos (B-Roll)   → Savant pitch archive (/api/pitch-video; most-recent
+//                       first, ordinal "tag N" = Nth-most-recent) with Shade
+//                       Assets (VIDEO) as fallback
 //   graphics (Images) → Shade Assets (IMAGE)
 //   notes             → split on commas → Shade Assets (AUDIO + VIDEO for SFX/VFX)
+// (3) Tags the libraries can't fill but the model understands confidently get
+// an EXTERNAL suggestion — a curated web link (Claude web-search) or a
+// deterministic Google Images / YouTube / Google search URL.
 //
-// Each tag gets one suggested asset. Right-click a suggestion to Confirm
-// (green), Deny (red — that asset is never suggested again), or Suggest
-// Another (yellow — queued for Re-run). Highlighting a row previews the asset
-// in the side viewer. Hovering the tag shows the source beat as a tooltip.
-// Review state persists to beat_sheets.asset_review (never rendered on the
-// sheet, never included in Push Script). Confirmed assets can be batch
-// downloaded or pushed (Shade → resumable upload; Pitch → server-side copy)
-// into a Drive folder under Pitch Videos.
+// Each tag gets one suggestion. Right-click: Confirm (green) / Deny (red —
+// never suggested again) / Suggest Another (yellow → Re-run). Highlighting a
+// row previews it in the side viewer (externals embed when the site allows,
+// with an always-visible open-in-tab button). Hovering the tag shows the
+// source beat. State persists to beat_sheets.asset_review (never rendered on
+// the sheet, never in Push Script; "done" marks from the sheet are skipped).
+// Confirmed library assets batch-download or push to Drive; external links
+// are reference-only and excluded from transfers.
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
@@ -21,6 +28,25 @@ import { useConfirm } from '../contexts/ConfirmContext';
 const SHADE_FN_URL = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/shade-search`;
 const PITCH_FN_URL = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/pitch-video-drive`;
 const UPLOAD_INIT_URL = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/drive-upload-init`;
+const ENRICH_FN_URL = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/find-assets-enrich`;
+
+// External suggestions only fire when the model is at least this sure it
+// knows the specific asset the tag wants.
+const EXTERNAL_CONFIDENCE = 0.6;
+
+// Deterministic search-page fallback when the curated web lookup misses:
+// field decides the surface (footage → YouTube, images → Google Images).
+function fallbackExternal(item, enriched) {
+  const phrase = enriched?.external_query || item.tag;
+  const q = encodeURIComponent(phrase);
+  if (item.field === 'graphics') {
+    return { title: `Google Images: “${phrase}”`, url: `https://www.google.com/search?tbm=isch&q=${q}` };
+  }
+  if (item.field === 'videos') {
+    return { title: `YouTube search: “${phrase}”`, url: `https://www.youtube.com/results?search_query=${q}` };
+  }
+  return { title: `Google search: “${phrase}”`, url: `https://www.google.com/search?q=${q}` };
+}
 const DRIVE_ROOT = { id: '1evC6T-cSra_KF89QzQ0KhDeXR5a4a2g1', name: 'Pitch Videos' };
 
 const FIELD_META = {
@@ -126,6 +152,11 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
   // — those failures were previously swallowed into "no pitch suggestions",
   // which reads as bad search results instead of a broken pipe.
   const [archiveWarning, setArchiveWarning] = useState(null);
+  // LLM context layer: per-tag search intelligence derived from the tag PLUS
+  // its beat's script text (find-assets-enrich, one batched Claude call).
+  // key → { meaning, confidence, shade_query, pitch, external_query }
+  const [enriching, setEnriching] = useState(false);
+  const enrichmentRef = useRef({});
   const [selectedKey, setSelectedKey] = useState(null);
   const [viewerUrl, setViewerUrl] = useState(null); // { kind: 'shade'|'pitch', url, type }
   const [viewerLoading, setViewerLoading] = useState(false);
@@ -159,9 +190,17 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
   // resolve any leftover words to a player id (pitchers first, then batters),
   // then hit the structured /api/pitch-video index. Returns [] when the tag
   // carries nothing the archive can filter on (e.g. "stadium crowd").
-  const pitchSearch = useCallback(async (tag) => {
+  const pitchSearch = useCallback(async (tag, hints) => {
     const headers = await authHeaders();
-    const { pitchTypes, event, playerQuery } = parsePitchTag(tag);
+    // Enrichment hints (from the beat-context LLM pass) beat the regex parser
+    // — they carry disambiguation the tag alone doesn't have.
+    const { pitchTypes, event, playerQuery } = hints
+      ? {
+        pitchTypes: Array.isArray(hints.pitch_types) ? hints.pitch_types : [],
+        event: hints.event || null,
+        playerQuery: (hints.player_name || '').trim(),
+      }
+      : parsePitchTag(tag);
 
     const q = new URLSearchParams();
     if (pitchTypes.length) q.set('pitch_type', pitchTypes.join(','));
@@ -280,9 +319,21 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
     const query = ordMatch ? ordMatch[1] : item.tag;
     const ordinal = ordMatch ? parseInt(ordMatch[2], 10) : null;
 
+    // Beat-context enrichment: a better shade query, and an explicit verdict
+    // on whether this tag wants MLB gameplay footage (pitch !== null). When
+    // the model says it isn't gameplay, skip the archive entirely — the
+    // regex parser only runs when enrichment is unavailable.
+    const e = enrichmentRef.current[item.key] || null;
+    const shadeQuery = e?.shade_query || query;
+    const pitchPromise = !meta.pitch
+      ? Promise.resolve([])
+      : e
+        ? (e.pitch ? pitchSearch(query, e.pitch) : Promise.resolve([]))
+        : pitchSearch(query);
+
     const [shadeRes, pitchRes] = await Promise.all([
-      shadeCall({ op: 'search', query, types: meta.types, limit: 12 }).catch(() => ({ assets: [] })),
-      meta.pitch ? pitchSearch(query) : Promise.resolve([]),
+      shadeCall({ op: 'search', query: shadeQuery, types: meta.types, limit: 12 }).catch(() => ({ assets: [] })),
+      pitchPromise,
     ]);
     // Pitch-archive hits lead for B-Roll: a tag that parses to a player /
     // pitch type / outcome is asking for a gameplay clip, and the Savant
@@ -304,7 +355,81 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
     return pitchCandidates[0] || shadeCandidates[0] || null;
   }, [shadeCall, pitchSearch]);
 
-  // Search a batch of items, honoring each entry's shown/denied exclusions.
+  // One batched Claude call: tag + beat text → search intelligence per tag.
+  // Failure is non-fatal — searches proceed on the raw tags with a warning.
+  const fetchEnrichment = useCallback(async () => {
+    if (!items.length || Object.keys(enrichmentRef.current).length) return;
+    setEnriching(true);
+    try {
+      const headers = await authHeaders();
+      const payload = items.map((it) => ({
+        key: it.key,
+        field: it.field,
+        // Strip our ordinal convention before the model sees the tag.
+        tag: (it.tag.match(/^(.*\S)[\s#]+\d{1,2}$/) || [null, it.tag])[1],
+        beat: it.beatTitle || '',
+      }));
+      const res = await fetch(ENRICH_FN_URL, {
+        method: 'POST', headers, body: JSON.stringify({ op: 'enrich', items: payload }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || `enrich failed (${res.status})`);
+      const map = {};
+      for (const e of json.items || []) { if (e?.key) map[e.key] = e; }
+      enrichmentRef.current = map;
+    } catch (e) {
+      setArchiveWarning(`Context analysis failed (${e.message}) — searching on tags alone`);
+    } finally {
+      setEnriching(false);
+    }
+  }, [items]);
+
+  // Third source: when the libraries came up empty on a tag the model is
+  // confident about, offer an external web link — a curated one from the
+  // web-search lookup, else a deterministic search-page URL.
+  const externalPass = useCallback(async (list, isCancelled = () => false) => {
+    const needy = list.filter((item) => {
+      const entry = reviewRef.current[item.key];
+      const e = enrichmentRef.current[item.key];
+      return entry && !entry.suggestion && !['confirmed', 'denied'].includes(entry.status)
+        && e && (e.confidence ?? 0) >= EXTERNAL_CONFIDENCE;
+    });
+    if (!needy.length) return;
+
+    let curated = {};
+    try {
+      const headers = await authHeaders();
+      const res = await fetch(ENRICH_FN_URL, {
+        method: 'POST', headers,
+        body: JSON.stringify({
+          op: 'external',
+          items: needy.map((it) => {
+            const e = enrichmentRef.current[it.key];
+            return { key: it.key, query: e.external_query || it.tag, meaning: e.meaning || '' };
+          }),
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) for (const l of json.links || []) curated[l.key] = l;
+    } catch { /* fall through to deterministic links */ }
+
+    for (const item of needy) {
+      if (isCancelled()) return;
+      const entry = reviewRef.current[item.key] || { shownIds: [], deniedIds: [] };
+      const denied = new Set(entry.deniedIds || []);
+      let link = curated[item.key];
+      if (!link || denied.has(link.url)) link = fallbackExternal(item, enrichmentRef.current[item.key]);
+      if (denied.has(link.url)) continue; // everything external already denied
+      updateEntry(item.key, {
+        suggestion: { id: link.url, name: link.title, type: 'LINK', source: 'external', url: link.url },
+        status: 'pending',
+        shownIds: [...new Set([...(entry.shownIds || []), link.url])],
+      });
+    }
+  }, [updateEntry]);
+
+  // Search a batch of items, honoring each entry's shown/denied exclusions,
+  // then run the external pass over whatever the libraries couldn't fill.
   const searchBatch = useCallback(async (list, isCancelled = () => false) => {
     if (!list.length) return;
     setSearching(true);
@@ -324,14 +449,20 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
         console.error('Find Assets search failed for', item.tag, e);
       }
     }
+    await externalPass(list, isCancelled);
     if (!isCancelled()) setSearching(false);
-  }, [searchFor, updateEntry]);
+  }, [searchFor, updateEntry, externalPass]);
 
-  // Initial pass: search every item that has no entry yet.
+  // Initial pass: analyze beats first (context layer), then search every
+  // item that has no entry yet.
   useEffect(() => {
     let cancelled = false;
-    const fresh = items.filter((it) => !reviewRef.current[it.key]?.suggestion && !reviewRef.current[it.key]?.status?.match(/confirmed|denied/));
-    searchBatch(fresh, () => cancelled);
+    (async () => {
+      await fetchEnrichment();
+      if (cancelled) return;
+      const fresh = items.filter((it) => !reviewRef.current[it.key]?.suggestion && !reviewRef.current[it.key]?.status?.match(/confirmed|denied/));
+      searchBatch(fresh, () => cancelled);
+    })();
     return () => { cancelled = true; };
   }, []);
 
@@ -358,9 +489,9 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
   const rerollKeys = items.filter((it) => review[it.key]?.status === 'reroll').map((it) => it.key);
   const rerun = async () => {
     setSearching(true);
-    for (const item of items) {
+    const rerolled = items.filter((it) => review[it.key]?.status === 'reroll');
+    for (const item of rerolled) {
       const entry = review[item.key];
-      if (entry?.status !== 'reroll') continue;
       const exclude = new Set([...(entry.shownIds || []), ...(entry.deniedIds || [])]);
       try {
         const suggestion = await searchFor(item, exclude);
@@ -373,6 +504,8 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
         console.error('Re-run failed for', item.tag, e);
       }
     }
+    // Rerolled tags the libraries still can't fill get the external option.
+    await externalPass(rerolled);
     setSearching(false);
   };
 
@@ -381,6 +514,13 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
     const entry = selectedKey ? review[selectedKey] : null;
     const s = entry?.suggestion;
     if (!s) { setViewerUrl(null); return; }
+    if (s.source === 'external') {
+      // Attempt an embed; most sites refuse framing, so the render always
+      // pairs it with an Open-in-new-tab button.
+      setViewerUrl({ kind: 'external', url: s.url, type: 'LINK' });
+      setViewerLoading(false);
+      return;
+    }
     let cancelled = false;
     setViewerLoading(true);
     const resolver = s.source === 'pitch'
@@ -395,6 +535,8 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
   }, [selectedKey, review[selectedKey]?.suggestion?.id]);
 
   const confirmed = items.filter((it) => review[it.key]?.status === 'confirmed' && review[it.key]?.suggestion);
+  // External links have no bytes to download/push — they're reference sources.
+  const transferable = confirmed.filter((it) => review[it.key].suggestion.source !== 'external');
   const allResolved = items.length > 0 && items.every((it) => ['confirmed', 'denied'].includes(review[it.key]?.status));
 
   // Context-menu actions
@@ -448,9 +590,9 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
   };
 
   const downloadConfirmed = async () => {
-    setPushState({ done: 0, total: confirmed.length, failed: 0, errors: [] });
-    for (let i = 0; i < confirmed.length; i++) {
-      const s = review[confirmed[i].key].suggestion;
+    setPushState({ done: 0, total: transferable.length, failed: 0, errors: [] });
+    for (let i = 0; i < transferable.length; i++) {
+      const s = review[transferable[i].key].suggestion;
       try {
         const bytes = await fetchSuggestionBytes(s);
         const url = URL.createObjectURL(new Blob([bytes]));
@@ -479,9 +621,9 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
   const pushConfirmed = async () => {
     const parentFolderId = drivePath[drivePath.length - 1].id;
     const headers = await authHeaders();
-    setPushState({ done: 0, total: confirmed.length, failed: 0, errors: [] });
-    for (let i = 0; i < confirmed.length; i++) {
-      const s = review[confirmed[i].key].suggestion;
+    setPushState({ done: 0, total: transferable.length, failed: 0, errors: [] });
+    for (let i = 0; i < transferable.length; i++) {
+      const s = review[transferable[i].key].suggestion;
       try {
         const bytes = await fetchSuggestionBytes(s);
         const filename = suggestionFilename(s);
@@ -518,7 +660,7 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
           <span style={{ fontSize: 15, fontWeight: 700 }}>Find Assets</span>
           <span style={s.headMeta}>
             {items.length} tags · {confirmed.length} confirmed
-            {searching ? ' · searching…' : ''}
+            {enriching ? ' · analyzing beats…' : searching ? ' · searching…' : ''}
           </span>
           {archiveWarning && (
             <span style={{ fontSize: 11, color: '#fcd34d' }} title={archiveWarning}>⚠ {archiveWarning}</span>
@@ -565,9 +707,20 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
                   {sug ? (
                     <span style={s.sugText} title={sug.name}>
                       {sug.thumbnail && <img src={sug.thumbnail} alt="" style={s.thumb} />}
-                      {sug.name}
-                      <span style={s.srcBadge}>
-                        {sug.source === 'pitch' ? `Pitches${sug.game_date ? ` · ${sug.game_date}` : ''}` : 'Assets'}
+                      {sug.source === 'external' ? (
+                        <a
+                          href={sug.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ color: '#fcd34d', textDecoration: 'underline' }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {sug.name}
+                        </a>
+                      ) : sug.name}
+                      <span style={{ ...s.srcBadge, ...(sug.source === 'external' ? { background: 'rgba(250,204,21,0.15)', color: '#fcd34d' } : {}) }}>
+                        {sug.source === 'pitch' ? `Pitches${sug.game_date ? ` · ${sug.game_date}` : ''}`
+                          : sug.source === 'external' ? 'External ↗' : 'Assets'}
                       </span>
                     </span>
                   ) : (
@@ -588,6 +741,16 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
               <div style={s.viewerEmpty}>Loading preview…</div>
             ) : !viewerUrl ? (
               <div style={s.viewerEmpty}>No preview available</div>
+            ) : viewerUrl.kind === 'external' ? (
+              <>
+                <iframe title="external preview" src={viewerUrl.url} style={s.viewerFrame} sandbox="allow-scripts allow-same-origin" />
+                <a href={viewerUrl.url} target="_blank" rel="noopener noreferrer" style={s.externalOpenBtn}>
+                  Open in new tab ↗
+                </a>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>
+                  Many sites block embedding — if the preview is blank, use the button.
+                </div>
+              </>
             ) : viewerUrl.kind === 'pitch' ? (
               <iframe title="preview" src={viewerUrl.url} style={s.viewerFrame} allow="autoplay" />
             ) : viewerUrl.type === 'IMAGE' ? (
@@ -616,13 +779,13 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
             </span>
           )}
           <div style={{ flex: 1 }} />
-          <button onClick={downloadConfirmed} disabled={!confirmed.length} style={{ ...s.btn, opacity: confirmed.length ? 1 : 0.4 }}>
-            Download confirmed ({confirmed.length})
+          <button onClick={downloadConfirmed} disabled={!transferable.length} style={{ ...s.btn, opacity: transferable.length ? 1 : 0.4 }}>
+            Download confirmed ({transferable.length})
           </button>
           <button
             onClick={() => { setPickerOpen(true); setDrivePath([DRIVE_ROOT]); loadDriveFolders(DRIVE_ROOT.id); }}
-            disabled={!confirmed.length}
-            style={{ ...s.btnPrimary, opacity: confirmed.length ? 1 : 0.4 }}
+            disabled={!transferable.length}
+            style={{ ...s.btnPrimary, opacity: transferable.length ? 1 : 0.4 }}
           >
             Push to Drive…
           </button>
@@ -663,7 +826,7 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
                 }}
               />
               <button style={s.btnPrimary} onClick={() => { setPickerOpen(false); pushConfirmed(); }}>
-                Push {confirmed.length} here
+                Push {transferable.length} here
               </button>
             </div>
           </div>
@@ -701,6 +864,11 @@ const s = {
   viewerFrame: { width: '100%', height: '85%', border: 'none', borderRadius: 8, background: '#000' },
   viewerMedia: { maxWidth: '100%', maxHeight: '85%', borderRadius: 8 },
   viewerName: { fontSize: 12, color: 'rgba(255,255,255,0.55)', textAlign: 'center', wordBreak: 'break-word' },
+  externalOpenBtn: {
+    padding: '7px 14px', borderRadius: 8, background: 'rgba(250,204,21,0.15)',
+    border: '1px solid rgba(250,204,21,0.4)', color: '#fcd34d', fontSize: 12,
+    fontWeight: 600, textDecoration: 'none',
+  },
   foot: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', borderTop: '1px solid rgba(255,255,255,0.08)' },
   btn: { padding: '7px 14px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.05)', color: '#e2e8f0', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   btnPrimary: { padding: '7px 14px', borderRadius: 8, border: 'none', background: '#6366f1', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
