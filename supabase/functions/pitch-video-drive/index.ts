@@ -88,6 +88,54 @@ Deno.serve(async (req: Request) => {
 
     if (req.method === "GET") {
       const url = new URL(req.url);
+
+      // Name-search video files anywhere under the Pitch Videos tree. Used by
+      // the Beat Sheets "Find Assets" feature to suggest pitch clips for a tag.
+      const searchQ = (url.searchParams.get("search") || "").trim();
+      if (searchQ) {
+        const esc = searchQ.replace(/['\\]/g, " ").slice(0, 80);
+        const driveRes = await fetch(
+          `https://www.googleapis.com/drive/v3/files?` +
+          new URLSearchParams({
+            q: `name contains '${esc}' and mimeType contains 'video/' and trashed = false`,
+            fields: "files(id,name,parents,mimeType,thumbnailLink,webViewLink)",
+            orderBy: "name",
+            pageSize: "25",
+            supportsAllDrives: "true",
+            includeItemsFromAllDrives: "true",
+          }),
+          { headers: { Authorization: `Bearer ${accessToken}` } },
+        );
+        const data = await driveRes.json();
+        if (!driveRes.ok) throw new Error(data.error?.message || "Drive API error");
+
+        // Keep only files under the Pitch Videos root. Direct-parent match is
+        // free; deeper files need a parent walk — bounded so a broad match
+        // can't fan out into hundreds of Drive calls.
+        const results: Array<Record<string, unknown>> = [];
+        let walks = 0;
+        for (const f of (data.files || [])) {
+          if (results.length >= 8) break;
+          const parents: string[] = f.parents || [];
+          let under = parents.includes(PITCH_VIDEOS_ROOT);
+          if (!under && parents.length && walks < 12) {
+            walks++;
+            under = await isDescendantOfRoot(accessToken, parents[0], PITCH_VIDEOS_ROOT);
+          }
+          if (under) {
+            results.push({
+              id: f.id,
+              name: f.name,
+              source: "pitch",
+              type: "VIDEO",
+              url: f.webViewLink || `https://drive.google.com/file/d/${f.id}/view`,
+              thumbnail: f.thumbnailLink || null,
+            });
+          }
+        }
+        return json({ results, rootId: PITCH_VIDEOS_ROOT });
+      }
+
       const parentId = url.searchParams.get("parentId") || PITCH_VIDEOS_ROOT;
       if (!/^[\w\-]+$/.test(parentId)) return json({ error: "Invalid parentId" }, 400);
       if (!(await isDescendantOfRoot(accessToken, parentId, PITCH_VIDEOS_ROOT))) {
@@ -114,9 +162,34 @@ Deno.serve(async (req: Request) => {
     }
 
     if (req.method === "POST") {
-      const { parentId, name } = await req.json();
+      const { parentId, name, copyId } = await req.json();
       const parent = parentId || PITCH_VIDEOS_ROOT;
       if (!/^[\w\-]+$/.test(parent)) return json({ error: "Invalid parentId" }, 400);
+
+      // Copy an existing pitch video into another folder under the root
+      // (Find Assets "push confirmed" — the bytes are already in Drive, so a
+      // server-side copy beats a download/re-upload round trip).
+      if (copyId) {
+        if (!/^[\w\-]+$/.test(copyId)) return json({ error: "Invalid copyId" }, 400);
+        if (!(await isDescendantOfRoot(accessToken, copyId, PITCH_VIDEOS_ROOT))) {
+          return json({ error: "copyId outside allowed root" }, 403);
+        }
+        if (!(await isDescendantOfRoot(accessToken, parent, PITCH_VIDEOS_ROOT))) {
+          return json({ error: "parentId outside allowed root" }, 403);
+        }
+        const copyRes = await fetch(
+          `https://www.googleapis.com/drive/v3/files/${copyId}/copy?supportsAllDrives=true`,
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ parents: [parent] }),
+          },
+        );
+        const copied = await copyRes.json();
+        if (!copyRes.ok) throw new Error(copied.error?.message || "Drive copy failed");
+        return json({ file: { id: copied.id, name: copied.name } });
+      }
+
       if (!name || typeof name !== "string" || !name.trim()) {
         return json({ error: "Folder name required" }, 400);
       }

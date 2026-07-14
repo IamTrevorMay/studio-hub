@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { callWorkflowFn } from '../lib/workflowApi';
 import { fetchAllRows } from './analytics/utils';
+import FindAssetsModal from '../components/FindAssetsModal';
 
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
 
@@ -143,6 +144,9 @@ export default function Production({ initialSheetId, onSheetOpened }) {
 
   // ── context menu ──
   const [contextMenu, setContextMenu] = useState(null); // { x, y, beatId, segmentId, isSegmentHeader }
+
+  // ── Find Assets ──
+  const [findAssetsOpen, setFindAssetsOpen] = useState(false);
 
   // ── templates ──
   const [showTemplates, setShowTemplates] = useState(false);
@@ -2084,6 +2088,14 @@ export default function Production({ initialSheetId, onSheetOpened }) {
           {pushingScript ? 'Pushing...' : 'Push Script'}
         </button>
 
+        <button onClick={() => setFindAssetsOpen(true)} style={styles.btnSecondary}>
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" style={{ marginRight: 6 }}>
+            <circle cx="6" cy="6" r="4.5" />
+            <path d="M9.5 9.5L13 13" />
+          </svg>
+          Find Assets
+        </button>
+
         <button onClick={openVersionHistory} style={styles.btnSecondary}>
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" style={{ marginRight: 6 }}>
             <circle cx="7" cy="7" r="5.5" />
@@ -2311,6 +2323,19 @@ export default function Production({ initialSheetId, onSheetOpened }) {
 
       {renderFolderBrowser()}
       {renderVersionHistory()}
+      {findAssetsOpen && activeSheet && (
+        <FindAssetsModal
+          sheetId={activeSheet.id}
+          beats={beats}
+          initialReview={activeSheet.asset_review || {}}
+          onClose={(finalReview) => {
+            setFindAssetsOpen(false);
+            // Keep the in-memory sheet in sync so reopening without a refetch
+            // shows the saved review state.
+            setActiveSheet((prev) => (prev ? { ...prev, asset_review: finalReview } : prev));
+          }}
+        />
+      )}
       {renderToast()}
 
       {/* Context menu */}
