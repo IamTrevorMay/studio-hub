@@ -98,14 +98,6 @@ function timeAgo(dateStr) {
 
 const ARCHIVE_FOLDER = { id: 'archive', label: 'Archive' };
 
-// ─── B-Roll source styling ────────────────────────────────────────────────────
-const SOURCE_COLORS = {
-  savant: { bg: 'rgba(0,120,215,0.2)', fg: '#5bb8ff' },
-  mlb: { bg: 'rgba(0,45,114,0.25)', fg: '#6d9eeb' },
-  youtube: { bg: 'rgba(255,0,0,0.12)', fg: '#ff6b6b' },
-};
-const SOURCE_LABELS = { savant: 'Savant', mlb: 'MLB', youtube: 'YouTube' };
-
 // ─── component ─────────────────────────────────────────────────────────────────
 
 export default function Production({ initialSheetId, onSheetOpened }) {
@@ -148,9 +140,6 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   // ── beat media upload state ──
   const [uploadingCells, setUploadingCells] = useState({});
   const [dropHighlight, setDropHighlight] = useState(null);
-
-  // ── b-roll search state ──
-  const [brollLoading, setBrollLoading] = useState({});
 
   // ── context menu ──
   const [contextMenu, setContextMenu] = useState(null); // { x, y, beatId, segmentId, isSegmentHeader }
@@ -1126,79 +1115,6 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     setPushingScript(false);
   };
 
-  // ─── B-Roll search ─────────────────────────────────────────────────────────
-  const findBroll = async (beatId) => {
-    const allBeats = flattenBeats(beats);
-    const beat = allBeats.find(b => b.id === beatId);
-    if (!beat?.title?.trim()) {
-      setToast({ type: 'error', message: 'Beat has no script text to search.' });
-      return;
-    }
-    setBrollLoading(prev => ({ ...prev, [beatId]: true }));
-    try {
-      const { data, error } = await supabase.functions.invoke('find-broll', {
-        body: { beat_text: beat.title }
-      });
-      if (error || data?.error) {
-        setToast({ type: 'error', message: data?.error || error?.message || 'B-Roll search failed' });
-        return;
-      }
-      if (!data.results?.length) {
-        setToast({ type: 'error', message: 'No B-Roll suggestions found.' });
-        return;
-      }
-      const newItems = data.results.map(s => ({
-        type: s.category === 'pitch' ? 'broll_pitch' : 'broll_video',
-        title: s.title, source: s.source,
-        url: s.url, description: s.description
-      }));
-      setBeats(prev => mapBeatsDeep(prev, b =>
-        b.id === beatId ? { ...b, videos: [...b.videos, ...newItems] } : b
-      ));
-      setToast({ type: 'success', message: `Found ${data.results.length} result${data.results.length > 1 ? 's' : ''}.` });
-    } catch (err) {
-      console.error('findBroll error:', err);
-      setToast({ type: 'error', message: 'B-Roll search failed.' });
-    } finally {
-      setBrollLoading(prev => { const n = { ...prev }; delete n[beatId]; return n; });
-    }
-  };
-
-  const findBrollAll = async () => {
-    const allBeats = flattenBeats(beats).filter(b => b.title?.trim());
-    if (!allBeats.length) {
-      setToast({ type: 'error', message: 'No beats with script text.' });
-      return;
-    }
-    setBrollLoading(prev => {
-      const n = { ...prev };
-      allBeats.forEach(b => { n[b.id] = true; });
-      return n;
-    });
-    let found = 0;
-    for (const beat of allBeats) {
-      try {
-        const { data, error } = await supabase.functions.invoke('find-broll', {
-          body: { beat_text: beat.title }
-        });
-        if (!error && data?.results?.length) {
-          const newItems = data.results.map(s => ({
-            type: s.category === 'pitch' ? 'broll_pitch' : 'broll_video',
-            title: s.title, source: s.source,
-            url: s.url, description: s.description
-          }));
-          setBeats(prev => mapBeatsDeep(prev, b =>
-            b.id === beat.id ? { ...b, videos: [...b.videos, ...newItems] } : b
-          ));
-          found += newItems.length;
-        }
-      } finally {
-        setBrollLoading(prev => { const n = { ...prev }; delete n[beat.id]; return n; });
-      }
-    }
-    setToast({ type: 'success', message: found ? `Found ${found} B-Roll suggestions across ${allBeats.length} beats.` : 'No suggestions found.' });
-  };
-
   // ─── renderBeatRow (reused for top-level + segment-internal) ────────────────
   const renderBeatRow = (beat, provided, snapshot, parentSegmentId) => {
     const row = (
@@ -1390,25 +1306,6 @@ export default function Production({ initialSheetId, onSheetOpened }) {
         }}
       >
         {beat.videos.map((v, i) => {
-          if (typeof v === 'object' && (v.type === 'broll_video' || v.type === 'broll_pitch')) {
-            const sc = SOURCE_COLORS[v.source] || { bg: 'rgba(255,255,255,0.06)', fg: 'rgba(255,255,255,0.5)' };
-            const isPitch = v.type === 'broll_pitch';
-            return (
-              <div key={i} style={{ ...styles.brollCard, borderColor: isPitch ? 'rgba(0,120,215,0.2)' : 'rgba(99,102,241,0.15)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <div style={{ ...styles.brollCategory, background: isPitch ? 'rgba(0,120,215,0.15)' : 'rgba(99,102,241,0.15)', color: isPitch ? '#5bb8ff' : '#a5b4fc' }}>
-                    {isPitch ? 'Pitch Data' : 'Video'}
-                  </div>
-                  <div style={{ ...styles.brollSource, background: sc.bg, color: sc.fg }}>{SOURCE_LABELS[v.source] || v.source}</div>
-                </div>
-                <a href={v.url} target="_blank" rel="noopener noreferrer" style={{ ...styles.brollTitle, color: isPitch ? '#5bb8ff' : '#a5b4fc' }}>
-                  {v.title}
-                </a>
-                {v.description && <div style={styles.brollDesc}>{v.description}</div>}
-                <button onClick={() => removeTag(beat.id, 'videos', i)} style={{ ...styles.tagRemove, position: 'absolute', top: 4, right: 4 }}>&times;</button>
-              </div>
-            );
-          }
           const isMediaItem = typeof v === 'object' && v.url;
           if (isMediaItem) {
             return (
@@ -1463,23 +1360,6 @@ export default function Production({ initialSheetId, onSheetOpened }) {
           placeholder="+ add video"
           style={styles.tagInput}
         />
-        <button
-          onClick={() => findBroll(beat.id)}
-          disabled={brollLoading[beat.id]}
-          style={styles.brollBtn}
-          title="Find B-Roll suggestions"
-        >
-          {brollLoading[beat.id] ? (
-            <span style={{ fontSize: 11, color: 'rgba(165,180,252,0.6)' }}>Searching...</span>
-          ) : (
-            <>
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <circle cx="5" cy="5" r="3.5" /><path d="M8 8l3 3" />
-              </svg>
-              <span>Find B-Roll</span>
-            </>
-          )}
-        </button>
       </div>
 
       {/* Col 4: Notes */}
@@ -2202,14 +2082,6 @@ export default function Production({ initialSheetId, onSheetOpened }) {
           style={{ ...styles.btnSecondary, opacity: pushingScript ? 0.5 : 1 }}
         >
           {pushingScript ? 'Pushing...' : 'Push Script'}
-        </button>
-
-        <button
-          onClick={findBrollAll}
-          disabled={Object.keys(brollLoading).length > 0}
-          style={{ ...styles.btnSecondary, opacity: Object.keys(brollLoading).length > 0 ? 0.5 : 1 }}
-        >
-          {Object.keys(brollLoading).length > 0 ? 'Finding B-Roll...' : 'Find B-Roll'}
         </button>
 
         <button onClick={openVersionHistory} style={styles.btnSecondary}>
@@ -3256,33 +3128,4 @@ const styles = {
     cursor: 'pointer',
   },
 
-  // ── B-Roll suggestion styles ──
-  brollCard: {
-    width: '100%', padding: '8px 10px', background: 'rgba(99,102,241,0.06)',
-    border: '1px solid rgba(99,102,241,0.15)', borderRadius: 8,
-    display: 'flex', flexDirection: 'column', gap: 4, position: 'relative',
-  },
-  brollCategory: {
-    fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5,
-    padding: '2px 6px', borderRadius: 4,
-  },
-  brollSource: {
-    fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5,
-    padding: '2px 6px', borderRadius: 4,
-  },
-  brollTitle: {
-    fontSize: 12, fontWeight: 600, color: '#a5b4fc', textDecoration: 'none',
-    lineHeight: 1.4, wordBreak: 'break-word',
-  },
-  brollDesc: {
-    fontSize: 11, color: 'rgba(255,255,255,0.4)', lineHeight: 1.3,
-    overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-  },
-  brollBtn: {
-    display: 'flex', alignItems: 'center', gap: 5, background: 'none',
-    border: '1px dashed rgba(99,102,241,0.3)', borderRadius: 6,
-    color: 'rgba(165,180,252,0.6)', fontSize: 11, padding: '4px 8px',
-    cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", marginTop: 4, width: '100%',
-    justifyContent: 'center',
-  },
 };
