@@ -349,7 +349,7 @@ export default function Ideas() {
         <div>
           <h1 style={styles.pageTitle}>Ideas</h1>
           <p style={styles.pageSubtitle}>
-            Sort ideas across categories. Drag items to move them between columns.
+            Sort ideas across categories. Drag rows to move them between sections.
           </p>
         </div>
         <div style={styles.headerActions}>
@@ -375,9 +375,9 @@ export default function Ideas() {
       </header>
 
       <DragDropContext onDragEnd={handleDragEnd}>
-        <div style={styles.boardRow}>
+        <div style={styles.sectionsWrap}>
           {CATEGORIES.map((cat) => (
-            <Column
+            <Section
               key={cat.key}
               category={cat}
               items={byCategory[cat.key] || []}
@@ -423,25 +423,18 @@ export default function Ideas() {
   );
 }
 
-function Column({ category, items, onAdd, onToggle, onItemContextMenu, onSaveEdit, onSaveContext, onSaveTitles, canRate, currentUserId, ratingsByIdea, onRate, selectMode, selectedIds, onToggleSelect }) {
+function Section({ category, items, onAdd, onToggle, onItemContextMenu, onSaveEdit, onSaveContext, onSaveTitles, canRate, currentUserId, ratingsByIdea, onRate, selectMode, selectedIds, onToggleSelect }) {
   const [showInput, setShowInput] = useState(false);
   const [newText, setNewText] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [editingText, setEditingText] = useState('');
   const [contextEditingId, setContextEditingId] = useState(null);
   const [contextDraft, setContextDraft] = useState('');
-  // Potential Titles: collapsed map (sections default expanded) + add-input state.
-  const [titlesCollapsed, setTitlesCollapsed] = useState({});
   const [titleAddingId, setTitleAddingId] = useState(null);
   const [titleDraft, setTitleDraft] = useState('');
 
-  function commitTitle(item) {
-    const trimmed = titleDraft.trim();
-    const titles = Array.isArray(item.potential_titles) ? item.potential_titles : [];
-    if (trimmed) onSaveTitles(item.id, [...titles, trimmed]);
-    setTitleAddingId(null);
-    setTitleDraft('');
-  }
+  // Grid template gains a Rating column only for rater roles.
+  const grid = canRate ? styles.rowGridRate : styles.rowGrid;
 
   function commitNew() {
     onAdd(newText);
@@ -466,14 +459,21 @@ function Column({ category, items, onAdd, onToggle, onItemContextMenu, onSaveEdi
     setContextDraft('');
   }
 
+  function commitTitle(item) {
+    const trimmed = titleDraft.trim();
+    const titles = Array.isArray(item.potential_titles) ? item.potential_titles : [];
+    if (trimmed) onSaveTitles(item.id, [...titles, trimmed]);
+    setTitleAddingId(null);
+    setTitleDraft('');
+  }
+
   return (
-    <div style={styles.column}>
-      <div style={styles.columnHeader}>
-        <div style={styles.columnTitleRow}>
-          <span style={styles.columnTitle}>{category.label}</span>
-          <span style={styles.columnCount}>{items.length}</span>
-        </div>
-        {!showInput && (
+    <section style={styles.section}>
+      <div style={styles.sectionHeader}>
+        <span style={styles.sectionTitle}>{category.label}</span>
+        <span style={styles.sectionCount}>{items.length}</span>
+        <div style={{ flex: 1 }} />
+        {!showInput && !selectMode && (
           <button onClick={() => setShowInput(true)} style={styles.addBtn}>+ Add</button>
         )}
       </div>
@@ -507,222 +507,215 @@ function Column({ category, items, onAdd, onToggle, onItemContextMenu, onSaveEdi
         </div>
       )}
 
+      <div style={{ ...grid, ...styles.theadRow }}>
+        <span />
+        <span style={styles.th}>Idea</span>
+        <span style={styles.th}>Description</span>
+        <span style={styles.th}>Potential Titles</span>
+        {canRate && <span style={styles.th}>Rating</span>}
+        <span style={styles.th}>Added by</span>
+      </div>
+
       <Droppable droppableId={category.key}>
         {(provided, snapshot) => (
           <div
             ref={provided.innerRef}
             {...provided.droppableProps}
-            style={{
-              ...styles.list,
-              ...(snapshot.isDraggingOver ? styles.listDraggingOver : {}),
-            }}
+            style={snapshot.isDraggingOver ? styles.listDraggingOver : undefined}
           >
-            {items.map((item, index) => (
-              <Draggable key={item.id} draggableId={item.id} index={index}>
-                {(provided, snapshot) => (
-                  <div
-                    ref={provided.innerRef}
-                    {...provided.draggableProps}
-                    style={{
-                      ...styles.itemWrap,
-                      ...(snapshot.isDragging
-                        ? { boxShadow: '0 4px 16px rgba(0,0,0,0.3)', opacity: 0.95 }
-                        : {}),
-                      ...provided.draggableProps.style,
-                    }}
-                  >
+            {items.map((item, index) => {
+              const titles = Array.isArray(item.potential_titles) ? item.potential_titles : [];
+              const ratings = ratingsByIdea[item.id] || [];
+              const mine = ratings.find((r) => r.user_id === currentUserId);
+              const avg = ratings.length ? ratings.reduce((s, r) => s + r.rating, 0) / ratings.length : null;
+              return (
+                <Draggable key={item.id} draggableId={item.id} index={index}>
+                  {(provided, snapshot) => (
                     <div
-                      style={{
-                        ...styles.item,
-                        ...(selectMode ? styles.itemSelectable : {}),
-                        ...(selectMode && selectedIds.has(item.id) ? styles.itemSelected : {}),
-                      }}
+                      ref={provided.innerRef}
+                      {...provided.draggableProps}
                       onClick={selectMode ? () => onToggleSelect(item.id) : undefined}
                       onContextMenu={selectMode ? undefined : (e) => onItemContextMenu(e, item)}
+                      style={{
+                        ...grid,
+                        ...styles.tr,
+                        ...(selectMode ? styles.itemSelectable : {}),
+                        ...(selectMode && selectedIds.has(item.id) ? styles.itemSelected : {}),
+                        ...(snapshot.isDragging
+                          ? { boxShadow: '0 4px 16px rgba(0,0,0,0.3)', opacity: 0.95, background: '#1a1a28' }
+                          : {}),
+                        ...provided.draggableProps.style,
+                      }}
                     >
-                      <div
-                        {...provided.dragHandleProps}
-                        style={{ ...styles.dragHandle, ...(selectMode ? { display: 'none' } : {}) }}
-                      >⠿</div>
-                      {selectMode ? (
+                      <div style={styles.cellCheck}>
                         <div
-                          style={{
-                            ...styles.selectCircle,
-                            ...(selectedIds.has(item.id) ? styles.selectCircleOn : {}),
-                          }}
-                        >
-                          {selectedIds.has(item.id) ? '✓' : ''}
-                        </div>
-                      ) : (
-                        <input
-                          type="checkbox"
-                          checked={item.checked}
-                          onChange={() => onToggle(item.id)}
-                          style={styles.checkbox}
-                        />
-                      )}
-                      {editingId === item.id ? (
-                        <input
-                          value={editingText}
-                          onChange={(e) => setEditingText(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') commitEdit(item.id);
-                            if (e.key === 'Escape') { setEditingId(null); setEditingText(''); }
-                          }}
-                          onBlur={() => commitEdit(item.id)}
-                          style={styles.editInput}
-                          autoFocus
-                        />
-                      ) : (
-                        <span
-                          style={{
-                            ...styles.itemText,
-                            textDecoration: item.checked ? 'line-through' : 'none',
-                            opacity: item.checked ? 0.45 : 1,
-                          }}
-                          onDoubleClick={selectMode ? undefined : () => {
-                            setEditingId(item.id);
-                            setEditingText(item.text);
-                          }}
-                          title={selectMode ? undefined : 'Double-click to edit'}
-                        >
-                          {item.text}
-                        </span>
-                      )}
-                      {canRate && !selectMode && (() => {
-                        const ratings = ratingsByIdea[item.id] || [];
-                        const mine = ratings.find((r) => r.user_id === currentUserId);
-                        const avg = ratings.length ? ratings.reduce((s, r) => s + r.rating, 0) / ratings.length : null;
-                        return (
-                          <div style={styles.ratingWrap} onClick={(e) => e.stopPropagation()}>
-                            {avg != null && (
-                              <span
-                                style={{
-                                  ...styles.ratingAvg,
-                                  background: `${RATING_COLORS[Math.round(avg)]}26`,
-                                  color: RATING_COLORS[Math.round(avg)],
-                                }}
-                                title={ratings.map((r) => `${r.rater?.full_name || 'Unknown'}: ${r.rating}`).join('\n')}
-                              >
-                                {avg.toFixed(1)}
-                              </span>
-                            )}
-                            {[1, 2, 3, 4, 5].map((n) => (
-                              <button
-                                key={n}
-                                onClick={() => onRate(item.id, n)}
-                                title={`Rate ${n}${mine?.rating === n ? ' (click to clear)' : ''}`}
-                                style={{
-                                  ...styles.ratingDot,
-                                  borderColor: RATING_COLORS[n],
-                                  background: mine && n <= mine.rating ? RATING_COLORS[n] : 'transparent',
-                                }}
-                              />
-                            ))}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                    {(() => {
-                      const titles = Array.isArray(item.potential_titles) ? item.potential_titles : [];
-                      const adding = titleAddingId === item.id;
-                      if (!titles.length && !adding) return null;
-                      const collapsed = !!titlesCollapsed[item.id];
-                      return (
-                        <div style={styles.titlesWrap}>
-                          <button
-                            style={styles.titlesHeader}
-                            onClick={() => setTitlesCollapsed((p) => ({ ...p, [item.id]: !collapsed }))}
+                          {...provided.dragHandleProps}
+                          style={{ ...styles.dragHandle, ...(selectMode ? { display: 'none' } : {}) }}
+                        >⠿</div>
+                        {selectMode ? (
+                          <div
+                            style={{
+                              ...styles.selectCircle,
+                              ...(selectedIds.has(item.id) ? styles.selectCircleOn : {}),
+                            }}
                           >
-                            {collapsed ? '▸' : '▾'} Potential Titles ({titles.length}/{MAX_TITLES})
-                          </button>
-                          {!collapsed && (
-                            <>
-                              {titles.map((t, ti) => (
-                                <div key={`${t}-${ti}`} style={styles.titleRow}>
-                                  <span style={styles.titleText}>{t}</span>
-                                  {!selectMode && (
-                                    <button
-                                      onClick={() => onSaveTitles(item.id, titles.filter((_, j) => j !== ti))}
-                                      style={styles.titleRemove}
-                                    >&times;</button>
-                                  )}
-                                </div>
-                              ))}
-                              {adding ? (
-                                <input
-                                  value={titleDraft}
-                                  onChange={(e) => setTitleDraft(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') commitTitle(item);
-                                    if (e.key === 'Escape') { setTitleAddingId(null); setTitleDraft(''); }
-                                  }}
-                                  onBlur={() => commitTitle(item)}
-                                  placeholder="Potential title…"
-                                  style={styles.titleInput}
-                                  autoFocus
-                                />
-                              ) : (!selectMode && titles.length < MAX_TITLES && (
+                            {selectedIds.has(item.id) ? '✓' : ''}
+                          </div>
+                        ) : (
+                          <input
+                            type="checkbox"
+                            checked={item.checked}
+                            onChange={() => onToggle(item.id)}
+                            style={styles.checkbox}
+                          />
+                        )}
+                      </div>
+
+                      <div style={styles.cell}>
+                        {editingId === item.id ? (
+                          <input
+                            value={editingText}
+                            onChange={(e) => setEditingText(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') commitEdit(item.id);
+                              if (e.key === 'Escape') { setEditingId(null); setEditingText(''); }
+                            }}
+                            onBlur={() => commitEdit(item.id)}
+                            style={styles.editInput}
+                            autoFocus
+                          />
+                        ) : (
+                          <span
+                            style={{
+                              ...styles.ideaText,
+                              textDecoration: item.checked ? 'line-through' : 'none',
+                              opacity: item.checked ? 0.45 : 1,
+                            }}
+                            onDoubleClick={selectMode ? undefined : () => {
+                              setEditingId(item.id);
+                              setEditingText(item.text);
+                            }}
+                            title={selectMode ? undefined : 'Double-click to edit'}
+                          >
+                            {item.text}
+                          </span>
+                        )}
+                      </div>
+
+                      <div style={styles.cell}>
+                        {contextEditingId === item.id ? (
+                          <div style={styles.contextEditWrap}>
+                            <textarea
+                              value={contextDraft}
+                              onChange={(e) => setContextDraft(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Escape') { setContextEditingId(null); setContextDraft(''); }
+                              }}
+                              placeholder="Add notes, angles, references..."
+                              style={styles.contextTextarea}
+                              rows={3}
+                              autoFocus
+                            />
+                            <div style={styles.contextBtnRow}>
+                              <button onClick={() => commitContext(item.id)} style={styles.contextSaveBtn}>Save</button>
+                              <button
+                                onClick={() => { setContextEditingId(null); setContextDraft(''); }}
+                                style={styles.contextCancelBtn}
+                              >Cancel</button>
+                            </div>
+                          </div>
+                        ) : item.context ? (
+                          <div
+                            style={styles.descText}
+                            onClick={selectMode ? undefined : () => openContextEditor(item)}
+                            title={selectMode ? undefined : 'Click to edit'}
+                          >
+                            {item.context}
+                          </div>
+                        ) : (!selectMode && (
+                          <button onClick={() => openContextEditor(item)} style={styles.cellAddLink}>+ add</button>
+                        ))}
+                      </div>
+
+                      <div style={{ ...styles.cell, ...styles.titlesCell }}>
+                        {titles.map((t, ti) => (
+                          <div key={`${t}-${ti}`} style={styles.titleRow}>
+                            <span style={styles.titleText}>{t}</span>
+                            {!selectMode && (
+                              <button
+                                onClick={() => onSaveTitles(item.id, titles.filter((_, j) => j !== ti))}
+                                style={styles.titleRemove}
+                              >&times;</button>
+                            )}
+                          </div>
+                        ))}
+                        {titleAddingId === item.id ? (
+                          <input
+                            value={titleDraft}
+                            onChange={(e) => setTitleDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') commitTitle(item);
+                              if (e.key === 'Escape') { setTitleAddingId(null); setTitleDraft(''); }
+                            }}
+                            onBlur={() => commitTitle(item)}
+                            placeholder="Potential title…"
+                            style={styles.titleInput}
+                            autoFocus
+                          />
+                        ) : (!selectMode && titles.length < MAX_TITLES && (
+                          <button
+                            onClick={() => { setTitleAddingId(item.id); setTitleDraft(''); }}
+                            style={styles.titleAddBtn}
+                          >+</button>
+                        ))}
+                      </div>
+
+                      {canRate && (
+                        <div
+                          style={{ ...styles.cell, ...styles.ratingCell }}
+                          onClick={selectMode ? undefined : (e) => e.stopPropagation()}
+                        >
+                          {avg != null && (
+                            <span
+                              style={{
+                                ...styles.ratingAvg,
+                                background: `${RATING_COLORS[Math.round(avg)]}26`,
+                                color: RATING_COLORS[Math.round(avg)],
+                              }}
+                              title={ratings.map((r) => `${r.rater?.full_name || 'Unknown'}: ${r.rating}`).join('\n')}
+                            >
+                              {avg.toFixed(1)}
+                            </span>
+                          )}
+                          {!selectMode && (
+                            <div style={styles.ratingDots}>
+                              {[1, 2, 3, 4, 5].map((n) => (
                                 <button
-                                  onClick={() => { setTitleAddingId(item.id); setTitleDraft(''); }}
-                                  style={styles.titleAddBtn}
-                                >+ title</button>
+                                  key={n}
+                                  onClick={() => onRate(item.id, n)}
+                                  title={`Rate ${n}${mine?.rating === n ? ' (click to clear)' : ''}`}
+                                  style={{
+                                    ...styles.ratingDot,
+                                    borderColor: RATING_COLORS[n],
+                                    background: mine && n <= mine.rating ? RATING_COLORS[n] : 'transparent',
+                                  }}
+                                />
                               ))}
-                            </>
+                            </div>
                           )}
                         </div>
-                      );
-                    })()}
-                    {contextEditingId === item.id ? (
-                      <div style={styles.contextEditWrap}>
-                        <textarea
-                          value={contextDraft}
-                          onChange={(e) => setContextDraft(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Escape') { setContextEditingId(null); setContextDraft(''); }
-                          }}
-                          placeholder="Add notes, angles, references..."
-                          style={styles.contextTextarea}
-                          rows={4}
-                          autoFocus
-                        />
-                        <div style={styles.contextBtnRow}>
-                          <button onClick={() => commitContext(item.id)} style={styles.contextSaveBtn}>Save</button>
-                          <button
-                            onClick={() => { setContextEditingId(null); setContextDraft(''); }}
-                            style={styles.contextCancelBtn}
-                          >Cancel</button>
-                        </div>
-                      </div>
-                    ) : item.context ? (
-                      <div
-                        style={styles.contextText}
-                        onClick={selectMode ? () => onToggleSelect(item.id) : () => openContextEditor(item)}
-                        title={selectMode ? undefined : 'Click to edit context'}
-                      >
-                        {item.context}
-                      </div>
-                    ) : null}
-                    <div style={styles.metaRow}>
-                      <span style={{ ...styles.creatorName, color: userColor(item.created_by) }}>{item.creator?.full_name || 'Unknown'}</span>
-                      {!selectMode && contextEditingId !== item.id && (
-                        <button onClick={() => openContextEditor(item)} style={styles.contextLink}>
-                          {item.context ? 'edit context' : '+ context'}
-                        </button>
                       )}
-                      {!selectMode && titleAddingId !== item.id && !(Array.isArray(item.potential_titles) ? item.potential_titles : []).length && (
-                        <button
-                          onClick={() => { setTitleAddingId(item.id); setTitleDraft(''); }}
-                          style={styles.contextLink}
-                        >
-                          + title
-                        </button>
-                      )}
+
+                      <div style={styles.cell}>
+                        <span style={{ ...styles.creatorName, color: userColor(item.created_by) }}>
+                          {item.creator?.full_name || 'Unknown'}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </Draggable>
-            ))}
+                  )}
+                </Draggable>
+              );
+            })}
             {provided.placeholder}
             {items.length === 0 && !showInput && (
               <p style={styles.emptyText}>No ideas yet</p>
@@ -730,7 +723,7 @@ function Column({ category, items, onAdd, onToggle, onItemContextMenu, onSaveEdi
           </div>
         )}
       </Droppable>
-    </div>
+    </section>
   );
 }
 
@@ -778,40 +771,6 @@ const styles = {
   },
   pageTitle: { fontSize: '28px', fontWeight: 700, color: '#ffffff', margin: '0 0 6px 0', letterSpacing: '-0.5px' },
   pageSubtitle: { fontSize: '13px', color: 'rgba(255,255,255,0.45)', margin: 0 },
-  boardRow: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-    gap: '16px',
-    alignItems: 'flex-start',
-  },
-  column: {
-    background: 'rgba(255,255,255,0.02)',
-    border: '1px solid rgba(255,255,255,0.06)',
-    borderRadius: '14px',
-    padding: '16px',
-    display: 'flex',
-    flexDirection: 'column',
-    minWidth: 0,
-  },
-  columnHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: '8px',
-    marginBottom: '12px',
-  },
-  columnTitleRow: { display: 'flex', alignItems: 'baseline', gap: '8px', minWidth: 0 },
-  columnTitle: {
-    fontSize: '13px',
-    fontWeight: 700,
-    color: 'rgba(255,255,255,0.65)',
-    textTransform: 'uppercase',
-    letterSpacing: '0.5px',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  columnCount: { fontSize: '11px', color: 'rgba(255,255,255,0.35)', fontWeight: 600 },
   addBtn: {
     padding: '4px 10px',
     background: 'rgba(99,102,241,0.15)',
@@ -860,18 +819,7 @@ const styles = {
     cursor: 'pointer',
     fontFamily: 'inherit',
   },
-  list: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '4px',
-    minHeight: '60px',
-    padding: '4px',
-    borderRadius: '8px',
-    transition: 'background 0.15s',
-  },
   listDraggingOver: { background: 'rgba(99,102,241,0.06)' },
-  itemWrap: { borderRadius: '6px' },
-  item: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 4px' },
   itemSelectable: { cursor: 'pointer', borderRadius: '6px' },
   itemSelected: { background: 'rgba(99,102,241,0.12)' },
   selectCircle: {
@@ -891,24 +839,64 @@ const styles = {
     background: '#6366f1',
     border: '1.5px solid #6366f1',
   },
-  metaRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    padding: '0 4px 4px 34px',
-  },
   creatorName: { fontSize: '11px', color: 'rgba(255,255,255,0.3)' },
-  contextLink: {
-    background: 'none',
-    border: 'none',
-    color: 'rgba(165,180,252,0.7)',
-    fontSize: '11px',
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-    padding: 0,
+  // ── Table layout (sections per category) ──
+  sectionsWrap: { display: 'flex', flexDirection: 'column', gap: '28px' },
+  section: {
+    background: 'rgba(255,255,255,0.02)',
+    border: '1px solid rgba(255,255,255,0.07)',
+    borderRadius: '12px',
+    padding: '14px 16px 16px',
   },
+  sectionHeader: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' },
+  sectionTitle: { fontSize: '15px', fontWeight: 700, color: '#e2e8f0' },
+  sectionCount: {
+    fontSize: '11px', fontWeight: 600, color: 'rgba(255,255,255,0.4)',
+    background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: '10px',
+  },
+  rowGrid: {
+    display: 'grid',
+    gridTemplateColumns: '52px minmax(180px, 1.2fr) minmax(180px, 1.2fr) minmax(160px, 1fr) 120px',
+    gap: '12px',
+    alignItems: 'start',
+  },
+  rowGridRate: {
+    display: 'grid',
+    gridTemplateColumns: '52px minmax(180px, 1.2fr) minmax(180px, 1.2fr) minmax(160px, 1fr) 128px 120px',
+    gap: '12px',
+    alignItems: 'start',
+  },
+  theadRow: {
+    padding: '4px 10px 8px',
+    borderBottom: '1px solid rgba(255,255,255,0.08)',
+  },
+  th: {
+    fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px',
+    color: 'rgba(255,255,255,0.35)',
+  },
+  tr: {
+    padding: '10px',
+    borderBottom: '1px solid rgba(255,255,255,0.05)',
+    borderRadius: '8px',
+  },
+  cell: { minWidth: 0 },
+  cellCheck: { display: 'flex', alignItems: 'center', gap: '6px' },
+  ideaText: {
+    fontSize: '13px', color: '#e2e8f0', cursor: 'default',
+    whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+  },
+  descText: {
+    fontSize: '12px', color: 'rgba(255,255,255,0.55)', lineHeight: 1.45,
+    whiteSpace: 'pre-wrap', wordBreak: 'break-word', cursor: 'pointer',
+  },
+  cellAddLink: {
+    background: 'none', border: 'none', color: 'rgba(165,180,252,0.55)',
+    fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit', padding: 0,
+  },
+  titlesCell: { display: 'flex', flexDirection: 'column', gap: '4px' },
+  ratingCell: { display: 'flex', flexDirection: 'column', gap: '5px', alignItems: 'flex-start' },
+  ratingDots: { display: 'flex', gap: '3px' },
   // ── Ratings (admins + directors only) ──
-  ratingWrap: { display: 'flex', alignItems: 'center', gap: 3, marginLeft: 'auto', flexShrink: 0 },
   ratingAvg: {
     fontSize: '10px', fontWeight: 700, padding: '1px 5px', borderRadius: 8,
     marginRight: 2, cursor: 'default',
@@ -918,14 +906,6 @@ const styles = {
     padding: 0, cursor: 'pointer', background: 'transparent',
   },
   // ── Potential Titles ──
-  titlesWrap: {
-    margin: '6px 0 0 34px', display: 'flex', flexDirection: 'column', gap: 3,
-  },
-  titlesHeader: {
-    background: 'none', border: 'none', color: 'rgba(255,255,255,0.45)',
-    fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-    padding: 0, textAlign: 'left',
-  },
   titleRow: {
     display: 'flex', alignItems: 'center', gap: 6, padding: '3px 8px',
     background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)',
@@ -945,14 +925,6 @@ const styles = {
     background: 'none', border: '1px dashed rgba(99,102,241,0.3)', borderRadius: 6,
     color: 'rgba(165,180,252,0.6)', fontSize: '11px', padding: '3px 8px',
     cursor: 'pointer', fontFamily: 'inherit', width: 'fit-content',
-  },
-  contextText: {
-    fontSize: '12px',
-    color: 'rgba(255,255,255,0.5)',
-    whiteSpace: 'pre-wrap',
-    wordBreak: 'break-word',
-    padding: '0 4px 4px 34px',
-    cursor: 'text',
   },
   contextEditWrap: { padding: '4px 4px 6px 34px' },
   contextTextarea: {
@@ -999,7 +971,6 @@ const styles = {
     paddingRight: '2px',
   },
   checkbox: { width: '14px', height: '14px', cursor: 'pointer' },
-  itemText: { flex: 1, fontSize: '13px', color: '#e2e8f0', cursor: 'text', wordBreak: 'break-word' },
   editInput: {
     flex: 1,
     padding: '4px 8px',
