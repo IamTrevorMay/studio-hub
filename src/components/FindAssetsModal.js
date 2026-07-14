@@ -267,22 +267,35 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
   // Search one item, excluding already-shown/denied assets. Returns suggestion or null.
   const searchFor = useCallback(async (item, exclude) => {
     const meta = FIELD_META[item.field];
+    // Numbered sibling tags are ordinal picks from the recency-sorted archive:
+    // "Latz Strikeout 1" = his most recent K, "Latz Strikeout 2" = the one
+    // before that, etc. Strip the number from the search text itself.
+    const ordMatch = item.tag.match(/^(.*\S)[\s#]+(\d{1,2})$/);
+    const query = ordMatch ? ordMatch[1] : item.tag;
+    const ordinal = ordMatch ? parseInt(ordMatch[2], 10) : null;
+
     const [shadeRes, pitchRes] = await Promise.all([
-      shadeCall({ op: 'search', query: item.tag, types: meta.types, limit: 12 }).catch(() => ({ assets: [] })),
-      meta.pitch ? pitchSearch(item.tag) : Promise.resolve([]),
+      shadeCall({ op: 'search', query, types: meta.types, limit: 12 }).catch(() => ({ assets: [] })),
+      meta.pitch ? pitchSearch(query) : Promise.resolve([]),
     ]);
     // Pitch-archive hits lead for B-Roll: a tag that parses to a player /
     // pitch type / outcome is asking for a gameplay clip, and the Savant
     // archive is the authoritative source for those. Shade covers the rest.
-    const candidates = [
-      ...pitchRes,
-      ...(shadeRes.assets || []).map((a) => ({
+    const pitchCandidates = pitchRes.filter((c) => !exclude.has(c.id));
+    const shadeCandidates = (shadeRes.assets || [])
+      .map((a) => ({
         id: a.id, name: a.name, type: a.type, source: 'shade',
         proxy_id: a.proxy_id || null, url: null, thumbnail: a.thumbnail || null,
         extension: a.extension || null,
-      })),
-    ];
-    return candidates.find((c) => !exclude.has(c.id)) || null;
+      }))
+      .filter((c) => !exclude.has(c.id));
+
+    if (ordinal && pitchCandidates.length) {
+      // Nth most recent (the pitch list is recency-sorted). If the archive
+      // has fewer than N left, take the oldest available rather than nothing.
+      return pitchCandidates[Math.min(ordinal - 1, pitchCandidates.length - 1)];
+    }
+    return pitchCandidates[0] || shadeCandidates[0] || null;
   }, [shadeCall, pitchSearch]);
 
   // Search a batch of items, honoring each entry's shown/denied exclusions.
