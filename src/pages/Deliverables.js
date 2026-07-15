@@ -2280,6 +2280,9 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
       {/* ── Upcoming Deliverables Table ── */}
       {renderDeliverableTable()}
 
+      {/* Bold divider: Upcoming Deliverables ends, Brands begins */}
+      <div style={styles.sectionDivider} />
+
       <div style={styles.topBar}>
         <div>
           <h1 style={styles.pageTitle}>Brands</h1>
@@ -2385,52 +2388,93 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         </div>
       ) : (
         (() => {
-          const renderBrandCard = (brand) => {
+          const brandColSpan = isAdmin ? 8 : 6;
+          const renderBrandRow = (brand) => {
               const isExpanded = expandedBrandId === brand.id;
               const brandDels = brand.deliverables;
               const campDeliveredCount = brandDels.filter(d => d.delivered).length;
               const campTotalPay = brandDels.reduce((sum, d) => sum + (parseFloat(d.pay) || 0), 0);
+              const fmtD = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
               return (
-                <div key={brand.id} style={styles.sponsorCard}>
-                  <div style={styles.sponsorCardHeader} onClick={() => setExpandedBrandId(isExpanded ? null : brand.id)}>
-                    {/* Title / subtitle row */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={styles.projectRowName}>{brand.brand}</div>
-                      </div>
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="rgba(255,255,255,0.3)"
-                        style={{ flexShrink: 0, marginTop: '3px', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>
-                        <path d="M4 6l4 4 4-4" />
-                      </svg>
-                    </div>
-                    {/* Chips row */}
-                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px' }}>
-                      {brand.start_date && brand.end_date && (
-                        <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)' }}>
-                          {new Date(brand.start_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – {new Date(brand.end_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                        </span>
-                      )}
-                      {isAdmin && (
-                        <span style={{ ...styles.statusTag, background: `${PAYMENT_STATUS_COLORS[brand.payment_status]}15`, color: PAYMENT_STATUS_COLORS[brand.payment_status] }}>
-                          {brand.payment_status}
-                        </span>
-                      )}
-                      {(!brand.campaign_briefs || brand.campaign_briefs.length === 0) && (
+                <React.Fragment key={brand.id}>
+                  <tr onClick={() => setExpandedBrandId(isExpanded ? null : brand.id)} style={{ cursor: 'pointer' }}>
+                    {/* Brand */}
+                    <td style={styles.tableTd}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', width: '10px', display: 'inline-block' }}>{isExpanded ? '▾' : '▸'}</span>
+                        <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{brand.brand}</span>
+                      </span>
+                    </td>
+                    {/* Dates */}
+                    <td style={{ ...styles.tableTd, whiteSpace: 'nowrap', fontSize: '12px', color: 'rgba(255,255,255,0.45)' }}>
+                      {brand.start_date && brand.end_date ? `${fmtD(brand.start_date)} – ${fmtD(brand.end_date)}` : '—'}
+                    </td>
+                    {/* Briefs */}
+                    <td style={styles.tableTd}>
+                      {(!brand.campaign_briefs || brand.campaign_briefs.length === 0) ? (
                         <span
                           onClick={(e) => { e.stopPropagation(); openBriefModal(brand); }}
                           style={{ ...styles.statusTag, background: 'rgba(245,158,11,0.12)', color: '#f59e0b', fontSize: '10px', fontWeight: 600, cursor: 'pointer' }}
                         >
                           + Add Brief
                         </span>
+                      ) : (
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                          {brand.campaign_briefs.map(brief => (
+                            <a
+                              key={brief.id}
+                              href={brief.onepager_md ? `/brief/${brief.id}` : brief.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              style={{
+                                fontSize: '12px', color: brief.onepager_md ? '#6ee7b7' : '#a5b4fc',
+                                textDecoration: 'underline dotted', textUnderlineOffset: 3,
+                                maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap', display: 'inline-block', verticalAlign: 'middle',
+                              }}
+                              title={brief.label || 'Brief'}
+                            >
+                              {brief.onepager_md ? '✓' : '🔗'} {brief.label || 'Brief'}
+                            </a>
+                          ))}
+                        </div>
                       )}
-                      {brandDels.length > 0 && (
-                        <span style={styles.checklistBadge}>{campDeliveredCount}/{brandDels.length}</span>
-                      )}
-                    </div>
-                  </div>
+                    </td>
+                    {/* Deliverables done/total */}
+                    <td style={styles.tableTd}>
+                      {brandDels.length > 0
+                        ? <span style={styles.checklistBadge}>{campDeliveredCount}/{brandDels.length}</span>
+                        : <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: '12px' }}>—</span>}
+                    </td>
+                    {/* Payment (admin) */}
+                    {isAdmin && (
+                      <td style={styles.tableTd}>
+                        <span style={{ ...styles.statusTag, background: `${PAYMENT_STATUS_COLORS[brand.payment_status]}15`, color: PAYMENT_STATUS_COLORS[brand.payment_status] }}>
+                          {brand.payment_status}
+                        </span>
+                      </td>
+                    )}
+                    {/* Total pay (admin) */}
+                    {isAdmin && (
+                      <td style={{ ...styles.tableTd, textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                        {campTotalPay > 0 ? `$${campTotalPay.toLocaleString()}` : '—'}
+                      </td>
+                    )}
+                    {/* Contact */}
+                    <td style={{ ...styles.tableTd, fontSize: '12px', color: 'rgba(255,255,255,0.5)', whiteSpace: 'nowrap', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }} title={brand.contact_email || ''}>
+                      {brand.contact_name || brand.contact_email || '—'}
+                    </td>
+                    {/* Description */}
+                    <td style={{ ...styles.tableTd, fontSize: '12px', color: 'rgba(255,255,255,0.45)', maxWidth: 240 }} title={brand.description || ''}>
+                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{brand.description || '—'}</div>
+                    </td>
+                  </tr>
 
                   {isExpanded && (
-                    <div style={styles.projectDetail}>
+                    <tr>
+                      <td colSpan={brandColSpan} style={{ ...styles.tableTd, padding: 0, background: 'rgba(255,255,255,0.015)' }}>
+                    <div style={{ ...styles.projectDetail, borderTop: 'none', padding: '14px 20px 20px' }}>
                       {/* Brand meta info */}
                       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '8px' }}>
                         {isAdmin && campTotalPay > 0 && (
@@ -2477,11 +2521,17 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                         <button onClick={() => handleDeleteBrand(brand.id)} style={{ ...styles.filterBtn, fontSize: '12px', color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}>Delete</button>
                       </div>
                     </div>
+                      </td>
+                    </tr>
                   )}
-                  {/* Edit modal lives outside the isExpanded gate so it can
-                      open from the Upcoming Deliverables table without
-                      forcing the parent brand card to expand. */}
-                  {showDeliverableForm === brand.id && (
+                </React.Fragment>
+              );
+            };
+
+            // Rendered outside the tables (a modal can't nest in <tbody>) and
+            // outside the row-expansion gate so it can open from the Upcoming
+            // Deliverables table without expanding the parent brand row.
+            const renderDeliverableFormModal = (brand) => (
                     <Modal title={editingDeliverable ? 'Edit Deliverable' : 'Add Deliverable'} subtitle={brand.brand} onClose={() => { resetDeliverableForm(); setShowDeliverableForm(null); }} maxWidth={680}>
                       <form onSubmit={(e) => handleSaveDeliverable(e, brand.sponsor_id, brand.id)}>
                         <div style={styles.formGrid}>
@@ -2596,10 +2646,8 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                         <button type="submit" style={styles.submitBtn}>{editingDeliverable ? 'Update Deliverable' : 'Add Deliverable'}</button>
                       </form>
                     </Modal>
-                  )}
-                </div>
-              );
-            };
+            );
+
             const isAct = (c) => c.deliverables.length === 0 || c.deliverables.some(d => !d.delivered);
             const activeC = sortedBrands.filter(isAct);
             const inactiveC = sortedBrands.filter(c => !isAct(c));
@@ -2611,14 +2659,34 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                   <span style={styles.checklistBadge}>{list.length}</span>
                 </button>
                 {open && (list.length > 0
-                  ? <div style={{ ...styles.brandGrid, marginTop: '12px' }}>{list.map(renderBrandCard)}</div>
+                  ? (
+                    <div style={{ overflowX: 'auto', marginTop: '12px' }}>
+                      <table style={styles.table}>
+                        <thead>
+                          <tr>
+                            <th style={styles.tableTh}>Brand</th>
+                            <th style={styles.tableTh}>Dates</th>
+                            <th style={styles.tableTh}>Briefs</th>
+                            <th style={styles.tableTh}>Deliverables</th>
+                            {isAdmin && <th style={styles.tableTh}>Payment</th>}
+                            {isAdmin && <th style={{ ...styles.tableTh, textAlign: 'right' }}>Total Pay</th>}
+                            <th style={styles.tableTh}>Contact</th>
+                            <th style={styles.tableTh}>Description</th>
+                          </tr>
+                        </thead>
+                        <tbody>{list.map(renderBrandRow)}</tbody>
+                      </table>
+                    </div>
+                  )
                   : <p style={{ ...styles.emptyText, marginTop: '8px' }}>No {title.toLowerCase()} brands.</p>)}
               </div>
             );
+            const formBrand = sortedBrands.find(b => b.id === showDeliverableForm) || null;
             return (
               <>
                 {section('Active', activeC, brandActiveOpen, setBrandActiveOpen)}
                 {section('Inactive', inactiveC, brandInactiveOpen, setBrandInactiveOpen)}
+                {formBrand && renderDeliverableFormModal(formBrand)}
               </>
             );
           })()
@@ -3100,11 +3168,12 @@ const styles = {
     background: 'rgba(255,255,255,0.08)',
     margin: '18px 0',
   },
-  brandGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-    gap: '14px',
-    alignItems: 'start',
+  // Bold break between the Upcoming Deliverables and Brands sections.
+  sectionDivider: {
+    height: '2px',
+    background: 'linear-gradient(90deg, rgba(99,102,241,0.05), rgba(99,102,241,0.55), rgba(99,102,241,0.05))',
+    borderRadius: '2px',
+    margin: '40px 0 32px',
   },
   brandSectionHeader: {
     display: 'flex', alignItems: 'center', gap: '8px', width: '100%',
