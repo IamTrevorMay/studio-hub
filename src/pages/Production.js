@@ -145,6 +145,9 @@ export default function Production({ initialSheetId, onSheetOpened }) {
   // ── context menu ──
   const [contextMenu, setContextMenu] = useState(null); // { x, y, beatId, segmentId, isSegmentHeader }
 
+  // ── inline tag edit (context menu → Edit on a Graphics/Videos tag) ──
+  const [editingTag, setEditingTag] = useState(null); // { beatId, field, index, value }
+
   // ── Find Assets ──
   const [findAssetsOpen, setFindAssetsOpen] = useState(false);
   // "Done" mark on a B-Roll/Images tag (asset already sourced elsewhere) —
@@ -609,6 +612,29 @@ export default function Production({ initialSheetId, onSheetOpened }) {
     setBeats(prev => mapBeatsDeep(prev, b =>
       b.id === beatId ? { ...b, [field]: b[field].filter((_, i) => i !== index) } : b
     ));
+  };
+
+  const renameTag = async (beatId, field, index, newValue) => {
+    const val = newValue.trim();
+    const beat = flattenBeats(beats).find(b => b.id === beatId);
+    const oldVal = beat?.[field]?.[index];
+    if (!val || typeof oldVal !== 'string' || val === oldVal) return;
+    setBeats(prev => mapBeatsDeep(prev, b => {
+      if (b.id !== beatId) return b;
+      const arr = [...b[field]];
+      arr[index] = val;
+      return { ...b, [field]: arr };
+    }));
+    // The Find Assets "done" mark is keyed by tag text — carry it over.
+    const oldKey = `${beatId}::${field}::${oldVal}`;
+    if (activeSheet && (activeSheet.asset_review || {})[oldKey]) {
+      const next = { ...activeSheet.asset_review };
+      next[`${beatId}::${field}::${val}`] = next[oldKey];
+      delete next[oldKey];
+      setActiveSheet(prev => (prev ? { ...prev, asset_review: next } : prev));
+      const { error } = await supabase.from('beat_sheets').update({ asset_review: next }).eq('id', activeSheet.id);
+      if (error) console.error('asset_review save failed:', error.message);
+    }
   };
 
   const autoResize = (el) => {
@@ -1250,6 +1276,22 @@ export default function Production({ initialSheetId, onSheetOpened }) {
               </div>
             );
           }
+          if (editingTag && editingTag.beatId === beat.id && editingTag.field === 'graphics' && editingTag.index === i) {
+            return (
+              <input
+                key={`edit-g${i}`}
+                autoFocus
+                value={editingTag.value}
+                onChange={e => setEditingTag(prev => ({ ...prev, value: e.target.value }))}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') { renameTag(beat.id, 'graphics', i, editingTag.value); setEditingTag(null); }
+                  if (e.key === 'Escape') setEditingTag(null);
+                }}
+                onBlur={() => setEditingTag(null)}
+                style={styles.tagEditInput}
+              />
+            );
+          }
           return (
             <span
               key={`${g}-${i}`}
@@ -1260,7 +1302,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                 e.stopPropagation();
                 setContextMenu({
                   x: e.clientX, y: e.clientY, beatId: beat.id, segmentId: parentSegmentId,
-                  tag: { key: `${beat.id}::graphics::${g}`, done: tagDone(beat.id, 'graphics', g) },
+                  tag: { key: `${beat.id}::graphics::${g}`, done: tagDone(beat.id, 'graphics', g), field: 'graphics', index: i, value: g },
                 });
               }}
               onDragStart={() => { tagDragRef.current = { beatId: beat.id, field: 'graphics', fromIndex: i }; }}
@@ -1352,6 +1394,22 @@ export default function Production({ initialSheetId, onSheetOpened }) {
               </div>
             );
           }
+          if (editingTag && editingTag.beatId === beat.id && editingTag.field === 'videos' && editingTag.index === i) {
+            return (
+              <input
+                key={`edit-v${i}`}
+                autoFocus
+                value={editingTag.value}
+                onChange={e => setEditingTag(prev => ({ ...prev, value: e.target.value }))}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') { renameTag(beat.id, 'videos', i, editingTag.value); setEditingTag(null); }
+                  if (e.key === 'Escape') setEditingTag(null);
+                }}
+                onBlur={() => setEditingTag(null)}
+                style={styles.tagEditInput}
+              />
+            );
+          }
           return (
             <span
               key={`${v}-${i}`}
@@ -1362,7 +1420,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                 e.stopPropagation();
                 setContextMenu({
                   x: e.clientX, y: e.clientY, beatId: beat.id, segmentId: parentSegmentId,
-                  tag: { key: `${beat.id}::videos::${v}`, done: tagDone(beat.id, 'videos', v) },
+                  tag: { key: `${beat.id}::videos::${v}`, done: tagDone(beat.id, 'videos', v), field: 'videos', index: i, value: v },
                 });
               }}
               onDragStart={() => { tagDragRef.current = { beatId: beat.id, field: 'videos', fromIndex: i }; }}
@@ -2394,7 +2452,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
               </>
             ) : (
               <>
-                {/* Tag right-click: Mark done (asset sourced elsewhere) */}
+                {/* Tag right-click: Mark done (asset sourced elsewhere) + Edit */}
                 {contextMenu.tag && (
                   <>
                     <button
@@ -2402,6 +2460,20 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                       onClick={() => { toggleTagDone(contextMenu.tag.key, !contextMenu.tag.done); setContextMenu(null); }}
                     >
                       {contextMenu.tag.done ? '↺ Mark not done' : '✓ Mark done — asset sourced'}
+                    </button>
+                    <button
+                      style={styles.contextMenuItem}
+                      onClick={() => {
+                        setEditingTag({
+                          beatId: contextMenu.beatId,
+                          field: contextMenu.tag.field,
+                          index: contextMenu.tag.index,
+                          value: contextMenu.tag.value,
+                        });
+                        setContextMenu(null);
+                      }}
+                    >
+                      ✎ Edit tag
                     </button>
                     <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '4px 0' }} />
                   </>
@@ -2808,6 +2880,19 @@ const styles = {
     fontSize: 12,
     fontFamily: "'DM Sans', sans-serif",
     outline: 'none',
+  },
+  // In-place editor swapped in for a tag chip (context menu → Edit tag)
+  tagEditInput: {
+    background: 'rgba(99,102,241,0.12)',
+    border: '1px solid rgba(99,102,241,0.5)',
+    borderRadius: 6,
+    padding: '4px 8px',
+    color: '#fff',
+    fontSize: 12,
+    fontFamily: "'DM Sans', sans-serif",
+    outline: 'none',
+    width: '100%',
+    maxWidth: '100%',
   },
   tagColDrop: {
     background: 'rgba(99,102,241,0.08)',
