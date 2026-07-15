@@ -102,10 +102,11 @@ export default function TransactionsTab({ revenueMeta, expenseMeta, onChanged })
     [rows]
   );
 
+  const [dupSameDayOnly, setDupSameDayOnly] = useState(false);
   const dupGroups = useMemo(() => {
     const dismissed = new Set(dismissals.map(d => d.group_key));
-    return findDuplicateGroups(rows, dismissed);
-  }, [rows, dismissals]);
+    return findDuplicateGroups(rows, dismissed, dupSameDayOnly ? 0 : DUP_WINDOW_DAYS);
+  }, [rows, dismissals, dupSameDayOnly]);
 
   const flaggedDuplicates = useMemo(
     () => rows.filter(r => r.is_duplicate).sort((a, b) => (a.date < b.date ? 1 : -1)),
@@ -218,6 +219,17 @@ export default function TransactionsTab({ revenueMeta, expenseMeta, onChanged })
     if (onChanged) onChanged();
   }
 
+  // Flag a single row as the duplicate, leaving the rest of its group alone —
+  // for groups where more than one charge is real.
+  async function flagDuplicate(row) {
+    setError(null);
+    const { error: upErr } = await supabase.from(row.table)
+      .update({ is_duplicate: true }).eq('id', row.id);
+    if (upErr) { setError(upErr.message); return; }
+    setRows(prev => prev.map(r => r.uid === row.uid ? { ...r, is_duplicate: true } : r));
+    if (onChanged) onChanged();
+  }
+
   async function dismissDuplicateGroup(group) {
     setError(null);
     const { data, error: insErr } = await supabase.from('duplicate_dismissals')
@@ -284,7 +296,10 @@ export default function TransactionsTab({ revenueMeta, expenseMeta, onChanged })
         <DuplicatesView
           groups={dupGroups}
           flagged={flaggedDuplicates}
+          sameDayOnly={dupSameDayOnly}
+          onSameDayChange={setDupSameDayOnly}
           onResolve={resolveDuplicates}
+          onFlagOne={flagDuplicate}
           onDismiss={dismissDuplicateGroup}
           onRestore={restoreDuplicate}
         />
@@ -313,7 +328,10 @@ function LedgerView({ rows, categoryOptions, neptuneCategories, onEditCategory }
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
+    // Resolved duplicates are hidden here entirely — they live in the
+    // Duplicates view's "Resolved duplicates" list.
     let out = rows.filter(r =>
+      !r.is_duplicate &&
       (fBusiness === 'all' || r.business === fBusiness) &&
       (fCategory === 'all' || r.category === fCategory) &&
       (fKind === 'all' || r.kind === fKind) &&
@@ -324,7 +342,7 @@ function LedgerView({ rows, categoryOptions, neptuneCategories, onEditCategory }
     return out;
   }, [rows, search, fBusiness, fCategory, fKind, sort]);
 
-  const netCents = useMemo(() => visible.reduce((s, r) => s + (r.is_transfer || r.is_duplicate ? 0 : signedCents(r)), 0), [visible]);
+  const netCents = useMemo(() => visible.reduce((s, r) => s + (r.is_transfer ? 0 : signedCents(r)), 0), [visible]);
 
   return (
     <div>
@@ -399,7 +417,7 @@ function LedgerView({ rows, categoryOptions, neptuneCategories, onEditCategory }
                       </span>
                     )}
                   </td>
-                  <td style={{ ...styles.td, ...styles.tdMono, textAlign: 'right', whiteSpace: 'nowrap', color: signed >= 0 ? '#22c55e' : '#f87171', opacity: row.is_transfer || row.is_duplicate ? 0.5 : 1 }}>
+                  <td style={{ ...styles.td, ...styles.tdMono, textAlign: 'right', whiteSpace: 'nowrap', color: signed >= 0 ? '#22c55e' : '#f87171', opacity: row.is_transfer ? 0.5 : 1 }}>
                     {signed >= 0 ? '+' : '−'}{fmtMoney(Math.abs(signed))}
                   </td>
                   <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>{row.account}</td>
@@ -408,11 +426,9 @@ function LedgerView({ rows, categoryOptions, neptuneCategories, onEditCategory }
                   </td>
                   <td style={{ ...styles.td, ...styles.tdDim, whiteSpace: 'nowrap' }}>{row.source}</td>
                   <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
-                    {row.is_duplicate
-                      ? <span style={styles.statusDup}>dup</span>
-                      : row.review_status === 'auto'
-                        ? <span style={styles.statusReview}>review</span>
-                        : <span style={styles.statusOk}>✓</span>}
+                    {row.review_status === 'auto'
+                      ? <span style={styles.statusReview}>review</span>
+                      : <span style={styles.statusOk}>✓</span>}
                   </td>
                 </tr>
               );
@@ -871,8 +887,8 @@ function dayDiff(a, b) {
   return Math.abs(new Date(a) - new Date(b)) / 86400000;
 }
 
-function pairConfidence(a, b) {
-  if (dayDiff(a.date, b.date) > DUP_WINDOW_DAYS) return null;
+function pairConfidence(a, b, windowDays) {
+  if (dayDiff(a.date, b.date) > windowDays) return null;
   const similar = descsSimilar(a.description, b.description);
   const crossSource = a.source !== b.source;
   if (similar && (a.date === b.date || crossSource)) return 'high';
@@ -881,7 +897,8 @@ function pairConfidence(a, b) {
   return null; // same source, different merchants — coincidental same amount
 }
 
-function findDuplicateGroups(rows, dismissedKeys) {
+// windowDays 0 = "same day only" mode.
+function findDuplicateGroups(rows, dismissedKeys, windowDays = DUP_WINDOW_DAYS) {
   const buckets = new Map();
   for (const r of rows) {
     if (r.is_duplicate || r.is_transfer || !r.amount_cents) continue;
@@ -895,7 +912,7 @@ function findDuplicateGroups(rows, dismissedKeys) {
     let best = null;
     for (let i = 0; i < cluster.length; i++) {
       for (let j = i + 1; j < cluster.length; j++) {
-        const c = pairConfidence(cluster[i], cluster[j]);
+        const c = pairConfidence(cluster[i], cluster[j], windowDays);
         if (c && (!best || CONF_RANK[c] > CONF_RANK[best])) best = c;
       }
     }
@@ -912,7 +929,7 @@ function findDuplicateGroups(rows, dismissedKeys) {
     bucket.sort((a, b) => a.date.localeCompare(b.date));
     let cluster = [bucket[0]];
     for (let i = 1; i < bucket.length; i++) {
-      if (dayDiff(bucket[i].date, cluster[cluster.length - 1].date) <= DUP_WINDOW_DAYS) {
+      if (dayDiff(bucket[i].date, cluster[cluster.length - 1].date) <= windowDays) {
         cluster.push(bucket[i]);
       } else {
         pushCluster(cluster);
@@ -929,7 +946,7 @@ function findDuplicateGroups(rows, dismissedKeys) {
 }
 
 // ─── Duplicates view ────────────────────────────────────────
-function DuplicatesView({ groups, flagged, onResolve, onDismiss, onRestore }) {
+function DuplicatesView({ groups, flagged, sameDayOnly, onSameDayChange, onResolve, onFlagOne, onDismiss, onRestore }) {
   const [showResolved, setShowResolved] = useState(false);
 
   const atRiskCents = groups.reduce(
@@ -940,6 +957,14 @@ function DuplicatesView({ groups, flagged, onResolve, onDismiss, onRestore }) {
       <div style={styles.viewHeader}>
         <h2 style={styles.sectionTitle}>Potential duplicates</h2>
         <span style={styles.sectionCount}>{groups.length}</span>
+        <label style={{ ...styles.ruleCheck, marginLeft: 8 }}>
+          <input
+            type="checkbox"
+            checked={sameDayOnly}
+            onChange={e => onSameDayChange(e.target.checked)}
+          />
+          same-day only
+        </label>
         {groups.length > 0 && (
           <span style={{ ...styles.filterSummary, marginLeft: 'auto' }}>
             up to <span style={{ color: '#fbbf24', fontWeight: 700 }}>{fmtMoney(atRiskCents)}</span> double-counted
@@ -947,10 +972,13 @@ function DuplicatesView({ groups, flagged, onResolve, onDismiss, onRestore }) {
         )}
       </div>
       <p style={styles.subHint}>
-        Same amount and business within {DUP_WINDOW_DAYS} days, with matching merchants or
-        different feed sources (Tiller / Plaid / CSV overlap). "Keep" one row to flag the
-        rest as duplicates — flagged rows stay in the ledger but drop out of all totals
-        and reports. "Not duplicates" dismisses a group for good.
+        Same amount and business {sameDayOnly ? 'on the same day' : `within ${DUP_WINDOW_DAYS} days`}, with matching merchants or
+        different feed sources (Tiller / Plaid / CSV overlap). Three ways to resolve a group:
+        <b style={styles.hintKey}> Keep</b> one row (flags every other row as a duplicate) ·
+        <b style={styles.hintKey}> Flag as dup</b> on just the bogus row (leaves the rest alone) ·
+        <b style={styles.hintKey}> Not duplicates</b> (all charges are real — dismisses the group for good).
+        Flagged rows are hidden from the ledger and excluded from all totals and reports;
+        they live in the resolved list below, where they can be restored.
       </p>
 
       {groups.length === 0 ? (
@@ -992,13 +1020,20 @@ function DuplicatesView({ groups, flagged, onResolve, onDismiss, onRestore }) {
                       <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>{row.account}</td>
                       <td style={{ ...styles.td, ...styles.tdDim, whiteSpace: 'nowrap' }}>{row.source}</td>
                       <td style={{ ...styles.td, ...styles.tdDim, whiteSpace: 'nowrap' }}>{row.category}</td>
-                      <td style={{ ...styles.td, textAlign: 'right', whiteSpace: 'nowrap', width: 110 }}>
+                      <td style={{ ...styles.td, textAlign: 'right', whiteSpace: 'nowrap', width: 180 }}>
                         <button
                           onClick={() => onResolve(g, row.uid)}
                           style={styles.keepBtn}
-                          title="Keep this row — flag the others in this group as duplicates"
+                          title="This is the real one — flag every other row in this group as a duplicate"
                         >
-                          Keep this
+                          Keep
+                        </button>
+                        <button
+                          onClick={() => onFlagOne(row)}
+                          style={styles.flagBtn}
+                          title="This row is the duplicate — flag just this one, keep the rest"
+                        >
+                          Flag as dup
                         </button>
                       </td>
                     </tr>
@@ -1350,11 +1385,6 @@ const styles = {
     fontSize: 10, fontWeight: 700, color: '#fbbf24', background: 'rgba(251,191,36,0.12)',
     padding: '1px 7px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: 0.4,
   },
-  statusDup: {
-    fontSize: 10, fontWeight: 700, color: '#f87171', background: 'rgba(239,68,68,0.12)',
-    padding: '1px 7px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: 0.4,
-  },
-
   // ── Duplicates view ──
   dupTabBadge: {
     marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#fbbf24',
@@ -1378,6 +1408,12 @@ const styles = {
     border: '1px solid rgba(34,197,94,0.35)', borderRadius: 6, color: '#4ade80',
     fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
   },
+  flagBtn: {
+    padding: '4px 11px', marginLeft: 6, background: 'rgba(239,68,68,0.12)',
+    border: '1px solid rgba(239,68,68,0.35)', borderRadius: 6, color: '#f87171',
+    fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
+  },
+  hintKey: { color: 'rgba(255,255,255,0.7)' },
 
   filterBar: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' },
   mergeBar: {
