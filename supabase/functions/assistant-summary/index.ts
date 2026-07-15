@@ -77,6 +77,10 @@ Deno.serve(async (req) => {
       admin.from("sponsor_deliverables")
         .select("id, title, status, due_date, deliverable_type, sponsors(name), sponsor_campaigns(name)")
         .neq("status", "posted")
+        // Delivered is a separate flag from the status pipeline — a delivered
+        // deliverable must drop out of the snapshot so Gerald clears its task.
+        // not-is-true (vs neq true) keeps rows where delivered is null.
+        .not("delivered", "is", true)
         .not("due_date", "is", null)
         .lte("due_date", horizonStr)
         .order("due_date", { ascending: true })
