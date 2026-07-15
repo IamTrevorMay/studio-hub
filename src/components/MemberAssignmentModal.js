@@ -73,7 +73,7 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
         fetchAllRows(
           supabase
             .from('sponsor_deliverables')
-            .select('id, title, due_date, channel, delivered, status, notes, campaign:sponsor_campaigns(name, brief_url)')
+            .select('id, title, due_date, channel, delivered, status, notes, campaign:sponsor_campaigns(name, brief_url, campaign_briefs(id))')
             .order('due_date', { ascending: true })
         ),
         supabase
@@ -87,10 +87,13 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
       const monthOf = (d) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short' }) : '';
       setDeliverables(
         (delivRows || [])
+          // A campaign's brief can be the legacy single brief_url or any row in
+          // campaign_briefs (official/company brief, internal processed brief, …).
+          // Either counts — the writer just needs something to write from.
           .filter(d =>
             d.delivered !== true
             && (d.status || '').toLowerCase() !== 'archived'
-            && !!(d.campaign && d.campaign.brief_url)
+            && !!(d.campaign && (d.campaign.brief_url || (d.campaign.campaign_briefs || []).length > 0))
           )
           .map(d => ({
             id: d.id,
