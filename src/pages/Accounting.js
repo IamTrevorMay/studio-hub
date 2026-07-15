@@ -184,21 +184,23 @@ export default function Accounting({ initialTab, onTabOpened }) {
     const [revCur, revOld, expCur, expOld, campaigns, deliverables] = await Promise.all([
       // is_transfer=false: inter-account transfers from the Plaid feed are
       // flagged, not deleted — they must not count as revenue or expense.
+      // is_duplicate=false: same for rows resolved as duplicates in the
+      // Transactions tab's Duplicates view.
       fetchAllRows(supabase.from('revenue_transactions')
         .select('date, description, category, amount_cents, account, business')
-        .eq('is_transfer', false)
+        .eq('is_transfer', false).eq('is_duplicate', false)
         .gte('date', start).lte('date', end).order('date', { ascending: false })),
       fetchAllRows(supabase.from('revenue_transactions')
         .select('date, category, amount_cents, business')
-        .eq('is_transfer', false)
+        .eq('is_transfer', false).eq('is_duplicate', false)
         .gte('date', prevStart).lt('date', start).order('date', { ascending: false })),
       fetchAllRows(supabase.from('expense_transactions')
         .select('date, description, category, amount_cents, account, business')
-        .eq('is_transfer', false)
+        .eq('is_transfer', false).eq('is_duplicate', false)
         .gte('date', start).lte('date', end).order('date', { ascending: false })),
       fetchAllRows(supabase.from('expense_transactions')
         .select('date, category, amount_cents, business')
-        .eq('is_transfer', false)
+        .eq('is_transfer', false).eq('is_duplicate', false)
         .gte('date', prevStart).lt('date', start).order('date', { ascending: false })),
       // Sponsor revenue pipeline (range-independent current snapshot).
       supabase.from('sponsor_campaigns').select('id, payment_status, apply_agency_fee, fully_delivered_at'),

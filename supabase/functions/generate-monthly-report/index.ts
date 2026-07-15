@@ -167,6 +167,7 @@ async function fetchAllTxns(db: SupabaseClient, table: string, start: string, en
       .from(table)
       .select("date, description, category, amount_cents, business")
       .eq("is_transfer", false)
+      .eq("is_duplicate", false)
       .gte("date", start)
       .lte("date", end)
       .order("date", { ascending: true })
