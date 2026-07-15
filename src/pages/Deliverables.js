@@ -2398,16 +2398,16 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
               return (
                 <React.Fragment key={brand.id}>
                   <tr onClick={() => setExpandedBrandId(isExpanded ? null : brand.id)} style={{ cursor: 'pointer' }}>
-                    {/* Brand */}
-                    <td style={styles.tableTd}>
+                    {/* Dates (mirrors Upcoming's leading Due column) */}
+                    <td style={{ ...styles.tableTd, whiteSpace: 'nowrap', fontSize: '12px', color: 'rgba(255,255,255,0.45)' }}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                         <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', width: '10px', display: 'inline-block' }}>{isExpanded ? '▾' : '▸'}</span>
-                        <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{brand.brand}</span>
+                        {brand.start_date && brand.end_date ? `${fmtD(brand.start_date)} – ${fmtD(brand.end_date)}` : '—'}
                       </span>
                     </td>
-                    {/* Dates */}
-                    <td style={{ ...styles.tableTd, whiteSpace: 'nowrap', fontSize: '12px', color: 'rgba(255,255,255,0.45)' }}>
-                      {brand.start_date && brand.end_date ? `${fmtD(brand.start_date)} – ${fmtD(brand.end_date)}` : '—'}
+                    {/* Brand */}
+                    <td style={styles.tableTd}>
+                      <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{brand.brand}</span>
                     </td>
                     {/* Briefs */}
                     <td style={styles.tableTd}>
@@ -2447,20 +2447,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                         ? <span style={styles.checklistBadge}>{campDeliveredCount}/{brandDels.length}</span>
                         : <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: '12px' }}>—</span>}
                     </td>
-                    {/* Payment (admin) */}
-                    {isAdmin && (
-                      <td style={styles.tableTd}>
-                        <span style={{ ...styles.statusTag, background: `${PAYMENT_STATUS_COLORS[brand.payment_status]}15`, color: PAYMENT_STATUS_COLORS[brand.payment_status] }}>
-                          {brand.payment_status}
-                        </span>
-                      </td>
-                    )}
-                    {/* Total pay (admin) */}
-                    {isAdmin && (
-                      <td style={{ ...styles.tableTd, textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
-                        {campTotalPay > 0 ? `$${campTotalPay.toLocaleString()}` : '—'}
-                      </td>
-                    )}
                     {/* Contact */}
                     <td style={{ ...styles.tableTd, fontSize: '12px', color: 'rgba(255,255,255,0.5)', whiteSpace: 'nowrap', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }} title={brand.contact_email || ''}>
                       {brand.contact_name || brand.contact_email || '—'}
@@ -2469,6 +2455,20 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                     <td style={{ ...styles.tableTd, fontSize: '12px', color: 'rgba(255,255,255,0.45)', maxWidth: 240 }} title={brand.description || ''}>
                       <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{brand.description || '—'}</div>
                     </td>
+                    {/* Total pay (admin) — right-aligned like Upcoming's Pay */}
+                    {isAdmin && (
+                      <td style={{ ...styles.tableTd, textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                        {campTotalPay > 0 ? `$${campTotalPay.toLocaleString()}` : '—'}
+                      </td>
+                    )}
+                    {/* Payment (admin) — trailing status, like Upcoming's Delivered */}
+                    {isAdmin && (
+                      <td style={styles.tableTd}>
+                        <span style={{ ...styles.statusTag, background: `${PAYMENT_STATUS_COLORS[brand.payment_status]}15`, color: PAYMENT_STATUS_COLORS[brand.payment_status] }}>
+                          {brand.payment_status}
+                        </span>
+                      </td>
+                    )}
                   </tr>
 
                   {isExpanded && (
@@ -2664,14 +2664,14 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                       <table style={styles.table}>
                         <thead>
                           <tr>
-                            <th style={styles.tableTh}>Brand</th>
                             <th style={styles.tableTh}>Dates</th>
+                            <th style={styles.tableTh}>Brand</th>
                             <th style={styles.tableTh}>Briefs</th>
                             <th style={styles.tableTh}>Deliverables</th>
-                            {isAdmin && <th style={styles.tableTh}>Payment</th>}
-                            {isAdmin && <th style={{ ...styles.tableTh, textAlign: 'right' }}>Total Pay</th>}
                             <th style={styles.tableTh}>Contact</th>
                             <th style={styles.tableTh}>Description</th>
+                            {isAdmin && <th style={{ ...styles.tableTh, textAlign: 'right' }}>Total Pay</th>}
+                            {isAdmin && <th style={styles.tableTh}>Payment</th>}
                           </tr>
                         </thead>
                         <tbody>{list.map(renderBrandRow)}</tbody>
