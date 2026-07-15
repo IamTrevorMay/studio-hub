@@ -69,13 +69,32 @@ Deno.serve(async (req) => {
       .limit(limit);
     if (since) mentionQ = mentionQ.gt("created_at", since);
 
-    const [dms, mentions] = await Promise.all([dmQ, mentionQ]);
+    // Reactions land on EXISTING rows, so a cursor on created_at never re-sees
+    // them. Return recently-created messages that carry any reactions as a
+    // separate list — the daemon dedupes per (message, emoji, reactor), so
+    // re-sending the same window is idempotent. 7-day lookback: a 👍 on an
+    // older message than that is vanishingly rare for open asks.
+    const reactedSince = new Date(Date.now() - 7 * 864e5).toISOString();
+    const reactedQ = admin
+      .from("direct_messages")
+      .select("id, conversation_id, user_id, content, created_at, reactions, "
+        + "profiles(full_name), conversations(name, is_group)")
+      .in("conversation_id", convIds.length ? convIds : ["00000000-0000-0000-0000-000000000000"])
+      .not("reactions", "eq", "{}")
+      .not("reactions", "is", null)
+      .gte("created_at", reactedSince)
+      .order("created_at", { ascending: true })
+      .limit(limit);
+
+    const [dms, mentions, reacted] = await Promise.all([dmQ, mentionQ, reactedQ]);
     if (dms.error) throw dms.error;
     if (mentions.error) throw mentions.error;
+    if (reacted.error) throw reacted.error;
 
     type Row = {
       id: string; user_id: string; content: string; created_at: string;
       conversation_id?: string; channel_id?: string;
+      reactions?: Record<string, string[]> | null;
       profiles: { full_name: string } | null;
       conversations?: { name: string | null; is_group: boolean } | null;
       channels?: { name: string | null } | null;
@@ -102,6 +121,16 @@ Deno.serve(async (req) => {
         channel: m.channels?.name ?? null,
         content: m.content,
         created_at: m.created_at,
+      })),
+      reacted: ((reacted.data ?? []) as unknown as Row[]).map((m) => ({
+        id: m.id,
+        conversation_id: m.conversation_id,
+        message_owner_id: m.user_id,
+        conversation: m.conversations?.name ?? null,
+        is_group: m.conversations?.is_group ?? false,
+        content: m.content,
+        created_at: m.created_at,
+        reactions: m.reactions ?? {},
       })),
     });
   } catch (err) {
