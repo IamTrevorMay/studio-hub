@@ -101,6 +101,13 @@ Deno.serve(async (req: Request) => {
       return json({ error: "Not authorized" }, 403);
     }
 
+    // Per-user daily spend cap (Claude + billable web_search). Enforced server-side
+    // by bump_ai_usage (limit lives in the DB function, not the client).
+    const { data: underCap } = await userClient.rpc("bump_ai_usage", { p_fn: "find-assets-enrich" });
+    if (underCap === false) {
+      return json({ error: "Daily AI usage limit reached. Try again tomorrow." }, 429);
+    }
+
     const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
     if (!apiKey) return json({ error: "ANTHROPIC_API_KEY not configured" }, 503);
 

@@ -46,16 +46,21 @@ function jsonResp(data: unknown, status = 200) {
   });
 }
 
-async function isAuthenticated(req: Request): Promise<boolean> {
+// Resolve the caller and atomically bump their daily AI-usage counter.
+// Returns { ok, underCap }: ok=false → not authenticated; underCap=false → over the
+// per-user daily cap (limit lives in the bump_ai_usage DB function).
+async function authAndCap(req: Request): Promise<{ ok: boolean; underCap: boolean }> {
   const authHeader = req.headers.get("Authorization");
-  if (!authHeader) return false;
+  if (!authHeader) return { ok: false, underCap: false };
   const userClient = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_ANON_KEY")!,
     { global: { headers: { Authorization: authHeader } } },
   );
   const { data: { user }, error } = await userClient.auth.getUser();
-  return !error && !!user;
+  if (error || !user) return { ok: false, underCap: false };
+  const { data: underCap } = await userClient.rpc("bump_ai_usage", { p_fn: "organize-autotag" });
+  return { ok: true, underCap: underCap !== false };
 }
 
 const TAXONOMY_TEXT = TYPE_OPTIONS
@@ -199,7 +204,9 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return jsonResp({ error: "Method not allowed" }, 405);
 
-  if (!(await isAuthenticated(req))) return jsonResp({ error: "Not authenticated" }, 401);
+  const gate = await authAndCap(req);
+  if (!gate.ok) return jsonResp({ error: "Not authenticated" }, 401);
+  if (!gate.underCap) return jsonResp({ error: "Daily AI usage limit reached. Try again tomorrow." }, 429);
 
   const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");
   if (!anthropicKey) return jsonResp({ error: "ANTHROPIC_API_KEY not configured" }, 500);
