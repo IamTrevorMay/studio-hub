@@ -3,6 +3,7 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
 import Placeholder from '@tiptap/extension-placeholder';
+import DOMPurify from 'dompurify';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useSupabaseQuery } from '../hooks/useSupabaseQuery';
@@ -1121,7 +1122,7 @@ export default function Dashboard({ onNavigate }) {
     if (!content) return null;
     // If content looks like HTML, render it directly
     if (content.startsWith('<')) {
-      return <div className="announcement-rich" style={styles.announcementContent} dangerouslySetInnerHTML={{ __html: content }} />;
+      return <div className="announcement-rich" style={styles.announcementContent} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content) }} />;
     }
     // Legacy plain text: wrap in paragraph and apply formatContent for channel links
     return <span style={styles.announcementContent}>{formatContent(content)}</span>;

@@ -337,6 +337,12 @@ export function AuthProvider({ children }) {
     if (user) {
       try { await supabase.from('profiles').update({ status: 'offline', last_seen_at: new Date().toISOString() }).eq('id', user.id); } catch (e) {}
     }
+    // User-initiated logout: revoke the refresh token server-side across all
+    // sessions (scope:'global') so it can't be resumed from a shared/stolen
+    // machine, then clear local state. (nukeSession's own signOut stays local —
+    // it's also the transient auth-failure recovery path and must not log the
+    // user out everywhere on a temporary token hiccup.)
+    try { await supabase.auth.signOut({ scope: 'global' }); } catch (e) {}
     await nukeSession();
   }
 
