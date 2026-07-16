@@ -1,0 +1,57 @@
+# Anna's Brain — Index
+
+> Read `ANNA.md` for the persona + the non-negotiable conventions, and
+> `../Carl/context/mayday-context.md` for the businesses this codebase serves. This index is the
+> map: **28 reference docs** across 6 clusters, built 2026-07-15 from a direct read of *this*
+> repository (React 18 CRA + Craco frontend, Supabase backend, Vercel) — then a full census pass
+> (all 99 edge functions + every page opened), an adversarial verification pass (every `file:line`
+> cite re-checked against live code), and a completeness pass that closed the last coverage gaps
+> (testing/CI, the `api/` serverless layer). Every doc carries `last_updated` front-matter and cites
+> real `file:line` — the live code is the source of truth if a doc has drifted.
+
+## Start here for "how do I do X?"
+- [applied/build-playbook.md](applied/build-playbook.md) — Build a feature end-to-end: scope → locate (page + Mobile twin, edge fns, tables) → migration-first (RLS, `apply_migration` not `db push`) → edge function → token-only frontend in both twins → realtime/notifications → verify → **never auto-commit**. Worked example: the `bd_*` Business Dev build.
+- [applied/review-playbook.md](applied/review-playbook.md) — Run a review pass: get diff → classify layers → correctness/security/style checklists → adversarially verify each finding → rank by severity → one-line-per-finding output. Repo traps: mobile parity, PT dates, RLS gaps, hardcoded styles, node_modules.
+- [applied/debug-playbook.md](applied/debug-playbook.md) — Debug: reproduce first → gather evidence (console, `get_logs`/`get_advisors`/`execute_sql`) → **consult known-issues doc FIRST** → hypothesize → trace symptom→component→query→edge fn→RLS → root-cause fix → verify both twins. Worked examples: RLS empty-result, PT off-by-one.
+
+## Cluster 1: Architecture — the repo map (`architecture/`)
+Read these first to orient before touching anything.
+- [01-app-shell-routing-auth.md](architecture/01-app-shell-routing-auth.md) — Boot sequence, viewport-based layout split, the hand-rolled `activeTab` router, `NAV_ITEMS`, `AuthContext` (retry/degradation/nuke, auth-lock deadlock, visibility reconnect + `refreshKey`), locked portals, Admin/Work mode. **Gotcha: desktop + mobile nav walls are duplicated and hand-synced.**
+- [02-frontend-conventions.md](architecture/02-frontend-conventions.md) — Inline-style-only rule (+ doc-editor Tailwind exception), the token system, dark palette, DM Sans, useState-heavy state, every custom hook.
+- [03-page-catalog.md](architecture/03-page-catalog.md) — Grouped map of `src/pages/` (keys, labels, sizes, purposes) + the "read line ranges, not whole files" warning + the two render-wall locations.
+- [04-supabase-schema-map.md](architecture/04-supabase-schema-map.md) — Two-project split (main + Triton read-only), table groups by feature with defining migrations, the role model, `is_admin()`/`is_agency()` helpers, the `profiles` FK inconsistency, the `db push` caveat.
+- [05-edge-functions-catalog.md](architecture/05-edge-functions-catalog.md) — All 99 deployable functions grouped (100 dirs incl. the non-deployable `shared/`), the common dual-auth/service-role/PT-time anatomy, shared modules, pg_cron/Vault wiring, env vars, deploy command.
+- [06-realtime-notifications.md](architecture/06-realtime-notifications.md) — Three channel primitives, reconnect/`refreshKey`, the single-RPC badge summary, client-side mention/DM counts, desktop notifications, presence-as-profiles-rows, freshness table.
+- [07-build-deploy-vercel.md](architecture/07-build-deploy-vercel.md) — Three deploy targets, Craco/Tailwind scoping, dev proxy, Vercel rewrites/serverless, migration-divergence rule, env/secret handling, no-auto-commit policy.
+- [08-testing-ci.md](architecture/08-testing-ci.md) — **Honest state: thin tests, no CI.** The `test:frontend`/`test:edge`/`test:db` scripts, the 4 hook/context tests + `supabaseMock`, `lint:styles` as the real (non-ESLint) style enforcer, and the merge-gate reality — only `craco build` on Vercel is automatic. Verify behavior directly; a green build ≠ a working feature.
+
+## Cluster 2: Frontend (`frontend/`)
+- [01-react-patterns.md](frontend/01-react-patterns.md) — Component shape, per-concern `useState`, the `fetch* → useCallback → useEffect → useVisibilityRefresh` data-loading idiom, `useSupabaseQuery` safe-query, `fetchAllRows` pagination, the two-layer tab-refocus system, Realtime via ad-hoc channels + `useRealtimeTable`, auth/role gating, loading/empty states, modal composition.
+- [02-style-system.md](frontend/02-style-system.md) — **The load-bearing frontend doc.** The hard rule (tokens/recipes, never hardcode), full token reference tables, every recipe signature + example, the `const styles = {}` convention, the `*_COLORS` module-const pattern, before/after tokenization. **Note: token adoption is partial (~39 files) — new code uses tokens; when editing legacy hardcoded pages, match surrounding literals unless asked to tokenize.**
+- [03-forms-modals-tables.md](frontend/03-forms-modals-tables.md) — The modal shell, `backdropDismiss` + `useConfirm`, every form-field type, `canSave` gating, direct-write vs edge-fn writes, hand-built grid tables + `@hello-pangea/dnd`, empty states, `csvImport.js`.
+- [04-perf-render.md](frontend/04-perf-render.md) — Giant-page problem + split effort, N+1 avoidance, memoization conventions (no `React.memo`), Realtime hygiene, re-render-storm avoidance, hand-rolled SVG charts, asset handling, checklist.
+- [05-external-best-practices.md](frontend/05-external-best-practices.md) — **External layer** (19 web sources): React 18 memoization/re-render hygiene, CRA-sunset + Vite/code-splitting reality, design-token maturity, Realtime lifecycle, WCAG 2.2/APCA dark-theme contrast — each mapped to "what we do here / where to improve." Top picks: lazy-load pages in `AppLayout.js`, make the phantom lint rule real, audit low-alpha text contrast.
+
+## Cluster 3: Backend (`backend/`)
+- [01-edge-function-anatomy.md](backend/01-edge-function-anatomy.md) — The Deno skeleton: both entrypoint styles, the CORS block, the three auth patterns (admin-JWT, CRON_SECRET-or-JWT dual, `--no-verify-jwt`), service-role client, full env-var inventory, request/response contract, error handling, PT helper, **copy-pasteable canonical template + deploy command.**
+- [02-migrations-rls.md](backend/02-migrations-rls.md) — **Leads with the divergence warning** (apply via MCP `apply_migration`, never `db push`). File naming, the house RLS pattern, the 9-role model + CHECK-constraint swap, the `is_*` helpers + admin-tier subtlety, SECURITY DEFINER `security_barrier` views, trigger-enforced author snapshots, the `profiles(id)` FK convention, realtime opt-in, a 13-point authoring checklist.
+- [03-cron-automations.md](backend/03-cron-automations.md) — pg_cron (Vault-secret pattern + the hardcoded/rotated-secret caveat), notable jobs, DB-trigger→edge-fn bridges, the full Automations system (schedule vs event, PT-aware scheduling, actions, `{{variable}}` resolution, strict dedup, confirmation gate), workflow engine overview.
+- [04-integrations.md](backend/04-integrations.md) — Every external integration → functions + env vars + gotchas: Metricool (Meta metrics route through it — there is no `sync-meta`), platform-sync family (incl. sync-youtube stale-More-Mayday), Google Calendar OAuth, Drive/NAS, Plaid+Tiller+CSV accounting (sign conventions, duplicate flagging), Anthropic/Claude usage (`CLAUDE_MODEL` default `claude-sonnet-4-6`), email/push, Triton, jobs.
+- [05-external-best-practices.md](backend/05-external-best-practices.md) — **External layer** (22 web sources, mostly official Supabase/Postgres docs): RLS hardening + `SECURITY DEFINER` pitfalls, Deno edge-fn auth/secrets/CORS, forward-only migration discipline, pg_cron monitoring, secret-in-git remediation — each mapped to repo reality. Top picks: cron-failure alerting on `cron.job_run_details`, event-id idempotency at webhook boundaries, a shared CORS/`json()` helper + fail-closed auth posture.
+- [06-api-express-serverless.md](backend/06-api-express-serverless.md) — **The OTHER backend.** `api/` = Node/Express + Vercel serverless functions (distinct from Supabase Deno edge fns): the dev Express host (`api/server.js`:4400) that auto-mounts `broadcast/*` handlers, the Triton read-only proxies, `vercel.json` rewrites + SPA fallback, the separate `api/.env` + `node_modules`, and the **different auth model** — these do NOT use `createHandler`; check each handler's own gate.
+
+## Cluster 4: Review / audit (`review/`)
+- [01-review-checklist.md](review/01-review-checklist.md) — Correctness-first checklist + 4-tier severity rubric (BLOCKER/HIGH/MED/LOW): data-layer/RLS, **PT-vs-UTC date boundaries**, realtime leaks, null guards, edge auth, **mobile/desktop parity**.
+- [02-security-review.md](review/02-security-review.md) — Six-layer threat model (RLS → SECURITY DEFINER → secrets → edge auth → SQLi → PII), the `agency_comments` author-snapshot trigger, the profiles self-promotion CRIT, the leaked-`CRON_SECRET`/Vault history, per-layer reject table, the `get_advisors` step.
+- [03-style-compliance.md](review/03-style-compliance.md) — Token/recipe enumeration, "smell → fix" pairs, the `*_COLORS` convention, `getDisplayName` social-vs-admin rule, commit hygiene. **Note: the `mayday/no-style-magic-numbers` lint rule referenced in `styleTokens.js:4` does not exist on disk — style is review-enforced, not CI-enforced.**
+
+## Cluster 5: Debugging (`debugging/`)
+- [01-root-cause-playbook.md](debugging/01-root-cause-playbook.md) — Reproduce-first discipline, log-location table (browser/edge/pg/Vercel), the 5-step UI→component→query→table/RLS trace, MCP tool inventory, `/verify` + `/run`, desktop+mobile+role reproduction, fix discipline.
+- [02-known-issues-gotchas.md](debugging/02-known-issues-gotchas.md) — **The landmine map.** 11 known gotchas, each symptom→cause→workaround with `file:line`: sync-youtube stale, PT date class, migration divergence, leaked CRON_SECRET, node_modules churn, auth-refresh race, Triton read-only, accounting CSV sign-flip, unused newsletter fns (absent from tree), etc. **Consult this FIRST when debugging.**
+- [03-supabase-debug.md](debugging/03-supabase-debug.md) — RLS denials, edge-function failures, realtime/RLS-read-set gotcha, migration-divergence recovery, cron checks; MCP tools named; diagnostic decision tree.
+
+## Maintenance
+- The brain was built 2026-07-15 from a direct repo read. **The live code is authoritative** — when a doc's `file:line` no longer matches, trust the code and update the doc.
+- Fastest-aging docs: `architecture/03-page-catalog.md` and `architecture/05-edge-functions-catalog.md` (pages/functions get added often), and anything citing exact line numbers in the giant page files.
+- When a working session produces durable new knowledge (a new convention, a fixed landmine, a mapped subsystem), update or add the doc **and** add/update its line here. Leave the brain smarter than you found it.
+- Open audit items surfaced during the build, worth resolving in code someday: the `profiles` FK inconsistency (`profiles(id)` vs `auth.users(id)`), the duplicated desktop/mobile nav walls, partial style-token adoption, and the non-existent lint rule referenced in `styleTokens.js`.
