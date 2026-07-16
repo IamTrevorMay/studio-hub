@@ -23,6 +23,7 @@ import Messages from './MessagesMobile';
 import AdminPanel from './AdminPanelMobile';
 import Ideation from './IdeationMobile';
 import Resources from './ResourcesMobile';
+import PitchVideos from './tools/PitchVideos';
 import Research from './ResearchMobile';
 import BusinessDev from './BusinessDevMobile';
 import Invoicing from './InvoicingMobile';
@@ -197,7 +198,7 @@ export default function AppLayoutMobile() {
 
   // Freelancer redirect (mirror desktop AppLayout)
   useEffect(() => {
-    if (isFreelancer && !activeTab.startsWith('fl_') && activeTab !== 'resources' && activeTab !== 'assets' && activeTab !== 'channels' && activeTab !== 'messages') {
+    if (isFreelancer && !activeTab.startsWith('fl_') && activeTab !== 'resources' && activeTab !== 'pitch_videos' && activeTab !== 'channels' && activeTab !== 'messages') {
       setActiveTab('fl_dashboard');
     }
   }, [isFreelancer]); // eslint-disable-line
@@ -408,6 +409,7 @@ function renderActiveTab({ activeTab, isAdmin, isAssistant, isPartner, isFreelan
     case 'production': return <Production initialSheetId={navTarget} onSheetOpened={() => setNavTarget(null)} />;
     case 'ideation': return <Ideation initialConceptId={navTarget} onConceptOpened={() => setNavTarget(null)} />;
     case 'resources': return <Resources />;
+    case 'pitch_videos': return <PitchVideos onBack={() => setActiveTab(isFreelancer ? 'fl_dashboard' : 'dashboard')} />;
     case 'research': return <Research />;
     case 'business_dev': return <BusinessDev />;
     case 'invoicing': return <Invoicing />;

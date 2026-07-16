@@ -6,7 +6,7 @@ const TOUR_STEPS = [
   { key: 'fl_submit', title: 'Submit', description: 'Upload finished deliverables here. Drag and drop your files to send them to the team.' },
   { key: 'fl_documents', title: 'Documents', description: 'Review and sign documents from your team. A badge appears when something needs your signature.' },
   { key: 'fl_hours', title: 'Hours', description: 'If you\'re paid hourly, log your work hours for each pay period. Hours are reviewed bi-weekly (1st\u201315th and 16th\u2013end of month).' },
-  { key: 'assets', title: 'Assets Library', description: 'Where you can find any assets to use in your edits.' },
+  { key: 'pitch_videos', title: 'Video Assets', description: 'Search and download video assets to use in your edits.' },
   { key: 'fl_profile', title: 'Profile', description: 'Set up your payment method and contact info so you can get paid.' },
 ];
 
