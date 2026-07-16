@@ -89,6 +89,17 @@ function stripStatusPrefix(name: string): string {
 }
 
 /**
+ * Does the filename carry the edited/final "(E)" tag? "(E)" may sit before or
+ * after a number prefix (e.g. "3. (E) Title" or "(E) 3. Title"), so peel the
+ * number first — mirrors hasScheduledPrefix. This tag is the payroll signal:
+ * an "(E)" video in the Ready folder (Watch 1) marks Alana's work complete, so
+ * numbering must PRESERVE it, never strip it.
+ */
+export function hasEditedPrefix(filename: string): boolean {
+  return /^\(E\)\s*/i.test(stripNumberPrefix(filename.replace(/\.[A-Za-z0-9]{1,5}$/, "")));
+}
+
+/**
  * Canonical title for matching: drop the extension, then peel any leading
  * number / (S) / (E) prefixes in any order until stable, and trim.
  */
@@ -112,10 +123,14 @@ export function hasScheduledPrefix(filename: string): boolean {
  * Build the desired Drive filename for a card at 1-based position `n` in a
  * numbered column. Preserves the original extension; strips any pre-existing
  * number/status prefix from the current name first.
+ *
+ * `edited` re-stamps the "(E)" tag AFTER the number ("3. (E) Title"). Ready
+ * cards live in Watch 1 and must keep "(E)" so the payroll trigger fires; the
+ * number goes in FRONT of the tag, it does not replace it.
  */
-export function numberedName(currentName: string, title: string, n: number): string {
+export function numberedName(currentName: string, title: string, n: number, edited = false): string {
   const ext = getExt(currentName);
-  return `${n}. ${title}${ext}`;
+  return `${n}. ${edited ? "(E) " : ""}${title}${ext}`;
 }
 
 /**

@@ -16,7 +16,6 @@ import {
   getDriveAccessToken,
   renameDriveFile,
   numberedName,
-  nameHasNumber,
 } from "../shared/progress-drive.ts";
 
 const corsHeaders = {
@@ -109,6 +108,9 @@ Deno.serve(async (req: Request) => {
     return jsonResp({ ok: true, renamed: 0, warning: `Drive token failed: ${err}` });
   }
 
+  // Ready cards sit in Watch 1 and must keep the "(E)" edited tag; Editing cards
+  // don't carry it. Number goes in front of "(E)", never replaces it.
+  const edited = column === "ready";
   let renamed = 0;
   const errors: string[] = [];
   for (let i = 0; i < finalOrder.length; i++) {
@@ -118,8 +120,9 @@ Deno.serve(async (req: Request) => {
     try {
       const currentName = await getDriveFileName(token, fileId);
       if (!currentName) continue;
-      if (nameHasNumber(currentName, i + 1)) continue; // already correct
-      await renameDriveFile(token, fileId, numberedName(currentName, card.title, i + 1));
+      const desired = numberedName(currentName, card.title, i + 1, edited);
+      if (currentName === desired) continue; // already correct (number + tag)
+      await renameDriveFile(token, fileId, desired);
       renamed++;
     } catch (err) {
       errors.push(`${card.title}: ${err}`);

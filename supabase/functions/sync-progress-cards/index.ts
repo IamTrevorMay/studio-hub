@@ -23,7 +23,6 @@ import {
   hasScheduledPrefix,
   numberedName,
   unnumberedName,
-  nameHasNumber,
 } from "../shared/progress-drive.ts";
 
 const corsHeaders = {
@@ -501,6 +500,10 @@ Deno.serve(async (req: Request) => {
         (a.position ?? 0) - (b.position ?? 0) || (a.created_at < b.created_at ? -1 : 1);
 
       for (const col of ["editing", "ready"] as const) {
+        // Ready cards live in Watch 1 and must keep the "(E)" edited tag so the
+        // payroll trigger fires; the number goes in front of "(E)". Editing
+        // cards carry no tag.
+        const edited = col === "ready";
         const colCards = all.filter((c) => c.status === col).sort(byPos);
         for (let i = 0; i < colCards.length; i++) {
           const c = colCards[i];
@@ -518,9 +521,10 @@ Deno.serve(async (req: Request) => {
           if (!fileId) continue;
           const cur = nameById.get(fileId);
           if (!cur) continue;
-          if (!nameHasNumber(cur, i + 1) || cleanName(cur) !== cleanTitle) {
+          const desired = numberedName(cur, cleanTitle, i + 1, edited);
+          if (cur !== desired) {
             try {
-              await renameDriveFile(token, fileId, numberedName(cur, cleanTitle, i + 1));
+              await renameDriveFile(token, fileId, desired);
               renamed++;
             } catch (e) {
               console.error("renumber failed", cleanTitle, e);
