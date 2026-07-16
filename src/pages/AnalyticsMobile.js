@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { callEdgeFn } from '../lib/edgeFn';
+import { ptDateToUtcISO } from '../lib/ptDate';
 import { mobileTokens } from '../utils/mobileTokens';
 import { daysAgoStr, todayStr, formatCompact, formatCurrency, pctChange } from './analytics/utils';
 import { MiniBar, platformColor } from './analytics/viz';
@@ -370,7 +371,7 @@ function PlatformKpisTab() {
           .in('platform_account_id', ids).gte('date', start),
         supabase.from('revenue_events')
           .select('platform_account_id, occurred_at, amount_cents, net_amount_cents')
-          .in('platform_account_id', ids).gte('occurred_at', start),
+          .in('platform_account_id', ids).gte('occurred_at', ptDateToUtcISO(start)),
       ]);
 
       const acc = {};

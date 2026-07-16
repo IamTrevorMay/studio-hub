@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { PLATFORM_META } from '../constants';
 import { formatCompact, formatCurrency, daysAgoStr, pctChange } from '../utils';
+import { ptDateToUtcISO, ptDayKey } from '../../../lib/ptDate';
 import { styles } from '../styles';
 import KPICard from './KPICard';
 import TrendChart from './TrendChart';
@@ -45,7 +46,7 @@ function PlatformView({ accountId, accounts, start, end }) {
         supabase.from('daily_platform_rollups').select('*').eq('platform_account_id', accountId).gte('date', prevStart).lt('date', prevEnd),
         supabase.from('content_items')
           .select('id, title, published_at, url, content_type, duration_seconds, latest_metrics:content_metrics(views, likes, comments, shares, engagement_rate)')
-          .eq('platform_account_id', accountId).gte('published_at', start).lte('published_at', end + 'T23:59:59.999')
+          .eq('platform_account_id', accountId).gte('published_at', ptDateToUtcISO(start)).lt('published_at', ptDateToUtcISO(end, true))
           .order('published_at', { ascending: false }).limit(100),
         supabase.from('audience_snapshots').select('date, followers_total, followers_gained').eq('platform_account_id', accountId).gte('date', start).lte('date', end).order('date'),
         supabase.from('audience_snapshots').select('date, followers_total, followers_gained').eq('platform_account_id', accountId).gte('date', prevStart).lt('date', prevEnd).order('date'),
@@ -62,8 +63,8 @@ function PlatformView({ accountId, accounts, start, end }) {
       const isFourthwall = account?.platform === 'fourthwall';
       if (isFourthwall) {
         const [revRes, prevRevRes] = await Promise.all([
-          supabase.from('revenue_events').select('*').eq('platform_account_id', accountId).gte('occurred_at', start).lte('occurred_at', end + 'T23:59:59.999').order('occurred_at', { ascending: false }),
-          supabase.from('revenue_events').select('amount_cents, net_amount_cents, occurred_at').eq('platform_account_id', accountId).gte('occurred_at', prevStart).lt('occurred_at', prevEnd),
+          supabase.from('revenue_events').select('*').eq('platform_account_id', accountId).gte('occurred_at', ptDateToUtcISO(start)).lt('occurred_at', ptDateToUtcISO(end, true)).order('occurred_at', { ascending: false }),
+          supabase.from('revenue_events').select('amount_cents, net_amount_cents, occurred_at').eq('platform_account_id', accountId).gte('occurred_at', ptDateToUtcISO(prevStart)).lt('occurred_at', ptDateToUtcISO(prevEnd)),
         ]);
         if (cancelled) return;
         setPlatData({ rollups: [], prevRollups: [], content: [], audience: [], prevAudience: [], ytDaily: [], prevYtDaily: [], fwOrders: revRes.data || [], prevFwOrders: prevRevRes.data || [] });
@@ -184,8 +185,8 @@ function PlatformView({ accountId, accounts, start, end }) {
     // Daily revenue for trend chart (keep in cents for TrendChart, convert in tooltips)
     const dailyMap = {};
     for (const o of orders) {
-      const d = o.occurred_at?.slice(0, 10);
-      if (!d) continue;
+      if (!o.occurred_at) continue;
+      const d = ptDayKey(o.occurred_at);   // PT calendar day, not UTC slice
       if (!dailyMap[d]) dailyMap[d] = { date: d, gross: 0, net: 0, orders: 0 };
       dailyMap[d].gross += (o.amount_cents || 0) / 100;
       dailyMap[d].net += (o.net_amount_cents || 0) / 100;
