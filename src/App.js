@@ -5,6 +5,7 @@ import { NotificationProvider } from './contexts/NotificationContext';
 import { isMobileViewport, MOBILE_BREAKPOINT_PX } from './hooks/useIsMobile';
 import { ConfirmProvider } from './contexts/ConfirmContext';
 import { useUsageTracking } from './hooks/useUsageTracking'; // TEMP: front-end usage study, remove after 2026-07-07
+import { focusRing } from './lib/styleTokens';
 
 // Pick the layout + auth chunks once at boot. Cross-breakpoint resize requires reload.
 // Reload when the viewport crosses the mobile breakpoint after boot
@@ -193,5 +194,10 @@ styleSheet.textContent = `
   select option { background: #1a1a2e; color: #fff; }
   input::placeholder { color: rgba(255,255,255,0.25); }
   input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.5); }
+  /* Keyboard focus visibility (a11y). !important overrides the many inline
+     outline:'none' declarations. :focus-visible => keyboard nav only, so
+     mouse clicks stay ring-free. */
+  *:focus-visible { outline: ${focusRing.outline} !important; outline-offset: ${focusRing.offset} !important; }
+  *:focus:not(:focus-visible) { outline: none; }
 `;
 document.head.appendChild(styleSheet);

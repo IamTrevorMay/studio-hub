@@ -125,6 +125,21 @@ export const shadows = {
   inset: '0 1px 0 rgba(255,255,255,0.04) inset',
 };
 
+// ─── Focus ring (a11y) ────────────────────────────────────────
+//
+// Applied globally via `*:focus-visible` in App.js. The `!important`
+// there overrides the many inline `outline:'none'` declarations so
+// keyboard users always get a visible ring, while mouse users don't
+// (that's what :focus-visible buys us). `shadow` is for custom
+// widgets that need an inline ring on a non-focusable wrapper.
+
+export const focusRing = {
+  color:   'rgba(99,102,241,0.9)',
+  outline: '2px solid rgba(99,102,241,0.9)',
+  offset:  '2px',
+  shadow:  '0 0 0 2px rgba(99,102,241,0.6)',
+};
+
 // ─── Motion ───────────────────────────────────────────────────
 
 export const transitions = {
@@ -153,6 +168,7 @@ const tokens = {
   fontWeights,
   fontFamily,
   shadows,
+  focusRing,
   transitions,
   zIndex,
 };
