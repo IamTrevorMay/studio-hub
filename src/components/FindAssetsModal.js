@@ -769,7 +769,7 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
         {/* Footer */}
         <div style={s.foot}>
           {pushState ? (
-            <span style={{ fontSize: 12, color: pushState.failed ? '#fcd34d' : '#4ade80' }}>
+            <span style={{ fontSize: 12, color: pushState.failed ? '#fcd34d' : '#22c55e' }}>
               {pushState.done}/{pushState.total} processed{pushState.failed ? ` · ${pushState.failed} failed` : ''}
               {pushState.errors.length > 0 && <span style={{ color: '#fca5a5' }}> — {pushState.errors[pushState.errors.length - 1]}</span>}
             </span>
@@ -835,7 +835,7 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
         {/* Right-click menu */}
         {ctxMenu && (
           <div style={{ ...s.ctx, left: ctxMenu.x, top: ctxMenu.y }} onClick={(e) => e.stopPropagation()}>
-            <button style={{ ...s.ctxBtn, color: '#4ade80' }} onClick={() => act(ctxMenu.key, 'confirm')}>✓ Confirm</button>
+            <button style={{ ...s.ctxBtn, color: '#22c55e' }} onClick={() => act(ctxMenu.key, 'confirm')}>✓ Confirm</button>
             <button style={{ ...s.ctxBtn, color: '#f87171' }} onClick={() => act(ctxMenu.key, 'deny')}>✕ Deny</button>
             <button style={{ ...s.ctxBtn, color: '#facc15' }} onClick={() => act(ctxMenu.key, 'reroll')}>↻ Suggest another</button>
           </div>

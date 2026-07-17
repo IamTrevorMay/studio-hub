@@ -387,8 +387,8 @@ function OverviewTab({ revenue, revenuePrev, expenses, expensesPrev }) {
           label="Net"
           value={formatMoney(net)}
           delta={pctDelta(net, prevNet)}
-          accent={net >= 0 ? '#4ade80' : '#f87171'}
-          valueColor={net >= 0 ? '#4ade80' : '#f87171'}
+          accent={net >= 0 ? '#22c55e' : '#f87171'}
+          valueColor={net >= 0 ? '#22c55e' : '#f87171'}
           deltaInvert={false}
         />
         <KpiCard
@@ -482,7 +482,7 @@ function OverviewTab({ revenue, revenuePrev, expenses, expensesPrev }) {
                   //   expense row (positive) → debit  → red
                   //   expense row (negative) → credit → green
                   const isCredit = t.kind === 'revenue' || t.amount_cents < 0;
-                  const color = isCredit ? '#4ade80' : '#f87171';
+                  const color = isCredit ? '#22c55e' : '#f87171';
                   const sign  = isCredit ? '+' : '−';
                   const abs   = Math.abs(t.amount_cents);
                   const meta  = t.kind === 'revenue' ? REVENUE_CATEGORY_META[t.category] : EXPENSE_CATEGORY_META[t.category];
@@ -493,7 +493,7 @@ function OverviewTab({ revenue, revenuePrev, expenses, expensesPrev }) {
                         <span style={{
                           ...styles.kindPill,
                           background: t.kind === 'revenue' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
-                          color: t.kind === 'revenue' ? '#4ade80' : '#f87171',
+                          color: t.kind === 'revenue' ? '#22c55e' : '#f87171',
                         }}>
                           {t.kind === 'revenue' ? 'REV' : 'EXP'}
                         </span>
@@ -681,7 +681,7 @@ function LedgerTab({ mode, data, prevData, meta, accentColor, headlineLabel, hea
                     // Revenue rows are always credits → green. Expense rows:
                     // positive cents = debit (red), negative cents = credit (green).
                     const isCredit = mode === 'revenue' || t.amount_cents < 0;
-                    const color = isCredit ? '#4ade80' : '#f87171';
+                    const color = isCredit ? '#22c55e' : '#f87171';
                     const sign  = isCredit ? '+' : '−';
                     const abs   = Math.abs(t.amount_cents);
                     return (
@@ -1064,7 +1064,7 @@ function KpiCard({ label, value, sub, delta, deltaUnit, accent, valueColor, delt
   else {
     const positive = delta > 0;
     const good = deltaInvert ? !positive : positive;
-    deltaColor = good ? '#4ade80' : '#f87171';
+    deltaColor = good ? '#22c55e' : '#f87171';
   }
   return (
     <div style={{ ...styles.kpiCard, borderLeft: `3px solid ${accent || '#6366f1'}` }}>

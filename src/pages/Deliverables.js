@@ -1461,7 +1461,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         <div style={{ fontWeight: 600, fontSize: '12px', color: 'rgba(255,255,255,0.9)', marginBottom: '6px', textAlign: 'center' }}>{monthLabel}</div>
         {(() => {
           const chip = (n) => ({ fontSize: '9px', fontWeight: 600, padding: '2px 4px', borderRadius: '5px',
-            ...(n > 0 ? { background: 'rgba(245,158,11,0.12)', color: '#f59e0b' } : { background: 'rgba(34,197,94,0.12)', color: '#4ade80' }) });
+            ...(n > 0 ? { background: 'rgba(245,158,11,0.12)', color: '#f59e0b' } : { background: 'rgba(34,197,94,0.12)', color: '#22c55e' }) });
           return (
           <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
             <div style={{ flex: 1, textAlign: 'center', minWidth: 0 }}>
@@ -1925,7 +1925,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                   fontSize: '11px', fontWeight: 600, padding: '3px 6px', borderRadius: '5px',
                   marginBottom: '3px', cursor: isLinkedToOther ? 'default' : 'pointer',
                   background: isLinkedToCurrent ? 'rgba(34,197,94,0.2)' : isLinkedToOther ? 'rgba(255,255,255,0.04)' : 'rgba(168,85,247,0.15)',
-                  color: isLinkedToCurrent ? '#4ade80' : isLinkedToOther ? 'rgba(255,255,255,0.3)' : '#c084fc',
+                  color: isLinkedToCurrent ? '#22c55e' : isLinkedToOther ? 'rgba(255,255,255,0.3)' : '#c084fc',
                   border: isLinkedToCurrent ? '1px solid rgba(34,197,94,0.3)' : isLinkedToOther ? '1px solid rgba(255,255,255,0.06)' : '1px solid rgba(168,85,247,0.25)',
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                   position: 'relative',
@@ -1945,7 +1945,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                     </div>
                     {ev.description && <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginTop: '4px' }}>{ev.description}</div>}
                     {isLinkedToOther && <div style={{ fontSize: '11px', color: '#f59e0b', marginTop: '6px', fontWeight: 600 }}>Linked to: {linkedTo.title}</div>}
-                    {isLinkedToCurrent && <div style={{ fontSize: '11px', color: '#4ade80', marginTop: '6px', fontWeight: 600 }}>Linked to this deliverable</div>}
+                    {isLinkedToCurrent && <div style={{ fontSize: '11px', color: '#22c55e', marginTop: '6px', fontWeight: 600 }}>Linked to this deliverable</div>}
                     {!isLinkedToOther && !isLinkedToCurrent && <div style={{ fontSize: '11px', color: '#c084fc', marginTop: '6px', fontWeight: 600 }}>Click to link</div>}
                   </div>
                 )}
@@ -1961,7 +1961,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
     // Legend items
     const legend = [
       { color: '#c084fc', bg: 'rgba(168,85,247,0.15)', border: 'rgba(168,85,247,0.25)', label: 'Available' },
-      { color: '#4ade80', bg: 'rgba(34,197,94,0.2)', border: 'rgba(34,197,94,0.3)', label: 'Linked to this' },
+      { color: '#22c55e', bg: 'rgba(34,197,94,0.2)', border: 'rgba(34,197,94,0.3)', label: 'Linked to this' },
       { color: 'rgba(255,255,255,0.3)', bg: 'rgba(255,255,255,0.04)', border: 'rgba(255,255,255,0.06)', label: 'Taken' },
     ];
 
@@ -2011,7 +2011,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
           {currentLinkedEvent && (
             <div style={{ marginTop: '12px', background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.15)', borderRadius: '8px', padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>
-                Currently linked: <span style={{ color: '#4ade80', fontWeight: 600 }}>📹 {new Date(currentLinkedEvent.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — {currentLinkedEvent.title}</span>
+                Currently linked: <span style={{ color: '#22c55e', fontWeight: 600 }}>📹 {new Date(currentLinkedEvent.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — {currentLinkedEvent.title}</span>
               </span>
               <button
                 onClick={() => handleInlineAssignVideo(d.id, null)}

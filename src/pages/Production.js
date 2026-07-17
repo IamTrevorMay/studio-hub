@@ -2456,7 +2456,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                 {contextMenu.tag && (
                   <>
                     <button
-                      style={{ ...styles.contextMenuItem, color: '#4ade80' }}
+                      style={{ ...styles.contextMenuItem, color: '#22c55e' }}
                       onClick={() => { toggleTagDone(contextMenu.tag.key, !contextMenu.tag.done); setContextMenu(null); }}
                     >
                       {contextMenu.tag.done ? '↺ Mark not done' : '✓ Mark done — asset sourced'}

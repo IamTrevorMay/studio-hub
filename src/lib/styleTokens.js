@@ -36,6 +36,8 @@ export const colors = {
   accentSoft:   'rgba(99,102,241,0.15)',
   accentFg:     '#a5b4fc',
   accentBorder: 'rgba(99,102,241,0.35)',
+  accentBright: '#818cf8',   // lighter indigo — bright stop in linear-gradient(135deg,accent,accentBright)
+  accentDeep:   '#4f46e5',   // darker indigo — gradient/hover-darken & categorical accent swatch
 
   // Semantic tones — each has bg / border / fg for badges & pills.
   success: {
@@ -43,6 +45,14 @@ export const colors = {
     border: 'rgba(34,197,94,0.35)',
     fg:     '#22c55e',
     fgSoft: '#86efac',
+  },
+  // Emerald — a distinct teal-green cousin of success, used for active/paid
+  // states (Deliverables) where a cooler green reads as "settled" not "new".
+  emerald: {
+    bg:     'rgba(16,185,129,0.15)',
+    border: 'rgba(16,185,129,0.35)',
+    fg:     '#10b981',
+    fgSoft: '#34d399',
   },
   warning: {
     bg:     'rgba(234,179,8,0.15)',

@@ -937,7 +937,7 @@ export default function YouTubeStudioAdvanced({ accounts }) {
                         <td key={m} style={{ ...S.td, textAlign: 'right' }}>
                           <div style={S.tdValue}>{formatValue(v, def?.format)}</div>
                           {delta != null && (
-                            <div style={{ ...S.tdDelta, color: delta >= 0 ? '#4ade80' : '#f87171' }}>
+                            <div style={{ ...S.tdDelta, color: delta >= 0 ? '#22c55e' : '#f87171' }}>
                               {delta >= 0 ? '+' : ''}{delta.toFixed(1)}%
                             </div>
                           )}

@@ -68,7 +68,7 @@ export default function Jobs({ initialApplicationId, onApplicationOpened }) {
 
   return (
     <div style={st.page}>
-      {toast && <div style={{ ...st.toast, background: toast.type === 'error' ? '#dc2626' : '#16a34a' }}>{toast.message}</div>}
+      {toast && <div style={{ ...st.toast, background: toast.type === 'error' ? '#dc2626' : '#22c55e' }}>{toast.message}</div>}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <h1 style={st.h1}>Jobs</h1>
@@ -473,7 +473,7 @@ function ListingModal({ listing, onClose, onSaved, showToast }) {
           <button style={st.cancelBtn} onClick={onClose}>Cancel</button>
           <button style={st.primaryBtn} onClick={() => save()} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
           {f.status !== 'open' && (
-            <button style={{ ...st.primaryBtn, background: '#16a34a' }} onClick={() => save('open')} disabled={saving} title="Save and set status to Open">{saving ? 'Saving…' : 'Save & Publish'}</button>
+            <button style={{ ...st.primaryBtn, background: '#22c55e' }} onClick={() => save('open')} disabled={saving} title="Save and set status to Open">{saving ? 'Saving…' : 'Save & Publish'}</button>
           )}
         </div>
         {preview && <ListingPreviewModal listing={preview} onClose={() => setPreview(null)} />}

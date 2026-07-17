@@ -1332,7 +1332,7 @@ const styles = {
   },
   confirmAllBtn: {
     marginLeft: 'auto', padding: '6px 12px', background: 'rgba(34,197,94,0.15)',
-    border: '1px solid rgba(34,197,94,0.35)', borderRadius: 6, color: '#4ade80',
+    border: '1px solid rgba(34,197,94,0.35)', borderRadius: 6, color: '#22c55e',
     fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
   },
 
@@ -1380,7 +1380,7 @@ const styles = {
   categoryCell: {
     cursor: 'pointer', borderBottom: '1px dashed rgba(255,255,255,0.2)', paddingBottom: 1,
   },
-  statusOk: { color: '#4ade80', fontSize: 12 },
+  statusOk: { color: '#22c55e', fontSize: 12 },
   statusReview: {
     fontSize: 10, fontWeight: 700, color: '#fbbf24', background: 'rgba(251,191,36,0.12)',
     padding: '1px 7px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: 0.4,
@@ -1405,7 +1405,7 @@ const styles = {
   },
   keepBtn: {
     padding: '4px 11px', background: 'rgba(34,197,94,0.15)',
-    border: '1px solid rgba(34,197,94,0.35)', borderRadius: 6, color: '#4ade80',
+    border: '1px solid rgba(34,197,94,0.35)', borderRadius: 6, color: '#22c55e',
     fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
   },
   flagBtn: {
@@ -1491,7 +1491,7 @@ const styles = {
   importControls: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   importResult: {
     padding: '8px 12px', background: 'rgba(34,197,94,0.1)',
-    border: '1px solid rgba(34,197,94,0.3)', borderRadius: 6, color: '#4ade80', fontSize: 12,
+    border: '1px solid rgba(34,197,94,0.3)', borderRadius: 6, color: '#22c55e', fontSize: 12,
   },
   importResultError: {
     padding: '8px 12px', background: 'rgba(239,68,68,0.1)',

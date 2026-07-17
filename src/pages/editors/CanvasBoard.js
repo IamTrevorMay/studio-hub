@@ -207,7 +207,7 @@ function CardEditor({ initialHtml, active, onCommit }) {
           ))}
           <button style={styles.fmtBtn} onClick={() => editor.chain().focus().unsetHighlight().run()} title="Remove highlight">✕</button>
           <span style={styles.fmtDivider} />
-          <button style={{ ...styles.fmtBtn, color: '#4ade80' }} onClick={() => commitRef.current()} title="Done">✓</button>
+          <button style={{ ...styles.fmtBtn, color: '#22c55e' }} onClick={() => commitRef.current()} title="Done">✓</button>
         </div>
       </NodeToolbar>
       <EditorContent editor={editor} className="nodrag nowheel" style={styles.editorContent} />

@@ -713,7 +713,7 @@ export default function ShadeAssets() {
                 </>
               ) : (
                 <>
-                  <div style={{ fontSize: '14px', fontWeight: 600, color: uploadState.failed ? '#fcd34d' : '#4ade80' }}>
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: uploadState.failed ? '#fcd34d' : '#22c55e' }}>
                     {uploadState.total - uploadState.failed}/{uploadState.total} uploaded
                     {uploadState.failed ? ` — ${uploadState.failed} failed` : ' ✓'}
                   </div>

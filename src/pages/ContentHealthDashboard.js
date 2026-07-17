@@ -453,7 +453,7 @@ function ChannelMixCard({ mix }) {
               <div style={S.mixCount}>
                 {cur} <span style={{ color: 'rgba(255,255,255,0.4)' }}>({curP}%)</span>
                 {mix.prevTotal > 0 && (
-                  <span style={{ marginLeft: 6, color: delta > 0 ? '#4ade80' : delta < 0 ? '#f87171' : 'rgba(255,255,255,0.3)', fontSize: 11 }}>
+                  <span style={{ marginLeft: 6, color: delta > 0 ? '#22c55e' : delta < 0 ? '#f87171' : 'rgba(255,255,255,0.3)', fontSize: 11 }}>
                     {delta > 0 ? '+' : ''}{delta}pp
                   </span>
                 )}

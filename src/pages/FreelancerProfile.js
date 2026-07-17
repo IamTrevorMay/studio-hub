@@ -500,7 +500,7 @@ const styles = {
     border: '1px solid rgba(74,222,128,0.3)',
     borderRadius: 8,
     padding: '10px 16px',
-    color: '#4ade80',
+    color: '#22c55e',
     fontSize: 13,
     marginBottom: 20,
   },

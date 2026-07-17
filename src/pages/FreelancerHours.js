@@ -305,7 +305,7 @@ const styles = {
   },
   reviewedBadge: {
     fontSize: 12,
-    color: '#4ade80',
+    color: '#22c55e',
     display: 'flex',
     alignItems: 'center',
     gap: 2,
