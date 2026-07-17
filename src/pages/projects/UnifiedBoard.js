@@ -740,9 +740,81 @@ function QueueColumn({ projects, canDragProject, onCardClick, onCardContextMenu,
 
 const DAY = 86_400_000;
 
+const SCHEDULE_RANGES = [
+  { v: 'week', label: 'This Week' },
+  { v: 'month', label: 'Month' },
+  { v: 'quarter', label: 'Quarter' },
+  { v: 'custom', label: 'Custom' },
+];
+
+// The two-phase schedule for one project: amber runs to Film Date, orange on to
+// Edit Deadline. Left-anchored at min(today, date) so a past date still renders.
+function projectSchedule(p, todayMs) {
+  const film = p.film_date ? localDay(p.film_date).getTime() : null;
+  const edit = p.edit_deadline ? localDay(p.edit_deadline).getTime() : null;
+  const segments = [];
+  if (film != null) {
+    const start = Math.min(todayMs, film);
+    if (film > start) segments.push({ from: start, to: film, color: STAGE_COLORS.film, key: 'film' });
+  }
+  if (edit != null) {
+    const start = film != null ? film : Math.min(todayMs, edit);
+    if (edit > start) segments.push({ from: start, to: edit, color: STAGE_COLORS.edit, key: 'edit' });
+  }
+  return { film, edit, segments };
+}
+
+// The [min, max) millisecond window the axis frames for a given range preset.
+function scheduleWindow(range, customStart, customEnd, todayMs) {
+  const now = new Date(todayMs);
+  if (range === 'week') {
+    const d = new Date(todayMs);
+    const dow = d.getDay();
+    d.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow)); // back to Monday
+    const min = d.getTime();
+    return { min, max: min + 7 * DAY };
+  }
+  if (range === 'quarter') {
+    const q = Math.floor(now.getMonth() / 3);
+    return {
+      min: new Date(now.getFullYear(), q * 3, 1).getTime(),
+      max: new Date(now.getFullYear(), q * 3 + 3, 1).getTime(),
+    };
+  }
+  if (range === 'custom') {
+    const min = customStart
+      ? localDay(customStart).getTime()
+      : new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    let max = customEnd ? localDay(customEnd).getTime() + DAY : min + 30 * DAY;
+    if (max <= min) max = min + DAY;
+    return { min, max };
+  }
+  // month (default)
+  return {
+    min: new Date(now.getFullYear(), now.getMonth(), 1).getTime(),
+    max: new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime(),
+  };
+}
+
+// Days between axis ticks — coarser as the window widens so labels never crowd.
+function tickStepDays(spanDays) {
+  if (spanDays <= 8) return 1;
+  if (spanDays <= 16) return 2;
+  if (spanDays <= 45) return 7;
+  if (spanDays <= 100) return 14;
+  return 30;
+}
+
 function ScheduleSection({ projects, onCardClick }) {
   const [view, setView] = useState(() => localStorage.getItem('projects_schedule_view') || 'gantt');
+  const [range, setRange] = useState(() => localStorage.getItem('projects_schedule_range') || 'month');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
   useEffect(() => { localStorage.setItem('projects_schedule_view', view); }, [view]);
+  useEffect(() => { localStorage.setItem('projects_schedule_range', range); }, [range]);
+
+  // Midnight today, stable for the component's lifetime.
+  const todayMs = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }, []);
 
   // Only projects with at least one schedule date participate.
   const scheduled = useMemo(
@@ -750,68 +822,87 @@ function ScheduleSection({ projects, onCardClick }) {
     [projects],
   );
 
-  // Shared time axis: from the earliest relevant date (or today) to the latest,
-  // padded a couple days on each side so end-caps aren't flush to the edge.
   const axis = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const times = [today.getTime()];
-    for (const p of scheduled) {
-      if (p.film_date) times.push(localDay(p.film_date).getTime());
-      if (p.edit_deadline) times.push(localDay(p.edit_deadline).getTime());
-    }
-    let min = Math.min(...times) - 2 * DAY;
-    let max = Math.max(...times) + 2 * DAY;
-    if (max - min < 7 * DAY) max = min + 7 * DAY; // floor span so bars are legible
-    return { min, max, span: max - min, todayMs: today.getTime() };
-  }, [scheduled]);
+    const { min, max } = scheduleWindow(range, customStart, customEnd, todayMs);
+    return { min, max, span: Math.max(max - min, DAY), todayMs };
+  }, [range, customStart, customEnd, todayMs]);
 
-  // Weekly tick marks across the axis (Mondays), for the ruler + gridlines.
+  // Tick marks with real calendar-date labels across the framed window.
   const ticks = useMemo(() => {
+    const step = tickStepDays(axis.span / DAY) * DAY;
     const out = [];
-    const start = new Date(axis.min);
-    start.setHours(0, 0, 0, 0);
-    const dow = start.getDay();
-    const toMonday = (dow === 0 ? 1 : (8 - dow) % 7); // next Monday (or today if Monday)
-    start.setDate(start.getDate() + toMonday);
-    for (let t = start.getTime(); t <= axis.max; t += 7 * DAY) {
-      out.push(t);
-    }
+    const start = new Date(axis.min); start.setHours(0, 0, 0, 0);
+    for (let t = start.getTime(); t <= axis.max; t += step) out.push(t);
     return out;
   }, [axis]);
 
-  const pct = (ms) => `${((ms - axis.min) / axis.span) * 100}%`;
+  const pct = (ms) => `${Math.min(Math.max((ms - axis.min) / axis.span, 0), 1) * 100}%`;
+
+  // Projects whose bar or a pin falls inside the framed window.
+  const visible = useMemo(() => {
+    const inWin = (ms) => ms != null && ms >= axis.min && ms < axis.max;
+    return scheduled
+      .map((p) => ({ project: p, ...projectSchedule(p, todayMs) }))
+      .filter((r) => inWin(r.film) || inWin(r.edit)
+        || r.segments.some((seg) => seg.from < axis.max && seg.to > axis.min));
+  }, [scheduled, todayMs, axis]);
 
   const groups = useMemo(() => {
-    if (view !== 'swimlane') return [{ key: 'all', label: null, items: scheduled }];
+    if (view !== 'swimlane') return [{ key: 'all', label: null, items: visible }];
     const out = [];
     for (const opt of PROJECT_TYPE_OPTIONS) {
-      const items = scheduled.filter((p) => p.type === opt.value);
+      const items = visible.filter((r) => r.project.type === opt.value);
       if (items.length) out.push({ key: opt.value, label: opt.label, items });
     }
-    const other = scheduled.filter((p) => !PROJECT_TYPE_OPTIONS.some((o) => o.value === p.type));
+    const other = visible.filter((r) => !PROJECT_TYPE_OPTIONS.some((o) => o.value === r.project.type));
     if (other.length) out.push({ key: 'other', label: 'Other', items: other });
     return out;
-  }, [view, scheduled]);
+  }, [view, visible]);
 
   return (
     <div style={s.sched.wrap}>
       <div style={s.sched.header}>
         <span style={s.sched.title}>SCHEDULE</span>
-        <div style={s.sched.viewToggle}>
-          {[{ v: 'gantt', label: 'Gantt' }, { v: 'swimlane', label: 'Swimlane' }].map((o) => (
-            <button
-              key={o.v}
-              onClick={() => setView(o.v)}
-              style={{ ...s.sched.viewBtn, ...(view === o.v ? s.sched.viewBtnActive : null) }}
-            >{o.label}</button>
-          ))}
+        <div style={s.sched.controls}>
+          <div style={s.sched.viewToggle}>
+            {SCHEDULE_RANGES.map((o) => (
+              <button
+                key={o.v}
+                onClick={() => setRange(o.v)}
+                style={{ ...s.sched.viewBtn, ...(range === o.v ? s.sched.viewBtnActive : null) }}
+              >{o.label}</button>
+            ))}
+          </div>
+          <div style={s.sched.viewToggle}>
+            {[{ v: 'gantt', label: 'Gantt' }, { v: 'swimlane', label: 'Swimlane' }].map((o) => (
+              <button
+                key={o.v}
+                onClick={() => setView(o.v)}
+                style={{ ...s.sched.viewBtn, ...(view === o.v ? s.sched.viewBtnActive : null) }}
+              >{o.label}</button>
+            ))}
+          </div>
         </div>
       </div>
+
+      {range === 'custom' && (
+        <div style={s.sched.customRow}>
+          <label style={s.sched.customLabel}>From
+            <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} style={s.sched.customInput} />
+          </label>
+          <label style={s.sched.customLabel}>To
+            <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} style={s.sched.customInput} />
+          </label>
+        </div>
+      )}
 
       {scheduled.length === 0 ? (
         <div style={s.sched.empty}>
           Set a Film Date or Edit Deadline on a project to see it here.
+        </div>
+      ) : visible.length === 0 ? (
+        <div style={s.sched.empty}>
+          No projects scheduled in this range.
         </div>
       ) : (
         <div style={s.sched.chart}>
@@ -834,8 +925,8 @@ function ScheduleSection({ projects, onCardClick }) {
                   {group.label}
                 </div>
               )}
-              {group.items.map((p) => (
-                <ScheduleRow key={p.id} project={p} axis={axis} pct={pct} ticks={ticks} onClick={() => onCardClick?.(p)} />
+              {group.items.map((r) => (
+                <ScheduleRow key={r.project.id} row={r} axis={axis} pct={pct} ticks={ticks} onClick={() => onCardClick?.(r.project)} />
               ))}
             </div>
           ))}
@@ -851,25 +942,12 @@ function ScheduleSection({ projects, onCardClick }) {
   );
 }
 
-function ScheduleRow({ project, axis, pct, ticks, onClick }) {
-  const film = project.film_date ? localDay(project.film_date).getTime() : null;
-  const edit = project.edit_deadline ? localDay(project.edit_deadline).getTime() : null;
+function ScheduleRow({ row, axis, pct, ticks, onClick }) {
+  const { project, film, edit, segments } = row;
   const today = axis.todayMs;
-
-  // Segment 1 (amber): from the bar's left anchor to Film Date.
-  // Segment 2 (orange): from Film Date (or today when no film) to Edit Deadline.
-  // Anchor left at min(today, film) so an already-passed film date still renders.
-  const segments = [];
-  if (film != null) {
-    const start = Math.min(today, film);
-    if (film > start) segments.push({ from: start, to: film, color: STAGE_COLORS.film, key: 'film' });
-  }
-  if (edit != null) {
-    const start = film != null ? film : Math.min(today, edit);
-    if (edit > start) segments.push({ from: start, to: edit, color: STAGE_COLORS.edit, key: 'edit' });
-  }
-
   const overdue = edit != null && edit < today;
+  const inWin = (ms) => ms != null && ms >= axis.min && ms < axis.max;
+  const clamp = (ms) => Math.min(Math.max(ms, axis.min), axis.max);
 
   return (
     <div
@@ -879,7 +957,7 @@ function ScheduleRow({ project, axis, pct, ticks, onClick }) {
     >
       <div style={s.sched.labelCol}>
         <div style={s.sched.rowName} title={project.name}>{project.name}</div>
-        <span style={{ ...s.typeTag, color: typeColors(project.type).fg, background: typeColors(project.type).bg, borderColor: typeColors(project.type).border }}>{typeLabel(project.type)}</span>
+        <span style={{ ...s.typeTag, ...s.sched.chip, color: typeColors(project.type).fg, background: typeColors(project.type).bg, borderColor: typeColors(project.type).border }}>{typeLabel(project.type)}</span>
       </div>
       <div style={s.sched.track}>
         {/* gridlines */}
@@ -887,29 +965,34 @@ function ScheduleRow({ project, axis, pct, ticks, onClick }) {
           <div key={t} style={{ ...s.sched.gridline, left: pct(t) }} />
         ))}
         {/* today marker */}
-        {today >= axis.min && today <= axis.max && (
+        {inWin(today) && (
           <div style={{ ...s.sched.todayLine, left: pct(today) }} />
         )}
-        {/* segments */}
-        {segments.map((seg) => (
-          <div
-            key={seg.key}
-            style={{
-              ...s.sched.bar,
-              left: pct(seg.from),
-              width: `${((seg.to - seg.from) / axis.span) * 100}%`,
-              background: seg.color,
-            }}
-          />
-        ))}
-        {/* date pins */}
-        {film != null && (
-          <div style={{ ...s.sched.pin, left: pct(film), color: STAGE_COLORS.film }} title={`Film: ${fmtShort(project.film_date)}`}>
+        {/* segments (clipped to the framed window) */}
+        {segments.map((seg) => {
+          const from = clamp(seg.from);
+          const to = clamp(seg.to);
+          if (to <= from) return null;
+          return (
+            <div
+              key={seg.key}
+              style={{
+                ...s.sched.bar,
+                left: pct(from),
+                width: `${((to - from) / axis.span) * 100}%`,
+                background: seg.color,
+              }}
+            />
+          );
+        })}
+        {/* date pins — only when the date sits inside the window */}
+        {inWin(film) && (
+          <div style={{ ...s.sched.pin, ...(((film - axis.min) / axis.span) > 0.8 ? s.sched.pinRight : null), left: pct(film), color: STAGE_COLORS.film }} title={`Film: ${fmtShort(project.film_date)}`}>
             🎬 {fmtShort(project.film_date)}
           </div>
         )}
-        {edit != null && (
-          <div style={{ ...s.sched.pin, left: pct(edit), color: overdue ? colors.danger.fg : STAGE_COLORS.edit }} title={`Edit deadline: ${fmtShort(project.edit_deadline)}`}>
+        {inWin(edit) && (
+          <div style={{ ...s.sched.pin, ...(((edit - axis.min) / axis.span) > 0.8 ? s.sched.pinRight : null), left: pct(edit), color: overdue ? colors.danger.fg : STAGE_COLORS.edit }} title={`Edit deadline: ${fmtShort(project.edit_deadline)}`}>
             ✂ {fmtShort(project.edit_deadline)}
           </div>
         )}
@@ -978,12 +1061,25 @@ function CtxItem({ label, onClick, danger }) {
 // ─── BacklogSection ──────────────────────────────────────────────
 
 function BacklogSection({ projects, canDragProject, onCardClick, onCardContextMenu }) {
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('projects_backlog_collapsed') === '1');
+  function toggle() {
+    setCollapsed((c) => {
+      const next = !c;
+      localStorage.setItem('projects_backlog_collapsed', next ? '1' : '0');
+      return next;
+    });
+  }
   return (
     <div style={s.backlog.wrap}>
-      <div style={s.backlog.header}>
-        <span style={s.backlog.title}>BACKLOG</span>
+      <button
+        onClick={toggle}
+        style={{ ...s.backlog.header, ...(collapsed ? s.backlog.headerCollapsed : null) }}
+        aria-expanded={!collapsed}
+      >
+        <span style={s.backlog.title}>{collapsed ? '▸' : '▾'} BACKLOG</span>
         <span style={s.backlog.count}>{projects.length}</span>
-      </div>
+      </button>
+      {!collapsed && (
       <Droppable droppableId="backlog" direction="horizontal">
         {(provided, snapshot) => (
           <div
@@ -1035,6 +1131,7 @@ function BacklogSection({ projects, canDragProject, onCardClick, onCardContextMe
           </div>
         )}
       </Droppable>
+      )}
     </div>
   );
 }
@@ -2325,10 +2422,14 @@ const s = {
     },
     header: {
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      gap: spacing.md, flexWrap: 'wrap',
     },
     title: {
       fontSize: fontSizes.xs, fontWeight: fontWeights.bold, letterSpacing: 1,
       color: colors.textSubtle,
+    },
+    controls: {
+      display: 'flex', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap',
     },
     viewToggle: {
       display: 'flex', gap: spacing.xs,
@@ -2339,9 +2440,24 @@ const s = {
       background: 'transparent', border: 'none', color: colors.textMuted,
       borderRadius: radii.sm, padding: `${spacing.xs}px ${spacing.md}px`,
       fontSize: fontSizes.sm, cursor: 'pointer', fontWeight: fontWeights.medium,
+      whiteSpace: 'nowrap',
     },
     viewBtnActive: {
       background: colors.accentSoft, color: colors.accentFg,
+    },
+    customRow: {
+      display: 'flex', gap: spacing.lg, flexWrap: 'wrap',
+    },
+    customLabel: {
+      display: 'flex', alignItems: 'center', gap: spacing.sm,
+      fontSize: fontSizes.xs, color: colors.textSubtle,
+      textTransform: 'uppercase', letterSpacing: 0.5,
+    },
+    customInput: {
+      background: colors.bgInput, border: `1px solid ${colors.border}`,
+      borderRadius: radii.sm, color: colors.text,
+      padding: `${spacing.xs}px ${spacing.sm}px`,
+      fontSize: fontSizes.sm, fontFamily: 'inherit',
     },
     empty: {
       color: colors.textDim, fontSize: fontSizes.sm, fontStyle: 'italic',
@@ -2349,33 +2465,37 @@ const s = {
     },
     chart: {
       display: 'flex', flexDirection: 'column', gap: spacing.xs,
-      overflowX: 'auto',
     },
     rulerRow: {
-      display: 'flex', alignItems: 'flex-end', height: 20, minWidth: 520,
+      display: 'flex', alignItems: 'flex-end', height: 20,
     },
     labelCol: {
-      width: 150, flexShrink: 0, paddingRight: spacing.sm,
-      display: 'flex', flexDirection: 'column', gap: 2,
+      width: 190, flexShrink: 0, paddingRight: spacing.sm,
+      display: 'flex', flexDirection: 'column', gap: spacing.xs,
+      fontSize: fontSizes.sm,
     },
     track: {
-      position: 'relative', flex: 1, minWidth: 360, height: '100%',
+      position: 'relative', flex: 1, minWidth: 0, alignSelf: 'stretch',
     },
     tickLabel: {
       position: 'absolute', bottom: 0, transform: 'translateX(-50%)',
-      fontSize: 9, color: colors.textDim, whiteSpace: 'nowrap',
+      fontSize: fontSizes.xxs, color: colors.textSubtle, whiteSpace: 'nowrap',
     },
     laneHeader: {
       fontSize: 10, fontWeight: fontWeights.bold, letterSpacing: 0.8,
       textTransform: 'uppercase', padding: `${spacing.sm}px 0 ${spacing.xs}px`,
     },
     row: {
-      display: 'flex', alignItems: 'center', minWidth: 520,
-      height: 30, cursor: 'pointer', borderRadius: radii.sm,
+      display: 'flex', alignItems: 'center', minHeight: 34,
+      cursor: 'pointer', borderRadius: radii.sm, paddingTop: spacing.xs, paddingBottom: spacing.xs,
     },
     rowName: {
-      fontSize: fontSizes.sm, color: colors.text, fontWeight: fontWeights.medium,
-      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      fontSize: fontSizes.sm, color: colors.text, fontWeight: fontWeights.semibold,
+      display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+      overflow: 'hidden', lineHeight: 1.25, wordBreak: 'break-word',
+    },
+    chip: {
+      fontSize: fontSizes.xxs, alignSelf: 'flex-start',
     },
     gridline: {
       position: 'absolute', top: 0, bottom: 0, width: 1,
@@ -2391,8 +2511,12 @@ const s = {
     },
     pin: {
       position: 'absolute', top: '50%', transform: 'translate(4px, -50%)',
-      fontSize: 9, fontWeight: fontWeights.semibold, whiteSpace: 'nowrap',
+      fontSize: fontSizes.xxs, fontWeight: fontWeights.semibold, whiteSpace: 'nowrap',
       fontVariantNumeric: 'tabular-nums', zIndex: 3, pointerEvents: 'none',
+    },
+    pinRight: {
+      // Anchor to the right of the pin's position so a late date stays inside the track.
+      transform: 'translate(calc(-100% - 4px), -50%)', textAlign: 'right',
     },
     legend: {
       display: 'flex', gap: spacing.lg, flexWrap: 'wrap',
@@ -2414,10 +2538,16 @@ const s = {
     },
     header: {
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      width: '100%',
+      background: 'transparent', border: 'none', fontFamily: 'inherit',
+      cursor: 'pointer', textAlign: 'left',
       fontSize: fontSizes.xs, fontWeight: fontWeights.bold, letterSpacing: 1,
       color: STAGE_COLORS.backlog,
       paddingBottom: spacing.sm, marginBottom: spacing.sm,
       borderBottom: `1px solid ${colors.border}`,
+    },
+    headerCollapsed: {
+      paddingBottom: 0, marginBottom: 0, borderBottom: 'none',
     },
     title: {},
     count: { color: colors.textDim, fontWeight: fontWeights.regular },
