@@ -747,7 +747,15 @@ const SCHEDULE_RANGES = [
   { v: 'custom', label: 'Custom' },
 ];
 
-// The two-phase schedule for one project: amber runs to Film Date, orange on to
+// Schedule bar palette: a blue runway to the Film Date, an orange runway to the
+// Edit Deadline — two distinct hues so the phases separate at a glance. The date
+// labels use a lighter tint of each so they stay legible sitting on the bars.
+const SCHED_FILM_BAR = '#3b82f6';
+const SCHED_EDIT_BAR = '#f97316';
+const SCHED_FILM_TEXT = '#93c5fd';
+const SCHED_EDIT_TEXT = '#fdba74';
+
+// The two-phase schedule for one project: blue runs to Film Date, orange on to
 // Edit Deadline. Left-anchored at min(today, date) so a past date still renders.
 function projectSchedule(p, todayMs) {
   const film = p.film_date ? localDay(p.film_date).getTime() : null;
@@ -755,11 +763,11 @@ function projectSchedule(p, todayMs) {
   const segments = [];
   if (film != null) {
     const start = Math.min(todayMs, film);
-    if (film > start) segments.push({ from: start, to: film, color: STAGE_COLORS.film, key: 'film' });
+    if (film > start) segments.push({ from: start, to: film, color: SCHED_FILM_BAR, key: 'film' });
   }
   if (edit != null) {
     const start = film != null ? film : Math.min(todayMs, edit);
-    if (edit > start) segments.push({ from: start, to: edit, color: STAGE_COLORS.edit, key: 'edit' });
+    if (edit > start) segments.push({ from: start, to: edit, color: SCHED_EDIT_BAR, key: 'edit' });
   }
   return { film, edit, segments };
 }
@@ -934,8 +942,8 @@ function ScheduleSection({ projects, onCardClick }) {
       )}
 
       <div style={s.sched.legend}>
-        <span style={s.sched.legendItem}><span style={{ ...s.sched.legendSwatch, background: STAGE_COLORS.film }} /> To Film Date</span>
-        <span style={s.sched.legendItem}><span style={{ ...s.sched.legendSwatch, background: STAGE_COLORS.edit }} /> To Edit Deadline</span>
+        <span style={s.sched.legendItem}><span style={{ ...s.sched.legendSwatch, background: SCHED_FILM_BAR }} /> To Film Date</span>
+        <span style={s.sched.legendItem}><span style={{ ...s.sched.legendSwatch, background: SCHED_EDIT_BAR }} /> To Edit Deadline</span>
         <span style={s.sched.legendItem}><span style={{ ...s.sched.legendSwatch, background: colors.danger.fg, width: 2 }} /> Today</span>
       </div>
     </div>
@@ -987,13 +995,13 @@ function ScheduleRow({ row, axis, pct, ticks, onClick }) {
         })}
         {/* date pins — only when the date sits inside the window */}
         {inWin(film) && (
-          <div style={{ ...s.sched.pin, ...(((film - axis.min) / axis.span) > 0.8 ? s.sched.pinRight : null), left: pct(film), color: STAGE_COLORS.film }} title={`Film: ${fmtShort(project.film_date)}`}>
-            🎬 {fmtShort(project.film_date)}
+          <div style={{ ...s.sched.pin, ...(((film - axis.min) / axis.span) > 0.8 ? s.sched.pinRight : null), left: pct(film), color: SCHED_FILM_TEXT }} title={`Film: ${fmtShort(project.film_date)}`}>
+            {fmtShort(project.film_date)}
           </div>
         )}
         {inWin(edit) && (
-          <div style={{ ...s.sched.pin, ...(((edit - axis.min) / axis.span) > 0.8 ? s.sched.pinRight : null), left: pct(edit), color: overdue ? colors.danger.fg : STAGE_COLORS.edit }} title={`Edit deadline: ${fmtShort(project.edit_deadline)}`}>
-            ✂ {fmtShort(project.edit_deadline)}
+          <div style={{ ...s.sched.pin, ...(((edit - axis.min) / axis.span) > 0.8 ? s.sched.pinRight : null), left: pct(edit), color: overdue ? colors.danger.fg : SCHED_EDIT_TEXT }} title={`Edit deadline: ${fmtShort(project.edit_deadline)}`}>
+            {fmtShort(project.edit_deadline)}
           </div>
         )}
       </div>
@@ -2419,6 +2427,10 @@ const s = {
       padding: spacing.md,
       width: '100%',
       display: 'flex', flexDirection: 'column', gap: spacing.md,
+      // Prominent separation from the board / backlog sections above.
+      marginTop: spacing.lg,
+      borderTop: `3px solid ${colors.accentBorder}`,
+      paddingTop: spacing.lg,
     },
     header: {
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -2464,7 +2476,7 @@ const s = {
       padding: `${spacing.lg}px ${spacing.sm}px`, textAlign: 'center',
     },
     chart: {
-      display: 'flex', flexDirection: 'column', gap: spacing.xs,
+      display: 'flex', flexDirection: 'column',
     },
     rulerRow: {
       display: 'flex', alignItems: 'flex-end', height: 20,
@@ -2486,8 +2498,10 @@ const s = {
       textTransform: 'uppercase', padding: `${spacing.sm}px 0 ${spacing.xs}px`,
     },
     row: {
-      display: 'flex', alignItems: 'center', minHeight: 34,
-      cursor: 'pointer', borderRadius: radii.sm, paddingTop: spacing.xs, paddingBottom: spacing.xs,
+      display: 'flex', alignItems: 'center', minHeight: 48,
+      cursor: 'pointer', paddingTop: spacing.sm, paddingBottom: spacing.sm,
+      // Subtle divider between projects.
+      borderBottom: `1px solid ${colors.border}`,
     },
     rowName: {
       fontSize: fontSizes.sm, color: colors.text, fontWeight: fontWeights.semibold,
@@ -2507,12 +2521,13 @@ const s = {
     },
     bar: {
       position: 'absolute', top: '50%', transform: 'translateY(-50%)',
-      height: 10, borderRadius: radii.xs, minWidth: 2,
+      height: 18, borderRadius: radii.sm, minWidth: 3,
     },
     pin: {
-      position: 'absolute', top: '50%', transform: 'translate(4px, -50%)',
-      fontSize: fontSizes.xxs, fontWeight: fontWeights.semibold, whiteSpace: 'nowrap',
+      position: 'absolute', top: '50%', transform: 'translate(6px, -50%)',
+      fontSize: fontSizes.xs, fontWeight: fontWeights.bold, whiteSpace: 'nowrap',
       fontVariantNumeric: 'tabular-nums', zIndex: 3, pointerEvents: 'none',
+      textShadow: '0 1px 3px rgba(0,0,0,0.85)',
     },
     pinRight: {
       // Anchor to the right of the pin's position so a late date stays inside the track.
