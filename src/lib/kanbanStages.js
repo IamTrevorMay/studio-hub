@@ -112,12 +112,13 @@ export const TYPE_DEFAULT_ASSIGNEES = {
     publish: [],
   },
   // Mirrors the "MLB's Worst Teammates" project setup (2026-07-17).
+  // NOTE: research is intentionally empty — the Research stage is scope-driven
+  // (Trevor gets a "Set Research Scope" task and picks researchers there), so
+  // seeding research assignees here does nothing and can collide with the
+  // scope modal's own inserts (unique (project_id, stage, user_id)).
   tm_baseball_video: {
     queue: [],
-    research: [
-      '7b1e50e0-cede-409d-a160-1aa6d1e232a9',                   // Henry Neiman
-      'ed7541f9-213d-4868-9147-5e638cbb6883',                   // Caleb Bartholomae
-    ],
+    research: [],
     write: [
       '7b1e50e0-cede-409d-a160-1aa6d1e232a9',                   // Henry Neiman
       'c3290048-436b-46c6-b3f0-fdf7923d0c3b',                   // Trevor May

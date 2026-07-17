@@ -7,6 +7,7 @@ import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { getStepAction } from '../lib/workflowSteps';
 import { getWorkflowModal } from '../lib/workflowModals';
 import ResearchScopeModal from '../components/ResearchScopeModal';
+import AlreadyResearchingModal from '../components/AlreadyResearchingModal';
 import backdropDismiss from '../lib/backdropDismiss';
 
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL || '';
@@ -202,6 +203,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
   const [completedTasks, setCompletedTasks] = useState([]);
   const [openModal, setOpenModal] = useState(null); // { task, ModalComponent }
   const [scopeModalTask, setScopeModalTask] = useState(null); // "Set Research Scope" task
+  const [skipScopeTask, setSkipScopeTask] = useState(null); // scope task being skipped via "who's already researching"
   const [confirmTask, setConfirmTask] = useState(null); // task pending confirmation
   const [deliverableMeta, setDeliverableMeta] = useState({}); // { [deliverable_id]: { title, due_date } }
   const [projectMeta, setProjectMeta] = useState({}); // { [project_id]: { name, type } }
@@ -274,11 +276,15 @@ export default function MyTasks({ onNavigate, embedded = false }) {
       const routeToSprint = !!profile.route_tasks_to_sprint;
       const assignedFiltered = (assigned || []).filter((t) => {
         const isSprintCreated = !t.workflow_instance_id && t.step_key === 'sprint';
-        if (routeToSprint && !isSprintCreated &&
+        // Research-scope tasks are an explicit exception to the sprint-only rule:
+        // the scope owner (Trevor) works or skips them right here in My Tasks, not
+        // on the Sprint Board. (card-move never creates a sprint card for them.)
+        const isResearchScope = t.step_key === 'research_scope';
+        if (routeToSprint && !isSprintCreated && !isResearchScope &&
             (t.related_entity_type === 'project' || t.workflow_instance_id)) {
           return false;
         }
-        return !sprintCardTaskIds.has(t.id) || isSprintCreated;
+        return !sprintCardTaskIds.has(t.id) || isSprintCreated || isResearchScope;
       });
 
       // Fetch sign-off tasks where this user has a pending sign-off.
@@ -591,6 +597,26 @@ export default function MyTasks({ onNavigate, embedded = false }) {
     } catch (err) {
       console.error('Unsnooze failed:', err);
       toast.error(err.message);
+    }
+  };
+
+  // Skip a research-scope task. Used when the researchers are already underway,
+  // so the scope owner doesn't need to formally set scope. The card still
+  // advances to Write when the researchers complete their own 'research' tasks —
+  // skipping this scope task never blocks or triggers that.
+  const handleSkip = async (task) => {
+    setFadingIds(prev => new Set(prev).add(task.id));
+    try {
+      await callWorkflowFn('workflow-update-task', { task_id: task.id, action: 'skip' });
+      setTimeout(() => {
+        setTasks(prev => prev.filter(t => t.id !== task.id));
+        setFadingIds(prev => { const s = new Set(prev); s.delete(task.id); return s; });
+      }, 300);
+      refreshNotifications();
+    } catch (err) {
+      console.error('Skip failed:', err);
+      toast.error(err.message);
+      setFadingIds(prev => { const s = new Set(prev); s.delete(task.id); return s; });
     }
   };
 
@@ -908,13 +934,23 @@ export default function MyTasks({ onNavigate, embedded = false }) {
                     {action.label}
                   </span>
                 ) : isResearchScope ? (
-                    <button
-                      style={styles.primaryBtn}
-                      onClick={() => setScopeModalTask(task)}
-                      disabled={isCompleting}
-                    >
-                      Set Scope
-                    </button>
+                    <>
+                      <button
+                        style={styles.primaryBtn}
+                        onClick={() => setScopeModalTask(task)}
+                        disabled={isCompleting}
+                      >
+                        Set Scope
+                      </button>
+                      <button
+                        style={styles.skipBtn}
+                        onClick={() => setSkipScopeTask(task)}
+                        disabled={isCompleting}
+                        title="Skip the scope step: pick who's already researching. The card still advances to Write when they finish."
+                      >
+                        Skip
+                      </button>
+                    </>
                 ) : (action.type === 'external_link' || task.link_url) ? (
                     <button
                       style={styles.primaryBtn}
@@ -1008,7 +1044,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
               {/* Bottom row: Complete + Decline left, Hold + Snooze right */}
               <div style={styles.cardBottomRow}>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  {!isOnHold && !isReviewProposal && !isConfirmAutomation && action.type !== 'auto' && (
+                  {!isOnHold && !isReviewProposal && !isConfirmAutomation && !isResearchScope && action.type !== 'auto' && (
                     <button
                       style={styles.primaryBtn}
                       onClick={() => handlePrimaryAction(task)}
@@ -1017,7 +1053,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
                       {isCompleting ? 'Working...' : 'Complete'}
                     </button>
                   )}
-                  {!isReviewProposal && !isConfirmAutomation && action.type !== 'auto' && (
+                  {!isReviewProposal && !isConfirmAutomation && !isResearchScope && action.type !== 'auto' && (
                     <button
                       style={{ ...styles.declineBtn, padding: '7px 16px', fontSize: 13 }}
                       onClick={() => setDeclineModalTask(task)}
@@ -1246,6 +1282,25 @@ export default function MyTasks({ onNavigate, embedded = false }) {
           const t = scopeModalTask;
           setScopeModalTask(null);
           if (t) await handleComplete(t);
+        }}
+      />
+
+      {/* "Skip" on a scope task → pick who's already researching. Each gets a
+          "Finish research" task; then the scope task itself is skipped. */}
+      <AlreadyResearchingModal
+        open={!!skipScopeTask}
+        project={skipScopeTask ? {
+          id: skipScopeTask.related_entity_id,
+          name: projectMeta[skipScopeTask.related_entity_id]?.name
+            || (skipScopeTask.title || '').replace(/ — Set Research Scope$/, ''),
+          deadline: projectMeta[skipScopeTask.related_entity_id]?.deadline || '',
+        } : null}
+        onClose={() => setSkipScopeTask(null)}
+        showToast={(msg, kind) => (kind === 'error' ? toast.error(msg) : toast.success(msg))}
+        onSubmitted={async () => {
+          const t = skipScopeTask;
+          setSkipScopeTask(null);
+          if (t) await handleSkip(t);
         }}
       />
 
@@ -1511,6 +1566,17 @@ const styles = {
     borderRadius: 5,
     padding: '5px 10px',
     fontSize: 10,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  skipBtn: {
+    background: 'rgba(255,255,255,0.06)',
+    color: 'rgba(255,255,255,0.6)',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: 6,
+    padding: '8px 16px',
+    fontSize: 13,
     fontWeight: 600,
     cursor: 'pointer',
     fontFamily: 'inherit',

@@ -257,9 +257,16 @@ Deno.serve(async (req: Request) => {
 
       await logEvent(admin, taskId, "skipped", auth.userId);
 
-      // Run fan-in check — skipping a task may unblock pending tasks
-      const activated = await checkFanIn(admin, task.workflow_instance_id, auth.userId);
-      await checkInstanceCompletion(admin, task.workflow_instance_id);
+      // Fan-in / completion checks only apply to workflow tasks. Standalone
+      // tasks (e.g. a project's research_scope task) have no instance — skip
+      // them, or the null instanceId would run loose queries over all
+      // standalone tasks. Skipping a research_scope task never advances the
+      // card anyway; only the 'research' step tasks trigger that.
+      let activated: string[] = [];
+      if (task.workflow_instance_id) {
+        activated = await checkFanIn(admin, task.workflow_instance_id, auth.userId);
+        await checkInstanceCompletion(admin, task.workflow_instance_id);
+      }
 
       return jsonResp({ ok: true, status: "skipped", activated_task_ids: activated });
     }

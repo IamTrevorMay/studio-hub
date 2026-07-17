@@ -1,0 +1,175 @@
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { supabase } from '../supabaseClient';
+import { PeopleChips } from './MemberAssignmentModal';
+import backdropDismiss from '../lib/backdropDismiss';
+
+const TEAM_ROLES = ['admin', 'assistant', 'member', 'partner'];
+
+// Opened when the scope owner clicks "Skip" on a Set Research Scope task and
+// the researchers are already underway. Instead of setting formal scope, Trevor
+// just picks who's already doing it. Each selected person gets a basic
+// "Finish research for [Project]" task (Complete/Decline). When all of those
+// 'research' tasks complete, the card auto-advances to Write — the same path
+// the full scope modal uses (workflow-complete-task → card-move).
+export default function AlreadyResearchingModal({ open, project, onClose, onSubmitted, showToast }) {
+  const [profiles, setProfiles] = useState([]);
+  const [assignees, setAssignees] = useState([]);
+  const [dueDate, setDueDate] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, role')
+        .order('full_name', { ascending: true, nullsFirst: false });
+      setProfiles((data || []).filter((p) => p.role && p.role !== 'deactivated'));
+    } catch (err) {
+      console.error('AlreadyResearchingModal fetch error:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    fetchData();
+    setAssignees([]);
+    setDueDate(project?.deadline || '');
+  }, [open, project?.id]); // eslint-disable-line
+
+  const team = useMemo(() => profiles.filter((p) => TEAM_ROLES.includes(p.role)), [profiles]);
+  const contractors = useMemo(() => profiles.filter((p) => p.role === 'freelancer'), [profiles]);
+
+  const toggleAssignee = (id) => {
+    setAssignees((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const canSubmit = assignees.length > 0 && !submitting;
+
+  const handleSubmit = async () => {
+    if (!canSubmit || !project) return;
+    setSubmitting(true);
+    try {
+      // Spawn one 'research' task per person — tied to the project so that
+      // completing all of them advances the card to Write.
+      const { data, error } = await supabase.functions.invoke('assign-task', {
+        body: {
+          op: 'create',
+          title: `Finish research for ${project.name}`,
+          assignee_ids: assignees,
+          due_date: dueDate || null,
+          notes: 'Mark this complete when your research is finished.',
+          step_key: 'research',
+          related_entity_type: 'project',
+          related_entity_id: project.id,
+        },
+      });
+      if (error || data?.error) throw new Error(error?.message || data?.error);
+
+      // Record them on the Research stage so they show on the card. Duplicate
+      // rows (unique project_id/stage/user_id → 23505) are harmless.
+      await Promise.all(assignees.map((userId) =>
+        supabase.from('project_stage_assignments').insert({
+          project_id: project.id, stage: 'research', user_id: userId,
+        }),
+      ));
+
+      if (showToast) showToast(`Research handed to ${assignees.length} ${assignees.length === 1 ? 'person' : 'people'}`);
+      if (onSubmitted) await onSubmitted();
+      if (onClose) onClose();
+    } catch (err) {
+      console.error('Assign already-researching failed:', err);
+      if (showToast) showToast('Failed: ' + err.message, 'error');
+      else alert('Failed: ' + err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (!open || !project) return null;
+
+  return (
+    <div style={styles.overlay} {...backdropDismiss(onClose)}>
+      <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+        <div style={styles.header}>
+          <div>
+            <h2 style={styles.h2}>Who is doing the research already?</h2>
+            <p style={styles.subtitle}>
+              “{project.name}” — each person gets a “Finish research” task. The card moves to Write when everyone marks it done.
+            </p>
+          </div>
+          <button style={styles.closeBtn} onClick={onClose}>×</button>
+        </div>
+
+        <div style={styles.body}>
+          <div style={styles.fieldLabel}>
+            Assign to {assignees.length > 0 && <span style={styles.countPill}>{assignees.length}</span>}
+            {assignees.length === 0 && <span style={{ color: '#f87171', marginLeft: 6 }}>required</span>}
+          </div>
+          <PeopleChips label="Team" people={team} selected={assignees} onToggle={toggleAssignee} />
+          <PeopleChips label="Contractors" people={contractors} selected={assignees} onToggle={toggleAssignee} />
+
+          <div style={{ marginTop: 12 }}>
+            <div style={styles.fieldLabel}>Due date (optional)</div>
+            <input type="date" style={styles.input} value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+          </div>
+        </div>
+
+        <div style={styles.footer}>
+          <button style={styles.cancelBtn} onClick={onClose} disabled={submitting}>Cancel</button>
+          <button
+            style={{ ...styles.assignBtn, cursor: canSubmit ? 'pointer' : 'default', opacity: canSubmit ? 1 : 0.5 }}
+            onClick={handleSubmit}
+            disabled={!canSubmit}
+          >
+            {submitting ? 'Assigning…' : 'Assign & Skip'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const styles = {
+  overlay: {
+    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+  },
+  modal: {
+    background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14,
+    width: 520, maxWidth: '92vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column',
+  },
+  header: {
+    display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+    padding: '20px 24px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)',
+  },
+  h2: { fontSize: 18, fontWeight: 700, color: '#fff', margin: 0 },
+  subtitle: { fontSize: 12, color: 'rgba(255,255,255,0.45)', margin: '3px 0 0', lineHeight: 1.4 },
+  closeBtn: {
+    background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: 26,
+    cursor: 'pointer', lineHeight: 1, padding: 0, marginTop: -2,
+  },
+  body: { padding: '16px 24px', overflowY: 'auto', flex: 1 },
+  footer: {
+    display: 'flex', justifyContent: 'flex-end', gap: 10,
+    padding: '14px 24px', borderTop: '1px solid rgba(255,255,255,0.06)',
+  },
+  fieldLabel: {
+    fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.45)', letterSpacing: 0.4,
+    textTransform: 'uppercase', margin: '4px 0 6px', display: 'flex', alignItems: 'center', gap: 6,
+  },
+  countPill: { background: '#6366f1', color: '#fff', borderRadius: 999, padding: '1px 7px', fontSize: 10, fontWeight: 800 },
+  input: {
+    width: '100%', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 8, padding: '8px 10px', color: '#fff', fontSize: 13, outline: 'none',
+    boxSizing: 'border-box', fontFamily: 'inherit',
+  },
+  cancelBtn: {
+    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+    color: 'rgba(255,255,255,0.7)', borderRadius: 9, padding: '9px 18px',
+    fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+  },
+  assignBtn: {
+    background: '#6366f1', border: 'none', color: '#fff', borderRadius: 9,
+    padding: '9px 20px', fontSize: 13, fontWeight: 700, fontFamily: 'inherit',
+  },
+};
