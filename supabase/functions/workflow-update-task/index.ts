@@ -264,6 +264,24 @@ Deno.serve(async (req: Request) => {
       return jsonResp({ ok: true, status: "skipped", activated_task_ids: activated });
     }
 
+    // ─── Toggle whether this task counts toward the My Tasks tab badge ───
+    case "set_badge_count": {
+      if (!isOwner && !isAdmin) {
+        return jsonResp({ error: "Not authorized" }, 403);
+      }
+      const countInBadge = body.count_in_badge !== false; // default true
+      const { error: badgeErr } = await admin
+        .from("tasks")
+        .update({ count_in_badge: countInBadge })
+        .eq("id", taskId);
+      if (badgeErr) {
+        return jsonResp({ error: badgeErr.message }, 500);
+      }
+      // No task_events log — this is a personal display preference, not a
+      // workflow state change (and its event_type isn't in the allowed set).
+      return jsonResp({ ok: true, count_in_badge: countInBadge });
+    }
+
     // ─── Set context (merge keys into workflow_instances.context) ───
     case "set_context": {
       if (!isOwner && !isAdmin) {

@@ -594,6 +594,26 @@ export default function MyTasks({ onNavigate, embedded = false }) {
     }
   };
 
+  // Toggle whether a task contributes to the My Tasks tab badge count. The task
+  // stays visible in the list; only the tab's number changes.
+  const handleToggleBadgeCount = async (task, countInBadge) => {
+    // Optimistic — reflect the checkbox immediately, then persist + refresh badge.
+    setTasks(prev => prev.map(t => (t.id === task.id ? { ...t, count_in_badge: countInBadge } : t)));
+    try {
+      await callWorkflowFn('workflow-update-task', {
+        task_id: task.id,
+        action: 'set_badge_count',
+        count_in_badge: countInBadge,
+      });
+      refreshNotifications();
+    } catch (err) {
+      console.error('Toggle badge count failed:', err);
+      toast.error(err.message);
+      // Revert on failure.
+      setTasks(prev => prev.map(t => (t.id === task.id ? { ...t, count_in_badge: !countInBadge } : t)));
+    }
+  };
+
   const handlePrimaryAction = (task) => {
     const action = getStepAction(task.step_key, task);
     switch (action.type) {
@@ -1005,6 +1025,18 @@ export default function MyTasks({ onNavigate, embedded = false }) {
                       Decline
                     </button>
                   )}
+                  <label
+                    style={styles.countToggle}
+                    title="When unchecked, this task won't add to the My Tasks tab badge count."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={task.count_in_badge !== false}
+                      onChange={(e) => handleToggleBadgeCount(task, e.target.checked)}
+                      style={styles.countToggleBox}
+                    />
+                    Count in tab badge
+                  </label>
                 </div>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   {!isOnHold && (
@@ -1454,6 +1486,23 @@ const styles = {
     justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: 8,
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  countToggle: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 5,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.45)',
+    cursor: 'pointer',
+    userSelect: 'none',
+    whiteSpace: 'nowrap',
+  },
+  countToggleBox: {
+    cursor: 'pointer',
+    accentColor: '#6366f1',
+    margin: 0,
   },
   holdBtn: {
     background: 'rgba(249,115,22,0.15)',
