@@ -3,6 +3,7 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { toast } from '../contexts/ToastContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { fetchAllRows } from './analytics/utils';
@@ -418,8 +419,8 @@ export default function BusinessDev() {
     const goalType = bdGoalForm.goal_type || 'manual';
     let current_value, target_value, metrics, platform_account_ids;
     if (goalType === 'metric') {
-      if (!(bdGoalForm.metrics || []).length) { alert('Select at least one metric'); return; }
-      if (!(bdGoalForm.platform_account_ids || []).length) { alert('Select at least one platform'); return; }
+      if (!(bdGoalForm.metrics || []).length) { toast.error('Select at least one metric'); return; }
+      if (!(bdGoalForm.platform_account_ids || []).length) { toast.error('Select at least one platform'); return; }
       current_value = 0;
       metrics = bdGoalForm.metrics;
       platform_account_ids = bdGoalForm.platform_account_ids;
@@ -439,11 +440,11 @@ export default function BusinessDev() {
     const payload = { title, description: bdGoalForm.description?.trim() || null, current_value, target_value, category: bdGoalForm.category, goal_type: goalType, metrics, platform_account_ids, scope: 'bd' };
     if (editingBdGoalId) {
       const { error } = await supabase.from('goals').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', editingBdGoalId);
-      if (error) { alert(error.message); return; }
+      if (error) { toast.error(error.message); return; }
     } else {
       const nextPosition = bdGoals.length > 0 ? Math.max(...bdGoals.map(g => g.position || 0)) + 1 : 0;
       const { error } = await supabase.from('goals').insert({ ...payload, created_by: profile.id, position: nextPosition });
-      if (error) { alert(error.message); return; }
+      if (error) { toast.error(error.message); return; }
     }
     cancelBdGoalForm();
     fetchBdGoals();
@@ -520,10 +521,10 @@ export default function BusinessDev() {
     const target_value = parseInt(bdMonthlyForm.target_value) || 1;
     if (editingBdMonthlyId) {
       const { error } = await supabase.from('monthly_goals').update({ title, target_value, updated_at: new Date().toISOString() }).eq('id', editingBdMonthlyId);
-      if (error) { alert(error.message); return; }
+      if (error) { toast.error(error.message); return; }
     } else {
       const { error } = await supabase.from('monthly_goals').insert({ title, target_value, parent_goal_id: showBdMonthlyForm, scope: 'bd', created_by: profile.id });
-      if (error) { alert(error.message); return; }
+      if (error) { toast.error(error.message); return; }
     }
     cancelBdMonthlyForm();
     fetchBdGoals();
@@ -561,7 +562,7 @@ export default function BusinessDev() {
       .insert({ user_id: profile.id, text, checked: false, position: nextPosition, priority: bdNotePriority })
       .select()
       .single();
-    if (error) { alert(`Could not save note: ${error.message || 'unknown error'}`); return; }
+    if (error) { toast.error(`Could not save note: ${error.message || 'unknown error'}`); return; }
     setBdNotes(prev => sortByPriority([...prev, data]));
     setBdNoteDraft('');
     setBdNotePriority(null);
@@ -670,13 +671,13 @@ export default function BusinessDev() {
     const payload = { name, launch_target_date: phaseForm.launch_target_date || null, assigned_partners: phaseForm.assigned_partners || [] };
     if (editingPhaseId) {
       const { error } = await supabase.from('bd_phases').update(payload).eq('id', editingPhaseId);
-      if (error) { alert(error.message); return; }
+      if (error) { toast.error(error.message); return; }
     } else {
       const maxPos = Math.max(0, ...phases.map(p => p.position || 0));
       const { data, error } = await supabase.from('bd_phases').insert({
         ...payload, position: maxPos + 1, created_by: profile.id,
       }).select().single();
-      if (error) { alert(error.message); return; }
+      if (error) { toast.error(error.message); return; }
       // Auto-expand newly created phase
       setExpandedPhases(prev => ({ ...prev, [data.id]: true }));
       setEnabledPhases(prev => ({ ...prev, [data.id]: true }));
@@ -751,7 +752,7 @@ export default function BusinessDev() {
   async function handleInitSubmit(e) {
     e?.preventDefault();
     const title = initForm.title.trim();
-    if (!title || !initForm.phase_id) { alert('Title and phase are required.'); return; }
+    if (!title || !initForm.phase_id) { toast.error('Title and phase are required.'); return; }
     const budget_cents = initForm.budget_dollars === '' ? null : Math.round(parseFloat(initForm.budget_dollars) * 100);
     const status = initForm.status;
     const original = editingInitId ? initiatives.find(i => i.id === editingInitId) : null;
@@ -784,14 +785,14 @@ export default function BusinessDev() {
         payload.position = Math.max(0, ...dstSiblings.map(i => i.position || 0)) + 1;
       }
       const { error } = await supabase.from('bd_initiatives').update(payload).eq('id', editingInitId);
-      if (error) { alert(error.message); return; }
+      if (error) { toast.error(error.message); return; }
     } else {
       const siblings = (initiativesByPhase[payload.phase_id] || []).filter(i => i.workstream === payload.workstream);
       const maxPos = Math.max(0, ...siblings.map(i => i.position || 0));
       const { data, error } = await supabase.from('bd_initiatives').insert({
         ...payload, position: maxPos + 1, created_by: profile.id,
       }).select().single();
-      if (error) { alert(error.message); return; }
+      if (error) { toast.error(error.message); return; }
       savedId = data.id;
     }
 
@@ -1009,7 +1010,7 @@ export default function BusinessDev() {
     let savedTask;
     if (editingTaskId) {
       const { data, error } = await supabase.from('bd_tasks').update(payload).eq('id', editingTaskId).select().single();
-      if (error) { alert(error.message); return; }
+      if (error) { toast.error(error.message); return; }
       savedTask = data;
     } else {
       const siblings = (tasksByInitiative[initiativeId] || []);
@@ -1018,7 +1019,7 @@ export default function BusinessDev() {
         .insert({ ...payload, position: maxPos + 1, created_by: profile.id })
         .select()
         .single();
-      if (error) { alert(error.message); return; }
+      if (error) { toast.error(error.message); return; }
       savedTask = data;
     }
     await syncTaskToBacklog(savedTask);
@@ -1029,7 +1030,7 @@ export default function BusinessDev() {
   async function handleToggleTask(task) {
     const completed_at = task.completed_at ? null : new Date().toISOString();
     const { data, error } = await supabase.from('bd_tasks').update({ completed_at }).eq('id', task.id).select().single();
-    if (error) { alert(`Could not update task: ${error.message}`); return; }
+    if (error) { toast.error(`Could not update task: ${error.message}`); return; }
     if (data) await syncTaskToBacklog(data);
     fetchAll();
   }
@@ -1041,7 +1042,7 @@ export default function BusinessDev() {
     await supabase.from('personal_tasks').delete().eq('bd_task_id', id);
     const { error } = await supabase.from('bd_tasks').delete().eq('id', id);
     if (error) {
-      alert(`Could not delete task: ${error.message}`);
+      toast.error(`Could not delete task: ${error.message}`);
       return;
     }
     fetchAll();

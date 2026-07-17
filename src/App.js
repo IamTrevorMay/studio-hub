@@ -4,6 +4,7 @@ import { PresenceProvider } from './contexts/PresenceContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { isMobileViewport, MOBILE_BREAKPOINT_PX } from './hooks/useIsMobile';
 import { ConfirmProvider } from './contexts/ConfirmContext';
+import { ToastProvider } from './contexts/ToastContext';
 import { useUsageTracking } from './hooks/useUsageTracking'; // TEMP: front-end usage study, remove after 2026-07-07
 import { focusRing } from './lib/styleTokens';
 
@@ -123,7 +124,9 @@ export default function App() {
       <PresenceProvider>
         <NotificationProvider>
           <ConfirmProvider>
-            <AppContent />
+            <ToastProvider>
+              <AppContent />
+            </ToastProvider>
           </ConfirmProvider>
         </NotificationProvider>
       </PresenceProvider>

@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
+import { useConfirm } from '../../contexts/ConfirmContext';
+import { toast } from '../../contexts/ToastContext';
 import useIsMobile from '../../hooks/useIsMobile';
 import { callEdgeFn } from '../../lib/edgeFn';
 import { colors, spacing, radii, fontSizes, fontWeights } from '../../lib/styleTokens';
@@ -49,6 +51,7 @@ function isCurrentStageAssignee(project, userId) {
 
 export default function UnifiedBoard() {
   const { profile, isAdmin } = useAuth();
+  const confirm = useConfirm();
   const isMobile = useIsMobile();
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -237,7 +240,7 @@ export default function UnifiedBoard() {
     // Backlog ops: admin-only, no handoff modal.
     if (destStage === 'backlog' || srcStage === 'backlog') {
       if (!isAdmin) {
-        alert('Only admins can move cards in or out of Backlog.');
+        toast.error('Only admins can move cards in or out of Backlog.');
         return;
       }
       // Backlog → Queue: move and assign sort_order at drop position
@@ -261,7 +264,7 @@ export default function UnifiedBoard() {
     const targetIdx = CANONICAL_STAGES.indexOf(destStage);
     const isBackward = targetIdx < sourceIdx;
     if (isBackward && !isAdmin) {
-      alert('Only admins can move a card backward.');
+      toast.error('Only admins can move a card backward.');
       return;
     }
 
@@ -283,7 +286,7 @@ export default function UnifiedBoard() {
       });
       fetchProjects();
     } catch (err) {
-      alert(`Move failed: ${err.message}`);
+      toast.error(`Move failed: ${err.message}`);
     } finally {
       setBusy(false);
       setHandoffModal(null);
@@ -305,7 +308,7 @@ export default function UnifiedBoard() {
       if (error) throw error;
       fetchProjects();
     } catch (err) {
-      alert(`Duplicate failed: ${err.message}`);
+      toast.error(`Duplicate failed: ${err.message}`);
     } finally {
       setBusy(false);
     }
@@ -321,21 +324,21 @@ export default function UnifiedBoard() {
       if (error) throw error;
       fetchProjects();
     } catch (err) {
-      alert(`Archive failed: ${err.message}`);
+      toast.error(`Archive failed: ${err.message}`);
     } finally {
       setBusy(false);
     }
   }
 
   async function deleteProject(project) {
-    if (!window.confirm(`Delete "${project.name}" permanently? This cannot be undone.`)) return;
+    if (!(await confirm(`Delete "${project.name}" permanently? This cannot be undone.`))) return;
     setBusy(true);
     try {
       const { error } = await supabase.from('projects').delete().eq('id', project.id);
       if (error) throw error;
       fetchProjects();
     } catch (err) {
-      alert(`Delete failed: ${err.message}`);
+      toast.error(`Delete failed: ${err.message}`);
     } finally {
       setBusy(false);
     }
@@ -351,7 +354,7 @@ export default function UnifiedBoard() {
       });
       fetchProjects();
     } catch (err) {
-      alert(`Hold failed: ${err.message}`);
+      toast.error(`Hold failed: ${err.message}`);
     } finally {
       setBusy(false);
       setHoldModal(null);
@@ -1168,7 +1171,7 @@ function RetagModal({ untyped, onClose }) {
       patch.stage_config = defaultStageConfigForType(newType);
     }
     const { error } = await supabase.from('projects').update(patch).eq('id', p.id);
-    if (error) alert(`Retag failed: ${error.message}`);
+    if (error) toast.error(`Retag failed: ${error.message}`);
     setBusyId(null);
   }
   return (
@@ -1231,7 +1234,7 @@ function NewProjectModal({ onClose, onCreated, createdBy }) {
     }).select('id').single();
     if (error) {
       setBusy(false);
-      alert(`Create failed: ${error.message}`);
+      toast.error(`Create failed: ${error.message}`);
       return;
     }
     // Seed default stage assignees before moving, so card-move can fan out
@@ -1247,7 +1250,7 @@ function NewProjectModal({ onClose, onCreated, createdBy }) {
       try {
         await callEdgeFn('card-move', { project_id: created.id, target_stage: startColumn });
       } catch (err) {
-        alert(`Project created in Queue, but couldn't advance to the start column: ${err.message}`);
+        toast.warning(`Project created in Queue, but couldn't advance to the start column: ${err.message}`);
       }
     }
     setBusy(false);
@@ -1303,6 +1306,7 @@ function NewProjectModal({ onClose, onCreated, createdBy }) {
 // ─── EditProjectModal ────────────────────────────────────────────
 
 function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
+  const confirm = useConfirm();
   const [name, setName] = useState(project.name || '');
   const [type, setType] = useState(project.type || PROJECT_TYPE_OPTIONS[0].value);
   const [status, setStatus] = useState(project.status);
@@ -1351,7 +1355,7 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
       .from('projects')
       .update({ stage_config: next })
       .eq('id', project.id);
-    if (error) alert(`Failed to save skip: ${error.message}`);
+    if (error) toast.error(`Failed to save skip: ${error.message}`);
     else onSaved?.();
   }
 
@@ -1362,7 +1366,7 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
       .select('id, stage, user_id, profile:profiles(id, full_name, nickname)')
       .single();
     if (error && error.code !== '23505') {
-      alert(`Assign failed: ${error.message}`);
+      toast.error(`Assign failed: ${error.message}`);
       return;
     }
     if (data) setStageAssignments((prev) => [...prev, data]);
@@ -1374,7 +1378,7 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
       .from('project_stage_assignments')
       .delete()
       .eq('id', id);
-    if (error) { alert(`Remove failed: ${error.message}`); return; }
+    if (error) { toast.error(`Remove failed: ${error.message}`); return; }
     setStageAssignments((prev) => prev.filter((a) => a.id !== id));
     onSaved?.();
   }
@@ -1433,7 +1437,7 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
       onSaved?.();
       onClose();
     } catch (err) {
-      alert(`Save failed: ${err.message}`);
+      toast.error(`Save failed: ${err.message}`);
     } finally {
       setBusy(false);
     }
@@ -1441,7 +1445,7 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
 
   async function archive() {
     if (!isAdmin) return;
-    if (!window.confirm(`Archive "${project.name}"?`)) return;
+    if (!(await confirm(`Archive "${project.name}"?`))) return;
     setBusy(true);
     try {
       const { error } = await supabase
@@ -1452,7 +1456,7 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
       onSaved?.();
       onClose();
     } catch (err) {
-      alert(`Archive failed: ${err.message}`);
+      toast.error(`Archive failed: ${err.message}`);
     } finally {
       setBusy(false);
     }

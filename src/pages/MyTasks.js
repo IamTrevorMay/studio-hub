@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
+import { toast } from '../contexts/ToastContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { getStepAction } from '../lib/workflowSteps';
 import { getWorkflowModal } from '../lib/workflowModals';
@@ -421,7 +422,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
       if (onNavigate) onNavigate('production', sheet.id);
     } catch (err) {
       console.error('Start beat sheet error:', err);
-      alert('Failed to create beat sheet: ' + err.message);
+      toast.error('Failed to create beat sheet: ' + err.message);
     } finally {
       setStartingBeatSheet(null);
     }
@@ -470,7 +471,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
       }, 300);
     } catch (err) {
       console.error('Complete failed:', err);
-      alert(err.message);
+      toast.error(err.message);
       setCompletingIds(prev => { const s = new Set(prev); s.delete(task.id); return s; });
     }
   };
@@ -489,7 +490,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
       }, 300);
     } catch (err) {
       console.error('Confirm automation failed:', err);
-      alert(err.message);
+      toast.error(err.message);
       setCompletingIds(prev => { const s = new Set(prev); s.delete(task.id); return s; });
     }
   };
@@ -509,7 +510,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
       }, 300);
     } catch (err) {
       console.error('Sign-off failed:', err);
-      alert(err.message);
+      toast.error(err.message);
       setCompletingIds(prev => { const s = new Set(prev); s.delete(task.id); return s; });
     }
   };
@@ -528,7 +529,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
       refreshNotifications();
     } catch (err) {
       console.error('Hold failed:', err);
-      alert(err.message);
+      toast.error(err.message);
     }
   };
 
@@ -551,7 +552,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
       refreshNotifications();
     } catch (err) {
       console.error('Decline failed:', err);
-      alert(err.message);
+      toast.error(err.message);
     }
   };
 
@@ -562,7 +563,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
       refreshNotifications();
     } catch (err) {
       console.error('Resume failed:', err);
-      alert(err.message);
+      toast.error(err.message);
     }
   };
 
@@ -578,7 +579,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
       refreshNotifications();
     } catch (err) {
       console.error('Plan failed:', err);
-      alert(err.message);
+      toast.error(err.message);
     }
   };
 
@@ -589,7 +590,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
       refreshNotifications();
     } catch (err) {
       console.error('Unsnooze failed:', err);
-      alert(err.message);
+      toast.error(err.message);
     }
   };
 
@@ -660,7 +661,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
       }));
     } catch (err) {
       console.error('Set editor failed:', err);
-      alert(err.message);
+      toast.error(err.message);
     }
   };
 

@@ -4,6 +4,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { toast } from '../contexts/ToastContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
 import { ReactionChips, ReactionBar, toggleReaction } from '../components/MessageReactions';
@@ -544,7 +545,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
     if (!p || (title || null) === (p.pin_title || null)) return;
     const pin_title = title || null; // empty clears back to the content snippet
     const { error } = await supabase.from('channel_messages').update({ pin_title }).eq('id', messageId);
-    if (error) { alert('Error: ' + error.message); return; }
+    if (error) { toast.error('Error: ' + error.message); return; }
     setPinnedMessages(prev => prev.map(m => m.id === messageId ? { ...m, pin_title } : m));
   }
 
@@ -657,12 +658,12 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
     // Channel names are unique — catch a collision up front so the user gets a
     // clear message instead of a raw "channels_name_key" constraint error.
     if (channels.some(c => c.id !== channelId && c.name === name)) {
-      alert(`A channel named #${name} already exists. Please choose a different name.`);
+      toast.error(`A channel named #${name} already exists. Please choose a different name.`);
       return;
     }
     const { error } = await supabase.from('channels').update({ name }).eq('id', channelId);
     if (error) {
-      alert(error.code === '23505'
+      toast.error(error.code === '23505'
         ? `A channel named #${name} already exists. Please choose a different name.`
         : 'Error: ' + error.message);
       return;
@@ -705,7 +706,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
     const allowed_roles = selected.length === all.length ? null : selected;
     const table = permsTarget.kind === 'group' ? 'channel_groups' : 'channels';
     const { error } = await supabase.from(table).update({ allowed_roles }).eq('id', permsTarget.row.id);
-    if (error) { alert('Error: ' + error.message); return; }
+    if (error) { toast.error('Error: ' + error.message); return; }
     if (permsTarget.kind === 'group') {
       setGroups(prev => prev.map(g => g.id === permsTarget.row.id ? { ...g, allowed_roles } : g));
     } else {
@@ -719,11 +720,11 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   async function handleCreateGroup(e) {
     e.preventDefault();
     const name = groupName.trim();
-    if (!name) { alert('Please enter a group name.'); return; }
+    if (!name) { toast.error('Please enter a group name.'); return; }
     const maxOrder = groups.reduce((m, g) => Math.max(m, g.sort_order ?? 0), -1);
     const { error } = await supabase.from('channel_groups')
       .insert({ name, created_by: profile.id, sort_order: maxOrder + 1 });
-    if (error) { alert('Error: ' + error.message); return; }
+    if (error) { toast.error('Error: ' + error.message); return; }
     setGroupName('');
     setShowCreateGroup(false);
     fetchGroups();
@@ -735,7 +736,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
     const g = groups.find(x => x.id === groupId);
     if (!name || !g || name === g.name) return;
     const { error } = await supabase.from('channel_groups').update({ name }).eq('id', groupId);
-    if (error) { alert('Error: ' + error.message); return; }
+    if (error) { toast.error('Error: ' + error.message); return; }
     setGroups(prev => prev.map(x => x.id === groupId ? { ...x, name } : x));
   }
 
@@ -743,14 +744,14 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
     const g = groups.find(x => x.id === groupId);
     if (!(await confirm(`Delete the group "${g?.name || ''}"? Its channels will be ungrouped (not deleted).`))) return;
     const { error } = await supabase.from('channel_groups').delete().eq('id', groupId);
-    if (error) { alert('Error: ' + error.message); return; }
+    if (error) { toast.error('Error: ' + error.message); return; }
     await Promise.all([fetchGroups(), fetchChannels()]);
   }
 
   async function handleMoveChannelToGroup(channelId, groupId) {
     setContextMenu(null);
     const { error } = await supabase.from('channels').update({ group_id: groupId }).eq('id', channelId);
-    if (error) { alert('Error: ' + error.message); return; }
+    if (error) { toast.error('Error: ' + error.message); return; }
     setChannels(prev => prev.map(c => c.id === channelId ? { ...c, group_id: groupId } : c));
   }
 
@@ -862,18 +863,18 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   async function handleCreateChannel(e) {
     e.preventDefault();
     const name = channelName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-    if (!name) { alert('Please enter a channel name.'); return; }
+    if (!name) { toast.error('Please enter a channel name.'); return; }
     // Channel names are unique — catch a collision up front so the user gets a
     // clear message instead of a raw "channels_name_key" constraint error.
     if (channels.some(c => c.name === name)) {
-      alert(`A channel named #${name} already exists. Please choose a different name.`);
+      toast.error(`A channel named #${name} already exists. Please choose a different name.`);
       return;
     }
     const { error } = await supabase.from('channels').insert({
       name, description: channelDesc, created_by: profile.id,
     });
     if (error) {
-      alert(error.code === '23505'
+      toast.error(error.code === '23505'
         ? `A channel named #${name} already exists. Please choose a different name.`
         : 'Error: ' + error.message);
       return;

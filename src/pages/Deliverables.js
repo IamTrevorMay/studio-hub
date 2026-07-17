@@ -4,6 +4,7 @@ import DOMPurify from 'dompurify';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { toast } from '../contexts/ToastContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { callWorkflowFn } from '../lib/workflowApi';
 import { ptMonthKey, ptDayKey } from '../lib/ptDate';
@@ -370,7 +371,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         .from('ad_read_proposal_items')
         .delete()
         .eq('id', target.id);
-      if (error) { alert('Error removing deliverable: ' + error.message); return; }
+      if (error) { toast.error('Error removing deliverable: ' + error.message); return; }
     }
     setProposalItems((prev) => prev.filter((_, i) => i !== idx));
   }
@@ -387,7 +388,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
       return draftProposalId;
     }
     if (!proposalForm.sponsor_name.trim()) {
-      alert('Sponsor name is required before accepting a deliverable.');
+      toast.error('Sponsor name is required before accepting a deliverable.');
       return null;
     }
     const { data, error } = await supabase
@@ -400,7 +401,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
       })
       .select()
       .single();
-    if (error) { alert('Error starting draft: ' + error.message); return null; }
+    if (error) { toast.error('Error starting draft: ' + error.message); return null; }
     setDraftProposalId(data.id);
     return data.id;
   }
@@ -408,7 +409,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
   async function acceptItem(idx) {
     const it = proposalItems[idx];
     if (!it.title.trim()) {
-      alert('Title is required.');
+      toast.error('Title is required.');
       return;
     }
     const proposalId = await ensureProposalRow();
@@ -427,7 +428,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         .from('ad_read_proposal_items')
         .update(row)
         .eq('id', it.id);
-      if (error) { alert('Error saving deliverable: ' + error.message); return; }
+      if (error) { toast.error('Error saving deliverable: ' + error.message); return; }
       updateItem(idx, { accepted: true });
     } else {
       const { data, error } = await supabase
@@ -435,7 +436,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         .insert(row)
         .select()
         .single();
-      if (error) { alert('Error saving deliverable: ' + error.message); return; }
+      if (error) { toast.error('Error saving deliverable: ' + error.message); return; }
       updateItem(idx, { id: data.id, accepted: true });
     }
   }
@@ -452,15 +453,15 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
   async function handleCreateProposal(e) {
     e.preventDefault();
     if (!proposalForm.sponsor_name.trim()) {
-      alert('Sponsor name is required.');
+      toast.error('Sponsor name is required.');
       return;
     }
     if (proposalItems.length === 0) {
-      alert('Add at least one deliverable.');
+      toast.error('Add at least one deliverable.');
       return;
     }
     if (!allItemsAccepted()) {
-      alert('Accept every deliverable before creating the proposal.');
+      toast.error('Accept every deliverable before creating the proposal.');
       return;
     }
     const proposalId = await ensureProposalRow();
@@ -473,7 +474,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         status: 'pending',
       })
       .eq('id', proposalId);
-    if (error) { alert('Error creating proposal: ' + error.message); return; }
+    if (error) { toast.error('Error creating proposal: ' + error.message); return; }
 
     // Kick off the Ad Read Pipeline workflow — assigns a "Review proposal" task to the admin reviewer.
     try {
@@ -508,7 +509,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
 
   async function handleConfirmProposal(proposal) {
     if (proposal.status === 'accepted') {
-      alert('This proposal has already been accepted.');
+      toast.error('This proposal has already been accepted.');
       return;
     }
     try {
@@ -568,7 +569,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
       fetchProposals();
       fetchSponsors();
     } catch (err) {
-      alert('Error confirming proposal: ' + err.message);
+      toast.error('Error confirming proposal: ' + err.message);
     }
   }
 
@@ -600,22 +601,22 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
   async function handleUpdateProposal(e) {
     e.preventDefault();
     if (!proposalForm.sponsor_name.trim()) {
-      alert('Sponsor name is required.');
+      toast.error('Sponsor name is required.');
       return;
     }
     if (proposalItems.length === 0) {
-      alert('Add at least one deliverable.');
+      toast.error('Add at least one deliverable.');
       return;
     }
     if (!allItemsAccepted()) {
-      alert('Accept every deliverable before saving.');
+      toast.error('Accept every deliverable before saving.');
       return;
     }
     const { error } = await supabase.from('ad_read_proposals').update({
       sponsor_name: proposalForm.sponsor_name,
       description: proposalForm.description || null,
     }).eq('id', editingProposal);
-    if (error) { alert('Error updating proposal: ' + error.message); return; }
+    if (error) { toast.error('Error updating proposal: ' + error.message); return; }
     resetProposalForm();
     fetchProposals();
   }
@@ -699,7 +700,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         review_due: deliverableReviewDue || null,
         updated_at: new Date().toISOString(),
       }).eq('id', editingDeliverable);
-      if (error) { alert('Error updating deliverable: ' + error.message); return; }
+      if (error) { toast.error('Error updating deliverable: ' + error.message); return; }
 
       const dueDateFull = dueDate ? dueDate + '-01' : null;
       if (dueDateFull && deliverable?.calendar_event_id) {
@@ -743,7 +744,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         delivered: !!deliverableVideoUrl.trim(),
         review_due: deliverableReviewDue || null,
       }).select().single();
-      if (error) { alert('Error creating deliverable: ' + error.message); return; }
+      if (error) { toast.error('Error creating deliverable: ' + error.message); return; }
 
       const newDueDateFull = dueDate ? dueDate + '-01' : null;
       if (newDueDateFull && dData) {
@@ -867,7 +868,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
       delivered: true,
       updated_at: new Date().toISOString(),
     }).eq('id', videoLinkModal.id);
-    if (error) { alert('Error saving video link: ' + error.message); return; }
+    if (error) { toast.error('Error saving video link: ' + error.message); return; }
     setVideoLinkModal(null);
     setVideoLinkInput('');
     fetchSponsors();
@@ -881,7 +882,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
       review_due: value || null,
       updated_at: new Date().toISOString(),
     }).eq('id', id);
-    if (error) { alert('Error saving review due date: ' + error.message); return; }
+    if (error) { toast.error('Error saving review due date: ' + error.message); return; }
     fetchSponsors();
   }
 
@@ -956,7 +957,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
       channel: d.channel,
       delivered: false,
     });
-    if (error) { alert('Error duplicating: ' + error.message); return; }
+    if (error) { toast.error('Error duplicating: ' + error.message); return; }
     fetchSponsors();
   }
 
@@ -996,7 +997,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
   async function handleSaveBrand(e) {
     e.preventDefault();
     const brandName = (brandForm.brand || '').trim();
-    if (!brandName) { alert('Brand name is required'); return; }
+    if (!brandName) { toast.error('Brand name is required'); return; }
     let sponsorId;
     const { data: existing } = await supabase
       .from('sponsors')
@@ -1012,7 +1013,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         .insert({ name: brandName, created_by: profile.id })
         .select()
         .single();
-      if (sErr) { alert('Error creating brand: ' + sErr.message); return; }
+      if (sErr) { toast.error('Error creating brand: ' + sErr.message); return; }
       sponsorId = newSponsor.id;
     }
     const payload = {
@@ -1029,10 +1030,10 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
     let brandId = editingBrand;
     if (editingBrand) {
       const { error } = await supabase.from('sponsor_campaigns').update(payload).eq('id', editingBrand);
-      if (error) { alert('Error updating brand: ' + error.message); return; }
+      if (error) { toast.error('Error updating brand: ' + error.message); return; }
     } else {
       const { data, error } = await supabase.from('sponsor_campaigns').insert(payload).select().single();
-      if (error) { alert('Error creating brand: ' + error.message); return; }
+      if (error) { toast.error('Error creating brand: ' + error.message); return; }
       brandId = data.id;
     }
     await syncBrandRevenue(brandId);
@@ -1292,7 +1293,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
     });
     if (error) {
       console.error('Error posting agency comment:', error);
-      alert('Could not post comment. Please try again.');
+      toast.error('Could not post comment. Please try again.');
       return;
     }
     fetchAgencyComments();
