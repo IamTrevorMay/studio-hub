@@ -15,6 +15,15 @@ function newBeat() {
   return { id: crypto.randomUUID(), title: '', context: '', notes: '', graphics: [], videos: [] };
 }
 
+// Fixed Beat Sheet type taxonomy (mirrors desktop Production.js). NULL = Unassigned.
+const BEAT_SHEET_TYPES = [
+  { key: 'mayday', label: 'Mayday' },
+  { key: 'tm_baseball', label: 'Trevor May Baseball' },
+  { key: 'podcast', label: 'Podcast' },
+  { key: 'short_form', label: 'Short Form' },
+  { key: 'ad_read', label: 'Ad Read' },
+];
+
 const SEGMENT_COLORS = [
   '#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b',
   '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#a855f7',
@@ -135,21 +144,36 @@ export default function ProductionMobile({ initialSheetId, onSheetOpened }) {
             <p style={styles.emptyHint}>Tap "+ Beat sheet" to start.</p>
           </div>
         ) : (
-          sheets.map((s) => (
-            <button key={s.id} onClick={() => { setActiveSheet(s); window.history.replaceState({}, '', '/production/' + s.id); }} style={styles.sheetCard}>
-              <span style={styles.sheetIcon}>📋</span>
-              <div style={styles.sheetBody}>
-                <div style={styles.sheetTitle}>{s.title || 'Untitled'}</div>
-                <div style={styles.sheetMeta}>
-                  {(() => {
-                    const n = Array.isArray(s.beats) ? countBeats(s.beats) : 0;
-                    return `${n} beat${n === 1 ? '' : 's'}`;
-                  })()}
-                  {s.updated_at && <> · {timeAgo(s.updated_at)}</>}
+          (() => {
+            const renderRow = (s) => (
+              <button key={s.id} onClick={() => { setActiveSheet(s); window.history.replaceState({}, '', '/production/' + s.id); }} style={styles.sheetCard}>
+                <span style={styles.sheetIcon}>📋</span>
+                <div style={styles.sheetBody}>
+                  <div style={styles.sheetTitle}>{s.title || 'Untitled'}</div>
+                  <div style={styles.sheetMeta}>
+                    {(() => {
+                      const n = Array.isArray(s.beats) ? countBeats(s.beats) : 0;
+                      return `${n} beat${n === 1 ? '' : 's'}`;
+                    })()}
+                    {s.updated_at && <> · {timeAgo(s.updated_at)}</>}
+                  </div>
                 </div>
+              </button>
+            );
+            const sections = [
+              ...BEAT_SHEET_TYPES.map(t => ({ label: t.label, rows: sheets.filter(s => (s.type || null) === t.key) })),
+              { label: 'Unassigned', rows: sheets.filter(s => !s.type) },
+            ].filter(sec => sec.rows.length > 0);
+            return sections.map(sec => (
+              <div key={sec.label} style={styles.typeSection}>
+                <div style={styles.typeSectionHeader}>
+                  <span style={styles.typeSectionTitle}>{sec.label}</span>
+                  <span style={styles.typeSectionCount}>{sec.rows.length}</span>
+                </div>
+                {sec.rows.map(renderRow)}
               </div>
-            </button>
-          ))
+            ));
+          })()
         )}
       </div>
 
@@ -195,7 +219,16 @@ function SheetEditor({ sheet, onSheetUpdated }) {
     Array.isArray(sheet.beats) && sheet.beats.length ? sheet.beats : [newBeat()],
   );
   const [saveStatus, setSaveStatus] = useState('saved');
+  const [type, setType] = useState(sheet.type || null);
   const [collapsedSegments, setCollapsedSegments] = useState(() => new Set());
+
+  async function persistType(nextType) {
+    const value = nextType || null;
+    setType(value);
+    const { error } = await supabase.from('beat_sheets').update({ type: value }).eq('id', sheet.id);
+    if (error) { console.error('Type update error:', error); return; }
+    onSheetUpdated && onSheetUpdated({ ...sheet, type: value });
+  }
   const [colorPickerFor, setColorPickerFor] = useState(null);
   const saveTimer = useRef(null);
 
@@ -332,7 +365,20 @@ function SheetEditor({ sheet, onSheetUpdated }) {
         </span>
       </div>
 
-      <div style={editStyles.counter}>{totalBeats} beat{totalBeats === 1 ? '' : 's'}</div>
+      <div style={editStyles.metaRow}>
+        <div style={editStyles.counter}>{totalBeats} beat{totalBeats === 1 ? '' : 's'}</div>
+        <select
+          value={type || ''}
+          onChange={(e) => persistType(e.target.value || null)}
+          style={editStyles.typeSelect}
+          aria-label="Beat sheet type"
+        >
+          <option value="">— Type —</option>
+          {BEAT_SHEET_TYPES.map(t => (
+            <option key={t.key} value={t.key}>{t.label}</option>
+          ))}
+        </select>
+      </div>
 
       <DragDropContext onDragEnd={handleDragEnd}>
         <Droppable droppableId="top" type="ANY">
@@ -575,6 +621,16 @@ function TagField({ label, tags, addPlaceholder, onChange }) {
 
 const styles = {
   root: { display: 'flex', flexDirection: 'column', minHeight: '100%', background: '#0f0f1a', color: '#e2e8f0' },
+  typeSection: { display: 'flex', flexDirection: 'column', gap: mobileTokens.space.sm },
+  typeSectionHeader: {
+    display: 'flex', alignItems: 'center', gap: 8,
+    padding: `${mobileTokens.space.xs}px 2px`, marginTop: mobileTokens.space.xs,
+  },
+  typeSectionTitle: { fontSize: 13, fontWeight: 700, color: 'rgba(255,255,255,0.8)' },
+  typeSectionCount: {
+    fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.4)',
+    background: 'rgba(255,255,255,0.06)', padding: '1px 8px', borderRadius: 10,
+  },
   list: {
     flex: 1,
     display: 'flex',
@@ -828,9 +884,20 @@ const editStyles = {
     gap: 6,
   },
   list: { display: 'flex', flexDirection: 'column', gap: mobileTokens.space.md },
+  metaRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   counter: {
     fontSize: mobileTokens.font.xs, color: 'rgba(255,255,255,0.45)',
     fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5,
+  },
+  typeSelect: {
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: mobileTokens.radius.md,
+    padding: '6px 10px',
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: mobileTokens.font.sm,
+    fontFamily: 'inherit',
+    outline: 'none',
   },
   divider: {
     height: 1, background: 'rgba(255,255,255,0.06)',
