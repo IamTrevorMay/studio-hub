@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../supabaseClient';
+import { clickableKeyProps } from '../../lib/styleRecipes';
 
 // Public, login-free careers board. Served by App.js for /careers paths.
 // Reads open listings via anon RLS; applications post through the
@@ -149,7 +150,7 @@ export default function PublicCareers() {
             ) : (
               <div style={s.list}>
                 {filtered.map(l => (
-                  <div key={l.id} style={s.card} onClick={() => openListing(l)}>
+                  <div key={l.id} {...clickableKeyProps(() => openListing(l))} style={s.card} onClick={() => openListing(l)}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={s.cardTitle}>{l.title}</div>
                       <div style={s.cardMeta}>

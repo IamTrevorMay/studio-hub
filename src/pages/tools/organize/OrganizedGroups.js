@@ -1,6 +1,7 @@
 import React from 'react';
 import FileGrid from './FileGrid';
 import FileList from './FileList';
+import { clickableKeyProps } from '../../../lib/styleRecipes';
 
 export default function OrganizedGroups({
   groups,
@@ -23,7 +24,7 @@ export default function OrganizedGroups({
         const isExpanded = expandedGroups.has(group.key);
         return (
           <div key={group.key} style={styles.group}>
-            <div style={styles.groupHeader} onClick={() => onToggleGroup(group.key)}>
+            <div {...clickableKeyProps(() => onToggleGroup(group.key))} style={styles.groupHeader} onClick={() => onToggleGroup(group.key)}>
               <svg
                 width="12" height="12" viewBox="0 0 12 12" fill="none"
                 stroke="rgba(255,255,255,0.4)" strokeWidth="1.5"

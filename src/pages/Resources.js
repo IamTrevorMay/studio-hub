@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import CanvasBoard from './editors/CanvasBoard';
+import { clickableKeyProps } from '../lib/styleRecipes';
 
 const FN_URL = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/google-drive-resources`;
 
@@ -477,7 +478,7 @@ function ListSection({ title, children }) {
 function ItemRow({ item, icon, onOpen, onContextMenu, renamingId, renameValue, onRenameChange, onRenameCommit, onRenameCancel, onDelete }) {
   const isRenaming = renamingId === item.id;
   return (
-    <div style={styles.listRow} onClick={onOpen} onContextMenu={onContextMenu}>
+    <div {...clickableKeyProps(onOpen)} style={styles.listRow} onClick={onOpen} onContextMenu={onContextMenu}>
       <div style={styles.rowName}>
         <span style={styles.rowIcon}>{icon}</span>
         {isRenaming ? (

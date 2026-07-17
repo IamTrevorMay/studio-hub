@@ -8,6 +8,7 @@ import { fetchAllRows } from './analytics/utils';
 import * as mammoth from 'mammoth';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
+import { clickableKeyProps } from '../lib/styleRecipes';
 
 function extractVideoId(url) {
   if (!url) return null;
@@ -288,7 +289,7 @@ export default function Reviews() {
       ) : (
         <div style={styles.reviewGrid}>
           {reviews.map(review => (
-            <div key={review.id} style={styles.reviewCard} onClick={() => setActiveReview(review)}>
+            <div key={review.id} {...clickableKeyProps(() => setActiveReview(review))} style={styles.reviewCard} onClick={() => setActiveReview(review)}>
               <div style={styles.thumbWrap}>
                 {review.youtube_video_id ? (
                   <>

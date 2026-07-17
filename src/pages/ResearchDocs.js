@@ -11,6 +11,7 @@ import {
   emptyResearchForm,
 } from '../lib/researchDocs';
 import { checkHealth } from '../lib/tritonMcp';
+import { clickableKeyProps } from '../lib/styleRecipes';
 
 const PRESET_QUERIES = [
   'Top 10 K/9 starters this season',
@@ -421,7 +422,7 @@ export default function ResearchDocs() {
               {items.map(item => {
                 const isRenaming = renamingId === item.id;
                 return (
-                  <div key={item.id} style={styles.row} onClick={() => openDoc(item)}>
+                  <div key={item.id} {...clickableKeyProps(() => openDoc(item))} style={styles.row} onClick={() => openDoc(item)}>
                     <span style={styles.rowIcon}>📝</span>
                     <div style={styles.rowMain}>
                       {isRenaming ? (

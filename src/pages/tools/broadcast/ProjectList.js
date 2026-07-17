@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { colors, spacing, radii, fontSizes, fontWeights } from '../../../lib/styleTokens';
 import { listProjects, createProject, deleteProject } from './api';
+import { clickableKeyProps } from '../../../lib/styleRecipes';
 
 // Lists broadcast projects the current user owns or is a member of.
 // Producer/admin tier can create new projects from the inline form at
@@ -80,7 +81,7 @@ export default function ProjectList({ onOpen }) {
             <div style={styles.empty}>No broadcast projects yet.</div>
           ) : (
             projects.map((p) => (
-              <div key={p.id} onClick={() => onOpen(p)} style={styles.card}>
+              <div key={p.id} {...clickableKeyProps(() => onOpen(p))} onClick={() => onOpen(p)} style={styles.card}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={styles.cardName}>{p.name}</div>
                   <div style={styles.cardMeta}>

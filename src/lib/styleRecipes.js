@@ -168,6 +168,42 @@ export function button({ variant = 'primary', size = 'md', disabled = false } = 
   return { ...base, background: colors.accent, color: colors.text };
 }
 
+// ─── Accessibility helpers ────────────────────────────────────
+//
+// buttonReset: neutralizes default UA <button> chrome so a semantic
+// <button> renders identically to the <div> it replaces. Spread it
+// FIRST, then the element's own inline styles, so the element's styles
+// always win: style={{ ...buttonReset, ...existingStyle }}.
+// Always pair with type="button" to avoid accidental form submits.
+export const buttonReset = {
+  appearance: 'none',
+  background: 'none',
+  border: 'none',
+  padding: 0,
+  margin: 0,
+  font: 'inherit',
+  color: 'inherit',
+  textAlign: 'inherit',
+  cursor: 'pointer',
+};
+
+// clickableKeyProps: for large container click targets that must stay a
+// <div> (they wrap other interactive children or would create too many
+// tab stops). Adds keyboard operability without changing appearance.
+// Apply as: <div {...clickableKeyProps(fn)} onClick={fn}>
+export function clickableKeyProps(fn) {
+  return {
+    role: 'button',
+    tabIndex: 0,
+    onKeyDown: (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        fn(e);
+      }
+    },
+  };
+}
+
 // ─── Input / Textarea / Select ────────────────────────────────
 
 export function input({ size = 'md' } = {}) {
@@ -254,6 +290,8 @@ const recipes = {
   pill,
   badge,
   button,
+  buttonReset,
+  clickableKeyProps,
   input,
   sectionHeader,
   modalOverlay,

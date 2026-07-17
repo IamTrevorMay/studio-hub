@@ -7,6 +7,7 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { callWorkflowFn } from '../lib/workflowApi';
 import { fetchAllRows } from './analytics/utils';
 import FindAssetsModal from '../components/FindAssetsModal';
+import { buttonReset } from '../lib/styleRecipes';
 
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
 
@@ -1641,22 +1642,22 @@ export default function Production({ initialSheetId, onSheetOpened }) {
           {/* Folder list */}
           <div style={{ minHeight: 200, maxHeight: 300, overflowY: 'auto', marginBottom: 12 }}>
             {folderStack.length > 0 && (
-              <div onClick={navigateBack} style={styles.folderRow}>
+              <button type="button" onClick={navigateBack} style={{ ...buttonReset, ...styles.folderRow }}>
                 <span style={{ fontSize: 16 }}>&#8592;</span>
                 <span>Back</span>
-              </div>
+              </button>
             )}
             {foldersLoading ? (
               <div style={{ padding: 20, textAlign: 'center', color: 'rgba(255,255,255,0.4)' }}>Loading...</div>
             ) : folders.length === 0 ? (
               <div style={{ padding: 20, textAlign: 'center', color: 'rgba(255,255,255,0.4)' }}>No folders here</div>
             ) : folders.map(f => (
-              <div key={f.id} onClick={() => navigateToFolder(f.id, f.name)} style={styles.folderRow}>
+              <button type="button" key={f.id} onClick={() => navigateToFolder(f.id, f.name)} style={{ ...buttonReset, ...styles.folderRow }}>
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="#f59e0b" stroke="none">
                   <path d="M1 3.5A1.5 1.5 0 012.5 2h3.379a1.5 1.5 0 011.06.44l.622.62a1.5 1.5 0 001.06.44H13.5A1.5 1.5 0 0115 5v7.5a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-9z"/>
                 </svg>
                 <span>{f.name}</span>
-              </div>
+              </button>
             ))}
           </div>
 
@@ -1884,13 +1885,13 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                                                 <circle cx="4" cy="9" r="1.2"/><circle cx="8" cy="9" r="1.2"/>
                                               </svg>
                                             </div>
-                                            <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => openSheet(sheet)}>
+                                            <button type="button" style={{ ...buttonReset, flex: 1, cursor: 'pointer' }} onClick={() => openSheet(sheet)}>
                                               <div style={styles.sheetTitle}>{sheet.title}</div>
                                               <div style={styles.sheetMeta}>
                                                 {countBeats(sheet.beats || [])} beat{countBeats(sheet.beats || []) !== 1 ? 's' : ''}
                                                 {' \u00b7 '}{timeAgo(sheet.updated_at)}
                                               </div>
-                                            </div>
+                                            </button>
                                             <div style={{ display: 'flex', gap: 6 }}>
                                               <button onClick={() => duplicateSheet(sheet)} style={styles.actionBtn} title="Duplicate">
                                                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -1989,13 +1990,13 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                                       <circle cx="4" cy="9" r="1.2"/><circle cx="8" cy="9" r="1.2"/>
                                     </svg>
                                   </div>
-                                  <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => openSheet(sheet)}>
+                                  <button type="button" style={{ ...buttonReset, flex: 1, cursor: 'pointer' }} onClick={() => openSheet(sheet)}>
                                     <div style={styles.sheetTitle}>{sheet.title}</div>
                                     <div style={styles.sheetMeta}>
                                       {countBeats(sheet.beats || [])} beat{countBeats(sheet.beats || []) !== 1 ? 's' : ''}
                                       {' \u00b7 '}{timeAgo(sheet.updated_at)}
                                     </div>
-                                  </div>
+                                  </button>
                                   <div style={{ display: 'flex', gap: 6 }}>
                                     <button onClick={() => duplicateSheet(sheet)} style={styles.actionBtn} title="Duplicate">
                                       <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -2088,13 +2089,13 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                                       <circle cx="4" cy="9" r="1.2"/><circle cx="8" cy="9" r="1.2"/>
                                     </svg>
                                   </div>
-                                  <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => openSheet(sheet)}>
+                                  <button type="button" style={{ ...buttonReset, flex: 1, cursor: 'pointer' }} onClick={() => openSheet(sheet)}>
                                     <div style={styles.sheetTitle}>{sheet.title}</div>
                                     <div style={styles.sheetMeta}>
                                       {countBeats(sheet.beats || [])} beat{countBeats(sheet.beats || []) !== 1 ? 's' : ''}
                                       {' \u00b7 '}{timeAgo(sheet.updated_at)}
                                     </div>
-                                  </div>
+                                  </button>
                                   <div style={{ display: 'flex', gap: 6 }}>
                                     <button onClick={() => duplicateSheet(sheet)} style={styles.actionBtn} title="Duplicate">
                                       <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">

@@ -14,6 +14,8 @@ import {
 } from '../../lib/workflowCatalog';
 import { listWorkflowModals } from '../../lib/workflowModals';
 import backdropDismiss from '../../lib/backdropDismiss';
+import { clickableKeyProps } from '../../lib/styleRecipes';
+import { colors } from '../../lib/styleTokens';
 
 // ─── Visual tokens ──────────────────────────────────────────
 
@@ -822,9 +824,9 @@ function StepCard({
               borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.5)', zIndex: 200, minWidth: 180,
             }}>
               {!isFirst && (
-                <div style={popStyles.menuItem} onClick={() => { onSetAsFirst(); setMenuOpen(false); }}>Set as starting step</div>
+                <div {...clickableKeyProps(() => { onSetAsFirst(); setMenuOpen(false); })} style={popStyles.menuItem} onClick={() => { onSetAsFirst(); setMenuOpen(false); }}>Set as starting step</div>
               )}
-              <div style={popStyles.menuItem} onClick={() => { onDelete(); setMenuOpen(false); }}>
+              <div {...clickableKeyProps(() => { onDelete(); setMenuOpen(false); })} style={popStyles.menuItem} onClick={() => { onDelete(); setMenuOpen(false); }}>
                 <span style={{ color: '#fca5a5' }}>Delete step</span>
               </div>
             </div>
@@ -1038,7 +1040,7 @@ function BranchEditor({ outcome, allSteps, parentStepKey, onUpdate, onDelete }) 
           </select>
         </div>
         <div style={popStyles.divider} />
-        <div style={{ ...popStyles.menuItem, color: '#fca5a5' }} onClick={() => { onDelete(); setOpen(false); }}>Delete branch</div>
+        <div {...clickableKeyProps(() => { onDelete(); setOpen(false); })} style={{ ...popStyles.menuItem, color: colors.danger.fgSoft }} onClick={() => { onDelete(); setOpen(false); }}>Delete branch</div>
       </Popover>
     </span>
   );

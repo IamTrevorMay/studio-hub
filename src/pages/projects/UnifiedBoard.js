@@ -18,6 +18,7 @@ import {
   defaultAssigneeRowsForType,
 } from '../../lib/kanbanStages';
 import backdropDismiss from '../../lib/backdropDismiss';
+import { clickableKeyProps } from '../../lib/styleRecipes';
 
 const SELECT = `
   id, name, type, status, deadline, on_hold, hold_reason, archived_at, stage_config, sort_order,
@@ -985,7 +986,7 @@ function MobileBoard({
               {list.length === 0 ? (
                 <div style={s.mobile.empty}>No cards</div>
               ) : list.map((p) => (
-                <div key={p.id} onClick={() => stage === 'hold' ? null : onCardTap(p)} style={s.mobile.card}>
+                <div key={p.id} {...clickableKeyProps(() => stage === 'hold' ? null : onCardTap(p))} onClick={() => stage === 'hold' ? null : onCardTap(p)} style={s.mobile.card}>
                   <div style={s.cardTitle}>{p.name}</div>
                   <div style={s.cardMeta}>
                     <span style={{ ...s.typeTag, color: typeColors(p.type).fg, background: typeColors(p.type).bg, borderColor: typeColors(p.type).border }}>{typeLabel(p.type)}</span>

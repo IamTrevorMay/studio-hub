@@ -2,6 +2,7 @@ import React from 'react';
 import MetadataFields from './MetadataFields';
 import AiBadge from './AiBadge';
 import { getMediaCategory } from './organizeConstants';
+import { clickableKeyProps } from '../../../lib/styleRecipes';
 
 export default function FileRow({ file, meta, onMetaChange, onPreview, selected, onToggleSelect, modified, onMoveBack, aiConf, confThreshold }) {
   const category = getMediaCategory(file.ext);
@@ -20,7 +21,7 @@ export default function FileRow({ file, meta, onMetaChange, onPreview, selected,
           )}
         </div>
       </div>
-      <div style={styles.thumbCol} onClick={() => onPreview(file)}>
+      <div {...clickableKeyProps(() => onPreview(file))} style={styles.thumbCol} onClick={() => onPreview(file)}>
         {(category === 'image' || category === 'video') && file.thumbUrl ? (
           <img src={file.thumbUrl} alt={file.name} style={styles.thumb} />
         ) : (

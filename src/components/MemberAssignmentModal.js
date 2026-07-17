@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { RESEARCH_FIELDS, emptyResearchForm, listResearchDocs, createResearchDoc } from '../lib/researchDocs';
 import { fetchAllRows } from '../pages/analytics/utils';
 import backdropDismiss from '../lib/backdropDismiss';
+import { clickableKeyProps } from '../lib/styleRecipes';
 
 const TEAM_ROLES = ['admin', 'assistant', 'member', 'partner'];
 
@@ -275,7 +276,7 @@ export default function MemberAssignmentModal({ open, onClose, onCreated, showTo
                   {recordOptions.length === 0 ? (
                     <div style={styles.recordEmpty}>No active {activeTemplate.entity}s found</div>
                   ) : recordOptions.slice(0, 50).map(rec => (
-                    <div key={rec.id} style={styles.recordRow} onClick={() => onPickRecord(rec)}>
+                    <div key={rec.id} {...clickableKeyProps(() => onPickRecord(rec))} style={styles.recordRow} onClick={() => onPickRecord(rec)}>
                       {rec.label}
                     </div>
                   ))}

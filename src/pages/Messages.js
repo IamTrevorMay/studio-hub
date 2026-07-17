@@ -7,6 +7,7 @@ import { getDisplayName, getDisplayInitial } from '../lib/displayName';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { ReactionChips, ReactionBar, toggleReaction } from '../components/MessageReactions';
 import backdropDismiss from '../lib/backdropDismiss';
+import { clickableKeyProps } from '../lib/styleRecipes';
 
 
 // A conversation is unread when its latest message came from someone else and
@@ -1037,7 +1038,7 @@ function DmMessage({ msg, isOwn, showAvatar, formatContent, formatTime, onEdit, 
           <>
             {msg.reply_to_id && (
               msg.reply_to ? (
-                <div style={styles.msgReplyQuote} onClick={scrollToOriginal} title="Go to original message">
+                <div {...clickableKeyProps(scrollToOriginal)} style={styles.msgReplyQuote} onClick={scrollToOriginal} title="Go to original message">
                   <div style={styles.msgReplyQuoteName}>{getDisplayName(msg.reply_to.profile)}</div>
                   <div style={styles.msgReplyQuoteText}>
                     {msg.reply_to.content.substring(0, 100)}{msg.reply_to.content.length > 100 ? '…' : ''}

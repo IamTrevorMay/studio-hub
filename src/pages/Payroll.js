@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { ptDateToUtcISO } from '../lib/ptDate';
+import { clickableKeyProps } from '../lib/styleRecipes';
 
 // ── Pay Period Helpers ────────────────────────────────────────────
 
@@ -521,7 +522,7 @@ export default function Payroll() {
                 ...styles.card,
                 ...(isPaid ? styles.cardPaid : {}),
               }}>
-                <div style={styles.cardHeader} onClick={() => toggleContractor(c.id)}>
+                <div {...clickableKeyProps(() => toggleContractor(c.id))} style={styles.cardHeader} onClick={() => toggleContractor(c.id)}>
                   <div style={styles.cardLeft}>
                     <div style={styles.avatar}>
                       {c.full_name?.[0]?.toUpperCase() || '?'}

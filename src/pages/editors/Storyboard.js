@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../../supabaseClient';
+import { buttonReset } from '../../lib/styleRecipes';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import * as fabric from 'fabric';
 import { jsPDF } from 'jspdf';
@@ -1095,10 +1096,10 @@ export default function Storyboard({ docId, title, onBack, onSaveTemplate }) {
                   </div>
                 </div>
               ))}
-              <div onClick={addPage} style={styles.gridAddCard}>
+              <button type="button" onClick={addPage} style={{ ...buttonReset, ...styles.gridAddCard }}>
                 <span style={{ fontSize: '28px', color: 'rgba(255,255,255,0.3)' }}>+</span>
                 <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)' }}>Add Page</span>
-              </div>
+              </button>
             </div>
           )}
         </div>

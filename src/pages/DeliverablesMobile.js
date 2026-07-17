@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { mobileTokens } from '../utils/mobileTokens';
+import { clickableKeyProps } from '../lib/styleRecipes';
 
 const DELIVERABLE_TYPES = {
   long_form_read: { label: 'Long Form Read', icon: '\u{1F4D6}' },
@@ -188,7 +189,7 @@ export default function DeliverablesMobile() {
               const isExpanded = expandedId === d.id;
               const ev = d.video_event_id ? videoEvents.find(e => e.id === d.video_event_id) : null;
               return (
-                <div key={d.id} style={styles.card} onClick={() => setExpandedId(isExpanded ? null : d.id)}>
+                <div key={d.id} {...clickableKeyProps(() => setExpandedId(isExpanded ? null : d.id))} style={styles.card} onClick={() => setExpandedId(isExpanded ? null : d.id)}>
                   <div style={styles.cardHeader}>
                     <div style={styles.cardLeft}>
                       <span style={{ fontSize: 16, flexShrink: 0 }}>{DELIVERABLE_TYPES[d.deliverable_type]?.icon || '\u{1F4CB}'}</span>

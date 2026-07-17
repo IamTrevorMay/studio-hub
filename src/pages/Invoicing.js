@@ -5,6 +5,7 @@ import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import usePersistedTab from '../hooks/usePersistedTab';
 import jsPDF from 'jspdf';
 import backdropDismiss from '../lib/backdropDismiss';
+import { clickableKeyProps } from '../lib/styleRecipes';
 
 // ════════════════════════════════════════════════════════════
 // Constants
@@ -763,7 +764,7 @@ function InvoiceRow({ inv, contactsById, onClick, full }) {
   const st = overdue ? { label: 'Overdue', color: OVERDUE_STYLE.color, bg: OVERDUE_STYLE.bg } : (STATUS_MAP[inv.status] || STATUS_MAP.draft);
 
   return (
-    <div style={styles.tableRow} onClick={onClick}>
+    <div {...clickableKeyProps(onClick)} style={styles.tableRow} onClick={onClick}>
       <div style={{ flex: '0 0 100px', fontWeight: 600, color: '#e2e8f0', fontFamily: 'monospace', fontSize: '13px' }}>
         {formatInvoiceNumber(inv.invoice_number)}
       </div>

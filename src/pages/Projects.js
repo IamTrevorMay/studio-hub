@@ -10,6 +10,7 @@ import { labelFor as stageTaskLabel } from '../lib/kanbanStages';
 import { callEdgeFn } from '../lib/edgeFn';
 import { fetchAllRows } from './analytics/utils';
 import backdropDismiss from '../lib/backdropDismiss';
+import { clickableKeyProps } from '../lib/styleRecipes';
 
 
 const STATUSES = ['queue', 'research', 'write', 'pre_production', 'film', 'review', 'edit', 'post_production', 'publish'];
@@ -825,7 +826,7 @@ function ProjectRow({
       }}
       onContextMenu={onContextMenu ? (e) => onContextMenu(e, project) : undefined}
     >
-      <div style={styles.projectRowMain} onClick={onToggle}>
+      <div {...clickableKeyProps(onToggle)} style={styles.projectRowMain} onClick={onToggle}>
         <div style={styles.projectRowLeft}>
           <div style={{
             ...styles.statusDot,
@@ -900,7 +901,7 @@ function ProjectRow({
                     autoFocus
                   />
                 ) : (
-                  <div onClick={() => { setEditName(project.name || ''); setEditingField('name'); }} style={styles.inlineDisplay}>{project.name}</div>
+                  <div {...clickableKeyProps(() => { setEditName(project.name || ''); setEditingField('name'); })} onClick={() => { setEditName(project.name || ''); setEditingField('name'); }} style={styles.inlineDisplay}>{project.name}</div>
                 )}
               </div>
               <div style={{ flex: 1, minWidth: '140px' }}>
@@ -916,7 +917,7 @@ function ProjectRow({
                     {typeList.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select>
                 ) : (
-                  <div onClick={() => { setEditType(project.type || typeList[0].value); setEditingField('type'); }} style={styles.inlineDisplay}>
+                  <div {...clickableKeyProps(() => { setEditType(project.type || typeList[0].value); setEditingField('type'); })} onClick={() => { setEditType(project.type || typeList[0].value); setEditingField('type'); }} style={styles.inlineDisplay}>
                     {typeList.find(t => t.value === project.type)?.label || project.type}
                   </div>
                 )}
@@ -936,7 +937,7 @@ function ProjectRow({
                       {CHANNELS.map((ch) => <option key={ch} value={ch}>{ch}</option>)}
                     </select>
                   ) : (
-                    <div onClick={() => { setEditChannel(project.channel || ''); setEditingField('channel'); }} style={styles.inlineDisplay}>
+                    <div {...clickableKeyProps(() => { setEditChannel(project.channel || ''); setEditingField('channel'); })} onClick={() => { setEditChannel(project.channel || ''); setEditingField('channel'); }} style={styles.inlineDisplay}>
                       {project.channel || <span style={{ color: 'rgba(255,255,255,0.2)' }}>No channel</span>}
                     </div>
                   )}
@@ -1045,7 +1046,7 @@ function ProjectRow({
                     autoFocus
                   />
                 ) : (
-                  <div onClick={() => { setEditStartDate(project.start_date || ''); setEditingField('start_date'); }} style={styles.inlineDisplay}>
+                  <div {...clickableKeyProps(() => { setEditStartDate(project.start_date || ''); setEditingField('start_date'); })} onClick={() => { setEditStartDate(project.start_date || ''); setEditingField('start_date'); }} style={styles.inlineDisplay}>
                     {project.start_date ? new Date(project.start_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : <span style={{ color: 'rgba(255,255,255,0.2)' }}>Set start date</span>}
                   </div>
                 )}
@@ -1063,7 +1064,7 @@ function ProjectRow({
                     autoFocus
                   />
                 ) : (
-                  <div onClick={() => { setEditDeadline(project.deadline || ''); setEditingField('deadline'); }} style={styles.inlineDisplay}>
+                  <div {...clickableKeyProps(() => { setEditDeadline(project.deadline || ''); setEditingField('deadline'); })} onClick={() => { setEditDeadline(project.deadline || ''); setEditingField('deadline'); }} style={styles.inlineDisplay}>
                     {project.deadline ? new Date(project.deadline).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : <span style={{ color: 'rgba(255,255,255,0.2)' }}>Set post date</span>}
                   </div>
                 )}
@@ -1083,7 +1084,7 @@ function ProjectRow({
                         autoFocus
                       />
                     ) : (
-                      <div onClick={() => { setEditPostTime(project.post_time || ''); setEditingField('post_time'); }} style={styles.inlineDisplay}>
+                      <div {...clickableKeyProps(() => { setEditPostTime(project.post_time || ''); setEditingField('post_time'); })} onClick={() => { setEditPostTime(project.post_time || ''); setEditingField('post_time'); }} style={styles.inlineDisplay}>
                         {project.post_time ? new Date(`2000-01-01T${project.post_time}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : <span style={{ color: 'rgba(255,255,255,0.2)' }}>Set time</span>}
                       </div>
                     )}

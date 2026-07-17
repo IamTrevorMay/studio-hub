@@ -8,6 +8,7 @@ import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { fetchAllRows } from './analytics/utils';
 import backdropDismiss from '../lib/backdropDismiss';
+import { clickableKeyProps } from '../lib/styleRecipes';
 
 // ════════════════════════════════════════════════════════════
 // Constants
@@ -1464,7 +1465,7 @@ function BdGoalsSection({
 
   return (
     <div style={styles.bdGoalsSection}>
-      <div style={styles.bdGoalsHeader} onClick={onToggleExpand}>
+      <div {...clickableKeyProps(onToggleExpand)} style={styles.bdGoalsHeader} onClick={onToggleExpand}>
         <span style={{ ...styles.workstreamCaret, transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
         <span style={{ fontSize: '14px', fontWeight: 700, color: '#e2e8f0' }}>Goals</span>
         <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', fontWeight: 500 }}>{goals.length}</span>

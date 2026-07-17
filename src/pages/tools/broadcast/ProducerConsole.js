@@ -14,6 +14,7 @@ import ClipMarkerPanel from './ClipMarkerPanel';
 import TemplateDataPanel from './TemplateDataPanel';
 import ChatReplay from './ChatReplay';
 import { updateSession } from './api';
+import { clickableKeyProps } from '../../../lib/styleRecipes';
 
 // Full producer surface. Live state via useBroadcastState (subscribes to
 // session row updates over Realtime). Hardware integrations: OBS WS +
@@ -110,7 +111,7 @@ export default function ProducerConsole({ project, session: initialSession, onCl
               {state.assets.length === 0
                 ? <div style={styles.empty}>No assets.</div>
                 : state.assets.map((a) => (
-                  <div key={a.id} onClick={() => setSelectedAsset(a)}
+                  <div key={a.id} {...clickableKeyProps(() => setSelectedAsset(a))} onClick={() => setSelectedAsset(a)}
                     style={{ ...styles.assetRow, ...(selectedAsset && selectedAsset.id === a.id ? styles.assetRowSel : {}) }}>
                     <span style={styles.dot(state.visibleAssetIds.has(a.id))} />
                     <span style={styles.assetName}>{a.name}</span>
