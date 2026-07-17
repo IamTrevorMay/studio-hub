@@ -21,7 +21,9 @@ import backdropDismiss from '../../lib/backdropDismiss';
 import { clickableKeyProps } from '../../lib/styleRecipes';
 
 const SELECT = `
-  id, name, type, status, deadline, on_hold, hold_reason, archived_at, stage_config, sort_order,
+  id, name, type, status, deadline, film_date, edit_deadline,
+  drive_folder_id, drive_folder_name, drive_folder_url,
+  on_hold, hold_reason, archived_at, stage_config, sort_order,
   project_stage_assignments(id, stage, user_id, profile:profiles(id, full_name, nickname, title, role))
 `;
 
@@ -42,6 +44,17 @@ function sortBySortOrder(a, b) {
 function getDisplayName(profile) {
   if (!profile) return '';
   return profile.full_name || profile.nickname || '';
+}
+
+// A YYYY-MM-DD date column, formatted without timezone drift.
+function fmtShort(dateStr) {
+  if (!dateStr) return '';
+  return new Date(`${dateStr.slice(0, 10)}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+// Midnight-local Date for a YYYY-MM-DD string (avoids UTC parse shifting the day).
+function localDay(dateStr) {
+  return new Date(`${dateStr.slice(0, 10)}T00:00:00`);
 }
 
 function isCurrentStageAssignee(project, userId) {
@@ -480,6 +493,8 @@ export default function UnifiedBoard() {
         </div>
       )}
 
+      <ScheduleSection projects={filteredTyped} onCardClick={(p) => setEditProject(p)} />
+
       {actionSheet && (
         <ActionSheet
           project={actionSheet.project}
@@ -717,6 +732,192 @@ function QueueColumn({ projects, canDragProject, onCardClick, onCardContextMenu,
   );
 }
 
+// ─── ScheduleSection (Gantt / Swimlane) ──────────────────────────
+//
+// Bars run from today up to each project's Film Date (amber) and on to its
+// Edit Deadline (orange). Projects with neither date are omitted. Gantt view
+// is one flat list; Swimlane view groups the same bars by project type.
+
+const DAY = 86_400_000;
+
+function ScheduleSection({ projects, onCardClick }) {
+  const [view, setView] = useState(() => localStorage.getItem('projects_schedule_view') || 'gantt');
+  useEffect(() => { localStorage.setItem('projects_schedule_view', view); }, [view]);
+
+  // Only projects with at least one schedule date participate.
+  const scheduled = useMemo(
+    () => projects.filter((p) => p.film_date || p.edit_deadline),
+    [projects],
+  );
+
+  // Shared time axis: from the earliest relevant date (or today) to the latest,
+  // padded a couple days on each side so end-caps aren't flush to the edge.
+  const axis = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const times = [today.getTime()];
+    for (const p of scheduled) {
+      if (p.film_date) times.push(localDay(p.film_date).getTime());
+      if (p.edit_deadline) times.push(localDay(p.edit_deadline).getTime());
+    }
+    let min = Math.min(...times) - 2 * DAY;
+    let max = Math.max(...times) + 2 * DAY;
+    if (max - min < 7 * DAY) max = min + 7 * DAY; // floor span so bars are legible
+    return { min, max, span: max - min, todayMs: today.getTime() };
+  }, [scheduled]);
+
+  // Weekly tick marks across the axis (Mondays), for the ruler + gridlines.
+  const ticks = useMemo(() => {
+    const out = [];
+    const start = new Date(axis.min);
+    start.setHours(0, 0, 0, 0);
+    const dow = start.getDay();
+    const toMonday = (dow === 0 ? 1 : (8 - dow) % 7); // next Monday (or today if Monday)
+    start.setDate(start.getDate() + toMonday);
+    for (let t = start.getTime(); t <= axis.max; t += 7 * DAY) {
+      out.push(t);
+    }
+    return out;
+  }, [axis]);
+
+  const pct = (ms) => `${((ms - axis.min) / axis.span) * 100}%`;
+
+  const groups = useMemo(() => {
+    if (view !== 'swimlane') return [{ key: 'all', label: null, items: scheduled }];
+    const out = [];
+    for (const opt of PROJECT_TYPE_OPTIONS) {
+      const items = scheduled.filter((p) => p.type === opt.value);
+      if (items.length) out.push({ key: opt.value, label: opt.label, items });
+    }
+    const other = scheduled.filter((p) => !PROJECT_TYPE_OPTIONS.some((o) => o.value === p.type));
+    if (other.length) out.push({ key: 'other', label: 'Other', items: other });
+    return out;
+  }, [view, scheduled]);
+
+  return (
+    <div style={s.sched.wrap}>
+      <div style={s.sched.header}>
+        <span style={s.sched.title}>SCHEDULE</span>
+        <div style={s.sched.viewToggle}>
+          {[{ v: 'gantt', label: 'Gantt' }, { v: 'swimlane', label: 'Swimlane' }].map((o) => (
+            <button
+              key={o.v}
+              onClick={() => setView(o.v)}
+              style={{ ...s.sched.viewBtn, ...(view === o.v ? s.sched.viewBtnActive : null) }}
+            >{o.label}</button>
+          ))}
+        </div>
+      </div>
+
+      {scheduled.length === 0 ? (
+        <div style={s.sched.empty}>
+          Set a Film Date or Edit Deadline on a project to see it here.
+        </div>
+      ) : (
+        <div style={s.sched.chart}>
+          {/* Ruler */}
+          <div style={s.sched.rulerRow}>
+            <div style={s.sched.labelCol} />
+            <div style={s.sched.track}>
+              {ticks.map((t) => (
+                <div key={t} style={{ ...s.sched.tickLabel, left: pct(t) }}>
+                  {new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {groups.map((group) => (
+            <div key={group.key}>
+              {group.label && (
+                <div style={{ ...s.sched.laneHeader, color: typeColors(group.key).fg }}>
+                  {group.label}
+                </div>
+              )}
+              {group.items.map((p) => (
+                <ScheduleRow key={p.id} project={p} axis={axis} pct={pct} ticks={ticks} onClick={() => onCardClick?.(p)} />
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={s.sched.legend}>
+        <span style={s.sched.legendItem}><span style={{ ...s.sched.legendSwatch, background: STAGE_COLORS.film }} /> To Film Date</span>
+        <span style={s.sched.legendItem}><span style={{ ...s.sched.legendSwatch, background: STAGE_COLORS.edit }} /> To Edit Deadline</span>
+        <span style={s.sched.legendItem}><span style={{ ...s.sched.legendSwatch, background: colors.danger.fg, width: 2 }} /> Today</span>
+      </div>
+    </div>
+  );
+}
+
+function ScheduleRow({ project, axis, pct, ticks, onClick }) {
+  const film = project.film_date ? localDay(project.film_date).getTime() : null;
+  const edit = project.edit_deadline ? localDay(project.edit_deadline).getTime() : null;
+  const today = axis.todayMs;
+
+  // Segment 1 (amber): from the bar's left anchor to Film Date.
+  // Segment 2 (orange): from Film Date (or today when no film) to Edit Deadline.
+  // Anchor left at min(today, film) so an already-passed film date still renders.
+  const segments = [];
+  if (film != null) {
+    const start = Math.min(today, film);
+    if (film > start) segments.push({ from: start, to: film, color: STAGE_COLORS.film, key: 'film' });
+  }
+  if (edit != null) {
+    const start = film != null ? film : Math.min(today, edit);
+    if (edit > start) segments.push({ from: start, to: edit, color: STAGE_COLORS.edit, key: 'edit' });
+  }
+
+  const overdue = edit != null && edit < today;
+
+  return (
+    <div
+      style={s.sched.row}
+      {...clickableKeyProps(onClick)}
+      onClick={onClick}
+    >
+      <div style={s.sched.labelCol}>
+        <div style={s.sched.rowName} title={project.name}>{project.name}</div>
+        <span style={{ ...s.typeTag, color: typeColors(project.type).fg, background: typeColors(project.type).bg, borderColor: typeColors(project.type).border }}>{typeLabel(project.type)}</span>
+      </div>
+      <div style={s.sched.track}>
+        {/* gridlines */}
+        {ticks.map((t) => (
+          <div key={t} style={{ ...s.sched.gridline, left: pct(t) }} />
+        ))}
+        {/* today marker */}
+        {today >= axis.min && today <= axis.max && (
+          <div style={{ ...s.sched.todayLine, left: pct(today) }} />
+        )}
+        {/* segments */}
+        {segments.map((seg) => (
+          <div
+            key={seg.key}
+            style={{
+              ...s.sched.bar,
+              left: pct(seg.from),
+              width: `${((seg.to - seg.from) / axis.span) * 100}%`,
+              background: seg.color,
+            }}
+          />
+        ))}
+        {/* date pins */}
+        {film != null && (
+          <div style={{ ...s.sched.pin, left: pct(film), color: STAGE_COLORS.film }} title={`Film: ${fmtShort(project.film_date)}`}>
+            🎬 {fmtShort(project.film_date)}
+          </div>
+        )}
+        {edit != null && (
+          <div style={{ ...s.sched.pin, left: pct(edit), color: overdue ? colors.danger.fg : STAGE_COLORS.edit }} title={`Edit deadline: ${fmtShort(project.edit_deadline)}`}>
+            ✂ {fmtShort(project.edit_deadline)}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── CardContextMenu ─────────────────────────────────────────────
 
 function CardContextMenu({ x, y, onClose, onDuplicate, onArchive, onDelete }) {
@@ -895,6 +1096,20 @@ function KanbanCard({ project, taskPlannedDates, priorityNumber }) {
           </span>
         )}
       </div>
+      {(project.film_date || project.edit_deadline) && (
+        <div style={s.scheduleDates}>
+          {project.film_date && (
+            <span style={{ ...s.scheduleDate, color: STAGE_COLORS.film }}>
+              🎬 {fmtShort(project.film_date)}
+            </span>
+          )}
+          {project.edit_deadline && (
+            <span style={{ ...s.scheduleDate, color: STAGE_COLORS.edit }}>
+              ✂ {fmtShort(project.edit_deadline)}
+            </span>
+          )}
+        </div>
+      )}
       {assignees.length > 0 && (
         <div style={s.assigneeRow}>
           {stageAssignments.slice(0, 3).map((a, i) => {
@@ -1214,6 +1429,8 @@ function NewProjectModal({ onClose, onCreated, createdBy }) {
   const [type, setType] = useState(PROJECT_TYPE_OPTIONS[0].value);
   const [startColumn, setStartColumn] = useState('queue');
   const [deadline, setDeadline] = useState('');
+  const [filmDate, setFilmDate] = useState('');
+  const [editDeadline, setEditDeadline] = useState('');
   const [busy, setBusy] = useState(false);
 
   async function submit(e) {
@@ -1230,6 +1447,8 @@ function NewProjectModal({ onClose, onCreated, createdBy }) {
       status: 'queue',
       start_column: startColumn,
       deadline: deadline || null,
+      film_date: filmDate || null,
+      edit_deadline: editDeadline || null,
       created_by: createdBy,
       stage_config: defaultStageConfigForType(type),
     }).select('id').single();
@@ -1293,6 +1512,28 @@ function NewProjectModal({ onClose, onCreated, createdBy }) {
             style={s.input}
           />
         </Field>
+        <div style={{ display: 'flex', gap: spacing.sm }}>
+          <div style={{ flex: 1 }}>
+            <Field label="Film Date">
+              <input
+                type="date"
+                value={filmDate}
+                onChange={(e) => setFilmDate(e.target.value)}
+                style={s.input}
+              />
+            </Field>
+          </div>
+          <div style={{ flex: 1 }}>
+            <Field label="Edit Deadline">
+              <input
+                type="date"
+                value={editDeadline}
+                onChange={(e) => setEditDeadline(e.target.value)}
+                style={s.input}
+              />
+            </Field>
+          </div>
+        </div>
         <div style={s.modalActions}>
           <button type="button" onClick={onClose} style={s.ghostBtn} disabled={busy}>Cancel</button>
           <button type="submit" style={s.primaryBtn} disabled={busy}>
@@ -1312,11 +1553,47 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
   const [type, setType] = useState(project.type || PROJECT_TYPE_OPTIONS[0].value);
   const [status, setStatus] = useState(project.status);
   const [deadline, setDeadline] = useState(project.deadline ? project.deadline.slice(0, 10) : '');
+  const [filmDate, setFilmDate] = useState(project.film_date ? project.film_date.slice(0, 10) : '');
+  const [editDeadline, setEditDeadline] = useState(project.edit_deadline ? project.edit_deadline.slice(0, 10) : '');
   const [postTime, setPostTime] = useState(project.post_time || '');
   const [busy, setBusy] = useState(false);
   const [stageConfig, setStageConfig] = useState(project.stage_config || {});
   const [stageAssignments, setStageAssignments] = useState(project.project_stage_assignments || []);
   const [teamMembers, setTeamMembers] = useState([]);
+  const [folderId, setFolderId] = useState(project.drive_folder_id || '');
+  const [folderName, setFolderName] = useState(project.drive_folder_name || '');
+  const [folderUrl, setFolderUrl] = useState(project.drive_folder_url || '');
+  const [folders, setFolders] = useState([]);
+  const [foldersLoading, setFoldersLoading] = useState(false);
+  const [foldersError, setFoldersError] = useState(null);
+
+  // Load the Drive subfolders for the project's type root so the Folder
+  // dropdown can list them. Re-fetches when the type changes.
+  useEffect(() => {
+    let cancelled = false;
+    setFoldersError(null);
+    setFoldersLoading(true);
+    (async () => {
+      try {
+        const data = await callEdgeFn('project-drive-folders', { type });
+        if (cancelled) return;
+        setFolders(data.items || []);
+      } catch (err) {
+        if (!cancelled) setFoldersError(err.message);
+      } finally {
+        if (!cancelled) setFoldersLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [type]);
+
+  function onFolderChange(id) {
+    if (!id) { setFolderId(''); setFolderName(''); setFolderUrl(''); return; }
+    const f = folders.find((x) => x.id === id);
+    setFolderId(id);
+    setFolderName(f?.name || '');
+    setFolderUrl(f?.url || '');
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -1393,7 +1670,12 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
         name: name.trim(),
         type,
         deadline: deadline || null,
+        film_date: filmDate || null,
+        edit_deadline: editDeadline || null,
         post_time: postTime || null,
+        drive_folder_id: folderId || null,
+        drive_folder_name: folderName || null,
+        drive_folder_url: folderUrl || null,
       };
       const { error } = await supabase.from('projects').update(patch).eq('id', project.id);
       if (error) throw error;
@@ -1525,6 +1807,67 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
             </div>
           )}
         </div>
+
+        <div style={{ display: 'flex', gap: spacing.sm }}>
+          <div style={{ flex: 1 }}>
+            <Field label="Film Date">
+              <input
+                type="date"
+                value={filmDate}
+                onChange={(e) => setFilmDate(e.target.value)}
+                disabled={!canEdit}
+                style={s.input}
+              />
+            </Field>
+          </div>
+          <div style={{ flex: 1 }}>
+            <Field label="Edit Deadline">
+              <input
+                type="date"
+                value={editDeadline}
+                onChange={(e) => setEditDeadline(e.target.value)}
+                disabled={!canEdit}
+                style={s.input}
+              />
+            </Field>
+          </div>
+        </div>
+
+        <Field label="Folder">
+          <div style={{ display: 'flex', gap: spacing.sm, alignItems: 'center' }}>
+            <select
+              value={folderId}
+              onChange={(e) => onFolderChange(e.target.value)}
+              disabled={!canEdit || foldersLoading}
+              style={{ ...s.input, flex: 1 }}
+            >
+              <option value="">
+                {foldersLoading ? 'Loading folders…' : foldersError ? 'Failed to load folders' : 'No folder linked'}
+              </option>
+              {/* Keep a previously-linked folder selectable even if it's not in the fetched list. */}
+              {folderId && !folders.some((f) => f.id === folderId) && (
+                <option value={folderId}>{folderName || 'Linked folder'}</option>
+              )}
+              {folders.map((f) => (
+                <option key={f.id} value={f.id}>{f.name}</option>
+              ))}
+            </select>
+            {folderUrl && (
+              <a
+                href={folderUrl}
+                target="_blank"
+                rel="noreferrer"
+                style={s.folderLink}
+                title="Open in Drive"
+              >
+                Open ↗
+              </a>
+            )}
+          </div>
+          {foldersError && (
+            <div style={{ color: colors.danger.fg, fontSize: fontSizes.xs, marginTop: spacing.xs }}>{foldersError}</div>
+          )}
+        </Field>
 
         {/* Assignments */}
         <div style={{ marginTop: spacing.md, marginBottom: spacing.md }}>
@@ -1776,6 +2119,18 @@ const s = {
     padding: `${spacing.xs}px ${spacing.xs}px 2px`,
   },
   dueDate: { color: colors.textMuted, fontWeight: fontWeights.medium },
+  scheduleDates: {
+    display: 'flex', gap: spacing.sm, marginTop: spacing.xs,
+    fontSize: fontSizes.xs, flexWrap: 'wrap',
+  },
+  scheduleDate: { fontWeight: fontWeights.medium, fontVariantNumeric: 'tabular-nums' },
+  folderLink: {
+    color: colors.accentFg, fontSize: fontSizes.sm, fontWeight: fontWeights.medium,
+    textDecoration: 'none', whiteSpace: 'nowrap',
+    padding: `${spacing.sm}px ${spacing.md}px`,
+    border: `1px solid ${colors.accentBorder}`, borderRadius: radii.sm,
+    background: colors.accentSoft,
+  },
   assigneeRow: {
     marginTop: spacing.xs, color: colors.textSubtle, fontSize: fontSizes.xs,
   },
@@ -1956,6 +2311,96 @@ const s = {
     sheetCancel: {
       marginTop: spacing.md, justifyContent: 'center',
       color: colors.textMuted, background: 'transparent',
+    },
+  },
+
+  sched: {
+    wrap: {
+      background: colors.bgRaised,
+      border: `1px solid ${colors.border}`,
+      borderRadius: radii.md,
+      padding: spacing.md,
+      width: '100%',
+      display: 'flex', flexDirection: 'column', gap: spacing.md,
+    },
+    header: {
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    },
+    title: {
+      fontSize: fontSizes.xs, fontWeight: fontWeights.bold, letterSpacing: 1,
+      color: colors.textSubtle,
+    },
+    viewToggle: {
+      display: 'flex', gap: spacing.xs,
+      background: colors.bgInput, border: `1px solid ${colors.border}`,
+      borderRadius: radii.md, padding: 2,
+    },
+    viewBtn: {
+      background: 'transparent', border: 'none', color: colors.textMuted,
+      borderRadius: radii.sm, padding: `${spacing.xs}px ${spacing.md}px`,
+      fontSize: fontSizes.sm, cursor: 'pointer', fontWeight: fontWeights.medium,
+    },
+    viewBtnActive: {
+      background: colors.accentSoft, color: colors.accentFg,
+    },
+    empty: {
+      color: colors.textDim, fontSize: fontSizes.sm, fontStyle: 'italic',
+      padding: `${spacing.lg}px ${spacing.sm}px`, textAlign: 'center',
+    },
+    chart: {
+      display: 'flex', flexDirection: 'column', gap: spacing.xs,
+      overflowX: 'auto',
+    },
+    rulerRow: {
+      display: 'flex', alignItems: 'flex-end', height: 20, minWidth: 520,
+    },
+    labelCol: {
+      width: 150, flexShrink: 0, paddingRight: spacing.sm,
+      display: 'flex', flexDirection: 'column', gap: 2,
+    },
+    track: {
+      position: 'relative', flex: 1, minWidth: 360, height: '100%',
+    },
+    tickLabel: {
+      position: 'absolute', bottom: 0, transform: 'translateX(-50%)',
+      fontSize: 9, color: colors.textDim, whiteSpace: 'nowrap',
+    },
+    laneHeader: {
+      fontSize: 10, fontWeight: fontWeights.bold, letterSpacing: 0.8,
+      textTransform: 'uppercase', padding: `${spacing.sm}px 0 ${spacing.xs}px`,
+    },
+    row: {
+      display: 'flex', alignItems: 'center', minWidth: 520,
+      height: 30, cursor: 'pointer', borderRadius: radii.sm,
+    },
+    rowName: {
+      fontSize: fontSizes.sm, color: colors.text, fontWeight: fontWeights.medium,
+      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+    },
+    gridline: {
+      position: 'absolute', top: 0, bottom: 0, width: 1,
+      background: colors.border,
+    },
+    todayLine: {
+      position: 'absolute', top: -2, bottom: -2, width: 2,
+      background: colors.danger.fg, opacity: 0.7, zIndex: 2,
+    },
+    bar: {
+      position: 'absolute', top: '50%', transform: 'translateY(-50%)',
+      height: 10, borderRadius: radii.xs, minWidth: 2,
+    },
+    pin: {
+      position: 'absolute', top: '50%', transform: 'translate(4px, -50%)',
+      fontSize: 9, fontWeight: fontWeights.semibold, whiteSpace: 'nowrap',
+      fontVariantNumeric: 'tabular-nums', zIndex: 3, pointerEvents: 'none',
+    },
+    legend: {
+      display: 'flex', gap: spacing.lg, flexWrap: 'wrap',
+      fontSize: fontSizes.xs, color: colors.textSubtle,
+    },
+    legendItem: { display: 'flex', alignItems: 'center', gap: spacing.xs },
+    legendSwatch: {
+      display: 'inline-block', width: 14, height: 8, borderRadius: radii.xs,
     },
   },
 
