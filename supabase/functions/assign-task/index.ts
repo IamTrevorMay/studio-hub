@@ -76,7 +76,11 @@ Deno.serve(async (req: Request) => {
     if (isEntityTemplate && !relId) {
       return jsonResp({ error: "a record must be selected for this template" }, 400);
     }
-    if ((stepKey === "background_research" || stepKey === "research") && !linkUrl) {
+    // Background Research must carry a doc link. Project 'research' tasks
+    // usually do too (from the Set Research Scope modal), but the "who's
+    // already researching" skip flow assigns them without one — a link is
+    // optional there, so only enforce it for background_research.
+    if (stepKey === "background_research" && !linkUrl) {
       return jsonResp({ error: "a research doc is required for Background Research" }, 400);
     }
 
