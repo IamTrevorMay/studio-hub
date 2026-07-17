@@ -111,6 +111,29 @@ export const TYPE_DEFAULT_ASSIGNEES = {
     post_production: ['c3290048-436b-46c6-b3f0-fdf7923d0c3b'],  // Trevor May
     publish: [],
   },
+  // Mirrors the "MLB's Worst Teammates" project setup (2026-07-17).
+  tm_baseball_video: {
+    queue: [],
+    research: [
+      '7b1e50e0-cede-409d-a160-1aa6d1e232a9',                   // Henry Neiman
+      'ed7541f9-213d-4868-9147-5e638cbb6883',                   // Caleb Bartholomae
+    ],
+    write: [
+      '7b1e50e0-cede-409d-a160-1aa6d1e232a9',                   // Henry Neiman
+      'c3290048-436b-46c6-b3f0-fdf7923d0c3b',                   // Trevor May
+      'ed7541f9-213d-4868-9147-5e638cbb6883',                   // Caleb Bartholomae
+    ],
+    pre_production: [
+      '7b1e50e0-cede-409d-a160-1aa6d1e232a9',                   // Henry Neiman
+      'c3290048-436b-46c6-b3f0-fdf7923d0c3b',                   // Trevor May
+      'ed7541f9-213d-4868-9147-5e638cbb6883',                   // Caleb Bartholomae
+    ],
+    film: ['c3290048-436b-46c6-b3f0-fdf7923d0c3b'],             // Trevor May
+    review: ['c3290048-436b-46c6-b3f0-fdf7923d0c3b'],           // Trevor May
+    edit: ['219a0098-6530-49a2-98d0-edb59b8ed39a'],            // Ethan Jones
+    post_production: ['c3290048-436b-46c6-b3f0-fdf7923d0c3b'],  // Trevor May
+    publish: [],
+  },
 };
 
 // Rows ready for insert into project_stage_assignments for a freshly created project.
