@@ -1,0 +1,11 @@
+#!/bin/sh
+# Style-token ratchet: block commits that ADD hardcoded colors / off-scale
+# spacing / off-ramp font sizes inside style objects. Only newly added lines
+# are checked, so legacy code never blocks you. Bypass once with:
+#   git commit --no-verify
+# Enable in a fresh clone with: npm run hooks:install
+node scripts/lint-styles.js --staged || {
+  echo ""
+  echo "✗ commit blocked: new style magic numbers (see above)."
+  exit 1
+}

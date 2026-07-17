@@ -74,6 +74,8 @@
     "test:db": "cat supabase/tests/run-db-checks.sql | npx supabase db query --linked",
     "test:all": "npm run test:frontend && npm run test:edge && npm run test:db",
     "lint:styles": "node scripts/lint-styles.js",
+    "lint:styles:staged": "node scripts/lint-styles.js --staged",
+    "hooks:install": "git config core.hooksPath .githooks",
     "eject": "react-scripts eject"
   },
   "browserslist": {

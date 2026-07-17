@@ -21,8 +21,48 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { execSync } = require('node:child_process');
 const parser = require('@babel/parser');
 const traverse = require('@babel/traverse').default;
+
+// ─── Staged-diff mode (the ratchet) ───────────────────────────
+//
+// `--staged` lints only files staged for commit, and only reports
+// findings on lines the commit ADDS. Legacy magic numbers on untouched
+// lines never block — so the gate stops NEW drift without demanding a
+// 3,000-site retrofit first. Wired into .githooks/pre-commit.
+function getStagedAddedLines() {
+  // Map<absolutePath, Set<newLineNumber>>
+  const map = new Map();
+  let diff;
+  try {
+    diff = execSync('git diff --cached -U0 --diff-filter=ACM -- "src/*.js" "src/**/*.js" "src/*.jsx" "src/**/*.jsx"', {
+      cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+    });
+  } catch {
+    return map; // not a git repo / nothing staged
+  }
+  let curFile = null;
+  for (const raw of diff.split('\n')) {
+    if (raw.startsWith('+++ b/')) {
+      const rel = raw.slice('+++ b/'.length).trim();
+      curFile = rel === '/dev/null' ? null : path.join(ROOT, rel);
+      if (curFile && !map.has(curFile)) map.set(curFile, new Set());
+      continue;
+    }
+    if (raw.startsWith('@@') && curFile) {
+      // @@ -a,b +c,d @@  → added hunk starts at line c, length d (default 1)
+      const m = raw.match(/\+(\d+)(?:,(\d+))?/);
+      if (m) {
+        const start = parseInt(m[1], 10);
+        const len = m[2] === undefined ? 1 : parseInt(m[2], 10);
+        const set = map.get(curFile);
+        for (let i = 0; i < len; i++) set.add(start + i);
+      }
+    }
+  }
+  return map;
+}
 
 const ROOT = path.resolve(__dirname, '..');
 const SRC = path.join(ROOT, 'src');
@@ -173,20 +213,33 @@ function lintFile(file) {
   });
 }
 
-let count = 0;
-for (const file of walk(SRC)) {
-  const before = findings.length;
-  lintFile(file);
-  count += findings.length - before;
-}
-
-const strict = process.argv.includes('--strict');
+const staged = process.argv.includes('--staged');
+const strict = process.argv.includes('--strict') || staged;
 const filterFlag = process.argv.find((a) => a.startsWith('--only='));
 const onlyFilter = filterFlag ? filterFlag.slice('--only='.length) : null;
 
-if (findings.length === 0) {
-  console.log('No style magic numbers found. Nice.');
-  process.exit(0);
+if (staged) {
+  // Ratchet mode: only staged files, only added lines.
+  const addedByFile = getStagedAddedLines();
+  for (const file of addedByFile.keys()) {
+    if (fs.existsSync(file)) lintFile(file);
+  }
+  // Keep only findings on lines this commit adds.
+  const kept = findings.filter((f) => addedByFile.get(f.file)?.has(f.line));
+  findings.length = 0;
+  findings.push(...kept);
+
+  if (findings.length === 0) {
+    console.log('lint:styles (staged) — no new style magic numbers. ✓');
+    process.exit(0);
+  }
+} else {
+  for (const file of walk(SRC)) lintFile(file);
+
+  if (findings.length === 0) {
+    console.log('No style magic numbers found. Nice.');
+    process.exit(0);
+  }
 }
 
 const filtered = onlyFilter
@@ -210,5 +263,10 @@ for (const [file, list] of byFile) {
 console.log(`\n${filtered.length} finding${filtered.length === 1 ? '' : 's'} in ${byFile.size} file${byFile.size === 1 ? '' : 's'}.`);
 if (onlyFilter) console.log(`(filtered by --only=${onlyFilter}; total project findings: ${findings.length})`);
 console.log('Append // style-lint-ignore to a property line to suppress one-off cases.');
-console.log('Run with --strict to exit non-zero (use in CI once a page is migrated).');
+if (staged) {
+  console.log('\nThese are on lines this commit ADDS. Use a token (src/lib/styleTokens.js)');
+  console.log('or append // style-lint-ignore. To bypass the gate once: git commit --no-verify.');
+} else {
+  console.log('Run with --strict to exit non-zero, or --staged for the commit-gate (added lines only).');
+}
 process.exit(strict ? 1 : 0);
