@@ -277,6 +277,7 @@ export default function MessagesMobile({ onNavigate }) {
         open={!!activeConvo}
         onClose={closeActiveConvo}
         title={activeConvo ? convoName(activeConvo) : ''}
+        backLabel="Messages"
       >
         {activeConvo && (
           <ConversationView

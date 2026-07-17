@@ -56,6 +56,10 @@ export default function Messages({ onNavigate }) {
   const [groupName, setGroupName] = useState('');
   const [searchUsers, setSearchUsers] = useState('');
   const messagesEndRef = useRef(null);
+  const messagesAreaRef = useRef(null);
+  // True right after a conversation opens, so the first scroll-to-bottom jumps
+  // instantly (you land at the newest message) instead of animating from the top.
+  const jumpToBottomRef = useRef(false);
   const inputRef = useRef(null);
   const sendingRef = useRef(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
@@ -191,6 +195,7 @@ export default function Messages({ onNavigate }) {
   useEffect(() => {
     if (!activeConversation) return;
     setReplyingTo(null);
+    jumpToBottomRef.current = true; // next render should land at the bottom instantly
     fetchMessages(activeConversation.id);
     markConversationRead(activeConversation.id);
     // Opening a conversation clears its unread badge immediately.
@@ -275,7 +280,15 @@ export default function Messages({ onNavigate }) {
   }, [activeConversation, profile?.id, markConversationRead]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (jumpToBottomRef.current) {
+      // Opening a thread: jump straight to the newest message with no animation.
+      jumpToBottomRef.current = false;
+      const area = messagesAreaRef.current;
+      if (area) area.scrollTop = area.scrollHeight;
+      else messagesEndRef.current?.scrollIntoView({ block: 'end' });
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
 
   async function handleSendMessage(e) {
@@ -700,7 +713,7 @@ export default function Messages({ onNavigate }) {
               <h2 style={styles.chatHeaderName}>{getConvoDisplayName(activeConversation)}</h2>
             </div>
 
-            <div style={styles.messagesArea}>
+            <div style={styles.messagesArea} ref={messagesAreaRef}>
               {loadingMessages ? (
                 <p style={{ textAlign: 'center', color: 'rgba(255,255,255,0.35)', paddingTop: '40px' }}>Loading...</p>
               ) : messages.length === 0 ? (
