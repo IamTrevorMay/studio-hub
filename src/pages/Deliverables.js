@@ -9,6 +9,7 @@ import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { callWorkflowFn } from '../lib/workflowApi';
 import { ptMonthKey, ptDayKey } from '../lib/ptDate';
 import AgencyThread from '../components/AgencyThread';
+import BeatSheetChooserModal from '../components/BeatSheetChooserModal';
 
 export const DELIVERABLE_TYPES = {
   long_form_read: { label: 'Long Form Read', icon: '\u{1F4D6}' },
@@ -51,6 +52,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
   const [dueDate, setDueDate] = useState('');
   const [deliverableNotes, setDeliverableNotes] = useState('');
   const [adCopyModalOpen, setAdCopyModalOpen] = useState(false);
+  const [beatSheetChooserOpen, setBeatSheetChooserOpen] = useState(false);
   useEffect(() => {
     if (typeof document === 'undefined') return;
     if (document.getElementById('brief-md-styles')) return;
@@ -72,7 +74,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
   const [deliverableNeedsReview, setDeliverableNeedsReview] = useState(false);
   const [deliverableBrandId, setDeliverableBrandId] = useState('');
   const [deliverablePay, setDeliverablePay] = useState('');
-  const [deliverableBeatSheetId, setDeliverableBeatSheetId] = useState('');
   const [deliverableVideoEventId, setDeliverableVideoEventId] = useState('');
   const [deliverableChannel, setDeliverableChannel] = useState('');
   const [deliverableReviewStatus, setDeliverableReviewStatus] = useState('queued');
@@ -125,7 +126,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
 
   // Context menu + inline dropdowns for upcoming cards
   const [cardContextMenu, setCardContextMenu] = useState(null); // { x, y, deliverable }
-  const [beatSheetDropdownId, setBeatSheetDropdownId] = useState(null); // deliverable id showing beat sheet picker
   const [reviewDropdownId, setReviewDropdownId] = useState(null); // deliverable id showing status picker
   // Screen coords for the open inline dropdown. Position: fixed so the menu
   // escapes the table's overflowX container instead of being clipped by it.
@@ -142,15 +142,14 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
   // Fixed-positioned menus don't follow their chip when the page scrolls —
   // close instead of drifting. Scrolls inside the menu itself are fine.
   useEffect(() => {
-    if (!reviewDropdownId && !beatSheetDropdownId) return;
+    if (!reviewDropdownId) return;
     const onScroll = (e) => {
       if (e.target instanceof Element && e.target.closest('[data-inline-dropdown]')) return;
       setReviewDropdownId(null);
-      setBeatSheetDropdownId(null);
     };
     window.addEventListener('scroll', onScroll, true);
     return () => window.removeEventListener('scroll', onScroll, true);
-  }, [reviewDropdownId, beatSheetDropdownId]);
+  }, [reviewDropdownId]);
   const [videoLinkModal, setVideoLinkModal] = useState(null); // deliverable pending finished-video link
   const [videoLinkInput, setVideoLinkInput] = useState('');
 
@@ -650,7 +649,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
     setDeliverableType('long_form_read');
     setDueDate(''); setDeliverableNotes('');
     setDeliverablePlatforms([]); setDeliverableNeedsReview(false); setDeliverableBrandId('');
-    setDeliverablePay(''); setDeliverableBeatSheetId(''); setDeliverableVideoEventId('');
+    setDeliverablePay(''); setDeliverableVideoEventId('');
     setDeliverableChannel('');
     setDeliverableReviewStatus('queued');
     setDeliverableVideoUrl('');
@@ -666,7 +665,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
     setDeliverableNeedsReview(d.needs_review || false);
     setDeliverableBrandId(d.campaign_id || '');
     setDeliverablePay(d.pay != null ? String(d.pay) : '');
-    setDeliverableBeatSheetId(d.beat_sheet_id || '');
     setDeliverableVideoEventId(d.video_event_id || '');
     setDeliverableChannel(d.channel || '');
     setDeliverableReviewStatus(d.review_status || 'queued');
@@ -691,7 +689,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         needs_review: deliverableNeedsReview,
         campaign_id: brandId || deliverableBrandId || null,
         pay: deliverablePay ? parseFloat(deliverablePay) : null,
-        beat_sheet_id: deliverableBeatSheetId || null,
         video_event_id: deliverableVideoEventId || null,
         channel: deliverableChannel || null,
         review_status: deliverableReviewStatus || 'queued',
@@ -736,7 +733,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         needs_review: deliverableNeedsReview,
         campaign_id: brandId || null,
         pay: deliverablePay ? parseFloat(deliverablePay) : null,
-        beat_sheet_id: deliverableBeatSheetId || null,
         video_event_id: deliverableVideoEventId || null,
         channel: deliverableChannel || null,
         review_status: deliverableReviewStatus || 'queued',
@@ -759,40 +755,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         if (evData) {
           await supabase.from('sponsor_deliverables').update({ calendar_event_id: evData.id }).eq('id', dData.id);
         }
-      }
-    }
-
-    // Auto-create or overwrite ad-read beat in linked beat sheet
-    if (deliverableBeatSheetId && deliverableNotes) {
-      try {
-        const { data: sheet } = await supabase
-          .from('beat_sheets')
-          .select('beats')
-          .eq('id', deliverableBeatSheetId)
-          .single();
-        if (sheet) {
-          const existingBeats = sheet.beats || [];
-          const newBeatTitle = 'Ad Read\n\n' + deliverableNotes;
-          const adReadIdx = existingBeats.findIndex(b => typeof b.title === 'string' && b.title.startsWith('Ad Read'));
-          let updatedBeats;
-          if (adReadIdx >= 0) {
-            updatedBeats = existingBeats.map((b, i) => i === adReadIdx ? { ...b, title: newBeatTitle } : b);
-          } else {
-            updatedBeats = [...existingBeats, {
-              id: crypto.randomUUID(),
-              title: newBeatTitle,
-              context: '',
-              graphics: [],
-              videos: [],
-            }];
-          }
-          await supabase.from('beat_sheets').update({
-            beats: updatedBeats,
-            updated_at: new Date().toISOString(),
-          }).eq('id', deliverableBeatSheetId);
-        }
-      } catch (err) {
-        console.error('Error syncing ad-read beat:', err);
       }
     }
 
@@ -832,16 +794,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
     if (error) { console.error('Assign video failed:', error); return; }
     await fetchSponsors();
     setScheduleModalDeliverable(null);
-  }
-
-  // Inline assign beat sheet to deliverable from card dropdown
-  async function handleInlineAssignBeatSheet(deliverableId, beatSheetId) {
-    setBeatSheetDropdownId(null);
-    await supabase.from('sponsor_deliverables').update({
-      beat_sheet_id: beatSheetId || null,
-      updated_at: new Date().toISOString(),
-    }).eq('id', deliverableId);
-    fetchSponsors();
   }
 
   async function handleInlineSetReviewStatus(deliverableId, status) {
@@ -886,17 +838,18 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
     fetchSponsors();
   }
 
-  // Push ad copy to linked beat sheet (manual button in form)
+  // Push the current ad copy into a chosen beat sheet (choose-at-push-time).
+  // Replaces an existing "Ad Read" beat if present; otherwise appends one.
   const [pushingAdCopy, setPushingAdCopy] = useState(false);
   const [pushAdCopyDone, setPushAdCopyDone] = useState(false);
-  async function handlePushAdCopyToBeatSheet() {
-    if (!deliverableBeatSheetId || !deliverableNotes) return;
+  async function pushAdCopyToSheet(sheetId) {
+    if (!sheetId || !deliverableNotes) return;
     setPushingAdCopy(true);
     try {
       const { data: sheet } = await supabase
         .from('beat_sheets')
         .select('beats')
-        .eq('id', deliverableBeatSheetId)
+        .eq('id', sheetId)
         .single();
       if (!sheet) return;
       const existingBeats = sheet.beats || [];
@@ -917,7 +870,8 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
       await supabase.from('beat_sheets').update({
         beats: updatedBeats,
         updated_at: new Date().toISOString(),
-      }).eq('id', deliverableBeatSheetId);
+      }).eq('id', sheetId);
+      setBeatSheetChooserOpen(false);
       setPushAdCopyDone(true);
       setTimeout(() => setPushAdCopyDone(false), 2000);
     } catch (err) {
@@ -925,6 +879,17 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
     } finally {
       setPushingAdCopy(false);
     }
+  }
+
+  // Flush the ad-copy autosave immediately (used by the Ad Copy modal's
+  // "Save & Close" so the write is guaranteed persisted before closing).
+  async function saveAdCopyNow() {
+    if (!editingDeliverable) return;
+    if (adCopyTimerRef.current) clearTimeout(adCopyTimerRef.current);
+    await supabase.from('sponsor_deliverables').update({
+      ad_copy: deliverableNotes || null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', editingDeliverable);
   }
 
   // Auto-save ad copy (debounced) when editing an existing deliverable
@@ -966,12 +931,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
     const usedIds = new Set(allDeliverables.filter(d => d.video_event_id && d.id !== currentDeliverableId).map(d => d.video_event_id));
     const today = new Date().toISOString().slice(0, 10);
     return videoEvents.filter(ev => !usedIds.has(ev.id) && ev.start_date && ev.start_date.slice(0, 10) >= today);
-  }
-
-  // Get beat sheets not already linked to any deliverable (except current)
-  function getAvailableBeatSheets(currentDeliverableId) {
-    const usedIds = new Set(allDeliverables.filter(d => d.beat_sheet_id && d.id !== currentDeliverableId).map(d => d.beat_sheet_id));
-    return beatSheets.filter(bs => !usedIds.has(bs.id) && !bs.is_archived && bs.folder !== 'archive');
   }
 
   // --- Brand handlers ---
@@ -1617,7 +1576,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                   <th style={styles.tableTh}>Review Due</th>
                   <th style={styles.tableTh}>{'💬'}</th>
                   <th style={thStyle} onClick={() => handleSort('schedule')}>Schedule{sortArrow('schedule')}</th>
-                  <th style={styles.tableTh}>Beat Sheet</th>
                   <th style={{ ...thStyle, textAlign: 'right' }} onClick={() => handleSort('pay')}>Pay{sortArrow('pay')}</th>
                   <th style={styles.tableTh}>Delivered</th>
                 </tr>
@@ -1625,8 +1583,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
               <tbody>
                 {tableDeliverables.map(d => {
                   const ev = d.video_event_id ? videoEvents.find(e => e.id === d.video_event_id) : null;
-                  const linkedSheet = beatSheets.find(bs => bs.id === d.beat_sheet_id);
-                  const isBSOpen = beatSheetDropdownId === d.id;
                   return (
                     <tr
                       key={d.id}
@@ -1799,46 +1755,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                           >
                             Not Scheduled
                           </span>
-                        )}
-                      </td>
-                      {/* Beat Sheet */}
-                      <td style={{ ...styles.tableTd, position: 'relative' }}>
-                        <span
-                          style={{
-                            ...styles.chip,
-                            fontWeight: 600,
-                            background: linkedSheet ? 'rgba(99,102,241,0.1)' : 'rgba(239,68,68,0.1)',
-                            color: linkedSheet ? '#a5b4fc' : '#fca5a5',
-                            cursor: 'pointer',
-                          }}
-                          onClick={(e) => { e.stopPropagation(); if (!isBSOpen) openInlineDropdownAt(e.currentTarget); setBeatSheetDropdownId(isBSOpen ? null : d.id); }}
-                        >
-                          {linkedSheet ? linkedSheet.title : 'Unassigned'}
-                        </span>
-                        {isBSOpen && (
-                          <div data-inline-dropdown style={{ ...styles.inlineDropdown, position: 'fixed', top: inlineDropdownPos.top, left: inlineDropdownPos.left, marginTop: 0 }}>
-                            {(() => {
-                              const available = getAvailableBeatSheets(d.id);
-                              if (available.length === 0) return <div style={styles.inlineDropdownEmpty}>No available beat sheets</div>;
-                              return available.map(bs => (
-                                <button
-                                  key={bs.id}
-                                  style={styles.inlineDropdownItem}
-                                  onClick={(e) => { e.stopPropagation(); handleInlineAssignBeatSheet(d.id, bs.id); }}
-                                >
-                                  {bs.title}
-                                </button>
-                              ));
-                            })()}
-                            {linkedSheet && (
-                              <button
-                                style={{ ...styles.inlineDropdownItem, color: '#f87171', borderTop: '1px solid rgba(255,255,255,0.06)' }}
-                                onClick={(e) => { e.stopPropagation(); handleInlineAssignBeatSheet(d.id, null); }}
-                              >
-                                Unlink beat sheet
-                              </button>
-                            )}
-                          </div>
                         )}
                       </td>
                       {/* Pay */}
@@ -2589,15 +2505,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                             <input type="number" step="0.01" value={deliverablePay} onChange={e => setDeliverablePay(e.target.value)} placeholder="0.00" style={styles.input} />
                           </div>
                           <div style={styles.field}>
-                            <label style={styles.label}>Beat Sheet</label>
-                            <select value={deliverableBeatSheetId} onChange={e => setDeliverableBeatSheetId(e.target.value)} style={styles.select}>
-                              <option value="">None</option>
-                              {beatSheets.map(bs => (
-                                <option key={bs.id} value={bs.id}>{bs.title}</option>
-                              ))}
-                            </select>
-                          </div>
-                          <div style={styles.field}>
                             <label style={styles.label}>Attached Video</label>
                             <select value={deliverableVideoEventId} onChange={e => setDeliverableVideoEventId(e.target.value)} style={styles.select}>
                               <option value="">None</option>
@@ -2621,28 +2528,50 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                         </div>
                         <div style={styles.field}>
                           <label style={styles.label}>Ad Copy</label>
-                          <button
-                            type="button"
-                            onClick={() => setAdCopyModalOpen(true)}
-                            style={{
-                              width: '100%',
-                              padding: '10px 14px',
-                              borderRadius: '8px',
-                              border: '1px solid rgba(99,102,241,0.3)',
-                              background: 'rgba(99,102,241,0.1)',
-                              color: '#a5b4fc',
-                              fontSize: '13px',
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                              fontFamily: 'DM Sans, sans-serif',
-                              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                            }}
-                          >
-                            <span>{deliverableNotes ? 'Edit Ad Copy' : 'Open Ad Copy'}</span>
-                            <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>
-                              {deliverableNotes ? `${deliverableNotes.length} chars` : 'Empty'}
-                            </span>
-                          </button>
+                          <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
+                            <button
+                              type="button"
+                              onClick={() => setAdCopyModalOpen(true)}
+                              style={{
+                                flex: 1,
+                                padding: '10px 14px',
+                                borderRadius: '8px',
+                                border: '1px solid rgba(99,102,241,0.3)',
+                                background: 'rgba(99,102,241,0.1)',
+                                color: '#a5b4fc',
+                                fontSize: '13px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                fontFamily: 'DM Sans, sans-serif',
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                              }}
+                            >
+                              <span>{deliverableNotes ? 'Edit Ad Copy' : 'Open Ad Copy'}</span>
+                              <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>
+                                {deliverableNotes ? `${deliverableNotes.length} chars` : 'Empty'}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setBeatSheetChooserOpen(true)}
+                              disabled={!deliverableNotes || pushingAdCopy}
+                              title={!deliverableNotes ? 'Write ad copy first' : 'Push this ad copy into a beat sheet'}
+                              style={{
+                                padding: '10px 14px',
+                                borderRadius: '8px',
+                                border: '1px solid rgba(99,102,241,0.3)',
+                                background: !deliverableNotes ? 'rgba(255,255,255,0.05)' : 'rgba(99,102,241,0.1)',
+                                color: !deliverableNotes ? 'rgba(255,255,255,0.3)' : '#a5b4fc',
+                                fontSize: '13px',
+                                fontWeight: 600,
+                                cursor: !deliverableNotes ? 'not-allowed' : 'pointer',
+                                fontFamily: 'DM Sans, sans-serif',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {pushAdCopyDone ? 'Pushed!' : 'Push to Beat Sheet'}
+                            </button>
+                          </div>
                         </div>
                         <button type="submit" style={styles.submitBtn}>{editingDeliverable ? 'Update Deliverable' : 'Add Deliverable'}</button>
                       </form>
@@ -2811,20 +2740,18 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
               <div style={{ padding: '14px 22px', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
                 <button
                   onClick={async () => {
-                    await handlePushAdCopyToBeatSheet();
+                    await saveAdCopyNow();
                     setAdCopyModalOpen(false);
                   }}
-                  disabled={!deliverableBeatSheetId || !deliverableNotes || pushingAdCopy}
                   style={{
-                    background: (!deliverableBeatSheetId || !deliverableNotes) ? 'rgba(255,255,255,0.05)' : 'linear-gradient(135deg, #6366f1, #818cf8)',
-                    color: (!deliverableBeatSheetId || !deliverableNotes) ? 'rgba(255,255,255,0.3)' : '#fff',
+                    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+                    color: '#fff',
                     border: 'none', borderRadius: '8px', padding: '10px 18px', fontSize: '13px', fontWeight: 600,
-                    cursor: (!deliverableBeatSheetId || !deliverableNotes) ? 'not-allowed' : 'pointer',
+                    cursor: 'pointer',
                     fontFamily: 'DM Sans, sans-serif',
                   }}
-                  title={!deliverableBeatSheetId ? 'Link a beat sheet first' : !deliverableNotes ? 'Write ad copy first' : ''}
                 >
-                  {pushAdCopyDone ? 'Pushed!' : pushingAdCopy ? 'Pushing…' : 'Push Ad Copy to Beat Sheet'}
+                  Save &amp; Close
                 </button>
               </div>
             </div>
@@ -2942,13 +2869,16 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         </div>
       )}
 
+      {/* Choose-at-push-time beat sheet picker (from the Ad Copy field) */}
+      <BeatSheetChooserModal
+        open={beatSheetChooserOpen}
+        beatSheets={beatSheets}
+        pushing={pushingAdCopy}
+        onPick={pushAdCopyToSheet}
+        onClose={() => setBeatSheetChooserOpen(false)}
+      />
+
       {/* Click-away for inline dropdowns */}
-      {beatSheetDropdownId && (
-        <div
-          style={{ position: 'fixed', inset: 0, zIndex: 49 }}
-          onMouseDown={() => setBeatSheetDropdownId(null)}
-        />
-      )}
       {reviewDropdownId && (
         <div
           style={{ position: 'fixed', inset: 0, zIndex: 49 }}
@@ -3245,9 +3175,6 @@ const styles = {
     background: 'none', border: 'none', color: 'rgba(255,255,255,0.8)',
     fontSize: '12px', fontFamily: 'inherit', padding: '7px 12px',
     textAlign: 'left', cursor: 'pointer',
-  },
-  inlineDropdownEmpty: {
-    padding: '10px 12px', fontSize: '12px', color: 'rgba(255,255,255,0.3)', textAlign: 'center',
   },
   addDeliverableBtn: {
     width: '100%', padding: '8px', borderRadius: '8px',

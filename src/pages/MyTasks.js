@@ -667,10 +667,12 @@ export default function MyTasks({ onNavigate, embedded = false }) {
         break;
       }
       case 'write_ad_read': {
-        // "Write It" button opens the editor modal (no auto-complete)
+        // "Write It" button opens the editor modal. The modal's "Save & Complete"
+        // calls onSubmit → handleModalSubmit → handleComplete, so completion runs
+        // through the normal path (no noAutoComplete flag). "Close" just saves.
         const entry = action.modalKey ? getWorkflowModal(action.modalKey) : null;
         if (entry?.component) {
-          setOpenModal({ task, ModalComponent: entry.component, noAutoComplete: true });
+          setOpenModal({ task, ModalComponent: entry.component });
         }
         break;
       }

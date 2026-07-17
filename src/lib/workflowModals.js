@@ -17,7 +17,7 @@ const MODAL_REGISTRY = {
   write_ad_read: {
     component: WriteAdReadModal,
     description: 'Write ad read copy for a deliverable.',
-    noAutoComplete: true, // modal handles save only, does not complete the task
+    // "Save & Complete" inside the modal calls onSubmit → completes the task.
   },
 };
 

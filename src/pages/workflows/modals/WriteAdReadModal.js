@@ -2,10 +2,11 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { supabase } from '../../../supabaseClient';
+import BeatSheetChooserModal from '../../../components/BeatSheetChooserModal';
 
 const AUTOSAVE_DEBOUNCE_MS = 600;
 
-export default function WriteAdReadModal({ task, onClose }) {
+export default function WriteAdReadModal({ task, onClose, onSubmit }) {
   const deliverableId = task.related_entity_id;
   const ctx = task.workflow_instance?.context || {};
 
@@ -15,8 +16,11 @@ export default function WriteAdReadModal({ task, onClose }) {
   const [lastSaved, setLastSaved] = useState(null);
   const [deliverable, setDeliverable] = useState(null);
   const [briefs, setBriefs] = useState([]);
+  const [beatSheets, setBeatSheets] = useState([]);
+  const [chooserOpen, setChooserOpen] = useState(false);
   const [pushing, setPushing] = useState(false);
   const [pushedAt, setPushedAt] = useState(false);
+  const [completing, setCompleting] = useState(false);
 
   const dirtyRef = useRef(false);
   const textRef = useRef('');
@@ -50,6 +54,17 @@ export default function WriteAdReadModal({ task, onClose }) {
       setLoading(false);
     })();
   }, [deliverableId]);
+
+  // Beat sheets for the choose-at-push-time picker
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from('beat_sheets')
+        .select('id, title, folder, is_archived')
+        .order('created_at', { ascending: false });
+      setBeatSheets(data || []);
+    })();
+  }, []);
 
   // Save to DB
   const saveToDb = useCallback(async () => {
@@ -91,20 +106,53 @@ export default function WriteAdReadModal({ task, onClose }) {
     };
   }, [deliverableId]);
 
-  const handleClose = async () => {
+  // Force-flush the debounced autosave regardless of the dirty flag, so a
+  // "Save & Complete" / "Save & Close" always persists the latest text.
+  const saveNow = useCallback(async () => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    await saveToDb();
+    if (!deliverableId) return;
+    dirtyRef.current = false;
+    setSaving(true);
+    try {
+      await supabase
+        .from('sponsor_deliverables')
+        .update({ ad_copy: textRef.current || null, updated_at: new Date().toISOString() })
+        .eq('id', deliverableId);
+      setLastSaved(new Date());
+    } catch (err) {
+      console.error('Save failed:', err);
+    } finally {
+      setSaving(false);
+    }
+  }, [deliverableId]);
+
+  // "Close" = save-and-step-away without completing the task.
+  const handleClose = async () => {
+    await saveNow();
     onClose();
   };
 
-  const handlePushToBeatSheet = async () => {
-    if (!deliverable?.beat_sheet_id || !textRef.current) return;
+  // "Save & Complete" = persist copy, then run the task-completion path.
+  const handleSaveAndComplete = async () => {
+    setCompleting(true);
+    await saveNow();
+    if (onSubmit) {
+      // Completes the task via MyTasks.handleModalSubmit → handleComplete.
+      onSubmit();
+    } else {
+      onClose();
+    }
+  };
+
+  // Push current copy into a chosen beat sheet (choose-at-push-time).
+  const handlePushToBeatSheet = async (sheetId) => {
+    if (!sheetId || !textRef.current) return;
     setPushing(true);
     try {
       const { data: sheet } = await supabase
         .from('beat_sheets')
         .select('beats')
-        .eq('id', deliverable.beat_sheet_id)
+        .eq('id', sheetId)
         .single();
       if (!sheet) return;
       const existingBeats = sheet.beats || [];
@@ -122,7 +170,8 @@ export default function WriteAdReadModal({ task, onClose }) {
       await supabase.from('beat_sheets').update({
         beats: updatedBeats,
         updated_at: new Date().toISOString(),
-      }).eq('id', deliverable.beat_sheet_id);
+      }).eq('id', sheetId);
+      setChooserOpen(false);
       setPushedAt(true);
       setTimeout(() => setPushedAt(false), 2000);
     } catch (err) {
@@ -140,10 +189,8 @@ export default function WriteAdReadModal({ task, onClose }) {
 
   const brandName = ctx.brand_name || '';
   const deliverableTitle = deliverable?.title || task.title || '';
-  const canPush = !!deliverable?.beat_sheet_id && !!text && !pushing;
-  const pushTitle = !deliverable?.beat_sheet_id
-    ? 'Link a beat sheet first'
-    : !text ? 'Write ad copy first' : '';
+  const canPush = !!text && !pushing && !completing;
+  const pushTitle = !text ? 'Write ad copy first' : 'Push this ad copy into a beat sheet';
 
   return (
     <div style={s.overlay} onMouseDown={(e) => { if (e.target === e.currentTarget) handleClose(); }}>
@@ -210,20 +257,41 @@ export default function WriteAdReadModal({ task, onClose }) {
 
         <div style={s.footer}>
           <button
-            onClick={async () => { await handlePushToBeatSheet(); }}
+            onClick={() => setChooserOpen(true)}
             disabled={!canPush}
             title={pushTitle}
             style={{
               ...s.pushBtn,
-              background: !canPush ? 'rgba(255,255,255,0.05)' : 'linear-gradient(135deg, #6366f1, #818cf8)',
-              color: !canPush ? 'rgba(255,255,255,0.3)' : '#fff',
+              background: !canPush ? 'rgba(255,255,255,0.05)' : 'rgba(99,102,241,0.12)',
+              border: '1px solid rgba(99,102,241,0.3)',
+              color: !canPush ? 'rgba(255,255,255,0.3)' : '#a5b4fc',
               cursor: !canPush ? 'not-allowed' : 'pointer',
             }}
           >
-            {pushedAt ? 'Pushed!' : pushing ? 'Pushing…' : 'Push Ad Copy to Beat Sheet'}
+            {pushedAt ? 'Pushed!' : pushing ? 'Pushing…' : 'Push to Beat Sheet'}
+          </button>
+          <button
+            onClick={handleSaveAndComplete}
+            disabled={completing}
+            style={{
+              ...s.pushBtn,
+              background: completing ? 'rgba(255,255,255,0.05)' : 'linear-gradient(135deg, #6366f1, #818cf8)',
+              color: completing ? 'rgba(255,255,255,0.3)' : '#fff',
+              cursor: completing ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {completing ? 'Completing…' : 'Save & Complete'}
           </button>
         </div>
       </div>
+
+      <BeatSheetChooserModal
+        open={chooserOpen}
+        beatSheets={beatSheets}
+        pushing={pushing}
+        onPick={handlePushToBeatSheet}
+        onClose={() => setChooserOpen(false)}
+      />
     </div>
   );
 }
