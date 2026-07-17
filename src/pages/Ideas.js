@@ -13,6 +13,15 @@ const CATEGORIES = [
 
 const CATEGORY_KEYS = CATEGORIES.map((c) => c.key);
 
+// Section-title colors matched to the content-type hues used elsewhere (the
+// Projects board type chips in kanbanStages TYPE_COLORS).
+const CATEGORY_COLORS = {
+  mayday_videos: '#f87171',
+  tm_baseball_videos: '#34d399',
+  short_form_only: '#fbbf24',
+  podcast_only: '#c084fc',
+};
+
 // Maps Ideas columns to the `type` used by Projects cards.
 const CATEGORY_TO_PROJECT_TYPE = {
   mayday_videos: 'mayday_video',
@@ -470,7 +479,7 @@ function Section({ category, items, onAdd, onToggle, onItemContextMenu, onSaveEd
   return (
     <section style={styles.section}>
       <div style={styles.sectionHeader}>
-        <span style={styles.sectionTitle}>{category.label}</span>
+        <span style={{ ...styles.sectionTitle, ...(CATEGORY_COLORS[category.key] ? { color: CATEGORY_COLORS[category.key] } : {}) }}>{category.label}</span>
         <span style={styles.sectionCount}>{items.length}</span>
         <div style={{ flex: 1 }} />
         {!showInput && !selectMode && (
@@ -728,7 +737,7 @@ function Section({ category, items, onAdd, onToggle, onItemContextMenu, onSaveEd
 }
 
 const styles = {
-  page: { padding: '32px 40px', minHeight: '100vh' },
+  page: { padding: '36px 40px 64px', maxWidth: '1500px', margin: '0 auto', minHeight: '100vh' },
   header: {
     marginBottom: '24px',
     display: 'flex',
