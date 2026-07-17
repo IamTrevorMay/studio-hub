@@ -2878,7 +2878,7 @@ function MyStuffView({ profile, phasesById, phaseIndexById, initiatives, tasks, 
 // Styles
 // ════════════════════════════════════════════════════════════
 const styles = {
-  page: { padding: '24px 28px 60px', color: '#e2e8f0', fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif" },
+  page: { padding: '36px 40px 64px', maxWidth: '1500px', margin: '0 auto', color: '#e2e8f0', fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif" },
   loading: { color: 'rgba(255,255,255,0.5)', fontSize: '14px', padding: '60px 20px', textAlign: 'center' },
 
   pageHeader: {

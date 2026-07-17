@@ -423,7 +423,6 @@ export default function ResearchDocs() {
                 const isRenaming = renamingId === item.id;
                 return (
                   <div key={item.id} {...clickableKeyProps(() => openDoc(item))} style={styles.row} onClick={() => openDoc(item)}>
-                    <span style={styles.rowIcon}>📝</span>
                     <div style={styles.rowMain}>
                       {isRenaming ? (
                         <input
@@ -638,7 +637,7 @@ export default function ResearchDocs() {
 }
 
 const styles = {
-  page: { padding: '32px 40px', minHeight: '100vh' },
+  page: { padding: '36px 40px 64px', maxWidth: '1500px', margin: '0 auto', minHeight: '100vh' },
   topBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '16px' },
   pageTitle: { fontSize: '28px', fontWeight: 700, color: '#ffffff', margin: 0, letterSpacing: '-0.5px' },
   addBtn: { padding: '10px 20px', background: 'linear-gradient(135deg, #6366f1, #818cf8)', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' },

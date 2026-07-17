@@ -1353,7 +1353,9 @@ export default function Workflows() {
 
 const styles = {
   page: {
-    padding: '24px 32px',
+    padding: '36px 40px 64px',
+    maxWidth: '1500px',
+    margin: '0 auto',
     minHeight: '100vh',
     position: 'relative',
   },

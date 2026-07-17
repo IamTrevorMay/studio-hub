@@ -1123,7 +1123,9 @@ function CategoryDonut({ data, total }) {
 // ── Styles ──────────────────────────────────────────────────────────────────
 const styles = {
   page: {
-    padding: '28px 32px',
+    padding: '36px 40px 64px',
+    maxWidth: '1500px',
+    margin: '0 auto',
     background: '#0f0f1a',
     minHeight: '100%',
     color: '#fff',

@@ -754,7 +754,7 @@ export default function Tracking() {
 // ─── Styles ─────────────────────────────────────────────────
 
 const styles = {
-  page: { padding: '24px 32px', minHeight: '100vh' },
+  page: { padding: '36px 40px 64px', maxWidth: '1500px', margin: '0 auto', minHeight: '100vh' },
   header: { marginBottom: 20 },
   title: { fontSize: 22, fontWeight: 700, color: '#fff', margin: 0 },
   subtitle: { fontSize: 13, color: 'rgba(255,255,255,0.5)', margin: '4px 0 0' },

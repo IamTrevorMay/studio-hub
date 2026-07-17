@@ -2574,7 +2574,7 @@ function FilterChip({ label, color, active, onClick }) {
 }
 
 const styles = {
-  page: { padding: '32px 40px', minHeight: '100%' },
+  page: { padding: '36px 40px 64px', maxWidth: '1500px', margin: '0 auto', minHeight: '100%' },
   topBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' },
   pageTitle: { fontSize: '28px', fontWeight: 700, color: '#ffffff', margin: '0 0 4px 0', letterSpacing: '-0.5px' },
   pageSubtitle: { fontSize: '14px', color: 'rgba(255,255,255,0.4)', margin: 0 },

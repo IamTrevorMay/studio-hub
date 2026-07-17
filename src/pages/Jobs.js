@@ -996,7 +996,7 @@ function SettingsTab({ showToast }) {
 }
 
 const st = {
-  page: { padding: '24px 32px', minHeight: '100vh', position: 'relative' },
+  page: { padding: '36px 40px 64px', maxWidth: '1500px', margin: '0 auto', minHeight: '100vh', position: 'relative' },
   toast: { position: 'fixed', top: 20, right: 20, padding: '10px 20px', borderRadius: 8, color: '#fff', fontSize: 13, fontWeight: 600, zIndex: 9999, boxShadow: '0 4px 20px rgba(0,0,0,0.4)' },
   h1: { fontSize: 24, fontWeight: 800, color: '#fff', margin: '0 0 16px' },
   tabs: { display: 'flex', gap: 6, marginBottom: 20, borderBottom: '1px solid rgba(255,255,255,0.08)' },

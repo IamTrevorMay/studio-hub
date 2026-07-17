@@ -1952,7 +1952,9 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
 
 const styles = {
   page: {
-    padding: '32px 40px',
+    padding: '36px 40px 64px',
+    maxWidth: '1500px',
+    margin: '0 auto',
     minHeight: '100vh',
     background: '#0f0f1a',
     fontFamily: 'DM Sans, sans-serif',
