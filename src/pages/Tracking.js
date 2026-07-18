@@ -8,6 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { ptRangeToUtc } from '../lib/ptDate';
 import YearlyGoalsSection from '../components/YearlyGoalsSection';
 import ProgressKanban from '../components/ProgressKanban';
+import { colors } from '../lib/styleTokens';
 
 // ─── Config ─────────────────────────────────────────────────
 
@@ -551,9 +552,9 @@ export default function Tracking() {
                             {kind && (
                               <span style={{
                                 ...styles.kindChip,
-                                background: kind === 'Short' ? 'rgba(236,72,153,0.15)' : 'rgba(99,102,241,0.15)',
-                                color: kind === 'Short' ? '#f9a8d4' : '#a5b4fc',
-                                borderColor: kind === 'Short' ? 'rgba(236,72,153,0.35)' : 'rgba(99,102,241,0.35)',
+                                background: kind === 'Short' ? 'rgba(236,72,153,0.15)' : 'rgba(91, 143, 199,0.15)',
+                                color: kind === 'Short' ? '#f9a8d4' : '#8fb4d8',
+                                borderColor: kind === 'Short' ? 'rgba(236,72,153,0.35)' : 'rgba(91, 143, 199,0.35)',
                               }}>{kind}</span>
                             )}
                           </div>
@@ -633,13 +634,13 @@ export default function Tracking() {
                       />
                       <button
                         onClick={() => updateInitiativeTarget(goal.id, initiativeTargetDraft)}
-                        style={{ padding: '3px 8px', background: '#6366f1', border: 'none', borderRadius: '5px', color: '#fff', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                        style={{ padding: '3px 8px', background: colors.accent, border: 'none', borderRadius: '5px', color: colors.white, fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
                       >Save</button>
                     </div>
                   ) : (
                     <span
                       onClick={() => { setEditingInitiativeTarget(goal.id); setInitiativeTargetDraft(String(goal.daily_target)); }}
-                      style={{ fontSize: '14px', fontWeight: 700, color: '#a5b4fc', cursor: 'pointer', borderBottom: '1px dashed rgba(165,180,252,0.3)' }}
+                      style={{ fontSize: '14px', fontWeight: 700, color: colors.accentFg, cursor: 'pointer', borderBottom: '1px dashed rgba(165,180,252,0.3)' }}
                       title="Click to change"
                     >
                       {goal.daily_target}
@@ -659,7 +660,7 @@ export default function Tracking() {
                     <div style={{
                       height: '100%',
                       width: `${todayPct}%`,
-                      background: todayPct >= 100 ? '#22c55e' : '#6366f1',
+                      background: todayPct >= 100 ? '#22c55e' : '#5b8fc7',
                       borderRadius: '4px',
                       transition: 'width 0.4s ease, background 0.3s ease',
                     }} />
@@ -688,7 +689,7 @@ export default function Tracking() {
                         }}>
                           <div style={{
                             height: `${pct}%`,
-                            background: met ? '#22c55e' : 'rgba(99,102,241,0.5)',
+                            background: met ? '#22c55e' : 'rgba(91, 143, 199,0.5)',
                             borderRadius: '0 0 5px 5px',
                             transition: 'height 0.4s ease',
                             minHeight: day.count > 0 ? '4px' : '0',
@@ -761,7 +762,7 @@ const styles = {
 
   filterChip: { padding: '6px 14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', color: 'rgba(255,255,255,0.5)', fontSize: '12px', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' },
   filterSelect: { padding: '6px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', color: 'rgba(255,255,255,0.5)', fontSize: '12px', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', outline: 'none', appearance: 'none', WebkitAppearance: 'none', paddingRight: '10px' },
-  filterSelectActive: { background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.4)', color: '#a5b4fc' },
+  filterSelectActive: { background: colors.accentA15, borderColor: colors.accentA40, color: colors.accentFg },
 
   loadingText: { padding: '40px', textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: '14px' },
 
@@ -778,7 +779,7 @@ const styles = {
   kindChip: { fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4, border: '1px solid', letterSpacing: 0.3, textTransform: 'uppercase' },
   emptyRow: { padding: 12, textAlign: 'center', color: 'rgba(255,255,255,0.2)', fontSize: 11 },
 
-  popover: { position: 'fixed', zIndex: 1000, background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, padding: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.5)', pointerEvents: 'none' },
+  popover: { position: 'fixed', zIndex: 1000, background: colors.bgHover, border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, padding: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.5)', pointerEvents: 'none' }, // style-lint-ignore
   popoverThumb: { width: '100%', height: 130, borderRadius: 6, overflow: 'hidden', marginBottom: 8, background: 'rgba(0,0,0,0.3)' },
   popoverTitle: { fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8, lineHeight: 1.3 },
   popoverMetrics: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4 },

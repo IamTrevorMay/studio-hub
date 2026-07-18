@@ -6,6 +6,7 @@ import FullScreenSheet from '../components/mobile/FullScreenSheet';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
 import { ReactionChips, toggleReaction } from '../components/MessageReactions';
+import { colors } from '../lib/styleTokens';
 
 // Note: "Channels" here is the Slack-style team-chat channel list, not platform
 // analytics channels. Mobile mirrors the desktop chat UX, slimmed: grouped channel
@@ -145,7 +146,7 @@ function formatInline(text, channels, onChannelLink, keyPrefix = '') {
     if (hl) {
       const color = HIGHLIGHT_COLORS[Number(hl[1]) - 1] || HIGHLIGHT_COLORS[0];
       return (
-        <mark key={key} style={{ background: color.bg, color: '#1a1a2e', borderRadius: 3, padding: '0 3px' }}>
+        <mark key={key} style={{ background: color.bg, color: colors.bgHover, borderRadius: 3, padding: '0 3px' }}> // style-lint-ignore
           {inner(hl[2])}
         </mark>
       );
@@ -335,7 +336,7 @@ export default function ChannelsMobile({ initialChannelName, onChannelOpened }) 
     return (
       <li key={ch.id}>
         <button onClick={() => openChannel(ch)} style={styles.row}>
-          <div style={{ ...styles.icon, color: hasMention ? '#fcd34d' : '#a5b4fc' }}>#</div>
+          <div style={{ ...styles.icon, color: hasMention ? '#fcd34d' : '#8fb4d8' }}>#</div>
           <div style={styles.body}>
             <div style={styles.header}>
               <span style={styles.name}>{ch.name}</span>
@@ -846,14 +847,14 @@ function formatTime(dateStr) {
 // Inline-format element styles shared by messages and pinned titles.
 const fmtStyles = {
   link: {
-    color: '#818cf8', textDecoration: 'underline', wordBreak: 'break-word',
+    color: colors.accentFg, textDecoration: 'underline', wordBreak: 'break-word',
   },
   mention: {
-    background: 'rgba(99,102,241,0.2)', color: '#a5b4fc',
+    background: colors.accentA20, color: colors.accentFg,
     padding: '1px 4px', borderRadius: 4, fontWeight: 600,
   },
   channelLink: {
-    background: 'rgba(99,102,241,0.15)', color: '#a5b4fc',
+    background: colors.accentA15, color: colors.accentFg,
     padding: '1px 4px', borderRadius: 4, fontWeight: 600,
     cursor: 'pointer', textDecoration: 'none',
   },
@@ -869,7 +870,7 @@ const fmtStyles = {
 };
 
 const styles = {
-  root: { minHeight: '100%', background: '#0f0f1a', color: '#e2e8f0' },
+  root: { minHeight: '100%', background: colors.bg, color: colors.textBright },
   list: { listStyle: 'none', margin: 0, padding: 0 },
   row: {
     ...mobileTapButton,
@@ -924,7 +925,7 @@ const styles = {
     width: 40,
     height: 40,
     borderRadius: mobileTokens.radius.sm,
-    background: 'rgba(99,102,241,0.12)',
+    background: colors.accentA12,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -960,7 +961,7 @@ const chatStyles = {
   root: { display: 'flex', flexDirection: 'column', height: '100%', margin: -mobileTokens.space.lg },
   pinnedPanel: {
     borderBottom: '1px solid rgba(255,255,255,0.06)',
-    background: 'rgba(99,102,241,0.05)',
+    background: colors.accentA05,
     flexShrink: 0,
   },
   pinnedHeader: {
@@ -971,7 +972,7 @@ const chatStyles = {
     alignItems: 'center',
     padding: `${mobileTokens.space.sm}px ${mobileTokens.space.lg}px`,
     background: 'transparent',
-    color: '#a5b4fc',
+    color: colors.accentFg,
     minHeight: mobileTokens.tap,
   },
   pinnedTitle: {
@@ -1024,7 +1025,7 @@ const chatStyles = {
     width: 34,
     height: 34,
     borderRadius: 10,
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1059,7 +1060,7 @@ const chatStyles = {
     transition: 'background 0.4s',
   },
   msgHighlighted: {
-    background: 'rgba(99,102,241,0.25)',
+    background: colors.accentA25,
   },
   pinBadge: { marginRight: 4, fontSize: mobileTokens.font.xs },
   editedTag: {
@@ -1100,8 +1101,8 @@ const chatStyles = {
     flexShrink: 0,
   },
   fmtBtnActive: {
-    background: 'rgba(99,102,241,0.25)',
-    borderColor: 'rgba(99,102,241,0.5)',
+    background: colors.accentA25,
+    borderColor: colors.borderFocus,
   },
   toolbarTray: {
     display: 'flex',
@@ -1130,7 +1131,7 @@ const chatStyles = {
   },
   trayApplyBtn: {
     padding: '6px 12px',
-    background: '#6366f1',
+    background: colors.accent,
     border: 'none',
     borderRadius: mobileTokens.radius.sm,
     color: '#fff',
@@ -1161,7 +1162,7 @@ const chatStyles = {
     height: mobileTokens.tap,
     border: 'none',
     borderRadius: '50%',
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     color: '#fff',
     cursor: 'pointer',
     display: 'flex',

@@ -5,39 +5,70 @@
 
 // ─── Color palette ─────────────────────────────────────────────
 //
-// Base surfaces are layered dark blues. Text uses rgba(white, …) so
-// alpha conveys hierarchy without picking new colors. Accent is indigo.
+// Base surfaces are layered blue-grays (Tableau-style opaque cards on a
+// deep page). Text uses rgba(white, …) so alpha conveys hierarchy without
+// picking new colors. Accent is steel-blue.
 // Tones (success / warning / danger / info) come in bg/border/text triples
 // so badges and pills look consistent.
 
 export const colors = {
-  // Surfaces
-  bg:           '#0f0f1a',
-  bgRaised:     'rgba(255,255,255,0.04)',
-  bgHover:      'rgba(255,255,255,0.06)',
+  // Surfaces — Tableau-style opaque layered cards on a deep blue-gray page
+  bg:           '#0e1420',
+  bgRaised:     '#161d2b',   // opaque card (was translucent white)
+  bgHover:      '#1b2331',   // cardAlt / hover surface
   bgInput:      'rgba(255,255,255,0.04)',
   bgOverlay:    'rgba(0,0,0,0.6)',
-  bgModal:      '#15151f',
+  bgModal:      '#161d2b',
 
   // Borders
-  border:       'rgba(255,255,255,0.06)',
-  borderStrong: 'rgba(255,255,255,0.12)',
-  borderFocus:  'rgba(99,102,241,0.5)',
+  border:       'rgba(255,255,255,0.08)',
+  borderStrong: 'rgba(255,255,255,0.15)',
+  borderFocus:  'rgba(91,143,199,0.5)',
 
-  // Text
-  text:         '#ffffff',
+  // Text — ink on dark, alpha conveys hierarchy
+  text:         '#e7ebf2',
   textMuted:    'rgba(255,255,255,0.7)',
-  textSubtle:   'rgba(255,255,255,0.5)',
+  textSubtle:   'rgba(255,255,255,0.48)',
   textDim:      'rgba(255,255,255,0.4)',
   textPlaceholder: 'rgba(255,255,255,0.3)',
 
-  // Accent (indigo)
-  accent:       '#6366f1',
-  accentSoft:   'rgba(99,102,241,0.15)',
-  accentFg:     '#a5b4fc',
-  accentBorder: 'rgba(99,102,241,0.35)',
-  accentBright: '#818cf8',   // lighter indigo — bright stop in linear-gradient(135deg,accent,accentBright)
-  accentDeep:   '#4f46e5',   // darker indigo — gradient/hover-darken & categorical accent swatch
+  // Accent (steel-blue)
+  accent:       '#5b8fc7',
+  accentSoft:   'rgba(91,143,199,0.18)',
+  accentFg:     '#8fb4d8',
+  accentBorder: 'rgba(91,143,199,0.42)',
+  accentBright: '#8fb4d8',   // lighter steel — bright stop in linear-gradient(135deg,accent,accentBright)
+  accentDeep:   '#4a79ad',   // darker steel — gradient/hover-darken & categorical accent swatch
+  accentFgSoft: '#c7d2fe',   // pale steel-lavender text (badges, subtle links)
+
+  // Steel-blue alpha ramp — same #5b8fc7 hue at fixed opacities. Use for
+  // tints, hairlines, hovers where accentSoft (0.18) isn't the right weight.
+  accentA04:    'rgba(91,143,199,0.04)',
+  accentA05:    'rgba(91,143,199,0.05)',
+  accentA06:    'rgba(91,143,199,0.06)',
+  accentA08:    'rgba(91,143,199,0.08)',
+  accentA10:    'rgba(91,143,199,0.1)',
+  accentA12:    'rgba(91,143,199,0.12)',
+  accentA14:    'rgba(91,143,199,0.14)',
+  accentA15:    'rgba(91,143,199,0.15)',
+  accentA16:    'rgba(91,143,199,0.16)',
+  accentA20:    'rgba(91,143,199,0.2)',
+  accentA22:    'rgba(91,143,199,0.22)',
+  accentA25:    'rgba(91,143,199,0.25)',
+  accentA30:    'rgba(91,143,199,0.3)',
+  accentA40:    'rgba(91,143,199,0.4)',
+  accentA45:    'rgba(91,143,199,0.45)',
+  accentA70:    'rgba(91,143,199,0.7)',
+  accentA80:    'rgba(91,143,199,0.8)',
+
+  // Neutrals / one-offs
+  white:        '#ffffff',   // pure white — text/icons on a colored fill
+  textBright:   '#e2e8f0',   // near-white ink, a touch brighter than `text`
+  gold:         '#fbbf24',   // amber accent (stars, highlights)
+  whiteA05:     'rgba(255,255,255,0.05)',
+  whiteA06:     'rgba(255,255,255,0.06)',
+  whiteA45:     'rgba(255,255,255,0.45)',
+  blackA30:     'rgba(0,0,0,0.3)',
 
   // Semantic tones — each has bg / border / fg for badges & pills.
   success: {
@@ -128,8 +159,8 @@ export const fontFamily = '"DM Sans", system-ui, -apple-system, sans-serif';
 // ─── Shadows ──────────────────────────────────────────────────
 
 export const shadows = {
-  sm:    '0 1px 2px rgba(0,0,0,0.2)',
-  md:    '0 4px 14px rgba(0,0,0,0.25)',
+  sm:    '0 1px 2px rgba(0,0,0,0.35)',
+  md:    '0 2px 6px rgba(0,0,0,0.35), 0 10px 28px rgba(0,0,0,0.4)',
   lg:    '0 10px 32px rgba(0,0,0,0.55)',
   modal: '0 20px 60px rgba(0,0,0,0.6)',
   inset: '0 1px 0 rgba(255,255,255,0.04) inset',
@@ -144,10 +175,10 @@ export const shadows = {
 // widgets that need an inline ring on a non-focusable wrapper.
 
 export const focusRing = {
-  color:   'rgba(99,102,241,0.9)',
-  outline: '2px solid rgba(99,102,241,0.9)',
+  color:   'rgba(91, 143, 199,0.9)',
+  outline: '2px solid rgba(91, 143, 199,0.9)',
   offset:  '2px',
-  shadow:  '0 0 0 2px rgba(99,102,241,0.6)',
+  shadow:  '0 0 0 2px rgba(91, 143, 199,0.6)',
 };
 
 // ─── Motion ───────────────────────────────────────────────────

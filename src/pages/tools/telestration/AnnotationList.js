@@ -1,4 +1,5 @@
 import React, { useCallback } from 'react';
+import { colors } from '../../../lib/styleTokens';
 
 const TYPE_LABELS = {
   pen: 'Pen',
@@ -205,8 +206,8 @@ const styles = {
     transition: 'border-color 0.12s',
   },
   itemVisible: {
-    borderColor: 'rgba(99,102,241,0.3)',
-    background: 'rgba(99,102,241,0.04)',
+    borderColor: colors.accentA30,
+    background: colors.accentA04,
   },
   itemTopRow: {
     display: 'flex',

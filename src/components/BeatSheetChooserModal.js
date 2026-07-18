@@ -58,7 +58,7 @@ const s = {
     display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000,
   },
   modal: {
-    background: '#1a1a2e', borderRadius: 14, width: '92vw', maxWidth: 460,
+    background: '#1b2331', borderRadius: 14, width: '92vw', maxWidth: 460,
     maxHeight: '80vh', border: '1px solid rgba(255,255,255,0.1)',
     display: 'flex', flexDirection: 'column', fontFamily: 'DM Sans, sans-serif',
     padding: '18px 20px',

@@ -9,6 +9,7 @@ import { WORKFLOWS_CREATION_DISABLED } from '../../lib/workflowApi';
 import ProgressTable from '../../components/workflows/ProgressTable';
 import TaskEditModal from '../../components/TaskEditModal';
 import backdropDismiss from '../../lib/backdropDismiss';
+import { colors } from '../../lib/styleTokens';
 
 // ─── Constants ───────────────────────────────────────────────
 
@@ -16,7 +17,7 @@ const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL || '';
 const TEAM_ROLES = ['admin', 'assistant', 'member', 'partner'];
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const CARD_STATUS_TONES = {
-  active: '#6366f1',
+  active: '#5b8fc7',
   blocked: '#eab308',
   complete: '#22c55e',
   cancelled: 'rgba(255,255,255,0.4)',
@@ -363,7 +364,7 @@ function CardModal({ card, columns, profiles, signOffData, onClose, onSave, onDe
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>{c.title_template || c.step_key}</span>
                 {card.current_step_key === c.step_key && (
-                  <span style={{ fontSize: 10, color: '#6366f1', fontWeight: 600 }}>CURRENT</span>
+                  <span style={{ fontSize: 10, color: colors.accent, fontWeight: 600 }}>CURRENT</span>
                 )}
                 {!overrides[c.step_key] && (
                   <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>Default</span>
@@ -432,7 +433,7 @@ function CardModal({ card, columns, profiles, signOffData, onClose, onSave, onDe
 // ─── Card tile (in column) ───────────────────────────────────
 
 function CardTile({ card, signOffProgress, onClick, onContextMenu }) {
-  const tone = CARD_STATUS_TONES[card.status] || '#6366f1';
+  const tone = CARD_STATUS_TONES[card.status] || '#5b8fc7';
   return (
     <div
       onClick={() => onClick(card)}
@@ -456,7 +457,7 @@ function CardTile({ card, signOffProgress, onClick, onContextMenu }) {
             <div style={{
               width: `${signOffProgress.total > 0 ? (signOffProgress.done / signOffProgress.total) * 100 : 0}%`,
               height: '100%',
-              background: signOffProgress.done === signOffProgress.total ? '#22c55e' : '#6366f1',
+              background: signOffProgress.done === signOffProgress.total ? '#22c55e' : '#5b8fc7',
               borderRadius: 2,
               transition: 'width 200ms ease-out',
             }} />
@@ -522,7 +523,7 @@ function KanbanColumn({
                   <button
                     onClick={() => setShowSettings((v) => !v)}
                     title="Column settings"
-                    style={{ background: 'transparent', border: 'none', color: showSettings ? '#6366f1' : 'rgba(255,255,255,0.4)', fontSize: 14, cursor: 'pointer', padding: '0 4px' }}
+                    style={{ background: 'transparent', border: 'none', color: showSettings ? '#5b8fc7' : 'rgba(255,255,255,0.4)', fontSize: 14, cursor: 'pointer', padding: '0 4px' }}
                   >⚙</button>
                   <button
                     onClick={() => { if (window.confirm(`Delete column "${column.title_template}"? Cards in it will be skipped.`)) onDelete(); }}
@@ -1221,7 +1222,7 @@ export default function KanbanPanel({ boardId, onBack, showToast }) {
             zIndex: 9999,
             top: cardCtxMenu.y,
             left: cardCtxMenu.x,
-            background: '#15151f',
+            background: colors.bgRaised,
             border: '1px solid rgba(255,255,255,0.12)',
             borderRadius: 8,
             padding: 4,
@@ -1262,11 +1263,11 @@ const styles = {
   // Chips
   chip: {
     display: 'inline-flex', alignItems: 'center', gap: 4,
-    padding: '2px 8px', background: 'rgba(99,102,241,0.15)', color: '#a5b4fc',
-    borderRadius: 999, fontSize: 11, border: '1px solid rgba(99,102,241,0.35)',
+    padding: '2px 8px', background: colors.accentA15, color: colors.accentFg,
+    borderRadius: 999, fontSize: 11, border: '1px solid rgba(91, 143, 199,0.35)',
   },
   chipX: {
-    background: 'transparent', border: 'none', color: '#a5b4fc',
+    background: 'transparent', border: 'none', color: colors.accentFg,
     cursor: 'pointer', fontSize: 14, padding: 0, lineHeight: 1,
   },
   addChipBtn: {
@@ -1276,7 +1277,7 @@ const styles = {
   },
   chipMenu: {
     position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4,
-    background: '#15151f', border: '1px solid rgba(255,255,255,0.12)',
+    background: colors.bgRaised, border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: 8, zIndex: 100, overflow: 'hidden',
   },
   chipSearch: {
@@ -1311,13 +1312,13 @@ const styles = {
   primaryBtn: {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4,
     padding: '4px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600,
-    cursor: 'pointer', border: 'none', background: '#6366f1', color: '#ffffff',
+    cursor: 'pointer', border: 'none', background: colors.accent, color: colors.white,
     whiteSpace: 'nowrap',
   },
   primaryBtnSm: {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
     padding: '4px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600,
-    cursor: 'pointer', border: 'none', background: '#6366f1', color: '#ffffff',
+    cursor: 'pointer', border: 'none', background: colors.accent, color: colors.white,
   },
   secondaryBtn: {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -1381,7 +1382,7 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
   },
   modal: {
-    background: '#15151f', border: '1px solid rgba(255,255,255,0.12)',
+    background: colors.bgRaised, border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: 14, padding: 20, width: 600, maxWidth: '90vw',
     boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
   },

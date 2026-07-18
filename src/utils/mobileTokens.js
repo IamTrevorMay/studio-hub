@@ -1,5 +1,5 @@
 // Mobile design tokens. Pair with the existing dark theme:
-// base bg #0f0f1a, panel bg #12121f / #1a1a2e, accent #6366f1 / #a5b4fc.
+// base bg #0e1420, panel bg #0e1420 / #1b2331, accent #5b8fc7 / #8fb4d8.
 
 export const mobileTokens = {
   // Tap-target floor (Apple HIG). Use for any interactive element.

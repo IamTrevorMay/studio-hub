@@ -7,6 +7,7 @@ import ContractorAssignmentModal from '../components/ContractorAssignmentModal';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
 import { fetchAllRows } from './analytics/utils';
 import backdropDismiss from '../lib/backdropDismiss';
+import { colors } from '../lib/styleTokens';
 
 // Mobile Workflows: Progress table + assignment shortcuts only.
 // Kanban flows + automations are desktop-only — the value on a phone
@@ -294,7 +295,7 @@ function PersonCard({ person, data, sprintActiveTaskIds, onTaskClick }) {
 const styles = {
   root: {
     display: 'flex', flexDirection: 'column', minHeight: '100%',
-    background: '#0f0f1a', color: '#e2e8f0', position: 'relative',
+    background: colors.bg, color: colors.textBright, position: 'relative',
   },
   header: { padding: `${mobileTokens.space.lg}px ${mobileTokens.space.lg}px ${mobileTokens.space.md}px` },
   title: { margin: 0, fontSize: mobileTokens.font.xl, fontWeight: 800, color: '#fff', letterSpacing: '-0.3px' },
@@ -370,9 +371,9 @@ const styles = {
   fab: {
     position: 'fixed', right: 18, bottom: 86,
     width: 56, height: 56, borderRadius: '50%',
-    background: '#6366f1', color: '#fff', border: 'none',
+    background: colors.accent, color: colors.white, border: 'none',
     fontSize: 30, lineHeight: 1, cursor: 'pointer', fontFamily: 'inherit',
-    boxShadow: '0 8px 22px rgba(99,102,241,0.45)',
+    boxShadow: '0 8px 22px rgba(91, 143, 199,0.45)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     zIndex: 50,
   },
@@ -381,7 +382,7 @@ const styles = {
     zIndex: 200, display: 'flex', alignItems: 'flex-end',
   },
   sheet: {
-    width: '100%', background: '#1a1a2e',
+    width: '100%', background: colors.bgHover,
     borderTopLeftRadius: 16, borderTopRightRadius: 16,
     padding: `8px ${mobileTokens.space.lg}px calc(${mobileTokens.space.lg}px + ${mobileTokens.safeBottom})`,
     display: 'flex', flexDirection: 'column', gap: 8,

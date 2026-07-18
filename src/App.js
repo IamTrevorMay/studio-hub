@@ -6,7 +6,7 @@ import { isMobileViewport, MOBILE_BREAKPOINT_PX } from './hooks/useIsMobile';
 import { ConfirmProvider } from './contexts/ConfirmContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { useUsageTracking } from './hooks/useUsageTracking'; // TEMP: front-end usage study, remove after 2026-07-07
-import { focusRing } from './lib/styleTokens';
+import { colors, focusRing } from './lib/styleTokens';
 
 // Pick the layout + auth chunks once at boot. Cross-breakpoint resize requires reload.
 // Reload when the viewport crosses the mobile breakpoint after boot
@@ -140,7 +140,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: '#0f0f1a',
+    background: colors.bg,
     fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
   },
   loadingInner: {
@@ -149,8 +149,8 @@ const styles = {
   spinner: {
     width: '36px',
     height: '36px',
-    border: '3px solid rgba(99,102,241,0.2)',
-    borderTopColor: '#6366f1',
+    border: '3px solid rgba(91, 143, 199,0.2)',
+    borderTopColor: '#5b8fc7',
     borderRadius: '50%',
     animation: 'spin 0.8s linear infinite',
     margin: '0 auto 16px',
@@ -166,7 +166,7 @@ const styles = {
   },
   retryBtn: {
     padding: '10px 24px',
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     border: 'none',
     borderRadius: '10px',
     color: '#ffffff',
@@ -189,12 +189,12 @@ styleSheet.textContent = `
   }
   @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
   * { box-sizing: border-box; }
-  body { margin: 0; background: #0f0f1a; }
+  body { margin: 0; background: #0e1420; }
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
-  select option { background: #1a1a2e; color: #fff; }
+  select option { background: #1b2331; color: #fff; }
   input::placeholder { color: rgba(255,255,255,0.25); }
   input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.5); }
   /* Keyboard focus visibility (a11y). !important overrides the many inline

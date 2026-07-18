@@ -88,8 +88,8 @@ export default function AgencyPortal() {
       .brief-md ul { margin: 0 0 12px; padding-left: 20px; color: rgba(255,255,255,0.78); }
       .brief-md li { margin-bottom: 4px; }
       .brief-md strong { color: #fff; font-weight: 600; }
-      .brief-md a { color: #a5b4fc; }
-      .brief-md code { background: rgba(99,102,241,0.15); padding: 1px 6px; border-radius: 4px; font-size: 12px; }
+      .brief-md a { color: #8fb4d8; }
+      .brief-md code { background: rgba(91, 143, 199,0.15); padding: 1px 6px; border-radius: 4px; font-size: 12px; }
     `;
     document.head.appendChild(el);
   }, []);
@@ -632,7 +632,7 @@ const styles = {
   tbd: { color: colors.textDim, fontSize: fontSizes.xs },
   // Plain links for the Brief / comment columns, matching the internal table.
   tableLink: {
-    color: '#a5b4fc',
+    color: colors.accentFg,
     textDecoration: 'underline',
     fontSize: '12px',
     maxWidth: 240,
@@ -646,7 +646,7 @@ const styles = {
     background: 'transparent',
     border: 'none',
     padding: 0,
-    color: '#a5b4fc',
+    color: colors.accentFg,
     textDecoration: 'underline',
     textUnderlineOffset: 2,
     fontSize: '12px',

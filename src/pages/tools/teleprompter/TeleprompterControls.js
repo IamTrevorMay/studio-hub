@@ -1,4 +1,5 @@
 import React from 'react';
+import { colors } from '../../../lib/styleTokens';
 
 const FONT_OPTIONS = [
   { label: 'Sans-serif', value: 'sans-serif' },
@@ -295,8 +296,8 @@ const styles = {
     fontFamily: 'inherit',
   },
   btnActive: {
-    background: 'rgba(99,102,241,0.2)',
-    color: '#a5b4fc',
+    background: colors.accentA20,
+    color: colors.accentFg,
   },
   smBtn: {
     display: 'flex',
@@ -349,12 +350,12 @@ const styles = {
   },
   slider: {
     width: '80px',
-    accentColor: '#6366f1',
+    accentColor: '#5b8fc7',
   },
   countdownLabel: {
     fontSize: '24px',
     fontWeight: 700,
-    color: '#a5b4fc',
+    color: colors.accentFg,
     minWidth: '100px',
     textAlign: 'center',
   },

@@ -416,7 +416,7 @@ const st = {
   },
   settingsPanel: {
     width: '480px', maxWidth: '90vw', height: '100%',
-    background: '#12121f', borderLeft: '1px solid rgba(255,255,255,0.08)',
+    background: '#0e1420', borderLeft: '1px solid rgba(255,255,255,0.08)',
     display: 'flex', flexDirection: 'column', overflow: 'hidden',
   },
   settingsHeader: {
@@ -459,7 +459,7 @@ const st = {
     display: 'flex', alignItems: 'center', gap: '8px',
     fontSize: '13px', color: 'rgba(255,255,255,0.5)', cursor: 'pointer',
   },
-  checkbox: { accentColor: '#6366f1' },
+  checkbox: { accentColor: '#5b8fc7' },
   recipientCard: {
     display: 'flex', flexDirection: 'column', gap: '8px',
     padding: '14px', background: 'rgba(255,255,255,0.02)',
@@ -472,8 +472,8 @@ const st = {
     alignItems: 'center', justifyContent: 'center', opacity: 0.6, flexShrink: 0,
   },
   addBtn: {
-    padding: '8px 16px', fontSize: '13px', fontWeight: 600, color: '#6366f1',
-    background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)',
+    padding: '8px 16px', fontSize: '13px', fontWeight: 600, color: '#5b8fc7',
+    background: 'rgba(91, 143, 199,0.08)', border: '1px solid rgba(91, 143, 199,0.2)',
     borderRadius: '8px', cursor: 'pointer', fontFamily: 'inherit', alignSelf: 'flex-start',
   },
 };

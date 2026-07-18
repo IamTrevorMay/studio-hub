@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { mobileTokens, mobileTapButton } from '../../utils/mobileTokens';
+import { colors } from '../../lib/styleTokens';
 
 // Full-screen sheet for long content (detail views, multi-field forms).
 // Slides up from the bottom, has its own header with back + title + optional action.
@@ -61,7 +62,7 @@ const styles = {
   root: {
     position: 'fixed',
     inset: 0,
-    background: '#0f0f1a',
+    background: colors.bg,
     color: '#e2e8f0',
     zIndex: mobileTokens.z.sheet,
     display: 'flex',
@@ -91,7 +92,7 @@ const styles = {
   backLabel: {
     fontSize: mobileTokens.font.base,
     fontWeight: 600,
-    color: '#a5b4fc',
+    color: colors.accentFg,
   },
   title: {
     fontSize: mobileTokens.font.lg,

@@ -6,6 +6,7 @@ import NotificationSettings from '../components/NotificationSettings';
 import MyTasks from './MyTasks';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
 import backdropDismiss from '../lib/backdropDismiss';
+import { colors } from '../lib/styleTokens';
 
 const EVENT_TYPE_COLORS = {
   deadline: '#ef4444', meeting: '#3b82f6', live_recording: '#22c55e',
@@ -85,8 +86,8 @@ export default function DashboardMobile({ onNavigate }) {
             onClick={() => setActiveTab(t.key)}
             style={{
               ...styles.tabBtn,
-              background: activeTab === t.key ? 'rgba(99,102,241,0.16)' : 'transparent',
-              color: activeTab === t.key ? '#a5b4fc' : 'rgba(255,255,255,0.6)',
+              background: activeTab === t.key ? 'rgba(91, 143, 199,0.16)' : 'transparent',
+              color: activeTab === t.key ? '#8fb4d8' : 'rgba(255,255,255,0.6)',
               fontWeight: activeTab === t.key ? 600 : 500,
             }}
           >
@@ -170,7 +171,7 @@ function TodayTab({ profile, isAdmin, onNavigate }) {
 }
 
 function EventRow({ event }) {
-  const accent = EVENT_TYPE_COLORS[event.event_type] || '#6366f1';
+  const accent = EVENT_TYPE_COLORS[event.event_type] || '#5b8fc7';
   const label = EVENT_TYPE_LABELS[event.event_type] || 'Event';
   const time = formatEventTime(event);
   return (
@@ -527,7 +528,7 @@ function CheckinTab({ profile }) {
           );
         }
         const avg = (validRatings.reduce((a, b) => a + b, 0) / validRatings.length).toFixed(1);
-        const avgColor = CHECKIN_OPTIONS[Math.round(avg) - 1]?.color || '#6366f1';
+        const avgColor = CHECKIN_OPTIONS[Math.round(avg) - 1]?.color || '#5b8fc7';
         return (
           <div style={styles.avgRow}>
             <span style={{ ...styles.avgDot, background: avgColor }} />
@@ -552,8 +553,8 @@ function ViewBtn({ active, onClick, children }) {
         ...mobileTapButton,
         minHeight: 32,
         padding: '0 10px',
-        background: active ? 'rgba(99,102,241,0.16)' : 'transparent',
-        color: active ? '#a5b4fc' : 'rgba(255,255,255,0.6)',
+        background: active ? 'rgba(91, 143, 199,0.16)' : 'transparent',
+        color: active ? '#8fb4d8' : 'rgba(255,255,255,0.6)',
         borderRadius: mobileTokens.radius.sm,
         fontSize: mobileTokens.font.xs,
         fontWeight: 600,
@@ -583,7 +584,7 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     minHeight: '100%',
-    background: '#0f0f1a',
+    background: colors.bg,
     color: '#e2e8f0',
   },
   greeting: {
@@ -596,7 +597,7 @@ const styles = {
     width: 44,
     height: 44,
     borderRadius: mobileTokens.radius.md,
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     color: '#fff',
     display: 'flex',
     alignItems: 'center',
@@ -631,7 +632,7 @@ const styles = {
     width: '100%',
     maxHeight: '85vh',
     overflowY: 'auto',
-    background: '#16162a',
+    background: colors.bgRaised,
     borderRadius: '16px 16px 0 0',
     padding: `${mobileTokens.space.lg}px ${mobileTokens.space.lg}px calc(${mobileTokens.space.lg}px + env(safe-area-inset-bottom))`,
   },
@@ -646,7 +647,7 @@ const styles = {
     ...mobileTapButton,
     border: 'none',
     background: 'transparent',
-    color: '#a5b4fc',
+    color: colors.accentFg,
     fontSize: mobileTokens.font.md,
     fontWeight: 600,
     padding: '6px 8px',
@@ -707,7 +708,7 @@ const styles = {
   primaryBtn: {
     minHeight: mobileTokens.tap,
     padding: `${mobileTokens.space.sm}px ${mobileTokens.space.lg}px`,
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     border: 'none',
     borderRadius: mobileTokens.radius.md,
     color: '#fff',
@@ -788,7 +789,7 @@ const styles = {
   },
   todoEditInput: {
     flex: 1, height: 36, padding: `0 ${mobileTokens.space.sm}px`,
-    background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(99,102,241,0.4)',
+    background: colors.whiteA06, border: '1px solid rgba(91, 143, 199,0.4)',
     borderRadius: mobileTokens.radius.sm, color: '#fff', fontSize: mobileTokens.font.md,
     outline: 'none', fontFamily: 'inherit',
   },
@@ -812,7 +813,7 @@ const styles = {
   },
   todoAddBtn: {
     minWidth: mobileTokens.tap, height: mobileTokens.tap, border: 'none',
-    borderRadius: mobileTokens.radius.md, background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    borderRadius: mobileTokens.radius.md, background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     color: '#fff', cursor: 'pointer', display: 'flex',
     alignItems: 'center', justifyContent: 'center', fontFamily: 'inherit',
   },
@@ -847,7 +848,7 @@ const styles = {
   },
   saveCheckinBtn: {
     minHeight: mobileTokens.tap + 4, padding: mobileTokens.space.md,
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)', border: 'none',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)', border: 'none',
     borderRadius: mobileTokens.radius.md, color: '#fff',
     fontSize: mobileTokens.font.md, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
   },

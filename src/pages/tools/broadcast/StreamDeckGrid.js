@@ -22,7 +22,7 @@ export default function StreamDeckGrid({ deck, session, assets, visibleAssetIds 
       if (!a) { deck.clear(i); continue; }
       const hex = (a.hotkey_color && /^#[0-9a-fA-F]{6}$/.test(a.hotkey_color))
         ? a.hotkey_color
-        : (visibleAssetIds.has(a.id) ? '#6366f1' : '#1a1a2e');
+        : (visibleAssetIds.has(a.id) ? '#5b8fc7' : '#1b2331');
       const r = parseInt(hex.slice(1, 3), 16);
       const g = parseInt(hex.slice(3, 5), 16);
       const b = parseInt(hex.slice(5, 7), 16);

@@ -264,7 +264,7 @@ const styles = {
   ctxMenu: {
     position: 'fixed',
     zIndex: 10001,
-    background: '#1e1e32',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: radii.md,
     padding: 4,

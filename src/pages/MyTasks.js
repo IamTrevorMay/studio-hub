@@ -9,6 +9,7 @@ import { getWorkflowModal } from '../lib/workflowModals';
 import ResearchScopeModal from '../components/ResearchScopeModal';
 import AlreadyResearchingModal from '../components/AlreadyResearchingModal';
 import backdropDismiss from '../lib/backdropDismiss';
+import { colors } from '../lib/styleTokens';
 
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL || '';
 
@@ -1373,7 +1374,7 @@ const styles = {
     width: 24,
     height: 24,
     border: '2px solid rgba(255,255,255,0.1)',
-    borderTopColor: '#6366f1',
+    borderTopColor: '#5b8fc7',
     borderRadius: '50%',
     animation: 'spin 0.6s linear infinite',
   },
@@ -1383,7 +1384,7 @@ const styles = {
   },
   emptyIcon: {
     fontSize: 48,
-    color: 'rgba(99,102,241,0.3)',
+    color: colors.accentA30,
     marginBottom: 12,
   },
   emptyText: {
@@ -1484,9 +1485,9 @@ const styles = {
   linkBtn: {
     fontSize: 11,
     fontWeight: 600,
-    color: '#a5b4fc',
-    background: 'rgba(99,102,241,0.12)',
-    border: '1px solid rgba(99,102,241,0.25)',
+    color: colors.accentFg,
+    background: colors.accentA12,
+    border: '1px solid rgba(91, 143, 199,0.25)',
     borderRadius: 5,
     padding: '2px 8px',
     textDecoration: 'none',
@@ -1510,7 +1511,7 @@ const styles = {
     flexWrap: 'wrap',
   },
   primaryBtn: {
-    background: '#6366f1',
+    background: colors.accent,
     color: '#fff',
     border: 'none',
     borderRadius: 6,
@@ -1558,7 +1559,7 @@ const styles = {
   },
   countToggleBox: {
     cursor: 'pointer',
-    accentColor: '#6366f1',
+    accentColor: '#5b8fc7',
     margin: 0,
   },
   holdBtn: {
@@ -1686,7 +1687,7 @@ const styles = {
     bottom: '100%',
     left: 0,
     marginBottom: 4,
-    background: '#1a1a2e',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: 8,
     padding: 4,
@@ -1699,7 +1700,7 @@ const styles = {
     top: '100%',
     left: 0,
     marginTop: 4,
-    background: '#1a1a2e',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: 8,
     padding: 4,
@@ -1753,7 +1754,7 @@ const styles = {
     zIndex: 1000,
   },
   modal: {
-    background: '#1a1a2e',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.08)',
     borderRadius: 12,
     padding: 24,

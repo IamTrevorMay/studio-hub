@@ -587,7 +587,7 @@ const PITCH_COLORS = {
   'CU':'#a855f7','Curveball':'#a855f7',
   'KC':'#8b5cf6','Knuckle Curve':'#8b5cf6',
   'KN':'#ec4899','Knuckleball':'#ec4899',
-  'EP':'#6366f1','Eephus':'#6366f1',
+  'EP':'#5b8fc7','Eephus':'#5b8fc7',
   'FA':'#ef4444','Fastball':'#ef4444',
 };
 function pitchColor(name) { return PITCH_COLORS[name] || '#71717a'; }

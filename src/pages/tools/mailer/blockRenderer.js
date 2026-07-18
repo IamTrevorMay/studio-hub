@@ -38,7 +38,7 @@ function renderRssCard(b, item) {
     ? `<p style="margin:0 0 12px;font-size:14px;color:#444;line-height:1.5;">${escapeHtml(item.description).slice(0, 240)}…</p>`
     : '';
   const cta = item.link
-    ? `<a href="${escapeHtml(item.link)}" style="display:inline-block;padding:8px 14px;background:#6366f1;color:#fff;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600;">${escapeHtml(b.ctaText || 'Read more →')}</a>`
+    ? `<a href="${escapeHtml(item.link)}" style="display:inline-block;padding:8px 14px;background:#5b8fc7;color:#fff;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600;">${escapeHtml(b.ctaText || 'Read more →')}</a>`
     : '';
   return `<div style="border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin:8px 0;">${img}${title}${author}${desc}${cta}</div>`;
 }
@@ -96,7 +96,7 @@ function renderInner(b, ctx) {
     }
     case 'button': {
       const href = b.href ? (ctx?.rewriteHref ? ctx.rewriteHref(b.href) : b.href) : '#';
-      return `<div style="margin:16px 0;${alignStyle(b.align ?? 'center')}"><a href="${escapeHtml(href)}" target="_blank" rel="noopener" style="display:inline-block;padding:12px 24px;background:#6366f1;color:#fff;font-weight:600;border-radius:6px;text-decoration:none;font-size:14px;">${escapeHtml(b.text || 'Click here')}</a></div>`;
+      return `<div style="margin:16px 0;${alignStyle(b.align ?? 'center')}"><a href="${escapeHtml(href)}" target="_blank" rel="noopener" style="display:inline-block;padding:12px 24px;background:#5b8fc7;color:#fff;font-weight:600;border-radius:6px;text-decoration:none;font-size:14px;">${escapeHtml(b.text || 'Click here')}</a></div>`;
     }
     case 'divider':
       return `<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;" />`;
@@ -138,7 +138,7 @@ function renderInner(b, ctx) {
       return `<p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#333;">${escapeHtml(rendered)}</p>`;
     }
     case 'header': {
-      const bg = b.bg || '#0f0f1a';
+      const bg = b.bg || '#0e1420';
       const fg = b.fg || '#ffffff';
       if (b.style === 'banner' && b.bannerUrl) {
         return `<div style="background:${bg};text-align:center;"><img src="${escapeHtml(b.bannerUrl)}" alt="" style="max-width:100%;height:auto;display:block;border:0;" /></div>`;
@@ -153,7 +153,7 @@ function renderInner(b, ctx) {
     case 'social-links': {
       const align = b.align || 'center';
       const size = Number(b.iconSize) || 28;
-      const color = b.color || '#6366f1';
+      const color = b.color || '#5b8fc7';
       const labels = { instagram:'IG', youtube:'YT', twitter:'X', tiktok:'TT', twitch:'TW', linkedin:'IN', facebook:'FB', website:'WEB' };
       const icons = (b.links || [])
         .filter((l) => l && l.url)

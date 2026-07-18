@@ -10,9 +10,10 @@ import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
 import { parseTransactionsCsv } from '../../lib/csvImport';
 import { fetchAllRows } from '../../pages/analytics/utils';
+import { colors } from '../../lib/styleTokens';
 
 const BUSINESSES = {
-  mayday_media:        { label: 'Mayday', color: '#6366f1' },
+  mayday_media:        { label: 'Mayday', color: '#5b8fc7' },
   neptune_performance: { label: 'Neptune', color: '#06b6d4' },
 };
 
@@ -567,7 +568,7 @@ function RulesView({ rules, onAdd, onDelete }) {
                   <td style={{ ...styles.td, whiteSpace: 'nowrap', color: rule.business ? BUSINESSES[rule.business]?.color : 'rgba(255,255,255,0.4)' }}>
                     {rule.business ? BUSINESSES[rule.business]?.label : 'any'}
                   </td>
-                  <td style={{ ...styles.td, color: '#a5b4fc', fontWeight: 600 }}>{rule.category}</td>
+                  <td style={{ ...styles.td, color: colors.accentFg, fontWeight: 600 }}>{rule.category}</td>
                   <td style={{ ...styles.td, ...styles.tdMono, textAlign: 'right' }}>{rule.priority ?? 0}</td>
                   <td style={{ ...styles.td, textAlign: 'right' }}>
                     <button onClick={() => onDelete(rule.id)} style={styles.deleteBtn} title="Delete rule">✕</button>
@@ -1322,12 +1323,12 @@ const styles = {
     padding: '6px 14px', background: 'none', border: 'none', borderRadius: 6,
     color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
   },
-  viewTabActive: { background: 'rgba(99,102,241,0.25)', color: '#c7d2fe' },
+  viewTabActive: { background: colors.accentA25, color: colors.accentFgSoft },
 
   viewHeader: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 },
   sectionTitle: { margin: 0, fontSize: 16, fontWeight: 700, color: '#fff' },
   sectionCount: {
-    fontSize: 12, fontWeight: 700, color: '#a5b4fc', background: 'rgba(99,102,241,0.15)',
+    fontSize: 12, fontWeight: 700, color: colors.accentFg, background: colors.accentA15,
     padding: '2px 8px', borderRadius: 999,
   },
   confirmAllBtn: {
@@ -1368,7 +1369,7 @@ const styles = {
   th: {
     position: 'sticky', top: 0, zIndex: 1, textAlign: 'left', padding: '9px 10px',
     fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5,
-    color: 'rgba(255,255,255,0.45)', background: '#16162a', cursor: 'pointer',
+    color: colors.whiteA45, background: colors.bgRaised, cursor: 'pointer',
     userSelect: 'none', whiteSpace: 'nowrap', borderBottom: '1px solid rgba(255,255,255,0.08)',
   },
   sortArrow: { fontSize: 8, marginLeft: 5, verticalAlign: 'middle' },
@@ -1418,10 +1419,10 @@ const styles = {
   filterBar: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' },
   mergeBar: {
     display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, padding: '10px 12px',
-    background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 8,
+    background: colors.accentA08, border: '1px solid rgba(91, 143, 199,0.25)', borderRadius: 8,
   },
   mergedBadge: {
-    marginLeft: 8, fontSize: 10, fontWeight: 700, color: '#a5b4fc', background: 'rgba(99,102,241,0.15)',
+    marginLeft: 8, fontSize: 10, fontWeight: 700, color: colors.accentFg, background: colors.accentA15,
     padding: '1px 7px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: 0.4,
   },
   hiddenFooter: { display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap' },
@@ -1462,7 +1463,7 @@ const styles = {
     cursor: 'pointer', userSelect: 'none',
   },
   confirmBtn: {
-    padding: '5px 12px', background: '#6366f1', border: 'none', borderRadius: 6,
+    padding: '5px 12px', background: colors.accent, border: 'none', borderRadius: 6,
     color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
   },
 
@@ -1480,7 +1481,7 @@ const styles = {
   },
   importPanel: {
     position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 20, width: 520, maxWidth: '80vw',
-    background: '#16162a', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10,
+    background: colors.bgRaised, border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10,
     padding: 14, boxShadow: '0 12px 32px rgba(0,0,0,0.5)',
     display: 'flex', flexDirection: 'column', gap: 10,
   },

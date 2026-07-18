@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { Send, Beaker, X } from 'lucide-react';
 import backdropDismiss from '../../../lib/backdropDismiss';
+import { colors } from '../../../lib/styleTokens';
 
 // Send dialog. Two modes:
 //   - Test send → calls mailer-send-now w/ { test_recipients }.
@@ -137,7 +138,7 @@ const styles = {
     zIndex: 1000, padding: 24,
   },
   modal: {
-    background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)',
+    background: colors.bgHover, border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: 12, width: 'min(520px, 96vw)', maxHeight: '90vh',
     display: 'flex', flexDirection: 'column', overflow: 'hidden',
   },
@@ -160,7 +161,7 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     borderBottom: '2px solid transparent',
   },
-  tabActive: { color: '#fff', borderBottom: '2px solid #818cf8' },
+  tabActive: { color: colors.white, borderBottom: '2px solid #8fb4d8' },
   tabDisabled: { opacity: 0.4, cursor: 'not-allowed' },
   body: { padding: 18, display: 'flex', flexDirection: 'column', gap: 10 },
   help: { fontSize: 12, color: 'rgba(255,255,255,0.5)', lineHeight: 1.5 },
@@ -195,7 +196,7 @@ const styles = {
     padding: '12px 18px', borderTop: '1px solid rgba(255,255,255,0.08)',
   },
   primaryBtn: {
-    background: '#6366f1', color: '#fff', border: 'none',
+    background: colors.accent, color: colors.white, border: 'none',
     borderRadius: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600,
     cursor: 'pointer', fontFamily: 'inherit',
   },

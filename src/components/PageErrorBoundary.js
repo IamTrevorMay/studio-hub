@@ -83,7 +83,7 @@ const styles = {
   },
   button: {
     padding: '10px 24px',
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     border: 'none',
     borderRadius: '10px',
     color: '#ffffff',

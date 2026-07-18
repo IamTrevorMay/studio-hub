@@ -1,4 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
+import { colors } from '../../../lib/styleTokens';
 
 function generateVideoThumbnail(file) {
   return new Promise((resolve) => {
@@ -223,9 +224,9 @@ const styles = {
     gap: '4px',
   },
   addBtn: {
-    background: 'rgba(99,102,241,0.15)',
-    border: '1px solid rgba(99,102,241,0.3)',
-    color: '#a5b4fc',
+    background: colors.accentA15,
+    border: '1px solid rgba(91, 143, 199,0.3)',
+    color: colors.accentFg,
     cursor: 'pointer',
     padding: '4px 8px',
     borderRadius: '5px',
@@ -235,7 +236,7 @@ const styles = {
     transition: 'background 0.12s',
   },
   addBtnActive: {
-    background: 'rgba(99,102,241,0.3)',
+    background: colors.accentA30,
   },
   ytForm: {
     padding: '8px 12px',
@@ -257,7 +258,7 @@ const styles = {
     outline: 'none',
   },
   ytBtn: {
-    background: '#6366f1',
+    background: colors.accent,
     border: 'none',
     color: '#ffffff',
     cursor: 'pointer',
@@ -310,8 +311,8 @@ const styles = {
     width: '100%',
   },
   cardSelected: {
-    borderColor: '#6366f1',
-    background: 'rgba(99,102,241,0.08)',
+    borderColor: colors.accent,
+    background: colors.accentA08,
   },
   thumbWrap: {
     width: '100%',

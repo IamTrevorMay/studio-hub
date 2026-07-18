@@ -7,6 +7,7 @@ import { fetchAllRows } from './analytics/utils';
 import BankAccountsTab from '../components/accounting/BankAccountsTab';
 import TransactionsTab from '../components/accounting/TransactionsTab';
 import MonthlyReportsTab from '../components/accounting/MonthlyReportsTab';
+import { colors } from '../lib/styleTokens';
 
 // Revenue (income) categories the Tiller sync writes into revenue_transactions.
 // Mirrors INCOME_CATEGORIES + the meta map that used to live in Analytics.js.
@@ -26,7 +27,7 @@ const REVENUE_CATEGORY_META = {
 // Expense categories. Must stay aligned with EXPENSE_CATEGORIES in
 // supabase/functions/sync-tiller.
 const EXPENSE_CATEGORY_META = {
-  'Employees':              { label: 'Employees',           color: '#6366f1' },
+  'Employees':              { label: 'Employees',           color: '#5b8fc7' },
   'Rent & Utilities':       { label: 'Rent & Utilities',    color: '#3b82f6' },
   'Equipment':              { label: 'Equipment',           color: '#0ea5e9' },
   'Equipment - Neptune':    { label: 'Equipment (Neptune)', color: '#06b6d4' },
@@ -66,7 +67,7 @@ const TABS = [
 // The two businesses synced from their own Tiller sheets. Rows predating the
 // multi-business split default to mayday_media (see the migration).
 const BUSINESSES = {
-  mayday_media:        { label: 'Mayday Media',        color: '#6366f1' },
+  mayday_media:        { label: 'Mayday Media',        color: '#5b8fc7' },
   neptune_performance: { label: 'Neptune Performance', color: '#06b6d4' },
 };
 const isMayday  = (t) => (t.business || 'mayday_media') === 'mayday_media';
@@ -82,7 +83,7 @@ const BUSINESS_SUBTABS = [
 // Color cycle for businesses without a fixed category meta map (Neptune's
 // categories come straight from its sheet, so we color them on the fly).
 const DYNAMIC_PALETTE = [
-  '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7',
+  '#06b6d4', '#0ea5e9', '#3b82f6', '#5b8fc7', '#8b5cf6', '#a855f7',
   '#d946ef', '#ec4899', '#f43f5e', '#f97316', '#f59e0b', '#eab308',
   '#84cc16', '#22c55e', '#10b981', '#14b8a6',
 ];
@@ -425,7 +426,7 @@ function OverviewTab({ revenue, revenuePrev, expenses, expensesPrev }) {
             metrics={[
               { key: 'revenue',  label: 'Revenue',  color: '#22c55e', getValue: r => r.revenue / 100,  formatValue: v => '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) },
               { key: 'expenses', label: 'Expenses', color: '#ef4444', getValue: r => r.expenses / 100, formatValue: v => '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) },
-              { key: 'net',      label: 'Net',      color: '#a5b4fc', getValue: r => r.net / 100,      formatValue: v => '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) },
+              { key: 'net',      label: 'Net',      color: '#8fb4d8', getValue: r => r.net / 100,      formatValue: v => '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) },
             ]}
             height={260}
             sharedScale
@@ -748,7 +749,7 @@ function RevenuePipelineHeader({ realizedCents, pipeline }) {
       <div style={styles.kpiRow}>
         <KpiCard label="Realized Revenue"  value={formatMoney(realizedCents)} accent="#22c55e" />
         <KpiCard label="Incoming Revenue"  value={formatMoney(incoming)}      accent="#3b82f6" />
-        <KpiCard label="Projected Revenue" value={formatMoney(projected)}     accent="#6366f1" />
+        <KpiCard label="Projected Revenue" value={formatMoney(projected)}     accent="#5b8fc7" />
       </div>
 
       <div style={styles.tableCard}>
@@ -1067,7 +1068,7 @@ function KpiCard({ label, value, sub, delta, deltaUnit, accent, valueColor, delt
     deltaColor = good ? '#22c55e' : '#f87171';
   }
   return (
-    <div style={{ ...styles.kpiCard, borderLeft: `3px solid ${accent || '#6366f1'}` }}>
+    <div style={{ ...styles.kpiCard, borderLeft: `3px solid ${accent || '#5b8fc7'}` }}>
       <div style={styles.kpiLabel}>{label}</div>
       <div style={{ ...styles.kpiValue, ...(valueColor ? { color: valueColor } : {}) }}>{value}</div>
       {sub && <div style={styles.kpiSub}>{sub}</div>}
@@ -1126,7 +1127,7 @@ const styles = {
     padding: '36px 40px 64px',
     maxWidth: '1500px',
     margin: '0 auto',
-    background: '#0f0f1a',
+    background: colors.bg,
     minHeight: '100%',
     color: '#fff',
     fontFamily: 'inherit',
@@ -1145,8 +1146,8 @@ const styles = {
   refreshBtn: {
     display: 'flex', alignItems: 'center', gap: 6,
     padding: '6px 12px', fontSize: 12, borderRadius: 6,
-    background: 'rgba(99,102,241,0.18)', color: '#fff',
-    border: '1px solid rgba(99,102,241,0.5)', cursor: 'pointer', fontFamily: 'inherit',
+    background: colors.accentSoft, color: colors.white,
+    border: '1px solid rgba(91, 143, 199,0.5)', cursor: 'pointer', fontFamily: 'inherit',
   },
   refreshBtnDisabled: { opacity: 0.6, cursor: 'default' },
   refreshIcon: { fontSize: 14, display: 'inline-block', lineHeight: 1 },
@@ -1162,7 +1163,7 @@ const styles = {
     border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', fontFamily: 'inherit',
   },
   rangePillActive: {
-    background: 'rgba(99,102,241,0.18)', color: '#fff', borderColor: 'rgba(99,102,241,0.5)',
+    background: colors.accentSoft, color: colors.white, borderColor: colors.borderFocus,
   },
 
   tabBar: {
@@ -1185,7 +1186,7 @@ const styles = {
   },
   tabActive: {
     color: '#fff',
-    borderBottomColor: '#6366f1',
+    borderBottomColor: '#5b8fc7',
   },
 
   subTabBar: { display: 'flex', gap: 6, marginBottom: 18, flexWrap: 'wrap' },
@@ -1196,7 +1197,7 @@ const styles = {
     border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', fontFamily: 'inherit',
   },
   subTabActive: {
-    background: 'rgba(99,102,241,0.16)', color: '#fff', borderColor: 'rgba(99,102,241,0.5)',
+    background: colors.accentA16, color: colors.white, borderColor: colors.borderFocus,
   },
   subTabDot: { width: 8, height: 8, borderRadius: '50%', display: 'inline-block', flexShrink: 0 },
 
@@ -1210,7 +1211,7 @@ const styles = {
     background: 'transparent', color: 'rgba(255,255,255,0.55)',
     border: 'none', cursor: 'pointer', fontFamily: 'inherit',
   },
-  segBtnActive: { background: 'rgba(99,102,241,0.25)', color: '#fff' },
+  segBtnActive: { background: colors.accentA25, color: colors.white },
 
   emptyText: { color: 'rgba(255,255,255,0.4)', fontSize: 14 },
 

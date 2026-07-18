@@ -20,6 +20,7 @@ import { getBlockDef, SOCIAL_PLATFORMS } from './blockRegistry';
 import BlockPalette from './BlockPalette';
 import BlockProperties from './BlockProperties';
 import RichTextBlockEditor from './RichTextBlockEditor';
+import { colors } from '../../../lib/styleTokens';
 
 // Block list editor. Drag handle reorders via @dnd-kit; per-type fields
 // rendered inline. Each block needs a stable id to play nicely with
@@ -284,7 +285,7 @@ function BlockFields({ block, onChange }) {
             <Field label="Subtitle"><Input value={block.subtitle} onChange={(v) => onChange({ subtitle: v })} /></Field>
           </Row>
           <Row>
-            <Field label="Background"><Input value={block.bg} onChange={(v) => onChange({ bg: v })} placeholder="#0f0f1a" /></Field>
+            <Field label="Background"><Input value={block.bg} onChange={(v) => onChange({ bg: v })} placeholder="#0e1420" /></Field>
             <Field label="Text color"><Input value={block.fg} onChange={(v) => onChange({ fg: v })} placeholder="#ffffff" /></Field>
           </Row>
         </>
@@ -493,7 +494,7 @@ function SocialLinksFields({ block, onChange }) {
         <Field label="Icon size (px)">
           <Input type="number" value={block.iconSize || 28} onChange={(v) => onChange({ iconSize: Number(v) || 28 })} />
         </Field>
-        <Field label="Color"><Input value={block.color} onChange={(v) => onChange({ color: v })} placeholder="#6366f1" /></Field>
+        <Field label="Color"><Input value={block.color} onChange={(v) => onChange({ color: v })} placeholder="#5b8fc7" /></Field>
       </Row>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {links.map((l, i) => (
@@ -545,7 +546,7 @@ const styles = {
   empty: { padding: 24, textAlign: 'center', color: 'rgba(255,255,255,0.35)', fontSize: 13, border: '1px dashed rgba(255,255,255,0.1)', borderRadius: 8 },
   card: { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10 },
   cardHeader: { display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' },
-  cardType: { fontSize: 10, fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', color: '#a5b4fc' },
+  cardType: { fontSize: 10, fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', color: colors.accentFg },
   dragHandle: {
     background: 'transparent', border: 'none',
     color: 'rgba(255,255,255,0.4)',

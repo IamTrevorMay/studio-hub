@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import FullScreenSheet from '../components/mobile/FullScreenSheet';
 import BottomSheet from '../components/mobile/BottomSheet';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
+import { colors } from '../lib/styleTokens';
 
 // Schema matches the desktop Production page: a beat sheet's `beats`
 // jsonb is an ordered list of items where each item is either a beat
@@ -25,7 +26,7 @@ const BEAT_SHEET_TYPES = [
 ];
 
 const SEGMENT_COLORS = [
-  '#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b',
+  '#5b8fc7', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b',
   '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#a855f7',
 ];
 
@@ -359,7 +360,7 @@ function SheetEditor({ sheet, onSheetUpdated }) {
         <span style={{
           ...editStyles.saveStatus,
           color: saveStatus === 'saved' ? 'rgba(255,255,255,0.45)'
-            : saveStatus === 'saving' ? '#a5b4fc' : '#fcd34d',
+            : saveStatus === 'saving' ? '#8fb4d8' : '#fcd34d',
         }}>
           {saveStatus === 'saved' ? 'Saved' : saveStatus === 'saving' ? 'Saving…' : 'Edited'}
         </span>
@@ -620,7 +621,7 @@ function TagField({ label, tags, addPlaceholder, onChange }) {
 }
 
 const styles = {
-  root: { display: 'flex', flexDirection: 'column', minHeight: '100%', background: '#0f0f1a', color: '#e2e8f0' },
+  root: { display: 'flex', flexDirection: 'column', minHeight: '100%', background: colors.bg, color: colors.textBright },
   typeSection: { display: 'flex', flexDirection: 'column', gap: mobileTokens.space.sm },
   typeSectionHeader: {
     display: 'flex', alignItems: 'center', gap: 8,
@@ -699,7 +700,7 @@ const styles = {
     width: '100%',
     minHeight: mobileTokens.tap + 6,
     padding: `${mobileTokens.space.md}px ${mobileTokens.space.lg}px`,
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     color: '#fff',
     borderRadius: mobileTokens.radius.md,
     fontSize: mobileTokens.font.md,
@@ -733,7 +734,7 @@ const addStyles = {
   saveBtn: {
     minHeight: mobileTokens.tap + 4,
     padding: mobileTokens.space.md,
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     border: 'none',
     borderRadius: mobileTokens.radius.md,
     color: '#fff',
@@ -844,10 +845,10 @@ const editStyles = {
     flex: 1,
     minHeight: mobileTokens.tap,
     padding: mobileTokens.space.md,
-    background: 'rgba(99,102,241,0.12)',
-    border: '1px dashed rgba(99,102,241,0.3)',
+    background: colors.accentA12,
+    border: '1px dashed rgba(91, 143, 199,0.3)',
     borderRadius: mobileTokens.radius.md,
-    color: '#a5b4fc',
+    color: colors.accentFg,
     fontSize: mobileTokens.font.md,
     fontWeight: 600,
     flexDirection: 'row',
@@ -922,7 +923,7 @@ const editStyles = {
   },
   colorPicker: {
     position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 6,
-    background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.12)',
+    background: colors.bgHover, border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: mobileTokens.radius.md, padding: 8,
     display: 'flex', flexWrap: 'wrap', gap: 6, zIndex: 5,
     boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
@@ -968,8 +969,8 @@ const editStyles = {
   tagChips: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4 },
   tagChip: {
     display: 'inline-flex', alignItems: 'center', gap: 4,
-    padding: '4px 8px', background: 'rgba(99,102,241,0.1)',
-    border: '1px solid rgba(99,102,241,0.25)',
+    padding: '4px 8px', background: colors.accentA10,
+    border: '1px solid rgba(91, 143, 199,0.25)',
     borderRadius: mobileTokens.radius.sm,
     maxWidth: '100%',
   },

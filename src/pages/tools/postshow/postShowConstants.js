@@ -15,7 +15,7 @@ export const PHASES = [
 ];
 
 export const PHASE_COLORS = {
-  cut: '#6366f1',
+  cut: '#5b8fc7',
   upload: '#3b82f6',
   kanban: '#22c55e',
   history: '#f59e0b',
@@ -47,7 +47,7 @@ export const STATUS_LABELS = {
 export const STATUS_COLORS = {
   pending: '#64748b',
   cutting: '#f59e0b',
-  cut: '#6366f1',
+  cut: '#5b8fc7',
   uploading: '#3b82f6',
   uploaded: '#22c55e',
   synced: '#10b981',

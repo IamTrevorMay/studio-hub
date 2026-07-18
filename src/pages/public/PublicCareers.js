@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../supabaseClient';
 import { clickableKeyProps } from '../../lib/styleRecipes';
+import { colors } from '../../lib/styleTokens';
 
 // Public, login-free careers board. Served by App.js for /careers paths.
 // Reads open listings via anon RLS; applications post through the
@@ -206,7 +207,7 @@ function StructuredDescription({ data }) {
       {data.how_to_apply && (
         <>
           <div style={sectionHead}>How to Apply</div>
-          {data.apply_email && <div style={bodyText}>Email the following to <span style={{ color: '#a5b4fc', fontWeight: 600 }}>{data.apply_email}</span>:</div>}
+          {data.apply_email && <div style={bodyText}>Email the following to <span style={{ color: colors.accentFg, fontWeight: 600 }}>{data.apply_email}</span>:</div>}
           {renderBullets(data.how_to_apply)}
         </>
       )}
@@ -467,8 +468,8 @@ function CareersStatus({ token }) {
                     return (
                       <div key={st2.key} style={{
                         flex: 1, minWidth: 110, padding: '10px 12px', borderRadius: 10, textAlign: 'center',
-                        background: on ? 'rgba(99,102,241,0.22)' : 'rgba(255,255,255,0.04)',
-                        border: `1px solid ${on ? 'rgba(99,102,241,0.6)' : 'rgba(255,255,255,0.08)'}`,
+                        background: on ? 'rgba(91, 143, 199,0.22)' : 'rgba(255,255,255,0.04)',
+                        border: `1px solid ${on ? 'rgba(91, 143, 199,0.6)' : 'rgba(255,255,255,0.08)'}`,
                         color: on ? '#c7d2fe' : 'rgba(255,255,255,0.4)', fontSize: 13, fontWeight: 600,
                       }}>{st2.label}</div>
                     );
@@ -503,7 +504,7 @@ function Field({ label, children }) {
 }
 
 const s = {
-  page: { minHeight: '100vh', background: '#0f0f1a', color: '#fff', fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif" },
+  page: { minHeight: '100vh', background: '#0e1420', color: '#fff', fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif" },
   wrap: { maxWidth: 760, margin: '0 auto', padding: '32px 20px 60px' },
   header: { display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 40 },
   logo: { fontSize: 22, fontWeight: 800, letterSpacing: -0.5 },
@@ -513,16 +514,16 @@ const s = {
   muted: { color: 'rgba(255,255,255,0.4)' },
   filters: { display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 },
   filterPill: { padding: '6px 14px', borderRadius: 999, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)', fontSize: 13, cursor: 'pointer' },
-  filterPillOn: { background: 'rgba(99,102,241,0.25)', border: '1px solid rgba(99,102,241,0.6)', color: '#c7d2fe', fontWeight: 600 },
+  filterPillOn: { background: 'rgba(91, 143, 199,0.25)', border: '1px solid rgba(91, 143, 199,0.6)', color: '#c7d2fe', fontWeight: 600 },
   list: { display: 'flex', flexDirection: 'column', gap: 12 },
   card: { display: 'flex', alignItems: 'center', gap: 16, padding: '18px 20px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, cursor: 'pointer' },
   cardTitle: { fontSize: 17, fontWeight: 700, marginBottom: 8 },
   cardMeta: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' },
   metaTag: { fontSize: 12, color: 'rgba(255,255,255,0.6)', background: 'rgba(255,255,255,0.06)', borderRadius: 5, padding: '3px 9px' },
   metaComp: { fontSize: 12, color: '#86efac', fontWeight: 600 },
-  cardArrow: { fontSize: 13, color: '#a5b4fc', fontWeight: 600, whiteSpace: 'nowrap' },
+  cardArrow: { fontSize: 13, color: '#8fb4d8', fontWeight: 600, whiteSpace: 'nowrap' },
   emptyCard: { padding: 30, textAlign: 'center', background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: 14, color: 'rgba(255,255,255,0.4)' },
-  back: { background: 'none', border: 'none', color: '#a5b4fc', fontSize: 14, cursor: 'pointer', padding: 0, marginBottom: 16, fontFamily: 'inherit' },
+  back: { background: 'none', border: 'none', color: '#8fb4d8', fontSize: 14, cursor: 'pointer', padding: 0, marginBottom: 16, fontFamily: 'inherit' },
   detailMeta: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 22 },
   description: { fontSize: 15, lineHeight: 1.7, color: 'rgba(255,255,255,0.82)', whiteSpace: 'pre-wrap', marginBottom: 32 },
   formCard: { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: 22 },
@@ -533,10 +534,10 @@ const s = {
   file: { width: '100%', boxSizing: 'border-box', padding: '8px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 9, color: 'rgba(255,255,255,0.7)', fontSize: 13 },
   textarea: { width: '100%', boxSizing: 'border-box', padding: '10px 12px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 9, color: '#fff', fontSize: 14, outline: 'none', resize: 'vertical', fontFamily: 'inherit' },
   error: { color: '#fca5a5', fontSize: 13, margin: '8px 0', background: 'rgba(239,68,68,0.1)', borderRadius: 8, padding: '8px 12px' },
-  submit: { marginTop: 8, width: '100%', padding: '13px', borderRadius: 10, background: 'linear-gradient(135deg, #6366f1, #818cf8)', border: 'none', color: '#fff', fontSize: 15, fontWeight: 700, fontFamily: 'inherit' },
+  submit: { marginTop: 8, width: '100%', padding: '13px', borderRadius: 10, background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)', border: 'none', color: '#fff', fontSize: 15, fontWeight: 700, fontFamily: 'inherit' },
   consentRow: { display: 'flex', alignItems: 'flex-start', gap: 9, margin: '14px 0 2px', cursor: 'pointer' },
   consentText: { fontSize: 13, lineHeight: 1.5, color: 'rgba(255,255,255,0.6)' },
-  consentLink: { color: '#a5b4fc', fontWeight: 600 },
+  consentLink: { color: '#8fb4d8', fontWeight: 600 },
   thanks: { background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: 16, padding: 28, textAlign: 'center' },
   thanksTitle: { fontSize: 20, fontWeight: 800, color: '#86efac', marginBottom: 8 },
   thanksBody: { fontSize: 15, color: 'rgba(255,255,255,0.7)', lineHeight: 1.6, margin: 0 },

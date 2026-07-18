@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import backdropDismiss from '../lib/backdropDismiss';
+import { colors } from '../lib/styleTokens';
 
 // Create / edit a freelancer_assignments row. The Workflows Progress
 // table opens this in edit mode when a contractor row is clicked; the
@@ -303,7 +304,7 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
   },
   modal: {
-    background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14,
+    background: colors.bgHover, border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14,
     width: 560, maxWidth: '92vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column',
   },
   header: {
@@ -341,7 +342,7 @@ const styles = {
     fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
   },
   primaryBtn: {
-    background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6,
+    background: colors.accent, color: colors.white, border: 'none', borderRadius: 6,
     padding: '8px 16px', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
   },
   deleteBtn: {

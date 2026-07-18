@@ -27,7 +27,7 @@ export default function WidgetCanvasPreview({ asset }) {
   if (a.asset_type === 'slideshow') {
     const slides = (a.slideshow_config && a.slideshow_config.slides) || [];
     return (
-      <div style={chip('#6366f1')}>
+      <div style={chip('#5b8fc7')}>
         SLIDESHOW · {slides.length} slides · {a.name}
       </div>
     );

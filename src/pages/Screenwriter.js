@@ -5,6 +5,7 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 
 import ScriptEditor from './editors/screenplay-editor/components/editor/ScriptEditor';
+import { colors } from '../lib/styleTokens';
 
 class ScreenplayErrorBoundary extends React.Component {
   constructor(props) {
@@ -39,7 +40,7 @@ class ScreenplayErrorBoundary extends React.Component {
               this.setState({ hasError: false, error: null });
               if (this.props.onBack) this.props.onBack();
             }}
-            style={{ padding: '10px 20px', background: 'linear-gradient(135deg, #6366f1, #818cf8)', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+            style={{ padding: '10px 20px', background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)', border: 'none', borderRadius: '10px', color: colors.white, fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
           >
             Return to Dashboard
           </button>
@@ -244,8 +245,8 @@ export default function Screenwriter({ initialScriptId, onScriptOpened }) {
                 style={styles.card}
                 onClick={() => setActiveScript(script)}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = 'rgba(99,102,241,0.4)';
-                  e.currentTarget.style.background = 'rgba(99,102,241,0.06)';
+                  e.currentTarget.style.borderColor = 'rgba(91, 143, 199,0.4)';
+                  e.currentTarget.style.background = 'rgba(91, 143, 199,0.06)';
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)';
@@ -348,7 +349,7 @@ const styles = {
   },
   createBtn: {
     padding: '10px 20px',
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     border: 'none',
     borderRadius: '10px',
     color: '#fff',
@@ -372,7 +373,7 @@ const styles = {
     width: '20px',
     height: '20px',
     border: '2px solid rgba(255,255,255,0.1)',
-    borderTopColor: '#6366f1',
+    borderTopColor: '#5b8fc7',
     borderRadius: '50%',
     animation: 'spin 0.8s linear infinite',
   },

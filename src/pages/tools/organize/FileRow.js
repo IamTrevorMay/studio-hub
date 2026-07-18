@@ -3,6 +3,7 @@ import MetadataFields from './MetadataFields';
 import AiBadge from './AiBadge';
 import { getMediaCategory } from './organizeConstants';
 import { clickableKeyProps } from '../../../lib/styleRecipes';
+import { colors } from '../../../lib/styleTokens';
 
 export default function FileRow({ file, meta, onMetaChange, onPreview, selected, onToggleSelect, modified, onMoveBack, aiConf, confThreshold }) {
   const category = getMediaCategory(file.ext);
@@ -53,8 +54,8 @@ const styles = {
     borderRadius: '8px',
   },
   rowSelected: {
-    border: '1px solid rgba(99,102,241,0.4)',
-    background: 'rgba(99,102,241,0.05)',
+    border: '1px solid rgba(91, 143, 199,0.4)',
+    background: colors.accentA05,
   },
   rowModified: {
     border: '1px solid rgba(34,197,94,0.35)',
@@ -80,8 +81,8 @@ const styles = {
     transition: 'all 0.12s',
   },
   checkboxChecked: {
-    border: '2px solid #6366f1',
-    background: '#6366f1',
+    border: '2px solid #5b8fc7',
+    background: colors.accent,
   },
   thumbCol: {
     width: '48px',

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { colors } from '../lib/styleTokens';
 
 // Build YYYY-MM-DD from local parts (m is 0-based). toISOString() converts to
 // UTC, which lands period boundaries on the wrong day for UTC+ users.
@@ -271,8 +272,8 @@ const styles = {
     border: '1px solid rgba(255,255,255,0.06)',
   },
   currentPeriodCard: {
-    borderLeft: '3px solid #6366f1',
-    background: 'rgba(99,102,241,0.06)',
+    borderLeft: '3px solid #5b8fc7',
+    background: colors.accentA06,
   },
   periodHeader: {
     display: 'flex',
@@ -296,8 +297,8 @@ const styles = {
   currentBadge: {
     fontSize: 11,
     fontWeight: 600,
-    color: '#6366f1',
-    background: 'rgba(99,102,241,0.15)',
+    color: colors.accent,
+    background: colors.accentA15,
     padding: '2px 8px',
     borderRadius: 6,
     textTransform: 'uppercase',
@@ -375,7 +376,7 @@ const styles = {
     boxSizing: 'border-box',
   },
   submitBtn: {
-    background: '#6366f1',
+    background: colors.accent,
     color: '#fff',
     border: 'none',
     borderRadius: 6,

@@ -9,6 +9,7 @@ import FileGrid from './organize/FileGrid';
 import FileList from './organize/FileList';
 import MediaPreview from './organize/MediaPreview';
 import BatchBar from './organize/BatchBar';
+import { colors } from '../../lib/styleTokens';
 
 function isSupported() {
   return typeof window.showDirectoryPicker === 'function';
@@ -688,10 +689,10 @@ const styles = {
     alignItems: 'center',
     gap: '6px',
     padding: '8px 16px',
-    background: 'rgba(99,102,241,0.1)',
-    border: '1px solid rgba(99,102,241,0.25)',
+    background: colors.accentA10,
+    border: '1px solid rgba(91, 143, 199,0.25)',
     borderRadius: '8px',
-    color: '#a5b4fc',
+    color: colors.accentFg,
     fontSize: '13px',
     fontWeight: 600,
     cursor: 'pointer',

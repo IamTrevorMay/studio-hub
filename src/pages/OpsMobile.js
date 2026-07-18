@@ -5,6 +5,7 @@ import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import BottomSheet from '../components/mobile/BottomSheet';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
 import usePersistedTab from '../hooks/usePersistedTab';
+import { colors } from '../lib/styleTokens';
 
 // Mobile Ops dashboard. Read-only mirror of the desktop page focused on
 // the "is anything on fire" use case: platform health at a glance,
@@ -368,7 +369,7 @@ function CronList({ jobs }) {
 // ─── Styles ───────────────────────────────────────────────────
 
 const styles = {
-  root: { display: 'flex', flexDirection: 'column', minHeight: '100%', background: '#0f0f1a', color: '#e2e8f0' },
+  root: { display: 'flex', flexDirection: 'column', minHeight: '100%', background: colors.bg, color: colors.textBright },
   header: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     padding: `${mobileTokens.space.md}px ${mobileTokens.space.lg}px`,
@@ -376,8 +377,8 @@ const styles = {
   title: { margin: 0, fontSize: mobileTokens.font.xl, fontWeight: 800, color: '#fff', letterSpacing: '-0.3px' },
   refreshBtn: {
     ...mobileTapButton, width: 38, height: 38,
-    background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)',
-    borderRadius: mobileTokens.radius.md, color: '#a5b4fc',
+    background: colors.accentA15, border: '1px solid rgba(91, 143, 199,0.3)',
+    borderRadius: mobileTokens.radius.md, color: colors.accentFg,
     fontSize: 18, lineHeight: 1, fontFamily: 'inherit',
   },
   summaryRow: {
@@ -400,7 +401,7 @@ const styles = {
     background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)',
     color: 'rgba(255,255,255,0.55)', fontSize: mobileTokens.font.sm, fontWeight: 600,
   },
-  tabActive: { background: 'rgba(99,102,241,0.18)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.3)' },
+  tabActive: { background: colors.accentSoft, color: colors.accentFg, border: '1px solid rgba(91, 143, 199,0.3)' },
   pane: { flex: 1, minHeight: 0, padding: `0 ${mobileTokens.space.lg}px ${mobileTokens.space.xxxl}px` },
   filterRow: { display: 'flex', flexWrap: 'wrap', gap: 6, padding: `${mobileTokens.space.sm}px 0` },
   filterPill: {
@@ -409,7 +410,7 @@ const styles = {
     background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
     color: 'rgba(255,255,255,0.55)', fontSize: mobileTokens.font.xs, fontWeight: 600,
   },
-  filterPillActive: { background: 'rgba(99,102,241,0.18)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.35)' },
+  filterPillActive: { background: colors.accentSoft, color: colors.accentFg, border: '1px solid rgba(91, 143, 199,0.35)' },
   list: { display: 'flex', flexDirection: 'column', gap: 8 },
   row: {
     ...mobileTapButton, width: '100%', textAlign: 'left',

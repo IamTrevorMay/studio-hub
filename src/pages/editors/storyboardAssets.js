@@ -61,7 +61,7 @@ export const TRANSITIONS = [
 
 export const DRAW_COLORS = [
   '#000000', '#ffffff', '#ef4444', '#f97316', '#eab308',
-  '#22c55e', '#3b82f6', '#4f46e5', '#8b5cf6', '#ec4899',
+  '#22c55e', '#3b82f6', '#4a79ad', '#8b5cf6', '#ec4899',
   '#6b7280', '#92400e',
 ];
 

@@ -8,6 +8,7 @@ import TaskEditModal from '../components/TaskEditModal';
 import ProgressTable from '../components/workflows/ProgressTable';
 import { fetchAllRows } from './analytics/utils';
 import backdropDismiss from '../lib/backdropDismiss';
+import { colors } from '../lib/styleTokens';
 
 // ─── Component ───────────────────────────────────────────────
 export default function Workflows() {
@@ -1051,11 +1052,11 @@ export default function Workflows() {
                             ...styles.sourceBadge,
                             background: run.status === 'success' ? 'rgba(34,197,94,0.15)'
                               : run.status === 'skipped' ? 'rgba(234,179,8,0.15)'
-                              : run.status === 'pending_confirmation' ? 'rgba(99,102,241,0.15)'
+                              : run.status === 'pending_confirmation' ? 'rgba(91, 143, 199,0.15)'
                               : 'rgba(239,68,68,0.15)',
                             color: run.status === 'success' ? '#22c55e'
                               : run.status === 'skipped' ? '#facc15'
-                              : run.status === 'pending_confirmation' ? '#818cf8'
+                              : run.status === 'pending_confirmation' ? '#8fb4d8'
                               : '#ef4444',
                           }}>
                             {run.status === 'pending_confirmation' ? 'pending' : run.status}
@@ -1374,7 +1375,7 @@ const styles = {
     margin: 0,
   },
   assignBtn: {
-    background: '#6366f1',
+    background: colors.accent,
     color: '#fff',
     border: 'none',
     borderRadius: 8,
@@ -1397,7 +1398,7 @@ const styles = {
     right: 0,
     marginTop: 6,
     minWidth: 260,
-    background: '#1e1e2e',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: 10,
     padding: 6,
@@ -1479,7 +1480,7 @@ const styles = {
   ctxMenu: {
     position: 'fixed',
     zIndex: 9999,
-    background: '#1e1e2e',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: 8,
     padding: 4,
@@ -1534,7 +1535,7 @@ const styles = {
     width: 22,
     height: 22,
     border: '2px solid rgba(255,255,255,0.1)',
-    borderTopColor: '#6366f1',
+    borderTopColor: '#5b8fc7',
     borderRadius: '50%',
     animation: 'spin 0.6s linear infinite',
   },
@@ -1592,7 +1593,7 @@ const styles = {
 
   // Buttons
   newBtn: {
-    background: '#6366f1',
+    background: colors.accent,
     color: '#fff',
     border: 'none',
     borderRadius: 6,
@@ -1611,7 +1612,7 @@ const styles = {
     cursor: 'pointer',
   },
   createBtn: {
-    background: '#6366f1',
+    background: colors.accent,
     color: '#fff',
     border: 'none',
     borderRadius: 6,
@@ -1635,7 +1636,7 @@ const styles = {
     zIndex: 1000,
   },
   modal: {
-    background: '#1a1a2e',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: 12,
     padding: '24px 28px',
@@ -1726,7 +1727,7 @@ const styles = {
     transition: 'background 0.15s, color 0.15s',
   },
   viewTabActive: {
-    background: 'rgba(99,102,241,0.15)',
-    color: '#818cf8',
+    background: colors.accentA15,
+    color: colors.accentFg,
   },
 };

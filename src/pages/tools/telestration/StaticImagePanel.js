@@ -1,4 +1,5 @@
 import React, { useRef } from 'react';
+import { colors } from '../../../lib/styleTokens';
 
 export default function StaticImagePanel({ images, selectedId, onSelect, onAddImages }) {
   const fileInputRef = useRef(null);
@@ -98,9 +99,9 @@ const styles = {
     letterSpacing: '0.05em',
   },
   addBtn: {
-    background: 'rgba(99,102,241,0.15)',
-    border: '1px solid rgba(99,102,241,0.3)',
-    color: '#a5b4fc',
+    background: colors.accentA15,
+    border: '1px solid rgba(91, 143, 199,0.3)',
+    color: colors.accentFg,
     cursor: 'pointer',
     padding: '4px 8px',
     borderRadius: '5px',
@@ -147,8 +148,8 @@ const styles = {
     width: '100%',
   },
   cardSelected: {
-    borderColor: '#6366f1',
-    background: 'rgba(99,102,241,0.08)',
+    borderColor: colors.accent,
+    background: colors.accentA08,
   },
   thumbWrap: {
     width: '100%',

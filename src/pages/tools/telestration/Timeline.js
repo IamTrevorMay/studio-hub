@@ -1,5 +1,6 @@
 import React, { useCallback, useRef, useState, useEffect } from 'react';
 import { PLAYBACK_SPEEDS } from './telestrationConstants';
+import { colors } from '../../../lib/styleTokens';
 
 function formatTime(seconds) {
   if (!seconds || !isFinite(seconds)) return '00:00:00';
@@ -319,7 +320,7 @@ const styles = {
     top: 0,
     left: 0,
     height: '100%',
-    background: '#6366f1',
+    background: colors.accent,
     borderRadius: '3px',
     pointerEvents: 'none',
   },
@@ -360,7 +361,7 @@ const styles = {
   contextMenu: {
     position: 'fixed',
     zIndex: 9999,
-    background: '#1e1e2e',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: '6px',
     padding: '4px 0',

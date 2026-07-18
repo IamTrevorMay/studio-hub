@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
+import { colors } from '../../lib/styleTokens';
 
 const TIMELINE_SERVICE_URL = 'http://localhost:8420';
 const DRIVE_UPLOAD_URL = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/drive-upload-init`;
@@ -473,7 +474,7 @@ export default function Timeline() {
 const styles = {
   container: {
     minHeight: '100vh',
-    background: '#0f0f1a',
+    background: colors.bg,
     color: '#fff',
     fontFamily: "'DM Sans', sans-serif",
     padding: '24px 32px',
@@ -599,8 +600,8 @@ const styles = {
   },
   driveBadge: {
     fontSize: 10,
-    background: 'rgba(99,102,241,0.2)',
-    color: '#818cf8',
+    background: colors.accentA20,
+    color: colors.accentFg,
     padding: '2px 6px',
     borderRadius: 4,
     fontWeight: 500,
@@ -625,15 +626,15 @@ const styles = {
   },
   previewBroll: {
     fontSize: 11,
-    color: '#6366f1',
-    background: 'rgba(99,102,241,0.15)',
+    color: colors.accent,
+    background: colors.accentA15,
     padding: '2px 8px',
     borderRadius: 4,
   },
   processButton: {
     width: '100%',
     padding: '12px 24px',
-    background: '#6366f1',
+    background: colors.accent,
     color: '#fff',
     border: 'none',
     borderRadius: 10,
@@ -685,7 +686,7 @@ const styles = {
   },
   progressBarInner: {
     height: '100%',
-    background: '#6366f1',
+    background: colors.accent,
     borderRadius: 3,
     transition: 'width 0.5s ease',
   },

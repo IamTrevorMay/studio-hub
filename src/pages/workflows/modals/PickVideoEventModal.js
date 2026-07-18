@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../../supabaseClient';
 import backdropDismiss from '../../../lib/backdropDismiss';
+import { colors } from '../../../lib/styleTokens';
 
 const VIDEO_EVENT_TYPES = ['video_post', 'tmbb_video', 'filming', 'live_recording'];
 
@@ -144,7 +145,7 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
   },
   modal: {
-    background: '#15151f', border: '1px solid rgba(255,255,255,0.1)',
+    background: colors.bgRaised, border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: 16, padding: 20, width: 480, maxWidth: '90vw',
     boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
     fontFamily: 'system-ui, -apple-system, sans-serif',
@@ -175,17 +176,17 @@ const styles = {
     cursor: 'pointer',
   },
   rowSelected: {
-    background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.5)',
+    background: colors.accentA15, border: '1px solid rgba(91, 143, 199,0.5)',
   },
   rowTitle: { fontSize: 14, color: '#fff', fontWeight: 500, marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   rowMeta: { display: 'flex', alignItems: 'center', gap: 8 },
   typeBadge: {
     fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
-    background: 'rgba(99,102,241,0.18)', color: '#a5b4fc',
+    background: colors.accentSoft, color: colors.accentFg,
     letterSpacing: 0.5, textTransform: 'uppercase',
   },
   dateText: { fontSize: 12, color: 'rgba(255,255,255,0.5)' },
-  checkmark: { color: '#a5b4fc', fontSize: 18, fontWeight: 600 },
+  checkmark: { color: colors.accentFg, fontSize: 18, fontWeight: 600 },
   footer: {
     display: 'flex', justifyContent: 'flex-end', gap: 8,
     paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)',
@@ -196,7 +197,7 @@ const styles = {
     cursor: 'pointer', fontSize: 13,
   },
   submitBtn: {
-    padding: '8px 18px', borderRadius: 8, background: '#6366f1',
+    padding: '8px 18px', borderRadius: 8, background: colors.accent,
     border: 'none', color: '#fff', fontWeight: 600, fontSize: 13,
   },
 };

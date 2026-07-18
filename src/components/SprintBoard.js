@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { callWorkflowFn } from '../lib/workflowApi';
 import SprintGoals from './SprintGoals';
 import SprintRetroModal from './SprintRetroModal';
+import { colors } from '../lib/styleTokens';
 
 const SPRINT_COLUMNS = [
   { id: 'ready', label: 'Ready', color: '#3b82f6' },
@@ -115,7 +116,7 @@ function TaskCard({ task, index, onClick, onContextMenu, projectsMap, campaignsM
             ...cardStyle,
             borderLeft: priorityColor ? `3px solid ${priorityColor}` : '3px solid transparent',
             ...(readOnly ? { opacity: 0.6, cursor: 'default' } : {}),
-            ...(snapshot.isDragging ? { boxShadow: '0 8px 24px rgba(0,0,0,0.4)', border: '1px solid rgba(99,102,241,0.3)', borderLeft: priorityColor ? `3px solid ${priorityColor}` : '3px solid rgba(99,102,241,0.3)' } : {}),
+            ...(snapshot.isDragging ? { boxShadow: '0 8px 24px rgba(0,0,0,0.4)', border: '1px solid rgba(91, 143, 199,0.3)', borderLeft: priorityColor ? `3px solid ${priorityColor}` : '3px solid rgba(91, 143, 199,0.3)' } : {}),
             ...provided.draggableProps.style,
           }}
         >
@@ -141,7 +142,7 @@ function TaskCard({ task, index, onClick, onContextMenu, projectsMap, campaignsM
               </span>
             )}
             {bucket && (
-              <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', background: `${bucket.color || '#6366f1'}22`, color: bucket.color || '#a5b4fc', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', background: `${bucket.color || '#5b8fc7'}22`, color: bucket.color || '#8fb4d8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 {bucket.label}
               </span>
             )}
@@ -151,7 +152,7 @@ function TaskCard({ task, index, onClick, onContextMenu, projectsMap, campaignsM
               </span>
             )}
             {task.project_id && projectsMap[task.project_id] && (
-              <span style={{ fontSize: '10px', color: '#a5b4fc', background: 'rgba(99,102,241,0.15)', padding: '1px 5px', borderRadius: '4px' }}>
+              <span style={{ fontSize: '10px', color: colors.accentFg, background: colors.accentA15, padding: '1px 5px', borderRadius: '4px' }}>
                 {projectsMap[task.project_id]}
               </span>
             )}
@@ -171,7 +172,7 @@ function TaskCard({ task, index, onClick, onContextMenu, projectsMap, campaignsM
               </span>
             )}
             {task.linked_task && task.linked_task.related_entity_type === 'project' && !task.linked_task.workflow_instance && (
-              <span style={{ fontSize: '10px', color: '#a5b4fc', background: 'rgba(99,102,241,0.15)', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
+              <span style={{ fontSize: '10px', color: colors.accentFg, background: colors.accentA15, padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
                 Project
               </span>
             )}
@@ -205,7 +206,7 @@ function AddOptionInline({ kind, value, onChange, onCommit, onCancel, busy, erro
         <button
           onClick={onCommit}
           disabled={busy || !value.trim()}
-          style={{ background: '#6366f1', border: 'none', color: '#fff', borderRadius: '6px', padding: '6px 12px', fontSize: '12px', fontWeight: 600, cursor: busy ? 'default' : 'pointer', opacity: busy || !value.trim() ? 0.5 : 1 }}
+          style={{ background: colors.accent, border: 'none', color: colors.white, borderRadius: '6px', padding: '6px 12px', fontSize: '12px', fontWeight: 600, cursor: busy ? 'default' : 'pointer', opacity: busy || !value.trim() ? 0.5 : 1 }}
         >
           {busy ? 'Saving…' : 'Add'}
         </button>
@@ -349,9 +350,9 @@ function TaskDetailModal({
 
         {/* Template picker (new cards only) */}
         {isNew && templates && templates.length > 0 && (
-          <div style={{ marginBottom: '14px', padding: '10px 12px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '8px' }}>
+          <div style={{ marginBottom: '14px', padding: '10px 12px', background: colors.accentA08, border: '1px solid rgba(91, 143, 199,0.2)', borderRadius: '8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <label style={{ ...labelStyle, marginBottom: 0, color: '#a5b4fc', flexShrink: 0 }}>Template</label>
+              <label style={{ ...labelStyle, marginBottom: 0, color: colors.accentFg, flexShrink: 0 }}>Template</label>
               <select
                 defaultValue=""
                 onChange={e => applyTemplate(e.target.value)}
@@ -463,13 +464,13 @@ function TaskDetailModal({
           {activeSprint && !task.sprint_id && (
             <button
               onClick={() => { onSave(task.id, { sprint_id: activeSprint.id, status: 'ready' }); onClose(); }}
-              style={{ background: 'rgba(99,102,241,0.1)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '6px', padding: '6px 12px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+              style={{ background: colors.accentA10, color: colors.accentFg, border: '1px solid rgba(91, 143, 199,0.2)', borderRadius: '6px', padding: '6px 12px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
             >
               Add to Sprint
             </button>
           )}
           {activeSprint && task.sprint_id === activeSprint.id && (
-            <span style={{ fontSize: '10px', padding: '4px 10px', borderRadius: '6px', background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span style={{ fontSize: '10px', padding: '4px 10px', borderRadius: '6px', background: colors.accentA15, color: colors.accentFg, fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
               In Sprint
               <button
                 onClick={() => { onSave(task.id, { sprint_id: null, status: 'backlog' }); onClose(); }}
@@ -487,7 +488,7 @@ function TaskDetailModal({
             {!savingTemplate ? (
               <button
                 onClick={() => { setSavingTemplate(true); setTemplateNameInput(''); setTemplateSaveError(null); }}
-                style={{ background: 'none', border: 'none', color: '#a5b4fc', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}
+                style={{ background: 'none', border: 'none', color: colors.accentFg, fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}
               >
                 + Save current layout as template
               </button>
@@ -1255,7 +1256,7 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
             </span>
           )}
           {activeSprint && (
-            <span style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '4px', background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            <span style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '4px', background: colors.accentA15, color: colors.accentFg, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
               Active
             </span>
           )}
@@ -1280,7 +1281,7 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
           <div style={{ flex: 1, height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
             <div style={{
               height: '100%',
-              background: '#6366f1',
+              background: colors.accent,
               borderRadius: '3px',
               transition: 'width 0.3s ease',
               width: sprintTaskPoints.total > 0 ? `${(sprintTaskPoints.completed / sprintTaskPoints.total) * 100}%` : '0%',
@@ -1328,7 +1329,7 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
                     {...provided.droppableProps}
                     style={{
                       ...columnStyle,
-                      background: snapshot.isDraggingOver ? 'rgba(99,102,241,0.06)' : 'rgba(255,255,255,0.02)',
+                      background: snapshot.isDraggingOver ? 'rgba(91, 143, 199,0.06)' : 'rgba(255,255,255,0.02)',
                       ...(isArchived ? { opacity: 0.7 } : {}),
                     }}
                   >
@@ -1438,7 +1439,7 @@ export default function SprintBoard({ profile, onNavigate, onBoardChange, sprint
                     {...provided.droppableProps}
                     style={{
                       ...columnStyle,
-                      background: snapshot.isDraggingOver ? 'rgba(99,102,241,0.06)' : 'rgba(255,255,255,0.02)',
+                      background: snapshot.isDraggingOver ? 'rgba(91, 143, 199,0.06)' : 'rgba(255,255,255,0.02)',
                       minHeight: '120px',
                     }}
                   >
@@ -1546,7 +1547,7 @@ const sectionStyle = {
 
 const cardMenuStyle = {
   position: 'fixed', zIndex: 1000, minWidth: '140px',
-  background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)',
+  background: '#1b2331', border: '1px solid rgba(255,255,255,0.1)',
   borderRadius: '8px', padding: '4px', display: 'flex', flexDirection: 'column',
   boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
 };
@@ -1571,7 +1572,7 @@ const captureRowStyle = {
 };
 
 const captureButtonStyle = {
-  background: '#6366f1',
+  background: '#5b8fc7',
   color: '#fff',
   border: 'none',
   borderRadius: '10px',
@@ -1659,7 +1660,7 @@ const weekNavBtnStyle = {
 };
 
 const startSprintBtnStyle = {
-  background: '#6366f1',
+  background: '#5b8fc7',
   color: '#fff',
   border: 'none',
   borderRadius: '8px',
@@ -1693,7 +1694,7 @@ const overlayStyle = {
 };
 
 const modalStyle = {
-  background: '#1a1a2e',
+  background: '#1b2331',
   border: '1px solid rgba(255,255,255,0.1)',
   borderRadius: '14px',
   padding: '24px',
@@ -1755,7 +1756,7 @@ const cancelBtnStyle = {
 };
 
 const saveBtnStyle = {
-  background: '#6366f1',
+  background: '#5b8fc7',
   color: '#fff',
   border: 'none',
   borderRadius: '8px',

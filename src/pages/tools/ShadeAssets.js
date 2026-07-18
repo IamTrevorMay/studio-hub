@@ -4,6 +4,7 @@ import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
 import usePersistedTab from '../../hooks/usePersistedTab';
 import backdropDismiss from '../../lib/backdropDismiss';
+import { colors } from '../../lib/styleTokens';
 
 // Assets view of the Asset Search tool — folder browsing + AI index search
 // over the Shade drive via the shade-search edge function. Default view
@@ -701,7 +702,7 @@ export default function ShadeAssets() {
                   <div style={styles.uploadBarOuter}>
                     <div style={{ ...styles.uploadBarInner, width: `${(uploadState.done / uploadState.total) * 100}%` }} />
                   </div>
-                  <div style={{ fontSize: '13px', color: '#a5b4fc' }}>
+                  <div style={{ fontSize: '13px', color: colors.accentFg }}>
                     Uploading {uploadState.done + 1}/{uploadState.total}
                     {uploadState.failed ? ` · ${uploadState.failed} failed` : ''}
                   </div>
@@ -903,7 +904,7 @@ export default function ShadeAssets() {
             <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', lineHeight: 1.5 }}>
               The AI index matches on visual content, transcripts, and metadata — not just filenames.
               {browsePath !== '/' && (
-                <> Searching inside <span style={{ color: '#a5b4fc' }}>📁 {crumbs[crumbs.length - 1].name}</span> (subfolders included).</>
+                <> Searching inside <span style={{ color: colors.accentFg }}>📁 {crumbs[crumbs.length - 1].name}</span> (subfolders included).</>
               )}
             </div>
           </>
@@ -977,7 +978,7 @@ export default function ShadeAssets() {
 
             {selectedIds.size > 0 && (
               <div style={styles.selectionBar}>
-                <span style={{ fontSize: '13px', color: '#a5b4fc' }}>{selectedIds.size} selected</span>
+                <span style={{ fontSize: '13px', color: colors.accentFg }}>{selectedIds.size} selected</span>
                 <button style={styles.batchBtn} onClick={() => setAddPicker({ assets: selectedAssets })}>+ Playlist</button>
                 <button style={styles.batchBtn} onClick={() => runBatchDownload(selectedAssets)} disabled={!!batch}>
                   Download{selectedIds.size > 1 ? ' (.zip)' : ''}
@@ -1133,8 +1134,8 @@ const styles = {
     fontFamily: 'inherit',
   },
   viewTabOn: {
-    background: 'rgba(99,102,241,0.18)',
-    color: '#a5b4fc',
+    background: colors.accentSoft,
+    color: colors.accentFg,
   },
   input: {
     background: 'rgba(255,255,255,0.04)',
@@ -1150,7 +1151,7 @@ const styles = {
     outline: 'none',
   },
   primaryBtn: {
-    background: '#6366f1',
+    background: colors.accent,
     border: 'none',
     borderRadius: '8px',
     color: '#fff',
@@ -1185,23 +1186,23 @@ const styles = {
     fontFamily: 'inherit',
   },
   chipOn: {
-    background: 'rgba(99,102,241,0.18)',
-    borderColor: 'rgba(99,102,241,0.5)',
-    color: '#a5b4fc',
+    background: colors.accentSoft,
+    borderColor: colors.borderFocus,
+    color: colors.accentFg,
   },
   selectionBar: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' },
   batchBtn: {
-    background: 'rgba(99,102,241,0.15)',
-    border: '1px solid rgba(99,102,241,0.4)',
+    background: colors.accentA15,
+    border: '1px solid rgba(91, 143, 199,0.4)',
     borderRadius: '8px',
-    color: '#a5b4fc',
+    color: colors.accentFg,
     padding: '7px 14px',
     fontSize: '13px',
     fontWeight: 600,
     cursor: 'pointer',
     fontFamily: 'inherit',
   },
-  batchProgress: { fontSize: '13px', color: '#a5b4fc', display: 'flex', alignItems: 'center', flexWrap: 'wrap' },
+  batchProgress: { fontSize: '13px', color: colors.accentFg, display: 'flex', alignItems: 'center', flexWrap: 'wrap' },
   errorMsg: { color: '#f87171', fontSize: '13px', marginBottom: '10px' },
   driveHelp: {
     background: 'rgba(245,158,11,0.08)',
@@ -1255,7 +1256,7 @@ const styles = {
   th: {
     position: 'sticky',
     top: 0,
-    background: '#16162a',
+    background: colors.bgRaised,
     textAlign: 'left',
     padding: '9px 12px',
     fontSize: '11px',
@@ -1267,14 +1268,14 @@ const styles = {
     zIndex: 1,
   },
   tr: { cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' },
-  trSelected: { background: 'rgba(99,102,241,0.12)' },
+  trSelected: { background: colors.accentA12 },
   td: { padding: '8px 12px', whiteSpace: 'nowrap' },
   thumb: { width: '44px', height: '28px', objectFit: 'cover', borderRadius: '4px', display: 'block' },
   rowBtn: {
     background: 'rgba(255,255,255,0.05)',
     border: '1px solid rgba(255,255,255,0.08)',
     borderRadius: '6px',
-    color: '#a5b4fc',
+    color: colors.accentFg,
     width: '26px',
     height: '26px',
     display: 'inline-flex',
@@ -1294,7 +1295,7 @@ const styles = {
     padding: '24px',
   },
   modal: {
-    background: '#12121f',
+    background: colors.bg,
     border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: '14px',
     width: '100%',
@@ -1331,10 +1332,10 @@ const styles = {
     minWidth: 0,
   },
   modalBtn: {
-    background: 'rgba(99,102,241,0.15)',
-    border: '1px solid rgba(99,102,241,0.4)',
+    background: colors.accentA15,
+    border: '1px solid rgba(91, 143, 199,0.4)',
     borderRadius: '8px',
-    color: '#a5b4fc',
+    color: colors.accentFg,
     padding: '7px 14px',
     fontSize: '13px',
     fontWeight: 600,
@@ -1411,7 +1412,7 @@ const styles = {
   },
   uploadBarInner: {
     height: '100%',
-    background: '#6366f1',
+    background: colors.accent,
     borderRadius: '999px',
     transition: 'width 0.3s',
   },

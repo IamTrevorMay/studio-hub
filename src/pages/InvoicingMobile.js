@@ -5,6 +5,7 @@ import FullScreenSheet from '../components/mobile/FullScreenSheet';
 import BottomSheet from '../components/mobile/BottomSheet';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
 import usePersistedTab from '../hooks/usePersistedTab';
+import { colors } from '../lib/styleTokens';
 
 // Statuses match desktop (draft / sent / paid). Overdue is derived from due_date.
 const STATUSES = [
@@ -107,7 +108,7 @@ export default function InvoicingMobile() {
   return (
     <div style={styles.root}>
       <div style={styles.statRow}>
-        <Stat label="Outstanding" value={fmtCents(stats.outstanding)} accent="#a5b4fc" />
+        <Stat label="Outstanding" value={fmtCents(stats.outstanding)} accent="#8fb4d8" />
         <Stat label="Overdue" value={String(stats.overdueCount)} accent={stats.overdueCount > 0 ? '#fca5a5' : 'rgba(255,255,255,0.6)'} />
         <Stat label="Paid this month" value={fmtCents(stats.paidMonth)} accent="#86efac" />
       </div>
@@ -196,9 +197,9 @@ function FilterChip({ label, active, onClick }) {
       onClick={onClick}
       style={{
         ...styles.chip,
-        background: active ? 'rgba(99,102,241,0.16)' : 'rgba(255,255,255,0.05)',
-        color: active ? '#a5b4fc' : 'rgba(255,255,255,0.7)',
-        borderColor: active ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.1)',
+        background: active ? 'rgba(91, 143, 199,0.16)' : 'rgba(255,255,255,0.05)',
+        color: active ? '#8fb4d8' : 'rgba(255,255,255,0.7)',
+        borderColor: active ? 'rgba(91, 143, 199,0.4)' : 'rgba(255,255,255,0.1)',
         fontWeight: active ? 600 : 500,
       }}
     >
@@ -456,7 +457,7 @@ function InvoiceEditor({ existing, contacts, onSaved, onContactsChanged, onCance
                       {c.email && <div style={editStyles.contactSub}>{c.email}</div>}
                     </div>
                     {form.contact_id === c.id && (
-                      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#a5b4fc" strokeWidth="2.5">
+                      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#8fb4d8" strokeWidth="2.5">
                         <path d="M4 9l3 3 7-7" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
                     )}
@@ -513,8 +514,8 @@ function SegmentedField({ label, value, onChange, options }) {
               onClick={() => onChange(o.key)}
               style={{
                 ...editStyles.segmentBtn,
-                background: active ? 'rgba(99,102,241,0.16)' : 'transparent',
-                color: active ? '#a5b4fc' : 'rgba(255,255,255,0.65)',
+                background: active ? 'rgba(91, 143, 199,0.16)' : 'transparent',
+                color: active ? '#8fb4d8' : 'rgba(255,255,255,0.65)',
                 fontWeight: active ? 600 : 500,
               }}
             >
@@ -634,7 +635,7 @@ function ContactForm({ onCreated, onCancel }) {
 const styles = {
   root: {
     minHeight: '100%',
-    background: '#0f0f1a',
+    background: colors.bg,
     color: '#e2e8f0',
     paddingTop: mobileTokens.space.md,
     display: 'flex',
@@ -763,7 +764,7 @@ const styles = {
     width: '100%',
     minHeight: mobileTokens.tap + 6,
     padding: `${mobileTokens.space.md}px ${mobileTokens.space.lg}px`,
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     color: '#fff',
     borderRadius: mobileTokens.radius.md,
     fontSize: mobileTokens.font.md,
@@ -862,8 +863,8 @@ const editStyles = {
     ...mobileTapButton,
     minHeight: 32,
     padding: '0 10px',
-    background: 'rgba(99,102,241,0.14)',
-    color: '#a5b4fc',
+    background: colors.accentA14,
+    color: colors.accentFg,
     borderRadius: mobileTokens.radius.sm,
     fontSize: mobileTokens.font.xs,
     fontWeight: 600,
@@ -963,7 +964,7 @@ const editStyles = {
     flex: 1,
     minHeight: mobileTokens.tap + 4,
     padding: mobileTokens.space.md,
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     border: 'none',
     borderRadius: mobileTokens.radius.md,
     color: '#fff',
@@ -1029,8 +1030,8 @@ const editStyles = {
     width: 36,
     height: 36,
     borderRadius: mobileTokens.radius.sm,
-    background: 'rgba(99,102,241,0.2)',
-    color: '#a5b4fc',
+    background: colors.accentA20,
+    color: colors.accentFg,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1059,8 +1060,8 @@ const editStyles = {
     ...mobileTapButton,
     minHeight: mobileTokens.tap,
     padding: `0 ${mobileTokens.space.md}px`,
-    background: 'rgba(99,102,241,0.14)',
-    color: '#a5b4fc',
+    background: colors.accentA14,
+    color: colors.accentFg,
     borderRadius: mobileTokens.radius.md,
     fontSize: mobileTokens.font.sm,
     fontWeight: 600,

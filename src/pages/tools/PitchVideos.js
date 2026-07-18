@@ -6,6 +6,7 @@ import usePersistedTab from '../../hooks/usePersistedTab';
 import PlayerSearchField from './graphics/PlayerSearchField';
 import ShadeAssets from './ShadeAssets';
 import backdropDismiss from '../../lib/backdropDismiss';
+import { colors } from '../../lib/styleTokens';
 
 // Asset Search — two sections behind header tabs: Pitches (this file's
 // search below) and Assets (ShadeAssets.js, AI search over the Shade drive).
@@ -1504,7 +1505,7 @@ function PlaylistPlayer({ src, index, total, autoAdvance, onToggleAutoAdvance, o
 const styles = {
   container: {
     minHeight: '100vh',
-    background: '#0f0f1a',
+    background: colors.bg,
     color: '#e2e8f0',
     display: 'flex',
     flexDirection: 'column',
@@ -1544,9 +1545,9 @@ const styles = {
     fontFamily: 'inherit',
   },
   drawerToggleOn: {
-    background: 'rgba(99,102,241,0.15)',
-    borderColor: 'rgba(99,102,241,0.4)',
-    color: '#a5b4fc',
+    background: colors.accentA15,
+    borderColor: colors.accentA40,
+    color: colors.accentFg,
   },
   body: {
     display: 'flex',
@@ -1599,9 +1600,9 @@ const styles = {
     fontFamily: 'inherit',
   },
   chipOn: {
-    background: 'rgba(99,102,241,0.18)',
-    borderColor: 'rgba(99,102,241,0.5)',
-    color: '#a5b4fc',
+    background: colors.accentSoft,
+    borderColor: colors.borderFocus,
+    color: colors.accentFg,
   },
   archToggle: {
     display: 'flex',
@@ -1623,7 +1624,7 @@ const styles = {
     fontFamily: 'inherit',
   },
   searchBtn: {
-    background: '#6366f1',
+    background: colors.accent,
     border: 'none',
     borderRadius: '8px',
     color: '#fff',
@@ -1635,17 +1636,17 @@ const styles = {
     flex: 1,
   },
   batchBtn: {
-    background: 'rgba(99,102,241,0.15)',
-    border: '1px solid rgba(99,102,241,0.4)',
+    background: colors.accentA15,
+    border: '1px solid rgba(91, 143, 199,0.4)',
     borderRadius: '8px',
-    color: '#a5b4fc',
+    color: colors.accentFg,
     padding: '7px 14px',
     fontSize: '13px',
     fontWeight: 600,
     cursor: 'pointer',
     fontFamily: 'inherit',
   },
-  batchProgress: { fontSize: '13px', color: '#a5b4fc' },
+  batchProgress: { fontSize: '13px', color: colors.accentFg },
   errorMsg: { color: '#f87171', fontSize: '13px' },
   resultsCol: {
     flex: 1,
@@ -1674,7 +1675,7 @@ const styles = {
   th: {
     position: 'sticky',
     top: 0,
-    background: '#16162a',
+    background: colors.bgRaised,
     textAlign: 'left',
     padding: '9px 12px',
     fontSize: '11px',
@@ -1686,13 +1687,13 @@ const styles = {
     zIndex: 1,
   },
   tr: { cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' },
-  trSelected: { background: 'rgba(99,102,241,0.12)' },
+  trSelected: { background: colors.accentA12 },
   td: { padding: '8px 12px', whiteSpace: 'nowrap' },
   rowBtn: {
     background: 'rgba(255,255,255,0.05)',
     border: '1px solid rgba(255,255,255,0.08)',
     borderRadius: '6px',
-    color: '#a5b4fc',
+    color: colors.accentFg,
     width: '26px',
     height: '26px',
     display: 'inline-flex',
@@ -1743,7 +1744,7 @@ const styles = {
     color: '#e2e8f0',
   },
   historyTop: { display: 'flex', justifyContent: 'space-between', marginBottom: '4px' },
-  historyUser: { fontSize: '12px', fontWeight: 700, color: '#a5b4fc' },
+  historyUser: { fontSize: '12px', fontWeight: 700, color: colors.accentFg },
   historyTime: { fontSize: '11px', color: 'rgba(255,255,255,0.3)' },
   historySummary: { fontSize: '12px', color: 'rgba(255,255,255,0.7)', lineHeight: 1.4 },
   historyCount: { fontSize: '11px', color: 'rgba(255,255,255,0.35)', marginTop: '3px' },
@@ -1757,7 +1758,7 @@ const styles = {
     zIndex: 1000,
   },
   modalCard: {
-    background: '#16162a',
+    background: colors.bgRaised,
     border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: '14px',
     width: '720px',
@@ -1791,12 +1792,12 @@ const styles = {
     color: 'rgba(255,255,255,0.5)',
     fontSize: '13px',
   },
-  link: { color: '#a5b4fc', fontSize: '13px', textDecoration: 'none' },
+  link: { color: colors.accentFg, fontSize: '13px', textDecoration: 'none' },
   crumbRow: { display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap', marginBottom: '10px' },
   crumb: {
     background: 'none',
     border: 'none',
-    color: '#a5b4fc',
+    color: colors.accentFg,
     fontSize: '13px',
     cursor: 'pointer',
     padding: '2px 4px',
@@ -1833,10 +1834,10 @@ const styles = {
     background: 'rgba(255,255,255,0.06)',
     overflow: 'hidden',
   },
-  uploadBarInner: { height: '100%', background: '#6366f1', transition: 'width 0.25s' },
+  uploadBarInner: { height: '100%', background: colors.accent, transition: 'width 0.25s' },
   uploadLabel: { fontSize: '13px', color: 'rgba(255,255,255,0.7)' },
   uploadCurrent: { fontSize: '12px', color: 'rgba(255,255,255,0.4)', wordBreak: 'break-all' },
-  uploadDone: { fontSize: '14px', fontWeight: 600, color: '#a5b4fc', textAlign: 'center' },
+  uploadDone: { fontSize: '14px', fontWeight: 600, color: colors.accentFg, textAlign: 'center' },
 
   // ── Playlist view ──
   viewTabs: {
@@ -1860,8 +1861,8 @@ const styles = {
     fontFamily: 'inherit',
   },
   viewTabOn: {
-    background: 'rgba(99,102,241,0.18)',
-    color: '#a5b4fc',
+    background: colors.accentSoft,
+    color: colors.accentFg,
   },
   plMgmtBtn: {
     flex: 1,
@@ -1921,8 +1922,8 @@ const styles = {
     cursor: 'pointer',
   },
   queueItemOn: {
-    background: 'rgba(99,102,241,0.14)',
-    borderColor: 'rgba(99,102,241,0.45)',
+    background: colors.accentA14,
+    borderColor: colors.accentA45,
   },
   queueItemTitle: {
     fontSize: '12px',
@@ -1982,7 +1983,7 @@ const styles = {
     flexDirection: 'column',
     gap: '6px',
   },
-  scrubber: { width: '100%', accentColor: '#6366f1', cursor: 'pointer' },
+  scrubber: { width: '100%', accentColor: '#5b8fc7', cursor: 'pointer' },
   controlRow: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   ctrlBtn: {
     background: 'rgba(255,255,255,0.05)',
@@ -1996,9 +1997,9 @@ const styles = {
     lineHeight: 1,
   },
   playBtn: {
-    background: 'rgba(99,102,241,0.2)',
-    borderColor: 'rgba(99,102,241,0.5)',
-    color: '#a5b4fc',
+    background: colors.accentA20,
+    borderColor: colors.borderFocus,
+    color: colors.accentFg,
     padding: '5px 14px',
   },
   rateBtn: {
@@ -2013,9 +2014,9 @@ const styles = {
     fontFamily: 'inherit',
   },
   rateBtnOn: {
-    background: 'rgba(99,102,241,0.18)',
-    borderColor: 'rgba(99,102,241,0.5)',
-    color: '#a5b4fc',
+    background: colors.accentSoft,
+    borderColor: colors.borderFocus,
+    color: colors.accentFg,
   },
   timeLabel: {
     fontSize: '12px',

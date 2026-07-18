@@ -2,6 +2,7 @@ import React from 'react';
 import MetadataFields from './MetadataFields';
 import AiBadge from './AiBadge';
 import { getMediaCategory } from './organizeConstants';
+import { colors } from '../../../lib/styleTokens';
 
 export default function FileCard({ file, meta, onMetaChange, onPreview, selected, onToggleSelect, modified, onMoveBack, aiConf, confThreshold }) {
   const category = getMediaCategory(file.ext);
@@ -78,8 +79,8 @@ const styles = {
     flexDirection: 'column',
   },
   cardSelected: {
-    border: '1px solid rgba(99,102,241,0.5)',
-    background: 'rgba(99,102,241,0.06)',
+    border: '1px solid rgba(91, 143, 199,0.5)',
+    background: colors.accentA06,
   },
   cardModified: {
     border: '1px solid rgba(34,197,94,0.4)',
@@ -111,8 +112,8 @@ const styles = {
     transition: 'all 0.12s',
   },
   checkboxChecked: {
-    border: '2px solid #6366f1',
-    background: '#6366f1',
+    border: '2px solid #5b8fc7',
+    background: colors.accent,
   },
   thumbWrap: {
     position: 'relative',

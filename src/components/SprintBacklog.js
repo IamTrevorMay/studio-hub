@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
+import { colors } from '../lib/styleTokens';
 
 const POINT_COLORS = { '15': '#ef4444', '10': '#f97316', '6': '#f59e0b', '3': '#3b82f6', '1': '#6b7280' };
 const POINT_OPTIONS = [
@@ -126,7 +127,7 @@ export default function SprintBacklog({ profile, activeSprint, onTasksChanged, b
               onClick={addTask}
               disabled={!newTaskText.trim()}
               style={{
-                background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.2)',
+                background: colors.accentA15, color: colors.accentFg, border: '1px solid rgba(91, 143, 199,0.2)',
                 borderRadius: '6px', padding: '6px 12px', fontSize: '11px', fontWeight: 600, cursor: 'pointer',
                 opacity: newTaskText.trim() ? 1 : 0.4,
               }}
@@ -199,7 +200,7 @@ const taskRowStyle = {
 };
 
 const actionBtnStyle = {
-  background: 'rgba(99,102,241,0.12)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.2)',
+  background: 'rgba(91, 143, 199,0.12)', color: '#8fb4d8', border: '1px solid rgba(91, 143, 199,0.2)',
   borderRadius: '6px', padding: '2px 8px', fontSize: '14px', fontWeight: 600, cursor: 'pointer',
   lineHeight: 1,
 };

@@ -11,6 +11,7 @@ import { callEdgeFn } from '../lib/edgeFn';
 import { fetchAllRows } from './analytics/utils';
 import backdropDismiss from '../lib/backdropDismiss';
 import { clickableKeyProps } from '../lib/styleRecipes';
+import { colors } from '../lib/styleTokens';
 
 
 const STATUSES = ['queue', 'research', 'write', 'pre_production', 'film', 'review', 'edit', 'post_production', 'publish'];
@@ -625,7 +626,7 @@ function RowContextMenu({ x, y, onClose, onDuplicate, onArchive, onDelete }) {
           left: x,
           top: y,
           zIndex: 999,
-          background: '#1a1a2e',
+          background: colors.bgHover,
           border: '1px solid rgba(255,255,255,0.18)',
           borderRadius: '8px',
           padding: '4px',
@@ -1125,9 +1126,9 @@ function ProjectRow({
                       {stageAs.map(a => {
                         const tt = a.profile?.title || a.profile?.role;
                         return (
-                          <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(99,102,241,0.1)', padding: '2px 6px', borderRadius: '6px' }}>
-                            <div style={{ width: '18px', height: '18px', borderRadius: '6px', background: 'rgba(99,102,241,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '9px', fontWeight: 600, color: '#a5b4fc' }}>{a.profile?.full_name?.charAt(0)}</div>
-                            <span style={{ fontSize: '11px', color: '#a5b4fc' }}>{a.profile?.full_name}</span>
+                          <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: colors.accentA10, padding: '2px 6px', borderRadius: '6px' }}>
+                            <div style={{ width: '18px', height: '18px', borderRadius: '6px', background: colors.accentA25, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '9px', fontWeight: 600, color: colors.accentFg }}>{a.profile?.full_name?.charAt(0)}</div>
+                            <span style={{ fontSize: '11px', color: colors.accentFg }}>{a.profile?.full_name}</span>
                             {tt && <span style={{ fontSize: '10px', color: 'rgba(165,180,252,0.6)' }}>— {tt}</span>}
                             <button onClick={() => onRemoveProjectStageAssignment(a.id)} disabled={isSkipped} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.25)', cursor: isSkipped ? 'not-allowed' : 'pointer', fontSize: '12px', padding: '4px' }}>✕</button>
                           </div>
@@ -1363,7 +1364,7 @@ const styles = {
   },
   addBtn: {
     padding: '10px 20px',
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     border: 'none', borderRadius: '10px',
     color: '#fff', fontSize: '14px', fontWeight: 600,
     cursor: 'pointer', fontFamily: 'inherit',
@@ -1388,7 +1389,7 @@ const styles = {
   },
   submitBtn: {
     padding: '10px 24px',
-    background: '#6366f1', border: 'none', borderRadius: '8px',
+    background: colors.accent, border: 'none', borderRadius: '8px',
     color: '#fff', fontSize: '14px', fontWeight: 600,
     cursor: 'pointer', fontFamily: 'inherit',
   },
@@ -1404,8 +1405,8 @@ const styles = {
     cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
   },
   filterBtnActive: {
-    background: 'rgba(99,102,241,0.15)', color: '#a5b4fc',
-    borderColor: 'rgba(99,102,241,0.3)',
+    background: colors.accentA15, color: colors.accentFg,
+    borderColor: colors.accentA30,
   },
   searchInput: {
     padding: '8px 14px', background: 'rgba(255,255,255,0.04)',
@@ -1434,17 +1435,17 @@ const styles = {
   assigneeAvatars: { display: 'flex', marginRight: '4px' },
   miniAvatar: {
     width: '26px', height: '26px', borderRadius: '8px',
-    background: 'rgba(99,102,241,0.25)', display: 'flex',
+    background: colors.accentA25, display: 'flex',
     alignItems: 'center', justifyContent: 'center',
-    fontSize: '11px', fontWeight: 600, color: '#a5b4fc',
-    marginLeft: '-6px', border: '2px solid #12121f',
+    fontSize: '11px', fontWeight: 600, color: colors.accentFg,
+    marginLeft: '-6px', border: '2px solid #0e1420',
   },
   miniAvatarMore: {
     width: '26px', height: '26px', borderRadius: '8px',
     background: 'rgba(255,255,255,0.08)', display: 'flex',
     alignItems: 'center', justifyContent: 'center',
     fontSize: '10px', color: 'rgba(255,255,255,0.4)',
-    marginLeft: '-6px', border: '2px solid #12121f',
+    marginLeft: '-6px', border: '2px solid #0e1420',
   },
   statusTag: {
     padding: '4px 10px', borderRadius: '6px',
@@ -1477,7 +1478,7 @@ const styles = {
   },
   inlineInput: {
     padding: '8px 10px', background: 'rgba(255,255,255,0.06)',
-    border: '1px solid rgba(99,102,241,0.4)', borderRadius: '6px',
+    border: '1px solid rgba(91, 143, 199,0.4)', borderRadius: '6px',
     color: '#fff', fontSize: '13px', fontFamily: 'inherit',
     outline: 'none', width: '100%', boxSizing: 'border-box',
   },
@@ -1496,9 +1497,9 @@ const styles = {
   },
   assignmentAvatar: {
     width: '28px', height: '28px', borderRadius: '8px',
-    background: 'rgba(99,102,241,0.2)',
+    background: colors.accentA20,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontSize: '12px', fontWeight: 600, color: '#a5b4fc',
+    fontSize: '12px', fontWeight: 600, color: colors.accentFg,
   },
   assignmentName: { flex: 1, fontSize: '13px', color: '#e2e8f0' },
   assignmentRole: {
@@ -1523,7 +1524,7 @@ const styles = {
     outline: 'none', flex: 1, minWidth: '100px',
   },
   smallBtn: {
-    padding: '7px 14px', background: '#6366f1',
+    padding: '7px 14px', background: colors.accent,
     border: 'none', borderRadius: '6px',
     color: '#fff', fontSize: '12px', fontWeight: 600,
     cursor: 'pointer', fontFamily: 'inherit',
@@ -1535,7 +1536,7 @@ const styles = {
     borderRadius: '8px',
   },
   attachmentLink: {
-    flex: 1, color: '#a5b4fc', fontSize: '13px',
+    flex: 1, color: colors.accentFg, fontSize: '13px',
     textDecoration: 'none',
   },
   emptyCard: {
@@ -1547,7 +1548,7 @@ const styles = {
   commentsList: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '10px', maxHeight: '300px', overflow: 'auto' },
   commentItem: { padding: '8px 10px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.04)' },
   commentHeader: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' },
-  commentAvatar: { width: '22px', height: '22px', borderRadius: '6px', background: 'rgba(99,102,241,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 600, color: '#a5b4fc', flexShrink: 0 },
+  commentAvatar: { width: '22px', height: '22px', borderRadius: '6px', background: colors.accentA20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 600, color: colors.accentFg, flexShrink: 0 },
   commentAuthor: { fontSize: '12px', fontWeight: 600, color: '#e2e8f0' },
   commentTime: { fontSize: '10px', color: 'rgba(255,255,255,0.25)', marginLeft: 'auto' },
   commentDeleteBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '11px', padding: '2px 4px' },
@@ -1555,7 +1556,7 @@ const styles = {
   commentForm: { display: 'flex', gap: '8px' },
   deleteProjectBtn: { padding: '8px 16px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '8px', color: '#fca5a5', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   archiveProjectBtn: { flex: 1, padding: '8px 16px', background: 'rgba(107,114,128,0.08)', border: '1px solid rgba(107,114,128,0.2)', borderRadius: '8px', color: '#9ca3af', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
-  unarchiveProjectBtn: { flex: 1, padding: '8px 16px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '8px', color: '#a5b4fc', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  unarchiveProjectBtn: { flex: 1, padding: '8px 16px', background: colors.accentA08, border: '1px solid rgba(91, 143, 199,0.2)', borderRadius: '8px', color: colors.accentFg, fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   archivedTag: { marginLeft: '8px', fontSize: '10px', fontWeight: 600, color: '#6b7280', background: 'rgba(107,114,128,0.15)', padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase', letterSpacing: '0.3px', verticalAlign: 'middle' },
   viewToggle: {
     display: 'flex',
@@ -1578,8 +1579,8 @@ const styles = {
     transition: 'all 0.15s',
   },
   viewToggleBtnActive: {
-    background: 'rgba(99,102,241,0.2)',
-    color: '#a5b4fc',
+    background: colors.accentA20,
+    color: colors.accentFg,
   },
   boardContainer: {
     display: 'flex',
@@ -1691,15 +1692,15 @@ const styles = {
     width: '22px',
     height: '22px',
     borderRadius: '6px',
-    background: 'rgba(99,102,241,0.25)',
+    background: colors.accentA25,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     fontSize: '10px',
     fontWeight: 600,
-    color: '#a5b4fc',
+    color: colors.accentFg,
     marginLeft: '-4px',
-    border: '2px solid #12121f',
+    border: '2px solid #0e1420',
   },
   kanbanAvatarMore: {
     width: '22px',
@@ -1712,7 +1713,7 @@ const styles = {
     fontSize: '9px',
     color: 'rgba(255,255,255,0.4)',
     marginLeft: '-4px',
-    border: '2px solid #12121f',
+    border: '2px solid #0e1420',
   },
   kanbanProgress: {
     display: 'flex',
@@ -1729,7 +1730,7 @@ const styles = {
   },
   kanbanProgressFill: {
     height: '100%',
-    background: '#6366f1',
+    background: colors.accent,
     borderRadius: '2px',
     transition: 'width 0.2s',
   },
@@ -1754,7 +1755,7 @@ const styles = {
   },
   projectModalContent: {
     position: 'relative',
-    background: '#12121f',
+    background: colors.bg,
     border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: '14px',
     width: '860px',

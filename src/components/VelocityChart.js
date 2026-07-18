@@ -1,4 +1,5 @@
 import React from 'react';
+import { colors } from '../lib/styleTokens';
 
 export default function VelocityChart({ sprints }) {
   // sprints = array of completed sprints with { start_date, velocity }, newest last
@@ -37,7 +38,7 @@ export default function VelocityChart({ sprints }) {
                 width={barWidth}
                 height={Math.max(barH, 2)}
                 rx={4}
-                fill={i === sprints.length - 1 ? '#6366f1' : 'rgba(99,102,241,0.4)'}
+                fill={i === sprints.length - 1 ? '#5b8fc7' : 'rgba(91, 143, 199,0.4)'}
               />
               {/* Velocity number */}
               {v > 0 && (
@@ -67,7 +68,7 @@ export default function VelocityChart({ sprints }) {
         })}
       </svg>
       <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap', paddingBottom: labelHeight + 2 }}>
-        avg: <span style={{ color: '#a5b4fc', fontWeight: 600 }}>{avg}</span> pts/sprint
+        avg: <span style={{ color: colors.accentFg, fontWeight: 600 }}>{avg}</span> pts/sprint
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { supabase } from '../../../supabaseClient';
 import backdropDismiss from '../../../lib/backdropDismiss';
+import { colors } from '../../../lib/styleTokens';
 
 // CSV → mailer_subscribers (+ optional audience attach).
 // Header row required. Recognized columns: email (required), name,
@@ -193,21 +194,21 @@ export default function CsvImportModal({ open, onClose, audiences, onImported })
 
 const styles = {
   overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 },
-  modal: { background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, width: 'min(620px, 92vw)', maxHeight: '90vh', display: 'flex', flexDirection: 'column' },
+  modal: { background: colors.bgHover, border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, width: 'min(620px, 92vw)', maxHeight: '90vh', display: 'flex', flexDirection: 'column' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 24px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' },
   title: { fontSize: 18, fontWeight: 700, color: '#fff', margin: 0 },
   closeBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: 26, cursor: 'pointer', padding: 0 },
   body: { padding: '16px 24px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 10 },
   footer: { display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '14px 24px', borderTop: '1px solid rgba(255,255,255,0.06)' },
   help: { fontSize: 12, color: 'rgba(255,255,255,0.45)', lineHeight: 1.5 },
-  fileBtn: { display: 'inline-block', padding: '6px 12px', fontSize: 12, fontWeight: 600, color: '#c7d2fe', background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 6, cursor: 'pointer', alignSelf: 'flex-start' },
+  fileBtn: { display: 'inline-block', padding: '6px 12px', fontSize: 12, fontWeight: 600, color: colors.accentFgSoft, background: colors.accentA15, border: '1px solid rgba(91, 143, 199,0.3)', borderRadius: 6, cursor: 'pointer', alignSelf: 'flex-start' },
   textarea: { background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '10px', color: '#fff', fontSize: 12, fontFamily: 'monospace', minHeight: 160, outline: 'none', resize: 'vertical' },
   audienceRow: { display: 'flex', alignItems: 'center', gap: 10 },
   label: { fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.45)', letterSpacing: 0.4, textTransform: 'uppercase', minWidth: 130 },
   select: { background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '7px 10px', color: '#fff', fontSize: 13, outline: 'none', fontFamily: 'inherit', flex: 1 },
-  preview: { padding: 10, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 6, color: '#c7d2fe', fontSize: 12 },
+  preview: { padding: 10, background: colors.accentA08, border: '1px solid rgba(91, 143, 199,0.2)', borderRadius: 6, color: colors.accentFgSoft, fontSize: 12 }, // style-lint-ignore
   error: { padding: 10, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171', borderRadius: 6, fontSize: 12 },
   success: { padding: 10, background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', color: '#86efac', borderRadius: 6, fontSize: 12 },
-  primaryBtn: { background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  primaryBtn: { background: colors.accent, color: colors.white, border: 'none', borderRadius: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   cancelBtn: { background: 'transparent', color: 'rgba(255,255,255,0.6)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
 };

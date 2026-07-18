@@ -1,6 +1,7 @@
 import React from 'react';
 import { getMediaCategory } from './organizeConstants';
 import backdropDismiss from '../../../lib/backdropDismiss';
+import { colors } from '../../../lib/styleTokens';
 
 export default function MediaPreview({ file, onClose }) {
   if (!file) return null;
@@ -54,7 +55,7 @@ const styles = {
   },
   modal: {
     position: 'relative',
-    background: '#1a1a2e',
+    background: colors.bgHover,
     borderRadius: '14px',
     border: '1px solid rgba(255,255,255,0.1)',
     maxWidth: '90vw',

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback } from 'react';
+import { colors } from '../../../lib/styleTokens';
 
 function parseYouTubeId(input) {
   if (!input) return null;
@@ -172,8 +173,8 @@ const styles = {
     gap: '12px',
   },
   dropZoneActive: {
-    borderColor: '#6366f1',
-    background: 'rgba(99,102,241,0.06)',
+    borderColor: colors.accent,
+    background: colors.accentA06,
   },
   dropIcon: {
     color: 'rgba(255,255,255,0.25)',
@@ -227,7 +228,7 @@ const styles = {
     outline: 'none',
   },
   ytBtn: {
-    background: '#6366f1',
+    background: colors.accent,
     border: 'none',
     color: '#ffffff',
     cursor: 'pointer',

@@ -695,7 +695,7 @@ export default function FindAssetsModal({ sheetId, beats, initialReview, onClose
                   onContextMenu={(e) => { e.preventDefault(); setSelectedKey(item.key); setCtxMenu({ x: e.clientX, y: e.clientY, key: item.key }); }}
                   style={{
                     ...s.row,
-                    borderColor: selectedKey === item.key ? 'rgba(99,102,241,0.6)' : st.border,
+                    borderColor: selectedKey === item.key ? 'rgba(91, 143, 199,0.6)' : st.border,
                     background: st.bg,
                   }}
                 >
@@ -853,7 +853,7 @@ const s = {
   body: { flex: 1, display: 'flex', minHeight: 0 },
   list: { flex: 1.2, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 6, borderRight: '1px solid rgba(255,255,255,0.08)' },
   row: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, border: '1px solid', cursor: 'pointer', minWidth: 0 },
-  fieldBadge: { fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, padding: '2px 6px', borderRadius: 4, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', flexShrink: 0 },
+  fieldBadge: { fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, padding: '2px 6px', borderRadius: 4, background: 'rgba(91, 143, 199,0.15)', color: '#8fb4d8', flexShrink: 0 },
   tagText: { fontSize: 12, fontWeight: 600, color: '#e2e8f0', maxWidth: '30%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 },
   arrow: { color: 'rgba(255,255,255,0.3)', flexShrink: 0 },
   sugText: { fontSize: 12, color: '#cbd5e1', display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 },
@@ -871,14 +871,14 @@ const s = {
   },
   foot: { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', borderTop: '1px solid rgba(255,255,255,0.08)' },
   btn: { padding: '7px 14px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.05)', color: '#e2e8f0', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
-  btnPrimary: { padding: '7px 14px', borderRadius: 8, border: 'none', background: '#6366f1', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  btnPrimary: { padding: '7px 14px', borderRadius: 8, border: 'none', background: '#5b8fc7', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   closeBtn: { background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.45)', cursor: 'pointer', fontSize: 15 },
   empty: { fontSize: 12, color: 'rgba(255,255,255,0.35)', padding: 12 },
   ctx: { position: 'fixed', zIndex: 300, background: '#1c1c2b', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: 4, display: 'flex', flexDirection: 'column', minWidth: 160, boxShadow: '0 8px 24px rgba(0,0,0,0.5)' },
   ctxBtn: { padding: '8px 12px', background: 'transparent', border: 'none', textAlign: 'left', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', borderRadius: 5 },
   picker: { position: 'absolute', inset: '15% 20%', background: '#191926', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, display: 'flex', flexDirection: 'column', zIndex: 250, boxShadow: '0 12px 40px rgba(0,0,0,0.6)' },
   pickerCrumbs: { display: 'flex', alignItems: 'center', gap: 6, padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.08)' },
-  crumb: { background: 'transparent', border: 'none', color: '#a5b4fc', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  crumb: { background: 'transparent', border: 'none', color: '#8fb4d8', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   pickerList: { flex: 1, overflowY: 'auto', padding: 8, display: 'flex', flexDirection: 'column', gap: 4 },
   folderBtn: { textAlign: 'left', padding: '8px 10px', borderRadius: 7, border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.03)', color: '#e2e8f0', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' },
   pickerFoot: { display: 'flex', gap: 8, padding: '10px 14px', borderTop: '1px solid rgba(255,255,255,0.08)' },

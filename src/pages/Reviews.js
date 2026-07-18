@@ -9,6 +9,7 @@ import * as mammoth from 'mammoth';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { clickableKeyProps } from '../lib/styleRecipes';
+import { colors } from '../lib/styleTokens';
 
 function extractVideoId(url) {
   if (!url) return null;
@@ -1109,13 +1110,13 @@ const styles = {
   pageTitle: { fontSize: '28px', fontWeight: 700, color: '#ffffff', margin: '0 0 4px 0', letterSpacing: '-0.5px' },
   pageSubtitle: { fontSize: '14px', color: 'rgba(255,255,255,0.4)', margin: 0 },
   backBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.45)', fontSize: '13px', cursor: 'pointer', padding: '0 0 8px 0', fontFamily: 'inherit', fontWeight: 500 },
-  addBtn: { padding: '10px 20px', background: 'linear-gradient(135deg, #6366f1, #818cf8)', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  addBtn: { padding: '10px 20px', background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)', border: 'none', borderRadius: '10px', color: colors.white, fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   createForm: { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', padding: '20px', marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '12px' },
   input: { padding: '10px 14px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', fontFamily: 'inherit', outline: 'none' },
   previewThumb: { display: 'flex', alignItems: 'center', gap: '12px', padding: '10px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px' },
   previewImg: { width: '120px', borderRadius: '6px' },
   previewLabel: { fontSize: '13px', color: '#22c55e', fontWeight: 500 },
-  submitBtn: { padding: '10px 20px', background: '#6366f1', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', alignSelf: 'flex-start' },
+  submitBtn: { padding: '10px 20px', background: colors.accent, border: 'none', borderRadius: '8px', color: colors.white, fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', alignSelf: 'flex-start' },
   reviewGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' },
   reviewCard: { background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', overflow: 'hidden', cursor: 'pointer', transition: 'border-color 0.15s', position: 'relative' },
   thumbWrap: { position: 'relative', width: '100%', aspectRatio: '16/9', overflow: 'hidden', background: '#000' },
@@ -1134,12 +1135,12 @@ const styles = {
   versionBar: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', flexShrink: 0 },
   versionTabs: { display: 'flex', gap: '4px', flex: 1, overflow: 'auto' },
   versionTab: { padding: '6px 14px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', color: 'rgba(255,255,255,0.4)', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px' },
-  versionTabActive: { background: 'rgba(99,102,241,0.12)', borderColor: 'rgba(99,102,241,0.3)', color: '#a5b4fc' },
+  versionTabActive: { background: colors.accentA12, borderColor: colors.accentA30, color: colors.accentFg },
   versionNum: { fontSize: '10px', fontWeight: 700, opacity: 0.5 },
   addVersionBtn: { padding: '6px 14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', color: 'rgba(255,255,255,0.4)', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' },
   addVersionForm: { display: 'flex', gap: '8px', marginBottom: '12px', flexShrink: 0 },
   addVersionInput: { flex: 1, padding: '8px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: '#fff', fontSize: '12px', fontFamily: 'inherit', outline: 'none' },
-  addVersionSubmit: { padding: '8px 16px', background: '#6366f1', border: 'none', borderRadius: '6px', color: '#fff', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  addVersionSubmit: { padding: '8px 16px', background: colors.accent, border: 'none', borderRadius: '6px', color: colors.white, fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
 
   // Player layout
   playerLayout: { display: 'flex', gap: '24px', position: 'relative' },
@@ -1153,23 +1154,23 @@ const styles = {
   noVideoForm: { display: 'flex', gap: '8px', marginTop: '8px', width: '100%', maxWidth: '420px' },
   noVideoInput: { flex: 1, padding: '8px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: '#fff', fontSize: '13px', fontFamily: 'inherit' },
   timeline: { position: 'relative', height: '12px', background: 'rgba(255,255,255,0.06)', borderRadius: '6px', marginTop: '8px', cursor: 'pointer', overflow: 'visible' },
-  timelineProgress: { position: 'absolute', top: 0, left: 0, height: '100%', background: 'rgba(99,102,241,0.3)', borderRadius: '6px', transition: 'width 0.25s linear', pointerEvents: 'none' },
-  timelineMarker: { position: 'absolute', top: '50%', transform: 'translate(-50%, -50%)', width: '10px', height: '10px', borderRadius: '50%', background: '#fbbf24', border: '2px solid #0f0f1a', cursor: 'pointer', zIndex: 2, padding: 0 },
+  timelineProgress: { position: 'absolute', top: 0, left: 0, height: '100%', background: colors.accentA30, borderRadius: '6px', transition: 'width 0.25s linear', pointerEvents: 'none' },
+  timelineMarker: { position: 'absolute', top: '50%', transform: 'translate(-50%, -50%)', width: '10px', height: '10px', borderRadius: '50%', background: colors.gold, border: '2px solid #0e1420', cursor: 'pointer', zIndex: 2, padding: 0 },
   timeDisplay: { fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginTop: '4px', fontVariantNumeric: 'tabular-nums' },
   commentForm: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px' },
   commentTimeTag: { padding: '5px 10px', background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: '6px', color: '#fbbf24', fontSize: '12px', fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' },
   commentInput: { flex: 1, padding: '10px 14px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '13px', fontFamily: 'inherit', outline: 'none' },
-  commentSubmitBtn: { padding: '10px 18px', background: '#6366f1', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  commentSubmitBtn: { padding: '10px 18px', background: colors.accent, border: 'none', borderRadius: '8px', color: colors.white, fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   formatBtn: { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', color: 'rgba(255,255,255,0.5)', fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit', padding: '2px 7px', lineHeight: 1 },
 
   // Comments panel
   commentsCol: { width: '340px', minWidth: '340px', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', overflow: 'hidden', flexShrink: 0 },
   commentsPanelHeader: { padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 },
   commentsPanelTitle: { fontSize: '14px', fontWeight: 700, color: '#e2e8f0', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: '8px' },
-  commentCount: { background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '10px' },
+  commentCount: { background: colors.accentA15, color: colors.accentFg, fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '10px' },
   filterTabs: { display: 'flex', gap: '4px' },
   filterTab: { padding: '4px 10px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '6px', color: 'rgba(255,255,255,0.35)', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
-  filterTabActive: { background: 'rgba(99,102,241,0.1)', borderColor: 'rgba(99,102,241,0.25)', color: '#a5b4fc' },
+  filterTabActive: { background: colors.accentA10, borderColor: colors.accentA25, color: colors.accentFg },
   commentsList: { flex: 1, overflow: 'auto', padding: '12px', minHeight: 0 },
   emptyComments: { color: 'rgba(255,255,255,0.25)', fontSize: '13px', textAlign: 'center', padding: '20px 0' },
 
@@ -1177,7 +1178,7 @@ const styles = {
   commentCard: { padding: '10px 12px', background: 'rgba(255,255,255,0.02)', borderLeft: '3px solid rgba(251,191,36,0.3)', borderRadius: '0 8px 8px 0', marginBottom: '10px', transition: 'opacity 0.15s' },
   commentCardHeader: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' },
   commentTimestamp: { padding: '2px 8px', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.2)', borderRadius: '4px', color: '#fbbf24', fontSize: '11px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', fontVariantNumeric: 'tabular-nums' },
-  commentAuthor: { fontSize: '12px', fontWeight: 600, color: '#a5b4fc' },
+  commentAuthor: { fontSize: '12px', fontWeight: 600, color: colors.accentFg },
   commentDate: { fontSize: '10px', color: 'rgba(255,255,255,0.2)', marginLeft: 'auto' },
   commentBody: { fontSize: '13px', color: 'rgba(255,255,255,0.7)', margin: '0 0 8px', lineHeight: 1.5 },
   commentActions: { display: 'flex', alignItems: 'center', gap: '6px' },
@@ -1189,13 +1190,13 @@ const styles = {
   repliesWrap: { marginTop: '8px', paddingLeft: '12px', borderLeft: '1px solid rgba(255,255,255,0.06)' },
   replyCard: { padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.03)' },
   replyHeader: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' },
-  replyAuthor: { fontSize: '11px', fontWeight: 600, color: '#818cf8' },
+  replyAuthor: { fontSize: '11px', fontWeight: 600, color: colors.accentFg },
   replyDate: { fontSize: '9px', color: 'rgba(255,255,255,0.2)' },
   replyDeleteBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.15)', cursor: 'pointer', fontSize: '10px', padding: '0 2px', marginLeft: 'auto' },
   replyBody: { fontSize: '12px', color: 'rgba(255,255,255,0.55)', margin: 0, lineHeight: 1.4 },
   replyForm: { display: 'flex', gap: '6px', marginTop: '8px' },
   replyInput: { flex: 1, padding: '6px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', color: '#fff', fontSize: '12px', fontFamily: 'inherit', outline: 'none' },
-  replySubmitBtn: { padding: '6px 12px', background: '#6366f1', border: 'none', borderRadius: '6px', color: '#fff', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  replySubmitBtn: { padding: '6px 12px', background: colors.accent, border: 'none', borderRadius: '6px', color: colors.white, fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
 
   // Details section
   detailsSection: { marginTop: '32px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '24px' },
@@ -1203,8 +1204,8 @@ const styles = {
   detailsGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' },
   detailsBlock: { padding: '16px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', display: 'flex', flexDirection: 'column' },
   detailsBlockHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' },
-  detailsBlockTitle: { fontSize: '14px', fontWeight: 700, color: '#a5b4fc', margin: 0, textTransform: 'uppercase', letterSpacing: '0.5px' },
-  detailsAddBtn: { padding: '5px 14px', background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '6px', color: '#a5b4fc', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  detailsBlockTitle: { fontSize: '14px', fontWeight: 700, color: colors.accentFg, margin: 0, textTransform: 'uppercase', letterSpacing: '0.5px' },
+  detailsAddBtn: { padding: '5px 14px', background: colors.accentA15, border: '1px solid rgba(91, 143, 199,0.25)', borderRadius: '6px', color: colors.accentFg, fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   detailsEmpty: { color: 'rgba(255,255,255,0.25)', fontSize: '13px', margin: '4px 0' },
   thumbnailGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' },
   thumbnailCard: { background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', overflow: 'hidden' },
@@ -1222,7 +1223,7 @@ const styles = {
   detailsDeleteBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' },
   detailsCommentThread: { marginTop: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.04)' },
   detailsComment: { display: 'flex', alignItems: 'baseline', gap: '6px', padding: '4px 0', fontSize: '12px' },
-  detailsCommentAuthor: { fontWeight: 600, color: '#818cf8', fontSize: '11px', flexShrink: 0 },
+  detailsCommentAuthor: { fontWeight: 600, color: colors.accentFg, fontSize: '11px', flexShrink: 0 },
   detailsCommentText: { color: 'rgba(255,255,255,0.55)', fontSize: '12px' },
   detailsCommentDelete: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.15)', cursor: 'pointer', fontSize: '10px', padding: '0 2px', marginLeft: 'auto', flexShrink: 0 },
   detailsCommentForm: { marginTop: '6px' },

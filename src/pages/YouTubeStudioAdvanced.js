@@ -20,6 +20,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import backdropDismiss from '../lib/backdropDismiss';
+import { colors } from '../lib/styleTokens';
 
 // ═══════════════════════════════════════════════════════════════════
 // Catalogs
@@ -105,7 +106,7 @@ const COMPARE_PRESETS = [
   { key: 'custom',   label: 'Custom' },
 ];
 
-const CHART_COLORS = ['#6366f1', '#22c55e', '#f59e0b', '#ec4899', '#3b82f6', '#a855f7', '#14b8a6', '#f97316'];
+const CHART_COLORS = ['#5b8fc7', '#22c55e', '#f59e0b', '#ec4899', '#3b82f6', '#a855f7', '#14b8a6', '#f97316'];
 
 // ═══════════════════════════════════════════════════════════════════
 // Helpers
@@ -756,7 +757,7 @@ export default function YouTubeStudioAdvanced({ accounts }) {
                   }}>
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#FF0000' }} />
                     <span style={{ flex: 1 }}>{c.account_name}</span>
-                    {selectedChannelIds.includes(c.id) && <span style={{ color: '#a5b4fc' }}>✓</span>}
+                    {selectedChannelIds.includes(c.id) && <span style={{ color: colors.accentFg }}>✓</span>}
                   </button>
                 ))}
               </div>
@@ -918,7 +919,7 @@ export default function YouTubeStudioAdvanced({ accounts }) {
                 return (
                   <tr key={r._key} style={ri % 2 ? S.trEven : null}>
                     <td style={{ ...S.td, ...S.tdSticky, width: 36 }}>
-                      <input type="checkbox" checked={isSelected} onChange={() => toggleRowSelect(r._key)} style={{ accentColor: '#6366f1' }} />
+                      <input type="checkbox" checked={isSelected} onChange={() => toggleRowSelect(r._key)} style={{ accentColor: '#5b8fc7' }} />
                     </td>
                     <td style={{ ...S.td, ...S.tdSticky, left: 36, maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {dimensionDef.isContent ? (
@@ -991,7 +992,7 @@ function MetricOverlay({ activeMetrics, toggleMetric }) {
           {metrics.map(m => (
             <button key={m.key} onClick={() => toggleMetric(m.key)}
               style={{ ...S.dropdownItem, ...(activeMetrics.includes(m.key) ? S.dropdownItemActive : {}) }}>
-              <input type="checkbox" checked={activeMetrics.includes(m.key)} onChange={() => {}} style={{ accentColor: '#6366f1' }} />
+              <input type="checkbox" checked={activeMetrics.includes(m.key)} onChange={() => {}} style={{ accentColor: '#5b8fc7' }} />
               <span style={{ flex: 1 }}>{m.label}</span>
             </button>
           ))}
@@ -1169,7 +1170,7 @@ function VideoDrilldown({ videoId, channels, dateRange, videoMeta, onClose }) {
             {videoMeta?.thumbnail_url && <img src={videoMeta.thumbnail_url} alt="" style={{ width: 120, height: 68, borderRadius: 6, objectFit: 'cover' }} />}
             <div>
               <div style={{ color: '#fff', fontWeight: 600, fontSize: 16 }}>{videoMeta?.title || videoId}</div>
-              {videoMeta?.url && <a href={videoMeta.url} target="_blank" rel="noreferrer" style={{ color: '#a5b4fc', fontSize: 12 }}>Open on YouTube ↗</a>}
+              {videoMeta?.url && <a href={videoMeta.url} target="_blank" rel="noreferrer" style={{ color: colors.accentFg, fontSize: 12 }}>Open on YouTube ↗</a>}
             </div>
           </div>
           <button onClick={onClose} style={S.closeBtn}>✕</button>
@@ -1256,13 +1257,13 @@ const S = {
     cursor: 'pointer', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 6,
   },
   headerChipActive: {
-    background: 'rgba(99,102,241,0.18)', borderColor: 'rgba(99,102,241,0.5)', color: '#a5b4fc',
+    background: 'rgba(91, 143, 199,0.18)', borderColor: 'rgba(91, 143, 199,0.5)', color: '#8fb4d8',
   },
   chev: { fontSize: 9, marginLeft: 2 },
 
   dropdown: {
     position: 'absolute', top: '100%', right: 0, marginTop: 6,
-    background: '#1e1e36', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10,
+    background: '#1b2331', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10,
     padding: 6, minWidth: 220, zIndex: 90, display: 'flex', flexDirection: 'column', gap: 2,
     boxShadow: '0 12px 32px rgba(0,0,0,0.5)',
   },
@@ -1273,7 +1274,7 @@ const S = {
     cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', width: '100%',
   },
   dropdownItemActive: {
-    background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.4)', color: '#a5b4fc',
+    background: 'rgba(91, 143, 199,0.15)', borderColor: 'rgba(91, 143, 199,0.4)', color: '#8fb4d8',
   },
   dropdownClear: {
     padding: '5px 12px', background: 'transparent', border: 'none',
@@ -1306,7 +1307,7 @@ const S = {
     textAlign: 'left', minWidth: 140,
   },
   chartTabActive: {
-    background: 'rgba(99,102,241,0.12)', borderColor: 'rgba(99,102,241,0.5)', color: '#a5b4fc',
+    background: 'rgba(91, 143, 199,0.12)', borderColor: 'rgba(91, 143, 199,0.5)', color: '#8fb4d8',
   },
   chartTabLabel: { fontSize: 11, fontWeight: 500, color: 'rgba(255,255,255,0.5)' },
   chartTabValue: { fontSize: 18, fontWeight: 700, color: '#fff', marginTop: 4, fontVariantNumeric: 'tabular-nums' },
@@ -1337,11 +1338,11 @@ const S = {
     padding: '10px 14px', textAlign: 'left', fontWeight: 600, fontSize: 11,
     color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.5px',
     borderBottom: '1px solid rgba(255,255,255,0.08)',
-    position: 'sticky', top: 0, background: '#16162a', zIndex: 1,
+    position: 'sticky', top: 0, background: '#161d2b', zIndex: 1,
     whiteSpace: 'nowrap', userSelect: 'none',
   },
-  thSticky: { position: 'sticky', left: 0, zIndex: 3, background: '#16162a' },
-  sortArrow: { marginLeft: 4, color: '#a5b4fc' },
+  thSticky: { position: 'sticky', left: 0, zIndex: 3, background: '#161d2b' },
+  sortArrow: { marginLeft: 4, color: '#8fb4d8' },
   td: {
     padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.04)',
     color: 'rgba(255,255,255,0.7)', whiteSpace: 'nowrap',
@@ -1350,7 +1351,7 @@ const S = {
   tdValue: { fontWeight: 600, color: '#e2e8f0', fontVariantNumeric: 'tabular-nums' },
   tdDelta: { fontSize: 10, fontWeight: 500, marginTop: 2, fontVariantNumeric: 'tabular-nums' },
   trEven: { background: 'rgba(255,255,255,0.012)' },
-  totalsRow: { background: 'rgba(99,102,241,0.06)' },
+  totalsRow: { background: 'rgba(91, 143, 199,0.06)' },
 
   metricGroupHeader: {
     padding: '8px 12px 4px', fontSize: 10, fontWeight: 700,
@@ -1372,13 +1373,13 @@ const S = {
 
   savedPanel: {
     display: 'flex', flexWrap: 'wrap', gap: 6, padding: '10px 14px', marginBottom: 12,
-    background: 'rgba(99,102,241,0.04)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: 10,
+    background: 'rgba(91, 143, 199,0.04)', border: '1px solid rgba(91, 143, 199,0.15)', borderRadius: 10,
   },
   savedRow: { display: 'inline-flex', alignItems: 'center', gap: 4 },
   savedLoadBtn: {
-    padding: '5px 10px', background: 'rgba(99,102,241,0.12)',
-    border: '1px solid rgba(99,102,241,0.3)', borderRadius: 14,
-    color: '#a5b4fc', fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit',
+    padding: '5px 10px', background: 'rgba(91, 143, 199,0.12)',
+    border: '1px solid rgba(91, 143, 199,0.3)', borderRadius: 14,
+    color: '#8fb4d8', fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit',
   },
   savedDelBtn: {
     padding: '5px 7px', background: 'transparent', border: 'none',
@@ -1390,7 +1391,7 @@ const S = {
     display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200,
   },
   drillPanel: {
-    background: '#0f0f1a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14,
+    background: '#0e1420', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14,
     padding: 24, width: 'min(1200px, 95vw)', maxHeight: '90vh', overflow: 'auto',
   },
   drillHeader: {
@@ -1406,7 +1407,7 @@ const S = {
     color: 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit',
   },
   drillTabActive: {
-    background: 'rgba(99,102,241,0.18)', color: '#a5b4fc',
+    background: 'rgba(91, 143, 199,0.18)', color: '#8fb4d8',
   },
   drillSubtitle: {
     fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.45)',

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { supabase } from '../../supabaseClient';
+import { colors } from '../../lib/styleTokens';
 
 function idFromPath() {
   const m = window.location.pathname.match(/^\/brief\/([^/]+)/);
@@ -79,7 +80,7 @@ export default function PublicBrief() {
 const styles = {
   page: {
     minHeight: '100vh',
-    background: '#0f0f1a',
+    background: colors.bg,
     color: 'rgba(255,255,255,0.9)',
     fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
     padding: '48px 24px',
@@ -99,29 +100,29 @@ const styles = {
     fontWeight: 600,
     letterSpacing: '0.08em',
     textTransform: 'uppercase',
-    color: '#a5b4fc',
+    color: colors.accentFg,
   },
   h1: { margin: '8px 0 4px', fontSize: '28px', fontWeight: 700, color: '#fff' },
   sub: { margin: 0, fontSize: '14px', color: 'rgba(255,255,255,0.5)' },
   markdown: { fontSize: '15px', lineHeight: 1.7 },
   linkCard: {
     padding: '20px 24px',
-    background: 'rgba(99,102,241,0.08)',
-    border: '1px solid rgba(99,102,241,0.25)',
+    background: colors.accentA08,
+    border: '1px solid rgba(91, 143, 199,0.25)',
     borderRadius: '10px',
   },
   linkLabel: { margin: '0 0 6px', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'rgba(255,255,255,0.5)' },
-  linkAnchor: { color: '#a5b4fc', fontSize: '15px', textDecoration: 'none', wordBreak: 'break-all' },
+  linkAnchor: { color: colors.accentFg, fontSize: '15px', textDecoration: 'none', wordBreak: 'break-all' },
   footer: { marginTop: '32px', fontSize: '11px', color: 'rgba(255,255,255,0.35)', textAlign: 'right' },
   center: {
     minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    background: '#0f0f1a',
+    background: colors.bg,
   },
   errorText: { color: '#fca5a5', fontSize: '14px' },
   spinner: {
     width: '36px', height: '36px',
-    border: '3px solid rgba(99,102,241,0.2)',
-    borderTopColor: '#6366f1',
+    border: '3px solid rgba(91, 143, 199,0.2)',
+    borderTopColor: '#5b8fc7',
     borderRadius: '50%',
     animation: 'spin 0.8s linear infinite',
   },
@@ -135,8 +136,8 @@ styleSheet.textContent = `
   .brief-md ul { margin: 0 0 16px; padding-left: 22px; color: rgba(255,255,255,0.78); }
   .brief-md li { margin-bottom: 6px; }
   .brief-md strong { color: #fff; font-weight: 600; }
-  .brief-md a { color: #a5b4fc; }
-  .brief-md code { background: rgba(99,102,241,0.15); padding: 1px 6px; border-radius: 4px; font-size: 13px; }
+  .brief-md a { color: #8fb4d8; }
+  .brief-md code { background: rgba(91, 143, 199,0.15); padding: 1px 6px; border-radius: 4px; font-size: 13px; }
 `;
 if (typeof document !== 'undefined' && !document.getElementById('brief-md-styles')) {
   styleSheet.id = 'brief-md-styles';

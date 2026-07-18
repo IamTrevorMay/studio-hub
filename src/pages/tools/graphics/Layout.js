@@ -115,12 +115,12 @@ function buildDemoScene(widgetId, width, height) {
     name: `${widgetId} demo`,
     width,
     height,
-    background: '#0f0f1a',
+    background: '#0e1420',
     elements: [
       {
         id: 'card-bg', type: 'shape', x: 24, y: 24,
         width: width - 48, height: height - 48, zIndex: 1,
-        props: { bgColor: '#1a1a2e', bgOpacity: 1, borderRadius: 24, borderWidth: 1, borderColor: '#6366f1' },
+        props: { bgColor: '#1b2331', bgOpacity: 1, borderRadius: 24, borderWidth: 1, borderColor: '#5b8fc7' },
       },
       {
         id: 'title', type: 'text', x: 48, y: height * 0.05,
@@ -145,7 +145,7 @@ function buildDemoScene(widgetId, width, height) {
       {
         id: 'statline', type: 'rc-statline', x: 48, y: height * 0.74,
         width: width - 96, height: height * 0.12, zIndex: 5,
-        props: { title: 'Last Outing', statline: { ip: '6.1', h: 4, r: 2, k: 8, bb: 1, decision: 'W', era: '2.41' }, fontSize: Math.round(height * 0.035), color: '#ffffff', bgColor: 'rgba(99,102,241,0.10)', borderRadius: 12 },
+        props: { title: 'Last Outing', statline: { ip: '6.1', h: 4, r: 2, k: 8, bb: 1, decision: 'W', era: '2.41' }, fontSize: Math.round(height * 0.035), color: '#ffffff', bgColor: 'rgba(91, 143, 199,0.10)', borderRadius: 12 },
       },
     ],
   };

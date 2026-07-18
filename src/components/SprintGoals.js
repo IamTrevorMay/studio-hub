@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from '../supabaseClient';
+import { colors } from '../lib/styleTokens';
 
 export default function SprintGoals({ goals, sprintId, onUpdate }) {
   const [newGoalText, setNewGoalText] = useState('');
@@ -57,8 +58,8 @@ export default function SprintGoals({ goals, sprintId, onUpdate }) {
               onClick={() => toggleGoal(goal)}
               style={{
                 width: '18px', height: '18px', borderRadius: '4px', border: '1.5px solid',
-                borderColor: goal.is_complete ? '#6366f1' : 'rgba(255,255,255,0.2)',
-                background: goal.is_complete ? '#6366f1' : 'transparent',
+                borderColor: goal.is_complete ? '#5b8fc7' : 'rgba(255,255,255,0.2)',
+                background: goal.is_complete ? '#5b8fc7' : 'transparent',
                 cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
                 flexShrink: 0, padding: 0,
               }}
@@ -73,7 +74,7 @@ export default function SprintGoals({ goals, sprintId, onUpdate }) {
                 onKeyDown={e => { if (e.key === 'Enter') saveEdit(goal.id); if (e.key === 'Escape') setEditingId(null); }}
                 autoFocus
                 style={{
-                  flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(99,102,241,0.3)',
+                  flex: 1, background: colors.whiteA05, border: '1px solid rgba(91, 143, 199,0.3)',
                   borderRadius: '6px', padding: '4px 8px', color: '#fff', fontSize: '13px', outline: 'none',
                 }}
               />
@@ -113,7 +114,7 @@ export default function SprintGoals({ goals, sprintId, onUpdate }) {
               onClick={addGoal}
               disabled={!newGoalText.trim()}
               style={{
-                background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.2)',
+                background: colors.accentA15, color: colors.accentFg, border: '1px solid rgba(91, 143, 199,0.2)',
                 borderRadius: '6px', padding: '4px 10px', fontSize: '11px', fontWeight: 600, cursor: 'pointer',
                 opacity: newGoalText.trim() ? 1 : 0.4,
               }}

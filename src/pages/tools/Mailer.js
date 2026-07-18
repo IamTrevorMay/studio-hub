@@ -9,6 +9,7 @@ import CampaignStats from './mailer/CampaignStats';
 import SettingsPane from './mailer/SettingsPane';
 import SendDialog from './mailer/SendDialog';
 import backdropDismiss from '../../lib/backdropDismiss';
+import { colors } from '../../lib/styleTokens';
 
 // Mailer — admin-only newsletter tool.
 //
@@ -144,7 +145,7 @@ function CampaignsPane() {
                     {c.is_template && (
                       <span style={{
                         marginLeft: 8, fontSize: 10, fontWeight: 700, textTransform: 'uppercase',
-                        letterSpacing: '0.04em', color: '#a5b4fc', background: 'rgba(99,102,241,0.15)',
+                        letterSpacing: '0.04em', color: colors.accentFg, background: colors.accentA15,
                         padding: '2px 6px', borderRadius: 5,
                       }}>Recurring</span>
                     )}
@@ -598,7 +599,7 @@ function StatusPill({ status }) {
     queued:       { bg: 'rgba(148,163,184,0.15)', fg: '#94a3b8' },
     delivered:    { bg: 'rgba(34,197,94,0.15)',   fg: '#22c55e' },
     opened:       { bg: 'rgba(59,130,246,0.15)',  fg: '#60a5fa' },
-    clicked:      { bg: 'rgba(99,102,241,0.15)',  fg: '#818cf8' },
+    clicked:      { bg: 'rgba(91, 143, 199,0.15)',  fg: '#8fb4d8' },
     bounced:      { bg: 'rgba(239,68,68,0.15)',   fg: '#f87171' },
     complained:   { bg: 'rgba(244,114,182,0.15)', fg: '#f472b6' },
     active:       { bg: 'rgba(34,197,94,0.15)',   fg: '#22c55e' },
@@ -628,19 +629,19 @@ const styles = {
   header: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 },
   backBtn: { width: 32, height: 32, border: 'none', background: 'transparent', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' },
   title: { fontSize: 22, fontWeight: 800, color: '#fff', margin: 0 },
-  phaseBadge: { fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', padding: '3px 8px', borderRadius: 999, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.3)' },
+  phaseBadge: { fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', padding: '3px 8px', borderRadius: 999, background: colors.accentA15, color: colors.accentFg, border: '1px solid rgba(91, 143, 199,0.3)' },
   tabs: { display: 'flex', gap: 4, borderBottom: '1px solid rgba(255,255,255,0.08)', marginBottom: 20 },
   tab: { background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.5)', padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', borderBottom: '2px solid transparent', fontFamily: 'inherit' },
-  tabActive: { color: '#fff', borderBottomColor: '#6366f1' },
+  tabActive: { color: colors.white, borderBottomColor: '#5b8fc7' },
   body: {},
   toolbar: { display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' },
-  primaryBtn: { background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
-  secondaryBtn: { background: 'rgba(99,102,241,0.15)', color: '#c7d2fe', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  primaryBtn: { background: colors.accent, color: colors.white, border: 'none', borderRadius: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  secondaryBtn: { background: colors.accentA15, color: colors.accentFgSoft, border: '1px solid rgba(91, 143, 199,0.3)', borderRadius: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   cancelBtn: { background: 'transparent', color: 'rgba(255,255,255,0.6)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   modalTab: { background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 4, color: 'rgba(255,255,255,0.5)', padding: '4px 10px', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, cursor: 'pointer', fontFamily: 'inherit' },
-  modalTabActive: { background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.4)', color: '#c7d2fe' },
+  modalTabActive: { background: colors.accentA15, borderColor: colors.accentA40, color: colors.accentFgSoft },
   smallBtn: { background: 'transparent', color: 'rgba(255,255,255,0.7)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginLeft: 6 },
-  linkBtn: { background: 'transparent', color: '#a5b4fc', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600 },
+  linkBtn: { background: 'transparent', color: colors.accentFg, border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600 },
   empty: { padding: 40, textAlign: 'center', color: 'rgba(255,255,255,0.35)', fontSize: 13 },
   error: { padding: 12, marginBottom: 12, background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, fontSize: 13 },
   table: { width: '100%', borderCollapse: 'collapse' },
@@ -654,7 +655,7 @@ const styles = {
   fieldLabel: { fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.45)', letterSpacing: 0.4, textTransform: 'uppercase' },
   helpText: { fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 4 },
   overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
-  modal: { background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, width: 600, maxWidth: '92vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column' },
+  modal: { background: colors.bgHover, border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, width: 600, maxWidth: '92vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column' },
   modalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 24px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' },
   modalTitle: { fontSize: 18, fontWeight: 700, color: '#fff', margin: 0 },
   closeBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: 26, cursor: 'pointer', padding: 0 },

@@ -1135,10 +1135,10 @@ export default function Dashboard({ onNavigate }) {
         onClick={onClick}
         title={title}
         style={{
-          background: active ? 'rgba(99,102,241,0.3)' : 'rgba(255,255,255,0.05)',
-          border: '1px solid ' + (active ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.1)'),
+          background: active ? 'rgba(91, 143, 199,0.3)' : 'rgba(255,255,255,0.05)',
+          border: '1px solid ' + (active ? 'rgba(91, 143, 199,0.5)' : 'rgba(255,255,255,0.1)'),
           borderRadius: 5,
-          color: active ? '#a5b4fc' : 'rgba(255,255,255,0.6)',
+          color: active ? '#8fb4d8' : 'rgba(255,255,255,0.6)',
           cursor: 'pointer',
           padding: '4px 8px',
           fontFamily: 'inherit',
@@ -1251,7 +1251,7 @@ export default function Dashboard({ onNavigate }) {
             <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)' }}>{announcementsCollapsed ? '▶' : '▼'}</span>
             Announcements
             {announcementsCollapsed && unreadCount > 0 && (
-              <span style={{ fontSize: 11, fontWeight: 600, color: '#6366f1', marginLeft: 4 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: colors.accent, marginLeft: 4 }}>
                 {unreadCount} unread
               </span>
             )}
@@ -1275,7 +1275,7 @@ export default function Dashboard({ onNavigate }) {
               {announcements.map(a => (
                 <div key={a.id} style={{
                   ...styles.announcementItem,
-                  borderLeft: a.isRead ? '3px solid rgba(255,255,255,0.1)' : '3px solid #6366f1',
+                  borderLeft: a.isRead ? '3px solid rgba(255,255,255,0.1)' : '3px solid #5b8fc7',
                 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     {renderAnnouncementContent(a.content)}
@@ -2131,7 +2131,7 @@ export default function Dashboard({ onNavigate }) {
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }} onMouseDown={(e) => { if (e.target === e.currentTarget) setShowOooModal(false); }}>
           <div style={{
-            background: '#1a1a2e', borderRadius: '14px',
+            background: colors.bgHover, borderRadius: '14px',
             border: '1px solid rgba(255,255,255,0.08)',
             padding: '28px', width: '380px', maxWidth: '90vw',
           }} onClick={(e) => e.stopPropagation()}>
@@ -2190,8 +2190,8 @@ export default function Dashboard({ onNavigate }) {
                 disabled={!oooStartDate || !oooEndDate || oooSubmitting}
                 style={{
                   padding: '8px 16px', borderRadius: '8px',
-                  border: '1px solid rgba(99,102,241,0.3)', background: 'rgba(99,102,241,0.15)',
-                  color: '#a5b4fc', fontSize: '13px', fontWeight: 600,
+                  border: '1px solid rgba(91, 143, 199,0.3)', background: colors.accentA15,
+                  color: colors.accentFg, fontSize: '13px', fontWeight: 600,
                   cursor: (!oooStartDate || !oooEndDate || oooSubmitting) ? 'default' : 'pointer',
                   fontFamily: 'inherit',
                   opacity: (!oooStartDate || !oooEndDate || oooSubmitting) ? 0.5 : 1,
@@ -2218,14 +2218,14 @@ const styles = {
     gap: '12px',
     padding: '12px 14px',
     marginBottom: '12px',
-    background: 'rgba(99,102,241,0.08)',
-    border: '1px solid rgba(99,102,241,0.25)',
+    background: colors.accentA08,
+    border: '1px solid rgba(91, 143, 199,0.25)',
     borderRadius: '10px',
   },
   assignmentCommentBtn: {
     flexShrink: 0,
     padding: '8px 16px',
-    background: '#6366f1',
+    background: colors.accent,
     border: 'none',
     borderRadius: '8px',
     color: '#fff',
@@ -2264,7 +2264,7 @@ const styles = {
     width: '60px',
     height: '60px',
     borderRadius: '16px',
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2352,7 +2352,7 @@ const styles = {
   },
   profileTitle: {
     fontSize: '14px',
-    color: '#a5b4fc',
+    color: colors.accentFg,
     margin: '0 0 2px 0',
     cursor: 'pointer',
   },
@@ -2380,7 +2380,7 @@ const styles = {
   },
   saveTitleBtn: {
     padding: '6px 12px',
-    background: '#6366f1',
+    background: colors.accent,
     border: 'none',
     borderRadius: '6px',
     color: '#fff',
@@ -2461,7 +2461,7 @@ const styles = {
   },
   itineraryAddBtn: {
     padding: '10px 20px',
-    background: '#6366f1',
+    background: colors.accent,
     border: 'none',
     borderRadius: '8px',
     color: '#fff',
@@ -2492,7 +2492,7 @@ const styles = {
   itineraryCheckbox: {
     width: '18px',
     height: '18px',
-    accentColor: '#6366f1',
+    accentColor: '#5b8fc7',
     cursor: 'pointer',
     flexShrink: 0,
   },
@@ -2555,7 +2555,7 @@ const styles = {
   },
   commentSaveBtn: {
     padding: '5px 12px',
-    background: '#6366f1',
+    background: colors.accent,
     border: 'none',
     borderRadius: '6px',
     color: '#fff',
@@ -2581,7 +2581,7 @@ const styles = {
     fontSize: '13px',
   },
   commentLabel: {
-    color: '#a5b4fc',
+    color: colors.accentFg,
     fontWeight: 600,
     fontSize: '11px',
     textTransform: 'uppercase',
@@ -2644,10 +2644,10 @@ const styles = {
   },
   readBtn: {
     padding: '4px 10px',
-    background: 'rgba(99,102,241,0.15)',
-    border: '1px solid rgba(99,102,241,0.3)',
+    background: colors.accentA15,
+    border: '1px solid rgba(91, 143, 199,0.3)',
     borderRadius: '6px',
-    color: '#a5b4fc',
+    color: colors.accentFg,
     fontSize: '11px',
     fontWeight: 600,
     cursor: 'pointer',
@@ -2770,8 +2770,8 @@ const styles = {
     color: 'rgba(255,255,255,0.25)',
   },
   channelLink: {
-    background: 'rgba(99,102,241,0.15)',
-    color: '#a5b4fc',
+    background: colors.accentA15,
+    color: colors.accentFg,
     padding: '1px 4px',
     borderRadius: '4px',
     fontWeight: 600,
@@ -2825,7 +2825,7 @@ const styles = {
     top: '100%',
     left: 0,
     marginTop: '4px',
-    background: '#1e1e36',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: '8px',
     padding: '4px',
@@ -2866,7 +2866,7 @@ const styles = {
   },
   noteSaveBtn: {
     padding: '5px 12px',
-    background: '#6366f1',
+    background: colors.accent,
     border: 'none',
     borderRadius: '6px',
     color: '#fff',
@@ -2925,7 +2925,7 @@ const styles = {
     width: '36px',
     height: '36px',
     borderRadius: '10px',
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2945,7 +2945,7 @@ const styles = {
     width: '12px',
     height: '12px',
     borderRadius: '50%',
-    border: '2px solid #0f0f1a',
+    border: '2px solid #0e1420',
   },
   teamMemberName: {
     fontSize: '14px',
@@ -2958,8 +2958,8 @@ const styles = {
   youBadge: {
     fontSize: '10px',
     fontWeight: 600,
-    color: '#a5b4fc',
-    background: 'rgba(99,102,241,0.15)',
+    color: colors.accentFg,
+    background: colors.accentA15,
     padding: '1px 6px',
     borderRadius: '4px',
     textTransform: 'uppercase',
@@ -2985,10 +2985,10 @@ const styles = {
   },
   postAnnouncementBtn: {
     padding: '4px 12px',
-    background: 'rgba(99,102,241,0.1)',
-    border: '1px solid rgba(99,102,241,0.25)',
+    background: colors.accentA10,
+    border: '1px solid rgba(91, 143, 199,0.25)',
     borderRadius: '6px',
-    color: '#a5b4fc',
+    color: colors.accentFg,
     fontSize: '12px',
     fontWeight: 600,
     cursor: 'pointer',
@@ -3165,7 +3165,7 @@ const styles = {
   },
   checkinSubmitBtn: {
     padding: '8px 20px',
-    background: '#6366f1',
+    background: colors.accent,
     border: 'none',
     borderRadius: '8px',
     color: '#fff',
@@ -3274,7 +3274,7 @@ const styles = {
     justifyContent: 'center',
   },
   announcementModalContent: {
-    background: '#1a1a2e',
+    background: colors.bgHover,
     borderRadius: 12,
     border: '1px solid rgba(255,255,255,0.1)',
     padding: '20px 24px',
@@ -3303,7 +3303,7 @@ const styles = {
   },
   announcementPostBtn: {
     padding: '6px 18px',
-    background: '#6366f1',
+    background: colors.accent,
     border: 'none',
     borderRadius: 6,
     color: '#fff',

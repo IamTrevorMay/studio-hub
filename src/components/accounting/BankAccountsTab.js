@@ -5,9 +5,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import { openPlaidLink } from '../../lib/plaidLink';
+import { colors } from '../../lib/styleTokens';
 
 const BUSINESSES = {
-  mayday_media:        { label: 'Mayday Media',        color: '#6366f1' },
+  mayday_media:        { label: 'Mayday Media',        color: '#5b8fc7' },
   neptune_performance: { label: 'Neptune Performance', color: '#06b6d4' },
 };
 
@@ -274,7 +275,7 @@ export default function BankAccountsTab({ onSynced }) {
 const styles = {
   actionRow: { display: 'flex', gap: 10, marginBottom: 16 },
   connectBtn: {
-    padding: '8px 16px', background: '#6366f1', border: 'none', borderRadius: 8,
+    padding: '8px 16px', background: colors.accent, border: 'none', borderRadius: 8,
     color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
   },
   syncBtn: {
@@ -328,7 +329,7 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
   },
   modal: {
-    background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14,
+    background: colors.bgHover, border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14,
     padding: 24, width: 440, maxWidth: '90vw', maxHeight: '80vh', overflowY: 'auto',
   },
   modalTitle: { margin: 0, fontSize: 16, fontWeight: 700, color: '#fff' },

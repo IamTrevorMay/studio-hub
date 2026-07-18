@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { TYPE_OPTIONS, SUBTYPE_MAP } from './organizeConstants';
+import { colors } from '../../../lib/styleTokens';
 
 export default function BatchBar({ selectedCount, totalCount, onApply, onClear, onSelectAll }) {
   const [batchType, setBatchType] = useState('');
@@ -84,8 +85,8 @@ const styles = {
     justifyContent: 'space-between',
     gap: '12px',
     padding: '10px 16px',
-    background: 'rgba(99,102,241,0.08)',
-    border: '1px solid rgba(99,102,241,0.2)',
+    background: colors.accentA08,
+    border: '1px solid rgba(91, 143, 199,0.2)',
     borderRadius: '10px',
     marginBottom: '12px',
   },
@@ -96,7 +97,7 @@ const styles = {
     flexShrink: 0,
   },
   countBadge: {
-    background: '#6366f1',
+    background: colors.accent,
     color: '#fff',
     fontSize: '12px',
     fontWeight: 700,
@@ -111,7 +112,7 @@ const styles = {
   countLabel: {
     fontSize: '13px',
     fontWeight: 600,
-    color: '#a5b4fc',
+    color: colors.accentFg,
   },
   center: {
     display: 'flex',
@@ -122,7 +123,7 @@ const styles = {
   },
   select: {
     background: 'rgba(255,255,255,0.07)',
-    border: '1px solid rgba(99,102,241,0.25)',
+    border: '1px solid rgba(91, 143, 199,0.25)',
     borderRadius: '7px',
     padding: '6px 10px',
     color: '#e2e8f0',
@@ -138,7 +139,7 @@ const styles = {
   },
   applyBtn: {
     padding: '6px 16px',
-    background: '#6366f1',
+    background: colors.accent,
     border: 'none',
     borderRadius: '7px',
     color: '#fff',
@@ -162,9 +163,9 @@ const styles = {
   ghostBtn: {
     padding: '6px 12px',
     background: 'none',
-    border: '1px solid rgba(99,102,241,0.25)',
+    border: '1px solid rgba(91, 143, 199,0.25)',
     borderRadius: '7px',
-    color: '#a5b4fc',
+    color: colors.accentFg,
     fontSize: '12px',
     fontWeight: 600,
     cursor: 'pointer',

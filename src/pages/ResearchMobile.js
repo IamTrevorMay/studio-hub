@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import BottomSheet from '../components/mobile/BottomSheet';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
+import { colors } from '../lib/styleTokens';
 
 // Mobile Research: today's trend at the top + thumb-scroll article list.
 // Feed management, daily graphics, and Triton briefs stay desktop-only.
@@ -194,7 +195,7 @@ function TrendDetail({ trend }) {
 const styles = {
   root: {
     minHeight: '100%',
-    background: '#0f0f1a',
+    background: colors.bg,
     color: '#e2e8f0',
     padding: `${mobileTokens.space.md}px 0 ${mobileTokens.space.xxxl}px`,
     display: 'flex',
@@ -206,8 +207,8 @@ const styles = {
     width: 'calc(100% - 32px)',
     marginInline: mobileTokens.space.lg,
     padding: mobileTokens.space.lg,
-    background: 'linear-gradient(135deg, rgba(99,102,241,0.18), rgba(129,140,248,0.08))',
-    border: '1px solid rgba(99,102,241,0.3)',
+    background: 'linear-gradient(135deg, rgba(91, 143, 199,0.18), rgba(129,140,248,0.08))',
+    border: '1px solid rgba(91, 143, 199,0.3)',
     borderRadius: mobileTokens.radius.lg,
     color: '#e2e8f0',
     textAlign: 'left',
@@ -218,7 +219,7 @@ const styles = {
   trendBadge: {
     fontSize: 10,
     fontWeight: 700,
-    color: '#a5b4fc',
+    color: colors.accentFg,
     textTransform: 'uppercase',
     letterSpacing: '0.5px',
   },
@@ -244,7 +245,7 @@ const styles = {
     gap: 6,
     fontSize: mobileTokens.font.sm,
     fontWeight: 600,
-    color: '#a5b4fc',
+    color: colors.accentFg,
   },
   section: { paddingInline: mobileTokens.space.lg },
   sectionTitle: {
@@ -334,8 +335,8 @@ const detailStyles = {
     marginTop: 6,
     fontSize: mobileTokens.font.xs,
     fontWeight: 700,
-    color: '#a5b4fc',
-    background: 'rgba(99,102,241,0.14)',
+    color: colors.accentFg,
+    background: colors.accentA14,
     padding: '2px 8px',
     borderRadius: mobileTokens.radius.pill,
   },

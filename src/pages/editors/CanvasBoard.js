@@ -23,6 +23,7 @@ import TextAlign from '@tiptap/extension-text-align';
 import Highlight from '@tiptap/extension-highlight';
 import DOMPurify from 'dompurify';
 import { supabase } from '../../supabaseClient';
+import { colors } from '../../lib/styleTokens';
 
 // Obsidian-Canvas-style board: resizable shape cards with rich text (Tiptap,
 // same engine as the doc editor) connected by recolorable edges on an
@@ -30,7 +31,7 @@ import { supabase } from '../../supabaseClient';
 // Persistence mirrors Whiteboard.js: debounced autosave + flush on unmount.
 
 const CARD_COLORS = [
-  { key: 'default', border: 'rgba(255,255,255,0.14)', bg: '#1a1a2e' },
+  { key: 'default', border: 'rgba(255,255,255,0.14)', bg: '#1b2331' },
   { key: 'red',     border: '#ef4444', bg: 'rgba(239,68,68,0.10)' },
   { key: 'orange',  border: '#f59e0b', bg: 'rgba(245,158,11,0.10)' },
   { key: 'green',   border: '#22c55e', bg: 'rgba(34,197,94,0.10)' },
@@ -48,7 +49,7 @@ const SHAPES = [
 ];
 const STROKE_WIDTHS = [1, 2, 4];
 
-const EDGE_COLORS = ['rgba(255,255,255,0.35)', '#6366f1', '#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899'];
+const EDGE_COLORS = ['rgba(255,255,255,0.35)', '#5b8fc7', '#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899'];
 
 const FONTS = [
   { label: 'DM Sans', value: 'DM Sans, sans-serif' },
@@ -74,8 +75,8 @@ const GOOGLE_FONTS_URL = 'https://fonts.googleapis.com/css2?family=Inter:wght@40
 const HANDLE_STYLE = {
   width: 8,
   height: 8,
-  background: '#6366f1',
-  border: '1px solid #0f0f1a',
+  background: '#5b8fc7',
+  border: '1px solid #0e1420',
 };
 
 function AlignIcon({ align }) {
@@ -228,7 +229,7 @@ function CardNode({ id, data, selected }) {
   // Legacy cards stored plain text in data.label.
   const html = data.html != null ? data.html : `<p>${escapeHtml(data.label).replace(/\n/g, '<br/>')}</p>`;
   const isSvgShape = shape === 'diamond' || shape === 'triangle';
-  const borderColor = selected ? '#6366f1' : color.border;
+  const borderColor = selected ? '#5b8fc7' : color.border;
 
   const commit = useCallback((nextHtml) => {
     setEditing(false);
@@ -244,8 +245,8 @@ function CardNode({ id, data, selected }) {
         isVisible={selected && !editing}
         minWidth={100}
         minHeight={50}
-        lineStyle={{ borderColor: 'rgba(99,102,241,0.55)' }}
-        handleStyle={{ background: '#6366f1', width: 8, height: 8, borderRadius: 2 }}
+        lineStyle={{ borderColor: 'rgba(91, 143, 199,0.55)' }}
+        handleStyle={{ background: '#5b8fc7', width: 8, height: 8, borderRadius: 2 }}
       />
       {/* Style toolbar (selected, not editing): colors · shapes · corners · stroke */}
       <NodeToolbar isVisible={selected && !editing} position={Position.Top}>
@@ -257,7 +258,7 @@ function CardNode({ id, data, selected }) {
               title={c.key}
               style={{
                 ...styles.colorDot,
-                background: c.key === 'default' ? '#1a1a2e' : c.border,
+                background: c.key === 'default' ? '#1b2331' : c.border,
                 outline: (data.color || 'default') === c.key ? '2px solid #fff' : 'none',
               }}
             />
@@ -627,7 +628,7 @@ const styles = {
     position: 'fixed',
     inset: 0,
     zIndex: 500,
-    background: '#0f0f1a',
+    background: colors.bg,
     display: 'flex',
     flexDirection: 'column',
   },
@@ -637,7 +638,7 @@ const styles = {
     gap: '14px',
     padding: '12px 20px',
     borderBottom: '1px solid rgba(255,255,255,0.08)',
-    background: '#12121f',
+    background: colors.bg,
   },
   backBtn: {
     padding: '6px 14px',
@@ -655,7 +656,7 @@ const styles = {
   hint: { fontSize: '11px', color: 'rgba(255,255,255,0.25)' },
   addBtn: {
     padding: '6px 16px',
-    background: '#6366f1',
+    background: colors.accent,
     border: 'none',
     borderRadius: '8px',
     color: '#fff',
@@ -694,7 +695,7 @@ const styles = {
     alignItems: 'center',
     gap: '5px',
     padding: '6px 8px',
-    background: '#1e1e32',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: '8px',
     boxShadow: '0 6px 18px rgba(0,0,0,0.4)',
@@ -704,7 +705,7 @@ const styles = {
     alignItems: 'center',
     gap: '4px',
     padding: '6px 8px',
-    background: '#1e1e32',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: '8px',
     boxShadow: '0 6px 18px rgba(0,0,0,0.4)',
@@ -725,8 +726,8 @@ const styles = {
     padding: 0,
   },
   fmtBtnActive: {
-    background: 'rgba(99,102,241,0.25)',
-    color: '#a5b4fc',
+    background: colors.accentA25,
+    color: colors.accentFg,
   },
   fmtSelect: {
     background: 'rgba(255,255,255,0.06)',
@@ -771,7 +772,7 @@ const styles = {
   ctxMenu: {
     position: 'fixed',
     zIndex: 10001,
-    background: '#1e1e32',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: '10px',
     padding: '4px',

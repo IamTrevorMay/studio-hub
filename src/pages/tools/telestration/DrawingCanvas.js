@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import * as fabric from 'fabric';
 import { CUSTOM_FABRIC_PROPS, DEFAULT_ANNOTATION_DURATION } from './telestrationConstants';
+import { colors } from '../../../lib/styleTokens';
 
 const MAX_UNDO = 50;
 
@@ -701,7 +702,7 @@ const styles = {
   },
   contextMenu: {
     position: 'absolute',
-    background: '#1e1e2e',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: '8px',
     padding: '4px',

@@ -22,6 +22,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import backdropDismiss from '../lib/backdropDismiss';
+import { colors } from '../lib/styleTokens';
 
 // ═══════════════════════════════════════════════════════════════════
 // Scoring config
@@ -61,7 +62,7 @@ const GROWTH_WEIGHTS = {
 
 const CATEGORY_COLORS = {
   breakout:        '#f59e0b',
-  stability:       '#6366f1',
+  stability:       '#5b8fc7',
   growth:          '#22c55e',
   underperforming: '#64748b',
 };
@@ -597,7 +598,7 @@ function RankedTable({ videos, onSelect }) {
               </td>
               <td style={{ ...S.td, textAlign: 'right', color: 'rgba(255,255,255,0.5)' }}>{formatDate(v.published_at)}</td>
               <td style={{ ...S.td, textAlign: 'right' }}>{formatNumber(v.total_views)}</td>
-              <td style={{ ...S.td, textAlign: 'right', color: '#a5b4fc' }}>{v.stability_score.toFixed(0)}</td>
+              <td style={{ ...S.td, textAlign: 'right', color: colors.accentFg }}>{v.stability_score.toFixed(0)}</td>
               <td style={{ ...S.td, textAlign: 'right', color: '#86efac' }}>{v.growth_score.toFixed(0)}</td>
               <td style={{ ...S.td, textAlign: 'right', color: v.is_breakout ? '#fbbf24' : 'rgba(255,255,255,0.7)', fontWeight: v.is_breakout ? 700 : 500 }}>
                 {v.breakout_raw.toFixed(0)}{v.is_breakout && ' ★'}
@@ -630,7 +631,7 @@ function DetailPanel({ video, onClose }) {
             <div>
               <div style={{ fontWeight: 700, fontSize: 17, color: '#fff', marginBottom: 4 }}>{video.title}</div>
               <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>{formatDate(video.published_at)} · {formatNumber(video.total_views)} views</div>
-              {video.url && <a href={video.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#a5b4fc' }}>Open on YouTube ↗</a>}
+              {video.url && <a href={video.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: colors.accentFg }}>Open on YouTube ↗</a>}
             </div>
           </div>
           <button onClick={onClose} style={S.closeBtn}>✕</button>
@@ -638,7 +639,7 @@ function DetailPanel({ video, onClose }) {
 
         {/* Score summary */}
         <div style={S.scoreGrid}>
-          <ScoreCard label="Stability" value={video.stability_score} color="#6366f1" subtitle="loyal audience engagement" />
+          <ScoreCard label="Stability" value={video.stability_score} color="#5b8fc7" subtitle="loyal audience engagement" />
           <ScoreCard label="Growth"    value={video.growth_score}    color="#22c55e" subtitle="reach to new viewers" />
           <ScoreCard label="Breakout"  value={video.breakout_raw}    color="#f59e0b" subtitle={video.is_breakout ? '★ qualified breakout' : 'gate not cleared'} />
         </div>
@@ -647,7 +648,7 @@ function DetailPanel({ video, onClose }) {
 
         {/* Component breakdown */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
-          <ComponentList title="Stability components" weights={STABILITY_WEIGHTS} indices={video.indices.stability} color="#6366f1" />
+          <ComponentList title="Stability components" weights={STABILITY_WEIGHTS} indices={video.indices.stability} color="#5b8fc7" />
           <ComponentList title="Growth components" weights={GROWTH_WEIGHTS} indices={video.indices.growth} color="#22c55e" />
         </div>
 
@@ -764,9 +765,9 @@ const S = {
   subtitle: { fontSize: 12, color: 'rgba(255,255,255,0.45)' },
   channelTabs: { display: 'flex', gap: 4, padding: 4, background: 'rgba(255,255,255,0.04)', borderRadius: 10 },
   channelTab: { padding: '7px 14px', background: 'transparent', border: 'none', borderRadius: 7, color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
-  channelTabActive: { background: 'rgba(99,102,241,0.18)', color: '#a5b4fc' },
+  channelTabActive: { background: 'rgba(91, 143, 199,0.18)', color: '#8fb4d8' },
 
-  mixCard: { background: 'rgba(99,102,241,0.04)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: 12, padding: 14, marginBottom: 14 },
+  mixCard: { background: 'rgba(91, 143, 199,0.04)', border: '1px solid rgba(91, 143, 199,0.15)', borderRadius: 12, padding: 14, marginBottom: 14 },
   mixHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 },
   mixTitle: { fontSize: 13, fontWeight: 700, color: '#fff' },
   mixSubtitle: { fontSize: 11, color: 'rgba(255,255,255,0.4)' },
@@ -793,14 +794,14 @@ const S = {
 
   tableScroll: { overflow: 'auto', maxHeight: 600, borderRadius: 8 },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
-  th: { padding: '10px 14px', fontWeight: 600, fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', position: 'sticky', top: 0, background: '#16162a', zIndex: 1, whiteSpace: 'nowrap', userSelect: 'none' },
+  th: { padding: '10px 14px', fontWeight: 600, fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid rgba(255,255,255,0.08)', position: 'sticky', top: 0, background: '#161d2b', zIndex: 1, whiteSpace: 'nowrap', userSelect: 'none' },
   td: { padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.75)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' },
   thumb: { width: 64, height: 36, borderRadius: 4, objectFit: 'cover', flexShrink: 0 },
 
   categoryPill: { padding: '3px 9px', borderRadius: 12, fontSize: 11, fontWeight: 600, border: '1px solid', textTransform: 'capitalize', display: 'inline-block' },
 
   modalBackdrop: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 },
-  modal: { background: '#0f0f1a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, padding: 24, width: 'min(900px, 95vw)', maxHeight: '90vh', overflow: 'auto' },
+  modal: { background: '#0e1420', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, padding: 24, width: 'min(900px, 95vw)', maxHeight: '90vh', overflow: 'auto' },
   modalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18, paddingBottom: 14, borderBottom: '1px solid rgba(255,255,255,0.06)' },
   closeBtn: { background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', fontFamily: 'inherit' },
 

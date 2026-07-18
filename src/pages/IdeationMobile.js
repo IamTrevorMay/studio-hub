@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import BottomSheet from '../components/mobile/BottomSheet';
 import FullScreenSheet from '../components/mobile/FullScreenSheet';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
+import { colors } from '../lib/styleTokens';
 
 const CATEGORY_COLORS = {
   video: '#3b82f6', short: '#a78bfa', podcast: '#f59e0b',
@@ -75,7 +76,7 @@ export default function IdeationMobile({ initialConceptId, onConceptOpened }) {
       const { error } = await supabase.from('concepts').insert({
         name,
         description,
-        color: '#6366f1',
+        color: '#5b8fc7',
         category: 'other',
         created_by: profile.id,
         // Use max+1 not length — after deletes, length can collide with an existing sort_order.
@@ -103,7 +104,7 @@ export default function IdeationMobile({ initialConceptId, onConceptOpened }) {
           </div>
         ) : (
           concepts.map((c) => {
-            const accent = c.color || CATEGORY_COLORS[c.category] || '#6366f1';
+            const accent = c.color || CATEGORY_COLORS[c.category] || '#5b8fc7';
             return (
               <button key={c.id} onClick={() => setActiveConcept(c)} style={styles.card}>
                 <div style={{ ...styles.colorBar, background: accent }} />
@@ -223,7 +224,7 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     minHeight: '100%',
-    background: '#0f0f1a',
+    background: colors.bg,
     color: '#e2e8f0',
   },
   list: {
@@ -317,7 +318,7 @@ const styles = {
     width: '100%',
     minHeight: mobileTokens.tap + 6,
     padding: `${mobileTokens.space.md}px ${mobileTokens.space.lg}px`,
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     color: '#fff',
     borderRadius: mobileTokens.radius.md,
     fontSize: mobileTokens.font.md,
@@ -363,7 +364,7 @@ const addStyles = {
   saveBtn: {
     minHeight: mobileTokens.tap + 4,
     padding: mobileTokens.space.md,
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     border: 'none',
     borderRadius: mobileTokens.radius.md,
     color: '#fff',
@@ -432,8 +433,8 @@ const detailStyles = {
   footer: {
     marginTop: mobileTokens.space.md,
     padding: mobileTokens.space.md,
-    background: 'rgba(99,102,241,0.06)',
-    border: '1px solid rgba(99,102,241,0.18)',
+    background: colors.accentA06,
+    border: '1px solid rgba(91, 143, 199,0.18)',
     borderRadius: mobileTokens.radius.sm,
     color: 'rgba(255,255,255,0.55)',
     fontSize: mobileTokens.font.sm,

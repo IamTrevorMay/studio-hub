@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import usePersistedTab from '../hooks/usePersistedTab';
+import { colors } from '../lib/styleTokens';
 
 
 const STATUSES = ['concept', 'script', 'production', 'edit', 'review', 'published'];
@@ -1413,9 +1414,9 @@ export default function Calendar({ onNavigate }) {
                         <div key={di} style={{
                           ...styles.dayCell,
                           opacity: day.isCurrentMonth ? 1 : 0.3,
-                          background: dragOverDate === dayKey ? 'rgba(99,102,241,0.14)' : (isToday ? 'rgba(99,102,241,0.06)' : 'transparent'),
+                          background: dragOverDate === dayKey ? 'rgba(91, 143, 199,0.14)' : (isToday ? 'rgba(91, 143, 199,0.06)' : 'transparent'),
                           borderRight: di < 6 ? '1px solid rgba(255,255,255,0.04)' : 'none',
-                          outline: dragOverDate === dayKey ? '1px solid rgba(99,102,241,0.4)' : 'none',
+                          outline: dragOverDate === dayKey ? '1px solid rgba(91, 143, 199,0.4)' : 'none',
                         }}
                         onClick={(e) => { e.stopPropagation(); openNewEventModal(day.date); }}
                         onDragOver={(e) => { e.preventDefault(); setDragOverDate(dayKey); }}
@@ -1916,7 +1917,7 @@ export default function Calendar({ onNavigate }) {
             top: contextMenu.y,
             left: contextMenu.x,
             zIndex: 10000,
-            background: '#1a1a2e',
+            background: colors.bgHover,
             border: '1px solid rgba(255,255,255,0.12)',
             borderRadius: 10,
             padding: '4px 0',
@@ -2000,7 +2001,7 @@ export default function Calendar({ onNavigate }) {
             {selectedEvent.recurrence_rule && selectedEvent.recurrence_rule.type !== 'none' && (
               <div style={styles.eventDetailRow}>
                 <span style={styles.eventDetailLabel}>Repeats</span>
-                <span style={{ color: '#a5b4fc', fontSize: '13px' }}>
+                <span style={{ color: colors.accentFg, fontSize: '13px' }}>
                   {'\uD83D\uDD01'} {(() => {
                     const r = selectedEvent.recurrence_rule;
                     const interval = r.interval || 1;
@@ -2085,7 +2086,7 @@ export default function Calendar({ onNavigate }) {
                         + Assign Deliverable
                       </button>
                       {showDeliverableDropdown && (
-                        <div style={{ position: 'fixed', left: deliverableDropdownPos.left, top: deliverableDropdownPos.top, zIndex: 9999, background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', padding: '4px 0', minWidth: '260px', maxHeight: '200px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+                        <div style={{ position: 'fixed', left: deliverableDropdownPos.left, top: deliverableDropdownPos.top, zIndex: 9999, background: colors.bgHover, border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', padding: '4px 0', minWidth: '260px', maxHeight: '200px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
                           {unassignedDeliverables.length === 0 ? (
                             <div style={{ padding: '8px 12px', fontSize: '12px', color: 'rgba(255,255,255,0.3)' }}>No unassigned deliverables</div>
                           ) : (
@@ -2239,7 +2240,7 @@ export default function Calendar({ onNavigate }) {
                   type="checkbox"
                   checked={eventForm.all_day}
                   onChange={(e) => setEventForm(prev => ({ ...prev, all_day: e.target.checked }))}
-                  style={{ accentColor: '#6366f1' }}
+                  style={{ accentColor: '#5b8fc7' }}
                 />
                 All day
               </label>
@@ -2374,9 +2375,9 @@ export default function Calendar({ onNavigate }) {
                             }}
                             style={{
                               width: '32px', height: '32px', borderRadius: '50%',
-                              border: isActive ? '2px solid #6366f1' : '1px solid rgba(255,255,255,0.12)',
-                              background: isActive ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.03)',
-                              color: isActive ? '#a5b4fc' : 'rgba(255,255,255,0.4)',
+                              border: isActive ? '2px solid #5b8fc7' : '1px solid rgba(255,255,255,0.12)',
+                              background: isActive ? 'rgba(91, 143, 199,0.2)' : 'rgba(255,255,255,0.03)',
+                              color: isActive ? '#8fb4d8' : 'rgba(255,255,255,0.4)',
                               fontSize: '11px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
                             }}
                           >
@@ -2392,11 +2393,11 @@ export default function Calendar({ onNavigate }) {
                   <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: '6px' }}>Ends</span>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer' }}>
-                      <input type="radio" name="recEnd" checked={eventForm.recurrence_end_type === 'never'} onChange={() => setEventForm(prev => ({ ...prev, recurrence_end_type: 'never' }))} style={{ accentColor: '#6366f1' }} />
+                      <input type="radio" name="recEnd" checked={eventForm.recurrence_end_type === 'never'} onChange={() => setEventForm(prev => ({ ...prev, recurrence_end_type: 'never' }))} style={{ accentColor: '#5b8fc7' }} />
                       Never
                     </label>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer' }}>
-                      <input type="radio" name="recEnd" checked={eventForm.recurrence_end_type === 'date'} onChange={() => setEventForm(prev => ({ ...prev, recurrence_end_type: 'date' }))} style={{ accentColor: '#6366f1' }} />
+                      <input type="radio" name="recEnd" checked={eventForm.recurrence_end_type === 'date'} onChange={() => setEventForm(prev => ({ ...prev, recurrence_end_type: 'date' }))} style={{ accentColor: '#5b8fc7' }} />
                       On
                       <input
                         type="date"
@@ -2407,7 +2408,7 @@ export default function Calendar({ onNavigate }) {
                       />
                     </label>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer' }}>
-                      <input type="radio" name="recEnd" checked={eventForm.recurrence_end_type === 'count'} onChange={() => setEventForm(prev => ({ ...prev, recurrence_end_type: 'count' }))} style={{ accentColor: '#6366f1' }} />
+                      <input type="radio" name="recEnd" checked={eventForm.recurrence_end_type === 'count'} onChange={() => setEventForm(prev => ({ ...prev, recurrence_end_type: 'count' }))} style={{ accentColor: '#5b8fc7' }} />
                       After
                       <input
                         type="number"
@@ -2426,7 +2427,7 @@ export default function Calendar({ onNavigate }) {
 
             {/* Recurrence summary for non-custom presets */}
             {eventForm.recurrence !== 'none' && !showCustomRecurrence && (
-              <div style={{ marginTop: '-8px', marginBottom: '14px', padding: '6px 10px', background: 'rgba(99,102,241,0.08)', borderRadius: '6px', fontSize: '11px', color: '#a5b4fc' }}>
+              <div style={{ marginTop: '-8px', marginBottom: '14px', padding: '6px 10px', background: colors.accentA08, borderRadius: '6px', fontSize: '11px', color: colors.accentFg }}>
                 {'\uD83D\uDD01'} Repeats {eventForm.recurrence === 'weekdays' ? 'every weekday (Mon\u2013Fri)' : eventForm.recurrence}
               </div>
             )}
@@ -2486,7 +2487,7 @@ export default function Calendar({ onNavigate }) {
                         key={u.id}
                         style={{
                           ...styles.guestDropdownItem,
-                          background: isSelected ? 'rgba(99,102,241,0.12)' : 'transparent',
+                          background: isSelected ? 'rgba(91, 143, 199,0.12)' : 'transparent',
                         }}
                         onClick={() => toggleGuest(u.id)}
                       >
@@ -2497,7 +2498,7 @@ export default function Calendar({ onNavigate }) {
                           <div style={{ fontSize: '13px', color: '#fff', fontWeight: 500 }}>{u.full_name}</div>
                           <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)' }}>{u.title || u.email}</div>
                         </div>
-                        {isSelected && <span style={{ color: '#a5b4fc', fontSize: '14px' }}>{'\u2713'}</span>}
+                        {isSelected && <span style={{ color: colors.accentFg, fontSize: '14px' }}>{'\u2713'}</span>}
                       </div>
                     );
                   })}
@@ -2578,18 +2579,18 @@ const styles = {
   topBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' },
   pageTitle: { fontSize: '28px', fontWeight: 700, color: '#ffffff', margin: '0 0 4px 0', letterSpacing: '-0.5px' },
   pageSubtitle: { fontSize: '14px', color: 'rgba(255,255,255,0.4)', margin: 0 },
-  addEventBtn: { padding: '8px 18px', background: 'linear-gradient(135deg, #6366f1, #818cf8)', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', letterSpacing: '-0.2px' },
+  addEventBtn: { padding: '8px 18px', background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)', border: 'none', borderRadius: '10px', color: colors.white, fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', letterSpacing: '-0.2px' },
   controlsRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' },
   navControls: { display: 'flex', alignItems: 'center', gap: '12px' },
   navBtn: { width: '34px', height: '34px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', color: '#e2e8f0', fontSize: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'inherit' },
   viewTitle: { fontSize: '18px', fontWeight: 600, color: '#ffffff', minWidth: '180px', textAlign: 'center' },
-  todayBtn: { padding: '6px 14px', background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '8px', color: '#a5b4fc', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  todayBtn: { padding: '6px 14px', background: colors.accentA12, border: '1px solid rgba(91, 143, 199,0.25)', borderRadius: '8px', color: colors.accentFg, fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   viewToggleGroup: { display: 'flex', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden' },
   viewToggleBtn: { padding: '6px 14px', background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.45)', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s' },
-  viewToggleBtnActive: { background: 'rgba(99,102,241,0.2)', color: '#a5b4fc' },
+  viewToggleBtnActive: { background: colors.accentA20, color: colors.accentFg },
   metricoolToggle: { padding: '6px 14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', color: 'rgba(255,255,255,0.45)', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s' },
   metricoolToggleActive: { background: 'rgba(34,197,94,0.12)', borderColor: 'rgba(34,197,94,0.25)', color: '#86efac' },
-  filterToggleActive: { background: 'rgba(99,102,241,0.12)', borderColor: 'rgba(99,102,241,0.25)', color: '#a5b4fc' },
+  filterToggleActive: { background: colors.accentA12, borderColor: colors.accentA25, color: colors.accentFg },
   filterRow: { display: 'flex', alignItems: 'center', gap: '6px', padding: '0 0 12px', flexWrap: 'wrap' },
   filterDivider: { width: '1px', height: '20px', background: 'rgba(255,255,255,0.08)', flexShrink: 0 },
   errorBanner: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', marginBottom: '16px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '10px', color: '#fca5a5', fontSize: '13px' },
@@ -2602,7 +2603,7 @@ const styles = {
   dayCell: { padding: '4px', display: 'flex', flexDirection: 'column', minHeight: '120px', cursor: 'default' },
   dateRow: { display: 'flex', justifyContent: 'flex-end', padding: '2px 4px', marginBottom: '0px' },
   dateNumber: { fontSize: '13px', fontWeight: 500, color: 'rgba(255,255,255,0.5)', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%' },
-  dateNumberToday: { background: '#6366f1', color: '#ffffff', fontWeight: 700 },
+  dateNumberToday: { background: colors.accent, color: colors.white, fontWeight: 700 },
   eventsContainer: { display: 'flex', flexDirection: 'column', gap: '2px' },
   eventChip: { display: 'flex', alignItems: 'center', gap: '3px', padding: '1px 5px', borderRadius: '4px', border: '1px solid', cursor: 'pointer', minHeight: '17px', transition: 'opacity 0.1s' },
   eventChipText: { fontSize: '9px', fontWeight: 600, flex: 1 },
@@ -2621,7 +2622,7 @@ const styles = {
   timeGutterHeader: { borderRight: '1px solid rgba(255,255,255,0.06)' },
   weekDayHeader: { display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '8px 4px', gap: '2px' },
   weekDayNumber: { fontSize: '20px', fontWeight: 700, color: 'rgba(255,255,255,0.7)', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', cursor: 'pointer', transition: 'background 0.15s' },
-  weekDayNumberToday: { background: '#6366f1', color: '#ffffff' },
+  weekDayNumberToday: { background: colors.accent, color: colors.white },
   weekAllDayRow: { display: 'grid', gridTemplateColumns: '56px repeat(7, 1fr)', borderBottom: '1px solid rgba(255,255,255,0.06)', minHeight: '28px' },
   weekAllDayCell: { display: 'flex', flexWrap: 'wrap', gap: '2px', padding: '2px 4px', alignItems: 'center' },
   timeGridScroll: { overflow: 'auto', maxHeight: '600px', position: 'relative' },
@@ -2636,7 +2637,7 @@ const styles = {
   dayColumnContainer: { position: 'absolute', top: 0, left: '56px', right: 0, bottom: 0 },
   dayColumn: { position: 'relative', width: '100%', height: '100%' },
   // Shared
-  statusDropdown: { position: 'absolute', top: '24px', left: '0', background: '#1e1e36', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '12px', padding: '12px', zIndex: 100, minWidth: '250px', maxWidth: '320px', boxShadow: '0 12px 32px rgba(0,0,0,0.6)', maxHeight: '360px', overflow: 'auto' },
+  statusDropdown: { position: 'absolute', top: '24px', left: '0', background: colors.bgHover, border: '1px solid rgba(255,255,255,0.12)', borderRadius: '12px', padding: '12px', zIndex: 100, minWidth: '250px', maxWidth: '320px', boxShadow: '0 12px 32px rgba(0,0,0,0.6)', maxHeight: '360px', overflow: 'auto' },
   dropdownTitle: { fontSize: '13px', fontWeight: 700, color: '#ffffff', marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' },
   dropdownTagsWrap: { display: 'flex', flexWrap: 'wrap', gap: '6px' },
   statusTag: { display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 10px', borderRadius: '6px', border: '1px solid', fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s', whiteSpace: 'nowrap' },
@@ -2644,20 +2645,20 @@ const styles = {
   dropdownSectionLabel: { fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' },
   dropdownComments: { display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '8px', maxHeight: '120px', overflow: 'auto' },
   dropdownComment: { display: 'flex', flexDirection: 'column', gap: '1px', padding: '5px 8px', background: 'rgba(255,255,255,0.03)', borderRadius: '6px' },
-  dropdownCommentAuthor: { fontSize: '10px', fontWeight: 600, color: '#a5b4fc' },
+  dropdownCommentAuthor: { fontSize: '10px', fontWeight: 600, color: colors.accentFg },
   dropdownCommentText: { fontSize: '11px', color: 'rgba(255,255,255,0.6)', lineHeight: 1.3 },
   dropdownCommentTime: { fontSize: '9px', color: 'rgba(255,255,255,0.2)' },
   dropdownCommentForm: { display: 'flex', gap: '6px' },
   dropdownCommentInput: { flex: 1, padding: '6px 8px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', color: '#fff', fontSize: '11px', fontFamily: 'inherit', outline: 'none' },
-  dropdownCommentBtn: { padding: '6px 10px', background: '#6366f1', border: 'none', borderRadius: '6px', color: '#fff', fontSize: '10px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  dropdownCommentBtn: { padding: '6px 10px', background: colors.accent, border: 'none', borderRadius: '6px', color: colors.white, fontSize: '10px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   dropdownCommentDelete: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.25)', cursor: 'pointer', fontSize: '10px', padding: '0 2px', marginLeft: 'auto' },
   dropdownDeleteBtn: { width: '100%', padding: '7px 10px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.15)', borderRadius: '6px', color: '#fca5a5', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'center' },
-  tooltip: { position: 'fixed', transform: 'translate(-50%, -100%)', background: '#1e1e36', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '10px', padding: '10px 14px', zIndex: 200, minWidth: '180px', maxWidth: '280px', boxShadow: '0 12px 32px rgba(0,0,0,0.6)', pointerEvents: 'none' },
+  tooltip: { position: 'fixed', transform: 'translate(-50%, -100%)', background: colors.bgHover, border: '1px solid rgba(255,255,255,0.12)', borderRadius: '10px', padding: '10px 14px', zIndex: 200, minWidth: '180px', maxWidth: '280px', boxShadow: '0 12px 32px rgba(0,0,0,0.6)', pointerEvents: 'none' },
   tooltipTitle: { fontSize: '13px', fontWeight: 700, color: '#ffffff', marginBottom: '6px', lineHeight: 1.3 },
   tooltipRow: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'rgba(255,255,255,0.7)', marginBottom: '3px' },
   tooltipDot: { width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0 },
   tooltipMeta: { fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginBottom: '2px', textTransform: 'capitalize' },
-  tooltipHint: { fontSize: '10px', color: 'rgba(99,102,241,0.7)', marginTop: '6px', fontStyle: 'italic' },
+  tooltipHint: { fontSize: '10px', color: colors.accentA70, marginTop: '6px', fontStyle: 'italic' },
   legend: { display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '16px', padding: '0 4px' },
   legendGroup: { display: 'flex', gap: '14px', alignItems: 'center', flexWrap: 'wrap' },
   legendGroupLabel: { fontSize: '11px', fontWeight: 600, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.5px' },
@@ -2665,36 +2666,36 @@ const styles = {
   legendDot: { width: '8px', height: '8px', borderRadius: '3px' },
   // Modal styles
   modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, backdropFilter: 'blur(4px)' },
-  eventModal: { background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', padding: '24px', width: '480px', maxWidth: '95vw', maxHeight: '90vh', overflow: 'auto', boxShadow: '0 24px 48px rgba(0,0,0,0.5)' },
+  eventModal: { background: colors.bgHover, border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', padding: '24px', width: '480px', maxWidth: '95vw', maxHeight: '90vh', overflow: 'auto', boxShadow: '0 24px 48px rgba(0,0,0,0.5)' },
   modalCloseBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '18px', padding: '4px 8px', borderRadius: '6px' },
   formGroup: { marginBottom: '14px', position: 'relative' },
   formLabel: { display: 'block', fontSize: '12px', fontWeight: 600, color: 'rgba(255,255,255,0.5)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.3px' },
   formInput: { width: '100%', padding: '9px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '13px', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' },
   eventTypeGrid: { display: 'flex', flexWrap: 'wrap', gap: '6px' },
   eventTypeBtn: { display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 12px', borderRadius: '8px', border: '1px solid', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s' },
-  customRecurrenceBox: { marginTop: '-8px', marginBottom: '14px', padding: '14px', background: 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: '10px' },
+  customRecurrenceBox: { marginTop: '-8px', marginBottom: '14px', padding: '14px', background: colors.accentA05, border: '1px solid rgba(91, 143, 199,0.15)', borderRadius: '10px' },
   cancelBtn: { flex: 1, padding: '10px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', color: 'rgba(255,255,255,0.6)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
-  saveBtn: { flex: 1, padding: '10px', background: 'linear-gradient(135deg, #6366f1, #818cf8)', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  saveBtn: { flex: 1, padding: '10px', background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)', border: 'none', borderRadius: '10px', color: colors.white, fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   guestSelector: { padding: '9px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', cursor: 'pointer', minHeight: '38px', display: 'flex', alignItems: 'center' },
-  guestDropdownList: { position: 'absolute', top: '100%', left: 0, right: 0, background: '#1e1e36', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '10px', marginTop: '4px', maxHeight: '200px', overflow: 'auto', zIndex: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.5)' },
+  guestDropdownList: { position: 'absolute', top: '100%', left: 0, right: 0, background: colors.bgHover, border: '1px solid rgba(255,255,255,0.12)', borderRadius: '10px', marginTop: '4px', maxHeight: '200px', overflow: 'auto', zIndex: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.5)' },
   guestDropdownItem: { display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', cursor: 'pointer', transition: 'background 0.1s' },
-  guestDropdownAvatar: { width: '28px', height: '28px', borderRadius: '8px', background: 'linear-gradient(135deg, #6366f1, #818cf8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700, color: '#fff', flexShrink: 0 },
-  guestTag: { display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '6px', color: '#a5b4fc', fontSize: '11px', fontWeight: 600 },
+  guestDropdownAvatar: { width: '28px', height: '28px', borderRadius: '8px', background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700, color: colors.white, flexShrink: 0 },
+  guestTag: { display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', background: colors.accentA15, border: '1px solid rgba(91, 143, 199,0.25)', borderRadius: '6px', color: colors.accentFg, fontSize: '11px', fontWeight: 600 },
   guestTagRemove: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '10px', padding: '0 2px' },
   // Event detail card
-  eventDetailCard: { background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', padding: '20px', width: '400px', maxWidth: '95vw', boxShadow: '0 24px 48px rgba(0,0,0,0.5)' },
+  eventDetailCard: { background: colors.bgHover, border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', padding: '20px', width: '400px', maxWidth: '95vw', boxShadow: '0 24px 48px rgba(0,0,0,0.5)' },
   eventDetailRow: { display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '12px' },
   eventDetailLabel: { fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.5px' },
   ctxMenuItem: { padding: '8px 14px', fontSize: '13px', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', fontFamily: 'inherit', transition: 'background 0.1s' },
-  eventEditBtn: { flex: 1, padding: '9px', background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '8px', color: '#a5b4fc', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  eventEditBtn: { flex: 1, padding: '9px', background: colors.accentA12, border: '1px solid rgba(91, 143, 199,0.25)', borderRadius: '8px', color: colors.accentFg, fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   eventDeleteBtn: { flex: 1, padding: '9px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '8px', color: '#fca5a5', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   recurrencePrompt: {
-    background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '14px',
+    background: colors.bgHover, border: '1px solid rgba(255,255,255,0.12)', borderRadius: '14px',
     padding: '24px', width: '320px', boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
   },
   recurrencePromptBtn: {
-    padding: '11px', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)',
-    borderRadius: '8px', color: '#a5b4fc', fontSize: '13px', fontWeight: 600,
+    padding: '11px', background: colors.accentA10, border: '1px solid rgba(91, 143, 199,0.2)',
+    borderRadius: '8px', color: colors.accentFg, fontSize: '13px', fontWeight: 600,
     cursor: 'pointer', fontFamily: 'inherit', transition: 'background 0.15s',
   },
   recurrencePromptCancelBtn: {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { colors } from '../lib/styleTokens';
 
 const TYPE_ICONS = {
   assignment: '\uD83D\uDCCB',
@@ -176,7 +177,7 @@ const styles = {
     margin: 0,
   },
   unreadBadge: {
-    background: '#6366f1',
+    background: colors.accent,
     color: '#fff',
     fontSize: 12,
     fontWeight: 700,
@@ -221,8 +222,8 @@ const styles = {
     transition: 'background 0.15s',
   },
   notifCardUnread: {
-    background: 'rgba(99,102,241,0.08)',
-    borderLeft: '3px solid #6366f1',
+    background: colors.accentA08,
+    borderLeft: '3px solid #5b8fc7',
   },
   notifCardRead: {
     background: 'rgba(255,255,255,0.02)',

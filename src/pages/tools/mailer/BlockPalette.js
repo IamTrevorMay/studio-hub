@@ -21,6 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import { CATEGORIES, getBlocksByCategory } from './blockRegistry';
+import { colors } from '../../../lib/styleTokens';
 
 // Categorized add-block picker. Replaces the flat list of "+ heading"
 // buttons in BlockEditor with a tabbed/grouped grid keyed off
@@ -84,7 +85,7 @@ export default function BlockPalette({ onAdd, onCancel }) {
               style={styles.card}
               title={b.description}
             >
-              <Icon size={18} style={{ color: '#a5b4fc' }} />
+              <Icon size={18} style={{ color: colors.accentFg }} />
               <span style={styles.cardLabel}>{b.label}</span>
             </button>
           );
@@ -96,8 +97,8 @@ export default function BlockPalette({ onAdd, onCancel }) {
 
 const styles = {
   wrap: {
-    background: 'rgba(99,102,241,0.06)',
-    border: '1px solid rgba(99,102,241,0.25)',
+    background: colors.accentA06,
+    border: '1px solid rgba(91, 143, 199,0.25)',
     borderRadius: 10,
     padding: 12,
     display: 'flex',
@@ -122,7 +123,7 @@ const styles = {
     padding: '6px 10px', cursor: 'pointer', fontFamily: 'inherit',
     borderBottom: '2px solid transparent',
   },
-  tabActive: { color: '#fff', borderBottom: '2px solid #818cf8' },
+  tabActive: { color: colors.white, borderBottom: '2px solid #8fb4d8' },
   grid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))',

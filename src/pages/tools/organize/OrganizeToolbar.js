@@ -1,4 +1,5 @@
 import React from 'react';
+import { colors } from '../../../lib/styleTokens';
 
 export default function OrganizeToolbar({
   fileCount,
@@ -143,8 +144,8 @@ const styles = {
     cursor: 'pointer',
   },
   viewBtnActive: {
-    background: 'rgba(99,102,241,0.15)',
-    color: '#a5b4fc',
+    background: colors.accentA15,
+    color: colors.accentFg,
   },
   autoTagBtn: {
     display: 'flex',
@@ -172,7 +173,7 @@ const styles = {
   },
   organizeBtn: {
     padding: '6px 18px',
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     border: 'none',
     borderRadius: '8px',
     color: '#fff',

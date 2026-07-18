@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../../supabaseClient';
+import { colors } from '../../lib/styleTokens';
 
 const NOTE_COLORS = [
   { bg: '#fef08a', text: '#713f12', name: 'Yellow' },
@@ -231,7 +232,7 @@ export default function StickyBoard({ docId, title, docType, onBack, onSaveTempl
                 background: noteColor.bg,
                 borderRadius: '4px',
                 boxShadow: isSelected
-                  ? '0 4px 20px rgba(0,0,0,0.4), 0 0 0 2px rgba(99,102,241,0.5)'
+                  ? '0 4px 20px rgba(0,0,0,0.4), 0 0 0 2px rgba(91, 143, 199,0.5)'
                   : '0 2px 8px rgba(0,0,0,0.3)',
                 cursor: dragging === note.id ? 'grabbing' : 'grab',
                 zIndex: isSelected ? 10 : 1,
@@ -304,13 +305,13 @@ const styles = {
   toolbar: { display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)', flexWrap: 'wrap' },
   backBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.45)', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 500, padding: '6px 10px' },
   titleText: { fontSize: '15px', fontWeight: 600, color: '#e2e8f0', marginRight: 'auto' },
-  addNoteBtn: { padding: '6px 14px', background: '#6366f1', border: 'none', borderRadius: '6px', color: '#fff', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  addNoteBtn: { padding: '6px 14px', background: colors.accent, border: 'none', borderRadius: '6px', color: colors.white, fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   toolGroup: { display: 'flex', alignItems: 'center', gap: '4px', padding: '0 8px', borderLeft: '1px solid rgba(255,255,255,0.06)' },
   colorBtn: { width: '20px', height: '20px', borderRadius: '5px', border: '1px solid rgba(0,0,0,0.1)', cursor: 'pointer' },
   formatBtn: { width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '5px', color: 'rgba(255,255,255,0.5)', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' },
-  formatBtnActive: { background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.3)', color: '#a5b4fc' },
+  formatBtnActive: { background: colors.accentA15, borderColor: colors.accentA30, color: colors.accentFg },
   deleteNoteBtn: { padding: '6px 10px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '6px', color: '#fca5a5', fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit' },
-  dupNoteBtn: { padding: '6px 10px', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '6px', color: '#a5b4fc', fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit' },
+  dupNoteBtn: { padding: '6px 10px', background: colors.accentA10, border: '1px solid rgba(91, 143, 199,0.2)', borderRadius: '6px', color: colors.accentFg, fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit' },
   saveBtn: { padding: '6px 14px', background: '#22c55e', border: 'none', borderRadius: '6px', color: '#fff', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginLeft: 'auto' },
   templateBtn: { padding: '6px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', color: 'rgba(255,255,255,0.45)', fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit' },
   board: { flex: 1, position: 'relative', overflow: 'auto', background: '#0a0a14', backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.03) 1px, transparent 1px)', backgroundSize: '24px 24px' },

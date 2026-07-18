@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { mobileTokens } from '../utils/mobileTokens';
+import { colors } from '../lib/styleTokens';
 
 // Mobile AdminPanel: invite users + team list. Google Calendar mapping,
 // nav config, freelancer mgmt and other deep admin tools stay desktop-only.
@@ -11,7 +12,7 @@ const ROLE_LABELS = {
   partner: 'Partner', freelancer: 'Contractor',
 };
 const ROLE_COLORS = {
-  admin: '#a5b4fc', assistant: '#86efac', member: 'rgba(255,255,255,0.55)',
+  admin: '#8fb4d8', assistant: '#86efac', member: 'rgba(255,255,255,0.55)',
   partner: '#fcd34d', freelancer: '#f9a8d4',
 };
 
@@ -179,7 +180,7 @@ function fmtRelative(iso) {
 const styles = {
   root: {
     minHeight: '100%',
-    background: '#0f0f1a',
+    background: colors.bg,
     color: '#e2e8f0',
     padding: `${mobileTokens.space.md}px ${mobileTokens.space.lg}px ${mobileTokens.space.xxxl}px`,
     display: 'flex',
@@ -211,7 +212,7 @@ const styles = {
   primaryBtn: {
     minHeight: mobileTokens.tap,
     padding: mobileTokens.space.md,
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     border: 'none',
     borderRadius: mobileTokens.radius.md,
     color: '#fff',
@@ -240,8 +241,8 @@ const styles = {
     width: 36,
     height: 36,
     borderRadius: mobileTokens.radius.sm,
-    background: 'rgba(99,102,241,0.2)',
-    color: '#a5b4fc',
+    background: colors.accentA20,
+    color: colors.accentFg,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -274,8 +275,8 @@ const styles = {
   footer: {
     marginTop: mobileTokens.space.md,
     padding: mobileTokens.space.md,
-    background: 'rgba(99,102,241,0.06)',
-    border: '1px solid rgba(99,102,241,0.18)',
+    background: colors.accentA06,
+    border: '1px solid rgba(91, 143, 199,0.18)',
     borderRadius: mobileTokens.radius.sm,
     color: 'rgba(255,255,255,0.55)',
     fontSize: mobileTokens.font.sm,
