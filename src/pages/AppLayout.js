@@ -8,7 +8,6 @@ import { canAccessBroadcast } from '../lib/rolePermissions';
 import { logUploadError } from '../lib/uploadErrors';
 import backdropDismiss from '../lib/backdropDismiss';
 import SidebarEditMode from '../components/SidebarEditMode';
-import AgencyPortal from './AgencyPortal';
 import Dashboard from './Dashboard';
 import Projects from './Projects';
 import Deliverables from './Deliverables';
@@ -256,8 +255,8 @@ const NAV_ICON_MAP = {
 };
 
 export default function AppLayout() {
-  const { profile, signOut, isAdmin, isStrictAdmin, isAssistant, isPartner, isAgency, isFreelancer, restrictedNavKeys } = useAuth();
-  const { unreadAnnouncementCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, agencyUnresolvedCount, unsignedDocCount, newAssignmentCount, myTaskCount, stuckCommentCount, flCommentCount, unreadMessageCount, refreshNotifications } = useNotifications();
+  const { profile, signOut, isAdmin, isStrictAdmin, isAssistant, isPartner, isFreelancer, restrictedNavKeys } = useAuth();
+  const { unreadAnnouncementCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, newAssignmentCount, myTaskCount, stuckCommentCount, flCommentCount, unreadMessageCount, refreshNotifications } = useNotifications();
   const { getResolvedNav, saveConfig, saving } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => {
     const fromPath = getTabFromPath();
@@ -503,12 +502,6 @@ export default function AppLayout() {
   }, [showNotifications]);
 
 
-  // Agency accounts get a locked, sidebar-free portal — nothing else in the
-  // app is reachable (RLS enforces the same on the API side).
-  if (isAgency) {
-    return <AgencyPortal />;
-  }
-
   return (
     <div style={styles.layout}>
       {/* Sidebar */}
@@ -594,10 +587,7 @@ export default function AppLayout() {
                             {child.key === 'messages' && unreadMessageCount > 0 && (
                               <span style={styles.navBadge}>{unreadMessageCount > 99 ? '99+' : unreadMessageCount}</span>
                             )}
-                            {child.key === 'deliverables' && agencyUnresolvedCount > 0 && (
-                              <span style={styles.navBadge}>{agencyUnresolvedCount}</span>
-                            )}
-                            {child.key === 'deliverables' && agencyUnresolvedCount === 0 && pendingProposalCount > 0 && (
+                            {child.key === 'deliverables' && pendingProposalCount > 0 && (
                               <span style={styles.navDot} />
                             )}
                           </button>
@@ -682,10 +672,7 @@ export default function AppLayout() {
                       {entry.key === 'messages' && unreadMessageCount > 0 && (
                         <span style={styles.navBadge}>{unreadMessageCount > 99 ? '99+' : unreadMessageCount}</span>
                       )}
-                      {entry.key === 'deliverables' && agencyUnresolvedCount > 0 && (
-                        <span style={styles.navBadge}>{agencyUnresolvedCount}</span>
-                      )}
-                      {entry.key === 'deliverables' && agencyUnresolvedCount === 0 && pendingProposalCount > 0 && (
+                      {entry.key === 'deliverables' && pendingProposalCount > 0 && (
                         <span style={styles.navDot} />
                       )}
                       {entry.key === 'fl_documents' && unsignedDocCount > 0 && (

@@ -449,7 +449,6 @@ export default function AdminPanel({ initialTab }) {
                   <option value="member">Member</option>
                   <option value="assistant">Assistant</option>
                   <option value="partner">Partner</option>
-                  <option value="agency">Agency</option>
                   <option value="freelancer">Contractor</option>
                   <option value="director_creative">Director of Creative</option>
                   <option value="director_comms">Director of Communications</option>
@@ -555,7 +554,6 @@ export default function AdminPanel({ initialTab }) {
                   <option value="member">Member</option>
                   <option value="assistant">Assistant</option>
                   <option value="partner">Partner</option>
-                  <option value="agency">Agency</option>
                   <option value="freelancer">Contractor</option>
                   <option value="director_creative">Director of Creative</option>
                   <option value="director_comms">Director of Communications</option>

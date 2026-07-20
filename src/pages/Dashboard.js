@@ -69,7 +69,7 @@ const CHECKIN_LABELS = { 1: 'Red', 2: 'Orange', 3: 'Yellow', 4: 'Light Green', 5
 const TEAM_ROLE_SECTIONS = [
   { label: 'Core Team', roles: ['admin', 'director_creative', 'director_comms', 'producer', 'assistant', 'member'] },
   { label: 'Contractors', roles: ['freelancer'] },
-  { label: 'Partners', roles: ['partner', 'agency'] },
+  { label: 'Partners', roles: ['partner'] },
 ];
 const NON_CORE_ROLES = new Set(TEAM_ROLE_SECTIONS.slice(1).flatMap((s) => s.roles));
 

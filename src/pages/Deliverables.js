@@ -8,7 +8,6 @@ import { toast } from '../contexts/ToastContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { callWorkflowFn } from '../lib/workflowApi';
 import { ptMonthKey, ptDayKey } from '../lib/ptDate';
-import AgencyThread from '../components/AgencyThread';
 import BeatSheetChooserModal from '../components/BeatSheetChooserModal';
 
 export const DELIVERABLE_TYPES = {
@@ -111,10 +110,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
   const [proposalItems, setProposalItems] = useState([]); // [{ id?, title, deliverable_type, channel, due_month, pay, accepted }]
   const [editingProposal, setEditingProposal] = useState(null);
   const [draftProposalId, setDraftProposalId] = useState(null);
-
-  // Agency comment threads (ad agency partner <-> team, see AgencyPortal)
-  const [agencyComments, setAgencyComments] = useState([]);
-  const [agencyThreadTarget, setAgencyThreadTarget] = useState(null); // { type, id, label }
 
   // Read Slots state
   const [slotLimits, setSlotLimits] = useState([]);
@@ -232,19 +227,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
     }
   }, []);
 
-  const fetchAgencyComments = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .from('agency_comments')
-        .select('*, author:profiles(id, full_name, nickname)')
-        .order('created_at', { ascending: true });
-      if (error) throw error;
-      setAgencyComments(data || []);
-    } catch (err) {
-      console.error('Error fetching agency comments:', err);
-    }
-  }, []);
-
   const fetchSlotLimits = useCallback(async () => {
     const { data, error } = await supabase
       .from('read_slot_limits')
@@ -272,8 +254,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
     fetchProposals();
     fetchSlotLimits();
     fetchBeatSheets();
-    fetchAgencyComments();
-  }, [fetchSponsors, fetchVideoEvents, fetchProposals, fetchSlotLimits, fetchAgencyComments]);
+  }, [fetchSponsors, fetchVideoEvents, fetchProposals, fetchSlotLimits]);
 
   useEffect(() => {
     const channel = supabase
@@ -291,10 +272,9 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
     const channel = supabase
       .channel('proposals-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'ad_read_proposals' }, () => fetchProposals())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'agency_comments' }, () => fetchAgencyComments())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [fetchProposals, fetchAgencyComments, refreshKey]);
+  }, [fetchProposals, refreshKey]);
 
   useVisibilityRefresh(fetchSponsors);
 
@@ -1246,53 +1226,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
   const pendingProposals = proposals.filter(p => p.status === 'pending');
   const resolvedProposals = proposals.filter(p => p.status !== 'pending' && p.status !== 'draft');
 
-  // Agency comment threads. A thread is "unresolved" when the agency spoke
-  // last — that's what drives the Deliverables sidebar badge (see
-  // get_notification_summary) and the amber dots here. Any admin-tier reply
-  // clears it for everyone.
-  function agencyThreadFor(type, id) {
-    return agencyComments.filter(c => c.entity_type === type && c.entity_id === id);
-  }
-
-  async function postAgencyComment(body) {
-    if (!agencyThreadTarget) return;
-    const { error } = await supabase.from('agency_comments').insert({
-      entity_type: agencyThreadTarget.type,
-      entity_id: agencyThreadTarget.id,
-      author_id: profile.id,
-      body,
-    });
-    if (error) {
-      console.error('Error posting agency comment:', error);
-      toast.error('Could not post comment. Please try again.');
-      return;
-    }
-    fetchAgencyComments();
-  }
-
-  function renderAgencyCommentBtn(type, id, label) {
-    const thread = agencyThreadFor(type, id);
-    const unresolved = thread.length > 0 && thread[thread.length - 1].author_role === 'agency';
-    return (
-      <button
-        onClick={(e) => { e.stopPropagation(); setAgencyThreadTarget({ type, id, label }); }}
-        style={{
-          position: 'relative',
-          background: thread.length ? 'rgba(99,102,241,0.12)' : 'none',
-          border: 'none', borderRadius: '5px',
-          color: thread.length ? '#a5b4fc' : 'rgba(255,255,255,0.3)',
-          cursor: 'pointer', fontSize: '11px', fontWeight: 600,
-          padding: '2px 6px', fontFamily: 'inherit', whiteSpace: 'nowrap',
-        }}
-        title="Agency thread"
-      >
-        {'💬'}{thread.length > 0 ? ` ${thread.length}` : ''}
-        {unresolved && (
-          <span style={{ position: 'absolute', top: -2, right: -2, width: 8, height: 8, borderRadius: '50%', background: '#f59e0b' }} />
-        )}
-      </button>
-    );
-  }
 
   function renderDeliverableRow(d, sponsor) {
     return (
@@ -1355,7 +1288,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
               </span>
             ) : null;
           })()}
-          {renderAgencyCommentBtn('deliverable', d.id, `${sponsor?.name || d.sponsor_name || ''} \u2014 ${d.title || DELIVERABLE_TYPES[d.deliverable_type]?.label || 'Deliverable'}`)}
           <button onClick={() => startEditDeliverable(d)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Edit">{'\u270E'}</button>
           <button onClick={() => handleDeleteDeliverable(d)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Delete">{'\u2715'}</button>
         </div>
@@ -1372,7 +1304,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         <div style={styles.delivCardTop}>
           <span style={{ fontSize: '15px', flexShrink: 0 }}>{DELIVERABLE_TYPES[d.deliverable_type]?.icon || '\u{1F4CB}'}</span>
           <span style={{ ...styles.delivCardTitle, ...(delivered ? { textDecoration: 'line-through', color: 'rgba(255,255,255,0.55)' } : {}) }}>{DELIVERABLE_TYPES[d.deliverable_type]?.label || d.deliverable_type}</span>
-          {renderAgencyCommentBtn('deliverable', d.id, `${d.brand_name || d.sponsor_name || ''} \u2014 ${d.title || DELIVERABLE_TYPES[d.deliverable_type]?.label || 'Deliverable'}`)}
           <button onClick={(e) => { e.stopPropagation(); startEditDeliverable(d); }} style={styles.delivIconBtn} title="Edit">{'\u270e'}</button>
           <button onClick={(e) => { e.stopPropagation(); handleDeleteDeliverable(d); }} style={styles.delivIconBtn} title="Delete">{'\u2715'}</button>
         </div>
@@ -1586,7 +1517,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                   <th style={thStyle} onClick={() => handleSort('channel')}>Channel{sortArrow('channel')}</th>
                   <th style={styles.tableTh}>Status</th>
                   <th style={styles.tableTh}>Review Due</th>
-                  <th style={styles.tableTh}>{'💬'}</th>
                   <th style={thStyle} onClick={() => handleSort('schedule')}>Schedule{sortArrow('schedule')}</th>
                   <th style={{ ...thStyle, textAlign: 'right' }} onClick={() => handleSort('pay')}>Pay{sortArrow('pay')}</th>
                   <th style={styles.tableTh}>Delivered</th>
@@ -1746,10 +1676,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                             </span>
                           );
                         })()}
-                      </td>
-                      {/* Agency thread */}
-                      <td style={styles.tableTd}>
-                        {renderAgencyCommentBtn('deliverable', d.id, `${d.sponsor_name}${d.brand_name && d.brand_name !== d.sponsor_name ? ` / ${d.brand_name}` : ''} — ${d.title || DELIVERABLE_TYPES[d.deliverable_type]?.label || 'Deliverable'}`)}
                       </td>
                       {/* Schedule */}
                       <td style={styles.tableTd}>
@@ -2134,7 +2060,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                       <div style={{ fontWeight: 600, fontSize: '14px', color: '#fff' }}>{p.sponsor_name}</div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                         {timeframe && <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', padding: '2px 8px' }}>{timeframe}</span>}
-                        {renderAgencyCommentBtn('proposal', p.id, `Proposal — ${p.sponsor_name}`)}
                         <button onClick={() => startEditProposal(p)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Edit">{'✎'}</button>
                         <button onClick={() => handleDeleteProposal(p.id)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '12px', padding: '2px 4px' }} title="Delete">{'✕'}</button>
                       </div>
@@ -2195,7 +2120,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                       <span style={{ color: 'rgba(255,255,255,0.7)' }}>{p.sponsor_name}</span>
                       {rTotal > 0 && <span style={{ color: 'rgba(255,255,255,0.4)' }}>${rTotal.toLocaleString()}</span>}
                       <span style={{ color: 'rgba(255,255,255,0.3)' }}>{new Date(p.created_at).toLocaleDateString()}</span>
-                      {renderAgencyCommentBtn('proposal', p.id, `Proposal — ${p.sponsor_name}`)}
                     </div>
                   );
                 })}
@@ -2898,21 +2822,6 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         />
       )}
 
-      {agencyThreadTarget && (
-        <Modal
-          title="Agency Thread"
-          subtitle={agencyThreadTarget.label}
-          onClose={() => setAgencyThreadTarget(null)}
-          maxWidth={560}
-        >
-          <AgencyThread
-            comments={agencyThreadFor(agencyThreadTarget.type, agencyThreadTarget.id)}
-            onPost={postAgencyComment}
-            onRefresh={fetchAgencyComments}
-            emptyText="No comments yet — anything posted here is visible to the agency."
-          />
-        </Modal>
-      )}
     </div>
   );
 }
