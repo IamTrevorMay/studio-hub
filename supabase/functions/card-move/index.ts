@@ -384,6 +384,28 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  // Close any pre-existing open tasks for the TARGET stage before fanning out.
+  // Re-entering a stage (a backward move, or a re-assign that re-triggers a move)
+  // must not stack duplicate stage tasks — and a task left open by a
+  // since-removed assignee would otherwise wedge the all-done auto-advance gate
+  // in workflow-complete-task. Mirror the current-stage close above.
+  const { data: closedTargetTasks } = await admin
+    .from("tasks")
+    .update({ status: "complete", completed_at: new Date().toISOString() })
+    .eq("related_entity_type", "project")
+    .eq("related_entity_id", project.id)
+    .eq("step_key", resolvedTargetStage)
+    .in("status", ["pending", "active", "on_hold"])
+    .select("id");
+  const closedTargetIds = (closedTargetTasks || []).map((t) => t.id);
+  if (closedTargetIds.length > 0) {
+    await admin
+      .from("personal_tasks")
+      .update({ status: "done", completed_at: new Date().toISOString() })
+      .in("task_id", closedTargetIds)
+      .neq("status", "done");
+  }
+
   for (const userId of assigneeIds) {
     const stageDesc = descriptionFor(project.type, resolvedTargetStage, userId);
     const description = handoff_note && handoff_note.trim()

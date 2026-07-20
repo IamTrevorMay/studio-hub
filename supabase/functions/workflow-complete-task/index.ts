@@ -140,14 +140,30 @@ Deno.serve(async (req: Request) => {
       // Check if all tasks for this project+stage are now complete.
       const { data: openTasks } = await admin
         .from("tasks")
-        .select("id")
+        .select("id, assignee_id")
         .eq("related_entity_type", "project")
         .eq("related_entity_id", task.related_entity_id)
         .eq("step_key", task.step_key)
-        .in("status", ["pending", "active", "on_hold"])
-        .limit(1);
+        .in("status", ["pending", "active", "on_hold"]);
 
-      if (!openTasks || openTasks.length === 0) {
+      // Defense in depth: a task left open by a since-removed stage assignee
+      // (an orphan) must not permanently wedge the card. When the stage has
+      // assignees on record, only tasks belonging to a *current* assignee (or
+      // with no assignee) count as blocking; orphans are ignored. When the stage
+      // has no assignments on record (e.g. research, which is scope-driven), fall
+      // back to the strict "every open task blocks" behavior.
+      const { data: stageAssignees } = await admin
+        .from("project_stage_assignments")
+        .select("user_id")
+        .eq("project_id", task.related_entity_id)
+        .eq("stage", task.step_key);
+      const assigneeSet = new Set((stageAssignees || []).map((a) => a.user_id));
+      const openList = openTasks || [];
+      const blocking = assigneeSet.size > 0
+        ? openList.filter((t) => !t.assignee_id || assigneeSet.has(t.assignee_id))
+        : openList;
+
+      if (blocking.length === 0) {
         // All stage tasks done — call card-move to advance the project.
         const STAGES = ["queue","research","write","pre_production","film","review","edit","post_production","publish"];
         const currentIdx = STAGES.indexOf(task.step_key);
