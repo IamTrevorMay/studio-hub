@@ -31,6 +31,8 @@ const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const WEEKDAYS_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 const EVENT_TYPES = ['deadline', 'meeting', 'live_recording', 'filming', 'video_post', 'tmbb_video', 'unavailable'];
+// Video events that mirror a project's Post Date (projects.calendar_event_id).
+const VIDEO_EVENT_TYPES = ['video_post', 'tmbb_video'];
 const EVENT_TYPE_COLORS = {
   deadline: '#ef4444',
   meeting: '#3b82f6',
@@ -625,7 +627,31 @@ export default function Calendar({ onNavigate }) {
     await supabase.from('calendar_events')
       .update({ start_date: newStart.toISOString(), end_date: newEnd.toISOString() })
       .eq('id', ev.id);
+    await syncVideoEventToProject(ev.id, ev.event_type, newStart);
     fetchCalendarEvents();
+  }
+
+  // ── Reverse sync: video event ↔ linked project Post Date ──
+  // A video event (video_post / tmbb_video) can be linked to a project via
+  // projects.calendar_event_id. When the event's date/time changes here, write
+  // the new Post Date (deadline = PT date, post_time = PT "HH:MM") back onto the
+  // project so the Projects card stays in sync. Discrete user actions only — no
+  // realtime echo — and writing projects.deadline never re-triggers the
+  // project→event path (that only fires from the Projects page UI).
+  async function syncVideoEventToProject(eventId, eventType, newStart) {
+    if (!VIDEO_EVENT_TYPES.includes(eventType)) return;
+    const { data: proj } = await supabase
+      .from('projects')
+      .select('id, deadline, post_time')
+      .eq('calendar_event_id', eventId)
+      .maybeSingle();
+    if (!proj) return;
+    const deadline = toPTDateKey(newStart);
+    const postTime = toPTTimeString(newStart);
+    if (proj.deadline === deadline && proj.post_time === postTime) return; // no-op guard
+    await supabase.from('projects')
+      .update({ deadline, post_time: postTime })
+      .eq('id', proj.id);
   }
 
   // ── Week/Day time-grid drag-and-drop ──
@@ -704,7 +730,8 @@ export default function Calendar({ onNavigate }) {
           .eq('id', drag.event.id)
           .then(({ error }) => {
             if (error) console.error('Drag save error:', error);
-            fetchCalendarEvents();
+            syncVideoEventToProject(drag.event.id, drag.event.event_type, newStart)
+              .then(() => fetchCalendarEvents());
           });
         syncToGoogleCalendar('update', drag.event.id);
       } else {
@@ -786,6 +813,9 @@ export default function Calendar({ onNavigate }) {
       if (editingEventId) {
         const { error } = await supabase.from('calendar_events').update(payload).eq('id', editingEventId);
         if (error) throw error;
+        // Reverse sync: if this edited event is a video event linked to a
+        // project, write its new Post Date back onto the project.
+        await syncVideoEventToProject(editingEventId, payload.event_type, startDate);
       } else {
         const { data: inserted, error } = await supabase.from('calendar_events').insert({ ...payload, created_by: profile.id }).select('id').single();
         if (error) throw error;
@@ -810,9 +840,25 @@ export default function Calendar({ onNavigate }) {
   async function handleDeleteEvent(eventId) {
     if (!(await confirm('Delete this event?'))) return;
     try {
+      // If a video event linked to a project is being deleted, clear that
+      // project's Post Date too (fully two-way). Capture the link BEFORE the
+      // row is gone — calendar_event_id also nulls via ON DELETE SET NULL, but
+      // we clear deadline/post_time (and the FK) explicitly.
+      const delEvent = calendarEvents.find(e => e.id === eventId);
+      let linkedProjectId = null;
+      if (delEvent && VIDEO_EVENT_TYPES.includes(delEvent.event_type)) {
+        const { data: proj } = await supabase.from('projects')
+          .select('id').eq('calendar_event_id', eventId).maybeSingle();
+        linkedProjectId = proj?.id || null;
+      }
       await syncToGoogleCalendar('delete', eventId);
       const { error } = await supabase.from('calendar_events').delete().eq('id', eventId);
       if (error) throw error;
+      if (linkedProjectId) {
+        await supabase.from('projects')
+          .update({ deadline: null, post_time: null, calendar_event_id: null })
+          .eq('id', linkedProjectId);
+      }
       setSelectedEvent(null);
       fetchCalendarEvents();
     } catch (err) {

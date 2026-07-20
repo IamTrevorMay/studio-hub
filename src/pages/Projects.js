@@ -743,10 +743,16 @@ function ProjectRow({
   async function savePostDateAndTime(field, value) {
     onUpdateProject(project.id, { [field]: value });
     const deadline = field === 'deadline' ? value : project.deadline;
-    const postTime = field === 'post_time' ? value : project.post_time;
+    let postTime = field === 'post_time' ? value : project.post_time;
     const VIDEO_TYPES = ['mayday_video', 'tm_baseball_video'];
     if (!VIDEO_TYPES.includes(project.type)) { setEditingField(null); return; }
     const eventType = project.type === 'mayday_video' ? 'video_post' : 'tmbb_video';
+    // A Post Date with no time still creates a TIMED event: default to 2pm and
+    // persist it back onto the project so the card and the event agree.
+    if (deadline && !postTime) {
+      postTime = '14:00';
+      onUpdateProject(project.id, { post_time: postTime });
+    }
     if (deadline && postTime) {
       const startDate = new Date(`${deadline}T${postTime}:00`);
       const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
