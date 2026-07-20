@@ -435,10 +435,16 @@ export default function PitchVideos({ onBack }) {
         { headers: { Authorization: `Bearer ${session.access_token}` } },
       );
       const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // Surface the resolve failure (e.g. Triton / Mayday Cloud 500) instead
+        // of silently caching null. Caller still falls back to savant_url.
+        console.warn(`pitch-video resolve failed (${res.status}) for ${clipFilename(row)}:`, json?.error || '');
+      }
       const url = json?.row?.savant_mp4_url || null;
       setSavantMp4((m) => ({ ...m, [key]: url }));
       return url;
-    } catch {
+    } catch (err) {
+      console.warn(`pitch-video resolve threw for ${clipFilename(row)}:`, err.message);
       return null;
     }
   };
@@ -595,17 +601,25 @@ export default function PitchVideos({ onBack }) {
     const targets = drivePicker.rows;
     const parentFolderId = drivePath[drivePath.length - 1].id;
     const { data: { session } } = await supabase.auth.getSession();
-    setUploadState({ done: 0, total: targets.length, failed: 0, current: '' });
+    setUploadState({ done: 0, total: targets.length, failed: 0, current: '', errors: [] });
 
     for (let i = 0; i < targets.length; i++) {
       const row = targets[i];
       const filename = clipFilename(row);
       setUploadState((u) => u && ({ ...u, current: filename }));
+      // Track the phase so a failure names exactly where it broke instead of a
+      // bare "failed". The 'fetch' phase is the Mayday Cloud pull of the
+      // archived clip (row.video_url → Triton/Mayday Cloud), which previously
+      // swallowed the HTTP status silently.
+      let phase = 'fetch';
+      let sizeBytes = null;
       try {
         const clipRes = await fetch(row.video_url);
-        if (!clipRes.ok) throw new Error(`clip fetch ${clipRes.status}`);
+        if (!clipRes.ok) throw new Error(`clip fetch failed (${clipRes.status})`);
         const blob = await clipRes.blob();
+        sizeBytes = blob.size;
 
+        phase = 'init';
         const initRes = await fetch(UPLOAD_INIT_URL, {
           method: 'POST',
           headers: {
@@ -616,9 +630,10 @@ export default function PitchVideos({ onBack }) {
         });
         const initJson = await initRes.json().catch(() => ({}));
         if (!initRes.ok || !initJson.uploadUrl) {
-          throw new Error(initJson.error || `Upload init failed (${initRes.status})`);
+          throw new Error(initJson.error || `upload init failed (${initRes.status})`);
         }
 
+        phase = 'put';
         const putRes = await fetch(initJson.uploadUrl, {
           method: 'PUT',
           headers: { 'Content-Type': 'video/mp4' },
@@ -627,7 +642,15 @@ export default function PitchVideos({ onBack }) {
         if (!putRes.ok) throw new Error(`Drive PUT ${putRes.status}`);
         setUploadState((u) => u && ({ ...u, done: i + 1 }));
       } catch (err) {
-        setUploadState((u) => u && ({ ...u, done: i + 1, failed: u.failed + 1 }));
+        const msg = `${filename}: [${phase}] ${err.message}`;
+        setUploadState((u) => u && ({ ...u, done: i + 1, failed: u.failed + 1, errors: [...(u.errors || []), msg] }));
+        // Persist the reason so it's diagnosable from the DB (source='client').
+        // RLS requires user_id = auth.uid() on insert.
+        supabase.from('upload_errors').insert({
+          user_id: profile?.id, source: 'client', phase, filename, mime_type: 'video/mp4', size_bytes: sizeBytes,
+          error: err.message,
+          context: { tool: 'pitch-videos', game_pk: row.game_pk, at_bat_number: row.at_bat_number, pitch_number: row.pitch_number, parent_folder_id: parentFolderId },
+        }).then(() => {}, () => {});
       }
     }
     setUploadState((u) => u && ({ ...u, current: '' }));
@@ -1318,6 +1341,11 @@ export default function PitchVideos({ onBack }) {
                       {uploadState.total - uploadState.failed}/{uploadState.total} uploaded
                       {uploadState.failed ? ` — ${uploadState.failed} failed` : ' ✓'}
                     </div>
+                    {uploadState.errors && uploadState.errors.length > 0 && (
+                      <div style={{ fontSize: '11px', color: '#fca5a5', maxHeight: '160px', overflowY: 'auto', width: '100%', textAlign: 'left', whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginTop: '4px' }}>
+                        {uploadState.errors.map((e, idx) => <div key={idx}>• {e}</div>)}
+                      </div>
+                    )}
                     <button style={styles.searchBtn} onClick={() => setDrivePicker(null)}>Done</button>
                   </>
                 )}

@@ -80,6 +80,12 @@ async function proxyToTriton(req, res, path, opts = {}) {
   }
 
   const body = await upstream.text();
+  // Surface upstream 5xx bodies so a Triton failure leaves a diagnostic trail
+  // in Vercel logs. `body` is already fully read here, so this does not touch
+  // the forwarded status/stream below — the happy path is unchanged.
+  if (upstream.status >= 500) {
+    console.error(`Triton upstream ${upstream.status} (${path}): ${body.slice(0, 2000)}`);
+  }
   res.status(upstream.status);
   res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json');
   // Pass through cache headers when present; Triton's heatmap-data sends
