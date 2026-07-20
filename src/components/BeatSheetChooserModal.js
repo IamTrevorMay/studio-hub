@@ -20,7 +20,7 @@ export default function BeatSheetChooserModal({ open, beatSheets, onPick, onClos
           <button onClick={onClose} disabled={pushing} style={s.closeBtn}>Close</button>
         </div>
         <p style={s.sub}>
-          Choose a beat sheet to push the ad copy into. An existing “Ad Read” beat is replaced; otherwise a new one is appended.
+          Choose a beat sheet to push the ad copy into. Each deliverable gets its own “Ad Read” beat — re-pushing the same deliverable updates its beat in place, while other ad reads on the sheet stay put.
         </p>
         {list.length > 8 && (
           <input

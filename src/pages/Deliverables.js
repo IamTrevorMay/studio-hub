@@ -839,7 +839,10 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
   }
 
   // Push the current ad copy into a chosen beat sheet (choose-at-push-time).
-  // Replaces an existing "Ad Read" beat if present; otherwise appends one.
+  // Stacks multiple ad reads per sheet, keyed by deliverable id: re-pushing the
+  // SAME deliverable updates its own beat in place, a DIFFERENT deliverable
+  // appends a new beat. Title starts with "Ad Read" (so existing detection still
+  // works) and includes the sponsor/campaign name so stacked reads are distinct.
   const [pushingAdCopy, setPushingAdCopy] = useState(false);
   const [pushAdCopyDone, setPushAdCopyDone] = useState(false);
   async function pushAdCopyToSheet(sheetId) {
@@ -853,11 +856,18 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         .single();
       if (!sheet) return;
       const existingBeats = sheet.beats || [];
-      const newBeatTitle = 'Ad Read\n\n' + deliverableNotes;
-      const adReadIdx = existingBeats.findIndex(b => typeof b.title === 'string' && b.title.startsWith('Ad Read'));
+      const editingD = allDeliverables.find(d => d.id === editingDeliverable);
+      const sponsorName = editingD?.sponsor_name || '';
+      const campaignName = editingD?.brand_name || '';
+      let header = 'Ad Read';
+      if (sponsorName) header += ' — ' + sponsorName + (campaignName ? ' (' + campaignName + ')' : '');
+      const newBeatTitle = header + '\n\n' + deliverableNotes;
+      const adReadIdx = editingDeliverable
+        ? existingBeats.findIndex(b => b.deliverable_id === editingDeliverable)
+        : -1;
       let updatedBeats;
       if (adReadIdx >= 0) {
-        updatedBeats = existingBeats.map((b, i) => i === adReadIdx ? { ...b, title: newBeatTitle } : b);
+        updatedBeats = existingBeats.map((b, i) => i === adReadIdx ? { ...b, title: newBeatTitle, deliverable_id: editingDeliverable } : b);
       } else {
         updatedBeats = [...existingBeats, {
           id: crypto.randomUUID(),
@@ -865,6 +875,8 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
           context: '',
           graphics: [],
           videos: [],
+          notes: '',
+          deliverable_id: editingDeliverable,
         }];
       }
       await supabase.from('beat_sheets').update({

@@ -32,7 +32,7 @@ export default function WriteAdReadModal({ task, onClose, onSubmit }) {
     (async () => {
       const { data: d } = await supabase
         .from('sponsor_deliverables')
-        .select('id, title, ad_copy, notes, beat_sheet_id, campaign_id, sponsor_id')
+        .select('id, title, ad_copy, notes, beat_sheet_id, campaign_id, sponsor_id, sponsors(name), sponsor_campaigns(name)')
         .eq('id', deliverableId)
         .single();
 
@@ -145,6 +145,10 @@ export default function WriteAdReadModal({ task, onClose, onSubmit }) {
   };
 
   // Push current copy into a chosen beat sheet (choose-at-push-time).
+  // Stacks multiple ad reads per sheet, keyed by deliverable id: re-pushing the
+  // SAME deliverable updates its own beat in place, a DIFFERENT deliverable
+  // appends a new beat. Title starts with "Ad Read" (so existing detection still
+  // works) and includes the sponsor/campaign name so stacked reads are distinct.
   const handlePushToBeatSheet = async (sheetId) => {
     if (!sheetId || !textRef.current) return;
     setPushing(true);
@@ -156,16 +160,24 @@ export default function WriteAdReadModal({ task, onClose, onSubmit }) {
         .single();
       if (!sheet) return;
       const existingBeats = sheet.beats || [];
-      const newBeatTitle = 'Ad Read\n\n' + textRef.current;
-      const idx = existingBeats.findIndex(b => typeof b.title === 'string' && b.title.startsWith('Ad Read'));
+      const sponsorName = deliverable?.sponsors?.name || ctx.brand_name || '';
+      const campaignName = deliverable?.sponsor_campaigns?.name || '';
+      let header = 'Ad Read';
+      if (sponsorName) header += ' — ' + sponsorName + (campaignName ? ' (' + campaignName + ')' : '');
+      const newBeatTitle = header + '\n\n' + textRef.current;
+      const idx = deliverableId
+        ? existingBeats.findIndex(b => b.deliverable_id === deliverableId)
+        : -1;
       const updatedBeats = idx >= 0
-        ? existingBeats.map((b, i) => i === idx ? { ...b, title: newBeatTitle } : b)
+        ? existingBeats.map((b, i) => i === idx ? { ...b, title: newBeatTitle, deliverable_id: deliverableId } : b)
         : [...existingBeats, {
             id: crypto.randomUUID(),
             title: newBeatTitle,
             context: '',
             graphics: [],
             videos: [],
+            notes: '',
+            deliverable_id: deliverableId,
           }];
       await supabase.from('beat_sheets').update({
         beats: updatedBeats,
