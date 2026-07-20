@@ -534,7 +534,7 @@ export default function Workflows() {
     if (profile?.id) {
       const { data: myCards } = await supabase
         .from('personal_tasks')
-        .select('id, content, status, updated_at')
+        .select('id, content, status, updated_at, task_id')
         .eq('created_by', profile.id)
         .not('project_id', 'is', null)
         .in('status', ['in_progress', 'holding', 'done']);
@@ -544,6 +544,16 @@ export default function Workflows() {
       for (const c of myCards || []) {
         const synthId = `sprint-${c.id}`;
         const title = c.content || '(untitled card)';
+        // Card already linked to a real tasks row (e.g. a received project-stage
+        // task): the real row is already rendered from `pend`/`completed`, so
+        // don't synthesize a phantom — just overlay the sprint status onto that
+        // row (keyed on the real task id, exactly like the in_progress overlay).
+        if (c.task_id) {
+          if (c.status === 'in_progress') sprintActiveIds.add(c.task_id);
+          else if (c.status === 'holding') sprintHoldIds.add(c.task_id);
+          else if (c.status === 'done') sprintDoneIds.add(c.task_id);
+          continue;
+        }
         if (c.status === 'done') {
           const tMs = c.updated_at ? new Date(c.updated_at).getTime() : 0;
           if (tMs < cutoffMs) continue;
