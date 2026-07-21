@@ -23,6 +23,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import backdropDismiss from '../lib/backdropDismiss';
 import { colors } from '../lib/styleTokens';
+import { Sparkline, Skeleton } from './analytics/viz';
 
 // ═══════════════════════════════════════════════════════════════════
 // Scoring config
@@ -44,21 +45,46 @@ function median(arr) {
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
 
-const STABILITY_WEIGHTS = {
-  returning_watch_time: 0.30,
-  engagement_rate:      0.25,
-  sub_conversion:       0.20,
-  returning_view_pct:   0.15,
-  avg_view_duration:    0.10,
+// Per-channel-ROLE weight sets so the scatter + ranked table reflect each
+// channel's real priorities. BROAD (More Mayday) growth leans suggested-reach
+// (algo_traffic_pct) + subs conversion; NICHE (Trevor May Baseball) growth leans
+// subs-per-video (new_sub_conversion) + volume, and relies less on the suggested
+// feed. Stability: niche weights returning-viewer strength harder; broad is more
+// engagement-forward. Each set sums to 1.0. Tunable — these are informed defaults.
+const STABILITY_WEIGHTS_BY_ROLE = {
+  broad: { returning_watch_time: 0.28, engagement_rate: 0.27, sub_conversion: 0.15, returning_view_pct: 0.15, avg_view_duration: 0.15 },
+  niche: { returning_watch_time: 0.32, engagement_rate: 0.18, sub_conversion: 0.15, returning_view_pct: 0.22, avg_view_duration: 0.13 },
 };
+const GROWTH_WEIGHTS_BY_ROLE = {
+  broad: { new_viewer_volume: 0.28, new_viewer_pct: 0.17, new_sub_conversion: 0.17, new_viewer_retention: 0.10, algo_traffic_pct: 0.28 },
+  niche: { new_viewer_volume: 0.30, new_viewer_pct: 0.15, new_sub_conversion: 0.28, new_viewer_retention: 0.15, algo_traffic_pct: 0.12 },
+};
+function weightsForRole(role) {
+  return {
+    stability: STABILITY_WEIGHTS_BY_ROLE[role] || STABILITY_WEIGHTS_BY_ROLE.broad,
+    growth: GROWTH_WEIGHTS_BY_ROLE[role] || GROWTH_WEIGHTS_BY_ROLE.broad,
+  };
+}
 
-const GROWTH_WEIGHTS = {
-  new_viewer_volume:    0.30,
-  new_viewer_pct:       0.20,
-  new_sub_conversion:   0.20,
-  new_viewer_retention: 0.15,
-  algo_traffic_pct:     0.15,
-};
+// Channel role + CSV-channel-key resolution, keyed by YouTube external_id
+// (falls back to account_name matching). BROAD = wide-reach flagship, NICHE =
+// intent/search-driven vertical. CSV key maps to analytics_youtube.channel.
+const CHANNEL_ROLE_BY_EXT = { UCwM4xXRFO5bORhM4XCEquXg: 'broad', UCXnWH_cIChvXGhLPIJGoiBg: 'niche' };
+const CSV_CHANNEL_BY_EXT = { UCwM4xXRFO5bORhM4XCEquXg: 'moremayday', UCXnWH_cIChvXGhLPIJGoiBg: 'trevormay' };
+function roleForAccount(acct) {
+  if (!acct) return 'broad';
+  if (acct.external_id && CHANNEL_ROLE_BY_EXT[acct.external_id]) return CHANNEL_ROLE_BY_EXT[acct.external_id];
+  const n = (acct.account_name || '').toLowerCase();
+  if (n.includes('baseball') || n.includes('trevor may')) return 'niche';
+  return 'broad';
+}
+
+// KPI section config: trailing-window channel-level KPIs. Window is short (14d)
+// because the channel-dim daily series only goes back ~33 days; current window vs
+// the prior equal window drives the delta.
+const KPI_WINDOW = 14;
+// Traffic-source dimension_value codes (verified against yt_dim_traffic_source).
+const TRAFFIC = { search: 'YT_SEARCH', suggested: 'RELATED_VIDEO', browse: 'YT_OTHER_PAGE', playlist: 'PLAYLIST', endScreen: 'END_SCREEN' };
 
 const CATEGORY_COLORS = {
   breakout:        '#f59e0b',
@@ -95,14 +121,21 @@ export default function ContentHealthDashboard({ accounts }) {
   const [selectedVideoId, setSelectedVideoId] = useState(null);
   const fetchGenRef = useRef(0); // guards against a stale channel's fetch resolving last
 
+  const [kpis, setKpis] = useState(null);           // channel-level Growth/Stability KPIs
+  const [kpisLoading, setKpisLoading] = useState(false);
+  const kpiGenRef = useRef(0);
+
   useEffect(() => {
     if (!activeChannelId) return;
     fetchAndScore();
+    fetchChannelKpis();
     // eslint-disable-next-line
   }, [activeChannelId]);
 
   async function fetchAndScore() {
     const gen = ++fetchGenRef.current;
+    const role = roleForAccount(ytChannels.find(c => c.id === activeChannelId));
+    const { stability: SW, growth: GW } = weightsForRole(role);
     setLoading(true);
     try {
       // Lifetime aggregate per video from yt_video_daily
@@ -271,11 +304,11 @@ export default function ContentHealthDashboard({ accounts }) {
         const idx_avd          = computeIndex(v.avg_view_duration_seconds, meds.avg_view_duration);
 
         const stability = (
-          idx_returning_wt    * STABILITY_WEIGHTS.returning_watch_time +
-          idx_engagement      * STABILITY_WEIGHTS.engagement_rate +
-          idx_sub_conv        * STABILITY_WEIGHTS.sub_conversion +
-          idx_returning_pct   * STABILITY_WEIGHTS.returning_view_pct +
-          idx_avd             * STABILITY_WEIGHTS.avg_view_duration
+          idx_returning_wt    * SW.returning_watch_time +
+          idx_engagement      * SW.engagement_rate +
+          idx_sub_conv        * SW.sub_conversion +
+          idx_returning_pct   * SW.returning_view_pct +
+          idx_avd             * SW.avg_view_duration
         );
 
         const idx_new_vol      = computeIndex(v.new_viewer_volume,      meds.new_viewer_volume);
@@ -285,11 +318,11 @@ export default function ContentHealthDashboard({ accounts }) {
         const idx_algo         = computeIndex(v.algo_traffic_pct,       meds.algo_traffic_pct);
 
         const growth = (
-          idx_new_vol      * GROWTH_WEIGHTS.new_viewer_volume +
-          idx_new_pct      * GROWTH_WEIGHTS.new_viewer_pct +
-          idx_new_sub_conv * GROWTH_WEIGHTS.new_sub_conversion +
-          idx_new_ret      * GROWTH_WEIGHTS.new_viewer_retention +
-          idx_algo         * GROWTH_WEIGHTS.algo_traffic_pct
+          idx_new_vol      * GW.new_viewer_volume +
+          idx_new_pct      * GW.new_viewer_pct +
+          idx_new_sub_conv * GW.new_sub_conversion +
+          idx_new_ret      * GW.new_viewer_retention +
+          idx_algo         * GW.algo_traffic_pct
         );
 
         const breakoutRaw = (stability * growth) / 100;
@@ -345,6 +378,149 @@ export default function ContentHealthDashboard({ accounts }) {
     }
   }
 
+  // Channel-level Growth/Stability KPIs over a trailing window vs the prior equal
+  // window. Sources are the channel-dim daily tables (real daily history) + a
+  // lifetime impressions/CTR scorecard from analytics_youtube (manual Studio CSV).
+  async function fetchChannelKpis() {
+    const gen = ++kpiGenRef.current;
+    setKpisLoading(true);
+    try {
+      const acct = ytChannels.find(c => c.id === activeChannelId);
+      const csvKey = acct && acct.external_id ? CSV_CHANNEL_BY_EXT[acct.external_id] : null;
+      const since = new Date(Date.now() - (KPI_WINDOW * 2 + 6) * 86400000).toISOString().split('T')[0];
+
+      const [subRes, trafRes, vdRes, stRes, ayRes, ciRes] = await Promise.all([
+        supabase.from('yt_dim_subscription_status').select('date, dimension_value, views, watch_time_minutes, average_view_duration_seconds').eq('platform_account_id', activeChannelId).gte('date', since),
+        supabase.from('yt_dim_traffic_source').select('date, dimension_value, views').eq('platform_account_id', activeChannelId).gte('date', since),
+        supabase.from('yt_video_daily').select('date, views, subscribers_gained, average_view_percentage').eq('platform_account_id', activeChannelId).gte('date', since).limit(50000),
+        supabase.from('yt_dim_search_terms').select('date, dimension_value, views').eq('platform_account_id', activeChannelId).gte('date', since),
+        csvKey ? supabase.from('analytics_youtube').select('impressions, impressions_ctr, created_at').eq('channel', csvKey) : Promise.resolve({ data: [] }),
+        supabase.from('content_items').select('published_at').eq('platform_account_id', activeChannelId).gte('published_at', since),
+      ]);
+
+      // Ordered set of finalized dates present in the daily dims → split into
+      // current window (last N) and prior window (the N before).
+      const dateSet = new Set();
+      for (const r of (subRes.data || [])) dateSet.add(r.date);
+      for (const r of (trafRes.data || [])) dateSet.add(r.date);
+      const dates = Array.from(dateSet).sort();
+      const curDates = dates.slice(-KPI_WINDOW);
+      const priorDates = dates.slice(-KPI_WINDOW * 2, -KPI_WINDOW);
+      const curStart = curDates[0], curEnd = curDates[curDates.length - 1];
+      const priorStart = priorDates[0], priorEnd = priorDates[priorDates.length - 1];
+      const inRange = (d, a, b) => !!a && !!b && d >= a && d <= b;
+
+      const byDate = {};
+      const ensure = (d) => (byDate[d] = byDate[d] || { sub: 0, unsub: 0, avdNum: 0, avdDen: 0, traf: {}, trafTotal: 0, vdSubs: 0, vdViews: 0, apvNum: 0, apvDen: 0 });
+      for (const r of (subRes.data || [])) {
+        const b = ensure(r.date), v = Number(r.views) || 0, avd = Number(r.average_view_duration_seconds) || 0;
+        if (String(r.dimension_value).toUpperCase() === 'SUBSCRIBED') b.sub += v; else b.unsub += v;
+        b.avdNum += avd * v; b.avdDen += v;
+      }
+      for (const r of (trafRes.data || [])) {
+        const b = ensure(r.date), v = Number(r.views) || 0, code = String(r.dimension_value).toUpperCase();
+        b.traf[code] = (b.traf[code] || 0) + v; b.trafTotal += v;
+      }
+      for (const r of (vdRes.data || [])) {
+        const b = ensure(r.date), v = Number(r.views) || 0;
+        b.vdSubs += Number(r.subscribers_gained) || 0; b.vdViews += v;
+        b.apvNum += (Number(r.average_view_percentage) || 0) * v; b.apvDen += v;
+      }
+
+      let curPub = 0, priorPub = 0;
+      for (const r of (ciRes.data || [])) {
+        const d = r.published_at ? String(r.published_at).slice(0, 10) : null;
+        if (!d) continue;
+        if (inRange(d, curStart, curEnd)) curPub++;
+        else if (inRange(d, priorStart, priorEnd)) priorPub++;
+      }
+
+      const safe = (n, d) => (d > 0 ? n / d : 0);
+      const agg = (dateList) => {
+        const a = { sub: 0, unsub: 0, avdNum: 0, avdDen: 0, traf: {}, trafTotal: 0, vdSubs: 0, vdViews: 0, apvNum: 0, apvDen: 0 };
+        for (const d of dateList) {
+          const b = byDate[d]; if (!b) continue;
+          a.sub += b.sub; a.unsub += b.unsub; a.avdNum += b.avdNum; a.avdDen += b.avdDen;
+          a.trafTotal += b.trafTotal; a.vdSubs += b.vdSubs; a.vdViews += b.vdViews; a.apvNum += b.apvNum; a.apvDen += b.apvDen;
+          for (const k in b.traf) a.traf[k] = (a.traf[k] || 0) + b.traf[k];
+        }
+        return a;
+      };
+      const derive = (a, pubCount) => {
+        const totalSub = a.sub + a.unsub, tt = a.trafTotal;
+        return {
+          new_pct: safe(a.unsub, totalSub),
+          returning_pct: safe(a.sub, totalSub),
+          new_volume: a.unsub,
+          returning_volume: a.sub,
+          avd: safe(a.avdNum, a.avdDen),
+          apv: safe(a.apvNum, a.apvDen),
+          search_share: safe(a.traf[TRAFFIC.search] || 0, tt),
+          suggested_share: safe(a.traf[TRAFFIC.suggested] || 0, tt),
+          browse_suggested_share: safe((a.traf[TRAFFIC.browse] || 0) + (a.traf[TRAFFIC.suggested] || 0), tt),
+          playlist_endscreen_share: safe((a.traf[TRAFFIC.playlist] || 0) + (a.traf[TRAFFIC.endScreen] || 0), tt),
+          subs_gained: a.vdSubs,
+          subs_per_1k: safe(a.vdSubs, a.vdViews) * 1000,
+          subs_per_video: pubCount > 0 ? a.vdSubs / pubCount : 0,
+        };
+      };
+      const curV = derive(agg(curDates), curPub), priorV = derive(agg(priorDates), priorPub);
+
+      const dailySeries = (fn) => curDates.map(d => { const b = byDate[d]; return b ? fn(b) : 0; });
+      const series = {
+        new_pct: dailySeries(b => safe(b.unsub, b.sub + b.unsub)),
+        returning_pct: dailySeries(b => safe(b.sub, b.sub + b.unsub)),
+        new_volume: dailySeries(b => b.unsub),
+        returning_volume: dailySeries(b => b.sub),
+        avd: dailySeries(b => safe(b.avdNum, b.avdDen)),
+        apv: dailySeries(b => safe(b.apvNum, b.apvDen)),
+        search_share: dailySeries(b => safe(b.traf[TRAFFIC.search] || 0, b.trafTotal)),
+        suggested_share: dailySeries(b => safe(b.traf[TRAFFIC.suggested] || 0, b.trafTotal)),
+        browse_suggested_share: dailySeries(b => safe((b.traf[TRAFFIC.browse] || 0) + (b.traf[TRAFFIC.suggested] || 0), b.trafTotal)),
+        playlist_endscreen_share: dailySeries(b => safe((b.traf[TRAFFIC.playlist] || 0) + (b.traf[TRAFFIC.endScreen] || 0), b.trafTotal)),
+        subs_gained: dailySeries(b => b.vdSubs),
+        subs_per_1k: dailySeries(b => safe(b.vdSubs, b.vdViews) * 1000),
+      };
+
+      const metrics = {};
+      for (const k of Object.keys(curV)) metrics[k] = { value: curV[k], prev: priorV[k], series: series[k] || null };
+
+      // Rising search terms — current-window views minus prior-window views.
+      const termCur = {}, termPrior = {};
+      for (const r of (stRes.data || [])) {
+        const term = r.dimension_value, v = Number(r.views) || 0, d = r.date;
+        if (inRange(d, curStart, curEnd)) termCur[term] = (termCur[term] || 0) + v;
+        else if (inRange(d, priorStart, priorEnd)) termPrior[term] = (termPrior[term] || 0) + v;
+      }
+      const risingTerms = Object.keys(termCur)
+        .map(t => ({ term: t, views: termCur[t], delta: termCur[t] - (termPrior[t] || 0) }))
+        .sort((a, b) => b.delta - a.delta)
+        .slice(0, 5);
+
+      // Lifetime impressions/CTR scorecard (Studio CSV — stale, no daily series).
+      let impressions = null;
+      const ay = ayRes.data || [];
+      if (ay.length > 0) {
+        let imprSum = 0, ctrNum = 0, ctrDen = 0, asOf = null;
+        for (const r of ay) {
+          const im = Number(r.impressions) || 0, ct = Number(r.impressions_ctr) || 0;
+          imprSum += im; ctrNum += ct * im; ctrDen += im;
+          if (r.created_at && (!asOf || r.created_at > asOf)) asOf = r.created_at;
+        }
+        impressions = { impressions: imprSum, ctr: ctrDen > 0 ? ctrNum / ctrDen : 0, asOf, videos: ay.length };
+      }
+
+      const result = { metrics, risingTerms, impressions, curStart, curEnd, hasWindow: curDates.length > 0 };
+      if (gen !== kpiGenRef.current) return;
+      setKpis(result);
+    } catch (e) {
+      console.error('Content Health KPI fetch error:', e);
+      if (gen === kpiGenRef.current) setKpis(null);
+    } finally {
+      if (gen === kpiGenRef.current) setKpisLoading(false);
+    }
+  }
+
   // ── Channel mix card (rolling last 12 published videos) ──
   const channelMix = useMemo(() => {
     if (videos.length === 0) return null;
@@ -367,6 +543,9 @@ export default function ContentHealthDashboard({ accounts }) {
   }
 
   const selectedVideo = videos.find(v => v.video_id === selectedVideoId);
+  const activeAccount = ytChannels.find(c => c.id === activeChannelId);
+  const activeRole = roleForAccount(activeAccount);
+  const activeWeights = weightsForRole(activeRole);
 
   return (
     <div>
@@ -374,7 +553,7 @@ export default function ContentHealthDashboard({ accounts }) {
       <div style={S.header}>
         <div style={S.headerLeft}>
           <span style={S.title}>Content Health</span>
-          <span style={S.subtitle}>Stability vs Growth scoring · trailing {NORM_WINDOW}-video norm</span>
+          <span style={S.subtitle}>{activeRole === 'niche' ? 'Niche / search-driven channel' : 'Broad-reach channel'} · Stability vs Growth · trailing {NORM_WINDOW}-video norm</span>
         </div>
         <div style={S.channelTabs}>
           {ytChannels.map(c => (
@@ -385,6 +564,14 @@ export default function ContentHealthDashboard({ accounts }) {
           ))}
         </div>
       </div>
+
+      {/* Growth + Stability KPI sections (per channel role) */}
+      <KpiSection icon="🚀" title="Growth" subtitle={`expanding reach · trailing ${KPI_WINDOW}d vs prior ${KPI_WINDOW}d`}
+        tiles={GROWTH_TILES[activeRole]} kpis={kpis} color={CATEGORY_COLORS.growth} loading={kpisLoading} />
+      <KpiSection icon="🛡️" title="Stability" subtitle={`deepening loyal audience · trailing ${KPI_WINDOW}d vs prior ${KPI_WINDOW}d`}
+        tiles={STABILITY_TILES[activeRole]} kpis={kpis} color={CATEGORY_COLORS.stability} loading={kpisLoading} unavailable={UNAVAILABLE_STABILITY} />
+
+      {/* ── Drill-down: per-video mix, scatter, ranked table, detail modal ── */}
 
       {/* Channel mix card */}
       {channelMix && <ChannelMixCard mix={channelMix} />}
@@ -416,7 +603,7 @@ export default function ContentHealthDashboard({ accounts }) {
 
       {/* Detail modal */}
       {selectedVideo && (
-        <DetailPanel video={selectedVideo} onClose={() => setSelectedVideoId(null)} />
+        <DetailPanel video={selectedVideo} weights={activeWeights} onClose={() => setSelectedVideoId(null)} />
       )}
     </div>
   );
@@ -620,7 +807,8 @@ function RankedTable({ videos, onSelect }) {
 // ═══════════════════════════════════════════════════════════════════
 // Detail panel
 // ═══════════════════════════════════════════════════════════════════
-function DetailPanel({ video, onClose }) {
+function DetailPanel({ video, onClose, weights }) {
+  const w = weights || weightsForRole('broad');
   const hint = nextActionHint(video);
   return (
     <div style={S.modalBackdrop} {...backdropDismiss(onClose)}>
@@ -648,8 +836,8 @@ function DetailPanel({ video, onClose }) {
 
         {/* Component breakdown */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
-          <ComponentList title="Stability components" weights={STABILITY_WEIGHTS} indices={video.indices.stability} color="#5b8fc7" />
-          <ComponentList title="Growth components" weights={GROWTH_WEIGHTS} indices={video.indices.growth} color="#22c55e" />
+          <ComponentList title="Stability components" weights={w.stability} indices={video.indices.stability} color="#5b8fc7" />
+          <ComponentList title="Growth components" weights={w.growth} indices={video.indices.growth} color="#22c55e" />
         </div>
 
         {/* Purity check */}
@@ -756,6 +944,184 @@ function formatDuration(s) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Growth / Stability KPI sections
+// ═══════════════════════════════════════════════════════════════════
+// Per-role tile ordering. Each tile references a computed metric key + a format,
+// or a special `kind` (impressions/ctr scorecard, risingTerms list, paired split).
+const GROWTH_TILES = {
+  broad: [
+    { metric: 'suggested_share', label: 'Suggested-traffic share', fmt: 'pct' },
+    { metric: 'subs_per_video', label: 'Subs gained / video', fmt: 'num1', noSpark: true },
+    { metric: 'subs_per_1k', label: 'Subs per 1k views', fmt: 'num1' },
+    { metric: 'new_pct', label: 'New-viewer share', fmt: 'pct' },
+    { kind: 'impressions' },
+  ],
+  niche: [
+    { metric: 'subs_per_video', label: 'Subs gained / video', fmt: 'num1', noSpark: true },
+    { metric: 'search_share', label: 'Search-traffic share', fmt: 'pct' },
+    { kind: 'risingTerms' },
+    { metric: 'suggested_share', label: 'Suggested (niche) share', fmt: 'pct' },
+    { kind: 'paired', label: 'New + Returning viewers', a: 'new_volume', b: 'returning_volume' },
+  ],
+};
+const STABILITY_TILES = {
+  broad: [
+    { metric: 'avd', label: 'Avg view duration', fmt: 'sec' },
+    { metric: 'apv', label: 'Avg % viewed', fmt: 'pctRaw' },
+    { metric: 'browse_suggested_share', label: 'Browse + Suggested share', fmt: 'pct' },
+    { metric: 'returning_pct', label: 'Returning-viewer mix', fmt: 'pct' },
+    { kind: 'ctr' },
+  ],
+  niche: [
+    { metric: 'avd', label: 'Avg view duration', fmt: 'sec' },
+    { metric: 'search_share', label: 'Search-traffic share', fmt: 'pct' },
+    { metric: 'returning_pct', label: 'Returning-viewer strength', fmt: 'pct' },
+    { metric: 'playlist_endscreen_share', label: 'Playlist + End-screen share', fmt: 'pct' },
+    { kind: 'ctr' },
+  ],
+};
+// Genuinely not exposed by the YouTube Analytics API v2 — rendered as greyed chips
+// so the gap is explicit. END_SCREEN exists only as a traffic source (views), not
+// a click/CTR metric; per-second/intro retention curves aren't in the API at all.
+const UNAVAILABLE_STABILITY = ['Per-second retention curve', 'Intro (30s) retention', 'End-screen CTR'];
+
+function fmtVal(fmt, v) {
+  if (v == null || isNaN(v)) return '—';
+  switch (fmt) {
+    case 'pct': return (v * 100).toFixed(1) + '%';   // fraction 0-1
+    case 'pctRaw': return v.toFixed(1) + '%';         // already a percent 0-100
+    case 'sec': return formatDuration(v);
+    case 'num1': return Number(v).toLocaleString(undefined, { maximumFractionDigits: 1 });
+    default: return formatNumber(v);
+  }
+}
+function fmtDelta(fmt, cur, prev) {
+  if (cur == null || prev == null || isNaN(cur) || isNaN(prev)) return null;
+  if (fmt === 'pct') { const d = (cur - prev) * 100; return { text: (d >= 0 ? '+' : '') + d.toFixed(1) + 'pp', up: d >= 0 }; }
+  if (fmt === 'pctRaw') { const d = cur - prev; return { text: (d >= 0 ? '+' : '') + d.toFixed(1) + 'pp', up: d >= 0 }; }
+  if (fmt === 'sec') { const d = cur - prev; return { text: (d >= 0 ? '+' : '') + Math.round(d) + 's', up: d >= 0 }; }
+  if (prev === 0) { return cur === 0 ? null : { text: 'new', up: cur > 0 }; }
+  const d = ((cur - prev) / Math.abs(prev)) * 100;
+  return { text: (d >= 0 ? '+' : '') + d.toFixed(0) + '%', up: d >= 0 };
+}
+
+function KpiSection({ icon, title, subtitle, tiles, kpis, color, loading, unavailable }) {
+  return (
+    <div style={{ ...S.section, borderColor: color + '30' }}>
+      <div style={S.sectionHead}>
+        <span style={S.sectionTitle}><span style={{ marginRight: 8 }}>{icon}</span>{title}</span>
+        <span style={S.sectionSub}>{subtitle}</span>
+      </div>
+      {loading && !kpis ? (
+        <div style={S.kpiGrid}>{[0, 1, 2, 3].map(i => <Skeleton key={i} height={96} radius={10} />)}</div>
+      ) : (
+        <div style={S.kpiGrid}>
+          {tiles.map((t, i) => <KPITile key={t.metric || t.kind || i} tile={t} kpis={kpis} color={color} />)}
+        </div>
+      )}
+      {unavailable && unavailable.length > 0 && (
+        <div style={S.unavailRow}>
+          {unavailable.map(u => (
+            <span key={u} style={S.unavailChip} title="Not exposed by the YouTube Analytics API v2">{u} · not tracked</span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function KPITile({ tile, kpis, color }) {
+  if (tile.kind === 'impressions' || tile.kind === 'ctr') return <ImpressionsTile kpis={kpis} mode={tile.kind} />;
+  if (tile.kind === 'risingTerms') return <RisingTermsTile terms={kpis && kpis.risingTerms} />;
+  if (tile.kind === 'paired') return <PairedTile kpis={kpis} tile={tile} />;
+  const m = kpis && kpis.metrics ? kpis.metrics[tile.metric] : null;
+  const delta = m ? fmtDelta(tile.fmt, m.value, m.prev) : null;
+  const spark = !tile.noSpark && m && m.series && m.series.length > 1;
+  return (
+    <div style={S.kpiTile}>
+      <div style={S.kpiLabel}>{tile.label}</div>
+      <div style={S.kpiValueRow}>
+        <span style={S.kpiValue}>{fmtVal(tile.fmt, m ? m.value : null)}</span>
+        {spark && <Sparkline data={m.series} color={color} width={72} height={24} />}
+      </div>
+      {delta
+        ? <span style={{ ...S.kpiDelta, color: delta.up ? '#4ade80' : '#f87171' }}>{delta.text}<span style={S.kpiDeltaTag}> vs prior {KPI_WINDOW}d</span></span>
+        : <span style={S.kpiDeltaMuted}>no prior-window data</span>}
+    </div>
+  );
+}
+
+function ImpressionsTile({ kpis, mode }) {
+  const imp = kpis ? kpis.impressions : null;
+  const label = mode === 'ctr' ? 'Impressions CTR' : 'Impressions + CTR';
+  if (!imp) {
+    return (
+      <div style={{ ...S.kpiTile, ...S.kpiTileStale }}>
+        <div style={S.kpiLabel}>{label}</div>
+        <div style={S.kpiValueMuted}>No CSV yet</div>
+        <span style={S.kpiDeltaMuted}>Upload Studio CSV to populate</span>
+      </div>
+    );
+  }
+  const asOf = imp.asOf ? formatDate(imp.asOf) : null;
+  return (
+    <div style={{ ...S.kpiTile, ...S.kpiTileStale }}>
+      <div style={S.kpiLabel}>{label}</div>
+      <div style={S.kpiValueRow}>
+        <span style={S.kpiValue}>{mode === 'ctr' ? imp.ctr.toFixed(1) + '%' : formatNumber(imp.impressions)}</span>
+        {mode !== 'ctr' && <span style={S.kpiSecondary}>{imp.ctr.toFixed(1)}% CTR</span>}
+      </div>
+      <span style={S.kpiStaleTag}>⚠ lifetime · as of {asOf || 'last CSV'}</span>
+    </div>
+  );
+}
+
+function RisingTermsTile({ terms }) {
+  const list = terms || [];
+  return (
+    <div style={{ ...S.kpiTile, ...S.kpiTileWide }}>
+      <div style={S.kpiLabel}>Top rising search terms</div>
+      {list.length === 0 ? (
+        <div style={S.kpiValueMuted}>No search-term data</div>
+      ) : (
+        <div style={S.termList}>
+          {list.map(t => (
+            <div key={t.term} style={S.termRow}>
+              <span style={S.termName}>{t.term}</span>
+              <span style={S.termViews}>{formatNumber(t.views)}</span>
+              <span style={{ ...S.termDelta, color: t.delta >= 0 ? '#4ade80' : '#f87171' }}>{t.delta >= 0 ? '+' : ''}{formatNumber(t.delta)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <span style={S.kpiDeltaMuted}>views vs prior {KPI_WINDOW}d</span>
+    </div>
+  );
+}
+
+function PairedTile({ kpis, tile }) {
+  const a = kpis && kpis.metrics ? kpis.metrics[tile.a] : null;
+  const b = kpis && kpis.metrics ? kpis.metrics[tile.b] : null;
+  return (
+    <div style={{ ...S.kpiTile, ...S.kpiTileWide }}>
+      <div style={S.kpiLabel}>{tile.label}</div>
+      <div style={S.pairRow}>
+        <div style={S.pairCol}>
+          <span style={S.pairTag}>New (unsub)</span>
+          <span style={S.kpiValue}>{formatNumber(a ? a.value : null)}</span>
+          {a && a.series && a.series.length > 1 && <Sparkline data={a.series} color="#22c55e" width={84} height={22} />}
+        </div>
+        <div style={S.pairCol}>
+          <span style={S.pairTag}>Returning (sub)</span>
+          <span style={S.kpiValue}>{formatNumber(b ? b.value : null)}</span>
+          {b && b.series && b.series.length > 1 && <Sparkline data={b.series} color="#5b8fc7" width={84} height={22} />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Styles
 // ═══════════════════════════════════════════════════════════════════
 const S = {
@@ -766,6 +1132,35 @@ const S = {
   channelTabs: { display: 'flex', gap: 4, padding: 4, background: 'rgba(255,255,255,0.04)', borderRadius: 10 },
   channelTab: { padding: '7px 14px', background: 'transparent', border: 'none', borderRadius: 7, color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   channelTabActive: { background: 'rgba(91, 143, 199,0.18)', color: '#8fb4d8' },
+
+  // Growth / Stability KPI sections
+  section: { background: 'rgba(255,255,255,0.02)', border: '1px solid', borderRadius: 12, padding: 16, marginBottom: 14 },
+  sectionHead: { display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 12, flexWrap: 'wrap' },
+  sectionTitle: { fontSize: 15, fontWeight: 800, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.5px' },
+  sectionSub: { fontSize: 11, color: 'rgba(255,255,255,0.4)' },
+  kpiGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 10 },
+  kpiTile: { display: 'flex', flexDirection: 'column', gap: 6, padding: 12, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, minHeight: 92 },
+  kpiTileWide: { gridColumn: 'span 2' },
+  kpiTileStale: { background: 'rgba(245,158,11,0.04)', border: '1px solid rgba(245,158,11,0.18)' },
+  kpiLabel: { fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.4px' },
+  kpiValueRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  kpiValue: { fontSize: 22, fontWeight: 800, color: '#fff', fontVariantNumeric: 'tabular-nums' },
+  kpiValueMuted: { fontSize: 15, fontWeight: 600, color: 'rgba(255,255,255,0.35)' },
+  kpiSecondary: { fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', fontVariantNumeric: 'tabular-nums' },
+  kpiDelta: { fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums' },
+  kpiDeltaTag: { fontSize: 10, fontWeight: 500, color: 'rgba(255,255,255,0.35)' },
+  kpiDeltaMuted: { fontSize: 11, color: 'rgba(255,255,255,0.3)' },
+  kpiStaleTag: { fontSize: 10, color: '#fbbf24', fontWeight: 600 },
+  termList: { display: 'flex', flexDirection: 'column', gap: 4 },
+  termRow: { display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 10, alignItems: 'center' },
+  termName: { fontSize: 12, color: 'rgba(255,255,255,0.8)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  termViews: { fontSize: 12, color: 'rgba(255,255,255,0.55)', fontVariantNumeric: 'tabular-nums' },
+  termDelta: { fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', minWidth: 44, textAlign: 'right' },
+  pairRow: { display: 'flex', gap: 16 },
+  pairCol: { display: 'flex', flexDirection: 'column', gap: 2, flex: 1 },
+  pairTag: { fontSize: 10, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.4px' },
+  unavailRow: { display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 },
+  unavailChip: { fontSize: 10, color: 'rgba(255,255,255,0.35)', background: 'rgba(255,255,255,0.03)', border: '1px dashed rgba(255,255,255,0.12)', borderRadius: 20, padding: '4px 10px' },
 
   mixCard: { background: 'rgba(91, 143, 199,0.04)', border: '1px solid rgba(91, 143, 199,0.15)', borderRadius: 12, padding: 14, marginBottom: 14 },
   mixHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 },
