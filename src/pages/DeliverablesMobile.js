@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { mobileTokens } from '../utils/mobileTokens';
 import { clickableKeyProps } from '../lib/styleRecipes';
+import { colors } from '../lib/styleTokens';
 
 const DELIVERABLE_TYPES = {
   long_form_read: { label: 'Long Form Read', icon: '\u{1F4D6}' },
@@ -11,14 +12,14 @@ const DELIVERABLE_TYPES = {
   short_form_video: { label: 'Short Form Video', icon: '\u{1F4F1}' },
 };
 const CHANNEL_COLORS = {
-  mayday: { bg: 'rgba(99,102,241,0.12)', color: '#a5b4fc', label: 'MD' },
+  mayday: { bg: 'rgba(91, 143, 199,0.12)', color: '#8fb4d8', label: 'MD' },
   tmb: { bg: 'rgba(239,68,68,0.12)', color: '#fca5a5', label: 'TMB' },
   socials: { bg: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)', label: 'SOC' },
 };
 // Mirrors desktop Deliverables Status column (read-only on mobile).
 const REVIEW_STATUS_BY_VALUE = {
   queued: { label: 'Queued', bg: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.55)' },
-  writing: { label: 'Writing', bg: 'rgba(99,102,241,0.15)', color: '#a5b4fc' },
+  writing: { label: 'Writing', bg: 'rgba(91, 143, 199,0.15)', color: '#8fb4d8' },
   filming: { label: 'Filming', bg: 'rgba(168,85,247,0.15)', color: '#c084fc' },
   ready_for_review: { label: 'Ready for Review', bg: 'rgba(245,158,11,0.15)', color: '#fbbf24' },
   in_review: { label: 'In Review', bg: 'rgba(14,165,233,0.15)', color: '#38bdf8' },
@@ -153,7 +154,7 @@ export default function DeliverablesMobile() {
               <div key={month} style={styles.slotCard}>
                 <div style={styles.slotMonth}>{formatMonth(month)}</div>
                 <div style={styles.slotRow}>
-                  <span style={{ color: '#a5b4fc', fontSize: 13, fontWeight: 600 }}>MD: {mc}{ml != null ? `/${ml}` : ''}</span>
+                  <span style={{ color: colors.accentFg, fontSize: 13, fontWeight: 600 }}>MD: {mc}{ml != null ? `/${ml}` : ''}</span>
                   <span style={{ color: '#fca5a5', fontSize: 13, fontWeight: 600 }}>TMB: {tc}{tl != null ? `/${tl}` : ''}</span>
                 </div>
               </div>
@@ -174,7 +175,7 @@ export default function DeliverablesMobile() {
               type="checkbox"
               checked={showDelivered}
               onChange={e => setShowDelivered(e.target.checked)}
-              style={{ accentColor: '#6366f1' }}
+              style={{ accentColor: '#5b8fc7' }}
             />
             Show Delivered
           </label>
@@ -243,7 +244,7 @@ export default function DeliverablesMobile() {
                       {linkedSheet && (
                         <div style={styles.detailRow}>
                           <span style={styles.detailLabel}>Beat Sheet</span>
-                          <span style={{ ...styles.detailValue, color: '#a5b4fc' }}>{linkedSheet.title}</span>
+                          <span style={{ ...styles.detailValue, color: colors.accentFg }}>{linkedSheet.title}</span>
                         </div>
                       )}
                       {!linkedSheet && (
@@ -322,8 +323,8 @@ const styles = {
   countBadge: {
     fontSize: 12,
     fontWeight: 600,
-    background: 'rgba(99,102,241,0.15)',
-    color: '#a5b4fc',
+    background: colors.accentA15,
+    color: colors.accentFg,
     borderRadius: 10,
     padding: '2px 8px',
   },
@@ -494,7 +495,7 @@ const styles = {
     display: 'inline-block',
     marginTop: 8,
     fontSize: 12,
-    color: '#a5b4fc',
+    color: colors.accentFg,
     textDecoration: 'none',
   },
   platformPill: {
@@ -502,7 +503,7 @@ const styles = {
     fontWeight: 600,
     padding: '2px 6px',
     borderRadius: 4,
-    background: 'rgba(99,102,241,0.12)',
-    color: '#a5b4fc',
+    background: colors.accentA12,
+    color: colors.accentFg,
   },
 };

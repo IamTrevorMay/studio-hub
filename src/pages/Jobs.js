@@ -4,6 +4,7 @@ import { fetchAllRows } from './analytics/utils';
 import { StructuredDescription, TYPE_LABEL, MODE_LABEL, Field, publicStyles } from './public/PublicCareers';
 import usePersistedTab from '../hooks/usePersistedTab';
 import backdropDismiss from '../lib/backdropDismiss';
+import { colors } from '../lib/styleTokens';
 
 // Admin-only Jobs page: manage public listings, review applications, and run
 // onboarding for accepted hires. Public board + edge functions live elsewhere.
@@ -876,7 +877,7 @@ function AnalyticsTab({ listings, applications }) {
   const maxWeek = Math.max(1, ...weeks.map(w => w.n));
 
   const funnel = [
-    { label: 'Views', n: views.total, color: '#6366f1' },
+    { label: 'Views', n: views.total, color: '#5b8fc7' },
     { label: 'Applied', n: total, color: '#38bdf8' },
     { label: 'Interview', n: byStatus.interview, color: '#fde68a' },
     { label: 'Accepted', n: byStatus.accepted, color: '#86efac' },
@@ -905,7 +906,7 @@ function AnalyticsTab({ listings, applications }) {
           <div key={f.label} style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '6px 0' }}>
             <span style={{ width: 80, fontSize: 12.5, color: 'rgba(255,255,255,0.6)' }}>{f.label}</span>
             <div style={{ flex: 1, background: 'rgba(255,255,255,0.05)', borderRadius: 6, overflow: 'hidden' }}>
-              <div style={{ width: `${(f.n / maxFunnel) * 100}%`, minWidth: f.n ? 24 : 0, background: f.color, color: '#0f0f1a', fontSize: 12, fontWeight: 700, padding: '3px 8px', borderRadius: 6 }}>{f.n}</div>
+              <div style={{ width: `${(f.n / maxFunnel) * 100}%`, minWidth: f.n ? 24 : 0, background: f.color, color: colors.bg, fontSize: 12, fontWeight: 700, padding: '3px 8px', borderRadius: 6 }}>{f.n}</div>
             </div>
           </div>
         ))}
@@ -916,7 +917,7 @@ function AnalyticsTab({ listings, applications }) {
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 120, marginTop: 8 }}>
           {weeks.map((w, i) => (
             <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-              <div style={{ width: '100%', height: `${(w.n / maxWeek) * 90}px`, minHeight: 2, background: '#6366f1', borderRadius: '4px 4px 0 0' }} title={`${w.n}`} />
+              <div style={{ width: '100%', height: `${(w.n / maxWeek) * 90}px`, minHeight: 2, background: colors.accent, borderRadius: '4px 4px 0 0' }} title={`${w.n}`} />
               <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>{w.label}</span>
             </div>
           ))}
@@ -1001,15 +1002,15 @@ const st = {
   h1: { fontSize: 24, fontWeight: 800, color: '#fff', margin: '0 0 16px' },
   tabs: { display: 'flex', gap: 6, marginBottom: 20, borderBottom: '1px solid rgba(255,255,255,0.08)' },
   tab: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: 14, fontWeight: 600, padding: '8px 14px', cursor: 'pointer', borderBottom: '2px solid transparent', fontFamily: 'inherit' },
-  tabOn: { color: '#fff', borderBottom: '2px solid #6366f1' },
-  badge: { marginLeft: 6, fontSize: 10, fontWeight: 700, background: '#6366f1', color: '#fff', borderRadius: 999, padding: '1px 7px' },
+  tabOn: { color: '#fff', borderBottom: '2px solid #5b8fc7' },
+  badge: { marginLeft: 6, fontSize: 10, fontWeight: 700, background: '#5b8fc7', color: '#fff', borderRadius: 999, padding: '1px 7px' },
   muted: { color: 'rgba(255,255,255,0.4)' },
   empty: { padding: 30, textAlign: 'center', background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: 12, color: 'rgba(255,255,255,0.4)' },
   toolbar: { marginBottom: 14 },
   statusFilterPill: { padding: '5px 11px', borderRadius: 999, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', textTransform: 'capitalize', display: 'inline-flex', alignItems: 'center', gap: 6 },
-  statusFilterPillOn: { background: 'rgba(99,102,241,0.22)', border: '1px solid rgba(99,102,241,0.5)', color: '#c7d2fe' },
+  statusFilterPillOn: { background: 'rgba(91, 143, 199,0.22)', border: '1px solid rgba(91, 143, 199,0.5)', color: '#c7d2fe' },
   statusFilterCount: { fontSize: 10, fontWeight: 700, background: 'rgba(0,0,0,0.3)', borderRadius: 999, padding: '1px 7px' },
-  primaryBtn: { background: '#6366f1', border: 'none', color: '#fff', borderRadius: 9, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' },
+  primaryBtn: { background: '#5b8fc7', border: 'none', color: '#fff', borderRadius: 9, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' },
   cancelBtn: { background: 'transparent', border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.7)', borderRadius: 9, padding: '9px 16px', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' },
   cards: { display: 'flex', flexDirection: 'column', gap: 10 },
   listingCard: { display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12 },
@@ -1027,21 +1028,21 @@ const st = {
   subEmail: { fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 2 },
   overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 },
   previewOverlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: 20 },
-  previewShell: { display: 'flex', flexDirection: 'column', width: 900, maxWidth: '96vw', height: '92vh', background: '#0f0f1a', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16, overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.6)' },
-  previewBar: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '10px 16px', background: 'rgba(99,102,241,0.12)', borderBottom: '1px solid rgba(99,102,241,0.25)', flexShrink: 0 },
-  previewBarLabel: { fontSize: 12.5, fontWeight: 600, color: '#a5b4fc' },
-  modal: { background: '#15151f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 22, width: 560, maxWidth: '92vw', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.6)' },
+  previewShell: { display: 'flex', flexDirection: 'column', width: 900, maxWidth: '96vw', height: '92vh', background: '#0e1420', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16, overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.6)' },
+  previewBar: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '10px 16px', background: 'rgba(91, 143, 199,0.12)', borderBottom: '1px solid rgba(91, 143, 199,0.25)', flexShrink: 0 },
+  previewBarLabel: { fontSize: 12.5, fontWeight: 600, color: '#8fb4d8' },
+  modal: { background: '#161d2b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 22, width: 560, maxWidth: '92vw', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.6)' },
   modalTitle: { fontSize: 18, fontWeight: 700, color: '#fff', margin: '0 0 16px' },
   modalGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 },
   modalActions: { display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 },
   label: { display: 'block', fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', marginBottom: 5 },
   input: { width: '100%', boxSizing: 'border-box', padding: '9px 11px', background: 'rgba(0,0,0,0.28)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, color: '#fff', fontSize: 13.5, outline: 'none', fontFamily: 'inherit' },
   textarea: { width: '100%', boxSizing: 'border-box', padding: '9px 11px', background: 'rgba(0,0,0,0.28)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, color: '#fff', fontSize: 13.5, outline: 'none', resize: 'vertical', fontFamily: 'inherit' },
-  drawer: { background: '#15151f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 22, width: 520, maxWidth: '92vw', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.6)' },
+  drawer: { background: '#161d2b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 22, width: 520, maxWidth: '92vw', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.6)' },
   drawerHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 },
   drawerName: { fontSize: 19, fontWeight: 700, color: '#fff' },
   drawerMeta: { fontSize: 13, color: 'rgba(255,255,255,0.5)', marginBottom: 16 },
-  linkBtn: { display: 'inline-block', background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.3)', color: '#a5b4fc', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginBottom: 14 },
+  linkBtn: { display: 'inline-block', background: 'rgba(91, 143, 199,0.12)', border: '1px solid rgba(91, 143, 199,0.3)', color: '#8fb4d8', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginBottom: 14 },
   section: { marginBottom: 16 },
   sectionLabel: { fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
   analyticsCard: { padding: '16px 18px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, marginBottom: 16 },
@@ -1050,7 +1051,7 @@ const st = {
   drawerActions: { marginTop: 18, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.08)' },
   stageRow: { display: 'flex', gap: 6 },
   stageBtn: { flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)', borderRadius: 7, padding: '7px', fontSize: 12, fontWeight: 600, cursor: 'pointer', textTransform: 'capitalize', fontFamily: 'inherit' },
-  stageBtnOn: { background: 'rgba(99,102,241,0.22)', border: '1px solid rgba(99,102,241,0.5)', color: '#c7d2fe' },
+  stageBtnOn: { background: 'rgba(91, 143, 199,0.22)', border: '1px solid rgba(91, 143, 199,0.5)', color: '#c7d2fe' },
   acceptBtn: { flex: 1, background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.4)', color: '#86efac', borderRadius: 8, padding: '10px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' },
   declineBtn: { flex: 1, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', color: '#fca5a5', borderRadius: 8, padding: '10px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' },
   acceptedNote: { marginTop: 16, padding: '10px 12px', background: 'rgba(34,197,94,0.1)', borderRadius: 8, fontSize: 13, color: '#86efac' },
@@ -1065,5 +1066,5 @@ const st = {
   expander: { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   reorderCol: { display: 'flex', flexDirection: 'column', gap: 2 },
   reorderBtn: { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)', borderRadius: 4, padding: '2px 6px', fontSize: 10, fontFamily: 'inherit' },
-  appCountPill: { fontSize: 10, fontWeight: 700, background: 'rgba(99,102,241,0.18)', color: '#c7d2fe', borderRadius: 999, padding: '2px 8px', letterSpacing: 0.3 },
+  appCountPill: { fontSize: 10, fontWeight: 700, background: 'rgba(91, 143, 199,0.18)', color: '#c7d2fe', borderRadius: 999, padding: '2px 8px', letterSpacing: 0.3 },
 };

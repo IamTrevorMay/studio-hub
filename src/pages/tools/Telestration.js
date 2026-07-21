@@ -12,6 +12,7 @@ import useAnnotationStore from './telestration/useAnnotationStore';
 import useExporter from './telestration/useExporter';
 import { DEFAULT_SETTINGS } from './telestration/telestrationConstants';
 import { loadSettings, saveSettings } from './telestration/telestrationStorage';
+import { colors } from '../../lib/styleTokens';
 
 export default function Telestration({ onBack }) {
   const [videoSources, setVideoSources] = useState([]);
@@ -688,7 +689,7 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     height: '100%',
-    background: '#0f0f1a',
+    background: colors.bg,
     overflow: 'hidden',
   },
   header: {
@@ -737,8 +738,8 @@ const styles = {
     transition: 'background 0.12s, color 0.12s',
   },
   modeBtnActive: {
-    background: 'rgba(99,102,241,0.15)',
-    color: '#a5b4fc',
+    background: colors.accentA15,
+    color: colors.accentFg,
   },
   backBtn: {
     background: 'none',
@@ -777,9 +778,9 @@ const styles = {
     transition: 'background 0.15s, border-color 0.15s',
   },
   toggleBtnActive: {
-    background: 'rgba(99,102,241,0.12)',
-    borderColor: 'rgba(99,102,241,0.3)',
-    color: '#a5b4fc',
+    background: colors.accentA12,
+    borderColor: colors.accentA30,
+    color: colors.accentFg,
   },
   toggleLabel: {
     fontVariantNumeric: 'tabular-nums',
@@ -841,9 +842,9 @@ const styles = {
     color: 'rgba(255,255,255,0.3)',
   },
   noSourceBtn: {
-    background: 'rgba(99,102,241,0.15)',
-    border: '1px solid rgba(99,102,241,0.3)',
-    color: '#a5b4fc',
+    background: colors.accentA15,
+    border: '1px solid rgba(91, 143, 199,0.3)',
+    color: colors.accentFg,
     cursor: 'pointer',
     padding: '8px 20px',
     borderRadius: '6px',
@@ -884,7 +885,7 @@ const styles = {
   },
   dropBtn: {
     marginTop: '8px',
-    background: '#6366f1',
+    background: colors.accent,
     border: 'none',
     color: '#ffffff',
     cursor: 'pointer',
@@ -906,7 +907,7 @@ const styles = {
     zIndex: 100,
   },
   exportCard: {
-    background: '#1a1a2e',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: '12px',
     padding: '32px 40px',
@@ -928,7 +929,7 @@ const styles = {
   },
   exportBarFill: {
     height: '100%',
-    background: '#6366f1',
+    background: colors.accent,
     borderRadius: '3px',
     transition: 'width 0.15s',
   },

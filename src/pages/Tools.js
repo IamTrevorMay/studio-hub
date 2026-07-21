@@ -12,7 +12,7 @@ const TOOLS = [
     key: 'teleprompter',
     name: 'Teleprompter',
     description: 'Camera monitor with smooth-scrolling script overlay for recording and live presentations.',
-    color: '#6366f1',
+    color: '#5b8fc7',
   },
   {
     key: 'broadcast',
@@ -49,7 +49,7 @@ const TOOLS = [
     key: 'assets',
     name: 'Assets',
     description: 'Company file server for shared media, templates, and production assets.',
-    color: '#a5b4fc',
+    color: '#8fb4d8',
     externalUrl: 'https://www.mayday.systems',
   },
   {
@@ -122,7 +122,7 @@ export default function Tools({ onNavigate }) {
             }}
             style={styles.card}
             onMouseEnter={e => {
-              e.currentTarget.style.borderColor = 'rgba(99,102,241,0.3)';
+              e.currentTarget.style.borderColor = 'rgba(91, 143, 199,0.3)';
             }}
             onMouseLeave={e => {
               e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)';

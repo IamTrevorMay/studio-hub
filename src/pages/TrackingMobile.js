@@ -10,6 +10,7 @@ import { ptRangeToUtc } from '../lib/ptDate';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import usePersistedTab from '../hooks/usePersistedTab';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
+import { colors } from '../lib/styleTokens';
 
 // Same source-of-truth columns as desktop Tracking.js.
 const POSTS_COLUMNS = [
@@ -327,7 +328,7 @@ function GoalRow({ label, count, goal }) {
       </div>
       {goal ? (
         <div style={styles.goalBar}>
-          <div style={{ ...styles.goalBarFill, width: `${pct}%`, background: met ? '#22c55e' : '#6366f1' }} />
+          <div style={{ ...styles.goalBarFill, width: `${pct}%`, background: met ? '#22c55e' : '#5b8fc7' }} />
         </div>
       ) : null}
     </div>
@@ -337,7 +338,7 @@ function GoalRow({ label, count, goal }) {
 // ─── Styles ──────────────────────────────────────────────────
 
 const styles = {
-  root: { display: 'flex', flexDirection: 'column', minHeight: '100%', background: '#0f0f1a', color: '#e2e8f0' },
+  root: { display: 'flex', flexDirection: 'column', minHeight: '100%', background: colors.bg, color: colors.textBright },
   header: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     padding: `${mobileTokens.space.md}px ${mobileTokens.space.lg}px`,
@@ -345,8 +346,8 @@ const styles = {
   title: { margin: 0, fontSize: mobileTokens.font.xl, fontWeight: 800, color: '#fff', letterSpacing: '-0.3px' },
   refreshBtn: {
     ...mobileTapButton, width: 38, height: 38,
-    background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)',
-    borderRadius: mobileTokens.radius.md, color: '#a5b4fc',
+    background: colors.accentA15, border: '1px solid rgba(91, 143, 199,0.3)',
+    borderRadius: mobileTokens.radius.md, color: colors.accentFg,
     fontSize: 18, lineHeight: 1, fontFamily: 'inherit',
   },
   tabs: { display: 'flex', gap: 6, padding: `0 ${mobileTokens.space.lg}px ${mobileTokens.space.sm}px` },
@@ -356,7 +357,7 @@ const styles = {
     background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)',
     color: 'rgba(255,255,255,0.55)', fontSize: mobileTokens.font.sm, fontWeight: 600,
   },
-  tabActive: { background: 'rgba(99,102,241,0.18)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.3)' },
+  tabActive: { background: colors.accentSoft, color: colors.accentFg, border: '1px solid rgba(91, 143, 199,0.3)' },
   pane: { flex: 1, minHeight: 0, padding: `0 ${mobileTokens.space.lg}px ${mobileTokens.space.xxxl}px` },
 
   monthRow: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: mobileTokens.space.md, padding: `${mobileTokens.space.sm}px 0` },
@@ -365,7 +366,7 @@ const styles = {
     background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
     borderRadius: mobileTokens.radius.pill, color: 'rgba(255,255,255,0.55)', fontSize: mobileTokens.font.md,
   },
-  monthLabel: { fontSize: mobileTokens.font.md, fontWeight: 700, color: '#a5b4fc', minWidth: 90, textAlign: 'center' },
+  monthLabel: { fontSize: mobileTokens.font.md, fontWeight: 700, color: colors.accentFg, minWidth: 90, textAlign: 'center' },
 
   list: { display: 'flex', flexDirection: 'column', gap: 10 },
   platformCard: {
@@ -410,7 +411,7 @@ const styles = {
   cardMeta: { display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 },
   priorityBadge: {
     fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4,
-    background: 'rgba(99,102,241,0.2)', color: '#a5b4fc', letterSpacing: '0.3px',
+    background: colors.accentA20, color: colors.accentFg, letterSpacing: '0.3px',
   },
   typeBadge: { fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: '0.3px' },
   timeAgo: { fontSize: 11, color: 'rgba(255,255,255,0.3)' },

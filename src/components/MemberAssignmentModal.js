@@ -4,6 +4,7 @@ import { RESEARCH_FIELDS, emptyResearchForm, listResearchDocs, createResearchDoc
 import { fetchAllRows } from '../pages/analytics/utils';
 import backdropDismiss from '../lib/backdropDismiss';
 import { clickableKeyProps } from '../lib/styleRecipes';
+import { colors } from '../lib/styleTokens';
 
 const TEAM_ROLES = ['admin', 'assistant', 'member', 'partner'];
 
@@ -423,7 +424,7 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
   },
   modal: {
-    background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14,
+    background: colors.bgHover, border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14,
     width: 560, maxWidth: '92vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column',
   },
   header: {
@@ -450,7 +451,7 @@ const styles = {
     fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.45)', letterSpacing: 0.4,
     textTransform: 'uppercase', margin: '4px 0 6px', display: 'flex', alignItems: 'center', gap: 6,
   },
-  countPill: { background: '#6366f1', color: '#fff', borderRadius: 999, padding: '1px 7px', fontSize: 10, fontWeight: 800 },
+  countPill: { background: colors.accent, color: colors.white, borderRadius: 999, padding: '1px 7px', fontSize: 10, fontWeight: 800 },
   chipGroupLabel: { fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.35)', margin: '2px 0 4px', letterSpacing: 0.4 },
   chipWrap: { display: 'flex', flexWrap: 'wrap', gap: 6 },
   personChip: {
@@ -458,7 +459,7 @@ const styles = {
     color: 'rgba(255,255,255,0.7)', borderRadius: 999, padding: '5px 12px', fontSize: 12.5, cursor: 'pointer',
     fontFamily: 'inherit',
   },
-  personChipOn: { background: 'rgba(99,102,241,0.25)', border: '1px solid rgba(99,102,241,0.6)', color: '#c7d2fe', fontWeight: 600 },
+  personChipOn: { background: colors.accentA25, border: '1px solid rgba(91, 143, 199,0.6)', color: colors.accentFgSoft, fontWeight: 600 },
   formGrid: { display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12, marginTop: 12 },
   input: {
     width: '100%', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)',
@@ -476,7 +477,7 @@ const styles = {
     fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
   },
   assignBtn: {
-    background: '#6366f1', border: 'none', color: '#fff', borderRadius: 9,
+    background: colors.accent, border: 'none', color: colors.white, borderRadius: 9, // style-lint-ignore
     padding: '9px 20px', fontSize: 13, fontWeight: 700, fontFamily: 'inherit',
   },
   recordList: {
@@ -491,11 +492,11 @@ const styles = {
   recordEmpty: { padding: '10px', fontSize: 12, color: 'rgba(255,255,255,0.35)', fontStyle: 'italic' },
   recordPicked: {
     marginTop: 6, padding: '7px 10px', borderRadius: 8, fontSize: 13,
-    background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.4)',
+    background: colors.accentA15, border: '1px solid rgba(91, 143, 199,0.4)',
     color: '#c7d2fe', display: 'flex', alignItems: 'center', gap: 8,
   },
   recordClear: {
-    marginLeft: 'auto', background: 'none', border: 'none', color: '#a5b4fc',
+    marginLeft: 'auto', background: 'none', border: 'none', color: colors.accentFg,
     fontSize: 11, cursor: 'pointer', textDecoration: 'underline', fontFamily: 'inherit',
   },
   segmentRow: { display: 'flex', gap: 6 },
@@ -504,6 +505,6 @@ const styles = {
     color: 'rgba(255,255,255,0.7)', borderRadius: 8, padding: '7px 10px', fontSize: 12.5,
     cursor: 'pointer', fontFamily: 'inherit',
   },
-  segmentBtnOn: { background: 'rgba(99,102,241,0.25)', border: '1px solid rgba(99,102,241,0.6)', color: '#c7d2fe', fontWeight: 600 },
+  segmentBtnOn: { background: colors.accentA25, border: '1px solid rgba(91, 143, 199,0.6)', color: colors.accentFgSoft, fontWeight: 600 },
   researchHelp: { fontSize: 11, fontStyle: 'italic', color: 'rgba(255,255,255,0.4)', margin: '0 0 6px', lineHeight: 1.4 },
 };

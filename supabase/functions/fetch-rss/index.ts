@@ -42,6 +42,7 @@ Deno.serve(
 
     // Upsert articles from all feeds
     let upsertCount = 0;
+    let upsertErrorCount = 0;
     for (const result of feedResults) {
       if (result.status !== "fulfilled") continue;
       const { feed, items } = result.value;
@@ -68,11 +69,21 @@ Deno.serve(
               image_url: item.imageUrl || null,
               guid,
             },
-            { onConflict: "guid", ignoreDuplicates: false }
+            { onConflict: "feed_id,guid", ignoreDuplicates: false }
           );
 
-        if (!upsertError) upsertCount++;
+        if (upsertError) {
+          upsertErrorCount++;
+          if (upsertErrorCount === 1) {
+            console.error(`fetch-rss upsert failed (feed: ${feed.name}):`, upsertError.message);
+          }
+        } else {
+          upsertCount++;
+        }
       }
+    }
+    if (upsertErrorCount > 0) {
+      console.error(`fetch-rss: ${upsertErrorCount} upserts failed, ${upsertCount} succeeded`);
     }
 
     // Fetch articles with feed data for the response

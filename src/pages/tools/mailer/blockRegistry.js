@@ -80,7 +80,7 @@ const registry = {
       bannerUrl: '',
       title: '',
       subtitle: '',
-      bg: '#0f0f1a',
+      bg: '#0e1420',
       fg: '#ffffff',
     },
   },
@@ -107,7 +107,7 @@ const registry = {
     defaults: {
       align: 'center',
       iconSize: 28,
-      color: '#6366f1',
+      color: '#5b8fc7',
       links: [
         { platform: 'instagram', url: '' },
         { platform: 'youtube', url: '' },

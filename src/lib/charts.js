@@ -52,7 +52,7 @@ export function DonutChart({ data, valueKey = 'value', centerLabel = 'total', fo
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
       {segments.map((s, i) => (
-        <path key={i} d={s.path} fill={s.color} stroke="#12121f" strokeWidth="1" />
+        <path key={i} d={s.path} fill={s.color} stroke="#0e1420" strokeWidth="1" />
       ))}
       <text x={cx} y={cy - 6} textAnchor="middle" fill="#fff" fontSize="16" fontWeight="700">{centerText}</text>
       <text x={cx} y={cy + 12} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize="10">{centerLabel}</text>
@@ -163,7 +163,7 @@ export function TrendChart({ data, metrics, height = 280, sharedScale = false })
         )}
         {hoveredIndex !== null && metricLines.map(m => (
           <circle key={m.key} cx={m.points[hoveredIndex].x} cy={m.points[hoveredIndex].y}
-            r="3.5" fill={m.color} stroke="#12121f" strokeWidth="1.5" />
+            r="3.5" fill={m.color} stroke="#0e1420" strokeWidth="1.5" />
         ))}
         {data.map((d, i) => {
           const x = PAD.left + i * xStep - xStep / 2;

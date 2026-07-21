@@ -478,8 +478,8 @@ function CanvasItem({ row, asset, isSelected, scale, onSelect, onChange }) {
       style={{
         position: 'absolute',
         left: x, top: y, width: w, height: h,
-        background: asset?.asset_type === 'image' && asset.storage_path ? '#000' : 'rgba(99,102,241,0.18)',
-        border: isSelected ? '2px solid #818cf8' : '1px solid rgba(255,255,255,0.25)',
+        background: asset?.asset_type === 'image' && asset.storage_path ? '#000' : 'rgba(91, 143, 199,0.18)',
+        border: isSelected ? '2px solid #8fb4d8' : '1px solid rgba(255,255,255,0.25)',
         outline: dim ? '2px dashed rgba(239,68,68,0.5)' : 'none',
         opacity: dim ? 0.45 : opacity,
         boxSizing: 'border-box',
@@ -505,8 +505,8 @@ function CanvasItem({ row, asset, isSelected, scale, onSelect, onChange }) {
           style={{
             position: 'absolute',
             width: 12, height: 12,
-            background: '#818cf8',
-            border: '1px solid #1a1a2e',
+            background: colors.accentFg,
+            border: '1px solid #1b2331',
             ...(corner.includes('n') ? { top: -6 } : { bottom: -6 }),
             ...(corner.includes('w') ? { left: -6 } : { right: -6 }),
             cursor: `${corner}-resize`,

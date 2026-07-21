@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { mobileTokens } from '../utils/mobileTokens';
+import { colors } from '../lib/styleTokens';
 
 // Read-only mobile view of the BD tracker. Shows the Phases tab only —
 // Timeline / Calendar / My Stuff stay desktop-only with a footer note.
@@ -14,7 +15,7 @@ const STATUS_COLORS = {
   waiting: '#f59e0b', done: '#94a3b8',
 };
 const TAG_COLORS = {
-  mayday: '#a5b4fc', neptune: '#86efac', shared: '#fcd34d',
+  mayday: '#8fb4d8', neptune: '#86efac', shared: '#fcd34d',
 };
 const TAG_LABELS = { mayday: 'Mayday', neptune: 'Neptune', shared: 'Shared' };
 const WORKSTREAMS = ['facility', 'product', 'marketing', 'sales', 'operations', 'finance', 'tech'];
@@ -219,7 +220,7 @@ export default function BusinessDevMobile() {
 const styles = {
   root: {
     minHeight: '100%',
-    background: '#0f0f1a',
+    background: colors.bg,
     color: '#e2e8f0',
     padding: `${mobileTokens.space.md}px ${mobileTokens.space.lg}px ${mobileTokens.space.xxxl}px`,
     display: 'flex',
@@ -275,7 +276,7 @@ const styles = {
   },
   progressFill: {
     height: '100%',
-    background: 'linear-gradient(90deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(90deg, #5b8fc7, #8fb4d8)',
     transition: 'width 0.3s',
   },
   phaseMeta: {
@@ -300,13 +301,13 @@ const styles = {
     alignItems: 'center',
     gap: 6,
     padding: '4px 10px',
-    background: 'rgba(99,102,241,0.1)',
-    border: '1px solid rgba(99,102,241,0.25)',
+    background: colors.accentA10,
+    border: '1px solid rgba(91, 143, 199,0.25)',
     borderRadius: mobileTokens.radius.pill,
     fontSize: mobileTokens.font.xs,
   },
   milestoneTitle: {
-    color: '#a5b4fc',
+    color: colors.accentFg,
     fontWeight: 600,
   },
   milestoneDate: {
@@ -432,8 +433,8 @@ const styles = {
   footer: {
     marginTop: mobileTokens.space.md,
     padding: mobileTokens.space.md,
-    background: 'rgba(99,102,241,0.06)',
-    border: '1px solid rgba(99,102,241,0.18)',
+    background: colors.accentA06,
+    border: '1px solid rgba(91, 143, 199,0.18)',
     borderRadius: mobileTokens.radius.sm,
     color: 'rgba(255,255,255,0.55)',
     fontSize: mobileTokens.font.sm,

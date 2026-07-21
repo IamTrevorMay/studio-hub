@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import backdropDismiss from '../lib/backdropDismiss';
+import { colors } from '../lib/styleTokens';
 
 export default function FreelancerDocuments() {
   const { user } = useAuth();
@@ -284,8 +285,8 @@ const styles = {
     borderRadius: 6,
     fontSize: 12,
     fontWeight: 600,
-    background: 'rgba(99,102,241,0.12)',
-    color: '#a5b4fc',
+    background: colors.accentA12,
+    color: colors.accentFg,
     whiteSpace: 'nowrap',
   },
   badgeRef: {
@@ -325,7 +326,7 @@ const styles = {
     zIndex: 9999,
   },
   modal: {
-    background: '#1a1a2e',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: 14,
     width: '90%',
@@ -398,7 +399,7 @@ const styles = {
     padding: '10px 24px',
     borderRadius: 8,
     border: 'none',
-    background: '#6366f1',
+    background: colors.accent,
     color: '#fff',
     fontSize: 14,
     fontWeight: 600,

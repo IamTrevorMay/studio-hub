@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { supabase } from '../supabaseClient';
 import backdropDismiss from '../lib/backdropDismiss';
+import { colors } from '../lib/styleTokens';
 
 export default function SprintRetroModal({ sprint, completedCount, completedPoints, rolledBackCount, onClose, onSaved }) {
   const [wentWell, setWentWell] = useState('');
@@ -38,7 +39,7 @@ export default function SprintRetroModal({ sprint, completedCount, completedPoin
         </div>
 
         {/* Summary */}
-        <div style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '10px', padding: '14px', marginBottom: '16px' }}>
+        <div style={{ background: colors.accentA10, border: '1px solid rgba(91, 143, 199,0.2)', borderRadius: '10px', padding: '14px', marginBottom: '16px' }}>
           <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginBottom: '6px' }}>{dateRange}</div>
           <div style={{ display: 'flex', gap: '16px' }}>
             <div>
@@ -99,7 +100,7 @@ const overlayStyle = {
 };
 
 const modalStyle = {
-  background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '14px',
+  background: '#1b2331', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '14px',
   padding: '24px', width: '480px', maxWidth: '90vw', maxHeight: '85vh', overflowY: 'auto',
 };
 
@@ -125,6 +126,6 @@ const skipBtnStyle = {
 };
 
 const saveBtnStyle = {
-  background: '#6366f1', color: '#fff', border: 'none', borderRadius: '8px',
+  background: '#5b8fc7', color: '#fff', border: 'none', borderRadius: '8px',
   padding: '8px 20px', fontSize: '13px', fontWeight: 600, cursor: 'pointer',
 };

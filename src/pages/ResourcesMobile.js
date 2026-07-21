@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { mobileTokens } from '../utils/mobileTokens';
+import { colors } from '../lib/styleTokens';
 
 const FN_URL = `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/google-drive-resources`;
 
@@ -117,7 +118,7 @@ export default function ResourcesMobile() {
 const styles = {
   root: {
     minHeight: '100%',
-    background: '#0f0f1a',
+    background: colors.bg,
     color: '#e2e8f0',
   },
   breadcrumb: {
@@ -172,8 +173,8 @@ const styles = {
     width: 36,
     height: 36,
     borderRadius: mobileTokens.radius.sm,
-    background: 'rgba(99,102,241,0.12)',
-    color: '#a5b4fc',
+    background: colors.accentA12,
+    color: colors.accentFg,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',

@@ -5,6 +5,7 @@ import usePersistedTab from '../hooks/usePersistedTab';
 import BottomSheet from '../components/mobile/BottomSheet';
 import { mobileTokens } from '../utils/mobileTokens';
 import { expandRecurringEvents } from '../lib/recurrence';
+import { colors } from '../lib/styleTokens';
 
 const EVENT_TYPE_COLORS = {
   deadline: '#ef4444', meeting: '#3b82f6', live_recording: '#22c55e',
@@ -379,8 +380,8 @@ function ToggleBtn({ label, active, onClick }) {
         flex: 1,
         minHeight: mobileTokens.tap,
         border: 'none',
-        background: active ? 'rgba(99,102,241,0.16)' : 'transparent',
-        color: active ? '#a5b4fc' : 'rgba(255,255,255,0.6)',
+        background: active ? 'rgba(91, 143, 199,0.16)' : 'transparent',
+        color: active ? '#8fb4d8' : 'rgba(255,255,255,0.6)',
         fontSize: mobileTokens.font.md,
         fontWeight: active ? 600 : 500,
         borderRadius: mobileTokens.radius.md,
@@ -405,7 +406,7 @@ function AgendaView({ events, onSelect }) {
           <h3 style={styles.dayHeader}>{section.label}</h3>
           <div style={styles.eventList}>
             {section.events.map((ev) => (
-              <button key={ev.__instanceId || ev.id} onClick={() => onSelect(ev)} style={{ ...styles.eventRow, borderLeft: `3px solid ${EVENT_TYPE_COLORS[ev.event_type] || '#6366f1'}` }}>
+              <button key={ev.__instanceId || ev.id} onClick={() => onSelect(ev)} style={{ ...styles.eventRow, borderLeft: `3px solid ${EVENT_TYPE_COLORS[ev.event_type] || '#5b8fc7'}` }}>
                 <div style={styles.eventTime}>{fmtTime(ev.__instanceStart || ev.start_date, ev.all_day)}</div>
                 <div style={styles.eventBody}>
                   <div style={styles.eventTitle}>{ev.title || 'Untitled'}</div>
@@ -498,8 +499,8 @@ function MonthView({ events, monthCursor, setMonthCursor, onSelectDay }) {
               style={{
                 ...styles.dayCell,
                 opacity: inMonth ? 1 : 0.35,
-                background: isToday ? 'rgba(99,102,241,0.16)' : 'transparent',
-                color: isToday ? '#a5b4fc' : '#e2e8f0',
+                background: isToday ? 'rgba(91, 143, 199,0.16)' : 'transparent',
+                color: isToday ? '#8fb4d8' : '#e2e8f0',
                 fontWeight: isToday ? 700 : 500,
               }}
             >
@@ -507,7 +508,7 @@ function MonthView({ events, monthCursor, setMonthCursor, onSelectDay }) {
               {cell.count > 0 && (
                 <span style={{
                   ...styles.dayDot,
-                  background: cell.count > 0 ? '#6366f1' : 'transparent',
+                  background: cell.count > 0 ? '#5b8fc7' : 'transparent',
                 }}>{cell.count > 1 ? cell.count : ''}</span>
               )}
             </button>
@@ -546,7 +547,7 @@ function DayEvents({ events, onSelect, onAddForDay }) {
       {events.length === 0 ? (
         <p style={styles.empty}>No events this day.</p>
       ) : events.map((ev) => (
-        <button key={ev.id} onClick={() => onSelect(ev)} style={{ ...styles.eventRow, borderLeft: `3px solid ${EVENT_TYPE_COLORS[ev.event_type] || '#6366f1'}` }}>
+        <button key={ev.id} onClick={() => onSelect(ev)} style={{ ...styles.eventRow, borderLeft: `3px solid ${EVENT_TYPE_COLORS[ev.event_type] || '#5b8fc7'}` }}>
           <div style={styles.eventTime}>{fmtTime(ev.start_date, ev.all_day)}</div>
           <div style={styles.eventBody}>
             <div style={styles.eventTitle}>{ev.title || 'Untitled'}</div>
@@ -562,7 +563,7 @@ function DayEvents({ events, onSelect, onAddForDay }) {
 }
 
 function EventDetail({ event }) {
-  const accent = EVENT_TYPE_COLORS[event.event_type] || '#6366f1';
+  const accent = EVENT_TYPE_COLORS[event.event_type] || '#5b8fc7';
   const start = event.start_date && new Date(event.start_date);
   const end = event.end_date && new Date(event.end_date);
   return (
@@ -598,7 +599,7 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     minHeight: '100%',
-    background: '#0f0f1a',
+    background: colors.bg,
   },
   viewToggle: {
     display: 'flex',
@@ -748,17 +749,17 @@ const styles = {
   fab: {
     position: 'fixed', right: 18, bottom: 86,
     width: 56, height: 56, borderRadius: '50%',
-    background: '#6366f1', color: '#fff', border: 'none',
+    background: colors.accent, color: colors.white, border: 'none',
     fontSize: 30, lineHeight: 1, cursor: 'pointer', fontFamily: 'inherit',
-    boxShadow: '0 8px 22px rgba(99,102,241,0.45)',
+    boxShadow: '0 8px 22px rgba(91, 143, 199,0.45)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     zIndex: 50,
   },
   addForDayBtn: {
     marginTop: 6, padding: '10px 14px',
-    background: 'rgba(99,102,241,0.12)',
-    border: '1px dashed rgba(99,102,241,0.35)',
-    color: '#a5b4fc',
+    background: colors.accentA12,
+    border: '1px dashed rgba(91, 143, 199,0.35)',
+    color: colors.accentFg,
     borderRadius: mobileTokens.radius.md,
     fontSize: mobileTokens.font.sm, fontWeight: 600,
     cursor: 'pointer', fontFamily: 'inherit',
@@ -800,7 +801,7 @@ const createStyles = {
     cursor: 'pointer', fontFamily: 'inherit',
   },
   saveBtn: {
-    padding: '10px 18px', background: '#6366f1',
+    padding: '10px 18px', background: colors.accent,
     border: 'none', color: '#fff',
     borderRadius: mobileTokens.radius.sm,
     fontSize: mobileTokens.font.md, fontWeight: 700,
@@ -856,8 +857,8 @@ const detailStyles = {
   note: {
     margin: `${mobileTokens.space.sm}px 0 0`,
     padding: mobileTokens.space.md,
-    background: 'rgba(99,102,241,0.08)',
-    border: '1px solid rgba(99,102,241,0.2)',
+    background: colors.accentA08,
+    border: '1px solid rgba(91, 143, 199,0.2)',
     borderRadius: mobileTokens.radius.sm,
     color: 'rgba(255,255,255,0.6)',
     fontSize: mobileTokens.font.sm,

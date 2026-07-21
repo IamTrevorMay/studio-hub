@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../supabaseClient';
 import { mobileTokens } from '../utils/mobileTokens';
+import { colors } from '../lib/styleTokens';
 
 export default function AuthPageMobile() {
   const { signIn, isPasswordRecovery, clearRecovery, isInviteSetup } = useAuth();
@@ -284,7 +285,7 @@ const styles = {
   bg: {
     position: 'fixed',
     inset: 0,
-    background: 'linear-gradient(180deg, #0f0f23 0%, #1a1a3e 60%, #0f0f23 100%)',
+    background: 'linear-gradient(180deg, #0f0f23 0%, #1b2331 60%, #0f0f23 100%)',
     zIndex: 0,
   },
   scroll: {
@@ -357,7 +358,7 @@ const styles = {
   button: {
     minHeight: mobileTokens.tap + 6,
     padding: `${mobileTokens.space.md}px`,
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     border: 'none',
     borderRadius: mobileTokens.radius.md,
     color: '#fff',
@@ -369,10 +370,10 @@ const styles = {
   },
   banner: {
     padding: mobileTokens.space.md,
-    background: 'rgba(99,102,241,0.12)',
-    border: '1px solid rgba(99,102,241,0.25)',
+    background: colors.accentA12,
+    border: '1px solid rgba(91, 143, 199,0.25)',
     borderRadius: mobileTokens.radius.md,
-    color: '#a5b4fc',
+    color: colors.accentFg,
     fontSize: mobileTokens.font.md,
     textAlign: 'center',
     fontWeight: 500,
@@ -398,7 +399,7 @@ const styles = {
     border: 'none',
     textAlign: 'center',
     fontSize: mobileTokens.font.md,
-    color: '#a5b4fc',
+    color: colors.accentFg,
     cursor: 'pointer',
     fontFamily: 'inherit',
     padding: mobileTokens.space.md,

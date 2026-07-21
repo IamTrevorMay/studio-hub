@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
+import { colors } from '../lib/styleTokens';
 
 export default function FreelancerProfile() {
   const { profile, updateProfile } = useAuth();
@@ -159,7 +160,7 @@ export default function FreelancerProfile() {
               />
             ) : (
               <div style={{
-                width: 80, height: 80, borderRadius: '50%', background: '#6366f1',
+                width: 80, height: 80, borderRadius: '50%', background: colors.accent,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 color: '#fff', fontSize: 28, fontWeight: 700,
               }}>
@@ -459,7 +460,7 @@ const styles = {
     boxSizing: 'border-box',
   },
   saveBtn: {
-    background: '#6366f1',
+    background: colors.accent,
     color: '#fff',
     border: 'none',
     borderRadius: 6,

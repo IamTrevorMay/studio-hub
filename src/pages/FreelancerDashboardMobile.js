@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import FullScreenSheet from '../components/mobile/FullScreenSheet';
 import { mobileTokens } from '../utils/mobileTokens';
+import { colors } from '../lib/styleTokens';
 
 // Studio owner (Trevor) — sole recipient of contractor-comment notifications.
 const STUDIO_OWNER_ID = 'c3290048-436b-46c6-b3f0-fdf7923d0c3b';
@@ -95,7 +96,7 @@ export default function FreelancerDashboardMobile() {
       </header>
 
       <div style={styles.statRow}>
-        <Stat label="Open" value={counts.open} accent="#a5b4fc" />
+        <Stat label="Open" value={counts.open} accent="#8fb4d8" />
         <Stat label="Completed" value={counts.completed} accent="#86efac" />
       </div>
 
@@ -175,9 +176,9 @@ function FilterChip({ label, count, active, onClick }) {
   return (
     <button onClick={onClick} style={{
       ...styles.chip,
-      background: active ? 'rgba(99,102,241,0.16)' : 'rgba(255,255,255,0.05)',
-      color: active ? '#a5b4fc' : 'rgba(255,255,255,0.7)',
-      borderColor: active ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.1)',
+      background: active ? 'rgba(91, 143, 199,0.16)' : 'rgba(255,255,255,0.05)',
+      color: active ? '#8fb4d8' : 'rgba(255,255,255,0.7)',
+      borderColor: active ? 'rgba(91, 143, 199,0.4)' : 'rgba(255,255,255,0.1)',
       fontWeight: active ? 600 : 500,
     }}>{label} <span style={{ color: 'rgba(255,255,255,0.4)' }}>· {count}</span></button>
   );
@@ -314,7 +315,7 @@ function AssignmentDetail({ assignmentId, assignment, profile, onChanged }) {
                 <div key={c.id} style={{ ...detailStyles.bubbleRow, justifyContent: mine ? 'flex-end' : 'flex-start' }}>
                   <div style={{
                     ...detailStyles.bubble,
-                    background: mine ? 'linear-gradient(135deg, #6366f1, #818cf8)' : 'rgba(255,255,255,0.06)',
+                    background: mine ? 'linear-gradient(135deg, #5b8fc7, #8fb4d8)' : 'rgba(255,255,255,0.06)',
                     color: mine ? '#fff' : '#e2e8f0',
                   }}>
                     {!mine && <div style={detailStyles.bubbleSender}>{c.author?.full_name || 'Unknown'}</div>}
@@ -343,7 +344,7 @@ function AssignmentDetail({ assignmentId, assignment, profile, onChanged }) {
 const styles = {
   root: {
     minHeight: '100%',
-    background: '#0f0f1a',
+    background: colors.bg,
     color: '#e2e8f0',
     padding: `${mobileTokens.space.md}px 0 ${mobileTokens.space.xxxl}px`,
     display: 'flex',
@@ -358,7 +359,7 @@ const styles = {
   },
   avatar: {
     width: 44, height: 44, borderRadius: mobileTokens.radius.md,
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
     fontSize: mobileTokens.font.lg, fontWeight: 700, flexShrink: 0,
   },
@@ -464,7 +465,7 @@ const detailStyles = {
   statusActions: { display: 'flex', gap: mobileTokens.space.sm },
   statusBtn: {
     flex: 1, minHeight: mobileTokens.tap + 4, padding: mobileTokens.space.md,
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)', border: 'none',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)', border: 'none',
     borderRadius: mobileTokens.radius.md, color: '#fff',
     fontSize: mobileTokens.font.md, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
   },
@@ -513,7 +514,7 @@ const detailStyles = {
   },
   sendBtn: {
     width: mobileTokens.tap, height: mobileTokens.tap, border: 'none',
-    borderRadius: '50%', background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    borderRadius: '50%', background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     color: '#fff', cursor: 'pointer', display: 'flex',
     alignItems: 'center', justifyContent: 'center', fontFamily: 'inherit', flexShrink: 0,
   },

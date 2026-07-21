@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
 import backdropDismiss from '../lib/backdropDismiss';
+import { colors } from '../lib/styleTokens';
 
 // Edit a `tasks` row. Used by the Workflows Progress section so a
 // producer can fix a title, push out the due date, reassign, or mark
@@ -204,7 +205,7 @@ function Row({ children }) { return <div style={{ display: 'flex', gap: 12 }}>{c
 
 const styles = {
   overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
-  modal: { background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, width: 560, maxWidth: '92vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column' },
+  modal: { background: colors.bgHover, border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, width: 560, maxWidth: '92vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '20px 24px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' },
   h2: { fontSize: 18, fontWeight: 700, color: '#fff', margin: 0 },
   subtitle: { fontSize: 11, color: 'rgba(255,255,255,0.4)', margin: '4px 0 0' },
@@ -215,7 +216,7 @@ const styles = {
   fieldWrap: { display: 'flex', flexDirection: 'column', gap: 4, flex: 1 },
   fieldLabel: { fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.45)', letterSpacing: 0.4, textTransform: 'uppercase' },
   input: { width: '100%', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '8px 12px', color: '#fff', fontSize: 14, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' },
-  primaryBtn: { background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  primaryBtn: { background: colors.accent, color: colors.white, border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   cancelBtn: { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)', borderRadius: 6, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   error: { padding: 10, background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, fontSize: 12 },
 };

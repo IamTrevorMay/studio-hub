@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Bold, Italic, List, ListOrdered, Link2 } from 'lucide-react';
+import { colors } from '../../../lib/styleTokens';
 
 // Tiptap WYSIWYG editor for the rich-text block. The HTML output is
 // stored on block.html and consumed verbatim by the renderer. Tiptap's
@@ -117,7 +118,7 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     fontFamily: 'inherit',
   },
-  tbBtnActive: { background: 'rgba(99,102,241,0.25)', color: '#c7d2fe' },
+  tbBtnActive: { background: colors.accentA25, color: colors.accentFgSoft },
   editorWrap: {
     padding: 8, minHeight: 100, color: '#fff', fontSize: 13,
   },

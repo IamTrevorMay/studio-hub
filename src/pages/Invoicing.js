@@ -6,6 +6,7 @@ import usePersistedTab from '../hooks/usePersistedTab';
 import jsPDF from 'jspdf';
 import backdropDismiss from '../lib/backdropDismiss';
 import { clickableKeyProps } from '../lib/styleRecipes';
+import { colors } from '../lib/styleTokens';
 
 // ════════════════════════════════════════════════════════════
 // Constants
@@ -588,7 +589,7 @@ function DashboardView({ stats, invoices, contactsById, onOpen }) {
     { label: 'Outstanding', value: formatCurrency(stats.outstanding), color: '#f59e0b', bg: 'rgba(245,158,11,0.10)' },
     { label: 'Overdue', value: stats.overdueCount, color: '#ef4444', bg: 'rgba(239,68,68,0.10)' },
     { label: 'Paid This Month', value: formatCurrency(stats.paidThisMonth), color: '#22c55e', bg: 'rgba(34,197,94,0.10)' },
-    { label: 'Total Paid', value: formatCurrency(stats.paidAllTime), color: '#6366f1', bg: 'rgba(99,102,241,0.10)' },
+    { label: 'Total Paid', value: formatCurrency(stats.paidAllTime), color: '#5b8fc7', bg: 'rgba(91, 143, 199,0.10)' },
   ];
   const recent = invoices.slice(0, 10);
 
@@ -1315,8 +1316,8 @@ function InvoiceEditor({ invoiceId, invoices, contacts, contactsById, templates,
           </div>
           {Number(form.amount_paid_cents || 0) > 0 && (
             <div style={styles.subtotalRow}>
-              <div style={{ fontSize: '13px', fontWeight: 700, color: '#a5b4fc' }}>Balance Due</div>
-              <div style={{ fontSize: '16px', fontWeight: 700, color: '#a5b4fc', fontFamily: 'monospace' }}>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: colors.accentFg }}>Balance Due</div>
+              <div style={{ fontSize: '16px', fontWeight: 700, color: colors.accentFg, fontFamily: 'monospace' }}>
                 {formatCurrency(balanceDueCents)}
               </div>
             </div>
@@ -1647,9 +1648,9 @@ const styles = {
     fontFamily: "'DM Sans', sans-serif",
   },
   tabActive: {
-    background: 'rgba(99,102,241,0.15)',
-    color: '#a5b4fc',
-    borderColor: 'rgba(99,102,241,0.25)',
+    background: colors.accentA15,
+    color: colors.accentFg,
+    borderColor: colors.accentA25,
   },
 
   // Summary cards
@@ -1706,9 +1707,9 @@ const styles = {
     fontFamily: "'DM Sans', sans-serif",
   },
   pillActive: {
-    background: 'rgba(99,102,241,0.15)',
-    color: '#a5b4fc',
-    borderColor: 'rgba(99,102,241,0.25)',
+    background: colors.accentA15,
+    color: colors.accentFg,
+    borderColor: colors.accentA25,
   },
   searchInput: {
     background: 'rgba(255,255,255,0.04)',
@@ -1758,7 +1759,7 @@ const styles = {
 
   // Buttons
   primaryBtn: {
-    background: '#6366f1',
+    background: colors.accent,
     color: '#fff',
     border: 'none',
     borderRadius: '6px',
@@ -1818,7 +1819,7 @@ const styles = {
     top: '100%',
     right: 0,
     marginTop: '4px',
-    background: '#1a1a2e',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.10)',
     borderRadius: '8px',
     padding: '4px',
@@ -1887,8 +1888,8 @@ const styles = {
   },
   calendarCellEmpty: { minHeight: '90px' },
   calendarCellToday: {
-    background: 'rgba(99,102,241,0.06)',
-    border: '1px solid rgba(99,102,241,0.25)',
+    background: colors.accentA06,
+    border: '1px solid rgba(91, 143, 199,0.25)',
   },
   calendarCellNum: {
     fontSize: '11px',
@@ -2056,7 +2057,7 @@ const styles = {
     zIndex: 1000,
   },
   modal: {
-    background: '#1a1a2e',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.10)',
     borderRadius: '12px',
     padding: '20px',

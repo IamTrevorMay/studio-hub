@@ -253,7 +253,7 @@ export default function PhaseFour({ session, onSessionChange, recipients }) {
                           checked={alreadySynced || checked}
                           disabled={alreadySynced}
                           onChange={() => !alreadySynced && toggleDriveFile(file.webViewLink)}
-                          style={{ accentColor: '#6366f1', cursor: alreadySynced ? 'default' : 'pointer' }}
+                          style={{ accentColor: '#5b8fc7', cursor: alreadySynced ? 'default' : 'pointer' }}
                         />
                         <div style={st.rowInfo}>
                           <span style={st.rowTitle}>{titleFromFilename(file.name)}</span>
@@ -430,13 +430,13 @@ const st = {
   // Drive import styles
   driveSection: {
     display: 'flex', flexDirection: 'column', gap: '8px', padding: '14px 16px',
-    background: 'rgba(99,102,241,0.04)', border: '1px solid rgba(99,102,241,0.12)',
+    background: 'rgba(91, 143, 199,0.04)', border: '1px solid rgba(91, 143, 199,0.12)',
     borderRadius: '10px',
   },
   driveHint: { fontSize: '12px', color: 'rgba(255,255,255,0.35)', lineHeight: 1.4 },
   driveBtn: {
-    padding: '6px 14px', fontSize: '12px', fontWeight: 600, color: '#6366f1',
-    background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)',
+    padding: '6px 14px', fontSize: '12px', fontWeight: 600, color: '#5b8fc7',
+    background: 'rgba(91, 143, 199,0.1)', border: '1px solid rgba(91, 143, 199,0.2)',
     borderRadius: '6px', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
   },
   drivePanel: {
@@ -452,8 +452,8 @@ const st = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px',
   },
   driveSelectAll: {
-    padding: '4px 10px', fontSize: '11px', fontWeight: 600, color: '#6366f1',
-    background: 'none', border: '1px solid rgba(99,102,241,0.2)',
+    padding: '4px 10px', fontSize: '11px', fontWeight: 600, color: '#5b8fc7',
+    background: 'none', border: '1px solid rgba(91, 143, 199,0.2)',
     borderRadius: '4px', cursor: 'pointer', fontFamily: 'inherit',
   },
   driveList: {

@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { fetchAllRows } from './analytics/utils';
 import usePersistedTab from '../hooks/usePersistedTab';
+import { colors } from '../lib/styleTokens';
 
 const TABS = ['Assignments', 'Hours', 'Documents', 'Team'];
 
@@ -722,9 +723,9 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
                             padding: '6px 16px',
                             borderRadius: 6,
                             border: '1px solid',
-                            borderColor: invitePaymentType === pt ? '#6366f1' : 'rgba(255,255,255,0.12)',
-                            background: invitePaymentType === pt ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.04)',
-                            color: invitePaymentType === pt ? '#818cf8' : 'rgba(255,255,255,0.6)',
+                            borderColor: invitePaymentType === pt ? '#5b8fc7' : 'rgba(255,255,255,0.12)',
+                            background: invitePaymentType === pt ? 'rgba(91, 143, 199,0.15)' : 'rgba(255,255,255,0.04)',
+                            color: invitePaymentType === pt ? '#8fb4d8' : 'rgba(255,255,255,0.6)',
                             fontSize: 13,
                             fontWeight: 600,
                             fontFamily: 'DM Sans, sans-serif',
@@ -839,7 +840,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
                                   return next;
                                 });
                               }}
-                              style={{ accentColor: '#6366f1' }}
+                              style={{ accentColor: '#5b8fc7' }}
                             />
                             {folder.name}
                           </label>
@@ -944,7 +945,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
                           </span>
                         )}
                         {fp.rate && (
-                          <span style={{ ...styles.badge, background: 'rgba(99,102,241,0.15)', color: '#818cf8' }}>
+                          <span style={{ ...styles.badge, background: colors.accentA15, color: colors.accentFg }}>
                             ${Number(fp.rate).toFixed(0)}{fp.payment_type === 'hourly' ? '/hr' : '/proj'}
                           </span>
                         )}
@@ -995,7 +996,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
                                 <span style={{ color: '#fff', fontSize: 13, flex: 1 }}>
                                   {formatDate(h.period_start)} - {formatDate(h.period_end)}
                                 </span>
-                                <span style={{ fontSize: 13, color: '#818cf8', fontWeight: 600 }}>
+                                <span style={{ fontSize: 13, color: colors.accentFg, fontWeight: 600 }}>
                                   {Number(h.total_hours).toFixed(1)}h
                                 </span>
                                 {h.reviewed_at ? (
@@ -1513,13 +1514,13 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
                                     alignItems: 'center',
                                     gap: 6,
                                     padding: '6px 12px',
-                                    background: 'rgba(99,102,241,0.15)',
-                                    color: '#a5b4fc',
+                                    background: colors.accentA15,
+                                    color: colors.accentFg,
                                     borderRadius: 8,
                                     fontSize: 13,
                                     fontWeight: 500,
                                     textDecoration: 'none',
-                                    border: '1px solid rgba(99,102,241,0.3)',
+                                    border: '1px solid rgba(91, 143, 199,0.3)',
                                   }}
                                 >
                                   Open asset link
@@ -1750,7 +1751,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexShrink: 0 }}>
-                      <span style={{ fontSize: 15, color: '#818cf8', fontWeight: 700 }}>
+                      <span style={{ fontSize: 15, color: colors.accentFg, fontWeight: 700 }}> // style-lint-ignore
                         {Number(h.total_hours).toFixed(1)}h
                       </span>
                       {h.notes && (
@@ -1956,7 +1957,7 @@ const styles = {
     maxWidth: '1500px',
     margin: '0 auto',
     minHeight: '100vh',
-    background: '#0f0f1a',
+    background: colors.bg,
     fontFamily: 'DM Sans, sans-serif',
   },
   pageTitle: {
@@ -1985,9 +1986,9 @@ const styles = {
     transition: 'all 0.15s',
   },
   tabPillActive: {
-    background: '#6366f1',
+    background: colors.accent,
     color: '#fff',
-    borderColor: '#6366f1',
+    borderColor: colors.accent,
   },
 
   /* Cards */
@@ -2003,7 +2004,7 @@ const styles = {
     width: 36,
     height: 36,
     borderRadius: '50%',
-    background: '#6366f1',
+    background: colors.accent,
     color: '#fff',
     display: 'flex',
     alignItems: 'center',
@@ -2034,8 +2035,8 @@ const styles = {
     borderRadius: 5,
     fontSize: 11,
     fontWeight: 500,
-    background: 'rgba(99,102,241,0.12)',
-    color: '#a5b4fc',
+    background: colors.accentA12,
+    color: colors.accentFg,
   },
 
   /* Buttons */
@@ -2043,7 +2044,7 @@ const styles = {
     padding: '8px 18px',
     borderRadius: 8,
     border: 'none',
-    background: '#6366f1',
+    background: colors.accent,
     color: '#fff',
     fontSize: 13,
     fontWeight: 600,
@@ -2086,9 +2087,9 @@ const styles = {
     fontFamily: 'DM Sans, sans-serif',
   },
   filterPillActive: {
-    background: '#6366f1',
+    background: colors.accent,
     color: '#fff',
-    borderColor: '#6366f1',
+    borderColor: colors.accent,
   },
 
   /* Form */

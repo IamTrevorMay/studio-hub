@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { colors } from '../lib/styleTokens';
 
 const TOUR_STEPS = [
   { key: 'fl_dashboard', title: 'Dashboard', description: 'Your home base. View active assignments, update your status, log hours, and report blockers.' },
@@ -89,7 +90,7 @@ export default function FreelancerTour({ onComplete, onNavigate }) {
     top: adjustedTop,
     left: tooltipLeft,
     width: 300,
-    background: '#1a1a2e',
+    background: '#1b2331',
     border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: 14,
     padding: '20px',
@@ -169,7 +170,7 @@ const styles = {
     padding: '8px 20px',
     borderRadius: 8,
     border: 'none',
-    background: '#6366f1',
+    background: colors.accent,
     color: '#fff',
     cursor: 'pointer',
     fontSize: 14,

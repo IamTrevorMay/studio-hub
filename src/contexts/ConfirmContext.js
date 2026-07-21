@@ -50,7 +50,7 @@ const overlay = {
   alignItems: 'center', justifyContent: 'center',
 };
 const modal = {
-  background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.15)',
+  background: '#1b2331', border: '1px solid rgba(255,255,255,0.15)',
   borderRadius: '14px', padding: '24px', maxWidth: '380px', width: '90%',
   boxShadow: '0 16px 48px rgba(0,0,0,0.5)',
 };

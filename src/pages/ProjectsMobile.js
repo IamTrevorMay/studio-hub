@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import FullScreenSheet from '../components/mobile/FullScreenSheet';
 import { mobileTokens } from '../utils/mobileTokens';
 import usePersistedTab from '../hooks/usePersistedTab';
+import { colors } from '../lib/styleTokens';
 
 // Must mirror desktop Projects.js exactly — the DB status enum is
 // queue/write/pre_production/film/review/edit/post_production/publish. The old
@@ -93,15 +94,15 @@ export default function ProjectsMobile() {
         <div style={styles.list}>
           {visible.map((p) => (
             <button key={p.id} onClick={() => setSelected(p)} style={styles.card}>
-              <div style={{ ...styles.statusBar, background: STATUS_COLORS[p.status] || '#6366f1' }} />
+              <div style={{ ...styles.statusBar, background: STATUS_COLORS[p.status] || '#5b8fc7' }} />
               <div style={styles.cardBody}>
                 <div style={styles.cardHeader}>
                   <span style={styles.cardName}>{p.name || 'Untitled'}</span>
                   <span style={{
                     ...styles.statusPill,
-                    background: `${STATUS_COLORS[p.status] || '#6366f1'}22`,
-                    color: STATUS_COLORS[p.status] || '#a5b4fc',
-                    borderColor: `${STATUS_COLORS[p.status] || '#6366f1'}55`,
+                    background: `${STATUS_COLORS[p.status] || '#5b8fc7'}22`,
+                    color: STATUS_COLORS[p.status] || '#8fb4d8',
+                    borderColor: `${STATUS_COLORS[p.status] || '#5b8fc7'}55`,
                   }}>
                     {STATUS_LABELS[p.status] || p.status}
                   </span>
@@ -135,13 +136,13 @@ function Chip({ label, active, accent, onClick }) {
       style={{
         ...styles.chip,
         background: active
-          ? accent ? `${accent}22` : 'rgba(99,102,241,0.16)'
+          ? accent ? `${accent}22` : 'rgba(91, 143, 199,0.16)'
           : 'rgba(255,255,255,0.05)',
         color: active
-          ? accent || '#a5b4fc'
+          ? accent || '#8fb4d8'
           : 'rgba(255,255,255,0.7)',
         borderColor: active
-          ? accent ? `${accent}55` : 'rgba(99,102,241,0.4)'
+          ? accent ? `${accent}55` : 'rgba(91, 143, 199,0.4)'
           : 'rgba(255,255,255,0.1)',
         fontWeight: active ? 600 : 500,
       }}
@@ -156,9 +157,9 @@ function ProjectDetail({ project }) {
     <div style={detailStyles.root}>
       <div style={{
         ...detailStyles.statusPill,
-        background: `${STATUS_COLORS[project.status] || '#6366f1'}22`,
-        color: STATUS_COLORS[project.status] || '#a5b4fc',
-        borderColor: `${STATUS_COLORS[project.status] || '#6366f1'}55`,
+        background: `${STATUS_COLORS[project.status] || '#5b8fc7'}22`,
+        color: STATUS_COLORS[project.status] || '#8fb4d8',
+        borderColor: `${STATUS_COLORS[project.status] || '#5b8fc7'}55`,
       }}>
         {STATUS_LABELS[project.status] || project.status}
       </div>
@@ -208,7 +209,7 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     minHeight: '100%',
-    background: '#0f0f1a',
+    background: colors.bg,
   },
   filterBar: {
     padding: `${mobileTokens.space.md}px 0 ${mobileTokens.space.sm}px`,
@@ -391,8 +392,8 @@ const detailStyles = {
     width: 36,
     height: 36,
     borderRadius: mobileTokens.radius.sm,
-    background: 'rgba(99,102,241,0.2)',
-    color: '#a5b4fc',
+    background: colors.accentA20,
+    color: colors.accentFg,
     fontSize: mobileTokens.font.md,
     fontWeight: 700,
     display: 'flex',
@@ -415,8 +416,8 @@ const detailStyles = {
   footer: {
     margin: `${mobileTokens.space.md}px 0 0`,
     padding: mobileTokens.space.md,
-    background: 'rgba(99,102,241,0.08)',
-    border: '1px solid rgba(99,102,241,0.2)',
+    background: colors.accentA08,
+    border: '1px solid rgba(91, 143, 199,0.2)',
     borderRadius: mobileTokens.radius.sm,
     color: 'rgba(255,255,255,0.6)',
     fontSize: mobileTokens.font.sm,

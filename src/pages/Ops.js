@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+import { colors } from '../lib/styleTokens';
 
 const STATUS_COLORS = {
   healthy: '#22c55e',
@@ -151,8 +152,8 @@ export default function Ops() {
                 onClick={() => setStatusFilter(s)}
                 style={{
                   ...styles.filterPill,
-                  background: statusFilter === s ? 'rgba(99,102,241,0.2)' : 'transparent',
-                  borderColor: statusFilter === s ? '#6366f1' : 'rgba(255,255,255,0.1)',
+                  background: statusFilter === s ? 'rgba(91, 143, 199,0.2)' : 'transparent',
+                  borderColor: statusFilter === s ? '#5b8fc7' : 'rgba(255,255,255,0.1)',
                 }}
               >
                 {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
@@ -211,8 +212,8 @@ export default function Ops() {
                 onClick={() => setLogFilter(f)}
                 style={{
                   ...styles.filterPill,
-                  background: logFilter === f ? 'rgba(99,102,241,0.2)' : 'transparent',
-                  borderColor: logFilter === f ? '#6366f1' : 'rgba(255,255,255,0.1)',
+                  background: logFilter === f ? 'rgba(91, 143, 199,0.2)' : 'transparent',
+                  borderColor: logFilter === f ? '#5b8fc7' : 'rgba(255,255,255,0.1)',
                 }}
               >
                 {f === 'all' ? 'All' : f === 'failed' ? 'Failed' : f.charAt(0).toUpperCase() + f.slice(1)}
@@ -337,10 +338,10 @@ const styles = {
   },
   refreshBtn: {
     padding: '8px 16px',
-    background: 'rgba(99,102,241,0.15)',
-    border: '1px solid rgba(99,102,241,0.3)',
+    background: colors.accentA15,
+    border: '1px solid rgba(91, 143, 199,0.3)',
     borderRadius: 8,
-    color: '#a5b4fc',
+    color: colors.accentFg,
     fontSize: 13,
     fontWeight: 500,
     cursor: 'pointer',

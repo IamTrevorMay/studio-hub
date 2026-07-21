@@ -10,6 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { ptDateToUtcISO, ptMonthKey } from '../lib/ptDate';
+import { colors } from '../lib/styleTokens';
 
 // ─── Constants + helpers (mirrored from Goals.js so this stays standalone) ─
 
@@ -918,12 +919,12 @@ const styles = {
 
   addBtn: {
     padding: '8px 16px', borderRadius: 10, border: 'none',
-    background: 'rgba(99,102,241,0.15)', color: '#a5b4fc',
+    background: colors.accentA15, color: colors.accentFg,
     fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
   },
   dropdown: {
     position: 'absolute', top: '110%', right: 0,
-    background: '#1e1e2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10,
+    background: colors.bgHover, border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10,
     overflow: 'hidden', zIndex: 50, minWidth: 200, boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
   },
   dropdownItem: {
@@ -1008,7 +1009,7 @@ const styles = {
     color: 'rgba(255,255,255,0.4)', fontSize: 13, fontWeight: 600,
     cursor: 'pointer', fontFamily: 'inherit',
   },
-  typeBtnActive: { background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.4)', color: '#a5b4fc' },
+  typeBtnActive: { background: colors.accentA15, borderColor: colors.accentA40, color: colors.accentFg },
   chipRow: { display: 'flex', gap: 6, flexWrap: 'wrap' },
   chip: {
     padding: '5px 12px', borderRadius: 16,
@@ -1016,10 +1017,10 @@ const styles = {
     color: 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: 500,
     cursor: 'pointer', fontFamily: 'inherit',
   },
-  chipSelected: { background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.4)', color: '#a5b4fc' },
+  chipSelected: { background: colors.accentA15, borderColor: colors.accentA40, color: colors.accentFg },
   submitBtn: {
     padding: '10px 20px', borderRadius: 8, border: 'none',
-    background: '#6366f1', color: '#fff', fontSize: 13, fontWeight: 600,
+    background: colors.accent, color: colors.white, fontSize: 13, fontWeight: 600,
     cursor: 'pointer', fontFamily: 'inherit',
   },
 
@@ -1097,7 +1098,7 @@ const styles = {
     bottom: 'calc(100% + 6px)',
     left: '50%',
     transform: 'translateX(-50%)',
-    background: '#1a1a2e',
+    background: colors.bgHover,
     border: '1px solid rgba(249,115,22,0.4)',
     color: '#fdba74',
     padding: '4px 8px',

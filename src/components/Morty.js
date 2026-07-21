@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { colors } from '../lib/styleTokens';
 
 // === SAYINGS ===
 const SAYINGS = [
@@ -86,7 +87,7 @@ const DISMISS_SAYINGS = [
 const HAT_COLORS = [
   { top: '#dc2626', brim: '#b91c1c' },   // Red
   { top: '#2563eb', brim: '#1d4ed8' },   // Blue
-  { top: '#7c3aed', brim: '#6d28d9' },   // Purple
+  { top: '#7c3aed', brim: '#4a79ad' },   // Purple
   { top: '#ea580c', brim: '#c2410c' },   // Orange
   { top: '#db2777', brim: '#be185d' },   // Pink
   { top: '#ca8a04', brim: '#a16207' },   // Yellow
@@ -116,8 +117,8 @@ const B = {
   white: '#f5f0e8',    // baseball leather
   seam: '#cc3333',     // red stitching
   shade: '#ddd8cc',    // shadow side of ball
-  eye: '#1a1a2e',      // eyes
-  mouth: '#1a1a2e',    // mouth
+  eye: '#1b2331',      // eyes
+  mouth: '#1b2331',    // mouth
   blush: '#ffaaaa',    // cheek blush
   arm: '#f5f0e8',      // arms (same as ball)
   glove: '#8B4513',    // little glove/hand
@@ -677,7 +678,7 @@ export default function Morty() {
           right: facingRight ? 'auto' : S * 8,
           transform: facingRight ? 'none' : 'scaleX(-1)',
           background: '#ffffff',
-          color: '#1a1a2e',
+          color: colors.bgHover,
           padding: '8px 12px',
           borderRadius: '12px',
           fontSize: '12px',

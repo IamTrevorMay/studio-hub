@@ -2,6 +2,7 @@ import React from 'react';
 import FileGrid from './FileGrid';
 import FileList from './FileList';
 import { clickableKeyProps } from '../../../lib/styleRecipes';
+import { colors } from '../../../lib/styleTokens';
 
 export default function OrganizedGroups({
   groups,
@@ -103,7 +104,7 @@ const styles = {
     fontWeight: 600,
   },
   groupType: {
-    color: '#a5b4fc',
+    color: colors.accentFg,
   },
   slash: {
     color: 'rgba(255,255,255,0.25)',

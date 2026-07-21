@@ -8,6 +8,7 @@ import { callWorkflowFn } from '../lib/workflowApi';
 import { fetchAllRows } from './analytics/utils';
 import FindAssetsModal from '../components/FindAssetsModal';
 import { buttonReset } from '../lib/styleRecipes';
+import { colors } from '../lib/styleTokens';
 
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
 
@@ -18,7 +19,7 @@ function newBeat() {
 }
 
 const SEGMENT_COLORS = [
-  '#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b',
+  '#5b8fc7', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b',
   '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#a855f7',
 ];
 
@@ -1153,7 +1154,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
       }}
       style={{
         ...styles.beatRow,
-        ...(snapshot.isDragging ? { boxShadow: '0 8px 32px rgba(99,102,241,0.25)', border: '1px solid rgba(99,102,241,0.3)' } : {}),
+        ...(snapshot.isDragging ? { boxShadow: '0 8px 32px rgba(91, 143, 199,0.25)', border: '1px solid rgba(91, 143, 199,0.3)' } : {}),
         ...provided.draggableProps.style,
       }}
     >
@@ -1507,8 +1508,8 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                     padding: '10px 12px',
                     borderRadius: 8,
                     cursor: 'pointer',
-                    background: previewVersion?.id === v.id ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.03)',
-                    border: previewVersion?.id === v.id ? '1px solid rgba(99,102,241,0.3)' : '1px solid transparent',
+                    background: previewVersion?.id === v.id ? 'rgba(91, 143, 199,0.15)' : 'rgba(255,255,255,0.03)',
+                    border: previewVersion?.id === v.id ? '1px solid rgba(91, 143, 199,0.3)' : '1px solid transparent',
                     marginBottom: 6,
                   }}
                 >
@@ -1535,8 +1536,8 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                   {(previewVersion.beats || []).map((item, i) => {
                     if (isSegment(item)) {
                       return (
-                        <div key={item.id || i} style={{ background: `${item.color || '#6366f1'}12`, border: `1px solid ${item.color || '#6366f1'}30`, borderLeft: `3px solid ${item.color || '#6366f1'}`, borderRadius: 6, paddingLeft: 8, paddingTop: 6, paddingBottom: 4, marginBottom: 6 }}>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: item.color || '#6366f1', marginBottom: 4 }}>
+                        <div key={item.id || i} style={{ background: `${item.color || '#5b8fc7'}12`, border: `1px solid ${item.color || '#5b8fc7'}30`, borderLeft: `3px solid ${item.color || '#5b8fc7'}`, borderRadius: 6, paddingLeft: 8, paddingTop: 6, paddingBottom: 4, marginBottom: 6 }}> // style-lint-ignore
+                          <div style={{ fontSize: 12, fontWeight: 600, color: item.color || '#5b8fc7', marginBottom: 4 }}>
                             {item.title || '(untitled segment)'}
                           </div>
                           {(item.children || []).map((beat, j) => (
@@ -1826,7 +1827,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
               {BEAT_SHEET_TYPES.map(t => (
                 <button
                   key={t.key}
-                  style={{ ...styles.ctxItem, ...styles.ctxTypeItem, ...(ctxMenu.sheet.type === t.key ? { color: "#a5b4fc" } : {}) }}
+                  style={{ ...styles.ctxItem, ...styles.ctxTypeItem, ...(ctxMenu.sheet.type === t.key ? { color: "#8fb4d8" } : {}) }}
                   onClick={() => { persistSheetType(ctxMenu.sheet, t.key); closeCtx(); }}
                 >
                   {ctxMenu.sheet.type === t.key ? "✓ " : ""}{t.label}
@@ -1999,9 +2000,9 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                       key={item.id}
                       style={{
                         ...styles.segmentContainer,
-                        background: `${item.color || '#6366f1'}12`,
-                        border: `1px solid ${item.color || '#6366f1'}30`,
-                        borderLeft: `4px solid ${item.color || '#6366f1'}`,
+                        background: `${item.color || '#5b8fc7'}12`,
+                        border: `1px solid ${item.color || '#5b8fc7'}30`,
+                        borderLeft: `4px solid ${item.color || '#5b8fc7'}`,
                       }}
                     >
                       {/* Segment header (draggable = moves the whole segment) */}
@@ -2012,7 +2013,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                             {...hProvided.draggableProps}
                             style={{
                               ...styles.segmentHeader,
-                              ...(hSnapshot.isDragging ? { boxShadow: `0 8px 32px ${item.color || '#6366f1'}40`, borderRadius: 8, background: `${item.color || '#6366f1'}20` } : {}),
+                              ...(hSnapshot.isDragging ? { boxShadow: `0 8px 32px ${item.color || '#5b8fc7'}40`, borderRadius: 8, background: `${item.color || '#5b8fc7'}20` } : {}),
                               ...hProvided.draggableProps.style,
                             }}
                             onContextMenu={e => {
@@ -2041,7 +2042,7 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                               style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px', display: 'flex', alignItems: 'center', flexShrink: 0 }}
                               title={collapsed ? 'Expand segment' : 'Collapse segment'}
                             >
-                              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke={item.color || '#6366f1'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke={item.color || '#5b8fc7'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
                                 style={{ transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.15s ease' }}>
                                 <path d="M4 5l3 3 3-3" />
                               </svg>
@@ -2050,12 +2051,12 @@ export default function Production({ initialSheetId, onSheetOpened }) {
                               value={item.title}
                               onChange={e => updateSegment(item.id, 'title', e.target.value)}
                               placeholder="Segment title..."
-                              style={{ ...styles.segmentTitleInput, color: item.color || '#6366f1' }}
+                              style={{ ...styles.segmentTitleInput, color: item.color || '#5b8fc7' }}
                             />
                             <div style={{ position: 'relative' }}>
                               <button
                                 onClick={() => setShowColorDropdown(prev => prev === item.id ? null : item.id)}
-                                style={{ ...styles.colorDot, background: item.color || '#6366f1', width: 20, height: 20, flexShrink: 0 }}
+                                style={{ ...styles.colorDot, background: item.color || '#5b8fc7', width: 20, height: 20, flexShrink: 0 }}
                                 title="Change color"
                               />
                               {showColorDropdown === item.id && (
@@ -2463,7 +2464,7 @@ const styles = {
   rowRenameInput: {
     flex: 1,
     background: 'rgba(255,255,255,0.08)',
-    border: '1px solid rgba(99,102,241,0.5)',
+    border: '1px solid rgba(91, 143, 199,0.5)',
     borderRadius: 6,
     padding: '6px 10px',
     color: '#fff',
@@ -2476,7 +2477,7 @@ const styles = {
   ctxMenu: {
     position: 'fixed',
     zIndex: 1000,
-    background: '#1e1e32',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: 10,
     padding: 4,
@@ -2701,8 +2702,8 @@ const styles = {
     display: 'inline-flex',
     alignItems: 'center',
     gap: 4,
-    background: 'rgba(99,102,241,0.12)',
-    border: '1px solid rgba(99,102,241,0.2)',
+    background: colors.accentA12,
+    border: '1px solid rgba(91, 143, 199,0.2)',
     borderRadius: 6,
     padding: '4px 8px',
     width: 'fit-content',
@@ -2715,7 +2716,7 @@ const styles = {
   },
   tagText: {
     fontSize: 12,
-    color: '#a5b4fc',
+    color: colors.accentFg,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
@@ -2742,8 +2743,8 @@ const styles = {
   },
   // In-place editor swapped in for a tag chip (context menu → Edit tag)
   tagEditInput: {
-    background: 'rgba(99,102,241,0.12)',
-    border: '1px solid rgba(99,102,241,0.5)',
+    background: colors.accentA12,
+    border: '1px solid rgba(91, 143, 199,0.5)',
     borderRadius: 6,
     padding: '4px 8px',
     color: '#fff',
@@ -2754,17 +2755,17 @@ const styles = {
     maxWidth: '100%',
   },
   tagColDrop: {
-    background: 'rgba(99,102,241,0.08)',
+    background: colors.accentA08,
     borderRadius: 8,
-    outline: '2px dashed rgba(99,102,241,0.4)',
+    outline: '2px dashed rgba(91, 143, 199,0.4)',
     outlineOffset: 2,
   },
   mediaThumb: {
     display: 'flex',
     alignItems: 'center',
     gap: 6,
-    background: 'rgba(99,102,241,0.08)',
-    border: '1px solid rgba(99,102,241,0.15)',
+    background: colors.accentA08,
+    border: '1px solid rgba(91, 143, 199,0.15)',
     borderRadius: 6,
     padding: '4px 6px',
     width: '100%',
@@ -2829,7 +2830,7 @@ const styles = {
 
   // ── buttons ──
   btnPrimary: {
-    background: '#6366f1',
+    background: colors.accent,
     color: '#fff',
     border: 'none',
     borderRadius: 8,
@@ -2882,7 +2883,7 @@ const styles = {
     zIndex: 1000,
   },
   modal: {
-    background: '#1a1a2e',
+    background: colors.bgHover,
     borderRadius: 14,
     padding: 24,
     width: 480,
@@ -2928,7 +2929,7 @@ const styles = {
     transform: 'translateX(-50%)',
     top: '100%',
     marginTop: 6,
-    background: '#1e1e2e',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: 8,
     padding: '4px 0',
@@ -2970,14 +2971,14 @@ const styles = {
     fontFamily: "'DM Sans', sans-serif",
     outline: 'none',
     padding: '4px 8px',
-    color: '#6366f1',
+    color: colors.accent,
   },
   colorDropdown: {
     position: 'absolute',
     top: '100%',
     right: 0,
     marginTop: 6,
-    background: '#1e1e2e',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: 8,
     padding: 8,
@@ -3014,7 +3015,7 @@ const styles = {
     top: '100%',
     right: 0,
     marginTop: 6,
-    background: '#1e1e2e',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: 10,
     padding: '6px 0',
@@ -3029,7 +3030,7 @@ const styles = {
     width: '100%',
     background: 'none',
     border: 'none',
-    color: '#818cf8',
+    color: colors.accentFg,
     fontSize: 13,
     fontWeight: 600,
     fontFamily: "'DM Sans', sans-serif",
@@ -3101,15 +3102,15 @@ const styles = {
     cursor: 'pointer',
   },
   createOptionActive: {
-    background: 'rgba(99,102,241,0.15)',
-    border: '1px solid rgba(99,102,241,0.4)',
+    background: colors.accentA15,
+    border: '1px solid rgba(91, 143, 199,0.4)',
   },
   createRadio: (active) => ({
     width: 14,
     height: 14,
     borderRadius: '50%',
     flexShrink: 0,
-    border: active ? '4px solid #6366f1' : '2px solid rgba(255,255,255,0.25)',
+    border: active ? '4px solid #5b8fc7' : '2px solid rgba(255,255,255,0.25)',
     boxSizing: 'border-box',
   }),
 
@@ -3124,7 +3125,7 @@ const styles = {
   },
   contextMenuPopup: {
     position: 'fixed',
-    background: '#1e1e2e',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: 8,
     padding: '4px 0',

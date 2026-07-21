@@ -20,7 +20,7 @@ import { colors } from '../../lib/styleTokens';
 // ─── Visual tokens ──────────────────────────────────────────
 
 const CATEGORY = {
-  task:    { fill: 'linear-gradient(180deg, rgba(99,102,241,0.18), rgba(99,102,241,0.10))', border: 'rgba(99,102,241,0.35)', icon: '👤', label: 'Person task' },
+  task:    { fill: 'linear-gradient(180deg, rgba(91, 143, 199,0.18), rgba(91, 143, 199,0.10))', border: 'rgba(91, 143, 199,0.35)', icon: '👤', label: 'Person task' },
   page:    { fill: 'linear-gradient(180deg, rgba(34,197,94,0.18), rgba(34,197,94,0.10))', border: 'rgba(34,197,94,0.35)', icon: '🌐', label: 'Open page' },
   form:    { fill: 'linear-gradient(180deg, rgba(56,189,248,0.18), rgba(56,189,248,0.10))', border: 'rgba(56,189,248,0.35)', icon: '📋', label: 'Open form' },
   custom:  { fill: 'linear-gradient(180deg, rgba(168,85,247,0.18), rgba(168,85,247,0.10))', border: 'rgba(168,85,247,0.35)', icon: '⚙️', label: 'Custom logic' },
@@ -30,7 +30,7 @@ const CATEGORY = {
 };
 
 const PILL_COLORS = {
-  person:   { bg: 'rgba(99,102,241,0.22)',  fg: '#a5b4fc', border: 'rgba(99,102,241,0.5)' },
+  person:   { bg: 'rgba(91, 143, 199,0.22)',  fg: '#8fb4d8', border: 'rgba(91, 143, 199,0.5)' },
   action:   { bg: 'rgba(168,85,247,0.22)',  fg: '#d8b4fe', border: 'rgba(168,85,247,0.5)' },
   variable: { bg: 'rgba(234,179,8,0.22)',   fg: '#fde68a', border: 'rgba(234,179,8,0.5)' },
   page:     { bg: 'rgba(34,197,94,0.22)',   fg: '#86efac', border: 'rgba(34,197,94,0.5)' },
@@ -240,7 +240,7 @@ function Popover({ open, setOpen, anchor, children, width = 280 }) {
         top: '100%',
         left: 0,
         marginTop: 6,
-        background: '#1a1a2a',
+        background: colors.bgHover,
         border: '1px solid rgba(255,255,255,0.14)',
         borderRadius: 10,
         boxShadow: '0 10px 32px rgba(0,0,0,0.55)',
@@ -410,7 +410,7 @@ function ActionEditorPill({ step, actionHandlers, onUpdate, disabled }) {
                 <div style={{ color: '#fff', fontSize: 13, fontWeight: 600 }}>{t.label}</div>
                 <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>{t.description}</div>
               </div>
-              {step.action_type === t.value && <span style={{ color: '#a5b4fc' }}>✓</span>}
+              {step.action_type === t.value && <span style={{ color: colors.accentFg }}>✓</span>}
             </div>
           ))}
         </div>
@@ -820,7 +820,7 @@ function StepCard({
           {menuOpen && (
             <div style={{
               position: 'absolute', top: '100%', right: 0, marginTop: 4,
-              background: '#1a1a2a', border: '1px solid rgba(255,255,255,0.14)',
+              background: colors.bgHover, border: '1px solid rgba(255,255,255,0.14)',
               borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.5)', zIndex: 200, minWidth: 180,
             }}>
               {!isFirst && (
@@ -1063,9 +1063,9 @@ function AddBetween({ onPick, disabled }) {
           style={{
             position: 'relative',
             width: 32, height: 32, borderRadius: '50%',
-            background: 'rgba(99,102,241,0.18)',
-            border: '1px solid rgba(99,102,241,0.4)',
-            color: '#a5b4fc',
+            background: colors.accentSoft,
+            border: '1px solid rgba(91, 143, 199,0.4)',
+            color: colors.accentFg,
             fontSize: 18,
             fontWeight: 600,
             cursor: 'pointer',
@@ -1094,7 +1094,7 @@ function ActionLibraryModal({ onPick, onClose }) {
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
     }}>
       <div onClick={(e) => e.stopPropagation()} style={{
-        background: '#15151f',
+        background: colors.bgRaised,
         border: '1px solid rgba(255,255,255,0.1)',
         borderRadius: 18,
         padding: 20,
@@ -1435,7 +1435,7 @@ const popStyles = {
     background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
     color: 'rgba(255,255,255,0.6)', fontSize: 11, fontWeight: 600, cursor: 'pointer',
   },
-  tabBtnActive: { background: 'rgba(99,102,241,0.2)', color: '#a5b4fc', borderColor: 'rgba(99,102,241,0.5)' },
+  tabBtnActive: { background: colors.accentA20, color: colors.accentFg, borderColor: colors.borderFocus },
   search: {
     width: '100%', boxSizing: 'border-box', padding: '6px 8px',
     background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
@@ -1443,9 +1443,9 @@ const popStyles = {
   },
   list: { maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 },
   row: { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 13 },
-  rowActive: { background: 'rgba(99,102,241,0.15)' },
+  rowActive: { background: colors.accentA15 },
   empty: { padding: 12, textAlign: 'center', color: 'rgba(255,255,255,0.4)', fontSize: 12 },
-  roleBadge: { fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', padding: '2px 6px', borderRadius: 3, background: 'rgba(99,102,241,0.18)', color: '#a5b4fc' },
+  roleBadge: { fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', padding: '2px 6px', borderRadius: 3, background: colors.accentSoft, color: colors.accentFg }, // style-lint-ignore
   header: { padding: '4px 8px 8px', fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.5)', letterSpacing: 0.5, textTransform: 'uppercase' },
   actionTypeCol: { display: 'flex', flexDirection: 'column', gap: 4 },
   actionTypeRow: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, cursor: 'pointer' },

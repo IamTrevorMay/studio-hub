@@ -9,6 +9,7 @@ import usePersistedTab from '../hooks/usePersistedTab';
 import { fetchAllRows } from './analytics/utils';
 import backdropDismiss from '../lib/backdropDismiss';
 import { clickableKeyProps } from '../lib/styleRecipes';
+import { colors } from '../lib/styleTokens';
 
 // ════════════════════════════════════════════════════════════
 // Constants
@@ -35,7 +36,7 @@ const STATUS_MAP = Object.fromEntries(STATUSES.map(s => [s.key, s]));
 const STATUS_ORDER = { active: 0, planned: 1, waiting: 2, ideas: 3, done: 4 };
 
 const TAGS = [
-  { key: 'mayday',  label: 'Mayday',  color: '#6366f1', bg: 'rgba(99,102,241,0.15)'  },
+  { key: 'mayday',  label: 'Mayday',  color: '#5b8fc7', bg: 'rgba(91, 143, 199,0.15)'  },
   { key: 'neptune', label: 'Neptune', color: '#06b6d4', bg: 'rgba(6,182,212,0.15)'   },
   { key: 'shared',  label: 'Shared',  color: '#a78bfa', bg: 'rgba(167,139,250,0.15)' },
 ];
@@ -54,7 +55,7 @@ const RECURRENCE_OPTIONS = [
   { key: 'monthly', label: 'Monthly' },
 ];
 
-const PHASE_PALETTE = ['#6366f1', '#06b6d4', '#a78bfa', '#22c55e', '#f59e0b', '#ec4899', '#3b82f6', '#10b981'];
+const PHASE_PALETTE = ['#5b8fc7', '#06b6d4', '#a78bfa', '#22c55e', '#f59e0b', '#ec4899', '#3b82f6', '#10b981'];
 function phaseColor(phaseIdx) { return PHASE_PALETTE[phaseIdx % PHASE_PALETTE.length]; }
 
 const COMPLETED_GRACE_HOURS = 24;
@@ -1413,7 +1414,7 @@ function BdGoalsSection({
                                         {' '}{children.length} monthly goal{children.length !== 1 ? 's' : ''}
                                       </button>
                                     )}
-                                    <button onClick={() => onCreateMonthly(g.id)} style={{ ...styles.iconBtn, fontSize: '11px', color: '#a5b4fc' }}>+ Monthly</button>
+                                    <button onClick={() => onCreateMonthly(g.id)} style={{ ...styles.iconBtn, fontSize: '11px', color: colors.accentFg }}>+ Monthly</button>
                                   </div>
                                 </BdGoalCard>
                                 {isExpanded && children.length > 0 && (
@@ -1555,7 +1556,7 @@ function BdNotesSection({
                   type="checkbox"
                   checked={n.checked}
                   onChange={() => onToggle(n.id)}
-                  style={{ width: '14px', height: '14px', cursor: 'pointer', accentColor: '#6366f1', marginTop: editingId === n.id ? '4px' : 0 }}
+                  style={{ width: '14px', height: '14px', cursor: 'pointer', accentColor: '#5b8fc7', marginTop: editingId === n.id ? '4px' : 0 }}
                 />
                 {editingId === n.id ? (
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -1727,8 +1728,8 @@ function BdGoalFormModal({ form, setForm, editing, onSubmit, onCancel, accounts 
 
   return (
     <div style={styles.modalOverlay} {...backdropDismiss(onCancel)}>
-      <div style={{ ...styles.modal, borderColor: 'rgba(99,102,241,0.3)' }} onClick={e => e.stopPropagation()}>
-        <div style={{ ...styles.modalTitle, color: '#a5b4fc' }}>{editing ? 'Edit Goal' : 'New Goal'}</div>
+      <div style={{ ...styles.modal, borderColor: colors.accentA30 }} onClick={e => e.stopPropagation()}>
+        <div style={{ ...styles.modalTitle, color: colors.accentFg }}>{editing ? 'Edit Goal' : 'New Goal'}</div>
         <form onSubmit={onSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {/* Type toggle */}
           <div style={{ display: 'flex', gap: '6px' }}>
@@ -2258,7 +2259,7 @@ function InitiativeCard(props) {
 
   return (
     <div
-      style={{ ...styles.initiativeCard, opacity: dimmed ? 0.55 : 1, ...(isDragOver ? { borderColor: '#6366f1', background: 'rgba(99,102,241,0.06)' } : {}), ...(isTaskDragOver ? { borderColor: '#10b981', background: 'rgba(16,185,129,0.04)' } : {}) }}
+      style={{ ...styles.initiativeCard, opacity: dimmed ? 0.55 : 1, ...(isDragOver ? { borderColor: '#5b8fc7', background: 'rgba(91, 143, 199,0.06)' } : {}), ...(isTaskDragOver ? { borderColor: '#10b981', background: 'rgba(16,185,129,0.04)' } : {}) }}
       draggable={isAdmin && !dimmed}
       onDragStart={onInitDragStart}
       onDragOver={onInitDragOver}
@@ -2368,7 +2369,7 @@ function TaskRow({ task, admins, isAdmin, initiative, isEditing, taskForm, setTa
   const tagMeta = TAG_MAP[tag];
   return (
     <div
-      style={{ ...styles.taskRow, opacity: done ? 0.55 : 1, ...(isDragOver ? { borderTop: '2px solid #6366f1', marginTop: '-2px' } : {}) }}
+      style={{ ...styles.taskRow, opacity: done ? 0.55 : 1, ...(isDragOver ? { borderTop: '2px solid #5b8fc7', marginTop: '-2px' } : {}) }}
       draggable={isAdmin}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
@@ -2606,7 +2607,7 @@ function TimelineView({ phases, phasesById, phaseIndexById, initiatives, milesto
         <span style={styles.timelineLabel}>Range:</span>
         {[3, 6, 12, 24].map(n => (
           <button key={n} onClick={() => setMonthsAhead(n)}
-            style={{ ...styles.subtleBtn, ...(monthsAhead === n ? { background: 'rgba(99,102,241,0.18)', color: '#a5b4fc' } : {}) }}>
+            style={{ ...styles.subtleBtn, ...(monthsAhead === n ? { background: 'rgba(91, 143, 199,0.18)', color: '#8fb4d8' } : {}) }}>
             {n}mo
           </button>
         ))}
@@ -2898,7 +2899,7 @@ const styles = {
     color: 'rgba(255,255,255,0.55)', fontSize: '13px', fontWeight: 600,
     cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.12s',
   },
-  tabBtnActive: { background: 'rgba(99,102,241,0.15)', color: '#a5b4fc' },
+  tabBtnActive: { background: colors.accentA15, color: colors.accentFg },
 
   // Phase chip filter
   phaseFilterBar: {
@@ -2984,12 +2985,12 @@ const styles = {
 
   // Forms
   form: {
-    background: 'rgba(99,102,241,0.04)', border: '1px solid rgba(99,102,241,0.15)',
+    background: colors.accentA04, border: '1px solid rgba(91, 143, 199,0.15)',
     borderRadius: '12px', padding: '14px', marginBottom: '14px',
     display: 'flex', flexDirection: 'column', gap: '8px',
   },
   formLabel: {
-    fontSize: '12px', fontWeight: 700, color: '#a5b4fc',
+    fontSize: '12px', fontWeight: 700, color: colors.accentFg,
     letterSpacing: '0.5px', textTransform: 'uppercase',
   },
   formSubLabel: { fontSize: '11px', color: 'rgba(255,255,255,0.45)', marginTop: '4px', fontWeight: 600 },
@@ -3011,9 +3012,9 @@ const styles = {
     fontSize: '11px', fontFamily: 'inherit', outline: 'none', cursor: 'pointer',
   },
   primaryBtn: {
-    padding: '8px 14px', background: 'rgba(99,102,241,0.18)',
-    border: '1px solid rgba(99,102,241,0.35)', borderRadius: '8px',
-    color: '#a5b4fc', fontSize: '12px', fontWeight: 600,
+    padding: '8px 14px', background: colors.accentSoft,
+    border: '1px solid rgba(91, 143, 199,0.35)', borderRadius: '8px',
+    color: colors.accentFg, fontSize: '12px', fontWeight: 600,
     cursor: 'pointer', fontFamily: 'inherit',
   },
   subtleBtn: {
@@ -3036,7 +3037,7 @@ const styles = {
     zIndex: 200, backdropFilter: 'blur(2px)',
   },
   modal: {
-    background: '#1a1a2e', border: '1px solid rgba(239,68,68,0.3)',
+    background: colors.bgHover, border: '1px solid rgba(239,68,68,0.3)',
     borderRadius: '14px', padding: '20px 24px', minWidth: '420px', maxWidth: '560px',
     boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
   },
@@ -3109,7 +3110,7 @@ const styles = {
   miniTag: { fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '4px', flexShrink: 0 },
   ownerChip: {
     width: '22px', height: '22px', borderRadius: '50%',
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     color: '#fff', fontSize: '11px', fontWeight: 700,
     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
@@ -3142,8 +3143,8 @@ const styles = {
   initDescription: { fontSize: '13px', color: 'rgba(255,255,255,0.65)', lineHeight: 1.5, whiteSpace: 'pre-wrap' },
   linksRow: { display: 'flex', flexWrap: 'wrap', gap: '6px' },
   linkChip: {
-    fontSize: '12px', color: '#a5b4fc',
-    background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.18)',
+    fontSize: '12px', color: colors.accentFg,
+    background: colors.accentA08, border: '1px solid rgba(91, 143, 199,0.18)',
     padding: '3px 10px', borderRadius: '6px', textDecoration: 'none',
   },
   tasksHeader: {
@@ -3167,7 +3168,7 @@ const styles = {
   contextLabel: { fontSize: '11px', color: 'rgba(255,255,255,0.4)' },
   taskForm: {
     display: 'flex', flexDirection: 'column', gap: '6px',
-    background: 'rgba(99,102,241,0.04)', border: '1px solid rgba(99,102,241,0.15)',
+    background: colors.accentA04, border: '1px solid rgba(91, 143, 199,0.15)',
     borderRadius: '8px', padding: '10px', marginTop: '4px',
   },
   completedWrap: { marginTop: '6px' },
@@ -3243,8 +3244,8 @@ const styles = {
   },
   calendarCellEmpty: { minHeight: '90px' },
   calendarCellToday: {
-    background: 'rgba(99,102,241,0.06)',
-    border: '1px solid rgba(99,102,241,0.25)',
+    background: colors.accentA06,
+    border: '1px solid rgba(91, 143, 199,0.25)',
   },
   calendarCellNum: { fontSize: '11px', color: 'rgba(255,255,255,0.5)', fontWeight: 600 },
   calendarCellEvents: { display: 'flex', flexDirection: 'column', gap: '2px', flex: 1, overflow: 'hidden' },
@@ -3302,7 +3303,7 @@ const styles = {
     cursor: 'pointer', fontFamily: 'inherit',
   },
   bdTypeBtnActive: {
-    background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.4)', color: '#a5b4fc',
+    background: colors.accentA15, borderColor: colors.accentA40, color: colors.accentFg,
   },
   bdCheckbox: {
     width: '18px', height: '18px', borderRadius: '4px',
@@ -3318,7 +3319,7 @@ const styles = {
   },
   bdMetricTag: {
     fontSize: '10px', fontWeight: 600, padding: '2px 6px', borderRadius: '4px',
-    background: 'rgba(99,102,241,0.12)', color: '#a5b4fc',
+    background: colors.accentA12, color: colors.accentFg,
   },
   bdPlatformTag: {
     fontSize: '10px', fontWeight: 600, padding: '2px 6px', borderRadius: '4px',
@@ -3331,6 +3332,6 @@ const styles = {
     color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontFamily: 'inherit',
   },
   bdChipSelected: {
-    background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.4)', color: '#a5b4fc',
+    background: colors.accentA15, borderColor: colors.accentA40, color: colors.accentFg,
   },
 };

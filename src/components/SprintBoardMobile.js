@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { callWorkflowFn } from '../lib/workflowApi';
 import BottomSheet from './mobile/BottomSheet';
 import { mobileTokens } from '../utils/mobileTokens';
+import { colors } from '../lib/styleTokens';
 
 // Simplified SprintBoard for mobile. Same `personal_tasks` table as desktop.
 // Supports: see tasks, add tasks (top-right [+]), complete tasks, edit a task,
@@ -511,7 +512,7 @@ function TaskRow({ task, onToggleDone, onTap, isDragging, onTouchStart, onTouchM
             <span style={{ fontSize: 9, color: '#fbbf24', background: 'rgba(251,191,36,0.15)', padding: '1px 4px', borderRadius: 3, fontWeight: 600 }}>WF</span>
           )}
           {task.linked_task && task.linked_task.related_entity_type === 'project' && !task.linked_task.workflow_instance && (
-            <span style={{ fontSize: 9, color: '#a5b4fc', background: 'rgba(99,102,241,0.15)', padding: '1px 4px', borderRadius: 3, fontWeight: 600 }}>Proj</span>
+            <span style={{ fontSize: 9, color: colors.accentFg, background: colors.accentA15, padding: '1px 4px', borderRadius: 3, fontWeight: 600 }}>Proj</span> // style-lint-ignore
           )}
         </div>
       </button>
@@ -602,7 +603,7 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     minHeight: '100%',
-    background: '#0f0f1a',
+    background: colors.bg,
     position: 'relative',
   },
   fabAdd: {
@@ -614,13 +615,13 @@ const styles = {
     height: 40,
     borderRadius: '50%',
     border: 'none',
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     color: '#fff',
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    boxShadow: '0 2px 8px rgba(99,102,241,0.4)',
+    boxShadow: '0 2px 8px rgba(91, 143, 199,0.4)',
     WebkitTapHighlightColor: 'transparent',
   },
   list: {
@@ -741,8 +742,8 @@ const styles = {
     fontWeight: 500,
   },
   dragGhost: {
-    background: 'rgba(99,102,241,0.2)',
-    border: '1.5px solid rgba(99,102,241,0.5)',
+    background: colors.accentA20,
+    border: '1.5px solid rgba(91, 143, 199,0.5)',
     borderRadius: mobileTokens.radius.md,
     padding: `${mobileTokens.space.md}px`,
     backdropFilter: 'blur(8px)',
@@ -793,7 +794,7 @@ const styles = {
     height: mobileTokens.tap,
     border: 'none',
     borderRadius: mobileTokens.radius.md,
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     color: '#fff',
     cursor: 'pointer',
     display: 'flex',
@@ -877,7 +878,7 @@ const editStyles = {
   saveBtn: {
     padding: `${mobileTokens.space.sm}px ${mobileTokens.space.lg}px`,
     minHeight: mobileTokens.tap,
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     border: 'none',
     borderRadius: mobileTokens.radius.md,
     color: '#fff',

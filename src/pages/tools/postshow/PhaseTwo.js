@@ -343,7 +343,7 @@ const st = {
   },
   progressWaiting: { background: 'rgba(255,255,255,0.1)', width: '100%' },
   progressUploading: {
-    background: 'linear-gradient(90deg, #6366f1, #818cf8, #6366f1)',
+    background: 'linear-gradient(90deg, #5b8fc7, #8fb4d8, #5b8fc7)',
     backgroundSize: '200% 100%',
     animation: 'progressShimmer 1.5s ease-in-out infinite',
     width: '100%',

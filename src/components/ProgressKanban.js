@@ -8,6 +8,7 @@ import { supabase } from '../supabaseClient';
 import { callEdgeFn } from '../lib/edgeFn';
 import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+import { colors } from '../lib/styleTokens';
 
 // Columns whose order is a manual priority (admin drag-to-reorder + numbered
 // Drive filenames). Other columns render static.
@@ -479,20 +480,20 @@ const styles = {
     cursor: 'grab',
   },
   cardDragging: {
-    background: 'rgba(99,102,241,0.18)',
-    border: '1px solid rgba(99,102,241,0.5)',
+    background: colors.accentSoft,
+    border: '1px solid rgba(91, 143, 199,0.5)',
     boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
   },
   colBodyDragOver: {
-    background: 'rgba(99,102,241,0.06)',
-    border: '1px solid rgba(99,102,241,0.25)',
+    background: colors.accentA06,
+    border: '1px solid rgba(91, 143, 199,0.25)',
     borderTop: 'none',
   },
   titleInput: {
     width: '100%',
     boxSizing: 'border-box',
     background: 'rgba(0,0,0,0.3)',
-    border: '1px solid rgba(99,102,241,0.5)',
+    border: '1px solid rgba(91, 143, 199,0.5)',
     borderRadius: 4,
     color: '#fff',
     fontSize: 13,
@@ -506,8 +507,8 @@ const styles = {
     fontWeight: 700,
     padding: '2px 6px',
     borderRadius: 4,
-    background: 'rgba(99,102,241,0.2)',
-    color: '#a5b4fc',
+    background: colors.accentA20,
+    color: colors.accentFg,
     letterSpacing: '0.3px',
   },
   cardTitle: {
@@ -567,7 +568,7 @@ const styles = {
   contextMenu: {
     position: 'fixed',
     zIndex: 9999,
-    background: '#1e1e2e',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: 8,
     padding: 4,

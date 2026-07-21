@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../../supabaseClient';
+import { colors } from '../../../lib/styleTokens';
 
 // Per-campaign stats panel. Pulls the rolled-up counters from
 // mailer_campaigns.stats (live, updated by the webhook RPC), the per-
@@ -124,7 +125,7 @@ export default function CampaignStats({ campaignId }) {
 }
 
 function Tile({ label, value, sub, tone }) {
-  const fg = tone === 'warn' ? '#fbbf24' : '#a5b4fc';
+  const fg = tone === 'warn' ? '#fbbf24' : '#8fb4d8';
   return (
     <div style={styles.tile}>
       <div style={styles.tileLabel}>{label}</div>
@@ -147,5 +148,5 @@ const styles = {
   table: { width: '100%', borderCollapse: 'collapse' },
   th: { textAlign: 'left', padding: '6px 10px', fontSize: 10, fontWeight: 800, color: 'rgba(255,255,255,0.4)', letterSpacing: 0.5, textTransform: 'uppercase', borderBottom: '1px solid rgba(255,255,255,0.06)' },
   td: { padding: '7px 10px', fontSize: 12, color: 'rgba(255,255,255,0.85)', borderBottom: '1px solid rgba(255,255,255,0.04)' },
-  link: { color: '#a5b4fc', textDecoration: 'none' },
+  link: { color: colors.accentFg, textDecoration: 'none' },
 };

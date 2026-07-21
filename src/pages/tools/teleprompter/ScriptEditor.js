@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAuth } from '../../../contexts/AuthContext';
 import backdropDismiss from '../../../lib/backdropDismiss';
+import { colors } from '../../../lib/styleTokens';
 
 function escapeHtml(text) {
   const el = document.createElement('span');
@@ -274,7 +275,7 @@ const styles = {
     width: '480px',
     maxWidth: '100vw',
     height: '100%',
-    background: '#1a1a2e',
+    background: colors.bgHover,
     borderLeft: '1px solid rgba(255,255,255,0.1)',
     display: 'flex',
     flexDirection: 'column',
@@ -366,7 +367,7 @@ const styles = {
   },
   doneBtn: {
     padding: '8px 20px',
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     border: 'none',
     borderRadius: '8px',
     color: '#fff',
@@ -394,7 +395,7 @@ const styles = {
   libraryTitle: {
     fontSize: '14px',
     fontWeight: 600,
-    color: '#a5b4fc',
+    color: colors.accentFg,
   },
   libraryBackBtn: {
     padding: '5px 12px',
@@ -460,10 +461,10 @@ const styles = {
   },
   loadBtn: {
     padding: '5px 12px',
-    background: 'rgba(99,102,241,0.15)',
-    border: '1px solid rgba(99,102,241,0.3)',
+    background: colors.accentA15,
+    border: '1px solid rgba(91, 143, 199,0.3)',
     borderRadius: '6px',
-    color: '#a5b4fc',
+    color: colors.accentFg,
     fontSize: '12px',
     fontWeight: 600,
     cursor: 'pointer',

@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import usePersistedTab from '../hooks/usePersistedTab';
+import { colors } from '../lib/styleTokens';
 
 
 const FREELANCER_TITLES = [
@@ -687,7 +688,7 @@ export default function AdminPanel({ initialTab }) {
                       onClick={() => toggleEmailPref(t.key)}
                       style={{
                         ...styles.toggleTrack,
-                        background: emailPrefs[t.key] ? '#6366f1' : 'rgba(255,255,255,0.1)',
+                        background: emailPrefs[t.key] ? '#5b8fc7' : 'rgba(255,255,255,0.1)',
                       }}
                     >
                       <span style={{
@@ -721,7 +722,7 @@ export default function AdminPanel({ initialTab }) {
                             onClick={() => toggleContractorPref(c.id, t.key)}
                             style={{
                               ...styles.toggleTrack,
-                              background: contractorPrefs[c.id]?.[t.key] ? '#6366f1' : 'rgba(255,255,255,0.1)',
+                              background: contractorPrefs[c.id]?.[t.key] ? '#5b8fc7' : 'rgba(255,255,255,0.1)',
                             }}
                           >
                             <span style={{
@@ -763,7 +764,7 @@ const styles = {
     fontSize: '14px', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit',
   },
   tabActive: {
-    background: 'rgba(99,102,241,0.15)', color: '#a5b4fc',
+    background: colors.accentA15, color: colors.accentFg,
   },
   card: {
     background: 'rgba(255,255,255,0.03)',
@@ -781,7 +782,7 @@ const styles = {
     color: '#fff', fontSize: '14px', fontFamily: 'inherit', outline: 'none',
   },
   inviteBtn: {
-    padding: '10px 20px', background: '#6366f1', border: 'none',
+    padding: '10px 20px', background: colors.accent, border: 'none',
     borderRadius: '8px', color: '#fff', fontSize: '14px', fontWeight: 600,
     cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
   },
@@ -832,7 +833,7 @@ const styles = {
   },
   teamAvatar: {
     width: '40px', height: '40px', borderRadius: '10px',
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     fontSize: '16px', fontWeight: 700, color: '#fff', flexShrink: 0,
   },
@@ -845,8 +846,8 @@ const styles = {
     display: 'flex', alignItems: 'center', gap: '8px',
   },
   youBadge: {
-    padding: '2px 8px', background: 'rgba(99,102,241,0.15)',
-    borderRadius: '4px', fontSize: '10px', color: '#a5b4fc', fontWeight: 600,
+    padding: '2px 8px', background: colors.accentA15,
+    borderRadius: '4px', fontSize: '10px', color: colors.accentFg, fontWeight: 600,
   },
   teamMeta: { fontSize: '12px', color: 'rgba(255,255,255,0.35)', marginTop: '2px' },
   roleSelect: {

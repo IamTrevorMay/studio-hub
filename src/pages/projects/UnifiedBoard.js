@@ -1025,7 +1025,7 @@ function CardContextMenu({ x, y, onClose, onDuplicate, onArchive, onDelete }) {
           left: x,
           top: y,
           zIndex: 999,
-          background: '#1a1a2e',
+          background: colors.bgHover,
           border: `1px solid rgba(255,255,255,0.15)`,
           borderRadius: radii.md,
           padding: spacing.xs,
@@ -2016,8 +2016,8 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
                       const nm = getDisplayName(a.profile);
                       const tt = a.profile?.title || a.profile?.role;
                       return (
-                        <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(99,102,241,0.12)', padding: '2px 6px', borderRadius: 6 }}>
-                          <span style={{ fontSize: 11, color: '#a5b4fc' }}>{nm}</span>
+                        <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 4, background: colors.accentA12, padding: '2px 6px', borderRadius: 6 }}>
+                          <span style={{ fontSize: 11, color: colors.accentFg }}>{nm}</span>
                           {tt && (
                             <span style={{ fontSize: 10, color: 'rgba(165,180,252,0.6)' }}>— {tt}</span>
                           )}

@@ -7,6 +7,7 @@ import { ptDateToUtcISO } from '../lib/ptDate';
 import { mobileTokens } from '../utils/mobileTokens';
 import { daysAgoStr, todayStr, formatCompact, formatCurrency, pctChange } from './analytics/utils';
 import { MiniBar, platformColor } from './analytics/viz';
+import { colors } from '../lib/styleTokens';
 
 // Mobile Analytics — Admin Mode. Two tabs:
 //   • Weekly Report (default): the AI weekly KPI brief (summary always shown,
@@ -242,7 +243,7 @@ function ReportBody({ report }) {
         <div style={styles.card}>
           <NarrativeBlock title="Wins" items={n.wins} color="#34d399" />
           <NarrativeBlock title="Watch-outs" items={n.watch_outs} color="#fbbf24" />
-          <NarrativeBlock title="Recommendations" items={n.recommendations} color="#a5b4fc" />
+          <NarrativeBlock title="Recommendations" items={n.recommendations} color="#8fb4d8" />
         </div>
       )}
 
@@ -538,7 +539,7 @@ function DecisionMobileCard({ card }) {
 const styles = {
   root: {
     minHeight: '100%',
-    background: '#0f0f1a',
+    background: colors.bg,
     color: '#e2e8f0',
     padding: `${mobileTokens.space.md}px ${mobileTokens.space.lg}px ${mobileTokens.space.xxxl}px`,
     display: 'flex',
@@ -552,7 +553,7 @@ const styles = {
     color: 'rgba(255,255,255,0.55)', fontSize: mobileTokens.font.sm, fontWeight: 600,
     fontFamily: 'inherit', cursor: 'pointer',
   },
-  tabActive: { background: 'rgba(99,102,241,0.18)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.3)' },
+  tabActive: { background: colors.accentSoft, color: colors.accentFg, border: '1px solid rgba(91, 143, 199,0.3)' },
   tabBody: { display: 'flex', flexDirection: 'column', gap: mobileTokens.space.md },
   empty: { color: 'rgba(255,255,255,0.4)', textAlign: 'center', fontSize: mobileTokens.font.md, padding: mobileTokens.space.xxl, margin: 0 },
   emptyText: { color: 'rgba(255,255,255,0.4)', fontSize: mobileTokens.font.md, textAlign: 'center', padding: `${mobileTokens.space.xl}px ${mobileTokens.space.md}px` },
@@ -564,8 +565,8 @@ const styles = {
     borderRadius: 8, color: '#e2e8f0', fontSize: 13, padding: '8px 10px', fontFamily: 'inherit',
   },
   genBtn: {
-    padding: '8px 14px', background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.3)',
-    borderRadius: 8, color: '#a5b4fc', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+    padding: '8px 14px', background: colors.accentA12, border: '1px solid rgba(91, 143, 199,0.3)',
+    borderRadius: 8, color: colors.accentFg, fontSize: 13, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
   },
 
   headline: { color: '#e2e8f0', fontSize: 15, fontWeight: 600, lineHeight: 1.45 },
@@ -600,7 +601,7 @@ const styles = {
   contentTitle: { fontSize: 13, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   contentSub: { fontSize: 11, color: 'rgba(255,255,255,0.4)', textTransform: 'capitalize', marginTop: 2 },
   contentViews: { fontSize: 13, fontWeight: 600, color: '#e2e8f0', fontVariantNumeric: 'tabular-nums', flexShrink: 0 },
-  link: { color: '#a5b4fc', textDecoration: 'none' },
+  link: { color: colors.accentFg, textDecoration: 'none' },
 
   generatedAt: { color: 'rgba(255,255,255,0.3)', fontSize: 11, textAlign: 'right' },
 
@@ -614,8 +615,8 @@ const styles = {
 
   // Platform KPIs
   totalCard: {
-    background: 'linear-gradient(135deg, rgba(99,102,241,0.18), rgba(129,140,248,0.08))',
-    border: '1px solid rgba(99,102,241,0.25)', borderRadius: mobileTokens.radius.lg,
+    background: 'linear-gradient(135deg, rgba(91, 143, 199,0.18), rgba(129,140,248,0.08))',
+    border: '1px solid rgba(91, 143, 199,0.25)', borderRadius: mobileTokens.radius.lg,
     padding: mobileTokens.space.lg, display: 'flex', flexDirection: 'column', gap: 4,
   },
   totalLabel: { fontSize: mobileTokens.font.xs, color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 },
@@ -640,7 +641,7 @@ const styles = {
 
   footer: {
     marginTop: mobileTokens.space.md, padding: mobileTokens.space.md,
-    background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.18)',
+    background: colors.accentA06, border: '1px solid rgba(91, 143, 199,0.18)',
     borderRadius: mobileTokens.radius.sm, color: 'rgba(255,255,255,0.55)',
     fontSize: mobileTokens.font.sm, textAlign: 'center',
   },

@@ -3,6 +3,7 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+import { colors } from '../lib/styleTokens';
 
 const CATEGORIES = [
   { key: 'mayday_videos',      label: 'Mayday Videos' },
@@ -40,7 +41,7 @@ const MAX_TITLES = 5;
 
 // Stable per-user name color, hashed from the profile id so desktop and
 // mobile agree without storing anything.
-const USER_COLORS = ['#a5b4fc', '#86efac', '#fcd34d', '#f9a8d4', '#93c5fd', '#fca5a5', '#c4b5fd', '#5eead4', '#fdba74'];
+const USER_COLORS = ['#8fb4d8', '#86efac', '#fcd34d', '#f9a8d4', '#93c5fd', '#fca5a5', '#c4b5fd', '#5eead4', '#fdba74'];
 function userColor(userId) {
   if (!userId) return 'rgba(255,255,255,0.3)';
   let h = 0;
@@ -760,7 +761,7 @@ const styles = {
   },
   addToProjectsBtn: {
     padding: '8px 16px',
-    background: '#6366f1',
+    background: colors.accent,
     border: 'none',
     borderRadius: '8px',
     color: '#fff',
@@ -782,10 +783,10 @@ const styles = {
   pageSubtitle: { fontSize: '13px', color: 'rgba(255,255,255,0.45)', margin: 0 },
   addBtn: {
     padding: '4px 10px',
-    background: 'rgba(99,102,241,0.15)',
-    border: '1px solid rgba(99,102,241,0.3)',
+    background: colors.accentA15,
+    border: '1px solid rgba(91, 143, 199,0.3)',
     borderRadius: '6px',
-    color: '#a5b4fc',
+    color: colors.accentFg,
     fontSize: '12px',
     fontWeight: 600,
     cursor: 'pointer',
@@ -808,7 +809,7 @@ const styles = {
   submitBtn: {
     flex: 1,
     padding: '8px 14px',
-    background: '#6366f1',
+    background: colors.accent,
     border: 'none',
     borderRadius: '8px',
     color: '#fff',
@@ -828,9 +829,9 @@ const styles = {
     cursor: 'pointer',
     fontFamily: 'inherit',
   },
-  listDraggingOver: { background: 'rgba(99,102,241,0.06)' },
+  listDraggingOver: { background: colors.accentA06 },
   itemSelectable: { cursor: 'pointer', borderRadius: '6px' },
-  itemSelected: { background: 'rgba(99,102,241,0.12)' },
+  itemSelected: { background: colors.accentA12 },
   selectCircle: {
     width: '16px',
     height: '16px',
@@ -845,8 +846,8 @@ const styles = {
     boxSizing: 'border-box',
   },
   selectCircleOn: {
-    background: '#6366f1',
-    border: '1.5px solid #6366f1',
+    background: colors.accent,
+    border: '1.5px solid #5b8fc7',
   },
   creatorName: { fontSize: '11px', color: 'rgba(255,255,255,0.3)' },
   // ── Table layout (sections per category) ──
@@ -926,12 +927,12 @@ const styles = {
     fontSize: '13px', cursor: 'pointer', padding: 0, lineHeight: 1,
   },
   titleInput: {
-    padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(99,102,241,0.35)',
+    padding: '4px 8px', borderRadius: 6, border: '1px solid rgba(91, 143, 199,0.35)',
     background: 'rgba(255,255,255,0.05)', color: '#e2e8f0', fontSize: '12px',
     fontFamily: 'inherit', outline: 'none',
   },
   titleAddBtn: {
-    background: 'none', border: '1px dashed rgba(99,102,241,0.3)', borderRadius: 6,
+    background: 'none', border: '1px dashed rgba(91, 143, 199,0.3)', borderRadius: 6,
     color: 'rgba(165,180,252,0.6)', fontSize: '11px', padding: '3px 8px',
     cursor: 'pointer', fontFamily: 'inherit', width: 'fit-content',
   },
@@ -940,7 +941,7 @@ const styles = {
     width: '100%',
     padding: '8px 10px',
     background: 'rgba(255,255,255,0.05)',
-    border: '1px solid rgba(99,102,241,0.4)',
+    border: '1px solid rgba(91, 143, 199,0.4)',
     borderRadius: '8px',
     color: '#fff',
     fontSize: '12px',
@@ -952,7 +953,7 @@ const styles = {
   contextBtnRow: { display: 'flex', gap: '6px', marginTop: '6px' },
   contextSaveBtn: {
     padding: '5px 12px',
-    background: '#6366f1',
+    background: colors.accent,
     border: 'none',
     borderRadius: '6px',
     color: '#fff',
@@ -984,7 +985,7 @@ const styles = {
     flex: 1,
     padding: '4px 8px',
     background: 'rgba(255,255,255,0.08)',
-    border: '1px solid rgba(99,102,241,0.5)',
+    border: '1px solid rgba(91, 143, 199,0.5)',
     borderRadius: '6px',
     color: '#fff',
     fontSize: '13px',
@@ -995,7 +996,7 @@ const styles = {
   ctxMenu: {
     position: 'fixed',
     zIndex: 1000,
-    background: '#1e1e32',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: '10px',
     padding: '4px',

@@ -12,6 +12,7 @@ import {
 } from '../lib/researchDocs';
 import { checkHealth } from '../lib/tritonMcp';
 import { clickableKeyProps } from '../lib/styleRecipes';
+import { colors } from '../lib/styleTokens';
 
 const PRESET_QUERIES = [
   'Top 10 K/9 starters this season',
@@ -640,19 +641,19 @@ const styles = {
   page: { padding: '36px 40px 64px', maxWidth: '1500px', margin: '0 auto', minHeight: '100vh' },
   topBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '16px' },
   pageTitle: { fontSize: '28px', fontWeight: 700, color: '#ffffff', margin: 0, letterSpacing: '-0.5px' },
-  addBtn: { padding: '10px 20px', background: 'linear-gradient(135deg, #6366f1, #818cf8)', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' },
+  addBtn: { padding: '10px 20px', background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)', border: 'none', borderRadius: '10px', color: colors.white, fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' },
 
   // Tabs (matches Research.js pattern)
   sectionTabs: { display: 'flex', gap: '4px', marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: 0 },
   sectionTab: { padding: '10px 20px', border: 'none', borderBottom: '2px solid transparent', background: 'transparent', color: 'rgba(255,255,255,0.5)', fontSize: '14px', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s' },
-  sectionTabActive: { color: '#a5b4fc', borderBottomColor: '#6366f1' },
+  sectionTabActive: { color: colors.accentFg, borderBottomColor: '#5b8fc7' },
 
   // Document tab styles
   input: { width: '100%', boxSizing: 'border-box', padding: '10px 14px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', fontFamily: 'inherit', outline: 'none' },
-  submitBtn: { padding: '10px 20px', background: '#6366f1', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' },
+  submitBtn: { padding: '10px 20px', background: colors.accent, border: 'none', borderRadius: '8px', color: colors.white, fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' },
   cancelBtn: { padding: '10px 20px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#e2e8f0', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   modalOverlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '24px' },
-  modal: { background: '#15151f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', width: '640px', maxWidth: '100%', maxHeight: '88vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 64px rgba(0,0,0,0.5)' },
+  modal: { background: colors.bgRaised, border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', width: '640px', maxWidth: '100%', maxHeight: '88vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 64px rgba(0,0,0,0.5)' },
   modalHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px', borderBottom: '1px solid rgba(255,255,255,0.07)' },
   modalTitle: { fontSize: '18px', fontWeight: 700, color: '#fff', margin: 0 },
   modalClose: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', fontSize: '16px', cursor: 'pointer', padding: '4px 8px' },
@@ -669,7 +670,7 @@ const styles = {
   rowMeta: { fontSize: '12px', color: 'rgba(255,255,255,0.35)', flexShrink: 0, whiteSpace: 'nowrap' },
   rowActions: { display: 'flex', gap: '4px', flexShrink: 0 },
   actionBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '14px', padding: '4px 6px', borderRadius: '6px' },
-  renameInput: { width: '100%', padding: '4px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(99,102,241,0.5)', borderRadius: '6px', color: '#fff', fontSize: '15px', fontWeight: 600, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' },
+  renameInput: { width: '100%', padding: '4px 8px', background: colors.border, border: '1px solid rgba(91, 143, 199,0.5)', borderRadius: '6px', color: colors.white, fontSize: '15px', fontWeight: 600, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' },
   emptyCard: { background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.08)', borderRadius: '14px', padding: '40px', textAlign: 'center' },
   emptyText: { color: 'rgba(255,255,255,0.35)', fontSize: '14px', margin: 0 },
   errorCard: { background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '12px', padding: '14px 18px', marginBottom: '12px' },
@@ -684,7 +685,7 @@ const styles = {
   healthDot: { width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0 },
   statusLabel: { fontSize: '13px', color: 'rgba(255,255,255,0.5)', fontWeight: 500 },
   historyToggle: { padding: '6px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: 'rgba(255,255,255,0.6)', fontSize: '13px', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' },
-  historyToggleActive: { background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.4)', color: '#a5b4fc' },
+  historyToggleActive: { background: colors.accentA15, borderColor: colors.accentA40, color: colors.accentFg },
 
   // Presets
   presetRow: { display: 'flex', flexWrap: 'wrap', gap: '8px' },
@@ -693,18 +694,18 @@ const styles = {
   // Input bar
   inputBar: { display: 'flex', gap: '8px' },
   statsInput: { flex: 1, padding: '12px 16px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', color: '#fff', fontSize: '14px', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' },
-  askBtn: { padding: '12px 24px', background: '#6366f1', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' },
+  askBtn: { padding: '12px 24px', background: colors.accent, border: 'none', borderRadius: '10px', color: colors.white, fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' },
 
   // Thread
   threadContainer: { display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '60vh', overflowY: 'auto', paddingRight: '4px' },
 
   // User bubble (right-aligned)
   userBubbleRow: { display: 'flex', justifyContent: 'flex-end' },
-  userBubble: { maxWidth: '75%', padding: '10px 16px', background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '14px 14px 4px 14px', color: '#c7d2fe', fontSize: '14px', lineHeight: 1.5 },
+  userBubble: { maxWidth: '75%', padding: '10px 16px', background: colors.accentA20, border: '1px solid rgba(91, 143, 199,0.3)', borderRadius: '14px 14px 4px 14px', color: colors.accentFgSoft, fontSize: '14px', lineHeight: 1.5 },
 
   // Loading
   loadingCard: { display: 'flex', alignItems: 'center', gap: '10px', padding: '16px 18px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px' },
-  loadingDot: { width: '8px', height: '8px', borderRadius: '50%', background: '#6366f1', animation: 'pulse 1.2s ease-in-out infinite' },
+  loadingDot: { width: '8px', height: '8px', borderRadius: '50%', background: colors.accent, animation: 'pulse 1.2s ease-in-out infinite' },
   loadingText: { color: 'rgba(255,255,255,0.4)', fontSize: '13px', fontStyle: 'italic' },
 
   // Result card
@@ -715,7 +716,7 @@ const styles = {
   // Data table
   tableWrap: { overflowX: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: '13px', fontFamily: 'inherit' },
-  th: { padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: '#a5b4fc', background: 'rgba(99,102,241,0.08)', borderBottom: '1px solid rgba(255,255,255,0.08)', whiteSpace: 'nowrap', position: 'sticky', top: 0 },
+  th: { padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: colors.accentFg, background: colors.accentA08, borderBottom: '1px solid rgba(255,255,255,0.08)', whiteSpace: 'nowrap', position: 'sticky', top: 0 },
   td: { padding: '7px 12px', color: 'rgba(255,255,255,0.7)', borderBottom: '1px solid rgba(255,255,255,0.04)', whiteSpace: 'nowrap' },
   trAlt: { background: 'rgba(255,255,255,0.015)' },
 

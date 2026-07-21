@@ -9,6 +9,7 @@ import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
 import { ReactionChips, ReactionBar, toggleReaction } from '../components/MessageReactions';
 import backdropDismiss from '../lib/backdropDismiss';
+import { colors } from '../lib/styleTokens';
 
 // Roles that can be individually granted channel access via the admin
 // "Set Permissions" menu. Admin-tier roles (admin, director_creative,
@@ -969,7 +970,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
       if (hl) {
         const color = HIGHLIGHT_COLORS[Number(hl[1]) - 1] || HIGHLIGHT_COLORS[0];
         return (
-          <mark key={key} style={{ background: color.bg, color: '#1a1a2e', borderRadius: '3px', padding: '0 3px' }}>
+          <mark key={key} style={{ background: color.bg, color: colors.bgHover, borderRadius: '3px', padding: '0 3px' }}>
             {inner(hl[2])}
           </mark>
         );
@@ -1774,7 +1775,7 @@ function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, onReact,
           />
           <div style={{
             position: 'fixed', top: ctxMenu.y, left: Math.min(ctxMenu.x, window.innerWidth - 240), zIndex: 100,
-            background: '#1e1e36', border: '1px solid rgba(255,255,255,0.12)',
+            background: colors.bgHover, border: '1px solid rgba(255,255,255,0.12)',
             borderRadius: '10px', boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
           }}>
             <ReactionBar onPick={(emoji) => { onReact(msg.id, emoji); setCtxMenu(null); }} />
@@ -1884,7 +1885,7 @@ const styles = {
     color: '#fff', fontSize: '13px', fontFamily: 'inherit', outline: 'none',
   },
   createBtn: {
-    padding: '7px', background: '#6366f1', border: 'none', borderRadius: '6px',
+    padding: '7px', background: colors.accent, border: 'none', borderRadius: '6px',
     color: '#fff', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
     fontFamily: 'inherit',
   },
@@ -1896,12 +1897,12 @@ const styles = {
     borderRadius: '8px', transition: 'background 0.1s, opacity 0.1s',
   },
   channelItemDragging: {
-    background: 'rgba(99,102,241,0.22)',
+    background: colors.accentA22,
     boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
   },
   channelRenameInput: {
     flex: 1, padding: '2px 4px', background: 'rgba(255,255,255,0.08)',
-    border: '1px solid rgba(99,102,241,0.5)', borderRadius: '5px',
+    border: '1px solid rgba(91, 143, 199,0.5)', borderRadius: '5px',
     color: '#fff', fontSize: '14px', fontFamily: 'inherit', outline: 'none',
     minWidth: 0,
   },
@@ -1926,8 +1927,8 @@ const styles = {
     borderRadius: '8px', transition: 'background 0.1s',
   },
   groupChannelsDragOver: {
-    background: 'rgba(99,102,241,0.12)',
-    boxShadow: 'inset 0 0 0 1px rgba(99,102,241,0.4)',
+    background: colors.accentA12,
+    boxShadow: 'inset 0 0 0 1px rgba(91, 143, 199,0.4)',
   },
   groupEmpty: {
     padding: '6px 10px', fontSize: '12px', color: 'rgba(255,255,255,0.3)',
@@ -1935,7 +1936,7 @@ const styles = {
   },
   contextMenu: {
     position: 'fixed', zIndex: 1000, minWidth: '140px',
-    background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)',
+    background: colors.bgHover, border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: '8px', padding: '4px', display: 'flex', flexDirection: 'column',
     boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
   },
@@ -1960,7 +1961,7 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px',
   },
   modalCard: {
-    width: '340px', maxWidth: '100%', background: '#1a1a2e',
+    width: '340px', maxWidth: '100%', background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px',
     padding: '18px', boxShadow: '0 16px 48px rgba(0,0,0,0.5)',
   },
@@ -1984,7 +1985,7 @@ const styles = {
     position: 'relative', transition: 'background 0.15s', flexShrink: 0,
   },
   roleToggleOn: {
-    background: '#6366f1',
+    background: colors.accent,
   },
   roleToggleKnob: {
     position: 'absolute', top: '2px', left: '2px', width: '16px', height: '16px',
@@ -2005,7 +2006,7 @@ const styles = {
     fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
   },
   modalSaveBtn: {
-    padding: '8px 16px', background: '#6366f1', border: 'none', borderRadius: '7px',
+    padding: '8px 16px', background: colors.accent, border: 'none', borderRadius: '7px',
     color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
   },
   channelItem: {
@@ -2016,7 +2017,7 @@ const styles = {
     textAlign: 'left', transition: 'all 0.1s',
   },
   channelItemActive: {
-    background: 'rgba(99,102,241,0.12)', color: '#e2e8f0',
+    background: colors.accentA12, color: colors.textBright,
   },
   hashIcon: {
     fontSize: '16px', fontWeight: 700, opacity: 0.5,
@@ -2137,8 +2138,8 @@ const styles = {
     justifyContent: 'center', height: '100%', textAlign: 'center',
   },
   emptyIcon: {
-    fontSize: '48px', fontWeight: 700, color: 'rgba(99,102,241,0.3)',
-    background: 'rgba(99,102,241,0.08)', width: '80px', height: '80px',
+    fontSize: '48px', fontWeight: 700, color: colors.accentA30,
+    background: colors.accentA08, width: '80px', height: '80px',
     borderRadius: '20px', display: 'flex', alignItems: 'center',
     justifyContent: 'center', marginBottom: '16px',
   },
@@ -2157,7 +2158,7 @@ const styles = {
   },
   mentionPopup: {
     position: 'absolute', bottom: '100%', left: '24px', right: '24px',
-    background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)',
+    background: colors.bgHover, border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: '10px', padding: '6px', marginBottom: '4px',
     boxShadow: '0 -8px 24px rgba(0,0,0,0.4)', maxHeight: '200px', overflow: 'auto',
   },
@@ -2169,9 +2170,9 @@ const styles = {
   },
   mentionAvatar: {
     width: '28px', height: '28px', borderRadius: '8px',
-    background: 'rgba(99,102,241,0.25)', display: 'flex',
+    background: colors.accentA25, display: 'flex',
     alignItems: 'center', justifyContent: 'center',
-    fontSize: '12px', fontWeight: 600, color: '#a5b4fc',
+    fontSize: '12px', fontWeight: 600, color: colors.accentFg,
   },
   mentionName: { fontSize: '13px', fontWeight: 600 },
   mentionTitle: { fontSize: '11px', color: 'rgba(255,255,255,0.35)' },
@@ -2188,7 +2189,7 @@ const styles = {
   pickerPopover: {
     position: 'absolute', bottom: '36px', left: 0, zIndex: 50,
     display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px',
-    padding: '8px', background: '#1a1a2e',
+    padding: '8px', background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px',
     boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
   },
@@ -2199,7 +2200,7 @@ const styles = {
   sizePopover: {
     position: 'absolute', bottom: '36px', left: 0, zIndex: 50,
     display: 'flex', alignItems: 'center', gap: '6px',
-    padding: '8px', background: '#1a1a2e',
+    padding: '8px', background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px',
     boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
   },
@@ -2209,13 +2210,13 @@ const styles = {
     color: '#fff', fontSize: '13px', fontFamily: 'inherit', outline: 'none',
   },
   sizeApplyBtn: {
-    padding: '5px 10px', background: '#6366f1', border: 'none', borderRadius: '6px',
+    padding: '5px 10px', background: colors.accent, border: 'none', borderRadius: '6px',
     color: '#fff', fontSize: '12px', fontFamily: 'inherit', cursor: 'pointer',
   },
   linkPopover: {
     position: 'absolute', bottom: '36px', left: 0, zIndex: 50,
     display: 'flex', flexDirection: 'column', gap: '6px', width: '220px',
-    padding: '8px', background: '#1a1a2e',
+    padding: '8px', background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px',
     boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
   },
@@ -2242,7 +2243,7 @@ const styles = {
   sendBtn: {
     width: '42px', height: '42px', display: 'flex',
     alignItems: 'center', justifyContent: 'center',
-    background: '#6366f1', border: 'none', borderRadius: '10px',
+    background: colors.accent, border: 'none', borderRadius: '10px',
     color: '#fff', cursor: 'pointer', transition: 'opacity 0.15s',
   },
   noChannel: {
@@ -2257,7 +2258,7 @@ const msgStyles = {
   },
   avatar: {
     width: '36px', height: '36px', borderRadius: '10px',
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     fontSize: '14px', fontWeight: 700, color: '#fff', flexShrink: 0,
   },
@@ -2285,7 +2286,7 @@ const msgStyles = {
   },
   menuDropdown: {
     position: 'absolute', top: '100%', right: 0, marginTop: '4px',
-    background: '#1e1e36', border: '1px solid rgba(255,255,255,0.12)',
+    background: colors.bgHover, border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: '8px', padding: '4px', zIndex: 50, minWidth: '130px',
     boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
   },
@@ -2299,16 +2300,16 @@ const msgStyles = {
     marginRight: '4px', fontSize: '11px',
   },
   mention: {
-    background: 'rgba(99,102,241,0.2)', color: '#a5b4fc',
+    background: colors.accentA20, color: colors.accentFg,
     padding: '1px 4px', borderRadius: '4px', fontWeight: 600,
   },
   channelLink: {
-    background: 'rgba(99,102,241,0.15)', color: '#a5b4fc',
+    background: colors.accentA15, color: colors.accentFg,
     padding: '1px 4px', borderRadius: '4px', fontWeight: 600,
     cursor: 'pointer', textDecoration: 'none',
   },
   link: {
-    color: '#818cf8', textDecoration: 'underline', wordBreak: 'break-word',
+    color: colors.accentFg, textDecoration: 'underline', wordBreak: 'break-word',
   },
   editedTag: {
     fontSize: '11px', color: 'rgba(255,255,255,0.25)', marginLeft: '6px',
@@ -2317,7 +2318,7 @@ const msgStyles = {
   editInput: {
     width: '100%', padding: '8px 12px',
     background: 'rgba(255,255,255,0.06)',
-    border: '1px solid rgba(99,102,241,0.4)', borderRadius: '8px',
+    border: '1px solid rgba(91, 143, 199,0.4)', borderRadius: '8px',
     color: '#fff', fontSize: '14px', fontFamily: 'inherit', outline: 'none',
     boxSizing: 'border-box',
     // Auto-sized to fit the message content (see the resize effect in MessageRow).
@@ -2347,7 +2348,7 @@ const msgStyles = {
     fontFamily: 'inherit',
   },
   editSaveBtn: {
-    padding: '4px 10px', background: '#6366f1',
+    padding: '4px 10px', background: colors.accent,
     border: 'none', borderRadius: '6px',
     color: '#fff', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
     fontFamily: 'inherit',

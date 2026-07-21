@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useConfirm } from '../../contexts/ConfirmContext';
+import { colors } from '../../lib/styleTokens';
 
 const COLORS = ['#ffffff', '#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899', '#6b7280'];
 const WIDTHS = [2, 4, 8, 14];
@@ -74,7 +75,7 @@ export default function Whiteboard({ docId, title, docType, onBack, onSaveTempla
 
     [...strokes, ...(currentStroke ? [currentStroke] : [])].forEach(stroke => {
       if (stroke.points.length < 2) return;
-      ctx.strokeStyle = stroke.eraser ? '#0f0f1a' : stroke.color;
+      ctx.strokeStyle = stroke.eraser ? '#0e1420' : stroke.color;
       ctx.lineWidth = stroke.eraser ? stroke.width * 3 : stroke.width;
       ctx.globalCompositeOperation = stroke.eraser ? 'destination-out' : 'source-over';
       ctx.beginPath();
@@ -256,12 +257,12 @@ const styles = {
   titleText: { fontSize: '15px', fontWeight: 600, color: '#e2e8f0', marginRight: 'auto' },
   toolGroup: { display: 'flex', alignItems: 'center', gap: '4px', padding: '0 8px', borderLeft: '1px solid rgba(255,255,255,0.06)' },
   toolBtn: { padding: '6px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '6px', color: 'rgba(255,255,255,0.5)', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' },
-  toolBtnActive: { background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.3)', color: '#a5b4fc' },
+  toolBtnActive: { background: colors.accentA15, borderColor: colors.accentA30, color: colors.accentFg },
   colorBtn: { width: '22px', height: '22px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer' },
   widthBtn: { width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '6px', cursor: 'pointer' },
-  widthBtnActive: { background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.3)' },
+  widthBtnActive: { background: colors.accentA15, borderColor: colors.accentA30 },
   saveBtn: { padding: '6px 14px', background: '#22c55e', border: 'none', borderRadius: '6px', color: '#fff', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   templateBtn: { padding: '6px 12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', color: 'rgba(255,255,255,0.45)', fontSize: '11px', cursor: 'pointer', fontFamily: 'inherit' },
-  canvasWrap: { flex: 1, position: 'relative', overflow: 'hidden', background: '#0f0f1a' },
+  canvasWrap: { flex: 1, position: 'relative', overflow: 'hidden', background: colors.bg },
   canvas: { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', cursor: 'crosshair' },
 };

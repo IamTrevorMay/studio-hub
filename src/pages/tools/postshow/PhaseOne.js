@@ -595,7 +595,7 @@ const st = {
   markBtns: { display: 'flex', gap: '8px' },
   markBtn: {
     padding: '6px 16px', fontSize: '12px', fontWeight: 600, color: '#e2e8f0',
-    background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)',
+    background: 'rgba(91, 143, 199,0.15)', border: '1px solid rgba(91, 143, 199,0.3)',
     borderRadius: '6px', cursor: 'pointer', fontFamily: 'inherit',
   },
   clipsSection: { display: 'flex', flexDirection: 'column', gap: '12px' },
@@ -631,7 +631,7 @@ const st = {
   dateInput: { width: '140px' },
   duration: { fontSize: '12px', color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace' },
   checkLabel: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: 'rgba(255,255,255,0.5)', cursor: 'pointer' },
-  checkbox: { accentColor: '#6366f1' },
+  checkbox: { accentColor: '#5b8fc7' },
   iconBtn: {
     padding: '4px', background: 'none', border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: '6px', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', display: 'flex',
@@ -644,7 +644,7 @@ const st = {
   },
   primaryBtn: {
     padding: '7px 16px', fontSize: '13px', fontWeight: 600, color: '#fff',
-    background: '#6366f1', border: 'none', borderRadius: '8px',
+    background: '#5b8fc7', border: 'none', borderRadius: '8px',
     cursor: 'pointer', fontFamily: 'inherit',
   },
   disabledBtn: { opacity: 0.4, cursor: 'not-allowed' },

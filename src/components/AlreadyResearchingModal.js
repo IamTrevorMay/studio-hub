@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { PeopleChips } from './MemberAssignmentModal';
 import backdropDismiss from '../lib/backdropDismiss';
+import { colors } from '../lib/styleTokens';
 
 const TEAM_ROLES = ['admin', 'assistant', 'member', 'partner'];
 
@@ -135,7 +136,7 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
   },
   modal: {
-    background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14,
+    background: colors.bgHover, border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14,
     width: 520, maxWidth: '92vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column',
   },
   header: {
@@ -157,7 +158,7 @@ const styles = {
     fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.45)', letterSpacing: 0.4,
     textTransform: 'uppercase', margin: '4px 0 6px', display: 'flex', alignItems: 'center', gap: 6,
   },
-  countPill: { background: '#6366f1', color: '#fff', borderRadius: 999, padding: '1px 7px', fontSize: 10, fontWeight: 800 },
+  countPill: { background: colors.accent, color: colors.white, borderRadius: 999, padding: '1px 7px', fontSize: 10, fontWeight: 800 },
   input: {
     width: '100%', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: 8, padding: '8px 10px', color: '#fff', fontSize: 13, outline: 'none',
@@ -169,7 +170,7 @@ const styles = {
     fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
   },
   assignBtn: {
-    background: '#6366f1', border: 'none', color: '#fff', borderRadius: 9,
+    background: colors.accent, border: 'none', color: colors.white, borderRadius: 9, // style-lint-ignore
     padding: '9px 20px', fontSize: 13, fontWeight: 700, fontFamily: 'inherit',
   },
 };

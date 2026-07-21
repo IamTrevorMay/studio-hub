@@ -8,6 +8,7 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { ReactionChips, ReactionBar, toggleReaction } from '../components/MessageReactions';
 import backdropDismiss from '../lib/backdropDismiss';
 import { clickableKeyProps } from '../lib/styleRecipes';
+import { colors } from '../lib/styleTokens';
 
 
 // A conversation is unread when its latest message came from someone else and
@@ -1024,8 +1025,8 @@ function DmMessage({ msg, isOwn, showAvatar, formatContent, formatTime, onEdit, 
 
       <div style={{
         ...styles.msgBubble,
-        background: isOwn ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.05)',
-        borderColor: isOwn ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.06)',
+        background: isOwn ? 'rgba(91, 143, 199,0.2)' : 'rgba(255,255,255,0.05)',
+        borderColor: isOwn ? 'rgba(91, 143, 199,0.15)' : 'rgba(255,255,255,0.06)',
         ...(editing ? { width: '100%', maxWidth: '80%' } : {}),
       }}>
         {showAvatar && !isOwn && (
@@ -1094,7 +1095,7 @@ const styles = {
   newBtn: {
     width: '28px', height: '28px', display: 'flex', alignItems: 'center',
     justifyContent: 'center', border: 'none', borderRadius: '8px',
-    background: 'rgba(99,102,241,0.15)', color: '#a5b4fc',
+    background: colors.accentA15, color: colors.accentFg,
     fontSize: '16px', cursor: 'pointer',
   },
   newConvoPanel: {
@@ -1113,18 +1114,18 @@ const styles = {
     background: 'transparent', color: '#e2e8f0', cursor: 'pointer',
     fontFamily: 'inherit', textAlign: 'left', transition: 'background 0.1s',
   },
-  userItemSelected: { background: 'rgba(99,102,241,0.12)' },
+  userItemSelected: { background: colors.accentA12 },
   userAvatar: {
     width: '32px', height: '32px', borderRadius: '8px',
-    background: 'rgba(99,102,241,0.2)', display: 'flex',
+    background: colors.accentA20, display: 'flex',
     alignItems: 'center', justifyContent: 'center',
-    fontSize: '13px', fontWeight: 600, color: '#a5b4fc', flexShrink: 0,
+    fontSize: '13px', fontWeight: 600, color: colors.accentFg, flexShrink: 0,
   },
   userItemName: { fontSize: '13px', fontWeight: 600 },
   userItemTitle: { fontSize: '11px', color: 'rgba(255,255,255,0.35)' },
-  checkMark: { color: '#6366f1', fontWeight: 700, fontSize: '14px' },
+  checkMark: { color: colors.accent, fontWeight: 700, fontSize: '14px' },
   startBtn: {
-    padding: '9px', background: '#6366f1', border: 'none', borderRadius: '8px',
+    padding: '9px', background: colors.accent, border: 'none', borderRadius: '8px',
     color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
   },
   convoList: { flex: 1, overflow: 'auto', padding: '6px' },
@@ -1135,10 +1136,10 @@ const styles = {
     fontFamily: 'inherit', textAlign: 'left', transition: 'background 0.1s',
     marginBottom: '2px',
   },
-  convoItemActive: { background: 'rgba(99,102,241,0.1)' },
+  convoItemActive: { background: colors.accentA10 },
   convoAvatar: {
     width: '40px', height: '40px', borderRadius: '10px',
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     fontSize: '16px', fontWeight: 700, color: '#fff', flexShrink: 0,
   },
@@ -1162,10 +1163,10 @@ const styles = {
     gap: '5px', flexShrink: 0,
   },
   convoTime: { fontSize: '11px', color: 'rgba(255,255,255,0.25)', flexShrink: 0 },
-  convoTimeUnread: { color: '#818cf8' },
+  convoTimeUnread: { color: colors.accentFg },
   convoUnreadDot: {
     width: '9px', height: '9px', borderRadius: '50%',
-    background: '#6366f1', flexShrink: 0,
+    background: colors.accent, flexShrink: 0,
   },
   emptyConvos: { textAlign: 'center', padding: '40px 20px' },
   emptyText: { color: 'rgba(255,255,255,0.4)', fontSize: '14px', margin: '0 0 4px 0' },
@@ -1177,7 +1178,7 @@ const styles = {
   },
   chatHeaderAvatar: {
     width: '36px', height: '36px', borderRadius: '10px',
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     fontSize: '16px', fontWeight: 700, color: '#fff',
   },
@@ -1195,9 +1196,9 @@ const styles = {
   },
   msgAvatar: {
     width: '32px', height: '32px', borderRadius: '8px',
-    background: 'rgba(99,102,241,0.2)', display: 'flex',
+    background: colors.accentA20, display: 'flex',
     alignItems: 'center', justifyContent: 'center',
-    fontSize: '12px', fontWeight: 600, color: '#a5b4fc', flexShrink: 0,
+    fontSize: '12px', fontWeight: 600, color: colors.accentFg, flexShrink: 0,
   },
   avatarImg32: {
     width: '32px', height: '32px', borderRadius: '8px', objectFit: 'cover',
@@ -1207,7 +1208,7 @@ const styles = {
     borderRadius: '12px', border: '1px solid',
   },
   msgSender: {
-    fontSize: '12px', fontWeight: 600, color: '#a5b4fc', marginBottom: '2px',
+    fontSize: '12px', fontWeight: 600, color: colors.accentFg, marginBottom: '2px',
   },
   msgContent: {
     fontSize: '14px', color: '#e2e8f0', lineHeight: 1.5, wordBreak: 'break-word',
@@ -1227,7 +1228,7 @@ const styles = {
   },
   msgMenuDropdown: {
     position: 'absolute', top: '100%', right: 0, marginTop: '2px',
-    background: '#1e1e36', border: '1px solid rgba(255,255,255,0.12)',
+    background: colors.bgHover, border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: '8px', padding: '4px', zIndex: 50, minWidth: '130px',
     boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
   },
@@ -1239,7 +1240,7 @@ const styles = {
   },
   msgEditInput: {
     width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.06)',
-    border: '1px solid rgba(99,102,241,0.4)', borderRadius: '8px',
+    border: '1px solid rgba(91, 143, 199,0.4)', borderRadius: '8px',
     color: '#fff', fontSize: '14px', fontFamily: 'inherit', outline: 'none',
     boxSizing: 'border-box', resize: 'none', lineHeight: 1.5,
     minHeight: '34px', maxHeight: '150px', overflow: 'auto',
@@ -1257,7 +1258,7 @@ const styles = {
     cursor: 'pointer', fontFamily: 'inherit',
   },
   msgEditSave: {
-    padding: '4px 10px', background: '#6366f1', border: 'none',
+    padding: '4px 10px', background: colors.accent, border: 'none',
     borderRadius: '6px', color: '#fff', fontSize: '12px', fontWeight: 600,
     cursor: 'pointer', fontFamily: 'inherit',
   },
@@ -1267,15 +1268,15 @@ const styles = {
   replyBar: {
     display: 'flex', alignItems: 'center', gap: '10px',
     padding: '8px 12px', marginBottom: '8px',
-    background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.15)',
+    background: colors.accentA08, border: '1px solid rgba(91, 143, 199,0.15)',
     borderRadius: '10px',
   },
   replyBarAccent: {
     width: '3px', alignSelf: 'stretch', borderRadius: '2px',
-    background: '#6366f1', flexShrink: 0,
+    background: colors.accent, flexShrink: 0,
   },
   replyBarName: {
-    fontSize: '12px', fontWeight: 600, color: '#a5b4fc',
+    fontSize: '12px', fontWeight: 600, color: colors.accentFg,
   },
   replyBarSnippet: {
     fontSize: '12px', color: 'rgba(255,255,255,0.45)',
@@ -1287,13 +1288,13 @@ const styles = {
     fontFamily: 'inherit', flexShrink: 0,
   },
   msgReplyQuote: {
-    borderLeft: '2px solid rgba(99,102,241,0.6)',
+    borderLeft: '2px solid rgba(91, 143, 199,0.6)',
     background: 'rgba(255,255,255,0.04)',
     borderRadius: '6px', padding: '5px 9px', marginBottom: '6px',
     cursor: 'pointer',
   },
   msgReplyQuoteName: {
-    fontSize: '11px', fontWeight: 600, color: '#a5b4fc',
+    fontSize: '11px', fontWeight: 600, color: colors.accentFg,
   },
   msgReplyQuoteText: {
     fontSize: '12px', color: 'rgba(255,255,255,0.45)', lineHeight: 1.4,
@@ -1314,7 +1315,7 @@ const styles = {
     paddingLeft: '2px',
   },
   mention: {
-    background: 'rgba(99,102,241,0.2)', color: '#a5b4fc',
+    background: colors.accentA20, color: colors.accentFg,
     padding: '1px 4px', borderRadius: '4px', fontWeight: 600,
   },
   bulletList: {
@@ -1325,7 +1326,7 @@ const styles = {
   },
   sendBtn: {
     width: '42px', height: '42px', display: 'flex', alignItems: 'center',
-    justifyContent: 'center', background: '#6366f1', border: 'none',
+    justifyContent: 'center', background: colors.accent, border: 'none',
     borderRadius: '10px', color: '#fff', cursor: 'pointer',
   },
   noChat: {
@@ -1336,12 +1337,12 @@ const styles = {
   noChatTitle: { fontSize: '18px', fontWeight: 600, color: '#e2e8f0', margin: '0 0 6px 0' },
   noChatSubtitle: { fontSize: '14px', color: 'rgba(255,255,255,0.35)', margin: 0 },
   channelLink: {
-    background: 'rgba(99,102,241,0.15)', color: '#a5b4fc',
+    background: colors.accentA15, color: colors.accentFg,
     padding: '1px 4px', borderRadius: '4px', fontWeight: 600,
     cursor: 'pointer',
   },
   messageLink: {
-    color: '#a5b4fc', textDecoration: 'underline',
+    color: colors.accentFg, textDecoration: 'underline',
     wordBreak: 'break-all', cursor: 'pointer',
   },
   contextOverlay: {
@@ -1349,7 +1350,7 @@ const styles = {
   },
   contextMenu: {
     position: 'fixed', zIndex: 101, minWidth: '160px',
-    background: '#1e1e36', border: '1px solid rgba(255,255,255,0.12)',
+    background: colors.bgHover, border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: '8px', padding: '4px',
     boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
   },
@@ -1381,7 +1382,7 @@ const styles = {
     cursor: 'pointer', fontFamily: 'inherit',
   },
   renameSave: {
-    padding: '8px 14px', background: '#6366f1', border: 'none',
+    padding: '8px 14px', background: colors.accent, border: 'none',
     borderRadius: '8px', color: '#fff', fontSize: '13px', fontWeight: 600,
     cursor: 'pointer', fontFamily: 'inherit',
   },

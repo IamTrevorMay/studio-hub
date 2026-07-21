@@ -12,8 +12,9 @@ import DocEditor from './editors/DocEditor';
 import Storyboard from './editors/Storyboard';
 import ScriptEditor from './editors/screenplay-editor/components/editor/ScriptEditor';
 import backdropDismiss from '../lib/backdropDismiss';
+import { colors } from '../lib/styleTokens';
 
-const CONCEPT_COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#22c55e', '#3b82f6', '#ef4444', '#14b8a6'];
+const CONCEPT_COLORS = ['#5b8fc7', '#8b5cf6', '#ec4899', '#f59e0b', '#22c55e', '#3b82f6', '#ef4444', '#14b8a6'];
 const CONCEPT_CATEGORIES = [
   { value: 'articles', label: 'Articles' },
   { value: 'long_form_video', label: 'Long Form Video' },
@@ -34,7 +35,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
   const [concepts, setConcepts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreateConcept, setShowCreateConcept] = useState(false);
-  const [conceptForm, setConceptForm] = useState({ name: '', description: '', color: '#6366f1', category: 'other' });
+  const [conceptForm, setConceptForm] = useState({ name: '', description: '', color: '#5b8fc7', category: 'other' });
   const [activeConcept, setActiveConcept] = useState(null);
   const [documents, setDocuments] = useState([]);
   const [activeDoc, setActiveDoc] = useState(null);
@@ -172,7 +173,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
       sort_order: concepts.length,
     });
     if (error) { console.error(error); return; }
-    setConceptForm({ name: '', description: '', color: '#6366f1', category: 'other' });
+    setConceptForm({ name: '', description: '', color: '#5b8fc7', category: 'other' });
     setShowCreateConcept(false);
     fetchConcepts();
   }
@@ -478,7 +479,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
                             {...dragProvided.dragHandleProps}
                             style={{
                               ...styles.docCard,
-                              ...(dragSnapshot.isDragging ? { boxShadow: '0 8px 32px rgba(99,102,241,0.3)', borderColor: 'rgba(99,102,241,0.4)' } : {}),
+                              ...(dragSnapshot.isDragging ? { boxShadow: '0 8px 32px rgba(91, 143, 199,0.3)', borderColor: 'rgba(91, 143, 199,0.4)' } : {}),
                               ...dragProvided.draggableProps.style,
                             }}
                             onClick={() => { if (renamingDoc !== doc.id) setActiveDoc(doc); }}
@@ -624,7 +625,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
                         {...provided.dragHandleProps}
                         style={{
                           ...styles.conceptCard,
-                          ...(snapshot.isDragging ? { boxShadow: '0 8px 32px rgba(99,102,241,0.3)', borderColor: 'rgba(99,102,241,0.4)' } : {}),
+                          ...(snapshot.isDragging ? { boxShadow: '0 8px 32px rgba(91, 143, 199,0.3)', borderColor: 'rgba(91, 143, 199,0.4)' } : {}),
                           ...provided.draggableProps.style,
                         }}
                         onClick={() => setActiveConcept(concept)}
@@ -807,7 +808,7 @@ export default function Ideation({ initialConceptId, onConceptOpened }) {
                 return (
                   <div key={doc.id} style={styles.allDocsRow}>
                     <span
-                      style={{ ...styles.allDocsCell, flex: 2, color: '#a5b4fc', fontWeight: 500, cursor: 'pointer' }}
+                      style={{ ...styles.allDocsCell, flex: 2, color: colors.accentFg, fontWeight: 500, cursor: 'pointer' }}
                       onClick={() => {
                         if (concept) {
                           setActiveConcept(concept);
@@ -883,12 +884,12 @@ const styles = {
   pageTitle: { fontSize: '28px', fontWeight: 700, color: '#ffffff', margin: '0 0 4px 0', letterSpacing: '-0.5px', display: 'flex', alignItems: 'center', gap: '10px' },
   pageSubtitle: { fontSize: '14px', color: 'rgba(255,255,255,0.4)', margin: 0 },
   backBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.45)', fontSize: '13px', cursor: 'pointer', padding: '0 0 8px 0', fontFamily: 'inherit', fontWeight: 500 },
-  addBtn: { padding: '10px 20px', background: 'linear-gradient(135deg, #6366f1, #818cf8)', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  addBtn: { padding: '10px 20px', background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)', border: 'none', borderRadius: '10px', color: colors.white, fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   createForm: { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', padding: '20px', marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '12px' },
   input: { padding: '10px 14px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', fontFamily: 'inherit', outline: 'none' },
   colorPicker: { display: 'flex', gap: '8px' },
   colorDot: { width: '28px', height: '28px', borderRadius: '8px', border: 'none', cursor: 'pointer' },
-  submitBtn: { padding: '10px 20px', background: '#6366f1', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', alignSelf: 'flex-start' },
+  submitBtn: { padding: '10px 20px', background: colors.accent, border: 'none', borderRadius: '8px', color: colors.white, fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', alignSelf: 'flex-start' },
   conceptDot: { width: '12px', height: '12px', borderRadius: '4px', display: 'inline-block' },
   conceptGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' },
   conceptCard: { background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', overflow: 'hidden', cursor: 'pointer', transition: 'border-color 0.15s' },
@@ -899,21 +900,21 @@ const styles = {
   conceptCardFooter: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   conceptCardMeta: { fontSize: '11px', color: 'rgba(255,255,255,0.25)' },
   deleteBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '14px', padding: '2px 6px' },
-  ctxMenu: { position: 'fixed', zIndex: 1000, background: '#1e1e2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '4px 0', minWidth: '140px', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' },
+  ctxMenu: { position: 'fixed', zIndex: 1000, background: colors.bgHover, border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '4px 0', minWidth: '140px', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' },
   ctxMenuItem: { display: 'block', width: '100%', padding: '8px 16px', background: 'none', border: 'none', color: 'rgba(255,255,255,0.7)', fontSize: '13px', fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left' },
   modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' },
-  editModal: { width: '460px', background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '12px', boxShadow: '0 24px 48px rgba(0,0,0,0.5)' },
+  editModal: { width: '460px', background: colors.bgHover, border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '12px', boxShadow: '0 24px 48px rgba(0,0,0,0.5)' },
   editModalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' },
   editModalTitle: { fontSize: '18px', fontWeight: 700, color: '#e2e8f0', margin: 0 },
   editModalClose: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', fontSize: '18px', cursor: 'pointer', padding: '4px 8px', fontFamily: 'inherit' },
   editCancelBtn: { padding: '9px 20px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', color: 'rgba(255,255,255,0.5)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   mergeTargetList: { display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '240px', overflowY: 'auto' },
   mergeTargetItem: { display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', cursor: 'pointer', fontFamily: 'inherit', color: 'rgba(255,255,255,0.6)', fontSize: '14px', fontWeight: 500 },
-  mergeTargetItemActive: { background: 'rgba(99,102,241,0.1)', borderColor: 'rgba(99,102,241,0.3)', color: '#a5b4fc' },
+  mergeTargetItemActive: { background: colors.accentA10, borderColor: colors.accentA30, color: colors.accentFg },
   mergeLabel: { fontSize: '12px', color: 'rgba(255,255,255,0.4)', fontWeight: 600 },
   typeSelector: { display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px' },
   typeOption: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', padding: '16px 12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', cursor: 'pointer', fontFamily: 'inherit', color: 'rgba(255,255,255,0.5)', transition: 'all 0.15s' },
-  typeOptionActive: { background: 'rgba(99,102,241,0.1)', borderColor: 'rgba(99,102,241,0.3)', color: '#a5b4fc' },
+  typeOptionActive: { background: colors.accentA10, borderColor: colors.accentA30, color: colors.accentFg },
   typeIcon: { fontSize: '24px' },
   typeLabel: { fontSize: '13px', fontWeight: 600 },
   typeDesc: { fontSize: '10px', opacity: 0.6, textAlign: 'center' },
@@ -942,7 +943,7 @@ const styles = {
   categoryBadge: { display: 'inline-block', padding: '2px 8px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '4px', fontSize: '10px', color: 'rgba(255,255,255,0.4)', fontWeight: 600, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.3px' },
 
   // Rename input
-  renameInput: { padding: '4px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '4px', color: '#fff', fontSize: '13px', fontFamily: 'inherit', outline: 'none', width: '100%', boxSizing: 'border-box' },
+  renameInput: { padding: '4px 8px', background: colors.border, border: '1px solid rgba(91, 143, 199,0.3)', borderRadius: '4px', color: colors.white, fontSize: '13px', fontFamily: 'inherit', outline: 'none', width: '100%', boxSizing: 'border-box' },
 
   // Context overlay
   contextOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999 },

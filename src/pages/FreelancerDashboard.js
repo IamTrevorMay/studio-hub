@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import useRealtimeTable from '../hooks/useRealtimeTable';
 import { logUploadError } from '../lib/uploadErrors';
 import backdropDismiss from '../lib/backdropDismiss';
+import { colors } from '../lib/styleTokens';
 
 const SUBMISSIONS_FOLDER_ID = '1r1dENUCjNSs57MjidYbE2rWrbMKXpLM0';
 
@@ -706,13 +707,13 @@ export default function FreelancerDashboard({ onNavigate }) {
                           alignItems: 'center',
                           gap: 6,
                           padding: '6px 12px',
-                          background: 'rgba(99,102,241,0.15)',
-                          color: '#a5b4fc',
+                          background: colors.accentA15,
+                          color: colors.accentFg,
                           borderRadius: 8,
                           fontSize: 13,
                           fontWeight: 500,
                           textDecoration: 'none',
-                          border: '1px solid rgba(99,102,241,0.3)',
+                          border: '1px solid rgba(91, 143, 199,0.3)',
                         }}
                       >
                         Open asset link
@@ -1086,8 +1087,8 @@ function AssignmentSubmitModal({ assignment, folderId, onUploadSuccess, onClose 
           onDrop={handleDrop}
           style={{
             ...submitStyles.dropZone,
-            borderColor: dragOver ? '#6366f1' : 'rgba(255,255,255,0.15)',
-            background: dragOver ? 'rgba(99,102,241,0.08)' : 'rgba(255,255,255,0.02)',
+            borderColor: dragOver ? '#5b8fc7' : 'rgba(255,255,255,0.15)',
+            background: dragOver ? 'rgba(91, 143, 199,0.08)' : 'rgba(255,255,255,0.02)',
           }}
         >
           {file ? (
@@ -1140,7 +1141,7 @@ const submitStyles = {
     zIndex: 9999, fontFamily: "'DM Sans', sans-serif",
   },
   modal: {
-    background: '#1a1a2e', borderRadius: 14, padding: 24, width: 420, maxWidth: '90vw',
+    background: colors.bgHover, borderRadius: 14, padding: 24, width: 420, maxWidth: '90vw',
     border: '1px solid rgba(255,255,255,0.1)',
   },
   header: {
@@ -1167,10 +1168,10 @@ const submitStyles = {
     height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.08)', marginTop: 12, overflow: 'hidden',
   },
   progressBar: {
-    height: '100%', borderRadius: 3, background: '#6366f1', transition: 'width 0.2s ease',
+    height: '100%', borderRadius: 3, background: colors.accent, transition: 'width 0.2s ease', // style-lint-ignore
   },
   uploadBtn: {
-    padding: '8px 20px', borderRadius: 8, border: 'none', background: '#6366f1',
+    padding: '8px 20px', borderRadius: 8, border: 'none', background: colors.accent,
     color: '#fff', cursor: 'pointer', fontSize: 14, fontWeight: 600, fontFamily: 'DM Sans, sans-serif',
   },
   cancelBtn: {
@@ -1185,7 +1186,7 @@ const submitStyles = {
 const styles = {
   page: {
     minHeight: '100vh',
-    background: '#0f0f1a',
+    background: colors.bg,
     padding: '32px 24px',
     fontFamily: 'DM Sans, sans-serif',
     color: 'rgba(255,255,255,0.9)',
@@ -1207,7 +1208,7 @@ const styles = {
     cursor: 'pointer',
   },
   notifsUnreadBadge: {
-    background: '#6366f1',
+    background: colors.accent,
     color: '#fff',
     fontSize: 11,
     fontWeight: 700,
@@ -1236,8 +1237,8 @@ const styles = {
     cursor: 'pointer',
   },
   notifItemUnread: {
-    background: 'rgba(99,102,241,0.06)',
-    borderLeft: '3px solid #6366f1',
+    background: colors.accentA06,
+    borderLeft: '3px solid #5b8fc7',
   },
   clearAllBtn: {
     background: 'rgba(239,68,68,0.08)',
@@ -1306,9 +1307,9 @@ const styles = {
     transition: 'all 0.15s',
   },
   filterPillActive: {
-    background: '#6366f1',
+    background: colors.accent,
     color: '#fff',
-    borderColor: '#6366f1',
+    borderColor: colors.accent,
   },
 
   // Card list
@@ -1430,7 +1431,7 @@ const styles = {
     padding: '8px 20px',
     borderRadius: 8,
     border: 'none',
-    background: '#6366f1',
+    background: colors.accent,
     color: '#fff',
     fontSize: 13,
     fontWeight: 600,
@@ -1519,7 +1520,7 @@ const styles = {
     width: 30,
     height: 30,
     borderRadius: '50%',
-    background: '#6366f1',
+    background: colors.accent,
     color: '#fff',
     display: 'flex',
     alignItems: 'center',
@@ -1573,7 +1574,7 @@ const styles = {
     padding: '8px 16px',
     borderRadius: 8,
     border: 'none',
-    background: '#6366f1',
+    background: colors.accent,
     color: '#fff',
     fontSize: 13,
     fontWeight: 600,
@@ -1596,7 +1597,7 @@ const styles = {
     zIndex: 9999,
   },
   modalContent: {
-    background: '#1a1a2e',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: 16,
     padding: '32px',

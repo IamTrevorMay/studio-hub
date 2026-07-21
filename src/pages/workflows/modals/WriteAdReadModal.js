@@ -274,9 +274,9 @@ export default function WriteAdReadModal({ task, onClose, onSubmit }) {
             title={pushTitle}
             style={{
               ...s.pushBtn,
-              background: !canPush ? 'rgba(255,255,255,0.05)' : 'rgba(99,102,241,0.12)',
-              border: '1px solid rgba(99,102,241,0.3)',
-              color: !canPush ? 'rgba(255,255,255,0.3)' : '#a5b4fc',
+              background: !canPush ? 'rgba(255,255,255,0.05)' : 'rgba(91, 143, 199,0.12)',
+              border: '1px solid rgba(91, 143, 199,0.3)',
+              color: !canPush ? 'rgba(255,255,255,0.3)' : '#8fb4d8',
               cursor: !canPush ? 'not-allowed' : 'pointer',
             }}
           >
@@ -287,7 +287,7 @@ export default function WriteAdReadModal({ task, onClose, onSubmit }) {
             disabled={completing}
             style={{
               ...s.pushBtn,
-              background: completing ? 'rgba(255,255,255,0.05)' : 'linear-gradient(135deg, #6366f1, #818cf8)',
+              background: completing ? 'rgba(255,255,255,0.05)' : 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
               color: completing ? 'rgba(255,255,255,0.3)' : '#fff',
               cursor: completing ? 'not-allowed' : 'pointer',
             }}
@@ -314,7 +314,7 @@ const s = {
     display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
   },
   modal: {
-    background: '#1a1a2e', borderRadius: 14,
+    background: '#1b2331', borderRadius: 14,
     width: '95vw', maxWidth: 1100, height: '82vh',
     border: '1px solid rgba(255,255,255,0.1)',
     display: 'flex', flexDirection: 'column',
@@ -369,8 +369,8 @@ const s = {
   },
   briefLink: {
     display: 'block', padding: '8px 12px',
-    background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)',
-    borderRadius: 8, color: '#a5b4fc', fontSize: 13,
+    background: 'rgba(91, 143, 199,0.08)', border: '1px solid rgba(91, 143, 199,0.2)',
+    borderRadius: 8, color: '#8fb4d8', fontSize: 13,
     marginBottom: 6, textDecoration: 'none', wordBreak: 'break-all',
   },
   footer: {

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { supabase } from '../../../supabaseClient';
 import backdropDismiss from '../../../lib/backdropDismiss';
+import { colors } from '../../../lib/styleTokens';
 
 export default function AddBriefModal({ task, onSubmit, onClose }) {
   const [mode, setMode] = useState('upload');
@@ -54,9 +55,9 @@ export default function AddBriefModal({ task, onSubmit, onClose }) {
     flex: 1, padding: '6px 8px', borderRadius: 6,
     fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
     textTransform: 'capitalize', border: '1px solid',
-    background: mode === m ? 'rgba(99,102,241,0.2)' : 'transparent',
-    color: mode === m ? '#a5b4fc' : 'rgba(255,255,255,0.35)',
-    borderColor: mode === m ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.08)',
+    background: mode === m ? 'rgba(91, 143, 199,0.2)' : 'transparent',
+    color: mode === m ? '#8fb4d8' : 'rgba(255,255,255,0.35)',
+    borderColor: mode === m ? 'rgba(91, 143, 199,0.4)' : 'rgba(255,255,255,0.08)',
   });
 
   return (
@@ -134,7 +135,7 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
   },
   modal: {
-    background: '#15151f', border: '1px solid rgba(255,255,255,0.1)',
+    background: colors.bgRaised, border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: 16, padding: 20, width: 440, maxWidth: '90vw',
     boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
     fontFamily: 'system-ui, -apple-system, sans-serif',
@@ -167,7 +168,7 @@ const styles = {
     cursor: 'pointer', fontSize: 13,
   },
   submitBtn: {
-    padding: '8px 18px', borderRadius: 8, background: '#6366f1',
+    padding: '8px 18px', borderRadius: 8, background: colors.accent,
     border: 'none', color: '#fff', fontWeight: 600, fontSize: 13,
   },
 };

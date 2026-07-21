@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
+import { colors } from '../lib/styleTokens';
 
 /**
  * SidebarEditMode — Admin DnD editor for sidebar navigation.
@@ -319,10 +320,10 @@ const editStyles = {
   },
   folderRow: {
     background: 'rgba(255,255,255,0.03)',
-    borderLeft: '2px solid rgba(99,102,241,0.4)',
+    borderLeft: '2px solid rgba(91, 143, 199,0.4)',
   },
   dragging: {
-    background: 'rgba(99,102,241,0.15)',
+    background: colors.accentA15,
     boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
   },
   handle: {
@@ -364,7 +365,7 @@ const editStyles = {
     fontSize: '13px',
     color: '#e2e8f0',
     background: 'rgba(255,255,255,0.08)',
-    border: '1px solid rgba(99,102,241,0.5)',
+    border: '1px solid rgba(91, 143, 199,0.5)',
     borderRadius: '4px',
     padding: '2px 6px',
     outline: 'none',
@@ -437,7 +438,7 @@ const editStyles = {
     padding: '6px 14px',
     border: 'none',
     borderRadius: '8px',
-    background: 'rgba(99,102,241,0.8)',
+    background: colors.accentA80,
     color: '#fff',
     fontSize: '12px',
     fontWeight: 600,

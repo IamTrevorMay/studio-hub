@@ -36,6 +36,7 @@ import Freelancers from './FreelancersMobile';
 import Ops from './OpsMobile';
 import Analytics from './AnalyticsMobile';
 import Tracking from './TrackingMobile';
+import { colors } from '../lib/styleTokens';
 // Goals page is sunset on desktop; mobile mirrors that — import + nav
 // entry + route case removed. Re-add when goals comes back, if ever.
 
@@ -437,7 +438,7 @@ function NotificationsList({ loading, notifications, onItemClick, onMarkAllRead 
             onClick={() => onItemClick(n)}
             style={{
               ...styles.notifItem,
-              background: n.is_read ? 'transparent' : 'rgba(99,102,241,0.08)',
+              background: n.is_read ? 'transparent' : 'rgba(91, 143, 199,0.08)',
             }}
           >
             <div style={styles.notifIcon}>
@@ -596,7 +597,7 @@ const submitStyles = {
     zIndex: 9999, fontFamily: "'DM Sans', sans-serif",
   },
   modal: {
-    background: '#1a1a2e', borderRadius: 14, padding: 20, width: '90vw', maxWidth: 400,
+    background: colors.bgHover, borderRadius: 14, padding: 20, width: '90vw', maxWidth: 400,
     border: '1px solid rgba(255,255,255,0.1)',
   },
   header: {
@@ -623,10 +624,10 @@ const submitStyles = {
     height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.08)', marginTop: 12, overflow: 'hidden',
   },
   progressBar: {
-    height: '100%', borderRadius: 3, background: '#6366f1', transition: 'width 0.2s ease',
+    height: '100%', borderRadius: 3, background: colors.accent, transition: 'width 0.2s ease', // style-lint-ignore
   },
   uploadBtn: {
-    padding: '8px 20px', borderRadius: 8, border: 'none', background: '#6366f1',
+    padding: '8px 20px', borderRadius: 8, border: 'none', background: colors.accent,
     color: '#fff', cursor: 'pointer', fontSize: 14, fontWeight: 600, fontFamily: 'DM Sans, sans-serif',
   },
   cancelBtn: {
@@ -646,7 +647,7 @@ const styles = {
     height: '100dvh',
     minHeight: '100vh',
     overflow: 'hidden',
-    background: '#0f0f1a',
+    background: colors.bg,
     color: '#e2e8f0',
     fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
     fontSize: mobileTokens.font.base,
@@ -671,10 +672,10 @@ const styles = {
   },
   markAllBtn: {
     padding: '6px 12px',
-    background: 'rgba(99,102,241,0.12)',
-    border: '1px solid rgba(99,102,241,0.25)',
+    background: colors.accentA12,
+    border: '1px solid rgba(91, 143, 199,0.25)',
     borderRadius: mobileTokens.radius.sm,
-    color: '#a5b4fc',
+    color: colors.accentFg,
     fontSize: mobileTokens.font.xs,
     fontWeight: 600,
     cursor: 'pointer',
@@ -734,7 +735,7 @@ const styles = {
     width: 8,
     height: 8,
     borderRadius: '50%',
-    background: '#6366f1',
+    background: colors.accent,
     flexShrink: 0,
     marginTop: 6,
   },

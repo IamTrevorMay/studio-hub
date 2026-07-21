@@ -180,7 +180,7 @@ const progressTrackStyle = {
 
 const progressFillStyle = {
   height: '100%',
-  background: '#6366f1',
+  background: '#5b8fc7',
   borderRadius: '4px',
   transition: 'width 0.3s ease',
 };

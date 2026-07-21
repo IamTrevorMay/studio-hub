@@ -7,6 +7,7 @@ import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { ReactionChips, ReactionBar, toggleReaction } from '../components/MessageReactions';
+import { colors } from '../lib/styleTokens';
 
 function applyFormatMarker(textareaRef, text, marker, setter) {
   const el = textareaRef.current;
@@ -317,14 +318,14 @@ export default function MessagesMobile({ onNavigate }) {
                 <button
                   key={m.id}
                   onClick={() => setSelectedUsers((prev) => (checked ? prev.filter((x) => x !== m.id) : [...prev, m.id]))}
-                  style={{ ...styles.userRow, background: checked ? 'rgba(99,102,241,0.12)' : 'transparent' }}
+                  style={{ ...styles.userRow, background: checked ? 'rgba(91, 143, 199,0.12)' : 'transparent' }}
                 >
                   <div style={styles.userAvatar}>{getDisplayInitial(m)}</div>
                   <div style={styles.userBody}>
                     <div style={styles.userName}>{getDisplayName(m)}</div>
                     {m.title && <div style={styles.userTitle}>{m.title}</div>}
                   </div>
-                  <div style={{ ...styles.checkSlot, color: checked ? '#a5b4fc' : 'transparent' }}>
+                  <div style={{ ...styles.checkSlot, color: checked ? '#8fb4d8' : 'transparent' }}>
                     <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2.5">
                       <path d="M4 9l3 3 7-7" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
@@ -656,7 +657,7 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
                   onContextMenu={!isEditing ? (e) => { e.preventDefault(); setActionMsg(m); } : undefined}
                   style={{
                     ...convoStyles.bubble,
-                    background: mine ? 'linear-gradient(135deg, #6366f1, #818cf8)' : 'rgba(255,255,255,0.06)',
+                    background: mine ? 'linear-gradient(135deg, #5b8fc7, #8fb4d8)' : 'rgba(255,255,255,0.06)',
                     color: mine ? '#fff' : '#e2e8f0',
                     borderBottomRightRadius: mine ? 4 : mobileTokens.radius.lg,
                     borderBottomLeftRadius: mine ? mobileTokens.radius.lg : 4,
@@ -722,11 +723,11 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
           <div style={{
             display: 'flex', alignItems: 'center', gap: 8,
             padding: '6px 10px', marginBottom: 6,
-            background: 'rgba(99,102,241,0.1)',
-            borderLeft: '2px solid #6366f1', borderRadius: 6,
+            background: colors.accentA10,
+            borderLeft: '2px solid #5b8fc7', borderRadius: 6,
           }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#a5b4fc' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: colors.accentFg }}>
                 Replying to {getDisplayName(replyingTo.profile) || 'message'}
               </div>
               <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -820,7 +821,7 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     minHeight: '100%',
-    background: '#0f0f1a',
+    background: colors.bg,
     color: '#e2e8f0',
   },
   toolbar: {
@@ -833,8 +834,8 @@ const styles = {
     minHeight: 36,
     padding: `0 ${mobileTokens.space.md}px`,
     borderRadius: mobileTokens.radius.pill,
-    background: 'rgba(99,102,241,0.14)',
-    color: '#a5b4fc',
+    background: colors.accentA14,
+    color: colors.accentFg,
     fontSize: mobileTokens.font.sm,
     fontWeight: 600,
     gap: mobileTokens.space.sm,
@@ -861,7 +862,7 @@ const styles = {
     width: 44,
     height: 44,
     borderRadius: mobileTokens.radius.md,
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     color: '#fff',
     display: 'flex',
     alignItems: 'center',
@@ -965,8 +966,8 @@ const styles = {
     width: 36,
     height: 36,
     borderRadius: mobileTokens.radius.sm,
-    background: 'rgba(99,102,241,0.2)',
-    color: '#a5b4fc',
+    background: colors.accentA20,
+    color: colors.accentFg,
     fontSize: mobileTokens.font.md,
     fontWeight: 700,
     display: 'flex',
@@ -997,7 +998,7 @@ const styles = {
   primaryBtn: {
     minHeight: mobileTokens.tap + 4,
     padding: `${mobileTokens.space.md}px`,
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     border: 'none',
     borderRadius: mobileTokens.radius.md,
     color: '#fff',
@@ -1099,8 +1100,8 @@ const convoStyles = {
     paddingLeft: 2,
   },
   mention: {
-    background: 'rgba(99,102,241,0.2)',
-    color: '#a5b4fc',
+    background: colors.accentA20,
+    color: colors.accentFg,
     padding: '1px 4px',
     borderRadius: 4,
     fontWeight: 600,
@@ -1119,7 +1120,7 @@ const convoStyles = {
     height: mobileTokens.tap,
     border: 'none',
     borderRadius: '50%',
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     color: '#fff',
     cursor: 'pointer',
     display: 'flex',
@@ -1129,12 +1130,12 @@ const convoStyles = {
     flexShrink: 0,
   },
   channelLink: {
-    color: '#a5b4fc',
+    color: colors.accentFg,
     fontWeight: 600,
     cursor: 'pointer',
   },
   messageLink: {
-    color: '#a5b4fc',
+    color: colors.accentFg,
     textDecoration: 'underline',
     wordBreak: 'break-all',
     cursor: 'pointer',
@@ -1182,7 +1183,7 @@ const convoStyles = {
     background: '#fff',
     border: 'none',
     borderRadius: mobileTokens.radius.sm,
-    color: '#4f46e5',
+    color: colors.accentDeep,
     fontSize: mobileTokens.font.sm,
     fontWeight: 700,
     cursor: 'pointer',

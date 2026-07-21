@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { mobileTokens, mobileTapButton } from '../../utils/mobileTokens';
 import { getDisplayName, getDisplayInitial } from '../../lib/displayName';
 import backdropDismiss from '../../lib/backdropDismiss';
+import { colors } from '../../lib/styleTokens';
 
 // Slide-in drawer with the full nav (already filtered for mobile by the caller),
 // plus user info + sign out at the bottom.
@@ -180,8 +181,8 @@ function NavItemBtn({ label, active, onClick, indented, style }) {
         width: '100%',
         padding: `${mobileTokens.space.md}px ${indented ? 32 : mobileTokens.space.md}px`,
         borderRadius: mobileTokens.radius.md,
-        background: active ? 'rgba(99,102,241,0.16)' : 'transparent',
-        color: active ? '#a5b4fc' : 'rgba(255,255,255,0.85)',
+        background: active ? 'rgba(91, 143, 199,0.16)' : 'transparent',
+        color: active ? '#8fb4d8' : 'rgba(255,255,255,0.85)',
         fontWeight: active ? 600 : 500,
         fontSize: mobileTokens.font.md,
         textAlign: 'left',
@@ -207,7 +208,7 @@ const styles = {
     left: 0,
     bottom: 0,
     width: 'min(86vw, 320px)',
-    background: '#12121f',
+    background: colors.bg,
     color: '#e2e8f0',
     fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
     fontSize: mobileTokens.font.base,
@@ -264,7 +265,7 @@ const styles = {
     width: 38,
     height: 38,
     borderRadius: mobileTokens.radius.md,
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     color: '#fff',
     display: 'flex',
     alignItems: 'center',
@@ -321,7 +322,7 @@ const styles = {
     fontFamily: 'inherit',
   },
   modeBtnActive: {
-    background: 'rgba(99,102,241,0.18)',
-    color: '#a5b4fc',
+    background: colors.accentSoft,
+    color: colors.accentFg,
   },
 };

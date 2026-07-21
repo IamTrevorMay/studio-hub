@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { mobileTokens, mobileTapButton } from '../../utils/mobileTokens';
 import backdropDismiss from '../../lib/backdropDismiss';
+import { colors } from '../../lib/styleTokens';
 
 // Lightweight bottom sheet for short content (confirms, quick edit forms,
 // notification panel). Long forms/detail views should use FullScreenSheet.
@@ -101,7 +102,7 @@ const styles = {
   },
   sheet: {
     width: '100%',
-    background: '#1a1a2e',
+    background: colors.bgHover,
     borderTopLeftRadius: mobileTokens.radius.xl,
     borderTopRightRadius: mobileTokens.radius.xl,
     boxShadow: '0 -12px 40px rgba(0,0,0,0.6)',

@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { ptDateToUtcISO } from '../lib/ptDate';
 import { clickableKeyProps } from '../lib/styleRecipes';
+import { colors } from '../lib/styleTokens';
 
 // ── Pay Period Helpers ────────────────────────────────────────────
 
@@ -758,7 +759,7 @@ export default function Payroll() {
 const styles = {
   page: {
     minHeight: '100vh',
-    background: '#0f0f1a',
+    background: colors.bg,
     padding: '32px 24px',
     fontFamily: 'DM Sans, sans-serif',
     color: 'rgba(255,255,255,0.9)',
@@ -781,8 +782,8 @@ const styles = {
   refreshBtn: {
     display: 'flex', alignItems: 'center', gap: 6,
     padding: '7px 14px', fontSize: 13, borderRadius: 8,
-    background: 'rgba(99,102,241,0.18)', color: '#fff',
-    border: '1px solid rgba(99,102,241,0.5)', cursor: 'pointer',
+    background: colors.accentSoft, color: colors.white,
+    border: '1px solid rgba(91, 143, 199,0.5)', cursor: 'pointer',
     fontFamily: 'inherit',
   },
   refreshBtnDisabled: { opacity: 0.6, cursor: 'default' },
@@ -829,8 +830,8 @@ const styles = {
   paydayBadge: {
     fontSize: 12,
     fontWeight: 600,
-    background: 'rgba(99,102,241,0.15)',
-    color: '#a5b4fc',
+    background: colors.accentA15,
+    color: colors.accentFg,
     padding: '4px 10px',
     borderRadius: 12,
   },
@@ -875,9 +876,9 @@ const styles = {
     fontFamily: 'DM Sans, sans-serif',
   },
   historyPillActive: {
-    background: '#6366f1',
+    background: colors.accent,
     color: '#fff',
-    borderColor: '#6366f1',
+    borderColor: colors.accent,
   },
 
   loadingText: {
@@ -944,7 +945,7 @@ const styles = {
     width: 34,
     height: 34,
     borderRadius: '50%',
-    background: '#6366f1',
+    background: colors.accent,
     color: '#fff',
     display: 'flex',
     alignItems: 'center',
@@ -1103,7 +1104,7 @@ const styles = {
     padding: '7px 16px',
     borderRadius: 8,
     border: 'none',
-    background: '#6366f1',
+    background: colors.accent,
     color: '#fff',
     fontSize: 12,
     fontWeight: 600,
@@ -1222,8 +1223,8 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    background: 'rgba(99,102,241,0.08)',
-    border: '1px solid rgba(99,102,241,0.2)',
+    background: colors.accentA08,
+    border: '1px solid rgba(91, 143, 199,0.2)',
     borderRadius: 12,
     padding: '16px 20px',
     marginTop: 32,

@@ -33,6 +33,12 @@ export default function EditorContextMenu({ editor, containerRef, onAddComment }
     if (!el) return
 
     const onContext = (e: MouseEvent) => {
+      // With no selection, let the browser's native context menu through so a
+      // right-click on a misspelled word shows spelling suggestions (there is
+      // no JS API for those — they only exist in the native menu). The custom
+      // menu is for acting on a selection (Copy/Delete/Add Comment/Insert), so
+      // only take over the menu when text is actually selected.
+      if (editor.state.selection.empty) return
       e.preventDefault()
       const rect = el.getBoundingClientRect()
       setPos({
@@ -51,7 +57,7 @@ export default function EditorContextMenu({ editor, containerRef, onAddComment }
       el.removeEventListener('contextmenu', onContext)
       document.removeEventListener('mousedown', onClick)
     }
-  }, [containerRef, close])
+  }, [containerRef, close, editor])
 
   if (!pos) return null
 

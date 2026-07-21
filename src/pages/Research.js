@@ -6,6 +6,7 @@ import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import usePersistedTab from '../hooks/usePersistedTab';
 import backdropDismiss from '../lib/backdropDismiss';
 import DOMPurify from 'dompurify';
+import { colors } from '../lib/styleTokens';
 
 
 const SECTIONS = ['inbox', 'briefs', 'cards', 'news', 'trends', 'daily'];
@@ -830,7 +831,7 @@ export default function Research() {
                       key={g.type}
                       onClick={() => setSelectedGraphic(g)}
                       style={s.dailyCard}
-                      onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'; e.currentTarget.style.transform = 'scale(1.02)'; }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(91, 143, 199,0.5)'; e.currentTarget.style.transform = 'scale(1.02)'; }}
                       onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.transform = 'scale(1)'; }}
                     >
                       <img
@@ -913,7 +914,7 @@ export default function Research() {
                     onClick={() => setActiveFilter(feed.id)}
                     style={{
                       ...s.filterChip,
-                      ...(activeFilter === feed.id ? { background: (feed.color || '#6366f1') + '22', color: feed.color || '#a5b4fc', borderColor: (feed.color || '#6366f1') + '44' } : {}),
+                      ...(activeFilter === feed.id ? { background: (feed.color || '#5b8fc7') + '22', color: feed.color || '#8fb4d8', borderColor: (feed.color || '#5b8fc7') + '44' } : {}),
                     }}
                   >
                     {feed.icon_emoji} {feed.name}
@@ -1159,7 +1160,7 @@ export default function Research() {
                       <a
                         href={`https://www.tritonapex.io/api/card-image?id=${selectedCard.id}`}
                         download={`${selectedCard.pitcher_name.replace(/\s+/g, '-')}-${selectedCard.date}.png`}
-                        style={{ padding: '6px 14px', background: '#6366f1', color: '#fff', borderRadius: '6px', fontSize: '12px', fontWeight: 600, textDecoration: 'none', marginLeft: '8px' }}
+                        style={{ padding: '6px 14px', background: colors.accent, color: colors.white, borderRadius: '6px', fontSize: '12px', fontWeight: 600, textDecoration: 'none', marginLeft: '8px' }}
                         onClick={e => e.stopPropagation()}
                       >
                         Download PNG
@@ -1220,7 +1221,7 @@ export default function Research() {
                   <div style={{ position: 'relative', marginLeft: '4px' }}>
                     <button
                       onClick={() => setShowCardsConfig(!showCardsConfig)}
-                      style={{ ...s.briefActionBtn, background: showCardsConfig ? 'rgba(99,102,241,0.2)' : undefined }}
+                      style={{ ...s.briefActionBtn, background: showCardsConfig ? 'rgba(91, 143, 199,0.2)' : undefined }}
                       title="Card settings"
                     >
                       <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -1259,7 +1260,7 @@ export default function Research() {
                             <option key={n} value={n}>{n}</option>
                           ))}
                         </select>
-                        {savingConfig && <div style={{ fontSize: '11px', color: '#a5b4fc', marginTop: '8px' }}>Saving...</div>}
+                        {savingConfig && <div style={{ fontSize: '11px', color: colors.accentFg, marginTop: '8px' }}>Saving...</div>}
                       </div>
                     )}
                   </div>
@@ -1286,8 +1287,8 @@ export default function Research() {
                       fontFamily: 'inherit',
                       cursor: 'pointer',
                       transition: 'background 0.12s, color 0.12s',
-                      background: cardsBucket === b.key ? 'rgba(99,102,241,0.2)' : 'transparent',
-                      color: cardsBucket === b.key ? '#a5b4fc' : 'rgba(255,255,255,0.4)',
+                      background: cardsBucket === b.key ? 'rgba(91, 143, 199,0.2)' : 'transparent',
+                      color: cardsBucket === b.key ? '#8fb4d8' : 'rgba(255,255,255,0.4)',
                     }}
                   >
                     {b.label}
@@ -1318,7 +1319,7 @@ export default function Research() {
                         key={card.id}
                         onClick={() => setSelectedCard(card)}
                         style={{ cursor: 'pointer', borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)', transition: 'border-color 0.2s, transform 0.2s' }}
-                        onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'; e.currentTarget.style.transform = 'scale(1.02)'; }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(91, 143, 199,0.5)'; e.currentTarget.style.transform = 'scale(1.02)'; }}
                         onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.transform = 'scale(1)'; }}
                       >
                         <img
@@ -1328,7 +1329,7 @@ export default function Research() {
                           loading="lazy"
                         />
                         <div style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255,255,255,0.02)' }}>
-                          <span style={{ fontSize: '16px', fontWeight: 800, color: '#6366f1', minWidth: '20px' }}>{card.rank}</span>
+                          <span style={{ fontSize: '16px', fontWeight: 800, color: colors.accent, minWidth: '20px' }}>{card.rank}</span>
                           <div style={{ flex: 1 }}>
                             <div style={{ fontSize: '13px', fontWeight: 600, color: '#e2e8f0' }}>{card.pitcher_name}</div>
                             <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>{card.game_info} &middot; {ipDisplay} IP &middot; {card.pitch_count}P</div>
@@ -1363,7 +1364,7 @@ export default function Research() {
                           const ipP = Math.round((c.ip - ipF) * 3);
                           return (
                             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                              <span style={{ fontSize: '11px', fontWeight: 700, color: '#6366f1', width: '14px' }}>{c.rank}</span>
+                              <span style={{ fontSize: '11px', fontWeight: 700, color: colors.accent, width: '14px' }}>{c.rank}</span>
                               <span style={{ fontSize: '12px', color: '#e2e8f0' }}>{c.pitcher_name}</span>
                               <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', marginLeft: 'auto' }}>{ipF}.{ipP} IP</span>
                             </div>
@@ -1506,7 +1507,7 @@ export default function Research() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                           {currentTrend.suggestions.map((sug, i) => {
                             const gradeColor = sug.grade?.startsWith('A') ? '#22c55e'
-                              : sug.grade?.startsWith('B') ? '#6366f1'
+                              : sug.grade?.startsWith('B') ? '#5b8fc7'
                               : sug.grade?.startsWith('C') ? '#f59e0b'
                               : sug.grade?.startsWith('D') ? '#f97316'
                               : '#ef4444';
@@ -1623,13 +1624,13 @@ const s = {
     gap: '8px',
   },
   sectionTabActive: {
-    color: '#a5b4fc',
-    borderBottomColor: '#6366f1',
+    color: '#8fb4d8',
+    borderBottomColor: '#5b8fc7',
   },
   unreadBadge: {
     padding: '1px 7px',
     borderRadius: '10px',
-    background: '#6366f1',
+    background: '#5b8fc7',
     color: '#fff',
     fontSize: '11px',
     fontWeight: 600,
@@ -1654,9 +1655,9 @@ const s = {
     whiteSpace: 'nowrap',
   },
   filterChipActive: {
-    background: 'rgba(99,102,241,0.15)',
-    borderColor: 'rgba(99,102,241,0.3)',
-    color: '#a5b4fc',
+    background: 'rgba(91, 143, 199,0.15)',
+    borderColor: 'rgba(91, 143, 199,0.3)',
+    color: '#8fb4d8',
   },
   articleGrid: {
     display: 'grid',
@@ -1746,7 +1747,7 @@ const s = {
     width: '8px',
     height: '8px',
     borderRadius: '50%',
-    background: '#6366f1',
+    background: '#5b8fc7',
     flexShrink: 0,
   },
   nlFrom: {
@@ -1806,8 +1807,8 @@ const s = {
     marginTop: '24px',
     padding: '10px 20px',
     borderRadius: '8px',
-    background: 'rgba(99,102,241,0.12)',
-    color: '#a5b4fc',
+    background: 'rgba(91, 143, 199,0.12)',
+    color: '#8fb4d8',
     fontSize: '13px',
     fontWeight: 600,
     textDecoration: 'none',
@@ -1915,7 +1916,7 @@ const s = {
     marginTop: '8px',
     width: '260px',
     padding: '16px',
-    background: '#1a1a2e',
+    background: '#1b2331',
     border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: '12px',
     boxShadow: '0 12px 40px rgba(0,0,0,0.5)',
@@ -1956,8 +1957,8 @@ const s = {
     transition: 'all 0.15s',
   },
   briefArchiveCardActive: {
-    borderColor: '#6366f1',
-    background: 'rgba(99,102,241,0.06)',
+    borderColor: '#5b8fc7',
+    background: 'rgba(91, 143, 199,0.06)',
   },
   // Inbox styles
   inboxTypeBadge: {
@@ -1965,8 +1966,8 @@ const s = {
     borderRadius: '4px',
     fontSize: '11px',
     fontWeight: 600,
-    background: 'rgba(99,102,241,0.15)',
-    color: '#a5b4fc',
+    background: 'rgba(91, 143, 199,0.15)',
+    color: '#8fb4d8',
     whiteSpace: 'nowrap',
     flexShrink: 0,
   },
@@ -2009,7 +2010,7 @@ const s = {
   trendSectionHeader: {
     fontSize: '15px',
     fontWeight: 700,
-    color: '#a5b4fc',
+    color: '#8fb4d8',
     margin: '0 0 14px',
     textTransform: 'uppercase',
     letterSpacing: '0.05em',
@@ -2094,7 +2095,7 @@ const s = {
     padding: '8px 16px',
     border: 'none',
     borderRadius: '8px',
-    background: '#6366f1',
+    background: '#5b8fc7',
     color: '#fff',
     fontSize: '13px',
     fontWeight: 600,

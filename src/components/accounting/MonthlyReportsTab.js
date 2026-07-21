@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { callEdgeFn } from '../../lib/edgeFn';
+import { colors } from '../../lib/styleTokens';
 
 // Monthly accounting report viewer. Reads monthly_reports snapshots — three
 // per month (combined / mayday_media / neptune_performance), generated on the
@@ -213,7 +214,7 @@ function ReportBody({ report }) {
           <div style={styles.narrativeRow}>
             <NarrativeBlock title="Wins" items={n.wins} color="#34d399" />
             <NarrativeBlock title="Watch-outs" items={n.watch_outs} color="#fbbf24" />
-            <NarrativeBlock title="Recommendations" items={n.recommendations} color="#a5b4fc" />
+            <NarrativeBlock title="Recommendations" items={n.recommendations} color="#8fb4d8" />
           </div>
         </div>
       )}
@@ -289,8 +290,8 @@ function titleCase(s) {
 function VendorRow({ v }) {
   const tag = (() => {
     switch (v.status) {
-      case 'new': return <span style={{ color: '#a5b4fc' }}>✦ new</span>;
-      case 'returned': return <span style={{ color: '#a5b4fc' }}>↩ returned</span>;
+      case 'new': return <span style={{ color: colors.accentFg }}>✦ new</span>;
+      case 'returned': return <span style={{ color: colors.accentFg }}>↩ returned</span>;
       case 'increased': return <span style={{ color: '#f87171' }}>▲ was {fmtUsdExact(v.prev_total)}</span>;
       case 'decreased': return <span style={{ color: '#34d399' }}>▼ was {fmtUsdExact(v.prev_total)}</span>;
       default: return <span style={{ color: 'rgba(255,255,255,0.35)' }}>→</span>;
@@ -353,10 +354,10 @@ const styles = {
     padding: '5px 12px', background: 'transparent', border: 'none', borderRadius: 6,
     color: 'rgba(255,255,255,0.55)', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
   },
-  scopePillActive: { background: 'rgba(99,102,241,0.18)', color: '#a5b4fc', fontWeight: 600 },
+  scopePillActive: { background: colors.accentSoft, color: colors.accentFg, fontWeight: 600 },
   genBtn: {
-    marginLeft: 'auto', padding: '6px 14px', background: 'rgba(99,102,241,0.12)',
-    border: '1px solid rgba(99,102,241,0.3)', borderRadius: 8, color: '#a5b4fc',
+    marginLeft: 'auto', padding: '6px 14px', background: colors.accentA12,
+    border: '1px solid rgba(91, 143, 199,0.3)', borderRadius: 8, color: colors.accentFg,
     fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
   },
   headline: { color: '#e7ebf2', fontSize: 16, fontWeight: 600, lineHeight: 1.45, margin: '4px 0 18px' },

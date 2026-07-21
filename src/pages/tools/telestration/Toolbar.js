@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { TOOLS, COLORS, STROKE_WIDTHS } from './telestrationConstants';
+import { colors } from '../../../lib/styleTokens';
 
 // SVG icons for each tool
 const TOOL_ICONS = {
@@ -270,9 +271,9 @@ const styles = {
     transition: 'color 0.12s, background 0.12s, border-color 0.12s',
   },
   toolBtnActive: {
-    background: 'rgba(99,102,241,0.15)',
-    borderColor: 'rgba(99,102,241,0.4)',
-    color: '#a5b4fc',
+    background: colors.accentA15,
+    borderColor: colors.accentA40,
+    color: colors.accentFg,
   },
   colorBtn: {
     width: '22px',
@@ -300,8 +301,8 @@ const styles = {
     transition: 'background 0.12s, border-color 0.12s',
   },
   strokeBtnActive: {
-    background: 'rgba(99,102,241,0.15)',
-    borderColor: 'rgba(99,102,241,0.4)',
+    background: colors.accentA15,
+    borderColor: colors.accentA40,
   },
   actionBtn: {
     background: 'none',
@@ -316,7 +317,7 @@ const styles = {
     transition: 'color 0.12s',
   },
   exportBtn: {
-    background: '#6366f1',
+    background: colors.accent,
     border: 'none',
     color: '#ffffff',
     cursor: 'pointer',
@@ -351,7 +352,7 @@ const styles = {
   },
   formatMenu: {
     position: 'fixed',
-    background: '#1e1e2e',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: '8px',
     padding: '4px',
@@ -374,7 +375,7 @@ const styles = {
     transition: 'background 0.1s',
   },
   formatMenuItemActive: {
-    background: 'rgba(99,102,241,0.2)',
-    color: '#a5b4fc',
+    background: colors.accentA20,
+    color: colors.accentFg,
   },
 };

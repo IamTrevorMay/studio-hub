@@ -52,6 +52,7 @@ import Ops from './Ops';
 import Morty from '../components/Morty';
 import FreelancerTour from '../components/FreelancerTour';
 import PageErrorBoundary from '../components/PageErrorBoundary';
+import { colors } from '../lib/styleTokens';
 
 // Sidebar catalog. Labels listed here are aliased internally — the user
 // refers to Production as "Beat Sheet", Scene Builder as "Custom Visuals",
@@ -819,7 +820,7 @@ export default function AppLayout() {
                         onClick={() => handleNotificationClick(n)}
                         style={{
                           ...styles.notifItem,
-                          background: n.is_read ? 'transparent' : 'rgba(99,102,241,0.06)',
+                          background: n.is_read ? 'transparent' : 'rgba(91, 143, 199,0.06)',
                         }}
                       >
                         <div style={styles.notifIcon}>
@@ -982,8 +983,8 @@ function SubmitModal({ onClose }) {
           onDrop={handleDrop}
           style={{
             ...submitStyles.dropZone,
-            borderColor: dragOver ? '#6366f1' : 'rgba(255,255,255,0.15)',
-            background: dragOver ? 'rgba(99,102,241,0.08)' : 'rgba(255,255,255,0.02)',
+            borderColor: dragOver ? '#5b8fc7' : 'rgba(255,255,255,0.15)',
+            background: dragOver ? 'rgba(91, 143, 199,0.08)' : 'rgba(255,255,255,0.02)',
           }}
         >
           {file ? (
@@ -1036,7 +1037,7 @@ const submitStyles = {
     zIndex: 9999, fontFamily: "'DM Sans', sans-serif",
   },
   modal: {
-    background: '#1a1a2e', borderRadius: 14, padding: 24, width: 420, maxWidth: '90vw',
+    background: colors.bgHover, borderRadius: 14, padding: 24, width: 420, maxWidth: '90vw',
     border: '1px solid rgba(255,255,255,0.1)',
   },
   header: {
@@ -1063,10 +1064,10 @@ const submitStyles = {
     height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.08)', marginTop: 12, overflow: 'hidden',
   },
   progressBar: {
-    height: '100%', borderRadius: 3, background: '#6366f1', transition: 'width 0.2s ease',
+    height: '100%', borderRadius: 3, background: colors.accent, transition: 'width 0.2s ease', // style-lint-ignore
   },
   uploadBtn: {
-    padding: '8px 20px', borderRadius: 8, border: 'none', background: '#6366f1',
+    padding: '8px 20px', borderRadius: 8, border: 'none', background: colors.accent,
     color: '#fff', cursor: 'pointer', fontSize: 14, fontWeight: 600, fontFamily: 'DM Sans, sans-serif',
   },
   cancelBtn: {
@@ -1079,7 +1080,7 @@ const submitStyles = {
 // --- Nav Icons ---
 function DashboardIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill={active ? '#a5b4fc' : '#6b7280'}>
+    <svg width="20" height="20" viewBox="0 0 20 20" fill={active ? '#8fb4d8' : '#6b7280'}>
       <rect x="2" y="2" width="7" height="7" rx="1.5" />
       <rect x="11" y="2" width="7" height="7" rx="1.5" />
       <rect x="2" y="11" width="7" height="7" rx="1.5" />
@@ -1090,7 +1091,7 @@ function DashboardIcon({ active }) {
 
 function ProjectsIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <rect x="3" y="3" width="14" height="14" rx="2" />
       <path d="M7 7h6M7 10h6M7 13h4" />
     </svg>
@@ -1099,7 +1100,7 @@ function ProjectsIcon({ active }) {
 
 function CalendarIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <rect x="3" y="4" width="14" height="13" rx="2" />
       <path d="M3 8h14M7 2v4M13 2v4" />
     </svg>
@@ -1108,7 +1109,7 @@ function CalendarIcon({ active }) {
 
 function ChannelsIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <path d="M7 2l-2 16M15 2l-2 16M3 7h16M2 13h16" />
     </svg>
   );
@@ -1116,7 +1117,7 @@ function ChannelsIcon({ active }) {
 
 function MessagesIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <path d="M4 4h12a2 2 0 012 2v7a2 2 0 01-2 2H7l-4 3V6a2 2 0 012-2z" />
     </svg>
   );
@@ -1124,7 +1125,7 @@ function MessagesIcon({ active }) {
 
 function ReviewsIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <rect x="3" y="4" width="14" height="10" rx="2" />
       <path d="M8 17h4" />
       <path d="M8 9l2 1.5L12 8" />
@@ -1134,7 +1135,7 @@ function ReviewsIcon({ active }) {
 
 function IdeationIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <path d="M10 2a5 5 0 013 9v2a1 1 0 01-1 1H8a1 1 0 01-1-1v-2a5 5 0 013-9z" />
       <path d="M8 16h4M9 18h2" />
     </svg>
@@ -1143,7 +1144,7 @@ function IdeationIcon({ active }) {
 
 function AnalyticsIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <path d="M3 17V10M8 17V7M13 17V4M18 17V1" strokeLinecap="round" />
     </svg>
   );
@@ -1151,7 +1152,7 @@ function AnalyticsIcon({ active }) {
 
 function ResourcesIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <path d="M4 4h5l2 2h5a1 1 0 011 1v8a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z" />
       <path d="M8 12h4M8 9.5h4" />
     </svg>
@@ -1160,7 +1161,7 @@ function ResourcesIcon({ active }) {
 
 function ResearchIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <circle cx="8" cy="8" r="5" />
       <path d="M12 12l5 5" />
       <path d="M6 5h4M6 8h3" />
@@ -1170,7 +1171,7 @@ function ResearchIcon({ active }) {
 
 function ProductionIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <rect x="2" y="7" width="16" height="10" rx="1.5" />
       <path d="M2 7l3-4h10l3 4" />
       <path d="M7 3l2 4M13 3l-2 4" />
@@ -1179,7 +1180,7 @@ function ProductionIcon({ active }) {
 }
 
 function MyTasksIcon({ active }) {
-  const c = active ? '#a5b4fc' : '#6b7280';
+  const c = active ? '#8fb4d8' : '#6b7280';
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 10.5l4.5 4.5L16 5.5" />
@@ -1190,28 +1191,28 @@ function MyTasksIcon({ active }) {
 
 function BusinessDevIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <path d="M3 17V11M8 17V8M13 17V5M18 17V3" strokeLinecap="round" />
       <path d="M2 18h17" strokeLinecap="round" />
-      <circle cx="13" cy="5" r="1.4" fill={active ? '#a5b4fc' : '#6b7280'} />
+      <circle cx="13" cy="5" r="1.4" fill={active ? '#8fb4d8' : '#6b7280'} />
     </svg>
   );
 }
 
 function DeliverablesIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <path d="M2 10c2-2 3.5-3 5-3s2.5 1.5 3 3c.5-1.5 1.5-3 3-3s3 1 5 3" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M2 10c0 2 1 3.5 2.5 4M18 10c0 2-1 3.5-2.5 4" strokeLinecap="round" />
-      <circle cx="7" cy="7" r="1" fill={active ? '#a5b4fc' : '#6b7280'} stroke="none" />
-      <circle cx="13" cy="7" r="1" fill={active ? '#a5b4fc' : '#6b7280'} stroke="none" />
+      <circle cx="7" cy="7" r="1" fill={active ? '#8fb4d8' : '#6b7280'} stroke="none" />
+      <circle cx="13" cy="7" r="1" fill={active ? '#8fb4d8' : '#6b7280'} stroke="none" />
     </svg>
   );
 }
 
 function InvoicingIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <rect x="4" y="2" width="12" height="16" rx="2" />
       <path d="M7 6h6M7 9h6M7 12h4" strokeLinecap="round" />
       <path d="M4 15h12" />
@@ -1221,7 +1222,7 @@ function InvoicingIcon({ active }) {
 
 function PayrollIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <rect x="3" y="3" width="14" height="14" rx="2" />
       <path d="M3 8h14" />
       <circle cx="10" cy="13" r="2" />
@@ -1232,7 +1233,7 @@ function PayrollIcon({ active }) {
 
 function ExpensesIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <path d="M3 6h14l-1 11H4z" />
       <path d="M7 6V4a3 3 0 0 1 6 0v2" />
       <path d="M8 11h4" strokeLinecap="round" />
@@ -1242,7 +1243,7 @@ function ExpensesIcon({ active }) {
 
 function FreelancersIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <circle cx="7" cy="6" r="2.5" />
       <path d="M2 16c0-2.5 2-4.5 5-4.5s5 2 5 4.5" strokeLinecap="round" />
       <circle cx="14" cy="7" r="2" />
@@ -1253,7 +1254,7 @@ function FreelancersIcon({ active }) {
 
 function ToolsIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <path d="M14.5 3.5a2.5 2.5 0 00-3.54 0L9.5 5l5 5 1.46-1.46a2.5 2.5 0 000-3.54l-1.46-1.5z" />
       <path d="M9.5 5L3 11.5V15h3.5L13 8.5" />
       <path d="M7.5 12.5L5 15" />
@@ -1263,7 +1264,7 @@ function ToolsIcon({ active }) {
 
 function CameraIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <rect x="2" y="5.5" width="11" height="9" rx="2" />
       <path d="M13 9.5l5-2.5v6l-5-2.5" strokeLinejoin="round" />
     </svg>
@@ -1272,7 +1273,7 @@ function CameraIcon({ active }) {
 
 function GraphicsIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <path d="M12 2l6 6-10 10H2v-6L12 2z" strokeLinejoin="round" />
       <path d="M10 4l6 6" />
       <path d="M2 18l4-4" strokeLinecap="round" />
@@ -1282,7 +1283,7 @@ function GraphicsIcon({ active }) {
 
 function MailerIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <rect x="2" y="4" width="16" height="12" rx="2" />
       <path d="M2 6l8 5 8-5" strokeLinejoin="round" />
     </svg>
@@ -1291,7 +1292,7 @@ function MailerIcon({ active }) {
 
 function WorkflowsIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <circle cx="10" cy="3" r="2" />
       <circle cx="5" cy="10" r="2" />
       <circle cx="15" cy="10" r="2" />
@@ -1303,7 +1304,7 @@ function WorkflowsIcon({ active }) {
 
 function JobsIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <rect x="3" y="6" width="14" height="10" rx="2" />
       <path d="M7 6V4.5a1 1 0 011-1h4a1 1 0 011 1V6" strokeLinecap="round" />
       <path d="M3 10h14" strokeLinecap="round" />
@@ -1313,7 +1314,7 @@ function JobsIcon({ active }) {
 
 function AdminIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <circle cx="10" cy="10" r="3" />
       <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.93 4.93l1.41 1.41M13.66 13.66l1.41 1.41M4.93 15.07l1.41-1.41M13.66 6.34l1.41-1.41" />
     </svg>
@@ -1322,7 +1323,7 @@ function AdminIcon({ active }) {
 
 function GeraldIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <path d="M10 2l1.8 4.5L16.5 8l-4.7 1.5L10 14l-1.8-4.5L3.5 8l4.7-1.5L10 2z" strokeLinejoin="round" />
       <path d="M16 13l.9 2.1L19 16l-2.1.9L16 19l-.9-2.1L13 16l2.1-.9L16 13z" strokeLinejoin="round" />
     </svg>
@@ -1331,7 +1332,7 @@ function GeraldIcon({ active }) {
 
 function PreProductionIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <path d="M4 3h9l3 3v11a1 1 0 01-1 1H4a1 1 0 01-1-1V4a1 1 0 011-1z" />
       <path d="M13 3v3h3" />
       <path d="M6.5 10h7M6.5 13h5" strokeLinecap="round" />
@@ -1341,7 +1342,7 @@ function PreProductionIcon({ active }) {
 
 function FilmingIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <rect x="2" y="6" width="12" height="8" rx="1.5" />
       <path d="M14 9l4-2.5v7L14 11" />
     </svg>
@@ -1350,7 +1351,7 @@ function FilmingIcon({ active }) {
 
 function PostProductionIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <rect x="2" y="4" width="16" height="12" rx="1.5" />
       <path d="M2 8h16M2 12h16" />
       <path d="M6 4v12M14 4v12" />
@@ -1360,7 +1361,7 @@ function PostProductionIcon({ active }) {
 
 function CoreTeamIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <circle cx="7" cy="8" r="3" />
       <circle cx="14" cy="8" r="2.4" />
       <path d="M2 17c0-2.5 2.2-4.5 5-4.5s5 2 5 4.5" strokeLinecap="round" />
@@ -1371,7 +1372,7 @@ function CoreTeamIcon({ active }) {
 
 function HoursIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <circle cx="10" cy="10" r="7" />
       <path d="M10 6v4l2.5 2.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
@@ -1380,7 +1381,7 @@ function HoursIcon({ active }) {
 
 function ProfileIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <circle cx="10" cy="7" r="3.2" />
       <path d="M3.5 17c0-3 2.9-5.5 6.5-5.5s6.5 2.5 6.5 5.5" strokeLinecap="round" />
     </svg>
@@ -1389,7 +1390,7 @@ function ProfileIcon({ active }) {
 
 function NotificationsIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <path d="M15 8a5 5 0 00-10 0c0 5.5-2.5 7.5-2.5 7.5h15S15 13.5 15 8z" strokeLinejoin="round" />
       <path d="M11.5 18a1.7 1.7 0 01-3 0" strokeLinecap="round" />
     </svg>
@@ -1398,7 +1399,7 @@ function NotificationsIcon({ active }) {
 
 function DocumentsIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <path d="M6 2h5l5 5v9a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2z" strokeLinejoin="round" />
       <path d="M11 2v5h5" strokeLinejoin="round" />
       <path d="M7 12h6M7 15h4" strokeLinecap="round" />
@@ -1408,7 +1409,7 @@ function DocumentsIcon({ active }) {
 
 function ToolsFolderIcon({ active }) {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <path d="M12.7 5.3a3.5 3.5 0 014.6-.9l-2.5 2.5.8 1.5 1.5.8 2.5-2.5a3.5 3.5 0 01-5.2 4.3l-6.6 6.6a1.6 1.6 0 01-2.3-2.3l6.6-6.6a3.5 3.5 0 01.6-3.4z" strokeLinejoin="round" transform="scale(0.82) translate(1.5 1.5)" />
     </svg>
   );
@@ -1417,7 +1418,7 @@ function ToolsFolderIcon({ active }) {
 function BetaFolderIcon({ active }) {
   // Lab flask — marks the Beta folder of pages still under refinement.
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#a5b4fc' : '#6b7280'} strokeWidth="1.5">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
       <path d="M8 2.5h4M9 2.5v5L4.5 15a2 2 0 001.7 3h7.6a2 2 0 001.7-3L11 7.5v-5" strokeLinejoin="round" strokeLinecap="round" />
       <path d="M6.5 12.5h7" strokeLinecap="round" />
     </svg>
@@ -1451,7 +1452,7 @@ const styles = {
   layout: {
     display: 'flex',
     height: '100vh',
-    background: '#0f0f1a',
+    background: colors.bg,
     fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
     color: '#e2e8f0',
   },
@@ -1516,8 +1517,8 @@ const styles = {
     fontFamily: 'inherit',
   },
   navItemActive: {
-    background: 'rgba(99,102,241,0.12)',
-    color: '#a5b4fc',
+    background: colors.accentA12,
+    color: colors.accentFg,
   },
   navDivider: {
     fontSize: '10px',
@@ -1586,7 +1587,7 @@ const styles = {
     width: '34px',
     height: '34px',
     borderRadius: '10px',
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1625,7 +1626,7 @@ const styles = {
   main: {
     flex: 1,
     overflow: 'hidden',
-    background: '#12121f',
+    background: colors.bg,
     display: 'flex',
     flexDirection: 'column',
   },
@@ -1677,7 +1678,7 @@ const styles = {
     right: 0,
     width: '400px',
     maxHeight: '500px',
-    background: '#1a1a2e',
+    background: colors.bgHover,
     border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: '14px',
     boxShadow: '0 12px 40px rgba(0,0,0,0.5)',
@@ -1701,10 +1702,10 @@ const styles = {
   },
   markAllReadBtn: {
     padding: '4px 10px',
-    background: 'rgba(99,102,241,0.1)',
-    border: '1px solid rgba(99,102,241,0.25)',
+    background: colors.accentA10,
+    border: '1px solid rgba(91, 143, 199,0.25)',
     borderRadius: '6px',
-    color: '#a5b4fc',
+    color: colors.accentFg,
     fontSize: '11px',
     fontWeight: 600,
     cursor: 'pointer',
@@ -1774,7 +1775,7 @@ const styles = {
     width: '8px',
     height: '8px',
     borderRadius: '50%',
-    background: '#6366f1',
+    background: colors.accent,
     flexShrink: 0,
     marginTop: '4px',
   },

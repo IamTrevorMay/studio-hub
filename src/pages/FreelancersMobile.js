@@ -5,6 +5,7 @@ import BottomSheet from '../components/mobile/BottomSheet';
 import ContractorAssignmentModal from '../components/ContractorAssignmentModal';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
 import usePersistedTab from '../hooks/usePersistedTab';
+import { colors } from '../lib/styleTokens';
 
 // Mobile Contractors: list-and-tap design for the three things an admin
 // reaches for from a phone — review/edit contractor assignments, comment
@@ -427,7 +428,7 @@ function DetailMeta({ label, value }) {
 const styles = {
   root: {
     display: 'flex', flexDirection: 'column', minHeight: '100%',
-    background: '#0f0f1a', color: '#e2e8f0', position: 'relative',
+    background: colors.bg, color: colors.textBright, position: 'relative',
   },
   tabs: {
     display: 'flex', gap: 6, padding: `${mobileTokens.space.md}px ${mobileTokens.space.lg}px ${mobileTokens.space.sm}px`,
@@ -439,7 +440,7 @@ const styles = {
     background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)',
     color: 'rgba(255,255,255,0.55)', fontSize: mobileTokens.font.sm, fontWeight: 600,
   },
-  tabActive: { background: 'rgba(99,102,241,0.18)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.3)' },
+  tabActive: { background: colors.accentSoft, color: colors.accentFg, border: '1px solid rgba(91, 143, 199,0.3)' },
   pane: { flex: 1, minHeight: 0, padding: `0 ${mobileTokens.space.lg}px ${mobileTokens.space.xxxl}px` },
   filterRow: { display: 'flex', flexWrap: 'wrap', gap: 6, padding: `${mobileTokens.space.md}px 0` },
   filterPill: {
@@ -448,7 +449,7 @@ const styles = {
     background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
     color: 'rgba(255,255,255,0.55)', fontSize: mobileTokens.font.xs, fontWeight: 600,
   },
-  filterPillActive: { background: 'rgba(99,102,241,0.18)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.35)' },
+  filterPillActive: { background: colors.accentSoft, color: colors.accentFg, border: '1px solid rgba(91, 143, 199,0.35)' },
   list: { display: 'flex', flexDirection: 'column', gap: 8 },
   row: {
     ...mobileTapButton, width: '100%', textAlign: 'left',
@@ -464,14 +465,14 @@ const styles = {
   pill: { fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: 0.4 },
   payPill: { fontSize: 11, fontWeight: 700, color: '#34d399' },
   dueText: { fontSize: mobileTokens.font.xs, color: 'rgba(255,255,255,0.45)' },
-  hoursValue: { fontSize: mobileTokens.font.md, fontWeight: 700, color: '#a5b4fc' },
+  hoursValue: { fontSize: mobileTokens.font.md, fontWeight: 700, color: colors.accentFg },
   empty: { padding: 40, textAlign: 'center', color: 'rgba(255,255,255,0.45)', fontSize: mobileTokens.font.md },
   fab: {
     position: 'fixed', right: 18, bottom: 86,
     width: 56, height: 56, borderRadius: '50%',
-    background: '#6366f1', color: '#fff', border: 'none',
+    background: colors.accent, color: colors.white, border: 'none',
     fontSize: 30, lineHeight: 1, cursor: 'pointer', fontFamily: 'inherit',
-    boxShadow: '0 8px 22px rgba(99,102,241,0.45)',
+    boxShadow: '0 8px 22px rgba(91, 143, 199,0.45)',
     display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50,
   },
 };
@@ -486,7 +487,7 @@ const detailStyles = {
   metaValue: { fontSize: mobileTokens.font.sm, color: '#fff', fontWeight: 600 },
   assetLink: {
     display: 'inline-block', marginTop: 12,
-    color: '#a5b4fc', fontSize: mobileTokens.font.sm, fontWeight: 600,
+    color: colors.accentFg, fontSize: mobileTokens.font.sm, fontWeight: 600,
     textDecoration: 'underline',
   },
   commentsSection: { display: 'flex', flexDirection: 'column', gap: 8 },
@@ -495,7 +496,7 @@ const detailStyles = {
   commentList: { display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 240, overflowY: 'auto' },
   commentRow: { padding: 10, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 8 },
   commentMeta: { display: 'flex', justifyContent: 'space-between', marginBottom: 4 },
-  commentAuthor: { fontSize: mobileTokens.font.xs, fontWeight: 600, color: '#a5b4fc' },
+  commentAuthor: { fontSize: mobileTokens.font.xs, fontWeight: 600, color: colors.accentFg },
   commentTime: { fontSize: 10, color: 'rgba(255,255,255,0.4)' },
   commentBody: { fontSize: mobileTokens.font.sm, color: '#e2e8f0', whiteSpace: 'pre-wrap' },
   composer: { display: 'flex', gap: 8, alignItems: 'flex-end' },
@@ -506,13 +507,13 @@ const detailStyles = {
     outline: 'none', fontFamily: 'inherit', resize: 'vertical',
   },
   composerBtn: {
-    background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8,
+    background: colors.accent, color: colors.white, border: 'none', borderRadius: 8,
     padding: '10px 14px', fontSize: mobileTokens.font.sm, fontWeight: 700,
     cursor: 'pointer', fontFamily: 'inherit',
   },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 },
   primaryBtn: {
-    background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8,
+    background: colors.accent, color: colors.white, border: 'none', borderRadius: 8,
     padding: '10px 18px', fontSize: mobileTokens.font.sm, fontWeight: 700,
     cursor: 'pointer', fontFamily: 'inherit',
   },

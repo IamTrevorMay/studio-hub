@@ -14,7 +14,7 @@
 // Deploy: supabase functions deploy assistant-summary --no-verify-jwt
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { getUserFromJwt, getAdminClient } from "../shared/workflow-engine.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // CORS is restricted to the assistant origins (unlike the shared "*"
 // headers) because this function aggregates admin-level data.
@@ -48,11 +48,27 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: cors(req) });
   if (req.method !== "POST") return resp(req, { error: "Method not allowed" }, 405);
 
-  const auth = await getUserFromJwt(req);
-  if (!auth) return resp(req, { error: "Unauthorized" }, 401);
-  if (!auth.isAdmin) return resp(req, { error: "Admin only" }, 403);
+  // Self-contained auth (same contract as shared/workflow-engine.getUserFromJwt):
+  // valid session JWT + profiles.role === 'admin'. Inlined 2026-07-20 so the
+  // function deploys standalone, without the workflow-engine dependency chain.
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) return resp(req, { error: "Unauthorized" }, 401);
+  const userClient = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_ANON_KEY")!,
+    { global: { headers: { Authorization: authHeader } } },
+  );
+  const { data: { user }, error: authErr } = await userClient.auth.getUser();
+  if (authErr || !user) return resp(req, { error: "Unauthorized" }, 401);
 
-  const admin = getAdminClient();
+  const admin = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+  const { data: callerProfile } = await admin
+    .from("profiles").select("role").eq("id", user.id).single();
+  if (callerProfile?.role !== "admin") return resp(req, { error: "Admin only" }, 403);
+  const auth = { userId: user.id };
   const now = new Date();
   const nowIso = now.toISOString();
   const horizon = new Date(now);
@@ -63,7 +79,7 @@ Deno.serve(async (req) => {
   try {
     // No lower bound on due dates: overdue items are exactly what an
     // assistant should surface. The horizon caps volume ahead.
-    const [projectsQ, sprintQ, deliverablesQ, tasksQ, eventsQ] = await Promise.all([
+    const [projectsQ, sprintQ, deliverablesQ, tasksQ, eventsQ, inboxQ] = await Promise.all([
       admin.from("projects")
         .select("id, name, status, deadline")
         .eq("is_archived", false)
@@ -99,10 +115,18 @@ Deno.serve(async (req) => {
         .lte("start_date", horizonIso)
         .order("start_date", { ascending: true })
         .limit(25),
+      // Inbox/backlog cards (2026-07-20): unsorted work with NO due date —
+      // the due-date task query above can never see these.
+      admin.from("personal_tasks")
+        .select("id, content, status, category, priority, due_date")
+        .eq("created_by", auth.userId)
+        .in("status", ["inbox", "backlog"])
+        .order("created_at", { ascending: false })
+        .limit(25),
     ]);
 
     const firstError = projectsQ.error || sprintQ.error || deliverablesQ.error
-      || tasksQ.error || eventsQ.error;
+      || tasksQ.error || eventsQ.error || inboxQ.error;
     if (firstError) throw firstError;
 
     let sprint = null;
@@ -152,6 +176,7 @@ Deno.serve(async (req) => {
         campaign: d.sponsor_campaigns?.name ?? null,
       })),
       tasks: tasksQ.data ?? [],
+      inbox_backlog: inboxQ.data ?? [],
       events: eventsQ.data ?? [],
     });
   } catch (err) {

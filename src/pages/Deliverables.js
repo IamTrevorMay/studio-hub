@@ -9,6 +9,7 @@ import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
 import { callWorkflowFn } from '../lib/workflowApi';
 import { ptMonthKey, ptDayKey } from '../lib/ptDate';
 import BeatSheetChooserModal from '../components/BeatSheetChooserModal';
+import { colors } from '../lib/styleTokens';
 
 export const DELIVERABLE_TYPES = {
   long_form_read: { label: 'Long Form Read', icon: '\u{1F4D6}' },
@@ -16,10 +17,10 @@ export const DELIVERABLE_TYPES = {
   short_form_video: { label: 'Short Form Video', icon: '\u{1F4F1}' },
 };
 const DELIVERABLE_PLATFORMS = ['YouTube', 'TikTok', 'Instagram', 'X/Twitter', 'Facebook', 'Substack', 'Podcast'];
-const SPONSOR_STATUS_COLORS = { active: '#10b981', completed: '#6366f1', cancelled: '#ef4444' };
+const SPONSOR_STATUS_COLORS = { active: '#10b981', completed: '#5b8fc7', cancelled: '#ef4444' };
 const PAYMENT_STATUS_COLORS = { unpaid: '#ef4444', partial: '#f59e0b', paid: '#10b981' };
 export const CHANNEL_COLORS = {
-  mayday: { bg: 'rgba(99,102,241,0.12)', color: '#a5b4fc', label: 'Mayday' },
+  mayday: { bg: 'rgba(91, 143, 199,0.12)', color: '#8fb4d8', label: 'Mayday' },
   tmb: { bg: 'rgba(239,68,68,0.12)', color: '#fca5a5', label: 'TM Baseball' },
   socials: { bg: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)', label: 'Social' },
 };
@@ -27,7 +28,7 @@ export const CHANNEL_COLORS = {
 // sponsor_deliverables.review_status — values enforced by a DB check).
 export const REVIEW_STATUS_OPTIONS = [
   { value: 'queued', label: 'Queued', bg: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.55)' },
-  { value: 'writing', label: 'Writing', bg: 'rgba(99,102,241,0.15)', color: '#a5b4fc' },
+  { value: 'writing', label: 'Writing', bg: 'rgba(91, 143, 199,0.15)', color: '#8fb4d8' },
   { value: 'filming', label: 'Filming', bg: 'rgba(168,85,247,0.15)', color: '#c084fc' },
   { value: 'ready_for_review', label: 'Ready for Review', bg: 'rgba(245,158,11,0.15)', color: '#fbbf24' },
   { value: 'in_review', label: 'In Review', bg: 'rgba(14,165,233,0.15)', color: '#38bdf8' },
@@ -64,8 +65,8 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
       .brief-md ul { margin: 0 0 12px; padding-left: 20px; color: rgba(255,255,255,0.78); }
       .brief-md li { margin-bottom: 4px; }
       .brief-md strong { color: #fff; font-weight: 600; }
-      .brief-md a { color: #a5b4fc; }
-      .brief-md code { background: rgba(99,102,241,0.15); padding: 1px 6px; border-radius: 4px; font-size: 12px; }
+      .brief-md a { color: #8fb4d8; }
+      .brief-md code { background: rgba(91, 143, 199,0.15); padding: 1px 6px; border-radius: 4px; font-size: 12px; }
     `;
     document.head.appendChild(el);
   }, []);
@@ -1269,7 +1270,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
             </span>
           )}
           {(d.platforms || []).map(p => (
-            <span key={p} style={{ fontSize: '9px', fontWeight: 600, padding: '2px 5px', borderRadius: '4px', background: 'rgba(99,102,241,0.12)', color: '#a5b4fc' }}>{p}</span>
+            <span key={p} style={{ fontSize: '9px', fontWeight: 600, padding: '2px 5px', borderRadius: '4px', background: colors.accentA12, color: colors.accentFg }}>{p}</span>
           ))}
           {d.needs_review && (
             <span style={{ fontSize: '9px', fontWeight: 700, padding: '2px 5px', borderRadius: '4px', background: 'rgba(236,72,153,0.15)', color: '#f9a8d4', textTransform: 'uppercase', letterSpacing: '0.3px' }}>REVIEW</span>
@@ -1312,7 +1313,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
             <span style={{ ...styles.chip, background: CHANNEL_COLORS[d.channel].bg, color: CHANNEL_COLORS[d.channel].color }}>{CHANNEL_COLORS[d.channel].label}</span>
           )}
           {(d.platforms || []).map(p => (
-            <span key={p} style={{ ...styles.chip, fontWeight: 600, background: 'rgba(99,102,241,0.12)', color: '#a5b4fc' }}>{p}</span>
+            <span key={p} style={{ ...styles.chip, fontWeight: 600, background: colors.accentA12, color: colors.accentFg }}>{p}</span>
           ))}
           {d.needs_review && <span style={{ ...styles.chip, background: 'rgba(236,72,153,0.15)', color: '#f9a8d4' }}>REVIEW</span>}
           {ev && (
@@ -1377,14 +1378,14 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
           );
         })()}
         <div style={{ display: 'flex', gap: '6px' }}>
-          <div style={{ flex: 1, minWidth: 0, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: '6px', padding: '7px 4px', textAlign: 'center' }}>
-            <div style={{ fontSize: '10px', fontWeight: 600, color: '#a5b4fc', marginBottom: '3px' }}>Mayday</div>
+          <div style={{ flex: 1, minWidth: 0, background: colors.accentA08, border: '1px solid rgba(91, 143, 199,0.15)', borderRadius: '6px', padding: '7px 4px', textAlign: 'center' }}>
+            <div style={{ fontSize: '10px', fontWeight: 600, color: colors.accentFg, marginBottom: '3px' }}>Mayday</div>
             <div style={{ fontSize: '15px', fontWeight: 700, color: '#fff' }}>
               {maydayCount}{maydayLimit != null ? <span style={{ color: 'rgba(255,255,255,0.35)' }}>/{maydayLimit}</span> : null}
             </div>
             {maydayLimit != null && (
               <div style={{ marginTop: '6px', height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
-                <div style={{ height: '100%', borderRadius: '2px', background: maydayCount >= maydayLimit ? '#22c55e' : '#6366f1', width: `${Math.min(100, maydayLimit > 0 ? (maydayCount / maydayLimit) * 100 : 0)}%`, transition: 'width 0.3s' }} />
+                <div style={{ height: '100%', borderRadius: '2px', background: maydayCount >= maydayLimit ? '#22c55e' : '#5b8fc7', width: `${Math.min(100, maydayLimit > 0 ? (maydayCount / maydayLimit) * 100 : 0)}%`, transition: 'width 0.3s' }} />
               </div>
             )}
           </div>
@@ -1405,7 +1406,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
             <div style={{ marginTop: '10px', display: 'flex', gap: '8px', alignItems: 'center' }}>
               <input type="number" value={slotDraft.mayday} onChange={e => setSlotDraft(d => ({ ...d, mayday: e.target.value }))} placeholder="Mayday" min="0" style={{ flex: 1, minWidth: 0, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '6px 8px', color: '#fff', fontSize: '12px' }} />
               <input type="number" value={slotDraft.tmb} onChange={e => setSlotDraft(d => ({ ...d, tmb: e.target.value }))} placeholder="TMB" min="0" style={{ flex: 1, minWidth: 0, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '6px 8px', color: '#fff', fontSize: '12px' }} />
-              <button onClick={() => handleSaveSlotLimits(month)} style={{ background: '#6366f1', color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 10px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>Save</button>
+              <button onClick={() => handleSaveSlotLimits(month)} style={{ background: colors.accent, color: colors.white, border: 'none', borderRadius: '5px', padding: '5px 10px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>Save</button>
               <button onClick={() => setEditingSlots(null)} style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)', border: 'none', borderRadius: '5px', padding: '5px 8px', fontSize: '12px', cursor: 'pointer' }}>{'✕'}</button>
             </div>
           ) : (
@@ -1484,7 +1485,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
               type="checkbox"
               checked={showDelivered}
               onChange={e => setShowDelivered(e.target.checked)}
-              style={{ accentColor: '#6366f1' }}
+              style={{ accentColor: '#5b8fc7' }}
             />
             Show Delivered
           </label>
@@ -1578,7 +1579,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                                   rel="noopener noreferrer"
                                   onClick={(e) => e.stopPropagation()}
                                   style={{
-                                    color: '#a5b4fc', textDecoration: 'underline',
+                                    color: colors.accentFg, textDecoration: 'underline',
                                     fontSize: '12px', maxWidth: 240, display: 'inline-block',
                                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                                     verticalAlign: 'middle',
@@ -1647,7 +1648,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                             onBlur={() => setReviewDueEditId(null)}
                             onKeyDown={(e) => { if (e.key === 'Escape') setReviewDueEditId(null); }}
                             style={{
-                              background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(99,102,241,0.5)',
+                              background: colors.blackA30, border: '1px solid rgba(91, 143, 199,0.5)',
                               borderRadius: '6px', color: '#fff', fontSize: '11px', padding: '2px 6px',
                               fontFamily: 'inherit', outline: 'none', colorScheme: 'dark',
                             }}
@@ -1766,8 +1767,8 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
       const dayEvents = monthEvents.filter(ev => ptDayKey(ev.start_date) === dateStr);
       const isToday = dateStr === todayStr;
       cells.push(
-        <div key={day} style={{ ...styles.calendarDay, ...(isToday ? { border: '1px solid rgba(99,102,241,0.5)' } : {}) }}>
-          <div style={{ fontSize: '11px', fontWeight: isToday ? 700 : 500, color: isToday ? '#818cf8' : 'rgba(255,255,255,0.4)', marginBottom: '4px' }}>{day}</div>
+        <div key={day} style={{ ...styles.calendarDay, ...(isToday ? { border: '1px solid rgba(91, 143, 199,0.5)' } : {}) }}>
+          <div style={{ fontSize: '11px', fontWeight: isToday ? 700 : 500, color: isToday ? '#8fb4d8' : 'rgba(255,255,255,0.4)', marginBottom: '4px' }}>{day}</div>
           {dayEvents.map(ev => {
             const isLinkedToCurrent = d.video_event_id === ev.id;
             const linkedTo = linkedMap[ev.id];
@@ -1909,7 +1910,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
             </div>
             <button
               onClick={() => { if (showProposalForm && !editingProposal) { resetProposalForm(); } else { resetProposalForm(); setShowProposalForm(true); } }}
-              style={{ background: '#6366f1', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 12px', fontSize: '13px', fontWeight: 500, cursor: 'pointer' }}
+              style={{ background: colors.accent, color: colors.white, border: 'none', borderRadius: '6px', padding: '6px 12px', fontSize: '13px', fontWeight: 500, cursor: 'pointer' }}
             >
               {showProposalForm && !editingProposal ? 'Cancel' : '+ New Proposal'}
             </button>
@@ -2027,14 +2028,14 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                 <button
                   type="button"
                   onClick={addItem}
-                  style={{ alignSelf: 'flex-start', background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px dashed rgba(99,102,241,0.4)', borderRadius: '6px', padding: '6px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+                  style={{ alignSelf: 'flex-start', background: colors.accentA15, color: colors.accentFg, border: '1px dashed rgba(91, 143, 199,0.4)', borderRadius: '6px', padding: '6px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
                 >
                   + Deliverable
                 </button>
               </div>
 
               <div style={{ display: 'flex', gap: '8px' }}>
-                <button type="submit" style={{ background: '#6366f1', color: '#fff', border: 'none', borderRadius: '6px', padding: '8px 14px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}>
+                <button type="submit" style={{ background: colors.accent, color: colors.white, border: 'none', borderRadius: '6px', padding: '8px 14px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}>
                   {editingProposal ? 'Save Proposal' : 'Create Proposal'}
                 </button>
                 <button type="button" onClick={cancelProposalForm} style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)', border: 'none', borderRadius: '6px', padding: '8px 14px', fontSize: '13px', cursor: 'pointer' }}>
@@ -2203,7 +2204,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                     {briefs.map(b => {
                       const href = b.onepager_md ? `/brief/${b.id}` : b.url;
                       return (
-                        <span key={b.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '5px 10px', borderRadius: '6px', background: b.onepager_md ? 'rgba(16,185,129,0.12)' : 'rgba(99,102,241,0.12)', border: `1px solid ${b.onepager_md ? 'rgba(16,185,129,0.3)' : 'rgba(99,102,241,0.3)'}`, color: b.onepager_md ? '#6ee7b7' : '#a5b4fc', fontSize: '11px', fontWeight: 600, maxWidth: '260px' }}>
+                        <span key={b.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '5px 10px', borderRadius: '6px', background: b.onepager_md ? 'rgba(16,185,129,0.12)' : 'rgba(91, 143, 199,0.12)', border: `1px solid ${b.onepager_md ? 'rgba(16,185,129,0.3)' : 'rgba(91, 143, 199,0.3)'}`, color: b.onepager_md ? '#6ee7b7' : '#8fb4d8', fontSize: '11px', fontWeight: 600, maxWidth: '260px' }}>
                           <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={b.label || b.url}>
                             {b.onepager_md ? '✓' : '🔗'} {b.label || 'Brief'}
                           </a>
@@ -2216,7 +2217,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                       <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', alignSelf: 'center' }}>No briefs yet.</span>
                     )}
                   </div>
-                  <button type="button" onClick={() => openBriefModal(c)} style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px dashed rgba(99,102,241,0.4)', background: 'rgba(99,102,241,0.06)', color: '#a5b4fc', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
+                  <button type="button" onClick={() => openBriefModal(c)} style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px dashed rgba(91, 143, 199,0.4)', background: colors.accentA06, color: colors.accentFg, fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans, sans-serif' }}>
                     + Add Brief (upload PDF or paste text)
                   </button>
                 </div>
@@ -2281,7 +2282,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                               rel="noopener noreferrer"
                               onClick={(e) => e.stopPropagation()}
                               style={{
-                                fontSize: '12px', color: brief.onepager_md ? '#6ee7b7' : '#a5b4fc',
+                                fontSize: '12px', color: brief.onepager_md ? '#6ee7b7' : '#8fb4d8',
                                 textDecoration: 'underline dotted', textUnderlineOffset: 3,
                                 maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis',
                                 whiteSpace: 'nowrap', display: 'inline-block', verticalAlign: 'middle',
@@ -2342,7 +2343,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                         )}
                         {(brand.campaign_briefs || []).map(brief => (
                           <span key={brief.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                            <a href={brief.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '11px', color: '#a5b4fc', textDecoration: 'none' }}>
+                            <a href={brief.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '11px', color: colors.accentFg, textDecoration: 'none' }}>
                               {brief.type === 'doc' ? '\u{1F4C4}' : '\u{1F517}'} {brief.label || 'Brief'}
                             </a>
                             <button onClick={() => handleRemoveBrief(brief)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', fontSize: '10px', padding: '0 2px' }} title="Remove brief">{'\u2715'}</button>
@@ -2417,7 +2418,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                             <label style={styles.label}>Platforms</label>
                             <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                               {DELIVERABLE_PLATFORMS.map(p => (
-                                <button key={p} type="button" onClick={() => setDeliverablePlatforms(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p])} style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', background: deliverablePlatforms.includes(p) ? 'rgba(99,102,241,0.2)' : 'transparent', color: deliverablePlatforms.includes(p) ? '#a5b4fc' : 'rgba(255,255,255,0.35)', borderColor: deliverablePlatforms.includes(p) ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.08)' }}>{p}</button>
+                                <button key={p} type="button" onClick={() => setDeliverablePlatforms(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p])} style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', background: deliverablePlatforms.includes(p) ? 'rgba(91, 143, 199,0.2)' : 'transparent', color: deliverablePlatforms.includes(p) ? '#8fb4d8' : 'rgba(255,255,255,0.35)', borderColor: deliverablePlatforms.includes(p) ? 'rgba(91, 143, 199,0.4)' : 'rgba(255,255,255,0.08)' }}>{p}</button>
                               ))}
                             </div>
                           </div>
@@ -2472,9 +2473,9 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                                 flex: 1,
                                 padding: '10px 14px',
                                 borderRadius: '8px',
-                                border: '1px solid rgba(99,102,241,0.3)',
-                                background: 'rgba(99,102,241,0.1)',
-                                color: '#a5b4fc',
+                                border: '1px solid rgba(91, 143, 199,0.3)',
+                                background: colors.accentA10,
+                                color: colors.accentFg,
                                 fontSize: '13px',
                                 fontWeight: 600,
                                 cursor: 'pointer',
@@ -2495,9 +2496,9 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                               style={{
                                 padding: '10px 14px',
                                 borderRadius: '8px',
-                                border: '1px solid rgba(99,102,241,0.3)',
-                                background: !deliverableNotes ? 'rgba(255,255,255,0.05)' : 'rgba(99,102,241,0.1)',
-                                color: !deliverableNotes ? 'rgba(255,255,255,0.3)' : '#a5b4fc',
+                                border: '1px solid rgba(91, 143, 199,0.3)',
+                                background: !deliverableNotes ? 'rgba(255,255,255,0.05)' : 'rgba(91, 143, 199,0.1)',
+                                color: !deliverableNotes ? 'rgba(255,255,255,0.3)' : '#8fb4d8',
                                 fontSize: '13px',
                                 fontWeight: 600,
                                 cursor: !deliverableNotes ? 'not-allowed' : 'pointer',
@@ -2586,7 +2587,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         >
           <form
             onSubmit={handleSaveVideoLink}
-            style={{ background: '#1a1a2e', borderRadius: '14px', width: '92vw', maxWidth: '440px', border: '1px solid rgba(255,255,255,0.1)', padding: '22px' }}
+            style={{ background: colors.bgHover, borderRadius: '14px', width: '92vw', maxWidth: '440px', border: '1px solid rgba(255,255,255,0.1)', padding: '22px' }}
           >
             <h3 style={{ margin: '0 0 4px', fontSize: '16px', fontWeight: 600, color: '#fff' }}>Finished Video</h3>
             <p style={{ margin: '0 0 16px', fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>
@@ -2629,7 +2630,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
         const onepagerHtml = onepagerBriefs.map(b => DOMPurify.sanitize(marked.parse(b.onepager_md))).join('<hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:24px 0;" />');
         return (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }} onMouseDown={(e) => { if (e.target === e.currentTarget) setAdCopyModalOpen(false); }}>
-            <div style={{ background: '#1a1a2e', borderRadius: '14px', width: '95vw', maxWidth: '1100px', height: '82vh', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ background: colors.bgHover, borderRadius: '14px', width: '95vw', maxWidth: '1100px', height: '82vh', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', flexDirection: 'column' }}>
               <div style={{ padding: '18px 22px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
                   <h3 style={{ margin: '0 0 2px', fontSize: '16px', fontWeight: 600, color: '#fff' }}>Ad Copy</h3>
@@ -2666,7 +2667,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                       <div style={{ marginTop: onepagerBriefs.length > 0 ? '20px' : 0 }}>
                         <p style={{ margin: '0 0 8px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>External briefs</p>
                         {linkBriefs.map(b => (
-                          <a key={b.id} href={b.url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', padding: '8px 12px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '8px', color: '#a5b4fc', fontSize: '13px', marginBottom: '6px', textDecoration: 'none', wordBreak: 'break-all' }}>{b.label || b.url}</a>
+                          <a key={b.id} href={b.url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', padding: '8px 12px', background: colors.accentA08, border: '1px solid rgba(91, 143, 199,0.2)', borderRadius: '8px', color: colors.accentFg, fontSize: '13px', marginBottom: '6px', textDecoration: 'none', wordBreak: 'break-all' }}>{b.label || b.url}</a>
                         ))}
                       </div>
                     )}
@@ -2680,7 +2681,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                     setAdCopyModalOpen(false);
                   }}
                   style={{
-                    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+                    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
                     color: '#fff',
                     border: 'none', borderRadius: '8px', padding: '10px 18px', fontSize: '13px', fontWeight: 600,
                     cursor: 'pointer',
@@ -2697,7 +2698,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
 
       {briefModalBrand && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }} onMouseDown={(e) => { if (e.target === e.currentTarget && !briefModalSaving) setBriefModalBrand(null); }}>
-          <div style={{ background: '#1a1a2e', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '480px', border: '1px solid rgba(255,255,255,0.1)' }}>
+          <div style={{ background: colors.bgHover, borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '480px', border: '1px solid rgba(255,255,255,0.1)' }}>
             <h3 style={{ margin: '0 0 4px', fontSize: '16px', fontWeight: 600, color: '#fff' }}>{briefModalEditingId ? 'Edit Brief' : 'Add Brief'}</h3>
             <p style={{ margin: '0 0 16px', fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>{briefModalBrand.name}</p>
             {!briefModalEditingId && (
@@ -2708,7 +2709,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
                   { key: 'link', label: 'Link' },
                 ].map(t => (
                   <button key={t.key} type="button" onClick={() => { setBriefModalType(t.key); setBriefModalError(''); }}
-                    style={{ flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', background: briefModalType === t.key ? 'rgba(99,102,241,0.2)' : 'transparent', color: briefModalType === t.key ? '#a5b4fc' : 'rgba(255,255,255,0.35)', borderColor: briefModalType === t.key ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.08)' }}
+                    style={{ flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', background: briefModalType === t.key ? 'rgba(91, 143, 199,0.2)' : 'transparent', color: briefModalType === t.key ? '#8fb4d8' : 'rgba(255,255,255,0.35)', borderColor: briefModalType === t.key ? 'rgba(91, 143, 199,0.4)' : 'rgba(255,255,255,0.08)' }}
                   >{t.label}</button>
                 ))}
               </div>
@@ -2755,7 +2756,7 @@ export default function Deliverables({ initialBrandId, onBrandOpened }) {
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '18px' }}>
               <button onClick={() => setBriefModalBrand(null)} disabled={briefModalSaving} style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)', border: 'none', borderRadius: '6px', padding: '8px 16px', fontSize: '13px', cursor: briefModalSaving ? 'not-allowed' : 'pointer', opacity: briefModalSaving ? 0.5 : 1 }}>Cancel</button>
-              <button onClick={saveBriefModal} disabled={briefModalSaving} style={{ background: '#6366f1', color: '#fff', border: 'none', borderRadius: '6px', padding: '8px 16px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', opacity: briefModalSaving ? 0.5 : 1 }}>
+              <button onClick={saveBriefModal} disabled={briefModalSaving} style={{ background: colors.accent, color: colors.white, border: 'none', borderRadius: '6px', padding: '8px 16px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', opacity: briefModalSaving ? 0.5 : 1 }}>
                 {briefModalProcessing ? 'Generating one-pager…' : briefModalSaving ? 'Saving…' : (briefModalEditingId ? 'Save Changes' : 'Save Brief')}
               </button>
             </div>
@@ -2860,7 +2861,7 @@ const styles = {
   },
   addBtn: {
     padding: '10px 20px',
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     border: 'none', borderRadius: '10px',
     color: '#fff', fontSize: '14px', fontWeight: 600,
     cursor: 'pointer', fontFamily: 'inherit',
@@ -2897,7 +2898,7 @@ const styles = {
   },
   submitBtn: {
     padding: '10px 24px',
-    background: '#6366f1', border: 'none', borderRadius: '8px',
+    background: colors.accent, border: 'none', borderRadius: '8px',
     color: '#fff', fontSize: '14px', fontWeight: 600,
     cursor: 'pointer', fontFamily: 'inherit',
   },
@@ -2990,8 +2991,8 @@ const styles = {
   },
   proposalsBtn: {
     display: 'flex', alignItems: 'center', gap: '8px',
-    background: 'rgba(99,102,241,0.15)', color: '#c7d2fe',
-    border: '1px solid rgba(99,102,241,0.4)', borderRadius: '10px',
+    background: colors.accentA15, color: colors.accentFgSoft,
+    border: '1px solid rgba(91, 143, 199,0.4)', borderRadius: '10px',
     padding: '9px 16px', fontSize: '13px', fontWeight: 600,
     cursor: 'pointer', fontFamily: 'inherit',
   },
@@ -3023,7 +3024,7 @@ const styles = {
   // Bold break between the Upcoming Deliverables and Brands sections.
   sectionDivider: {
     height: '2px',
-    background: 'linear-gradient(90deg, rgba(99,102,241,0.05), rgba(99,102,241,0.55), rgba(99,102,241,0.05))',
+    background: 'linear-gradient(90deg, rgba(91, 143, 199,0.05), rgba(91, 143, 199,0.55), rgba(91, 143, 199,0.05))',
     borderRadius: '2px',
     margin: '40px 0 32px',
   },
@@ -3076,7 +3077,7 @@ const styles = {
   // Context menu
   contextMenu: {
     position: 'fixed', zIndex: 9999, minWidth: '140px',
-    background: '#1e1e32', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px',
+    background: colors.bgHover, border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px',
     padding: '4px 0', boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
   },
   contextMenuItem: {
@@ -3088,7 +3089,7 @@ const styles = {
   inlineDropdown: {
     position: 'absolute', top: '100%', left: 0, zIndex: 50,
     marginTop: '4px', minWidth: '220px', maxHeight: '200px', overflowY: 'auto',
-    background: '#1e1e32', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px',
+    background: colors.bgHover, border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px',
     padding: '4px 0', boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
   },
   inlineDropdownItem: {
@@ -3099,8 +3100,8 @@ const styles = {
   },
   addDeliverableBtn: {
     width: '100%', padding: '8px', borderRadius: '8px',
-    background: 'rgba(99,102,241,0.1)', color: '#a5b4fc',
-    border: '1px dashed rgba(99,102,241,0.35)', cursor: 'pointer',
+    background: colors.accentA10, color: colors.accentFg,
+    border: '1px dashed rgba(91, 143, 199,0.35)', cursor: 'pointer',
     fontSize: '12px', fontWeight: 600, fontFamily: 'inherit',
   },
 
@@ -3133,7 +3134,7 @@ const styles = {
   },
   calendarTooltip: {
     position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)',
-    background: '#1e1e32', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px',
+    background: colors.bgHover, border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px',
     padding: '10px 12px', fontSize: '11px', color: '#fff', zIndex: 100,
     minWidth: '180px', maxWidth: '260px', whiteSpace: 'normal',
     boxShadow: '0 8px 24px rgba(0,0,0,0.6)', pointerEvents: 'none',
@@ -3147,7 +3148,7 @@ const styles = {
     padding: '24px 16px', overflowY: 'auto', zIndex: 9999,
   },
   modalBox: {
-    background: '#1a1a2e', borderRadius: '14px', padding: '24px',
+    background: colors.bgHover, borderRadius: '14px', padding: '24px',
     width: '100%', border: '1px solid rgba(255,255,255,0.1)',
     boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
   },

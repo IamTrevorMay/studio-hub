@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
+import { colors } from '../lib/styleTokens';
 
 // Mobile Ideas page — one column per swipe pane. CSS scroll-snap drives
 // the swipe; we just listen to scroll events to keep the dot indicator
@@ -28,7 +29,7 @@ const IDEA_FIELDS = 'id, text, checked, position, category, context, created_by,
 
 // Stable per-user name color, hashed from the profile id — same palette and
 // hash as the desktop Ideas page so colors match across devices.
-const USER_COLORS = ['#a5b4fc', '#86efac', '#fcd34d', '#f9a8d4', '#93c5fd', '#fca5a5', '#c4b5fd', '#5eead4', '#fdba74'];
+const USER_COLORS = ['#8fb4d8', '#86efac', '#fcd34d', '#f9a8d4', '#93c5fd', '#fca5a5', '#c4b5fd', '#5eead4', '#fdba74'];
 function userColor(userId) {
   if (!userId) return 'rgba(255,255,255,0.3)';
   let h = 0;
@@ -481,7 +482,7 @@ function Column({ category, allCategories, items, onAdd, onToggle, onDelete, onS
 }
 
 const styles = {
-  page: { height: '100%', display: 'flex', flexDirection: 'column', background: '#0f0f1a', color: '#e2e8f0' },
+  page: { height: '100%', display: 'flex', flexDirection: 'column', background: colors.bg, color: colors.textBright },
   header: { padding: '14px 16px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)' },
   titleRow: { display: 'flex', alignItems: 'center', gap: 10 },
   selectBtn: {
@@ -491,7 +492,7 @@ const styles = {
     cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
   },
   addToProjectsBtn: {
-    padding: '6px 12px', background: '#6366f1', border: 'none',
+    padding: '6px 12px', background: colors.accent, border: 'none',
     borderRadius: 8, color: '#fff', fontSize: 12, fontWeight: 600,
     cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
   },
@@ -513,7 +514,7 @@ const styles = {
     background: 'rgba(255,255,255,0.12)', border: 'none', padding: 0,
     cursor: 'pointer',
   },
-  dotActive: { background: '#6366f1' },
+  dotActive: { background: colors.accent },
 
   scroller: {
     flex: 1, minHeight: 0,
@@ -539,8 +540,8 @@ const styles = {
     position: 'relative',
   },
   rowSelected: {
-    background: 'rgba(99,102,241,0.12)',
-    border: '1px solid rgba(99,102,241,0.4)',
+    background: colors.accentA12,
+    border: '1px solid rgba(91, 143, 199,0.4)',
   },
   rowMain: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 },
   metaRow: { display: 'flex', alignItems: 'center', gap: 10 },
@@ -556,13 +557,13 @@ const styles = {
   contextEditWrap: { display: 'flex', flexDirection: 'column', gap: 6 },
   contextTextarea: {
     width: '100%', padding: '8px 10px', background: 'rgba(0,0,0,0.25)',
-    border: '1px solid rgba(99,102,241,0.4)', borderRadius: 8,
+    border: '1px solid rgba(91, 143, 199,0.4)', borderRadius: 8,
     color: '#fff', fontSize: 13, fontFamily: 'inherit', outline: 'none',
     resize: 'vertical', boxSizing: 'border-box',
   },
   contextBtnRow: { display: 'flex', gap: 6 },
   contextSaveBtn: {
-    padding: '6px 14px', background: '#6366f1', border: 'none',
+    padding: '6px 14px', background: colors.accent, border: 'none',
     borderRadius: 6, color: '#fff', fontSize: 12, fontWeight: 600,
     cursor: 'pointer', fontFamily: 'inherit',
   },
@@ -579,7 +580,7 @@ const styles = {
     cursor: 'pointer', fontFamily: 'inherit', display: 'flex',
     alignItems: 'center', justifyContent: 'center',
   },
-  checkOn: { background: '#6366f1', borderColor: '#6366f1' },
+  checkOn: { background: colors.accent, borderColor: colors.accent },
   checkPlaceholder: {
     flex: '0 0 24px', width: 24, height: 24, color: 'rgba(255,255,255,0.4)',
     display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16,
@@ -591,7 +592,7 @@ const styles = {
   },
   editInput: {
     flex: 1, minWidth: 0, background: 'rgba(0,0,0,0.25)',
-    border: '1px solid rgba(99,102,241,0.4)', borderRadius: 6,
+    border: '1px solid rgba(91, 143, 199,0.4)', borderRadius: 6,
     padding: '6px 10px', color: '#fff', fontSize: 15, outline: 'none',
     fontFamily: 'inherit',
   },
@@ -602,7 +603,7 @@ const styles = {
   },
   menu: {
     position: 'absolute', top: '100%', right: 12, marginTop: 4,
-    background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.12)',
+    background: colors.bgHover, border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: 8, padding: 4, zIndex: 10,
     boxShadow: '0 8px 24px rgba(0,0,0,0.5)', minWidth: 200,
   },
@@ -616,9 +617,9 @@ const styles = {
   fab: {
     position: 'absolute', bottom: 16, right: 16,
     width: 52, height: 52, borderRadius: '50%',
-    background: '#6366f1', color: '#fff', border: 'none',
+    background: colors.accent, color: colors.white, border: 'none',
     fontSize: 28, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-    boxShadow: '0 6px 18px rgba(99,102,241,0.45)',
+    boxShadow: '0 6px 18px rgba(91, 143, 199,0.45)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     lineHeight: 1,
   },

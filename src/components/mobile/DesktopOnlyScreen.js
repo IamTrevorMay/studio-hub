@@ -1,5 +1,6 @@
 import React from 'react';
 import { mobileTokens, mobileTapButton } from '../../utils/mobileTokens';
+import { colors } from '../../lib/styleTokens';
 
 // Shown when a mobile user lands on a tab marked 'excluded' in mobileNavConfig.
 // Friendly explainer + back button. Optional onBack handler routes back to Dashboard.
@@ -39,7 +40,7 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     padding: mobileTokens.space.xxxl,
-    background: '#0f0f1a',
+    background: colors.bg,
     color: '#e2e8f0',
     fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
   },
@@ -55,8 +56,8 @@ const styles = {
     width: 80,
     height: 80,
     borderRadius: mobileTokens.radius.xl,
-    background: 'rgba(99,102,241,0.12)',
-    color: '#a5b4fc',
+    background: colors.accentA12,
+    color: colors.accentFg,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -78,7 +79,7 @@ const styles = {
   backBtn: {
     marginTop: mobileTokens.space.md,
     padding: `${mobileTokens.space.md}px ${mobileTokens.space.xl}px`,
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     color: '#fff',
     borderRadius: mobileTokens.radius.md,
     fontWeight: 600,

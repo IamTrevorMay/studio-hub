@@ -4,6 +4,7 @@ import { buttonReset } from '../../lib/styleRecipes';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import * as fabric from 'fabric';
 import { jsPDF } from 'jspdf';
+import { colors } from '../../lib/styleTokens';
 import {
   SILHOUETTES, PROPS, SHOT_TYPES, TRANSITIONS,
   DRAW_COLORS, STROKE_WIDTHS,
@@ -886,7 +887,7 @@ export default function Storyboard({ docId, title, onBack, onSaveTemplate }) {
               style={{
                 ...styles.colorBtn,
                 background: c,
-                outline: drawColor === c ? '2px solid #6366f1' : 'none',
+                outline: drawColor === c ? '2px solid #5b8fc7' : 'none',
                 outlineOffset: '2px',
               }} />
           ))}
@@ -897,7 +898,7 @@ export default function Storyboard({ docId, title, onBack, onSaveTemplate }) {
           {STROKE_WIDTHS.map(w => (
             <button key={w} onClick={() => setStrokeWidth(w)}
               style={{ ...styles.widthBtn, ...(strokeWidth === w ? styles.widthBtnActive : {}) }}>
-              <div style={{ width: `${w + 4}px`, height: `${w + 4}px`, borderRadius: '50%', background: strokeWidth === w ? '#a5b4fc' : 'rgba(255,255,255,0.3)' }} />
+              <div style={{ width: `${w + 4}px`, height: `${w + 4}px`, borderRadius: '50%', background: strokeWidth === w ? '#8fb4d8' : 'rgba(255,255,255,0.3)' }} />
             </button>
           ))}
         </div>
@@ -1189,14 +1190,14 @@ const styles = {
     borderRadius: '5px', color: 'rgba(255,255,255,0.5)', fontSize: '11px', cursor: 'pointer',
     fontFamily: 'inherit', whiteSpace: 'nowrap',
   },
-  toolBtnActive: { background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.3)', color: '#a5b4fc' },
+  toolBtnActive: { background: colors.accentA15, borderColor: colors.accentA30, color: colors.accentFg },
   colorBtn: { width: '18px', height: '18px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', padding: 0, flexShrink: 0 },
   widthBtn: {
     width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center',
     background: 'transparent', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '5px', cursor: 'pointer',
   },
-  widthBtnActive: { background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.3)' },
-  saveBtn: { padding: '4px 12px', background: '#6366f1', border: 'none', borderRadius: '5px', color: '#fff', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' },
+  widthBtnActive: { background: colors.accentA15, borderColor: colors.accentA30 },
+  saveBtn: { padding: '4px 12px', background: colors.accent, border: 'none', borderRadius: '5px', color: colors.white, fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' },
   templateBtn: { padding: '4px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '5px', color: 'rgba(255,255,255,0.4)', fontSize: '10px', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' },
 
   // Secondary toolbar
@@ -1205,13 +1206,13 @@ const styles = {
     borderRadius: '5px', color: 'rgba(255,255,255,0.45)', fontSize: '11px', cursor: 'pointer',
     fontFamily: 'inherit', whiteSpace: 'nowrap',
   },
-  tool2BtnActive: { background: 'rgba(99,102,241,0.12)', borderColor: 'rgba(99,102,241,0.25)', color: '#a5b4fc' },
+  tool2BtnActive: { background: colors.accentA12, borderColor: colors.accentA25, color: colors.accentFg },
 
   // Dropdowns
   dropdown: { position: 'relative' },
   dropdownMenu: {
     position: 'absolute', top: '100%', left: 0, zIndex: 100,
-    background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px',
+    background: colors.bgHover, border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px',
     padding: '4px', minWidth: '200px', maxHeight: '300px', overflowY: 'auto',
     boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
   },
@@ -1237,7 +1238,7 @@ const styles = {
   emptyPanel: { fontSize: '11px', color: 'rgba(255,255,255,0.25)', textAlign: 'center', padding: '16px 0' },
 
   // Canvas area
-  canvasArea: { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'auto', background: '#1a1a2e', position: 'relative' },
+  canvasArea: { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'auto', background: colors.bgHover, position: 'relative' },
   canvasContainer: { margin: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', flexShrink: 0 },
 
   // Page navigator
@@ -1261,7 +1262,7 @@ const styles = {
     width: '240px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
     borderRadius: '8px', overflow: 'hidden', cursor: 'pointer', transition: 'border-color 0.15s',
   },
-  gridCardActive: { borderColor: 'rgba(99,102,241,0.4)' },
+  gridCardActive: { borderColor: colors.accentA40 },
   gridThumb: { width: '100%', aspectRatio: '16/9', background: '#fff', overflow: 'hidden' },
   gridThumbImg: { width: '100%', height: '100%', objectFit: 'cover' },
   gridThumbEmpty: { width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999', fontSize: '13px' },
@@ -1300,8 +1301,8 @@ const styles = {
 
   // Image library
   uploadBtn: {
-    display: 'block', width: '100%', padding: '8px', background: 'rgba(99,102,241,0.1)',
-    border: '1px dashed rgba(99,102,241,0.3)', borderRadius: '6px', color: '#a5b4fc',
+    display: 'block', width: '100%', padding: '8px', background: colors.accentA10,
+    border: '1px dashed rgba(91, 143, 199,0.3)', borderRadius: '6px', color: colors.accentFg,
     fontSize: '11px', fontWeight: 600, textAlign: 'center', cursor: 'pointer', marginBottom: '8px',
   },
   assetGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px' },

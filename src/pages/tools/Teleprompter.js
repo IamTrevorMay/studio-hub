@@ -4,6 +4,7 @@ import useCamera from './teleprompter/useCamera';
 import MonitorMode from './teleprompter/MonitorMode';
 import TeleprompterMode from './teleprompter/TeleprompterMode';
 import { loadSettings, saveSettings, loadScript, saveScript } from './teleprompter/teleprompterStorage';
+import { colors } from '../../lib/styleTokens';
 
 export default function Teleprompter({ onBack }) {
   const [mode, setMode] = usePersistedTab('teleprompter-mode', 'teleprompter', ['teleprompter', 'monitor']); // 'monitor' | 'teleprompter'
@@ -112,7 +113,7 @@ const styles = {
     height: '100%',
     display: 'flex',
     flexDirection: 'column',
-    background: '#0f0f1a',
+    background: colors.bg,
     overflow: 'hidden',
   },
   header: {
@@ -167,8 +168,8 @@ const styles = {
     transition: 'all 0.15s',
   },
   tabActive: {
-    background: 'rgba(99,102,241,0.15)',
-    color: '#a5b4fc',
+    background: colors.accentA15,
+    color: colors.accentFg,
   },
   headerRight: {
     display: 'flex',

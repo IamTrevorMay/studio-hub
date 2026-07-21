@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../supabaseClient';
+import { colors } from '../lib/styleTokens';
 
 export default function AuthPage() {
   const { signIn, isPasswordRecovery, clearRecovery, isInviteSetup } = useAuth();
@@ -372,7 +373,7 @@ const styles = {
   bg: {
     position: 'absolute',
     inset: 0,
-    background: 'linear-gradient(135deg, #0f0f23 0%, #1a1a3e 50%, #0f0f23 100%)',
+    background: 'linear-gradient(135deg, #0f0f23 0%, #1b2331 50%, #0f0f23 100%)',
     zIndex: 0,
   },
   card: {
@@ -447,7 +448,7 @@ const styles = {
   },
   button: {
     padding: '14px',
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
     border: 'none',
     borderRadius: '10px',
     color: '#ffffff',
@@ -460,10 +461,10 @@ const styles = {
   },
   setupBanner: {
     padding: '12px 16px',
-    background: 'rgba(99,102,241,0.1)',
-    border: '1px solid rgba(99,102,241,0.2)',
+    background: colors.accentA10,
+    border: '1px solid rgba(91, 143, 199,0.2)',
     borderRadius: '10px',
-    color: '#a5b4fc',
+    color: colors.accentFg,
     fontSize: '14px',
     textAlign: 'center',
     fontWeight: 500,
@@ -493,7 +494,7 @@ const styles = {
   forgotLink: {
     textAlign: 'center',
     fontSize: '13px',
-    color: '#a5b4fc',
+    color: colors.accentFg,
     marginTop: '14px',
     cursor: 'pointer',
   },
