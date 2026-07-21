@@ -1,9 +1,11 @@
 // supabase/functions/approve-automation/index.ts
 // Resolves an admin-confirmation gate task created by run-automations.
 //
-// POST { task_id: uuid, outcome: 'approve' | 'reject' }
+// POST { task_id: uuid, outcome: 'approve' | 'reject', notes?: string }
 // - On approve: re-executes the original automation's actions using the stored
 //   trigger_payload, then marks the run as 'success' and the task as 'complete'.
+//   Optional `notes` are appended to each created assignee task's description
+//   (e.g. telling the clipper exactly what to clip and send).
 // - On reject: marks the run as 'error' and the task as 'declined'.
 //
 // Auth: requires admin JWT (and the requesting admin must be the assignee of
@@ -44,8 +46,10 @@ async function runActions(
   actions: Array<Record<string, unknown>>,
   triggerPayload: Record<string, unknown>,
   dedupKey: string | null,
+  notes: string | null,
 ): Promise<unknown[]> {
   const actionsTaken: unknown[] = [];
+  const cleanNotes = notes && notes.trim() ? notes.trim() : null;
 
   for (const action of actions) {
     const actionType = action.type as string;
@@ -56,9 +60,14 @@ async function runActions(
         (config.title as string) || "Automation Task",
         triggerPayload,
       );
-      const description = config.description
+      const baseDescription = config.description
         ? resolveTemplate(config.description as string, triggerPayload)
         : null;
+      // Notes the approving admin typed on the confirmation gate are appended to
+      // the assignee's task (e.g. "clip the 3rd-quarter play and send to socials").
+      const description = cleanNotes
+        ? (baseDescription ? `${baseDescription}\n\n📝 Notes: ${cleanNotes}` : `📝 Notes: ${cleanNotes}`)
+        : baseDescription;
       const stepKey = (config.step_key as string) || "automation";
       const linkUrl = config.link_url
         ? resolveTemplate(config.link_url as string, triggerPayload)
@@ -201,6 +210,7 @@ Deno.serve(async (req: Request) => {
 
   const taskId = body.task_id as string | undefined;
   const outcome = body.outcome as string | undefined;
+  const notes = typeof body.notes === "string" ? body.notes : null;
 
   if (!taskId || !outcome) {
     return jsonResp({ error: "task_id and outcome required" }, 400);
@@ -291,6 +301,7 @@ Deno.serve(async (req: Request) => {
         (automation.actions as Array<Record<string, unknown>>) || [],
         (run.trigger_payload as Record<string, unknown>) || {},
         run.dedup_key,
+        notes,
       );
     } catch (err) {
       const errMsg = (err as Error).message;

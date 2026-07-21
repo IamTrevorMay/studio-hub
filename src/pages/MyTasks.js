@@ -206,6 +206,7 @@ export default function MyTasks({ onNavigate, embedded = false }) {
   const [scopeModalTask, setScopeModalTask] = useState(null); // "Set Research Scope" task
   const [skipScopeTask, setSkipScopeTask] = useState(null); // scope task being skipped via "who's already researching"
   const [confirmTask, setConfirmTask] = useState(null); // task pending confirmation
+  const [confirmNotes, setConfirmNotes] = useState({}); // { [taskId]: notes } added when approving an automation gate
   const [deliverableMeta, setDeliverableMeta] = useState({}); // { [deliverable_id]: { title, due_date } }
   const [projectMeta, setProjectMeta] = useState({}); // { [project_id]: { name, type } }
   const [startingBeatSheet, setStartingBeatSheet] = useState(null); // task id being processed
@@ -486,12 +487,16 @@ export default function MyTasks({ onNavigate, embedded = false }) {
   const handleConfirmAutomation = async (task, outcome) => {
     setCompletingIds(prev => new Set(prev).add(task.id));
     try {
-      await callWorkflowFn('approve-automation', { task_id: task.id, outcome });
+      // Notes are only meaningful on approve — they get appended to the
+      // assignee's created task so the admin can say what to clip, etc.
+      const notes = outcome === 'approve' ? (confirmNotes[task.id] || '').trim() : '';
+      await callWorkflowFn('approve-automation', { task_id: task.id, outcome, notes });
       setFadingIds(prev => new Set(prev).add(task.id));
       setTimeout(() => {
         setTasks(prev => prev.filter(t => t.id !== task.id));
         setFadingIds(prev => { const s = new Set(prev); s.delete(task.id); return s; });
         setCompletingIds(prev => { const s = new Set(prev); s.delete(task.id); return s; });
+        setConfirmNotes(prev => { const n = { ...prev }; delete n[task.id]; return n; });
         refreshNotifications();
         fetchCompletedTasks();
       }, 300);
@@ -1008,6 +1013,20 @@ export default function MyTasks({ onNavigate, embedded = false }) {
                       Decline
                     </button>
                   </>
+                )}
+
+                {/* Notes for the assignee — appended to their task on approve */}
+                {isConfirmAutomation && !isOnHold && (
+                  <div style={{ flexBasis: '100%', width: '100%', marginBottom: 6 }}>
+                    <textarea
+                      value={confirmNotes[task.id] || ''}
+                      onChange={e => setConfirmNotes(prev => ({ ...prev, [task.id]: e.target.value }))}
+                      placeholder="Notes for the assignee (e.g. what to clip and send)…"
+                      rows={2}
+                      style={styles.confirmNotesInput}
+                      disabled={isCompleting}
+                    />
+                  </div>
                 )}
 
                 {/* Approve / Decline for admin-confirmation gate */}
@@ -1780,6 +1799,18 @@ const styles = {
     color: '#fff',
     fontSize: 14,
     padding: '10px 12px',
+    resize: 'vertical',
+    fontFamily: 'inherit',
+    boxSizing: 'border-box',
+  },
+  confirmNotesInput: {
+    width: '100%',
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 8,
+    color: '#fff',
+    fontSize: 13,
+    padding: '8px 10px',
     resize: 'vertical',
     fontFamily: 'inherit',
     boxSizing: 'border-box',
