@@ -23,6 +23,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import backdropDismiss from '../lib/backdropDismiss';
 import { colors } from '../lib/styleTokens';
+import { Sparkline, Skeleton } from './analytics/viz';
 
 // ═══════════════════════════════════════════════════════════════════
 // Scoring config
@@ -44,21 +45,46 @@ function median(arr) {
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
 
-const STABILITY_WEIGHTS = {
-  returning_watch_time: 0.30,
-  engagement_rate:      0.25,
-  sub_conversion:       0.20,
-  returning_view_pct:   0.15,
-  avg_view_duration:    0.10,
+// Per-channel-ROLE weight sets so the scatter + ranked table reflect each
+// channel's real priorities. BROAD (More Mayday) growth leans suggested-reach
+// (algo_traffic_pct) + subs conversion; NICHE (Trevor May Baseball) growth leans
+// subs-per-video (new_sub_conversion) + volume, and relies less on the suggested
+// feed. Stability: niche weights returning-viewer strength harder; broad is more
+// engagement-forward. Each set sums to 1.0. Tunable — these are informed defaults.
+const STABILITY_WEIGHTS_BY_ROLE = {
+  broad: { returning_watch_time: 0.28, engagement_rate: 0.27, sub_conversion: 0.15, returning_view_pct: 0.15, avg_view_duration: 0.15 },
+  niche: { returning_watch_time: 0.32, engagement_rate: 0.18, sub_conversion: 0.15, returning_view_pct: 0.22, avg_view_duration: 0.13 },
 };
+const GROWTH_WEIGHTS_BY_ROLE = {
+  broad: { new_viewer_volume: 0.28, new_viewer_pct: 0.17, new_sub_conversion: 0.17, new_viewer_retention: 0.10, algo_traffic_pct: 0.28 },
+  niche: { new_viewer_volume: 0.30, new_viewer_pct: 0.15, new_sub_conversion: 0.28, new_viewer_retention: 0.15, algo_traffic_pct: 0.12 },
+};
+function weightsForRole(role) {
+  return {
+    stability: STABILITY_WEIGHTS_BY_ROLE[role] || STABILITY_WEIGHTS_BY_ROLE.broad,
+    growth: GROWTH_WEIGHTS_BY_ROLE[role] || GROWTH_WEIGHTS_BY_ROLE.broad,
+  };
+}
 
-const GROWTH_WEIGHTS = {
-  new_viewer_volume:    0.30,
-  new_viewer_pct:       0.20,
-  new_sub_conversion:   0.20,
-  new_viewer_retention: 0.15,
-  algo_traffic_pct:     0.15,
-};
+// Channel role + CSV-channel-key resolution, keyed by YouTube external_id
+// (falls back to account_name matching). BROAD = wide-reach flagship, NICHE =
+// intent/search-driven vertical. CSV key maps to analytics_youtube.channel.
+const CHANNEL_ROLE_BY_EXT = { UCwM4xXRFO5bORhM4XCEquXg: 'broad', UCXnWH_cIChvXGhLPIJGoiBg: 'niche' };
+const CSV_CHANNEL_BY_EXT = { UCwM4xXRFO5bORhM4XCEquXg: 'moremayday', UCXnWH_cIChvXGhLPIJGoiBg: 'trevormay' };
+function roleForAccount(acct) {
+  if (!acct) return 'broad';
+  if (acct.external_id && CHANNEL_ROLE_BY_EXT[acct.external_id]) return CHANNEL_ROLE_BY_EXT[acct.external_id];
+  const n = (acct.account_name || '').toLowerCase();
+  if (n.includes('baseball') || n.includes('trevor may')) return 'niche';
+  return 'broad';
+}
+
+// KPI section config: trailing-window channel-level KPIs. Window is short (14d)
+// because the channel-dim daily series only goes back ~33 days; current window vs
+// the prior equal window drives the delta.
+const KPI_WINDOW = 14;
+// Traffic-source dimension_value codes (verified against yt_dim_traffic_source).
+const TRAFFIC = { search: 'YT_SEARCH', suggested: 'RELATED_VIDEO', browse: 'YT_OTHER_PAGE', playlist: 'PLAYLIST', endScreen: 'END_SCREEN' };
 
 const CATEGORY_COLORS = {
   breakout:        '#f59e0b',
@@ -76,39 +102,156 @@ function categorize(s, g) {
   return 'underperforming';
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// Component
-// ═══════════════════════════════════════════════════════════════════
-export default function ContentHealthDashboard({ accounts }) {
-  const ytChannels = useMemo(
-    () => (accounts || []).filter(a => a.platform === 'youtube'),
-    [accounts]
-  );
+// Long-form scoring — the original Stability × Growth model, extracted so it can
+// run over a format-scoped cohort. `list` must be pre-sorted newest→oldest.
+function scoreLongForm(list, SW, GW) {
+  return list.map((v, idx) => {
+    const trailing = list.slice(idx + 1, idx + 1 + NORM_WINDOW);
+    const meds = {
+      returning_watch_time: median(trailing.map(t => t.returning_watch_time)),
+      engagement_rate:      median(trailing.map(t => t.engagement_rate)),
+      sub_conversion:       median(trailing.map(t => t.sub_conversion)),
+      returning_view_pct:   median(trailing.map(t => t.returning_view_pct)),
+      avg_view_duration:    median(trailing.map(t => t.avg_view_duration_seconds)),
+      new_viewer_volume:    median(trailing.map(t => t.new_viewer_volume)),
+      new_viewer_pct:       median(trailing.map(t => t.new_viewer_pct)),
+      new_sub_conversion:   median(trailing.map(t => t.new_sub_conversion)),
+      new_viewer_retention: median(trailing.map(t => t.new_viewer_retention)),
+      algo_traffic_pct:     median(trailing.map(t => t.algo_traffic_pct)),
+      new_to_returning_ratio: median(
+        trailing.filter(t => t.returning_view_pct > 0).map(t => t.new_viewer_volume / Math.max(t.returning_watch_time / 60, 1)),
+      ),
+    };
+    const idx_returning_wt = computeIndex(v.returning_watch_time, meds.returning_watch_time);
+    const idx_engagement   = computeIndex(v.engagement_rate,      meds.engagement_rate);
+    const idx_sub_conv     = computeIndex(v.sub_conversion,       meds.sub_conversion);
+    const idx_returning_pct = computeIndex(v.returning_view_pct,  meds.returning_view_pct);
+    const idx_avd          = computeIndex(v.avg_view_duration_seconds, meds.avg_view_duration);
+    const stability = (
+      idx_returning_wt    * SW.returning_watch_time +
+      idx_engagement      * SW.engagement_rate +
+      idx_sub_conv        * SW.sub_conversion +
+      idx_returning_pct   * SW.returning_view_pct +
+      idx_avd             * SW.avg_view_duration
+    );
+    const idx_new_vol      = computeIndex(v.new_viewer_volume,      meds.new_viewer_volume);
+    const idx_new_pct      = computeIndex(v.new_viewer_pct,         meds.new_viewer_pct);
+    const idx_new_sub_conv = computeIndex(v.new_sub_conversion,     meds.new_sub_conversion);
+    const idx_new_ret      = computeIndex(v.new_viewer_retention,   meds.new_viewer_retention);
+    const idx_algo         = computeIndex(v.algo_traffic_pct,       meds.algo_traffic_pct);
+    const growth = (
+      idx_new_vol      * GW.new_viewer_volume +
+      idx_new_pct      * GW.new_viewer_pct +
+      idx_new_sub_conv * GW.new_sub_conversion +
+      idx_new_ret      * GW.new_viewer_retention +
+      idx_algo         * GW.algo_traffic_pct
+    );
+    const breakoutRaw = (stability * growth) / 100;
+    const channelRatio = meds.new_to_returning_ratio || 0;
+    const videoRatio = v.new_viewer_volume / Math.max(v.returning_watch_time / 60, 1);
+    const ratioDelta = channelRatio > 0 ? Math.abs(videoRatio - channelRatio) / channelRatio : 0;
+    const isBreakout = stability >= BREAKOUT_GATE.stability && growth >= BREAKOUT_GATE.growth && ratioDelta <= BREAKOUT_GATE.ratio_tolerance;
+    return {
+      ...v,
+      stability_score: stability, growth_score: growth, breakout_raw: breakoutRaw,
+      is_breakout: isBreakout, category: isBreakout ? 'breakout' : categorize(stability, growth),
+      ratio_delta: ratioDelta,
+      indices: {
+        stability: { returning_watch_time: idx_returning_wt, engagement_rate: idx_engagement, sub_conversion: idx_sub_conv, returning_view_pct: idx_returning_pct, avg_view_duration: idx_avd },
+        growth: { new_viewer_volume: idx_new_vol, new_viewer_pct: idx_new_pct, new_sub_conversion: idx_new_sub_conv, new_viewer_retention: idx_new_ret, algo_traffic_pct: idx_algo },
+      },
+      trailing_sample_size: trailing.length,
+    };
+  });
+}
 
-  const [activeChannelId, setActiveChannelId] = useState(null);
-  useEffect(() => {
-    if (!activeChannelId && ytChannels.length > 0) setActiveChannelId(ytChannels[0].id);
-  }, [ytChannels, activeChannelId]);
+// Short-form scoring — a Retention (x) × Spread (y) plane, a 2-axis reduction of
+// Ashley's four families that plugs into the same scatter/table/detail:
+//   Retention (stability-analog) = completion % + avg watch  (Hold family)
+//   Spread    (growth-analog)    = shares/view + follows/1k  (Amplify + Convert)
+// Hook (scroll-stop) and saves/view are excluded — neither exists in per-video
+// data (no swipe-away metric; content_metrics.saves is uniformly 0). Normalized
+// against a SHORTS-ONLY trailing cohort. `list` pre-sorted newest→oldest.
+const SHORT_WEIGHTS_BY_ROLE = {
+  broad: { retention: { completion: 0.75, avg_watch: 0.25 }, spread: { shares_per_view: 0.60, follows_per_1k: 0.40 } },
+  niche: { retention: { completion: 0.75, avg_watch: 0.25 }, spread: { shares_per_view: 0.35, follows_per_1k: 0.65 } },
+};
+function shortsDisplayWeights(role) {
+  const W = SHORT_WEIGHTS_BY_ROLE[role] || SHORT_WEIGHTS_BY_ROLE.broad;
+  return {
+    stability: { completion_pct: W.retention.completion, avg_view_duration: W.retention.avg_watch },
+    growth: { shares_per_view: W.spread.shares_per_view, follows_per_1k: W.spread.follows_per_1k },
+  };
+}
+function scoreShortForm(list, W) {
+  return list.map((v, idx) => {
+    const trailing = list.slice(idx + 1, idx + 1 + NORM_WINDOW);
+    const meds = {
+      completion_pct:    median(trailing.map(t => t.completion_pct)),
+      avg_view_duration: median(trailing.map(t => t.avg_view_duration_seconds)),
+      shares_per_view:   median(trailing.map(t => t.shares_per_view)),
+      follows_per_1k:    median(trailing.map(t => t.follows_per_1k)),
+    };
+    const idx_completion = computeIndex(v.completion_pct, meds.completion_pct);
+    const idx_avd        = computeIndex(v.avg_view_duration_seconds, meds.avg_view_duration);
+    const idx_shares     = computeIndex(v.shares_per_view, meds.shares_per_view);
+    const idx_follows    = computeIndex(v.follows_per_1k, meds.follows_per_1k);
+    const retention = idx_completion * W.retention.completion + idx_avd * W.retention.avg_watch;
+    const spread    = idx_shares * W.spread.shares_per_view + idx_follows * W.spread.follows_per_1k;
+    const breakoutRaw = (retention * spread) / 100;
+    const isBreakout = retention >= BREAKOUT_GATE.stability && spread >= BREAKOUT_GATE.growth;
+    return {
+      ...v,
+      stability_score: retention, growth_score: spread, breakout_raw: breakoutRaw,
+      is_breakout: isBreakout, category: isBreakout ? 'breakout' : categorize(retention, spread),
+      ratio_delta: 0,
+      indices: {
+        stability: { completion_pct: idx_completion, avg_view_duration: idx_avd },
+        growth: { shares_per_view: idx_shares, follows_per_1k: idx_follows },
+      },
+      trailing_sample_size: trailing.length,
+    };
+  });
+}
 
-  const [videos, setVideos] = useState([]); // scored video rows
+// ═══════════════════════════════════════════════════════════════════
+// Per-channel column — fetches + scores ONE YouTube channel and renders its
+// Growth/Stability (long-form) or Shorts family scorecard (short-form), plus a
+// collapsible per-video drill-down. Two of these render side by side per tab.
+// ═══════════════════════════════════════════════════════════════════
+function ChannelColumn({ account, view }) {
+  const activeChannelId = account.id;             // body is scoped to this id
+  const activeRole = roleForAccount(account);
+  const [videosLong, setVideosLong] = useState([]);
+  const [videosShort, setVideosShort] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedVideoId, setSelectedVideoId] = useState(null);
-  const fetchGenRef = useRef(0); // guards against a stale channel's fetch resolving last
+  const [drillOpen, setDrillOpen] = useState(false);
+  const fetchGenRef = useRef(0); // guards against a stale fetch resolving last
+
+  const [kpis, setKpis] = useState(null);           // channel-wide context (traffic, terms)
+  const [kpisLoading, setKpisLoading] = useState(false);
+  const kpiGenRef = useRef(0);
+  const [formatKpis, setFormatKpis] = useState(null); // per-format splittable KPI tiles { long, short }
+  const formatGenRef = useRef(0);
 
   useEffect(() => {
-    if (!activeChannelId) return;
     fetchAndScore();
+    fetchChannelKpis();
+    fetchFormatKpis();
     // eslint-disable-next-line
-  }, [activeChannelId]);
+  }, [account.id]);
 
   async function fetchAndScore() {
     const gen = ++fetchGenRef.current;
+    const role = activeRole;
+    const { stability: SW, growth: GW } = weightsForRole(role);
     setLoading(true);
     try {
       // Lifetime aggregate per video from yt_video_daily
       const { data: dailyRows } = await supabase
         .from('yt_video_daily')
-        .select('video_id, views, watch_time_minutes, average_view_duration_seconds, subscribers_gained, likes, comments, shares')
+        .select('video_id, views, watch_time_minutes, average_view_duration_seconds, average_view_percentage, subscribers_gained, likes, comments, shares')
         .eq('platform_account_id', activeChannelId)
         .limit(50000);
 
@@ -130,7 +273,7 @@ export default function ContentHealthDashboard({ accounts }) {
       const dailyByVideo = {};
       for (const r of (dailyRows || [])) {
         const id = r.video_id;
-        if (!dailyByVideo[id]) dailyByVideo[id] = { views: 0, watch_time_minutes: 0, avd_sum: 0, avd_n: 0, subs: 0, likes: 0, comments: 0, shares: 0 };
+        if (!dailyByVideo[id]) dailyByVideo[id] = { views: 0, watch_time_minutes: 0, avd_sum: 0, avd_n: 0, apv_sum: 0, apv_n: 0, subs: 0, likes: 0, comments: 0, shares: 0 };
         const d = dailyByVideo[id];
         d.views += Number(r.views) || 0;
         d.watch_time_minutes += Number(r.watch_time_minutes) || 0;
@@ -138,10 +281,12 @@ export default function ContentHealthDashboard({ accounts }) {
         d.likes += Number(r.likes) || 0;
         d.comments += Number(r.comments) || 0;
         d.shares += Number(r.shares) || 0;
-        // weighted avg view duration by views
+        // weighted avg view duration + avg percentage viewed, by views
         const avd = Number(r.average_view_duration_seconds) || 0;
+        const apv = Number(r.average_view_percentage) || 0;
         const v = Number(r.views) || 0;
         d.avd_sum += avd * v; d.avd_n += v;
+        d.apv_sum += apv * v; d.apv_n += v;
       }
 
       // Aggregate sub_status per video
@@ -207,6 +352,7 @@ export default function ContentHealthDashboard({ accounts }) {
         const subAvd = s.sub_avd_n > 0 ? s.sub_avd_sum / s.sub_avd_n : 0;
         const unsubAvd = s.unsub_avd_n > 0 ? s.unsub_avd_sum / s.unsub_avd_n : 0;
         const avgAvd = d.avd_n > 0 ? d.avd_sum / d.avd_n : 0;
+        const avgApv = d.apv_n > 0 ? d.apv_sum / d.apv_n : 0; // avg % viewed = completion proxy
         const engagement = d.views > 0 ? (d.likes + d.comments + d.shares) / d.views : 0;
         const subConv = d.views > 0 ? d.subs / d.views : 0;
         const algoPct = t.total > 0 ? t.algo / t.total : 0;
@@ -234,110 +380,31 @@ export default function ContentHealthDashboard({ accounts }) {
           new_viewer_retention: unsubAvd,
           new_sub_conversion: s.unsub_views > 0 ? d.subs / s.unsub_views : 0, // approximation
           algo_traffic_pct: algoPct,
+          // Short-form inputs (completion, spread, acquisition)
+          avg_view_percentage: avgApv,
+          completion_pct: avgApv,
+          total_shares: d.shares,
+          subscribers_gained: d.subs,
+          shares_per_view: d.views > 0 ? d.shares / d.views : 0,
+          follows_per_1k: d.views > 0 ? (d.subs / d.views) * 1000 : 0,
         };
       });
 
-      // Sort by published_at descending so we can compute trailing-20 norm
-      raw.sort((a, b) => {
+      // Score long-form and Shorts SEPARATELY — each cohort normalized against its
+      // own trailing-median set (never pooled), per Trevor's format-split model.
+      const byRecency = (a, b) => {
         const ad = a.published_at ? new Date(a.published_at).getTime() : 0;
         const bd = b.published_at ? new Date(b.published_at).getTime() : 0;
         return bd - ad;
-      });
+      };
+      const longRaw = raw.filter(v => v.content_type !== 'short').sort(byRecency);
+      const shortRaw = raw.filter(v => v.content_type === 'short').sort(byRecency);
+      const scoredLong = scoreLongForm(longRaw, SW, GW);
+      const scoredShort = scoreShortForm(shortRaw, SHORT_WEIGHTS_BY_ROLE[role] || SHORT_WEIGHTS_BY_ROLE.broad);
 
-      // Compute trailing norms + scores
-      const scored = raw.map((v, idx) => {
-        // Trailing N videos = next N in array (newer is at index 0, so trailing = older)
-        const trailing = raw.slice(idx + 1, idx + 1 + NORM_WINDOW);
-        const meds = {
-          returning_watch_time: median(trailing.map(t => t.returning_watch_time)),
-          engagement_rate:      median(trailing.map(t => t.engagement_rate)),
-          sub_conversion:       median(trailing.map(t => t.sub_conversion)),
-          returning_view_pct:   median(trailing.map(t => t.returning_view_pct)),
-          avg_view_duration:    median(trailing.map(t => t.avg_view_duration_seconds)),
-          new_viewer_volume:    median(trailing.map(t => t.new_viewer_volume)),
-          new_viewer_pct:       median(trailing.map(t => t.new_viewer_pct)),
-          new_sub_conversion:   median(trailing.map(t => t.new_sub_conversion)),
-          new_viewer_retention: median(trailing.map(t => t.new_viewer_retention)),
-          algo_traffic_pct:     median(trailing.map(t => t.algo_traffic_pct)),
-          new_to_returning_ratio: median(
-            trailing.filter(t => t.returning_view_pct > 0).map(t => t.new_viewer_volume / Math.max(t.returning_watch_time / 60, 1)),
-          ),
-        };
-
-        const idx_returning_wt = computeIndex(v.returning_watch_time, meds.returning_watch_time);
-        const idx_engagement   = computeIndex(v.engagement_rate,      meds.engagement_rate);
-        const idx_sub_conv     = computeIndex(v.sub_conversion,       meds.sub_conversion);
-        const idx_returning_pct = computeIndex(v.returning_view_pct,  meds.returning_view_pct);
-        const idx_avd          = computeIndex(v.avg_view_duration_seconds, meds.avg_view_duration);
-
-        const stability = (
-          idx_returning_wt    * STABILITY_WEIGHTS.returning_watch_time +
-          idx_engagement      * STABILITY_WEIGHTS.engagement_rate +
-          idx_sub_conv        * STABILITY_WEIGHTS.sub_conversion +
-          idx_returning_pct   * STABILITY_WEIGHTS.returning_view_pct +
-          idx_avd             * STABILITY_WEIGHTS.avg_view_duration
-        );
-
-        const idx_new_vol      = computeIndex(v.new_viewer_volume,      meds.new_viewer_volume);
-        const idx_new_pct      = computeIndex(v.new_viewer_pct,         meds.new_viewer_pct);
-        const idx_new_sub_conv = computeIndex(v.new_sub_conversion,     meds.new_sub_conversion);
-        const idx_new_ret      = computeIndex(v.new_viewer_retention,   meds.new_viewer_retention);
-        const idx_algo         = computeIndex(v.algo_traffic_pct,       meds.algo_traffic_pct);
-
-        const growth = (
-          idx_new_vol      * GROWTH_WEIGHTS.new_viewer_volume +
-          idx_new_pct      * GROWTH_WEIGHTS.new_viewer_pct +
-          idx_new_sub_conv * GROWTH_WEIGHTS.new_sub_conversion +
-          idx_new_ret      * GROWTH_WEIGHTS.new_viewer_retention +
-          idx_algo         * GROWTH_WEIGHTS.algo_traffic_pct
-        );
-
-        const breakoutRaw = (stability * growth) / 100;
-        const channelRatio = meds.new_to_returning_ratio || 0;
-        // Same expression + same denominator floor as the channel median above,
-        // so video and norm are computed identically (was unfloored → skewed
-        // drift % for low-watch videos).
-        const videoRatio = v.new_viewer_volume / Math.max(v.returning_watch_time / 60, 1);
-        const ratioDelta = channelRatio > 0 ? Math.abs(videoRatio - channelRatio) / channelRatio : 0;
-        const ratioPasses = ratioDelta <= BREAKOUT_GATE.ratio_tolerance;
-        const isBreakout = stability >= BREAKOUT_GATE.stability
-          && growth >= BREAKOUT_GATE.growth
-          && ratioPasses;
-
-        const category = isBreakout ? 'breakout' : categorize(stability, growth);
-
-        return {
-          ...v,
-          stability_score: stability,
-          growth_score: growth,
-          breakout_raw: breakoutRaw,
-          is_breakout: isBreakout,
-          category,
-          ratio_delta: ratioDelta,
-          indices: {
-            stability: {
-              returning_watch_time: idx_returning_wt,
-              engagement_rate: idx_engagement,
-              sub_conversion: idx_sub_conv,
-              returning_view_pct: idx_returning_pct,
-              avg_view_duration: idx_avd,
-            },
-            growth: {
-              new_viewer_volume: idx_new_vol,
-              new_viewer_pct: idx_new_pct,
-              new_sub_conversion: idx_new_sub_conv,
-              new_viewer_retention: idx_new_ret,
-              algo_traffic_pct: idx_algo,
-            },
-          },
-          trailing_sample_size: trailing.length,
-        };
-      });
-
-      // Only videos with at least 1 trailing sample for context (still show
-      // others but mark "low confidence")
       if (gen !== fetchGenRef.current) return; // a newer channel switch superseded this fetch
-      setVideos(scored);
+      setVideosLong(scoredLong);
+      setVideosShort(scoredShort);
     } catch (e) {
       console.error('Content Health fetch error:', e);
     } finally {
@@ -345,78 +412,401 @@ export default function ContentHealthDashboard({ accounts }) {
     }
   }
 
+  // Channel-level Growth/Stability KPIs over a trailing window vs the prior equal
+  // window. Sources are the channel-dim daily tables (real daily history) + a
+  // lifetime impressions/CTR scorecard from analytics_youtube (manual Studio CSV).
+  async function fetchChannelKpis() {
+    const gen = ++kpiGenRef.current;
+    setKpisLoading(true);
+    try {
+      const acct = account;
+      const csvKey = acct && acct.external_id ? CSV_CHANNEL_BY_EXT[acct.external_id] : null;
+      const since = new Date(Date.now() - (KPI_WINDOW * 2 + 6) * 86400000).toISOString().split('T')[0];
+
+      const [subRes, trafRes, vdRes, stRes, ayRes, ciRes] = await Promise.all([
+        supabase.from('yt_dim_subscription_status').select('date, dimension_value, views, watch_time_minutes, average_view_duration_seconds').eq('platform_account_id', activeChannelId).gte('date', since),
+        supabase.from('yt_dim_traffic_source').select('date, dimension_value, views').eq('platform_account_id', activeChannelId).gte('date', since),
+        supabase.from('yt_video_daily').select('date, views, subscribers_gained, average_view_percentage').eq('platform_account_id', activeChannelId).gte('date', since).limit(50000),
+        supabase.from('yt_dim_search_terms').select('date, dimension_value, views').eq('platform_account_id', activeChannelId).gte('date', since),
+        csvKey ? supabase.from('analytics_youtube').select('impressions, impressions_ctr, created_at').eq('channel', csvKey) : Promise.resolve({ data: [] }),
+        supabase.from('content_items').select('published_at').eq('platform_account_id', activeChannelId).gte('published_at', since),
+      ]);
+
+      // Ordered set of finalized dates present in the daily dims → split into
+      // current window (last N) and prior window (the N before).
+      const dateSet = new Set();
+      for (const r of (subRes.data || [])) dateSet.add(r.date);
+      for (const r of (trafRes.data || [])) dateSet.add(r.date);
+      const dates = Array.from(dateSet).sort();
+      const curDates = dates.slice(-KPI_WINDOW);
+      const priorDates = dates.slice(-KPI_WINDOW * 2, -KPI_WINDOW);
+      const curStart = curDates[0], curEnd = curDates[curDates.length - 1];
+      const priorStart = priorDates[0], priorEnd = priorDates[priorDates.length - 1];
+      const inRange = (d, a, b) => !!a && !!b && d >= a && d <= b;
+
+      const byDate = {};
+      const ensure = (d) => (byDate[d] = byDate[d] || { sub: 0, unsub: 0, avdNum: 0, avdDen: 0, traf: {}, trafTotal: 0, vdSubs: 0, vdViews: 0, apvNum: 0, apvDen: 0 });
+      for (const r of (subRes.data || [])) {
+        const b = ensure(r.date), v = Number(r.views) || 0, avd = Number(r.average_view_duration_seconds) || 0;
+        if (String(r.dimension_value).toUpperCase() === 'SUBSCRIBED') b.sub += v; else b.unsub += v;
+        b.avdNum += avd * v; b.avdDen += v;
+      }
+      for (const r of (trafRes.data || [])) {
+        const b = ensure(r.date), v = Number(r.views) || 0, code = String(r.dimension_value).toUpperCase();
+        b.traf[code] = (b.traf[code] || 0) + v; b.trafTotal += v;
+      }
+      for (const r of (vdRes.data || [])) {
+        const b = ensure(r.date), v = Number(r.views) || 0;
+        b.vdSubs += Number(r.subscribers_gained) || 0; b.vdViews += v;
+        b.apvNum += (Number(r.average_view_percentage) || 0) * v; b.apvDen += v;
+      }
+
+      let curPub = 0, priorPub = 0;
+      for (const r of (ciRes.data || [])) {
+        const d = r.published_at ? String(r.published_at).slice(0, 10) : null;
+        if (!d) continue;
+        if (inRange(d, curStart, curEnd)) curPub++;
+        else if (inRange(d, priorStart, priorEnd)) priorPub++;
+      }
+
+      const safe = (n, d) => (d > 0 ? n / d : 0);
+      const agg = (dateList) => {
+        const a = { sub: 0, unsub: 0, avdNum: 0, avdDen: 0, traf: {}, trafTotal: 0, vdSubs: 0, vdViews: 0, apvNum: 0, apvDen: 0 };
+        for (const d of dateList) {
+          const b = byDate[d]; if (!b) continue;
+          a.sub += b.sub; a.unsub += b.unsub; a.avdNum += b.avdNum; a.avdDen += b.avdDen;
+          a.trafTotal += b.trafTotal; a.vdSubs += b.vdSubs; a.vdViews += b.vdViews; a.apvNum += b.apvNum; a.apvDen += b.apvDen;
+          for (const k in b.traf) a.traf[k] = (a.traf[k] || 0) + b.traf[k];
+        }
+        return a;
+      };
+      const derive = (a, pubCount) => {
+        const totalSub = a.sub + a.unsub, tt = a.trafTotal;
+        return {
+          new_pct: safe(a.unsub, totalSub),
+          returning_pct: safe(a.sub, totalSub),
+          new_volume: a.unsub,
+          returning_volume: a.sub,
+          avd: safe(a.avdNum, a.avdDen),
+          apv: safe(a.apvNum, a.apvDen),
+          search_share: safe(a.traf[TRAFFIC.search] || 0, tt),
+          suggested_share: safe(a.traf[TRAFFIC.suggested] || 0, tt),
+          browse_suggested_share: safe((a.traf[TRAFFIC.browse] || 0) + (a.traf[TRAFFIC.suggested] || 0), tt),
+          playlist_endscreen_share: safe((a.traf[TRAFFIC.playlist] || 0) + (a.traf[TRAFFIC.endScreen] || 0), tt),
+          subs_gained: a.vdSubs,
+          subs_per_1k: safe(a.vdSubs, a.vdViews) * 1000,
+          subs_per_video: pubCount > 0 ? a.vdSubs / pubCount : 0,
+        };
+      };
+      const curV = derive(agg(curDates), curPub), priorV = derive(agg(priorDates), priorPub);
+
+      const dailySeries = (fn) => curDates.map(d => { const b = byDate[d]; return b ? fn(b) : 0; });
+      const series = {
+        new_pct: dailySeries(b => safe(b.unsub, b.sub + b.unsub)),
+        returning_pct: dailySeries(b => safe(b.sub, b.sub + b.unsub)),
+        new_volume: dailySeries(b => b.unsub),
+        returning_volume: dailySeries(b => b.sub),
+        avd: dailySeries(b => safe(b.avdNum, b.avdDen)),
+        apv: dailySeries(b => safe(b.apvNum, b.apvDen)),
+        search_share: dailySeries(b => safe(b.traf[TRAFFIC.search] || 0, b.trafTotal)),
+        suggested_share: dailySeries(b => safe(b.traf[TRAFFIC.suggested] || 0, b.trafTotal)),
+        browse_suggested_share: dailySeries(b => safe((b.traf[TRAFFIC.browse] || 0) + (b.traf[TRAFFIC.suggested] || 0), b.trafTotal)),
+        playlist_endscreen_share: dailySeries(b => safe((b.traf[TRAFFIC.playlist] || 0) + (b.traf[TRAFFIC.endScreen] || 0), b.trafTotal)),
+        subs_gained: dailySeries(b => b.vdSubs),
+        subs_per_1k: dailySeries(b => safe(b.vdSubs, b.vdViews) * 1000),
+      };
+
+      const metrics = {};
+      for (const k of Object.keys(curV)) metrics[k] = { value: curV[k], prev: priorV[k], series: series[k] || null };
+
+      // Rising search terms — current-window views minus prior-window views.
+      const termCur = {}, termPrior = {};
+      for (const r of (stRes.data || [])) {
+        const term = r.dimension_value, v = Number(r.views) || 0, d = r.date;
+        if (inRange(d, curStart, curEnd)) termCur[term] = (termCur[term] || 0) + v;
+        else if (inRange(d, priorStart, priorEnd)) termPrior[term] = (termPrior[term] || 0) + v;
+      }
+      const risingTerms = Object.keys(termCur)
+        .map(t => ({ term: t, views: termCur[t], delta: termCur[t] - (termPrior[t] || 0) }))
+        .sort((a, b) => b.delta - a.delta)
+        .slice(0, 5);
+
+      // Lifetime impressions/CTR scorecard (Studio CSV — stale, no daily series).
+      let impressions = null;
+      const ay = ayRes.data || [];
+      if (ay.length > 0) {
+        let imprSum = 0, ctrNum = 0, ctrDen = 0, asOf = null;
+        for (const r of ay) {
+          const im = Number(r.impressions) || 0, ct = Number(r.impressions_ctr) || 0;
+          imprSum += im; ctrNum += ct * im; ctrDen += im;
+          if (r.created_at && (!asOf || r.created_at > asOf)) asOf = r.created_at;
+        }
+        impressions = { impressions: imprSum, ctr: ctrDen > 0 ? ctrNum / ctrDen : 0, asOf, videos: ay.length };
+      }
+
+      const result = { metrics, risingTerms, impressions, curStart, curEnd, hasWindow: curDates.length > 0 };
+      if (gen !== kpiGenRef.current) return;
+      setKpis(result);
+    } catch (e) {
+      console.error('Content Health KPI fetch error:', e);
+      if (gen === kpiGenRef.current) setKpis(null);
+    } finally {
+      if (gen === kpiGenRef.current) setKpisLoading(false);
+    }
+  }
+
   // ── Channel mix card (rolling last 12 published videos) ──
+  // Per-format splittable KPI tiles. Channel-dim tables blend Shorts, so these come
+  // from PER-VIDEO yt_video_daily joined to content_type (real daily history →
+  // sparklines + prior-window deltas). new/returning per format comes from
+  // yt_video_dim_subscription_status (thin — only fills in as the daily sync runs).
+  // Impressions/CTR split by format from analytics_youtube (lifetime, stale).
+  async function fetchFormatKpis() {
+    const gen = ++formatGenRef.current;
+    try {
+      const since = new Date(Date.now() - (KPI_WINDOW * 2 + 6) * 86400000).toISOString().split('T')[0];
+      const acct = account;
+      const csvKey = acct && acct.external_id ? CSV_CHANNEL_BY_EXT[acct.external_id] : null;
+      const [vdRes, ciRes, subRes, ayRes] = await Promise.all([
+        supabase.from('yt_video_daily').select('date, video_id, views, watch_time_minutes, average_view_duration_seconds, average_view_percentage, subscribers_gained, likes, comments, shares').eq('platform_account_id', activeChannelId).gte('date', since).limit(50000),
+        supabase.from('content_items').select('external_id, content_type, published_at').eq('platform_account_id', activeChannelId),
+        supabase.from('yt_video_dim_subscription_status').select('date, video_id, dimension_value, views').eq('platform_account_id', activeChannelId).gte('date', since),
+        csvKey ? supabase.from('analytics_youtube').select('video_id, impressions, impressions_ctr, created_at').eq('channel', csvKey) : Promise.resolve({ data: [] }),
+      ]);
+      const typeOf = {}, pubOf = {};
+      for (const c of (ciRes.data || [])) { typeOf[c.external_id] = c.content_type; pubOf[c.external_id] = c.published_at ? String(c.published_at).slice(0, 10) : null; }
+      const fmtOf = (vid) => (typeOf[vid] === 'short' ? 'short' : 'video'); // default long
+
+      // date universe from yt_video_daily
+      const dset = new Set();
+      for (const r of (vdRes.data || [])) dset.add(r.date);
+      const dates = Array.from(dset).sort();
+      const curDates = dates.slice(-KPI_WINDOW), priorDates = dates.slice(-KPI_WINDOW * 2, -KPI_WINDOW);
+      const curSet = new Set(curDates), priorSet = new Set(priorDates);
+      const curStart = curDates[0], curEnd = curDates[curDates.length - 1];
+      const priorStart = priorDates[0], priorEnd = priorDates[priorDates.length - 1];
+      const inR = (d, a, b) => !!a && !!b && d >= a && d <= b;
+
+      // per-format, per-date accumulators
+      const mk = () => ({ views: 0, watch: 0, avdN: 0, avdD: 0, apvN: 0, apvD: 0, subs: 0, shares: 0, eng: 0 });
+      const byFmtDate = { video: {}, short: {} };
+      for (const r of (vdRes.data || [])) {
+        const f = fmtOf(r.video_id); const day = (byFmtDate[f][r.date] = byFmtDate[f][r.date] || mk());
+        const v = Number(r.views) || 0;
+        day.views += v; day.watch += Number(r.watch_time_minutes) || 0; day.subs += Number(r.subscribers_gained) || 0;
+        day.shares += Number(r.shares) || 0; day.eng += (Number(r.likes) || 0) + (Number(r.comments) || 0) + (Number(r.shares) || 0);
+        day.avdN += (Number(r.average_view_duration_seconds) || 0) * v; day.avdD += v;
+        day.apvN += (Number(r.average_view_percentage) || 0) * v; day.apvD += v;
+      }
+      // new/returning per format over the current window (thin daily coverage)
+      const subFmt = { video: { sub: 0, unsub: 0 }, short: { sub: 0, unsub: 0 } };
+      for (const r of (subRes.data || [])) {
+        if (!curSet.has(r.date)) continue;
+        const f = fmtOf(r.video_id), v = Number(r.views) || 0;
+        if (String(r.dimension_value).toUpperCase() === 'SUBSCRIBED') subFmt[f].sub += v; else subFmt[f].unsub += v;
+      }
+      // videos published per format per window
+      const pub = { video: { cur: 0, prior: 0 }, short: { cur: 0, prior: 0 } };
+      for (const vid in pubOf) { const d = pubOf[vid]; if (!d) continue; const f = fmtOf(vid);
+        if (inR(d, curStart, curEnd)) pub[f].cur++; else if (inR(d, priorStart, priorEnd)) pub[f].prior++; }
+      // impressions per format (lifetime)
+      const impFmt = { video: { imp: 0, cN: 0, cD: 0, n: 0, asOf: null }, short: { imp: 0, cN: 0, cD: 0, n: 0, asOf: null } };
+      for (const r of (ayRes.data || [])) { const f = fmtOf(r.video_id); const im = Number(r.impressions) || 0, ct = Number(r.impressions_ctr) || 0;
+        impFmt[f].imp += im; impFmt[f].cN += ct * im; impFmt[f].cD += im; impFmt[f].n++;
+        if (r.created_at && (!impFmt[f].asOf || r.created_at > impFmt[f].asOf)) impFmt[f].asOf = r.created_at; }
+
+      const safe = (n, d) => (d > 0 ? n / d : 0);
+      const buildFmt = (f) => {
+        const aggW = (list) => { const a = mk(); for (const d of list) { const b = byFmtDate[f][d]; if (!b) continue;
+          a.views += b.views; a.watch += b.watch; a.avdN += b.avdN; a.avdD += b.avdD; a.apvN += b.apvN; a.apvD += b.apvD; a.subs += b.subs; a.shares += b.shares; a.eng += b.eng; } return a; };
+        const cur = aggW(curDates), prior = aggW(priorDates);
+        const metricsOf = (a, pubCount) => ({
+          views: a.views, watch_hours: a.watch / 60, avd: safe(a.avdN, a.avdD), apv: safe(a.apvN, a.apvD),
+          subs_gained: a.subs, engagement: safe(a.eng, a.views), shares_per_view: safe(a.shares, a.views),
+          subs_per_1k: safe(a.subs, a.views) * 1000, subs_per_video: pubCount > 0 ? a.subs / pubCount : 0,
+        });
+        const cm = metricsOf(cur, pub[f].cur), pm = metricsOf(prior, pub[f].prior);
+        const daily = (fn) => curDates.map(d => { const b = byFmtDate[f][d]; return b ? fn(b) : 0; });
+        const series = {
+          views: daily(b => b.views), watch_hours: daily(b => b.watch / 60), avd: daily(b => safe(b.avdN, b.avdD)),
+          apv: daily(b => safe(b.apvN, b.apvD)), subs_gained: daily(b => b.subs), engagement: daily(b => safe(b.eng, b.views)),
+          shares_per_view: daily(b => safe(b.shares, b.views)), subs_per_1k: daily(b => safe(b.subs, b.views) * 1000),
+        };
+        const metrics = {};
+        for (const k of Object.keys(cm)) metrics[k] = { value: cm[k], prev: pm[k], series: series[k] || null };
+        const totalSub = subFmt[f].sub + subFmt[f].unsub;
+        metrics.new_pct = { value: safe(subFmt[f].unsub, totalSub), prev: null, series: null };
+        metrics.returning_pct = { value: safe(subFmt[f].sub, totalSub), prev: null, series: null };
+        metrics.new_volume = { value: subFmt[f].unsub, prev: null, series: null };
+        metrics.returning_volume = { value: subFmt[f].sub, prev: null, series: null };
+        const im = impFmt[f];
+        const impressions = im.n > 0 ? { impressions: im.imp, ctr: safe(im.cN, im.cD), asOf: im.asOf, videos: im.n } : null;
+        return { metrics, impressions, subThin: totalSub > 0 };
+      };
+
+      const result = { long: buildFmt('video'), short: buildFmt('short'), window: KPI_WINDOW };
+      if (gen !== formatGenRef.current) return;
+      setFormatKpis(result);
+    } catch (e) {
+      console.error('Content Health format-KPI error:', e);
+      if (gen === formatGenRef.current) setFormatKpis(null);
+    }
+  }
+
+  const activeVideos = view === 'short' ? videosShort : videosLong;
   const channelMix = useMemo(() => {
-    if (videos.length === 0) return null;
-    const last12 = videos.slice(0, 12);
+    if (activeVideos.length === 0) return null;
+    const last12 = activeVideos.slice(0, 12);
     const buckets = { stability: 0, growth: 0, breakout: 0, underperforming: 0 };
     for (const v of last12) buckets[v.category] = (buckets[v.category] || 0) + 1;
-    const prev12 = videos.slice(12, 24);
+    const prev12 = activeVideos.slice(12, 24);
     const prevBuckets = { stability: 0, growth: 0, breakout: 0, underperforming: 0 };
     for (const v of prev12) prevBuckets[v.category] = (prevBuckets[v.category] || 0) + 1;
     return { current: buckets, previous: prevBuckets, total: last12.length, prevTotal: prev12.length };
-  }, [videos]);
+  }, [activeVideos]);
 
-  // ── Render ──
-  if (ytChannels.length === 0) {
-    return (
-      <div style={S.emptyCard}>
-        <p style={S.emptyText}>No YouTube channels connected.</p>
+  // ── Render (single channel column) ──
+  const selectedVideo = activeVideos.find(v => v.video_id === selectedVideoId);
+  const activeWeights = view === 'short' ? shortsDisplayWeights(activeRole) : weightsForRole(activeRole);
+  const fmtK = formatKpis ? (view === 'short' ? formatKpis.short : formatKpis.long) : null;
+  const roleColor = activeRole === 'niche' ? '#5b8fc7' : '#ff4444';
+
+  return (
+    <div style={S.column}>
+      <div style={S.columnHead}>
+        <span style={{ ...S.columnDot, background: roleColor }} />
+        <div>
+          <div style={S.columnName}>{account.account_name}</div>
+          <div style={S.columnRole}>{activeRole === 'niche' ? 'Niche / search-driven' : 'Broad-reach'}</div>
+        </div>
       </div>
-    );
+
+      {view === 'short' ? (
+        <ShortsFamilyCard metrics={fmtK ? fmtK.metrics : null} loading={!formatKpis} shortsCount={activeVideos.length} />
+      ) : (
+        <>
+          <KpiSection icon="🚀" title="Growth" subtitle={`long-form · ${KPI_WINDOW}d vs prior ${KPI_WINDOW}d`}
+            tiles={LONG_GROWTH_TILES[activeRole]} kpis={fmtK} color={CATEGORY_COLORS.growth} loading={!formatKpis} />
+          <KpiSection icon="🛡️" title="Stability" subtitle={`long-form · ${KPI_WINDOW}d vs prior ${KPI_WINDOW}d`}
+            tiles={LONG_STABILITY_TILES[activeRole]} kpis={fmtK} color={CATEGORY_COLORS.stability} loading={!formatKpis} unavailable={UNAVAILABLE_STABILITY} />
+        </>
+      )}
+
+      {/* Traffic mix + search terms are whole-channel (all formats) — badged, never
+          presented as format-specific numbers. */}
+      <ContextStrip kpis={kpis} loading={kpisLoading} />
+
+      {/* Secondary, collapsed by default: per-video scatter + ranked table + modal. */}
+      <button style={S.drillToggle} onClick={() => setDrillOpen(o => !o)}>
+        {drillOpen ? '▾' : '▸'} Per-video detail — {activeVideos.length} {view === 'short' ? 'Shorts' : 'long-form videos'}
+      </button>
+      {drillOpen && (
+        <>
+          {channelMix && <ChannelMixCard mix={channelMix} />}
+          <div style={S.card}>
+            <div style={S.cardHeader}>
+              <span style={S.cardTitle}>{view === 'short' ? 'Retention × Spread' : 'Stability × Growth'}</span>
+              <div style={S.legend}>
+                {Object.entries(CATEGORY_COLORS).map(([cat, color]) => (
+                  <span key={cat} style={S.legendItem}><span style={{ ...S.legendDot, background: color }} />{cat}</span>
+                ))}
+              </div>
+            </div>
+            <ScatterPlot videos={activeVideos} onSelect={setSelectedVideoId}
+              xLabel={view === 'short' ? 'Retention (Hold) →' : 'Stability Score →'}
+              yLabel={view === 'short' ? 'Spread (Amplify + Convert) →' : 'Growth Score →'} />
+            {loading && <div style={S.loadingOverlay}>Loading…</div>}
+          </div>
+          <div style={S.card}>
+            <div style={S.cardHeader}>
+              <span style={S.cardTitle}>{view === 'short' ? 'All scored Shorts' : 'All scored long-form videos'}</span>
+            </div>
+            <RankedTable videos={activeVideos} onSelect={setSelectedVideoId} />
+          </div>
+        </>
+      )}
+
+      {selectedVideo && (
+        <DetailPanel video={selectedVideo} weights={activeWeights} onClose={() => setSelectedVideoId(null)} />
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Top-level: two YouTube channel columns side by side under Long/Short tabs.
+// Short-form tab adds a cross-platform reach banner on top and stacked
+// TikTok / IG / FB platform panels below the two YT columns.
+// ═══════════════════════════════════════════════════════════════════
+export default function ContentHealthDashboard({ accounts }) {
+  const ytChannels = useMemo(() => (accounts || []).filter(a => a.platform === 'youtube'), [accounts]);
+  const [view, setView] = useState('long'); // 'long' | 'short'
+  const [cross, setCross] = useState(null);  // cross-platform reach + stacked-panel data
+  const crossGenRef = useRef(0);
+
+  useEffect(() => {
+    if (ytChannels.length === 0) return;
+    fetchCrossPlatform();
+    // eslint-disable-next-line
+  }, [accounts]);
+
+  async function fetchCrossPlatform() {
+    const gen = ++crossGenRef.current;
+    try {
+      const since = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+      const ytIds = ytChannels.map(c => c.id);
+      const [ciRes, vdRes, cpRes, audRes] = await Promise.all([
+        supabase.from('content_items').select('external_id').in('platform_account_id', ytIds).eq('content_type', 'short'),
+        supabase.from('yt_video_daily').select('video_id, views').in('platform_account_id', ytIds).gte('date', since).limit(50000),
+        supabase.from('platform_daily_metrics').select('views, likes, platform_accounts!inner(platform)').in('platform_accounts.platform', ['tiktok', 'instagram', 'facebook']).gte('date', since),
+        supabase.from('audience_snapshots').select('followers_gained, platform_accounts!inner(platform)').in('platform_accounts.platform', ['tiktok', 'instagram', 'facebook', 'youtube']).gte('date', since),
+      ]);
+      const shortIds = new Set((ciRes.data || []).map(c => c.external_id));
+      let ytShortViews = 0;
+      for (const r of (vdRes.data || [])) if (shortIds.has(r.video_id)) ytShortViews += Number(r.views) || 0;
+      const plat = {};
+      for (const r of (cpRes.data || [])) { const p = r.platform_accounts.platform; const x = (plat[p] = plat[p] || { views: 0, likes: 0 }); x.views += Number(r.views) || 0; x.likes += Number(r.likes) || 0; }
+      const follows = {};
+      for (const r of (audRes.data || [])) { const p = r.platform_accounts.platform; follows[p] = (follows[p] || 0) + (Number(r.followers_gained) || 0); }
+      const result = { ytShortViews, plat, follows, window: 30 };
+      if (gen !== crossGenRef.current) return;
+      setCross(result);
+    } catch (e) {
+      console.error('Content Health cross-platform error:', e);
+      if (gen === crossGenRef.current) setCross(null);
+    }
   }
 
-  const selectedVideo = videos.find(v => v.video_id === selectedVideoId);
+  if (ytChannels.length === 0) {
+    return <div style={S.emptyCard}><p style={S.emptyText}>No YouTube channels connected.</p></div>;
+  }
 
   return (
     <div>
-      {/* Channel switcher */}
       <div style={S.header}>
         <div style={S.headerLeft}>
           <span style={S.title}>Content Health</span>
-          <span style={S.subtitle}>Stability vs Growth scoring · trailing {NORM_WINDOW}-video norm</span>
+          <span style={S.subtitle}>Both channels side by side · {view === 'short' ? 'Short-form' : 'Long-form'}</span>
         </div>
-        <div style={S.channelTabs}>
-          {ytChannels.map(c => (
-            <button key={c.id} onClick={() => setActiveChannelId(c.id)}
-              style={{ ...S.channelTab, ...(activeChannelId === c.id ? S.channelTabActive : {}) }}>
-              {c.account_name}
-            </button>
+        <div style={S.viewTabs}>
+          {[['long', 'Long-form'], ['short', 'Short-form']].map(([k, label]) => (
+            <button key={k} onClick={() => setView(k)} style={{ ...S.viewTab, ...(view === k ? S.viewTabActive : {}) }}>{label}</button>
           ))}
         </div>
       </div>
 
-      {/* Channel mix card */}
-      {channelMix && <ChannelMixCard mix={channelMix} />}
+      {view === 'short' && <CrossPlatformSummary data={cross} />}
 
-      {/* Scatter plot */}
-      <div style={S.card}>
-        <div style={S.cardHeader}>
-          <span style={S.cardTitle}>Stability × Growth — last {videos.length} videos</span>
-          <div style={S.legend}>
-            {Object.entries(CATEGORY_COLORS).map(([cat, color]) => (
-              <span key={cat} style={S.legendItem}>
-                <span style={{ ...S.legendDot, background: color }} />
-                {cat}
-              </span>
-            ))}
-          </div>
-        </div>
-        <ScatterPlot videos={videos} onSelect={setSelectedVideoId} />
-        {loading && <div style={S.loadingOverlay}>Loading…</div>}
+      <div style={S.columnsGrid}>
+        {ytChannels.map(c => <ChannelColumn key={c.id} account={c} view={view} />)}
       </div>
 
-      {/* Ranked table */}
-      <div style={S.card}>
-        <div style={S.cardHeader}>
-          <span style={S.cardTitle}>All scored videos</span>
+      {view === 'short' && (
+        <div style={S.platformStack}>
+          {SF_PLATFORMS.filter(p => p.key !== 'youtube').map(p => (
+            <PlatformPanel key={p.key} platform={p} data={cross} />
+          ))}
         </div>
-        <RankedTable videos={videos} onSelect={setSelectedVideoId} />
-      </div>
-
-      {/* Detail modal */}
-      {selectedVideo && (
-        <DetailPanel video={selectedVideo} onClose={() => setSelectedVideoId(null)} />
       )}
     </div>
   );
@@ -470,7 +860,7 @@ function ChannelMixCard({ mix }) {
 // ═══════════════════════════════════════════════════════════════════
 // Scatter plot
 // ═══════════════════════════════════════════════════════════════════
-function ScatterPlot({ videos, onSelect }) {
+function ScatterPlot({ videos, onSelect, xLabel = 'Stability Score →', yLabel = 'Growth Score →' }) {
   const [hover, setHover] = useState(null);
   const W = 900, H = 500, PAD = { top: 24, right: 32, bottom: 48, left: 56 };
   const plotW = W - PAD.left - PAD.right;
@@ -500,8 +890,8 @@ function ScatterPlot({ videos, onSelect }) {
         <line x1={PAD.left} x2={W - PAD.right} y1={yFor(BREAKOUT_GATE.growth)} y2={yFor(BREAKOUT_GATE.growth)} stroke="rgba(245,158,11,0.2)" strokeDasharray="4 4" />
 
         {/* Axis labels */}
-        <text x={PAD.left + plotW / 2} y={H - 14} textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize="12">Stability Score →</text>
-        <text x={16} y={PAD.top + plotH / 2} textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize="12" transform={`rotate(-90 16 ${PAD.top + plotH / 2})`}>Growth Score →</text>
+        <text x={PAD.left + plotW / 2} y={H - 14} textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize="12">{xLabel}</text>
+        <text x={16} y={PAD.top + plotH / 2} textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize="12" transform={`rotate(-90 16 ${PAD.top + plotH / 2})`}>{yLabel}</text>
 
         {/* Tick labels */}
         {[0, 25, 50, 75, 100].map(t => (
@@ -620,7 +1010,8 @@ function RankedTable({ videos, onSelect }) {
 // ═══════════════════════════════════════════════════════════════════
 // Detail panel
 // ═══════════════════════════════════════════════════════════════════
-function DetailPanel({ video, onClose }) {
+function DetailPanel({ video, onClose, weights }) {
+  const w = weights || weightsForRole('broad');
   const hint = nextActionHint(video);
   return (
     <div style={S.modalBackdrop} {...backdropDismiss(onClose)}>
@@ -648,8 +1039,8 @@ function DetailPanel({ video, onClose }) {
 
         {/* Component breakdown */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
-          <ComponentList title="Stability components" weights={STABILITY_WEIGHTS} indices={video.indices.stability} color="#5b8fc7" />
-          <ComponentList title="Growth components" weights={GROWTH_WEIGHTS} indices={video.indices.growth} color="#22c55e" />
+          <ComponentList title="Stability components" weights={w.stability} indices={video.indices.stability} color="#5b8fc7" />
+          <ComponentList title="Growth components" weights={w.growth} indices={video.indices.growth} color="#22c55e" />
         </div>
 
         {/* Purity check */}
@@ -756,6 +1147,355 @@ function formatDuration(s) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Growth / Stability KPI sections
+// ═══════════════════════════════════════════════════════════════════
+// Per-role LONG-FORM tile ordering. Metrics come from per-video yt_video_daily
+// (content_type='video'), so every tile here is genuinely long-form-only. Traffic
+// mix + rising search terms are channel-wide (all formats) and live in ContextStrip,
+// NOT here. `impressions`/`ctr` read the format-split analytics_youtube scorecard.
+const LONG_GROWTH_TILES = {
+  broad: [
+    { metric: 'new_pct', label: 'New-viewer share', fmt: 'pct' },
+    { metric: 'new_volume', label: 'New-viewer volume', fmt: 'num' },
+    { metric: 'subs_per_video', label: 'Subs gained / video', fmt: 'num1', noSpark: true },
+    { metric: 'subs_per_1k', label: 'Subs per 1k views', fmt: 'num1' },
+    { kind: 'impressions' },
+  ],
+  niche: [
+    { metric: 'subs_per_video', label: 'Subs gained / video', fmt: 'num1', noSpark: true },
+    { metric: 'subs_per_1k', label: 'Subs per 1k views', fmt: 'num1' },
+    { metric: 'views', label: 'Views (window)', fmt: 'num' },
+    { kind: 'paired', label: 'New + Returning viewers', a: 'new_volume', b: 'returning_volume' },
+    { kind: 'impressions' },
+  ],
+};
+const LONG_STABILITY_TILES = {
+  broad: [
+    { metric: 'avd', label: 'Avg view duration', fmt: 'sec' },
+    { metric: 'apv', label: 'Avg % viewed', fmt: 'pctRaw' },
+    { metric: 'returning_pct', label: 'Returning-viewer mix', fmt: 'pct' },
+    { metric: 'engagement', label: 'Engagement / view', fmt: 'pct' },
+    { kind: 'ctr' },
+  ],
+  niche: [
+    { metric: 'avd', label: 'Avg view duration', fmt: 'sec' },
+    { metric: 'apv', label: 'Avg % viewed', fmt: 'pctRaw' },
+    { metric: 'returning_pct', label: 'Returning-viewer strength', fmt: 'pct' },
+    { metric: 'engagement', label: 'Engagement / view', fmt: 'pct' },
+    { kind: 'ctr' },
+  ],
+};
+// Genuinely not exposed by the YouTube Analytics API v2 — rendered as greyed chips
+// so the gap is explicit. END_SCREEN exists only as a traffic source (views), not
+// a click/CTR metric; per-second/intro retention curves aren't in the API at all.
+const UNAVAILABLE_STABILITY = ['Per-second retention curve', 'Intro (30s) retention', 'End-screen CTR'];
+
+function fmtVal(fmt, v) {
+  if (v == null || isNaN(v)) return '—';
+  switch (fmt) {
+    case 'pct': return (v * 100).toFixed(1) + '%';   // fraction 0-1
+    case 'pctRaw': return v.toFixed(1) + '%';         // already a percent 0-100
+    case 'sec': return formatDuration(v);
+    case 'num1': return Number(v).toLocaleString(undefined, { maximumFractionDigits: 1 });
+    default: return formatNumber(v);
+  }
+}
+function fmtDelta(fmt, cur, prev) {
+  if (cur == null || prev == null || isNaN(cur) || isNaN(prev)) return null;
+  if (fmt === 'pct') { const d = (cur - prev) * 100; return { text: (d >= 0 ? '+' : '') + d.toFixed(1) + 'pp', up: d >= 0 }; }
+  if (fmt === 'pctRaw') { const d = cur - prev; return { text: (d >= 0 ? '+' : '') + d.toFixed(1) + 'pp', up: d >= 0 }; }
+  if (fmt === 'sec') { const d = cur - prev; return { text: (d >= 0 ? '+' : '') + Math.round(d) + 's', up: d >= 0 }; }
+  if (prev === 0) { return cur === 0 ? null : { text: 'new', up: cur > 0 }; }
+  const d = ((cur - prev) / Math.abs(prev)) * 100;
+  return { text: (d >= 0 ? '+' : '') + d.toFixed(0) + '%', up: d >= 0 };
+}
+
+function KpiSection({ icon, title, subtitle, tiles, kpis, color, loading, unavailable }) {
+  return (
+    <div style={{ ...S.section, borderColor: color + '30' }}>
+      <div style={S.sectionHead}>
+        <span style={S.sectionTitle}><span style={{ marginRight: 8 }}>{icon}</span>{title}</span>
+        <span style={S.sectionSub}>{subtitle}</span>
+      </div>
+      {loading && !kpis ? (
+        <div style={S.kpiGrid}>{[0, 1, 2, 3].map(i => <Skeleton key={i} height={96} radius={10} />)}</div>
+      ) : (
+        <div style={S.kpiGrid}>
+          {tiles.map((t, i) => <KPITile key={t.metric || t.kind || i} tile={t} kpis={kpis} color={color} />)}
+        </div>
+      )}
+      {unavailable && unavailable.length > 0 && (
+        <div style={S.unavailRow}>
+          {unavailable.map(u => (
+            <span key={u} style={S.unavailChip} title="Not exposed by the YouTube Analytics API v2">{u} · not tracked</span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function KPITile({ tile, kpis, color }) {
+  if (tile.kind === 'impressions' || tile.kind === 'ctr') return <ImpressionsTile kpis={kpis} mode={tile.kind} />;
+  if (tile.kind === 'risingTerms') return <RisingTermsTile terms={kpis && kpis.risingTerms} />;
+  if (tile.kind === 'paired') return <PairedTile kpis={kpis} tile={tile} />;
+  const m = kpis && kpis.metrics ? kpis.metrics[tile.metric] : null;
+  const delta = m ? fmtDelta(tile.fmt, m.value, m.prev) : null;
+  const spark = !tile.noSpark && m && m.series && m.series.length > 1;
+  return (
+    <div style={S.kpiTile}>
+      <div style={S.kpiLabel}>{tile.label}</div>
+      <div style={S.kpiValueRow}>
+        <span style={S.kpiValue}>{fmtVal(tile.fmt, m ? m.value : null)}</span>
+        {spark && <Sparkline data={m.series} color={color} width={72} height={24} />}
+      </div>
+      {delta
+        ? <span style={{ ...S.kpiDelta, color: delta.up ? '#4ade80' : '#f87171' }}>{delta.text}<span style={S.kpiDeltaTag}> vs prior {KPI_WINDOW}d</span></span>
+        : <span style={S.kpiDeltaMuted}>no prior-window data</span>}
+    </div>
+  );
+}
+
+function ImpressionsTile({ kpis, mode }) {
+  const imp = kpis ? kpis.impressions : null;
+  const label = mode === 'ctr' ? 'Impressions CTR' : 'Impressions + CTR';
+  if (!imp) {
+    return (
+      <div style={{ ...S.kpiTile, ...S.kpiTileStale }}>
+        <div style={S.kpiLabel}>{label}</div>
+        <div style={S.kpiValueMuted}>No CSV yet</div>
+        <span style={S.kpiDeltaMuted}>Upload Studio CSV to populate</span>
+      </div>
+    );
+  }
+  const asOf = imp.asOf ? formatDate(imp.asOf) : null;
+  return (
+    <div style={{ ...S.kpiTile, ...S.kpiTileStale }}>
+      <div style={S.kpiLabel}>{label}</div>
+      <div style={S.kpiValueRow}>
+        <span style={S.kpiValue}>{mode === 'ctr' ? imp.ctr.toFixed(1) + '%' : formatNumber(imp.impressions)}</span>
+        {mode !== 'ctr' && <span style={S.kpiSecondary}>{imp.ctr.toFixed(1)}% CTR</span>}
+      </div>
+      <span style={S.kpiStaleTag}>⚠ lifetime · as of {asOf || 'last CSV'}</span>
+    </div>
+  );
+}
+
+function RisingTermsTile({ terms }) {
+  const list = terms || [];
+  return (
+    <div style={{ ...S.kpiTile, ...S.kpiTileWide }}>
+      <div style={S.kpiLabel}>Top rising search terms</div>
+      {list.length === 0 ? (
+        <div style={S.kpiValueMuted}>No search-term data</div>
+      ) : (
+        <div style={S.termList}>
+          {list.map(t => (
+            <div key={t.term} style={S.termRow}>
+              <span style={S.termName}>{t.term}</span>
+              <span style={S.termViews}>{formatNumber(t.views)}</span>
+              <span style={{ ...S.termDelta, color: t.delta >= 0 ? '#4ade80' : '#f87171' }}>{t.delta >= 0 ? '+' : ''}{formatNumber(t.delta)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <span style={S.kpiDeltaMuted}>views vs prior {KPI_WINDOW}d</span>
+    </div>
+  );
+}
+
+function PairedTile({ kpis, tile }) {
+  const a = kpis && kpis.metrics ? kpis.metrics[tile.a] : null;
+  const b = kpis && kpis.metrics ? kpis.metrics[tile.b] : null;
+  return (
+    <div style={{ ...S.kpiTile, ...S.kpiTileWide }}>
+      <div style={S.kpiLabel}>{tile.label}</div>
+      <div style={S.pairRow}>
+        <div style={S.pairCol}>
+          <span style={S.pairTag}>New (unsub)</span>
+          <span style={S.kpiValue}>{formatNumber(a ? a.value : null)}</span>
+          {a && a.series && a.series.length > 1 && <Sparkline data={a.series} color="#22c55e" width={84} height={22} />}
+        </div>
+        <div style={S.pairCol}>
+          <span style={S.pairTag}>Returning (sub)</span>
+          <span style={S.kpiValue}>{formatNumber(b ? b.value : null)}</span>
+          {b && b.series && b.series.length > 1 && <Sparkline data={b.series} color="#5b8fc7" width={84} height={22} />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Channel-wide context strip (traffic mix + rising terms — all formats)
+// ═══════════════════════════════════════════════════════════════════
+const CONTEXT_TRAFFIC = [
+  { metric: 'search_share', label: 'Search' },
+  { metric: 'suggested_share', label: 'Suggested' },
+  { metric: 'browse_suggested_share', label: 'Browse+Sugg' },
+  { metric: 'playlist_endscreen_share', label: 'Playlist+End' },
+];
+function ContextStrip({ kpis, loading }) {
+  return (
+    <div style={S.contextStrip}>
+      <div style={S.contextHead}>
+        <span style={S.contextTitle}>Channel context</span>
+        <span style={S.contextBadge}>whole channel · all formats · traffic can’t be format-split (per-video traffic API is empty)</span>
+      </div>
+      <div style={S.contextBody}>
+        <div style={S.contextTraffic}>
+          {CONTEXT_TRAFFIC.map(t => {
+            const m = kpis && kpis.metrics ? kpis.metrics[t.metric] : null;
+            const d = m ? fmtDelta('pct', m.value, m.prev) : null;
+            return (
+              <div key={t.metric} style={S.contextMetric}>
+                <span style={S.contextMetricLabel}>{t.label}</span>
+                <span style={S.contextMetricVal}>{fmtVal('pct', m ? m.value : null)}</span>
+                {m && m.series && m.series.length > 1 && <Sparkline data={m.series} color="#8fb4d8" width={64} height={18} />}
+                {d && <span style={{ fontSize: 10, fontWeight: 700, color: d.up ? '#4ade80' : '#f87171' }}>{d.text}</span>}
+              </div>
+            );
+          })}
+        </div>
+        <div style={S.contextTerms}>
+          <span style={S.contextMetricLabel}>Top rising search terms</span>
+          {loading && !kpis ? <Skeleton height={16} /> : (
+            (kpis && kpis.risingTerms && kpis.risingTerms.length > 0)
+              ? kpis.risingTerms.slice(0, 4).map(t => (
+                <div key={t.term} style={S.termRow}>
+                  <span style={S.termName}>{t.term}</span>
+                  <span style={{ ...S.termDelta, color: t.delta >= 0 ? '#4ade80' : '#f87171' }}>{t.delta >= 0 ? '+' : ''}{formatNumber(t.delta)}</span>
+                </div>
+              ))
+              : <span style={S.kpiDeltaMuted}>No search-term data</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Short-form: cross-platform reach summary
+// ═══════════════════════════════════════════════════════════════════
+const SF_PLATFORMS = [
+  { key: 'youtube', label: 'YT Shorts', color: '#ff0000' },
+  { key: 'tiktok', label: 'TikTok', color: '#69C9D0' },
+  { key: 'instagram', label: 'IG Reels', color: '#E1306C' },
+  { key: 'facebook', label: 'FB Reels', color: '#1877F2' },
+];
+function CrossPlatformSummary({ data }) {
+  if (!data) return <div style={S.section}><Skeleton height={70} /></div>;
+  const views = {
+    youtube: data.ytShortViews || 0,
+    tiktok: data.plat.tiktok ? data.plat.tiktok.views : 0,
+    instagram: data.plat.instagram ? data.plat.instagram.views : 0,
+    facebook: data.plat.facebook ? data.plat.facebook.views : 0,
+  };
+  const totalViews = Object.values(views).reduce((s, v) => s + v, 0);
+  const totalFollows = Object.values(data.follows || {}).reduce((s, v) => s + v, 0);
+  return (
+    <div style={{ ...S.section, borderColor: '#f59e0b40' }}>
+      <div style={S.sectionHead}>
+        <span style={S.sectionTitle}>📡 Short-form reach across platforms</span>
+        <span style={S.sectionSub}>last {data.window}d · views + follower growth, all platforms</span>
+      </div>
+      <div style={S.reachRow}>
+        <div style={S.reachHero}>
+          <div style={S.kpiLabel}>Total short-form views</div>
+          <div style={S.reachHeroVal}>{formatNumber(totalViews)}</div>
+          <div style={S.reachHeroSub}>+{formatNumber(totalFollows)} followers</div>
+        </div>
+        {SF_PLATFORMS.map(p => (
+          <div key={p.key} style={S.reachCol}>
+            <span style={{ ...S.reachDot, background: p.color }} />
+            <span style={S.reachColLabel}>{p.label}</span>
+            <span style={S.reachColVal}>{views[p.key] > 0 ? formatNumber(views[p.key]) : '—'}</span>
+            <span style={S.reachColSub}>{(data.follows && data.follows[p.key]) ? '+' + formatNumber(data.follows[p.key]) + ' foll' : (p.key === 'facebook' ? 'likes-only' : '')}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Short-form: four-family × platform scorecard (family rows × platform cols)
+// ═══════════════════════════════════════════════════════════════════
+const FAMILIES = [
+  { key: 'hook', label: 'Hook', sub: 'scroll-stop' },
+  { key: 'hold', label: 'Hold', sub: 'completion · avg watch', hero: true },
+  { key: 'amplify', label: 'Amplify', sub: 'shares · saves / view' },
+  { key: 'convert', label: 'Convert', sub: 'follows / 1k views' },
+];
+// Per-channel YT Shorts four-family card (one vertical column of families).
+// Metrics come from that channel's formatKpis.short: completion=apv, avg watch=avd,
+// shares/view, follows/1k=subs_per_1k. Hook is greyed (no per-video scroll-stop);
+// saves is greyed (content_metrics.saves is uniformly 0).
+function ShortsFamilyCard({ metrics, loading, shortsCount }) {
+  const val = (k) => (metrics && metrics[k] ? metrics[k].value : null);
+  const cell = (fam) => {
+    if (!metrics) return { text: loading ? '…' : '—', tone: 'muted' };
+    if (fam === 'hook') return { text: 'not tracked', tone: 'na', note: 'no per-video scroll-stop metric' };
+    if (fam === 'hold') return { text: `${(val('apv') || 0).toFixed(1)}% · ${formatDuration(val('avd') || 0)}`, tone: 'real' };
+    if (fam === 'amplify') return { text: `${((val('shares_per_view') || 0) * 1000).toFixed(2)}/1k shares`, tone: 'real', note: 'saves n/a (not populated)' };
+    if (fam === 'convert') return { text: `${(val('subs_per_1k') || 0).toFixed(2)} follows/1k`, tone: 'real' };
+    return { text: '—', tone: 'muted' };
+  };
+  return (
+    <div style={{ ...S.section, marginBottom: 14 }}>
+      <div style={S.sectionHead}>
+        <span style={S.sectionTitle}>🎯 Shorts families</span>
+        <span style={S.sectionSub}>{shortsCount} Shorts · Hold is the hero</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {FAMILIES.map(fam => {
+          const c = cell(fam.key);
+          const color = c.tone === 'real' ? '#e7ebf2' : c.tone === 'na' ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.4)';
+          return (
+            <div key={fam.key} style={{ ...S.famRow, ...(fam.hero ? S.famRowHero : {}) }}>
+              <div style={S.famLabel}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: fam.hero ? '#fbbf24' : '#fff' }}>{fam.label}{fam.hero ? ' ★' : ''}</div>
+                <div style={S.scoreTdSub}>{fam.sub}</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ color, fontWeight: c.tone === 'real' ? 800 : 500, fontSize: 15, fontStyle: c.tone === 'na' ? 'italic' : 'normal', fontVariantNumeric: 'tabular-nums' }}>{c.text}</div>
+                {c.note && <div style={S.scoreCellNote}>{c.note}</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Stacked full-width panel for a non-YT platform (TikTok / IG / FB). Account/day
+// only — real Views/Likes/follower-growth scoreboard + a "limited" family note.
+function PlatformPanel({ platform, data }) {
+  const plat = data && data.plat ? data.plat[platform.key] : null;
+  const follows = data && data.follows ? data.follows[platform.key] : 0;
+  return (
+    <div style={{ ...S.section, borderColor: platform.color + '40', marginBottom: 12 }}>
+      <div style={S.sectionHead}>
+        <span style={S.sectionTitle}><span style={{ ...S.reachDot, background: platform.color, marginRight: 8 }} />{platform.label}</span>
+        <span style={S.sectionSub}>account-level · last {data ? data.window : 30}d · per-post families need expanded sync</span>
+      </div>
+      <div style={S.platRow}>
+        <div style={S.platStat}><div style={S.kpiLabel}>Views</div><div style={S.kpiValue}>{plat && plat.views > 0 ? formatNumber(plat.views) : '—'}</div></div>
+        <div style={S.platStat}><div style={S.kpiLabel}>Likes</div><div style={S.kpiValue}>{plat && plat.likes > 0 ? formatNumber(plat.likes) : '—'}</div></div>
+        <div style={S.platStat}><div style={S.kpiLabel}>Follower growth</div><div style={{ ...S.kpiValue, color: follows > 0 ? '#4ade80' : '#fff' }}>{follows > 0 ? '+' + formatNumber(follows) : '—'}</div></div>
+        <div style={S.platFamilies}>
+          {FAMILIES.map(f => (
+            <span key={f.key} style={S.unavailChip}>{f.label}: limited</span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Styles
 // ═══════════════════════════════════════════════════════════════════
 const S = {
@@ -766,6 +1506,90 @@ const S = {
   channelTabs: { display: 'flex', gap: 4, padding: 4, background: 'rgba(255,255,255,0.04)', borderRadius: 10 },
   channelTab: { padding: '7px 14px', background: 'transparent', border: 'none', borderRadius: 7, color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   channelTabActive: { background: 'rgba(91, 143, 199,0.18)', color: '#8fb4d8' },
+
+  // Two-column side-by-side layout (stacks to 1 col on narrow widths)
+  columnsGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 16, alignItems: 'start' },
+  column: { minWidth: 0 },
+  columnHead: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, paddingBottom: 10, borderBottom: '1px solid rgba(255,255,255,0.08)' },
+  columnDot: { width: 12, height: 12, borderRadius: '50%', flexShrink: 0 },
+  columnName: { fontSize: 16, fontWeight: 800, color: '#fff' },
+  columnRole: { fontSize: 11, color: 'rgba(255,255,255,0.45)' },
+  drillToggle: { width: '100%', textAlign: 'left', padding: '9px 12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginBottom: 10 },
+  platformStack: { marginTop: 4 },
+  famRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '10px 12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10 },
+  famRowHero: { background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.22)' },
+  famLabel: { display: 'flex', flexDirection: 'column', gap: 1 },
+  platRow: { display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' },
+  platStat: { minWidth: 90 },
+  platFamilies: { display: 'flex', gap: 6, flexWrap: 'wrap', marginLeft: 'auto' },
+
+  // Growth / Stability KPI sections
+  section: { background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 16, marginBottom: 14 },
+  sectionHead: { display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 12, flexWrap: 'wrap' },
+  sectionTitle: { fontSize: 15, fontWeight: 800, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.5px' },
+  sectionSub: { fontSize: 11, color: 'rgba(255,255,255,0.4)' },
+  kpiGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 10 },
+  kpiTile: { display: 'flex', flexDirection: 'column', gap: 6, padding: 12, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, minHeight: 92 },
+  kpiTileWide: { gridColumn: 'span 2' },
+  kpiTileStale: { background: 'rgba(245,158,11,0.04)', border: '1px solid rgba(245,158,11,0.18)' },
+  kpiLabel: { fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.4px' },
+  kpiValueRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  kpiValue: { fontSize: 22, fontWeight: 800, color: '#fff', fontVariantNumeric: 'tabular-nums' },
+  kpiValueMuted: { fontSize: 15, fontWeight: 600, color: 'rgba(255,255,255,0.35)' },
+  kpiSecondary: { fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', fontVariantNumeric: 'tabular-nums' },
+  kpiDelta: { fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums' },
+  kpiDeltaTag: { fontSize: 10, fontWeight: 500, color: 'rgba(255,255,255,0.35)' },
+  kpiDeltaMuted: { fontSize: 11, color: 'rgba(255,255,255,0.3)' },
+  kpiStaleTag: { fontSize: 10, color: '#fbbf24', fontWeight: 600 },
+  termList: { display: 'flex', flexDirection: 'column', gap: 4 },
+  termRow: { display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 10, alignItems: 'center' },
+  termName: { fontSize: 12, color: 'rgba(255,255,255,0.8)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  termViews: { fontSize: 12, color: 'rgba(255,255,255,0.55)', fontVariantNumeric: 'tabular-nums' },
+  termDelta: { fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', minWidth: 44, textAlign: 'right' },
+  pairRow: { display: 'flex', gap: 16 },
+  pairCol: { display: 'flex', flexDirection: 'column', gap: 2, flex: 1 },
+  pairTag: { fontSize: 10, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.4px' },
+  unavailRow: { display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 },
+  unavailChip: { fontSize: 10, color: 'rgba(255,255,255,0.35)', background: 'rgba(255,255,255,0.03)', border: '1px dashed rgba(255,255,255,0.12)', borderRadius: 20, padding: '4px 10px' },
+
+  // View switcher
+  viewTabs: { display: 'flex', gap: 4, padding: 4, background: 'rgba(255,255,255,0.04)', borderRadius: 10 },
+  viewTab: { padding: '7px 16px', background: 'transparent', border: 'none', borderRadius: 7, color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' },
+  viewTabActive: { background: 'rgba(245,158,11,0.16)', color: '#fbbf24' },
+
+  // Channel-wide context strip
+  contextStrip: { background: 'rgba(143,180,216,0.03)', border: '1px solid rgba(143,180,216,0.14)', borderRadius: 12, padding: 14, marginBottom: 14 },
+  contextHead: { display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 10, flexWrap: 'wrap' },
+  contextTitle: { fontSize: 13, fontWeight: 700, color: '#fff' },
+  contextBadge: { fontSize: 10, color: '#8fb4d8', background: 'rgba(143,180,216,0.1)', border: '1px solid rgba(143,180,216,0.25)', borderRadius: 20, padding: '3px 9px' },
+  contextBody: { display: 'grid', gridTemplateColumns: 'minmax(280px, 2fr) minmax(200px, 1fr)', gap: 16, alignItems: 'start' },
+  contextTraffic: { display: 'flex', gap: 14, flexWrap: 'wrap' },
+  contextMetric: { display: 'flex', flexDirection: 'column', gap: 2, minWidth: 78 },
+  contextMetricLabel: { fontSize: 10, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '0.4px', fontWeight: 700 },
+  contextMetricVal: { fontSize: 16, fontWeight: 800, color: '#fff', fontVariantNumeric: 'tabular-nums' },
+  contextTerms: { display: 'flex', flexDirection: 'column', gap: 3 },
+
+  // Cross-platform reach
+  reachRow: { display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'stretch' },
+  reachHero: { flex: '1 1 180px', padding: 12, borderRadius: 10, background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)' },
+  reachHeroVal: { fontSize: 28, fontWeight: 800, color: '#fff', fontVariantNumeric: 'tabular-nums' },
+  reachHeroSub: { fontSize: 12, color: '#4ade80', fontWeight: 700 },
+  reachCol: { flex: '1 1 110px', display: 'flex', flexDirection: 'column', gap: 2, padding: 12, borderRadius: 10, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' },
+  reachDot: { display: 'inline-block', width: 8, height: 8, borderRadius: '50%' },
+  reachColLabel: { fontSize: 11, color: 'rgba(255,255,255,0.6)', fontWeight: 700 },
+  reachColVal: { fontSize: 18, fontWeight: 800, color: '#fff', fontVariantNumeric: 'tabular-nums' },
+  reachColSub: { fontSize: 10, color: 'rgba(255,255,255,0.4)' },
+
+  // Family scorecard table
+  scoreTableScroll: { overflowX: 'auto' },
+  scoreTable: { width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 640 },
+  scoreTh: { padding: '8px 12px', textAlign: 'center', fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.55)', borderBottom: '1px solid rgba(255,255,255,0.08)', whiteSpace: 'nowrap' },
+  scoreRowHero: { background: 'rgba(245,158,11,0.05)' },
+  scoreTdLabel: { padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.04)', minWidth: 140 },
+  scoreTdSub: { fontSize: 10, color: 'rgba(255,255,255,0.4)' },
+  scoreTd: { padding: '10px 12px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.04)', fontVariantNumeric: 'tabular-nums' },
+  scoreCellNote: { fontSize: 9, color: 'rgba(255,255,255,0.3)', marginTop: 2 },
+  scoreFootnote: { marginTop: 10, fontSize: 10, color: 'rgba(255,255,255,0.35)', lineHeight: 1.4 },
 
   mixCard: { background: 'rgba(91, 143, 199,0.04)', border: '1px solid rgba(91, 143, 199,0.15)', borderRadius: 12, padding: 14, marginBottom: 14 },
   mixHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 },

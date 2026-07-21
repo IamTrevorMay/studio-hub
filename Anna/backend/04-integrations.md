@@ -1,6 +1,6 @@
 ---
 title: External Integrations Map
-last_updated: 2026-07-15
+last_updated: 2026-07-21
 tags: [backend, integrations, metricool, google, plaid, stripe, anthropic]
 ---
 
@@ -25,7 +25,7 @@ All are **dual-auth** (CRON_SECRET or admin JWT) — the copy-pasted block, veri
 | Function | Platform | Env / auth | Notes |
 |---|---|---|---|
 | `sync-youtube` | YouTube | `YOUTUBE_API_KEY` (Data API), `YOUTUBE_CLIENT_ID/SECRET` + per-channel refresh tokens (`YOUTUBE_REFRESH_TOKEN`, `YOUTUBE_REFRESH_TOKEN_MAYDAY`) for the Analytics/revenue API | see gotchas below |
-| `sync-youtube-dimensions` | YouTube | `YOUTUBE_CLIENT_ID/SECRET`, `CRON_SECRET` | backfills traffic-source/geo dimensions |
+| `sync-youtube-dimensions` | YouTube | `YOUTUBE_CLIENT_ID/SECRET`, `CRON_SECRET` | daily channel-dim + per-video-daily + per-video subscribedStatus; see gotchas |
 | `sync-metricool` | IG/FB/TikTok | `METRICOOL_TOKEN/USER_ID/BLOG_ID`, `CRON_SECRET` | **the** account-level path for IG/FB/TikTok — there is no `sync-meta` |
 | `sync-twitch` | Twitch | `TWITCH_CLIENT_ID/SECRET`, `CRON_SECRET` | rotating refresh token, see below |
 | `sync-fourthwall` | Fourthwall merch | `FOURTHWALL_USERNAME/PASSWORD`, `CRON_SECRET` | Basic auth, see below |
@@ -47,6 +47,18 @@ All are **dual-auth** (CRON_SECRET or admin JWT) — the copy-pasted block, veri
 - **Shorts cutoff is 180s** (changed from 60 in 2024), `:306-307`.
 - **KNOWN ISSUE — stale More Mayday channel:** the YouTube Data API returns the same 167 video IDs every run for More Mayday; root cause is external (stale API response / quota), not a code bug. The function now logs a `[DIAG] STALENESS WARNING` when the API returns videos but all already exist, and stamps `newest_content_at` on the ingestion log (`sync-youtube/index.ts:660-684`). It also **verifies persistence before firing `new_video` automation events** to avoid an infinite clip-task loop when a batch upsert silently drops rows (`:457-472`). May need YouTube quota/API-key investigation or uploads-playlist-ID verification.
 - Refreshes the `daily_platform_rollups` materialized view at the end (`:694`).
+
+**sync-youtube-dimensions gotchas (verified 2026-07-21):**
+- **Now populates per-video subscribedStatus daily.** The daily cron (`1 1 * * *`) writes channel dims (`yt_dim_*`), per-video daily (`yt_video_daily`), AND per-video new-vs-returning (`yt_video_dim_subscription_status`) over a rolling window. This last one is the live daily "new (UNSUBSCRIBED) vs returning (SUBSCRIBED) viewer" series the Content Health tab reads. Gated `?videosub=0` to opt out (default on).
+- **API forbids `video` alongside `subscribedStatus` as a second dimension.** To get per-video subscribedStatus you filter to one video and dimension by `day,subscribedStatus` — one compound call per video covers the whole window (`syncVideoSubscriptionStatus`). This is the same trick `backfill-youtube-dimensions` uses.
+- **The `dimensions=video` "top videos" report is hard-capped at 200 rows and rejects `startIndex` paging** — `startIndex=201` returns 400 "The query is not supported" (also `maxResults>200` → 400). You cannot page it. To beat 200, read the union of per-day top-200s already in `yt_video_daily` for the window (`fetchActiveVideoIds` reads the DB, not the API — zero quota, ~240 vs 200 for TMB). True 100% coverage would need the Data API uploads playlist. Verified empirically with a throwaway probe, 2026-07-21.
+- **Thumbnail impressions / impression CTR / end-screen click metrics do NOT exist in the Analytics API v2** (all return 400 "Unknown identifier"; probed 2026-07-21). Only card/annotation impression metrics exist. `END_SCREEN` exists only as a *traffic source* (views), never a click/CTR metric. Impressions/CTR come solely from **manual YouTube Studio CSV uploads** → `analytics_youtube` (per-video, lifetime, keyed `channel,video_id` where channel is `moremayday`/`trevormay`) and `analytics_youtube_daily`. That CSV importer already exists (`src/pages/analytics/components/YouTubeCSVUpload.js` + `utils.js` `mapVideoCSV`/`mapDailyCSV`, which already map the `Content`/`Impressions`/`Impressions click-through rate (%)` headers). Content Health surfaces it as a stale-flagged scorecard (no daily series). Channel roles: More Mayday `UCwM4xXRFO5bORhM4XCEquXg` = BROAD, Trevor May Baseball `UCXnWH_cIChvXGhLPIJGoiBg` = NICHE.
+
+**Content Health data-availability map (verified 2026-07-21 — trust before re-querying):**
+- **`yt_video_dim_traffic_source` is a stale single-date snapshot.** ~11.4k rows but ALL on the one-off `2026-05-25` backfill date — there is NO live per-video traffic-source series. Consequence: traffic-source shares (search/suggested/browse/playlist/end-screen) **cannot be format-split** (long vs short) or trended. Content Health keeps them in a channel-wide badged context strip ("whole channel · all formats"), never as format-specific numbers. (The channel-level `yt_dim_traffic_source` IS daily/live — that's what the strip trends.)
+- **`content_metrics.saves` and `.shares` are uniformly 0** across all ~547k rows (max = 0, columns exist but unpopulated). So Shorts "saves/view" is **unavailable** — Content Health greys it out. For Shorts shares use **`yt_video_daily.shares`** instead (real, per-video, daily).
+- **TikTok / IG / FB have NO per-post data** — 0 rows in `content_items` for those platforms. Only **account-level daily rollups** exist: `platform_daily_metrics` (views + likes only; `watch_time`/`comments`/`shares` columns sync as 0 — treat as unavailable) + `audience_snapshots` (followers_total/followers_gained). Per-post short-form health is **YouTube-only**; lighting up the others requires a `sync-metricool` expansion to pull per-post metrics. Real recent volumes: IG ~869k views/29k likes, TikTok ~327k/5.9k, FB likes-only (0 views).
+- **Content Health tab shape** (`src/pages/ContentHealthDashboard.js`): two top-level tabs **Long-form / Short-form**, both showing **both YT channels side by side** via a `ChannelColumn` component (each column fetches/scores its own channel; no channel switcher). Long tab = per-channel 🚀 Growth + 🛡️ Stability tiles. Short tab = cross-platform reach banner on top → two YT-channel Shorts **four-family cards** (Hook greyed/not-tracked, **Hold hero**, Amplify, Convert) → **TikTok/IG/FB stacked account-level panels** below. Per-video scatter/table/detail is a collapsible drill-down per column. Long-form vs Shorts split on `content_items.content_type` (`'video'` 540 / `'short'` 591), scored against separate format-scoped trailing medians.
 
 ## Google Calendar (per-admin OAuth)
 

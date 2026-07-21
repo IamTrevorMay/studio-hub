@@ -61,6 +61,16 @@ function mapRow(row: any[], metrics: string[]): Record<string, any> {
   return out;
 }
 
+// Compound `day,<dim>` rows: row[0]=day, row[1]=dimension_value, metrics from index 2.
+function mapCompoundRow(row: any[], metrics: string[]): Record<string, any> {
+  const out: Record<string, any> = { date: String(row[0]), dimension_value: String(row[1] ?? "") };
+  for (let i = 0; i < metrics.length; i++) {
+    const col = COL_MAP[metrics[i]];
+    if (col && out[col] === undefined) out[col] = row[i + 2] ?? 0;
+  }
+  return out;
+}
+
 function dedupeByKey<T extends Record<string, any>>(rows: T[], keyFn: (r: T) => string): T[] {
   const seen = new Map<string, T>();
   for (const r of rows) seen.set(keyFn(r), r);
@@ -114,6 +124,61 @@ async function syncVideoDaily(supabase: ReturnType<typeof createClient>, accessT
   return { count: payload.length, debug: { http: 200, upsert_err: error?.message } };
 }
 
+// Videos with activity in [startDate, endDate], read from yt_video_daily — which
+// syncVideoDaily populated earlier this same run. The Analytics `dimensions=video`
+// report is hard-capped at 200 rows and rejects startIndex paging (400 "query is not
+// supported"), so it can't be paged; instead we take the union of the per-day
+// top-200s already accumulated in the DB, which exceeds 200 for large channels (TMB)
+// and costs no YouTube API quota. Paginated to clear Supabase's 1000-row default cap.
+async function fetchActiveVideoIds(supabase: ReturnType<typeof createClient>, platformAccountId: string, startDate: string, endDate: string): Promise<{ ids: string[]; debug: any }> {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  let from = 0, dbPages = 0;
+  const PAGE = 1000;
+  while (true) {
+    const { data: page, error } = await supabase.from("yt_video_daily")
+      .select("video_id").eq("platform_account_id", platformAccountId)
+      .gte("date", startDate).lte("date", endDate)
+      .order("video_id").range(from, from + PAGE - 1);
+    if (error) return { ids, debug: { error: error.message, count: ids.length, db_pages: dbPages } };
+    if (!page || page.length === 0) break;
+    for (const r of page as any[]) { const v = r.video_id; if (v && !seen.has(v)) { seen.add(v); ids.push(v); } }
+    dbPages++;
+    if (page.length < PAGE) break;
+    from += PAGE;
+  }
+  return { ids, debug: { count: ids.length, db_pages: dbPages, source: "yt_video_daily" } };
+}
+
+// Per-video daily new-vs-returning split. The YouTube Analytics API forbids `video`
+// as a dimension alongside subscribedStatus, so we filter to one video and dimension
+// by `day,subscribedStatus` — a single compound call covers the whole window per
+// video (never per-date × per-video). Feeds yt_video_dim_subscription_status, which
+// the Content Health tab reads. Additive: independent of the channel-dim + video_daily
+// paths above.
+async function syncVideoSubscriptionStatus(supabase: ReturnType<typeof createClient>, accessToken: string, account: any, startDate: string, endDate: string): Promise<{ count: number; debug: any }> {
+  const { ids, debug: idsDebug } = await fetchActiveVideoIds(supabase, account.id, startDate, endDate);
+  let rowsTotal = 0, errors = 0;
+  let sampleErr: string | undefined;
+  for (const videoId of ids) {
+    const params = new URLSearchParams({ ids: `channel==${account.external_id}`, startDate, endDate, metrics: BASIC.join(","), dimensions: "day,subscribedStatus", sort: "day", filters: `video==${videoId}`, maxResults: "200" });
+    const res = await fetchWithRetry(`${YT_ANALYTICS_API}?${params.toString()}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!res.ok) { errors++; if (!sampleErr) sampleErr = `${res.status}: ${(await res.text()).slice(0, 200)}`; await new Promise(r => setTimeout(r, 120)); continue; }
+    const data = await res.json();
+    const payload = dedupeByKey((data.rows || []).map((row: any[]) => {
+      const m = mapCompoundRow(row, BASIC);
+      const { dimension_value, date, ...rest } = m;
+      return { platform_account_id: account.id, video_id: videoId, date, dimension_value, ...rest, updated_at: new Date().toISOString() };
+    }), (r: any) => `${r.platform_account_id}|${r.video_id}|${r.date}|${r.dimension_value}`);
+    if (payload.length > 0) {
+      const { error } = await supabase.from("yt_video_dim_subscription_status").upsert(payload, { onConflict: "platform_account_id,video_id,date,dimension_value" });
+      if (error) { errors++; if (!sampleErr) sampleErr = `upsert: ${error.message}`; } else rowsTotal += payload.length;
+    }
+    await new Promise(r => setTimeout(r, 120));
+  }
+  return { count: rowsTotal, debug: { videos: ids.length, errors, ids_debug: idsDebug, ...(sampleErr ? { sample_err: sampleErr } : {}) } };
+}
+
 serve(async (req) => {
   try {
     // Auth: CRON_SECRET (header or query) or admin JWT required
@@ -138,6 +203,10 @@ serve(async (req) => {
     const url = new URL(req.url);
     const overrideDate = url.searchParams.get("date");
     const includeVideos = url.searchParams.get("videos") !== "0";
+    // Per-video subscribedStatus (Content Health new-vs-returning). One extra API
+    // call per active video per run, so it is separately gated (default on;
+    // `?videosub=0` opts out) from the cheaper channel-dim + video_daily paths.
+    const includeVideoSub = url.searchParams.get("videosub") !== "0";
     const debug = url.searchParams.get("debug") === "1";
     // YouTube Analytics finalizes data a few days late, so fetching only a single
     // "2 days ago" date is almost always empty — and it was never re-fetched once
@@ -169,8 +238,12 @@ serve(async (req) => {
           videoRowsTotal += videoDaily.count;
           perDate.push({ date: targetDate, dim_rows: dimRows, video_daily_count: videoDaily.count, ...(debug ? { channel_dims: channelDims, video_daily_debug: videoDaily.debug } : {}) });
         }
-        await completeIngestionLog(supabase, logId, { records_processed: dimRowsTotal + videoRowsTotal, metadata: { window_days: overrideDate ? 1 : windowDays, dates, dim_rows: dimRowsTotal, video_daily_rows: videoRowsTotal } });
-        results.push({ account: account.account_name, range: dates.length === 1 ? dates[0] : `${dates[dates.length - 1]}..${dates[0]}`, dim_rows: dimRowsTotal, video_daily_count: videoRowsTotal, ...(debug ? { per_date: perDate } : {}) });
+        // Per-video subscribedStatus runs once per account over the whole window
+        // (compound day-dimensioned), not inside the per-date loop.
+        let videoSub: any = { count: 0 };
+        if (includeVideoSub) videoSub = await syncVideoSubscriptionStatus(supabase, accessToken, account, dates[dates.length - 1], dates[0]);
+        await completeIngestionLog(supabase, logId, { records_processed: dimRowsTotal + videoRowsTotal + videoSub.count, metadata: { window_days: overrideDate ? 1 : windowDays, dates, dim_rows: dimRowsTotal, video_daily_rows: videoRowsTotal, video_sub_rows: videoSub.count } });
+        results.push({ account: account.account_name, range: dates.length === 1 ? dates[0] : `${dates[dates.length - 1]}..${dates[0]}`, dim_rows: dimRowsTotal, video_daily_count: videoRowsTotal, video_sub_count: videoSub.count, ...(debug ? { per_date: perDate, video_sub_debug: videoSub.debug } : {}) });
       } catch (err) {
         await failIngestionLog(supabase, logId, err as Error);
         results.push({ account: account.account_name, error: (err as Error).message });
