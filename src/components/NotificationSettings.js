@@ -50,6 +50,18 @@ export default function NotificationSettings() {
     return () => { cancelled = true; };
   }, []);
 
+  const briefingPrefs = profile?.daily_briefing_prefs
+    || { enabled: false, around_baseball: true, upcoming_day: true };
+  const briefingOn = !!briefingPrefs.enabled;
+
+  async function setBriefingPref(key, value) {
+    try {
+      await updateProfile({ daily_briefing_prefs: { ...briefingPrefs, [key]: value } });
+    } catch (err) {
+      console.error('Error saving daily briefing prefs:', err);
+    }
+  }
+
   async function setCategoryPref(surface, key, enabled) {
     const surfacePrefs = { ...(prefs[surface] || {}) };
     if (enabled) delete surfacePrefs[key]; else surfacePrefs[key] = false;
@@ -155,6 +167,38 @@ export default function NotificationSettings() {
       {renderCategoryRows('mobile', true)}
       <div style={{ ...st.caption, paddingLeft: '14px', marginTop: '2px' }}>
         Mobile toggles apply to every device where push is enabled.
+      </div>
+
+      {/* ── Daily Briefing ── */}
+      <div style={{ ...st.sectionTitle, marginTop: '18px' }}>Daily Briefing</div>
+      <div style={st.row}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={st.label}>Daily Briefing</div>
+          <div style={st.caption}>Shows a briefing when you open your dashboard each morning.</div>
+        </div>
+        <Toggle on={briefingOn} onClick={() => setBriefingPref('enabled', !briefingOn)} />
+      </div>
+      <div style={{ ...st.row, paddingLeft: '14px', opacity: briefingOn ? 1 : 0.45 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={st.catLabel}>Around Baseball</div>
+          <div style={st.caption}>The day's baseball brief from the Research page.</div>
+        </div>
+        <Toggle
+          on={briefingPrefs.around_baseball !== false}
+          onClick={() => setBriefingPref('around_baseball', !(briefingPrefs.around_baseball !== false))}
+          disabled={!briefingOn}
+        />
+      </div>
+      <div style={{ ...st.row, paddingLeft: '14px', opacity: briefingOn ? 1 : 0.45 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={st.catLabel}>Upcoming Day</div>
+          <div style={st.caption}>Today's tasks plus your calendar itinerary.</div>
+        </div>
+        <Toggle
+          on={briefingPrefs.upcoming_day !== false}
+          onClick={() => setBriefingPref('upcoming_day', !(briefingPrefs.upcoming_day !== false))}
+          disabled={!briefingOn}
+        />
       </div>
     </div>
   );

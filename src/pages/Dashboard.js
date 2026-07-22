@@ -15,6 +15,7 @@ import { modalOverlay, modal as modalShell, button as buttonRecipe } from '../li
 import SprintBoard from '../components/SprintBoard';
 import SprintPanel from '../components/SprintPanel';
 import NotificationSettings from '../components/NotificationSettings';
+import DailyBriefingModal from '../components/DailyBriefingModal';
 import MyTasks from './MyTasks';
 import backdropDismiss from '../lib/backdropDismiss';
 
@@ -141,6 +142,26 @@ export default function Dashboard({ onNavigate }) {
 
   // Settings modal (cogwheel on profile card)
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+
+  // Daily Briefing modal (auto-shown once each morning after 6am)
+  const [showBriefing, setShowBriefing] = useState(false);
+  const briefingShownRef = useRef(false);
+
+  useEffect(() => {
+    if (briefingShownRef.current) return;
+    if (!profile?.id) return;
+    if (!profile.daily_briefing_prefs?.enabled) return;
+    const now = new Date();
+    // Before 6am: don't show and don't stamp last_shown, so it can still appear
+    // later this same morning.
+    if (now.getHours() < 6) return;
+    const todayLocal = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    if (profile.daily_briefing_last_shown === todayLocal) return;
+    briefingShownRef.current = true;
+    setShowBriefing(true);
+    updateProfile({ daily_briefing_last_shown: todayLocal })
+      .catch((e) => console.error('Daily briefing last_shown persist failed:', e));
+  }, [profile, updateProfile]);
 
   // Cross-component refresh counters
   const [boardVersion, setBoardVersion] = useState(0);   // SprintBoard changed → SprintPanel re-fetches
@@ -2059,6 +2080,9 @@ export default function Dashboard({ onNavigate }) {
         {!isPartner && <SprintBoard profile={profile} onNavigate={onNavigate} todayEvents={todayEvents} onBoardChange={() => setBoardVersion(v => v + 1)} sprintVersion={sprintVersion} />}
       </div>
       </div>
+
+      {/* Daily Briefing Modal */}
+      {showBriefing && <DailyBriefingModal onClose={() => setShowBriefing(false)} />}
 
       {/* Settings Modal */}
       {showSettingsModal && (

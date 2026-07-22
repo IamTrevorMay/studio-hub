@@ -1,8 +1,9 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import SprintBoardMobile from '../components/SprintBoardMobile';
 import NotificationSettings from '../components/NotificationSettings';
+import DailyBriefingModal from '../components/DailyBriefingModal';
 import MyTasks from './MyTasks';
 import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
 import backdropDismiss from '../lib/backdropDismiss';
@@ -50,11 +51,28 @@ const ALL_TABS = [
 ];
 
 export default function DashboardMobile({ onNavigate }) {
-  const { profile, isAdmin } = useAuth();
+  const { profile, updateProfile, isAdmin } = useAuth();
   const [activeTab, setActiveTab] = useState('tasks');
   const [showSettings, setShowSettings] = useState(false);
+  const [showBriefing, setShowBriefing] = useState(false);
+  const briefingShownRef = useRef(false);
 
   const visibleTabs = ALL_TABS;
+
+  useEffect(() => {
+    if (briefingShownRef.current) return;
+    if (!profile?.id) return;
+    if (!profile.daily_briefing_prefs?.enabled) return;
+    const now = new Date();
+    // Before 6am: skip without stamping so it can still appear later this morning.
+    if (now.getHours() < 6) return;
+    const todayLocal = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    if (profile.daily_briefing_last_shown === todayLocal) return;
+    briefingShownRef.current = true;
+    setShowBriefing(true);
+    updateProfile({ daily_briefing_last_shown: todayLocal })
+      .catch((e) => console.error('Daily briefing last_shown persist failed:', e));
+  }, [profile, updateProfile]);
 
   return (
     <div style={styles.root}>
@@ -66,6 +84,8 @@ export default function DashboardMobile({ onNavigate }) {
         </div>
         <button onClick={() => setShowSettings(true)} style={styles.settingsBtn} title="Notification settings">⚙</button>
       </header>
+
+      {showBriefing && <DailyBriefingModal onClose={() => setShowBriefing(false)} />}
 
       {showSettings && (
         <div style={styles.settingsOverlay} {...backdropDismiss(() => setShowSettings(false))}>
