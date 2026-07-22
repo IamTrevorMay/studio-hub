@@ -1790,37 +1790,37 @@ function EditProjectModal({ project, isAdmin, userId, onClose, onSaved }) {
           target_stage: status,
         });
       }
-      // Calendar event lifecycle for video types
+      // Calendar event lifecycle. An event should exist only for a video-type
+      // project with a full post date + time; in every other case (cleared date,
+      // or type changed away from video) any existing linked event is removed.
       const VIDEO_TYPES = ['mayday_video', 'tm_baseball_video'];
-      if (VIDEO_TYPES.includes(type)) {
-        const eventType = type === 'mayday_video' ? 'video_post' : 'tmbb_video';
-        if (deadline && postTime) {
-          const start = new Date(`${deadline}T${postTime}:00`);
-          const end = new Date(start.getTime() + 60 * 60 * 1000);
-          if (project.calendar_event_id) {
-            await supabase.from('calendar_events').update({
-              title: name.trim(),
-              event_type: eventType,
-              start_date: start.toISOString(),
-              end_date: end.toISOString(),
-            }).eq('id', project.calendar_event_id);
-          } else {
-            const { data: evData } = await supabase.from('calendar_events').insert({
-              title: name.trim(),
-              event_type: eventType,
-              start_date: start.toISOString(),
-              end_date: end.toISOString(),
-              all_day: false,
-              created_by: userId,
-            }).select().single();
-            if (evData) {
-              await supabase.from('projects').update({ calendar_event_id: evData.id }).eq('id', project.id);
-            }
+      const eventType = type === 'mayday_video' ? 'video_post' : 'tmbb_video';
+      if (VIDEO_TYPES.includes(type) && deadline && postTime) {
+        const start = new Date(`${deadline}T${postTime}:00`);
+        const end = new Date(start.getTime() + 60 * 60 * 1000);
+        if (project.calendar_event_id) {
+          await supabase.from('calendar_events').update({
+            title: name.trim(),
+            event_type: eventType,
+            start_date: start.toISOString(),
+            end_date: end.toISOString(),
+          }).eq('id', project.calendar_event_id);
+        } else {
+          const { data: evData } = await supabase.from('calendar_events').insert({
+            title: name.trim(),
+            event_type: eventType,
+            start_date: start.toISOString(),
+            end_date: end.toISOString(),
+            all_day: false,
+            created_by: userId,
+          }).select().single();
+          if (evData) {
+            await supabase.from('projects').update({ calendar_event_id: evData.id }).eq('id', project.id);
           }
-        } else if (project.calendar_event_id) {
-          await supabase.from('calendar_events').delete().eq('id', project.calendar_event_id);
-          await supabase.from('projects').update({ calendar_event_id: null }).eq('id', project.id);
         }
+      } else if (project.calendar_event_id) {
+        await supabase.from('calendar_events').delete().eq('id', project.calendar_event_id);
+        await supabase.from('projects').update({ calendar_event_id: null }).eq('id', project.id);
       }
       onSaved?.();
       onClose();

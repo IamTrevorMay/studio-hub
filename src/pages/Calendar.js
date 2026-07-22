@@ -2155,22 +2155,23 @@ export default function Calendar({ onNavigate }) {
                 </div>
               </div>
             )}
-            {(selectedEvent.created_by === profile?.id || isAdmin) && (
-              <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                <button
-                  onClick={() => promptRecurrenceAction('edit', selectedEvent)}
-                  style={styles.eventEditBtn}
-                >
-                  Edit
-                </button>
+            <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+              {/* Edit (incl. adding team members) is open to all roles */}
+              <button
+                onClick={() => promptRecurrenceAction('edit', selectedEvent)}
+                style={styles.eventEditBtn}
+              >
+                Edit
+              </button>
+              {(selectedEvent.created_by === profile?.id || isAdmin) && (
                 <button
                   onClick={() => promptRecurrenceAction('delete', selectedEvent)}
                   style={styles.eventDeleteBtn}
                 >
                   Delete
                 </button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       )}
