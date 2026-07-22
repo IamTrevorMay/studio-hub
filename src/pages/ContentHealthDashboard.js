@@ -598,12 +598,24 @@ function ChannelColumn({ account, view }) {
         day.avdN += (Number(r.average_view_duration_seconds) || 0) * v; day.avdD += v;
         day.apvN += (Number(r.average_view_percentage) || 0) * v; day.apvD += v;
       }
-      // new/returning per format over the current window (thin daily coverage)
-      const subFmt = { video: { sub: 0, unsub: 0 }, short: { sub: 0, unsub: 0 } };
+      // new/returning per format, split into current + prior windows (+ a daily
+      // series for the current window). Coverage is thin — the per-video sub table
+      // only fills in as the daily sync runs — so the prior window may be empty,
+      // in which case buildFmt leaves `prev` null (no false delta).
+      const mkSub = () => ({ sub: 0, unsub: 0 });
+      const subFmt = { video: { cur: mkSub(), prior: mkSub() }, short: { cur: mkSub(), prior: mkSub() } };
+      const subByFmtDate = { video: {}, short: {} };
       for (const r of (subRes.data || [])) {
-        if (!curSet.has(r.date)) continue;
+        const inCur = curSet.has(r.date), inPrior = priorSet.has(r.date);
+        if (!inCur && !inPrior) continue;
         const f = fmtOf(r.video_id), v = Number(r.views) || 0;
-        if (String(r.dimension_value).toUpperCase() === 'SUBSCRIBED') subFmt[f].sub += v; else subFmt[f].unsub += v;
+        const isSub = String(r.dimension_value).toUpperCase() === 'SUBSCRIBED';
+        const bucket = inCur ? subFmt[f].cur : subFmt[f].prior;
+        if (isSub) bucket.sub += v; else bucket.unsub += v;
+        if (inCur) {
+          const day = (subByFmtDate[f][r.date] = subByFmtDate[f][r.date] || mkSub());
+          if (isSub) day.sub += v; else day.unsub += v;
+        }
       }
       // videos published per format per window
       const pub = { video: { cur: 0, prior: 0 }, short: { cur: 0, prior: 0 } };
@@ -634,11 +646,15 @@ function ChannelColumn({ account, view }) {
         };
         const metrics = {};
         for (const k of Object.keys(cm)) metrics[k] = { value: cm[k], prev: pm[k], series: series[k] || null };
-        const totalSub = subFmt[f].sub + subFmt[f].unsub;
-        metrics.new_pct = { value: safe(subFmt[f].unsub, totalSub), prev: null, series: null };
-        metrics.returning_pct = { value: safe(subFmt[f].sub, totalSub), prev: null, series: null };
-        metrics.new_volume = { value: subFmt[f].unsub, prev: null, series: null };
-        metrics.returning_volume = { value: subFmt[f].sub, prev: null, series: null };
+        const sc = subFmt[f].cur, sp = subFmt[f].prior;
+        const totalSub = sc.sub + sc.unsub, priorSub = sp.sub + sp.unsub;
+        // Prior window is often empty (per-video sub sync is thin) → leave prev
+        // null so the tile shows no delta rather than a bogus +100%.
+        const subDaily = (fn) => curDates.map(d => { const b = subByFmtDate[f][d]; return b ? fn(b) : 0; });
+        metrics.new_pct = { value: safe(sc.unsub, totalSub), prev: priorSub > 0 ? safe(sp.unsub, priorSub) : null, series: subDaily(b => safe(b.unsub, b.sub + b.unsub)) };
+        metrics.returning_pct = { value: safe(sc.sub, totalSub), prev: priorSub > 0 ? safe(sp.sub, priorSub) : null, series: subDaily(b => safe(b.sub, b.sub + b.unsub)) };
+        metrics.new_volume = { value: sc.unsub, prev: priorSub > 0 ? sp.unsub : null, series: subDaily(b => b.unsub) };
+        metrics.returning_volume = { value: sc.sub, prev: priorSub > 0 ? sp.sub : null, series: subDaily(b => b.sub) };
         const im = impFmt[f];
         const impressions = im.n > 0 ? { impressions: im.imp, ctr: safe(im.cN, im.cD), asOf: im.asOf, videos: im.n } : null;
         return { metrics, impressions, subThin: totalSub > 0 };

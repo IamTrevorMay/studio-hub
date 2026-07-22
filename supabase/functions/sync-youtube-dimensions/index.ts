@@ -203,6 +203,11 @@ serve(async (req) => {
     const url = new URL(req.url);
     const overrideDate = url.searchParams.get("date");
     const includeVideos = url.searchParams.get("videos") !== "0";
+    // Channel-dim + video_daily loops re-fetch already-populated daily tables and
+    // dominate runtime on wide windows. `?dims=0` skips them for a fast, sub-only
+    // backfill (per-video subscribedStatus is what Content Health new-vs-returning
+    // needs, and it runs once per account over the whole window).
+    const includeDims = url.searchParams.get("dims") !== "0";
     // Per-video subscribedStatus (Content Health new-vs-returning). One extra API
     // call per active video per run, so it is separately gated (default on;
     // `?videosub=0` opts out) from the cheaper channel-dim + video_daily paths.
@@ -229,14 +234,16 @@ serve(async (req) => {
         let dimRowsTotal = 0;
         let videoRowsTotal = 0;
         const perDate: any[] = [];
-        for (const targetDate of dates) {
-          const channelDims = await syncChannelDimensions(supabase, accessToken, account, targetDate, targetDate);
-          let videoDaily: any = { count: 0 };
-          if (includeVideos) videoDaily = await syncVideoDaily(supabase, accessToken, account, targetDate, targetDate);
-          const dimRows = Object.values(channelDims).reduce((s: number, v: any) => s + (v?.rows || 0), 0);
-          dimRowsTotal += dimRows;
-          videoRowsTotal += videoDaily.count;
-          perDate.push({ date: targetDate, dim_rows: dimRows, video_daily_count: videoDaily.count, ...(debug ? { channel_dims: channelDims, video_daily_debug: videoDaily.debug } : {}) });
+        if (includeDims || includeVideos) {
+          for (const targetDate of dates) {
+            const channelDims = includeDims ? await syncChannelDimensions(supabase, accessToken, account, targetDate, targetDate) : {};
+            let videoDaily: any = { count: 0 };
+            if (includeVideos) videoDaily = await syncVideoDaily(supabase, accessToken, account, targetDate, targetDate);
+            const dimRows = Object.values(channelDims).reduce((s: number, v: any) => s + (v?.rows || 0), 0);
+            dimRowsTotal += dimRows;
+            videoRowsTotal += videoDaily.count;
+            perDate.push({ date: targetDate, dim_rows: dimRows, video_daily_count: videoDaily.count, ...(debug ? { channel_dims: channelDims, video_daily_debug: videoDaily.debug } : {}) });
+          }
         }
         // Per-video subscribedStatus runs once per account over the whole window
         // (compound day-dimensioned), not inside the per-date loop.
