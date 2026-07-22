@@ -35,6 +35,11 @@ const PLATFORM_METRICS = [
     pdm: [
       { subject: "account", metric: "views", field: "views", cumulative: false },
       { subject: "account", metric: "postsInteractions", field: "likes", cumulative: false },
+      // Probed live 2026-07-22: reach + accounts_engaged return real daily data
+      // for IG (373k reach / 23.5k engaged over 21d). impressions + profile_views
+      // both return 0, so they're not synced.
+      { subject: "account", metric: "reach", field: "reach", cumulative: false },
+      { subject: "account", metric: "accounts_engaged", field: "engaged_accounts", cumulative: false },
     ],
     followers: { subject: "account", metric: "Followers", cumulative: true },
   },
@@ -42,7 +47,10 @@ const PLATFORM_METRICS = [
     platform: "facebook",
     network: "facebook",
     pdm: [
-      { subject: "account", metric: "page_posts_impressions", field: "views", cumulative: false },
+      // page_posts_impressions returns 0 for this page (verified 2026-07-22) —
+      // FB views were stuck at 0 as a result. page_media_view returns real daily
+      // video/media views (93k over 21d), so views now source from it.
+      { subject: "account", metric: "page_media_view", field: "views", cumulative: false },
       { subject: "account", metric: "postsInteractions", field: "likes", cumulative: false },
     ],
     followers: { subject: "account", metric: "pageFollows", cumulative: true },
@@ -60,12 +68,10 @@ const PLATFORM_METRICS = [
     ],
     followers: { subject: "account", metric: "followers_count", cumulative: true },
   },
-  {
-    platform: "twitter",
-    network: "twitter",
-    pdm: [],
-    followers: { subject: "account", metric: "followers_count", cumulative: true },
-  },
+  // Twitter/X removed 2026-07-06: Metricool's timelines API only exposes
+  // postsCount for network=twitter (followers_count returns 400
+  // InvalidEnumBaseException) — X API restrictions, no follower/engagement
+  // data available. Re-add if Metricool restores the metrics.
   {
     platform: "threads",
     network: "threads",
@@ -301,6 +307,10 @@ Deno.serve(async (req: Request) => {
         likes: m.likes || 0,
         comments: m.comments || 0,
         shares: m.shares || 0,
+        // Nullable + platform-specific (IG-only today). Left null where the
+        // metric isn't fetched so we don't overwrite with a misleading 0.
+        reach: "reach" in m ? m.reach : null,
+        engaged_accounts: "engaged_accounts" in m ? m.engaged_accounts : null,
         metadata: { source: "metricool" },
       }));
       for (let i = 0; i < pdmRows.length; i += 100) {
@@ -362,33 +372,50 @@ Deno.serve(async (req: Request) => {
         else totalAud += data?.length || 0;
       }
 
-      // Complete ingestion log
+      // Complete ingestion log. A run where every Metricool fetch errored and
+      // nothing was written is a failure, not a success — logging it as success
+      // hid the Twitter followers_count 400 for months.
+      const hadErrors = Object.keys(apiErrors).length > 0;
+      const wroteNothing = totalPdm + totalAud === 0;
       if (logEntry?.id) {
         await supabase
           .from("ingestion_logs")
           .update({
-            status: "success",
+            status: hadErrors && wroteNothing ? "failed" : "success",
             records_processed: totalPdm + totalAud,
             records_created: totalPdm + totalAud,
             completed_at: new Date().toISOString(),
+            ...(hadErrors && wroteNothing
+              ? { error_message: Object.entries(apiErrors).map(([k, v]) => `${k}: ${v}`).join("; ").slice(0, 500) }
+              : {}),
             metadata: {
               source: "metricool",
               platform: cfg.platform,
               pdm_count: totalPdm,
               aud_count: totalAud,
+              ...(hadErrors ? { api_errors: apiErrors } : {}),
             },
           })
           .eq("id", logEntry.id);
       }
 
-      // Update platform account health so Ops "Platform health" reflects the sync
+      // Update platform account health so Ops "Platform health" reflects the
+      // sync. An all-errors, zero-write run must not refresh last_success_at.
       await supabase
         .from("platform_accounts")
-        .update({
-          last_synced_at: new Date().toISOString(),
-          last_success_at: new Date().toISOString(),
-          consecutive_failures: 0,
-        })
+        .update(
+          hadErrors && wroteNothing
+            ? {
+                last_synced_at: new Date().toISOString(),
+                last_error_at: new Date().toISOString(),
+                last_error_message: Object.values(apiErrors).join("; ").slice(0, 500),
+              }
+            : {
+                last_synced_at: new Date().toISOString(),
+                last_success_at: new Date().toISOString(),
+                consecutive_failures: 0,
+              },
+        )
         .eq("id", account.id);
 
       results[cfg.platform] = {

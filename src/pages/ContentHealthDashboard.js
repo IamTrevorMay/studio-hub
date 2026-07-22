@@ -769,22 +769,62 @@ export default function ContentHealthDashboard({ accounts }) {
   async function fetchCrossPlatform() {
     const gen = ++crossGenRef.current;
     try {
-      const since = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+      const W = 30;              // window length (days)
+      const dayMs = 86400000;
+      const curStart = new Date(Date.now() - W * dayMs).toISOString().split('T')[0];
+      const prevStart = new Date(Date.now() - 2 * W * dayMs).toISOString().split('T')[0];
+      const inCur = (d) => d >= curStart; // else it's the prior window
       const ytIds = ytChannels.map(c => c.id);
+      const SF = ['tiktok', 'instagram', 'facebook'];
       const [ciRes, vdRes, cpRes, audRes] = await Promise.all([
         supabase.from('content_items').select('external_id').in('platform_account_id', ytIds).eq('content_type', 'short'),
-        supabase.from('yt_video_daily').select('video_id, views').in('platform_account_id', ytIds).gte('date', since).limit(50000),
-        supabase.from('platform_daily_metrics').select('views, likes, platform_accounts!inner(platform)').in('platform_accounts.platform', ['tiktok', 'instagram', 'facebook']).gte('date', since),
-        supabase.from('audience_snapshots').select('followers_gained, platform_accounts!inner(platform)').in('platform_accounts.platform', ['tiktok', 'instagram', 'facebook', 'youtube']).gte('date', since),
+        supabase.from('yt_video_daily').select('video_id, views, date').in('platform_account_id', ytIds).gte('date', prevStart).limit(50000),
+        supabase.from('platform_daily_metrics').select('date, views, likes, reach, engaged_accounts, platform_accounts!inner(platform)').in('platform_accounts.platform', SF).gte('date', prevStart),
+        supabase.from('audience_snapshots').select('date, followers_gained, platform_accounts!inner(platform)').in('platform_accounts.platform', [...SF, 'youtube']).gte('date', prevStart),
       ]);
+
+      // YouTube Shorts views, split current / prior
       const shortIds = new Set((ciRes.data || []).map(c => c.external_id));
-      let ytShortViews = 0;
-      for (const r of (vdRes.data || [])) if (shortIds.has(r.video_id)) ytShortViews += Number(r.views) || 0;
-      const plat = {};
-      for (const r of (cpRes.data || [])) { const p = r.platform_accounts.platform; const x = (plat[p] = plat[p] || { views: 0, likes: 0 }); x.views += Number(r.views) || 0; x.likes += Number(r.likes) || 0; }
-      const follows = {};
-      for (const r of (audRes.data || [])) { const p = r.platform_accounts.platform; follows[p] = (follows[p] || 0) + (Number(r.followers_gained) || 0); }
-      const result = { ytShortViews, plat, follows, window: 30 };
+      let ytViews = 0, ytPrev = 0;
+      for (const r of (vdRes.data || [])) {
+        if (!shortIds.has(r.video_id)) continue;
+        const v = Number(r.views) || 0;
+        if (inCur(r.date)) ytViews += v; else ytPrev += v;
+      }
+
+      // Non-YT platforms: current + prior sums + daily views series (for sparklines)
+      const platforms = {};
+      const seriesMap = {};
+      for (const key of SF) {
+        platforms[key] = { views: 0, likes: 0, reach: 0, engaged: 0, prev: { views: 0, likes: 0, reach: 0, engaged: 0 } };
+        seriesMap[key] = {};
+      }
+      for (const r of (cpRes.data || [])) {
+        const p = r.platform_accounts.platform;
+        const t = platforms[p];
+        if (!t) continue;
+        const b = inCur(r.date) ? t : t.prev;
+        b.views += Number(r.views) || 0;
+        b.likes += Number(r.likes) || 0;
+        b.reach += Number(r.reach) || 0;
+        b.engaged += Number(r.engaged_accounts) || 0;
+        if (inCur(r.date)) seriesMap[p][r.date] = (seriesMap[p][r.date] || 0) + (Number(r.views) || 0);
+      }
+      for (const key of SF) {
+        platforms[key].series = Object.entries(seriesMap[key])
+          .sort(([a], [b]) => a.localeCompare(b)).map(([date, views]) => ({ date, views }));
+      }
+
+      // Follower growth, split current / prior
+      const follows = {}, followsPrev = {};
+      for (const r of (audRes.data || [])) {
+        const p = r.platform_accounts.platform;
+        const g = Number(r.followers_gained) || 0;
+        if (inCur(r.date)) follows[p] = (follows[p] || 0) + g;
+        else followsPrev[p] = (followsPrev[p] || 0) + g;
+      }
+
+      const result = { window: W, yt: { views: ytViews, prevViews: ytPrev }, platforms, follows, followsPrev };
       if (gen !== crossGenRef.current) return;
       setCross(result);
     } catch (e) {
@@ -1403,12 +1443,19 @@ const SF_PLATFORMS = [
 function CrossPlatformSummary({ data }) {
   if (!data) return <div style={S.section}><Skeleton height={70} /></div>;
   const views = {
-    youtube: data.ytShortViews || 0,
-    tiktok: data.plat.tiktok ? data.plat.tiktok.views : 0,
-    instagram: data.plat.instagram ? data.plat.instagram.views : 0,
-    facebook: data.plat.facebook ? data.plat.facebook.views : 0,
+    youtube: data.yt.views || 0,
+    tiktok: data.platforms.tiktok.views || 0,
+    instagram: data.platforms.instagram.views || 0,
+    facebook: data.platforms.facebook.views || 0,
+  };
+  const prevViews = {
+    youtube: data.yt.prevViews || 0,
+    tiktok: data.platforms.tiktok.prev.views || 0,
+    instagram: data.platforms.instagram.prev.views || 0,
+    facebook: data.platforms.facebook.prev.views || 0,
   };
   const totalViews = Object.values(views).reduce((s, v) => s + v, 0);
+  const totalPrev = Object.values(prevViews).reduce((s, v) => s + v, 0);
   const totalFollows = Object.values(data.follows || {}).reduce((s, v) => s + v, 0);
   return (
     <div style={{ ...S.section, borderColor: '#f59e0b40' }}>
@@ -1420,14 +1467,16 @@ function CrossPlatformSummary({ data }) {
         <div style={S.reachHero}>
           <div style={S.kpiLabel}>Total short-form views</div>
           <div style={S.reachHeroVal}>{formatNumber(totalViews)}</div>
-          <div style={S.reachHeroSub}>+{formatNumber(totalFollows)} followers</div>
+          <div style={S.reachHeroSub}>
+            <DeltaPct cur={totalViews} prev={totalPrev} /> · +{formatNumber(totalFollows)} followers
+          </div>
         </div>
         {SF_PLATFORMS.map(p => (
           <div key={p.key} style={S.reachCol}>
             <span style={{ ...S.reachDot, background: p.color }} />
             <span style={S.reachColLabel}>{p.label}</span>
             <span style={S.reachColVal}>{views[p.key] > 0 ? formatNumber(views[p.key]) : '—'}</span>
-            <span style={S.reachColSub}>{(data.follows && data.follows[p.key]) ? '+' + formatNumber(data.follows[p.key]) + ' foll' : (p.key === 'facebook' ? 'likes-only' : '')}</span>
+            <span style={S.reachColSub}>{(data.follows && data.follows[p.key]) ? '+' + formatNumber(data.follows[p.key]) + ' foll' : ''}</span>
           </div>
         ))}
       </div>
@@ -1486,27 +1535,99 @@ function ShortsFamilyCard({ metrics, loading, shortsCount }) {
   );
 }
 
-// Stacked full-width panel for a non-YT platform (TikTok / IG / FB). Account/day
-// only — real Views/Likes/follower-growth scoreboard + a "limited" family note.
+// Colored "▲ N% vs prior" delta. `points=true` renders a percentage-point
+// change (for rate metrics) instead of a relative %.
+function DeltaPct({ cur, prev, points }) {
+  if (cur == null || prev == null || prev === 0) return <span style={S.deltaFlat}>—</span>;
+  const diff = points ? (cur - prev) : ((cur - prev) / prev) * 100;
+  const up = diff > 0.05, down = diff < -0.05;
+  const color = up ? '#4ade80' : down ? '#f87171' : 'rgba(255,255,255,0.4)';
+  const arrow = up ? '▲' : down ? '▼' : '·';
+  return (
+    <span style={{ ...S.delta, color }}>
+      {arrow} {Math.abs(diff).toFixed(points ? 1 : 0)}{points ? 'pp' : '%'}
+      <span style={S.deltaTag}> vs prior</span>
+    </span>
+  );
+}
+
+function fmtPct(v) { return v == null ? '—' : `${v.toFixed(1)}%`; }
+
+// Per-platform KPI tiles. Reflects what Metricool actually returns for these
+// accounts (probed 2026-07-22): only IG exposes reach + engaged accounts, so
+// TikTok/FB fall back to a likes/interactions-per-view engagement rate.
+function platformTiles(key, d) {
+  const rate = (num, den) => (den > 0 ? (num / den) * 100 : null);
+  if (key === 'instagram') {
+    return [
+      { label: 'Views', value: formatNumber(d.views), cur: d.views, prev: d.prev.views },
+      { label: 'Reach', value: formatNumber(d.reach), cur: d.reach, prev: d.prev.reach },
+      { label: 'Engaged accts', value: formatNumber(d.engaged), cur: d.engaged, prev: d.prev.engaged },
+      { label: 'Eng. rate', value: fmtPct(rate(d.engaged, d.reach)), sub: 'engaged / reach', ratio: true, cur: rate(d.engaged, d.reach), prev: rate(d.prev.engaged, d.prev.reach) },
+    ];
+  }
+  if (key === 'facebook') {
+    return [
+      { label: 'Views', value: formatNumber(d.views), cur: d.views, prev: d.prev.views },
+      { label: 'Interactions', value: formatNumber(d.likes), cur: d.likes, prev: d.prev.likes },
+      { label: 'Eng. rate', value: fmtPct(rate(d.likes, d.views)), sub: 'interactions / views', ratio: true, cur: rate(d.likes, d.views), prev: rate(d.prev.likes, d.prev.views) },
+    ];
+  }
+  // tiktok
+  return [
+    { label: 'Views', value: formatNumber(d.views), cur: d.views, prev: d.prev.views },
+    { label: 'Likes', value: formatNumber(d.likes), cur: d.likes, prev: d.prev.likes },
+    { label: 'Eng. rate', value: fmtPct(rate(d.likes, d.views)), sub: 'likes / views', ratio: true, cur: rate(d.likes, d.views), prev: rate(d.prev.likes, d.prev.views) },
+  ];
+}
+
+const PLATFORM_NOTE = {
+  tiktok: 'account-level · reach & per-post not exposed by TikTok API',
+  instagram: 'account-level · reach + engaged accounts from Metricool',
+  facebook: 'account-level · reach not exposed by FB page API',
+};
+
+// Stacked full-width scorecard for a non-YT platform (TikTok / IG / FB).
+// Account/day metrics only — real Views + platform-specific engagement + follower
+// growth, each with a vs-prior-window delta, plus a 30d views sparkline.
 function PlatformPanel({ platform, data }) {
-  const plat = data && data.plat ? data.plat[platform.key] : null;
-  const follows = data && data.follows ? data.follows[platform.key] : 0;
+  const key = platform.key;
+  const d = data && data.platforms ? data.platforms[key] : null;
+  const follows = data && data.follows ? (data.follows[key] || 0) : 0;
+  const followsPrev = data && data.followsPrev ? (data.followsPrev[key] || 0) : 0;
+  const tiles = d ? platformTiles(key, d) : [];
+  const series = d && d.series ? d.series.map((p) => p.views) : [];
   return (
     <div style={{ ...S.section, borderColor: platform.color + '40', marginBottom: 12 }}>
       <div style={S.sectionHead}>
         <span style={S.sectionTitle}><span style={{ ...S.reachDot, background: platform.color, marginRight: 8 }} />{platform.label}</span>
-        <span style={S.sectionSub}>account-level · last {data ? data.window : 30}d · per-post families need expanded sync</span>
+        <span style={S.sectionSub}>{PLATFORM_NOTE[key] || 'account-level'} · last {data ? data.window : 30}d</span>
       </div>
-      <div style={S.platRow}>
-        <div style={S.platStat}><div style={S.kpiLabel}>Views</div><div style={S.kpiValue}>{plat && plat.views > 0 ? formatNumber(plat.views) : '—'}</div></div>
-        <div style={S.platStat}><div style={S.kpiLabel}>Likes</div><div style={S.kpiValue}>{plat && plat.likes > 0 ? formatNumber(plat.likes) : '—'}</div></div>
-        <div style={S.platStat}><div style={S.kpiLabel}>Follower growth</div><div style={{ ...S.kpiValue, color: follows > 0 ? '#4ade80' : '#fff' }}>{follows > 0 ? '+' + formatNumber(follows) : '—'}</div></div>
-        <div style={S.platFamilies}>
-          {FAMILIES.map(f => (
-            <span key={f.key} style={S.unavailChip}>{f.label}: limited</span>
-          ))}
+      {!d ? <Skeleton height={90} /> : (
+        <div style={S.platGrid}>
+          <div style={S.platTiles}>
+            {tiles.map((t) => (
+              <div key={t.label} style={S.platTile}>
+                <div style={S.kpiLabel}>{t.label}</div>
+                <div style={S.platTileVal}>{t.value}</div>
+                <DeltaPct cur={t.cur} prev={t.prev} points={t.ratio} />
+                {t.sub && <div style={S.platTileSub}>{t.sub}</div>}
+              </div>
+            ))}
+            <div style={S.platTile}>
+              <div style={S.kpiLabel}>Follower growth</div>
+              <div style={{ ...S.platTileVal, color: follows > 0 ? '#4ade80' : follows < 0 ? '#f87171' : '#fff' }}>{follows > 0 ? '+' : ''}{formatNumber(follows)}</div>
+              <DeltaPct cur={follows} prev={followsPrev} />
+            </div>
+          </div>
+          <div style={S.platSpark}>
+            <div style={S.kpiLabel}>Views · {data ? data.window : 30}d</div>
+            {series.length > 1
+              ? <Sparkline data={series} color={platform.color} width={176} height={40} />
+              : <div style={S.sparkEmpty}>not enough data</div>}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -1535,9 +1656,17 @@ const S = {
   famRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '10px 12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10 },
   famRowHero: { background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.22)' },
   famLabel: { display: 'flex', flexDirection: 'column', gap: 1 },
-  platRow: { display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' },
-  platStat: { minWidth: 90 },
-  platFamilies: { display: 'flex', gap: 6, flexWrap: 'wrap', marginLeft: 'auto' },
+  // Non-YT platform scorecard: tile grid + right-side sparkline
+  platGrid: { display: 'flex', gap: 16, alignItems: 'stretch', flexWrap: 'wrap' },
+  platTiles: { flex: 1, minWidth: 240, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 },
+  platTile: { display: 'flex', flexDirection: 'column', gap: 3, padding: '10px 12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10 },
+  platTileVal: { fontSize: 21, fontWeight: 800, color: '#fff', fontVariantNumeric: 'tabular-nums', lineHeight: 1.15 },
+  platTileSub: { fontSize: 10, color: 'rgba(255,255,255,0.35)' },
+  platSpark: { width: 200, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8, justifyContent: 'center', padding: '10px 12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10 },
+  sparkEmpty: { fontSize: 11, color: 'rgba(255,255,255,0.3)', fontStyle: 'italic', padding: '10px 0' },
+  delta: { fontSize: 11, fontWeight: 700, fontVariantNumeric: 'tabular-nums', display: 'inline-flex', alignItems: 'baseline', gap: 3 },
+  deltaFlat: { fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.3)' },
+  deltaTag: { fontSize: 9, fontWeight: 500, color: 'rgba(255,255,255,0.3)' },
 
   // Growth / Stability KPI sections
   section: { background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 16, marginBottom: 14 },
