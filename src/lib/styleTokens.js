@@ -65,6 +65,8 @@ export const colors = {
   white:        '#ffffff',   // pure white — text/icons on a colored fill
   textBright:   '#e2e8f0',   // near-white ink, a touch brighter than `text`
   gold:         '#fbbf24',   // amber accent (stars, highlights)
+  whiteA02:     'rgba(255,255,255,0.02)',   // faintest neutral tint (row/strip washes)
+  whiteA03:     'rgba(255,255,255,0.03)',
   whiteA05:     'rgba(255,255,255,0.05)',
   whiteA06:     'rgba(255,255,255,0.06)',
   whiteA45:     'rgba(255,255,255,0.45)',

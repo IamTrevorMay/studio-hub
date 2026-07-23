@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
@@ -10,6 +10,10 @@ import { fetchAllRows } from './analytics/utils';
 import backdropDismiss from '../lib/backdropDismiss';
 import { clickableKeyProps } from '../lib/styleRecipes';
 import { colors } from '../lib/styleTokens';
+import {
+  BD_TAGS, BD_STATUSES, BD_STATUS_MAP, computeBdAttention, syncBdTaskToBacklog,
+  bdTodayPT, addDaysToDateStr, WAITING_AGE_DAYS, STALE_ACTIVE_DAYS,
+} from '../lib/bdAttention';
 
 // ════════════════════════════════════════════════════════════
 // Constants
@@ -23,23 +27,17 @@ const WORKSTREAMS = [
   { key: 'finance',    label: 'Finance',           color: '#22c55e' },
   { key: 'tech',       label: 'Tech / Systems',    color: '#06b6d4' },
 ];
-const WORKSTREAM_MAP = Object.fromEntries(WORKSTREAMS.map(w => [w.key, w]));
+// Quick-capture bucket — not a real workstream. Rendered as a triage section
+// at the top of each phase card; items get reassigned via the edit form.
+const INBOX_WS = { key: 'inbox', label: 'Inbox', color: colors.gold };
+const WORKSTREAM_MAP = Object.fromEntries([INBOX_WS, ...WORKSTREAMS].map(w => [w.key, w]));
 
-const STATUSES = [
-  { key: 'ideas',   label: 'Ideas',   color: '#94a3b8', bg: 'rgba(148,163,184,0.15)' },
-  { key: 'planned', label: 'Planned', color: '#60a5fa', bg: 'rgba(96,165,250,0.15)' },
-  { key: 'active',  label: 'Active',  color: '#22c55e', bg: 'rgba(34,197,94,0.15)' },
-  { key: 'waiting', label: 'Waiting', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
-  { key: 'done',    label: 'Done',    color: '#a3a3a3', bg: 'rgba(163,163,163,0.15)' },
-];
+// Tag/status metadata is shared with BusinessDevMobile via src/lib/bdAttention.js.
+const STATUSES = BD_STATUSES;
 const STATUS_MAP = Object.fromEntries(STATUSES.map(s => [s.key, s]));
 const STATUS_ORDER = { active: 0, planned: 1, waiting: 2, ideas: 3, done: 4 };
 
-const TAGS = [
-  { key: 'mayday',  label: 'Mayday',  color: '#5b8fc7', bg: 'rgba(91, 143, 199,0.15)'  },
-  { key: 'neptune', label: 'Neptune', color: '#06b6d4', bg: 'rgba(6,182,212,0.15)'   },
-  { key: 'shared',  label: 'Shared',  color: '#a78bfa', bg: 'rgba(167,139,250,0.15)' },
-];
+const TAGS = BD_TAGS;
 const TAG_MAP = Object.fromEntries(TAGS.map(t => [t.key, t]));
 
 const PRIORITIES = [
@@ -103,13 +101,8 @@ function formatTargetForMetric(key, value) {
   return value;
 }
 
-const PRIORITY_COLORS = {
-  10: '#ef4444', 9: '#f97316', 8: '#fb923c',
-  6: '#fbbf24', 5: '#eab308', 4: '#a3e635',
-  3: '#4ade80', 2: '#22c55e', 1: '#15803d',
-};
-const PRIORITY_OPTIONS = [10, 9, 8, 6, 5, 4, 3, 2, 1];
-
+// Note ordering still respects legacy stored priorities (higher first), but
+// the 9-level priority picker UI was removed — new notes are text-only.
 function sortByPriority(items, completedKey = 'checked') {
   return [...items].sort((a, b) => {
     const ac = a[completedKey] ? 1 : 0;
@@ -249,8 +242,6 @@ export default function BusinessDev() {
   const [bdNoteDraft, setBdNoteDraft] = useState('');
   const [bdNoteEditingId, setBdNoteEditingId] = useState(null);
   const [bdNoteEditingText, setBdNoteEditingText] = useState('');
-  const [bdNotePriority, setBdNotePriority] = useState(null);
-  const [bdNoteEditPriority, setBdNoteEditPriority] = useState(null);
   const [expandedYearlyBdGoals, setExpandedYearlyBdGoals] = useState({});
   const [showBdGoalForm, setShowBdGoalForm] = useState(false);
   const [editingBdGoalId, setEditingBdGoalId] = useState(null);
@@ -260,6 +251,10 @@ export default function BusinessDev() {
   const [bdMonthlyForm, setBdMonthlyForm] = useState(EMPTY_BD_MONTHLY);
   const [bdAccounts, setBdAccounts] = useState([]);
   const [bdRollupData, setBdRollupData] = useState({});
+
+  // Quick-capture (inbox) state
+  const [quickAddTitle, setQuickAddTitle] = useState('');
+  const [quickAddPhaseId, setQuickAddPhaseId] = useState(null);
 
   // ─────────────────────────────────────────────
   // Fetch all
@@ -557,17 +552,16 @@ export default function BusinessDev() {
 
   async function addBdNote() {
     const text = bdNoteDraft.trim();
-    if (!text || !profile?.id || bdNotePriority === null) return;
+    if (!text || !profile?.id) return;
     const nextPosition = bdNotes.length > 0 ? Math.max(...bdNotes.map(n => n.position || 0)) + 1 : 0;
     const { data, error } = await supabase
       .from('bd_user_notes')
-      .insert({ user_id: profile.id, text, checked: false, position: nextPosition, priority: bdNotePriority })
+      .insert({ user_id: profile.id, text, checked: false, position: nextPosition })
       .select()
       .single();
     if (error) { toast.error(`Could not save note: ${error.message || 'unknown error'}`); return; }
     setBdNotes(prev => sortByPriority([...prev, data]));
     setBdNoteDraft('');
-    setBdNotePriority(null);
     setBdNoteInputOpen(false);
   }
 
@@ -595,25 +589,19 @@ export default function BusinessDev() {
 
   async function saveBdNoteEdit(id) {
     const trimmed = bdNoteEditingText.trim();
-    const newPriority = bdNoteEditPriority;
     setBdNoteEditingId(null);
     setBdNoteEditingText('');
-    setBdNoteEditPriority(null);
     if (!trimmed) return;
     const current = bdNotes.find(n => n.id === id);
-    if (!current) return;
-    const updates = { updated_at: new Date().toISOString() };
-    if (current.text !== trimmed) updates.text = trimmed;
-    if (newPriority !== null && current.priority !== newPriority) updates.priority = newPriority;
-    if (Object.keys(updates).length === 1) return; // only updated_at
-    setBdNotes(prev => sortByPriority(prev.map(n => n.id === id ? { ...n, text: trimmed, ...(newPriority !== null ? { priority: newPriority } : {}) } : n)));
+    if (!current || current.text === trimmed) return;
+    setBdNotes(prev => sortByPriority(prev.map(n => n.id === id ? { ...n, text: trimmed } : n)));
     const { error } = await supabase
       .from('bd_user_notes')
-      .update(updates)
+      .update({ text: trimmed, updated_at: new Date().toISOString() })
       .eq('id', id);
     if (error) {
       console.error('Error saving note edit:', error);
-      setBdNotes(prev => sortByPriority(prev.map(n => n.id === id ? { ...n, text: current.text, priority: current.priority } : n)));
+      setBdNotes(prev => sortByPriority(prev.map(n => n.id === id ? { ...n, text: current.text } : n)));
     }
   }
 
@@ -647,6 +635,11 @@ export default function BusinessDev() {
     for (const ms of milestones) (m[ms.phase_id] = m[ms.phase_id] || []).push(ms);
     return m;
   }, [milestones]);
+
+  const attention = useMemo(
+    () => computeBdAttention({ tasks, initiatives, phases }),
+    [tasks, initiatives, phases]
+  );
 
   // ─────────────────────────────────────────────
   // Phase CRUD
@@ -937,62 +930,8 @@ export default function BusinessDev() {
     setEditingTaskId(null);
     setTaskForm(EMPTY_TASK);
   }
-  // Mirror a bd_task into the owner's personal_tasks backlog (idempotent).
-  // Pass the bd_task object you just wrote (with its id). Handles insert,
-  // owner change, field updates, owner removal, and completion.
-  async function syncTaskToBacklog(bdTask) {
-    try {
-      const parentInit = initiatives.find(i => i.id === bdTask.initiative_id);
-      const initiativeTitle = parentInit?.title || 'BD Task';
-      const content = `${bdTask.title} | ${initiativeTitle}`;
-      const tag = bdTask.tag || parentInit?.tag || 'shared';
-      const tagInfo = TAG_MAP[tag] || TAG_MAP.shared;
-
-      const { data: existing } = await supabase
-        .from('personal_tasks')
-        .select('id, created_by')
-        .eq('bd_task_id', bdTask.id)
-        .maybeSingle();
-
-      // No owner or task is done -> remove from backlog
-      if (!bdTask.owner_id || bdTask.completed_at) {
-        if (existing) await supabase.from('personal_tasks').delete().eq('id', existing.id);
-        return;
-      }
-
-      // Owner unchanged -> just update fields
-      if (existing && existing.created_by === bdTask.owner_id) {
-        await supabase.from('personal_tasks').update({
-          content, bucket: tag, due_date: bdTask.due_date,
-        }).eq('id', existing.id);
-        return;
-      }
-
-      // Owner changed -> drop old row first
-      if (existing) {
-        await supabase.from('personal_tasks').delete().eq('id', existing.id);
-      }
-
-      // Ensure the bucket option exists for the new owner
-      await supabase.from('user_task_options').upsert(
-        { user_id: bdTask.owner_id, kind: 'bucket', value: tag, label: tagInfo.label, color: tagInfo.color },
-        { onConflict: 'user_id,kind,value' }
-      );
-
-      await supabase.from('personal_tasks').insert({
-        created_by: bdTask.owner_id,
-        content,
-        status: 'backlog',
-        category: 'business_development',
-        bucket: tag,
-        due_date: bdTask.due_date,
-        position: 0,
-        bd_task_id: bdTask.id,
-      });
-    } catch (err) {
-      console.error('syncTaskToBacklog failed:', err);
-    }
-  }
+  // Backlog mirroring lives in src/lib/bdAttention.js (syncBdTaskToBacklog),
+  // shared with BusinessDevMobile so both twins keep personal_tasks in sync.
 
   async function handleTaskSubmit(e, initiativeId) {
     e?.preventDefault();
@@ -1024,7 +963,7 @@ export default function BusinessDev() {
       if (error) { toast.error(error.message); return; }
       savedTask = data;
     }
-    await syncTaskToBacklog(savedTask);
+    await syncBdTaskToBacklog(savedTask, initiatives);
     cancelTaskForm();
     fetchAll();
   }
@@ -1033,7 +972,37 @@ export default function BusinessDev() {
     const completed_at = task.completed_at ? null : new Date().toISOString();
     const { data, error } = await supabase.from('bd_tasks').update({ completed_at }).eq('id', task.id).select().single();
     if (error) { toast.error(`Could not update task: ${error.message}`); return; }
-    if (data) await syncTaskToBacklog(data);
+    if (data) await syncBdTaskToBacklog(data, initiatives);
+    fetchAll();
+  }
+
+  // One-tap reschedule from the Needs Attention strip. Overdue / due-today
+  // tasks push from *today* (PT); future-dated tasks push from their date.
+  async function handleRedateTask(task, days) {
+    const today = bdTodayPT();
+    const base = task.due_date && task.due_date > today ? task.due_date : today;
+    const due_date = addDaysToDateStr(base, days);
+    const { data, error } = await supabase.from('bd_tasks').update({ due_date }).eq('id', task.id).select().single();
+    if (error) { toast.error(`Could not reschedule: ${error.message}`); return; }
+    if (data) await syncBdTaskToBacklog(data, initiatives);
+    fetchAll();
+  }
+
+  // Quick-capture: title-only insert into the phase's Inbox bucket.
+  async function handleQuickAdd(e) {
+    e.preventDefault();
+    const title = quickAddTitle.trim();
+    const phaseId = quickAddPhaseId || phases[0]?.id;
+    if (!title || !phaseId) return;
+    const siblings = initiatives.filter(i => i.phase_id === phaseId && i.workstream === 'inbox');
+    const maxPos = Math.max(0, ...siblings.map(i => i.position || 0));
+    const { error } = await supabase.from('bd_initiatives').insert({
+      phase_id: phaseId, workstream: 'inbox', title,
+      status: 'ideas', tag: 'shared',
+      position: maxPos + 1, created_by: profile.id,
+    });
+    if (error) { toast.error(error.message); return; }
+    setQuickAddTitle('');
     fetchAll();
   }
   async function handleDeleteTask(id) {
@@ -1108,6 +1077,18 @@ export default function BusinessDev() {
         {isAdmin && <button onClick={openCreatePhase} style={styles.primaryBtn}>+ Phase</button>}
       </div>
 
+      {/* Needs Attention strip (Phases tab) */}
+      {view === 'phases' && (
+        <AttentionStrip
+          attention={attention}
+          isAdmin={isAdmin}
+          onToggleTask={handleToggleTask}
+          onRedateTask={handleRedateTask}
+          onOpenTask={openEditTaskFromAnywhere}
+          onOpenInitiative={openEditInit}
+        />
+      )}
+
       {/* Goals + Notes row (admin only) */}
       {isAdmin && (
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px', marginBottom: '16px', alignItems: 'flex-start' }}>
@@ -1145,10 +1126,6 @@ export default function BusinessDev() {
             setEditingId={setBdNoteEditingId}
             editingText={bdNoteEditingText}
             setEditingText={setBdNoteEditingText}
-            priority={bdNotePriority}
-            setPriority={setBdNotePriority}
-            editPriority={bdNoteEditPriority}
-            setEditPriority={setBdNoteEditPriority}
             onAdd={addBdNote}
             onToggle={toggleBdNote}
             onDelete={deleteBdNote}
@@ -1229,6 +1206,32 @@ export default function BusinessDev() {
           onCancel={cancelBdGoalForm}
           accounts={bdAccounts}
         />
+      )}
+
+      {/* Quick-capture bar (Phases tab) */}
+      {view === 'phases' && isAdmin && phases.length > 0 && (
+        <form onSubmit={handleQuickAdd} style={styles.quickAddBar}>
+          <span style={styles.quickAddIcon}>+</span>
+          <input
+            value={quickAddTitle}
+            onChange={e => setQuickAddTitle(e.target.value)}
+            placeholder="Quick add to Inbox — type an idea, hit Enter"
+            style={styles.quickAddInput}
+          />
+          {phases.length > 1 && (
+            <select
+              value={quickAddPhaseId || phases[0].id}
+              onChange={e => setQuickAddPhaseId(e.target.value)}
+              style={styles.select}
+            >
+              {phases.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          )}
+          <button type="submit" disabled={!quickAddTitle.trim()}
+            style={{ ...styles.primaryBtn, opacity: quickAddTitle.trim() ? 1 : 0.4 }}>
+            Add
+          </button>
+        </form>
       )}
 
       {/* Views */}
@@ -1352,6 +1355,113 @@ export default function BusinessDev() {
           onEditInit={openEditInit}
           onEditTask={openEditTaskFromAnywhere}
         />
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════
+// Needs Attention strip
+// ════════════════════════════════════════════════════════════
+function AttentionTaskRow({ row, isAdmin, onToggleTask, onRedateTask, onOpenTask }) {
+  const { task, initiative, phase } = row;
+  const dl = formatDeadline(task.due_date);
+  const open = () => onOpenTask(task);
+  return (
+    <div
+      {...(isAdmin ? clickableKeyProps(open) : {})}
+      onClick={isAdmin ? open : undefined}
+      style={{ ...styles.attentionRow, cursor: isAdmin ? 'pointer' : 'default' }}
+    >
+      {isAdmin && (
+        <button onClick={e => { e.stopPropagation(); onToggleTask(task); }} style={styles.checkBtn} title="Mark done">
+          <span style={styles.checkBox} />
+        </button>
+      )}
+      <span style={styles.taskTitle}>{task.title}</span>
+      <span style={styles.attentionContext}>
+        {initiative ? initiative.title : ''}{phase ? ` · ${phase.name}` : ''}
+      </span>
+      <div style={{ flex: 1 }} />
+      {dl && <span style={{ ...styles.metaPill, color: dl.color }}>{formatDateShort(task.due_date)} · {dl.sub}</span>}
+      {isAdmin && (
+        <>
+          <button onClick={e => { e.stopPropagation(); onRedateTask(task, 1); }} style={styles.redateBtn} title="Push out 1 day">+1d</button>
+          <button onClick={e => { e.stopPropagation(); onRedateTask(task, 7); }} style={styles.redateBtn} title="Push out 1 week">+1w</button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function AttentionInitRow({ row, kind, isAdmin, onOpenInitiative }) {
+  const { initiative, phase, ageDays } = row;
+  const ws = WORKSTREAM_MAP[initiative.workstream];
+  const status = STATUS_MAP[initiative.status];
+  const open = () => onOpenInitiative(initiative);
+  return (
+    <div
+      {...(isAdmin ? clickableKeyProps(open) : {})}
+      onClick={isAdmin ? open : undefined}
+      style={{ ...styles.attentionRow, cursor: isAdmin ? 'pointer' : 'default' }}
+    >
+      {status && <span style={{ ...styles.statusBadge, color: status.color, background: status.bg }}>{status.label}</span>}
+      <span style={styles.taskTitle}>{initiative.title}</span>
+      <span style={styles.attentionContext}>
+        {ws ? ws.label : initiative.workstream}{phase ? ` · ${phase.name}` : ''}
+      </span>
+      <div style={{ flex: 1 }} />
+      <span style={{ ...styles.ageChip, ...(kind === 'waiting' ? styles.ageChipWaiting : styles.ageChipStale) }}>
+        {kind === 'waiting' ? `Waiting — ${ageDays}d` : `Untouched — ${ageDays}d`}
+      </span>
+    </div>
+  );
+}
+
+function AttentionStrip({ attention, isAdmin, onToggleTask, onRedateTask, onOpenTask, onOpenInitiative }) {
+  const { overdue, dueSoon, waiting, stale, total } = attention;
+  if (total === 0) {
+    return <div style={styles.attentionAllClear}>✓ Nothing needs attention</div>;
+  }
+  return (
+    <div style={styles.attentionStrip}>
+      <div style={styles.attentionHeader}>
+        <span style={styles.attentionTitle}>Needs Attention</span>
+        <span style={styles.attentionCount}>{total}</span>
+      </div>
+      {overdue.length > 0 && (
+        <div style={styles.attentionGroup}>
+          <div style={{ ...styles.attentionGroupLabel, color: colors.danger.fgSoft }}>Overdue ({overdue.length})</div>
+          {overdue.map(row => (
+            <AttentionTaskRow key={row.task.id} row={row} isAdmin={isAdmin}
+              onToggleTask={onToggleTask} onRedateTask={onRedateTask} onOpenTask={onOpenTask} />
+          ))}
+        </div>
+      )}
+      {dueSoon.length > 0 && (
+        <div style={styles.attentionGroup}>
+          <div style={{ ...styles.attentionGroupLabel, color: colors.warning.fgSoft }}>Due this week ({dueSoon.length})</div>
+          {dueSoon.map(row => (
+            <AttentionTaskRow key={row.task.id} row={row} isAdmin={isAdmin}
+              onToggleTask={onToggleTask} onRedateTask={onRedateTask} onOpenTask={onOpenTask} />
+          ))}
+        </div>
+      )}
+      {waiting.length > 0 && (
+        <div style={styles.attentionGroup}>
+          <div style={{ ...styles.attentionGroupLabel, color: STATUS_MAP.waiting.color }}>Waiting &gt;{WAITING_AGE_DAYS}d ({waiting.length})</div>
+          {waiting.map(row => (
+            <AttentionInitRow key={row.initiative.id} row={row} kind="waiting" isAdmin={isAdmin} onOpenInitiative={onOpenInitiative} />
+          ))}
+        </div>
+      )}
+      {stale.length > 0 && (
+        <div style={styles.attentionGroup}>
+          <div style={{ ...styles.attentionGroupLabel, color: STATUS_MAP.ideas.color }}>Active, untouched {STALE_ACTIVE_DAYS}d+ ({stale.length})</div>
+          {stale.map(row => (
+            <AttentionInitRow key={row.initiative.id} row={row} kind="stale" isAdmin={isAdmin} onOpenInitiative={onOpenInitiative} />
+          ))}
+        </div>
       )}
     </div>
   );
@@ -1490,7 +1600,6 @@ function BdGoalsSection({
 function BdNotesSection({
   notes, inputOpen, setInputOpen, draft, setDraft,
   editingId, setEditingId, editingText, setEditingText,
-  priority, setPriority, editPriority, setEditPriority,
   onAdd, onToggle, onDelete, onSaveEdit,
 }) {
   return (
@@ -1505,99 +1614,63 @@ function BdNotesSection({
       </div>
       <div style={styles.bdGoalsBody}>
         {inputOpen && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-              <input
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && priority !== null) onAdd();
-                  if (e.key === 'Escape') { setInputOpen(false); setDraft(''); setPriority(null); }
-                }}
-                placeholder="Add a note..."
-                style={{ ...styles.input, flex: 1 }}
-                autoFocus
-              />
-              <button onClick={onAdd} disabled={!draft.trim() || priority === null} style={{ ...styles.primaryBtn, opacity: (draft.trim() && priority !== null) ? 1 : 0.4 }}>Add</button>
-              <button onClick={() => { setInputOpen(false); setDraft(''); setPriority(null); }} style={styles.subtleBtn}>Cancel</button>
-            </div>
-            <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
-              {PRIORITY_OPTIONS.map(p => (
-                <button
-                  key={p}
-                  onClick={() => setPriority(p)}
-                  style={{
-                    width: 26, height: 26, borderRadius: '4px', border: priority === p ? `2px solid ${PRIORITY_COLORS[p]}` : '1px solid rgba(255,255,255,0.12)',
-                    background: priority === p ? `${PRIORITY_COLORS[p]}22` : 'rgba(255,255,255,0.04)',
-                    color: priority === p ? PRIORITY_COLORS[p] : 'rgba(255,255,255,0.5)',
-                    fontSize: '11px', fontWeight: 700, cursor: 'pointer', padding: 0,
-                  }}
-                >{p}</button>
-              ))}
-            </div>
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+            <input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') onAdd();
+                if (e.key === 'Escape') { setInputOpen(false); setDraft(''); }
+              }}
+              placeholder="Add a note..."
+              style={{ ...styles.input, flex: 1 }}
+              autoFocus
+            />
+            <button onClick={onAdd} disabled={!draft.trim()} style={{ ...styles.primaryBtn, opacity: draft.trim() ? 1 : 0.4 }}>Add</button>
+            <button onClick={() => { setInputOpen(false); setDraft(''); }} style={styles.subtleBtn}>Cancel</button>
           </div>
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          {notes.map((n) => {
-            const borderColor = n.priority ? PRIORITY_COLORS[n.priority] : undefined;
-            return (
-              <div
-                key={n.id}
-                style={{
-                  ...styles.bdGoalCard,
-                  padding: '8px 10px',
-                  display: 'flex',
-                  alignItems: editingId === n.id ? 'flex-start' : 'center',
-                  gap: '8px',
-                  ...(borderColor ? { borderLeft: `3px solid ${borderColor}` } : {}),
-                }}
-              >
+          {notes.map((n) => (
+            <div
+              key={n.id}
+              style={{
+                ...styles.bdGoalCard,
+                padding: '8px 10px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={n.checked}
+                onChange={() => onToggle(n.id)}
+                style={{ width: '14px', height: '14px', cursor: 'pointer', accentColor: '#5b8fc7' }}
+              />
+              {editingId === n.id ? (
                 <input
-                  type="checkbox"
-                  checked={n.checked}
-                  onChange={() => onToggle(n.id)}
-                  style={{ width: '14px', height: '14px', cursor: 'pointer', accentColor: '#5b8fc7', marginTop: editingId === n.id ? '4px' : 0 }}
+                  value={editingText}
+                  onChange={(e) => setEditingText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') onSaveEdit(n.id);
+                    if (e.key === 'Escape') { setEditingId(null); setEditingText(''); }
+                  }}
+                  style={{ ...styles.input, flex: 1 }}
+                  autoFocus
                 />
-                {editingId === n.id ? (
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <input
-                      value={editingText}
-                      onChange={(e) => setEditingText(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') onSaveEdit(n.id);
-                        if (e.key === 'Escape') { setEditingId(null); setEditingText(''); setEditPriority(null); }
-                      }}
-                      style={{ ...styles.input, flex: 1 }}
-                      autoFocus
-                    />
-                    <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
-                      {PRIORITY_OPTIONS.map(p => (
-                        <button
-                          key={p}
-                          onClick={() => setEditPriority(p)}
-                          style={{
-                            width: 26, height: 26, borderRadius: '4px', border: editPriority === p ? `2px solid ${PRIORITY_COLORS[p]}` : '1px solid rgba(255,255,255,0.12)',
-                            background: editPriority === p ? `${PRIORITY_COLORS[p]}22` : 'rgba(255,255,255,0.04)',
-                            color: editPriority === p ? PRIORITY_COLORS[p] : 'rgba(255,255,255,0.5)',
-                            fontSize: '11px', fontWeight: 700, cursor: 'pointer', padding: 0,
-                          }}
-                        >{p}</button>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <span
-                    style={{ flex: 1, fontSize: '13px', color: '#e2e8f0', textDecoration: n.checked ? 'line-through' : 'none', opacity: n.checked ? 0.45 : 1, cursor: 'text' }}
-                    onDoubleClick={() => { setEditingId(n.id); setEditingText(n.text); setEditPriority(n.priority || null); }}
-                    title="Double-click to edit"
-                  >
-                    {n.text}
-                  </span>
-                )}
-                <button onClick={() => onDelete(n.id)} style={{ ...styles.iconBtn, color: '#ef4444' }} title="Delete">✕</button>
-              </div>
-            );
-          })}
+              ) : (
+                <span
+                  style={{ flex: 1, fontSize: '13px', color: colors.textBright, textDecoration: n.checked ? 'line-through' : 'none', opacity: n.checked ? 0.45 : 1, cursor: 'text' }}
+                  onDoubleClick={() => { setEditingId(n.id); setEditingText(n.text); }}
+                  title="Double-click to edit"
+                >
+                  {n.text}
+                </span>
+              )}
+              <button onClick={() => onDelete(n.id)} style={{ ...styles.iconBtn, color: colors.danger.fg }} title="Delete">✕</button>
+            </div>
+          ))}
           {notes.length === 0 && !inputOpen && (
             <div style={{ ...styles.empty, padding: '8px 0' }}>No notes yet</div>
           )}
@@ -1970,8 +2043,13 @@ function PhaseCard(props) {
       total += list.length;
       done += list.filter(t => t.completed_at).length;
     }
-    return { total, done, pct: total === 0 ? 0 : Math.round((done / total) * 100) };
+    return { total, done };
   }, [initiatives, tasksByInitiative]);
+
+  const initProgress = useMemo(() => ({
+    total: initiatives.length,
+    done: initiatives.filter(i => i.status === 'done').length,
+  }), [initiatives]);
 
   const filteredInitiatives = useMemo(() =>
     initiatives.filter(i => {
@@ -2007,8 +2085,13 @@ function PhaseCard(props) {
         )}
 
         <span style={styles.phaseHeaderStat}>
-          <span style={{ color: '#86efac' }}>{taskProgress.pct}%</span>
-          <span style={styles.phaseHeaderStatLabel}>{taskProgress.done} / {taskProgress.total}</span>
+          <span style={{ color: colors.accentFg }}>{initProgress.done}/{initProgress.total}</span>
+          <span style={styles.phaseHeaderStatLabel}>initiatives</span>
+        </span>
+
+        <span style={styles.phaseHeaderStat}>
+          <span style={{ color: colors.success.fgSoft }}>{taskProgress.done}/{taskProgress.total}</span>
+          <span style={styles.phaseHeaderStatLabel}>tasks</span>
         </span>
 
         <div style={{ flex: 1 }} />
@@ -2089,9 +2172,10 @@ function PhaseCard(props) {
             </label>
           </div>
 
-          {/* Workstreams */}
-          {WORKSTREAMS.map(ws => {
+          {/* Workstreams (Inbox triage section first, only when it has items) */}
+          {[INBOX_WS, ...WORKSTREAMS].map(ws => {
             const wsInits = filteredInitiatives.filter(i => i.workstream === ws.key);
+            if (ws.key === 'inbox' && wsInits.length === 0) return null;
             const totalCount = wsInits.length;
             const doneCount = wsInits.filter(i => i.status === 'done').length;
             const wsKey = `${phase.id}::${ws.key}`;
@@ -2402,11 +2486,18 @@ function TaskRow({ task, admins, isAdmin, initiative, isEditing, taskForm, setTa
 // Initiative form (with phase selector to support cross-phase moves)
 // ════════════════════════════════════════════════════════════
 function InitiativeForm({ form, setForm, editing, phases, admins, existingLinks, onSubmit, onCancel }) {
+  const formRef = useRef(null);
   useEffect(() => {
     if (form._links === undefined) {
       setForm(f => ({ ...f, _links: existingLinks.map(l => ({ id: l.id, label: l.label, url: l.url })) }));
     }
   }, []); // eslint-disable-line
+
+  // The form renders near the top of the page while the + button that opened
+  // it may be far down the viewport — bring the form to the user.
+  useEffect(() => {
+    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, []);
 
   function updateLink(idx, key, val) {
     const next = [...(form._links || [])];
@@ -2423,7 +2514,7 @@ function InitiativeForm({ form, setForm, editing, phases, admins, existingLinks,
   }
 
   return (
-    <form onSubmit={onSubmit} style={styles.form}>
+    <form ref={formRef} onSubmit={onSubmit} style={styles.form}>
       <div style={styles.formLabel}>{editing ? 'Edit Initiative' : 'New Initiative'}</div>
 
       <input
@@ -2446,7 +2537,9 @@ function InitiativeForm({ form, setForm, editing, phases, admins, existingLinks,
           {phases.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
         <select value={form.workstream} onChange={e => setForm({ ...form, workstream: e.target.value })} style={styles.select}>
-          {WORKSTREAMS.map(w => <option key={w.key} value={w.key}>{w.label}</option>)}
+          {[INBOX_WS, ...WORKSTREAMS].map(w => (
+            <option key={w.key} value={w.key}>{w.key === 'inbox' ? 'Inbox (untriaged)' : w.label}</option>
+          ))}
         </select>
       </div>
 
@@ -2900,6 +2993,67 @@ const styles = {
     cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.12s',
   },
   tabBtnActive: { background: colors.accentA15, color: colors.accentFg },
+
+  // Needs Attention strip
+  attentionStrip: {
+    background: colors.whiteA02,
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderLeft: `3px solid ${colors.warning.border}`,
+    borderRadius: '14px', padding: '12px 18px 14px', marginBottom: '12px',
+    display: 'flex', flexDirection: 'column', gap: '10px',
+  },
+  attentionHeader: { display: 'flex', alignItems: 'center', gap: '8px' },
+  attentionTitle: {
+    fontSize: '13px', fontWeight: 700, color: colors.textBright,
+    textTransform: 'uppercase', letterSpacing: '0.5px',
+  },
+  attentionCount: {
+    fontSize: '11px', fontWeight: 700, color: colors.warning.fg,
+    background: colors.warning.bg, border: `1px solid ${colors.warning.border}`,
+    padding: '1px 8px', borderRadius: '999px',
+  },
+  attentionGroup: { display: 'flex', flexDirection: 'column', gap: '2px' },
+  attentionGroupLabel: {
+    fontSize: '11px', fontWeight: 700, textTransform: 'uppercase',
+    letterSpacing: '0.5px', padding: '2px 0',
+  },
+  attentionRow: {
+    display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px',
+    borderRadius: '6px', background: colors.whiteA02,
+  },
+  attentionContext: {
+    fontSize: '11px', color: colors.textDim, whiteSpace: 'nowrap',
+    overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '340px', flexShrink: 1,
+  },
+  ageChip: {
+    fontSize: '11px', fontWeight: 600, padding: '2px 8px',
+    borderRadius: '6px', flexShrink: 0, whiteSpace: 'nowrap',
+  },
+  // Waiting reuses its status color; stale reuses the ideas gray.
+  ageChipWaiting: { color: BD_STATUS_MAP.waiting.color, background: BD_STATUS_MAP.waiting.bg },
+  ageChipStale: { color: BD_STATUS_MAP.ideas.color, background: BD_STATUS_MAP.ideas.bg },
+  redateBtn: {
+    padding: '3px 8px', background: colors.bgInput,
+    border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px',
+    color: colors.textMuted, fontSize: '11px', fontWeight: 600,
+    cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
+  },
+  attentionAllClear: {
+    fontSize: '12px', color: colors.textDim, marginBottom: '12px',
+    display: 'flex', alignItems: 'center', gap: '6px',
+  },
+
+  // Quick-capture bar
+  quickAddBar: {
+    display: 'flex', alignItems: 'center', gap: '8px',
+    background: colors.accentA04, border: '1px solid rgba(91, 143, 199,0.15)',
+    borderRadius: '10px', padding: '8px 12px', marginBottom: '12px',
+  },
+  quickAddIcon: { color: colors.accentFg, fontSize: '15px', fontWeight: 700 },
+  quickAddInput: {
+    flex: 1, background: 'transparent', border: 'none', outline: 'none',
+    color: colors.textBright, fontSize: '13px', fontFamily: 'inherit', padding: '4px 0',
+  },
 
   // Phase chip filter
   phaseFilterBar: {

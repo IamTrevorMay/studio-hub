@@ -76,6 +76,14 @@ files).
   (`20260503000000_create_business_dev.sql`, `..._phases.sql`).
 - **admin-only RLS** on all `bd_*`. Separate world from the Goals page's
   `initiatives` table. Also readable by `partner` (Roadmap portal).
+- `bd_initiatives.workstream` CHECK allows `'inbox'` in addition to the 7 real
+  workstreams (`20260723090000_bd_inbox_workstream.sql`) — quick-capture bucket
+  for the Roadmap quick-add; triaged via the initiative edit form. Timeline
+  view deliberately skips `inbox` items (it maps only the 7 real workstreams).
+- Shared client helpers live in `src/lib/bdAttention.js` (tag/status metadata,
+  PT-correct "Needs Attention" buckets, and `syncBdTaskToBacklog` — the
+  `personal_tasks` mirror both `BusinessDev.js` and `BusinessDevMobile.js`
+  must call after any `bd_tasks` write touching completed_at/due_date/owner).
 - Overdue-task notifications via cron
   (`20260503000001_cron_business_dev_notifications.sql`).
 
