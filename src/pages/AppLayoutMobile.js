@@ -36,6 +36,9 @@ import Freelancers from './FreelancersMobile';
 import Ops from './OpsMobile';
 import Analytics from './AnalyticsMobile';
 import Tracking from './TrackingMobile';
+import SuiteLauncher from './SuiteLauncher';
+import HarborComingSoon from './HarborComingSoon';
+import { getSuiteViewFromPath, rememberBridge } from '../lib/suite';
 import { colors } from '../lib/styleTokens';
 // Goals page is sunset on desktop; mobile mirrors that — import + nav
 // entry + route case removed. Re-add when goals comes back, if ever.
@@ -164,7 +167,13 @@ export default function AppLayoutMobile() {
   const { profile, signOut, isAdmin, isAssistant, isPartner, isFreelancer, restrictedNavKeys } = useAuth();
   const { unreadNotificationCount, markDashboardSeen, refreshNotifications } = useNotifications();
   const { getResolvedNav } = useNavConfig();
+  // Suite gating (mirror desktop AppLayout): staff roles get the launcher +
+  // Bridge branding; portal roles (freelancer, partner) keep their locked
+  // worlds — a freelancer deep-linking /launcher still lands in their portal.
+  const isSuiteUser = !isFreelancer && !isPartner;
   const [activeTab, setActiveTab] = useState(() => getTabFromPath() || localStorage.getItem('studio-hub-tab') || 'dashboard');
+  // 'launcher' | 'harbor' | null (null = Bridge, the classic tab world).
+  const [suiteView, setSuiteView] = useState(() => (isSuiteUser ? getSuiteViewFromPath() : null));
   // Mode mirrors desktop's localStorage key. Non-admins are pinned to
   // 'work' below (admins still see whichever mode they last used).
   const [mode, setMode] = useState(() => localStorage.getItem('studio-hub-mode') === 'admin' ? 'admin' : 'work');
@@ -176,25 +185,52 @@ export default function AppLayoutMobile() {
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const mainRef = React.useRef(null);
 
-  // Persist active tab + URL, reset scroll on change
+  // Persist active tab + URL, reset scroll on change. While a suite page
+  // (launcher / harbor) is showing, it owns the URL instead (mirror desktop).
   useEffect(() => {
+    if (suiteView) {
+      const seg = window.location.pathname.replace(/^\/+/, '').split('/')[0];
+      if (seg !== suiteView) window.history.pushState({}, '', '/' + suiteView);
+      return;
+    }
     localStorage.setItem('studio-hub-tab', activeTab);
     const segments = window.location.pathname.replace(/^\/+/, '').split('/');
     if (segments[0] !== activeTab) {
       window.history.pushState({}, '', '/' + activeTab);
     }
     if (mainRef.current) mainRef.current.scrollTop = 0;
-  }, [activeTab]);
+  }, [activeTab, suiteView]);
 
+  // Entering Bridge records it as the last-used suite app; the launcher and
+  // Harbor deliberately never write this key (mirror desktop).
+  useEffect(() => {
+    if (isSuiteUser && !suiteView) rememberBridge();
+  }, [isSuiteUser, suiteView]);
+
+  // Browser-tab title per suite surface (mirror desktop).
+  useEffect(() => {
+    document.title = !isSuiteUser ? 'Mayday Studio'
+      : suiteView === 'harbor' ? 'Harbor · Mayday Studio'
+      : suiteView === 'launcher' ? 'Mayday Studio'
+      : 'Bridge · Mayday Studio';
+  }, [isSuiteUser, suiteView]);
+
+  // Back/forward: suite segments resolve before tab resolution so history
+  // works across launcher ↔ Bridge ↔ Harbor (mirror desktop).
   useEffect(() => {
     function handlePopState() {
+      if (isSuiteUser) {
+        const view = getSuiteViewFromPath();
+        setSuiteView(view);
+        if (view) return; // suite page owns the URL; leave tab state alone
+      }
       const tab = getTabFromPath();
       if (tab) setActiveTab(tab);
       setNavTarget(getSubPathFromURL());
     }
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  }, [isSuiteUser]);
 
   // Freelancer redirect (mirror desktop AppLayout)
   useEffect(() => {
@@ -316,6 +352,20 @@ export default function AppLayoutMobile() {
     setNotifOpen(false);
   }
 
+  // ── Mayday Studio suite pages (staff only; full-screen, no chrome) ──
+  // Rendered after all hooks; portal roles never reach these (isSuiteUser).
+  if (isSuiteUser && suiteView === 'launcher') {
+    return (
+      <SuiteLauncher
+        onOpenBridge={() => { rememberBridge(); setSuiteView(null); }}
+        onOpenHarbor={() => setSuiteView('harbor')}
+      />
+    );
+  }
+  if (isSuiteUser && suiteView === 'harbor') {
+    return <HarborComingSoon onBackToLauncher={() => setSuiteView('launcher')} />;
+  }
+
   const title = TAB_LABELS[activeTab] || 'Mayday Studio';
 
   return (
@@ -352,6 +402,8 @@ export default function AppLayoutMobile() {
         isAdmin={isAdmin}
         mode={mode}
         onToggleMode={toggleMode}
+        suiteBrand={isSuiteUser}
+        onOpenLauncher={isSuiteUser ? () => { setDrawerOpen(false); setSuiteView('launcher'); } : undefined}
       />
 
       <BottomSheet

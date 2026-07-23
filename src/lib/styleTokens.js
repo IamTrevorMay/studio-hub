@@ -147,6 +147,7 @@ export const fontSizes = {
   xl:  16,   // page subsections
   xxl: 18,   // page titles
   display: 22,
+  displayLg: 28,  // hero headlines (suite launcher, coming-soon pages); pairs with mobileTokens.font.title
 };
 
 export const fontWeights = {

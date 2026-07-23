@@ -1,6 +1,6 @@
 ---
 title: Known Issues & Gotchas — The Landmine Map
-last_updated: 2026-07-15
+last_updated: 2026-07-23
 tags: [debugging, gotchas, known-issues, landmines]
 ---
 
@@ -82,6 +82,12 @@ Every confirmed landmine in Mayday Studio, with symptom → cause → workaround
 - **Symptom:** A row changes but no realtime update fires; polling works, `postgres_changes` does not.
 - **Cause:** Supabase realtime only emits `postgres_changes` for rows the subscriber can **read** under RLS. If a role is excluded from a table's read policy, it will never receive change events for it.
 - **Canonical example:** The Agency portal cannot read deliverable rows (excluded via `is_agency()`), so it gets **no** `postgres_changes` for them — it falls back to polling every 20s plus realtime only on tables it *can* read (`agency_comments`, own `ad_read_proposals`). See CLAUDE.md → Agency Portal. Full diagnosis in `03-supabase-debug.md`.
+
+## (l) `/deliverables` URL is shadowed by the public page — staff reload lands on the read-only view
+
+- **Symptom:** A staff member on the internal Deliverables tab reloads the browser and gets the public, login-free "Upcoming Deliverables" page instead of the app.
+- **Cause:** Commit 9b877341 replaced the agency portal with `src/pages/public/PublicDeliverables.js`, gated in `App.js:107-109` by `isDeliverablesPath()` (`/^\/deliverables(\/|$)/`) **before** the auth gate. But the internal tab key `deliverables` still pushes `/deliverables` to history (`AppLayout.js` URL-sync effect), so a full reload on that path never reaches the authed app. In-app navigation is unaffected (no reload).
+- **Status:** Pre-existing, observed 2026-07-23 during the suite-launcher build; not yet fixed. Fix options: alias the internal tab to a different path (like `business_dev` → `/roadmap` via `TAB_KEY_TO_PATH`), or move the public page to `/deliverables-public`.
 
 ---
 

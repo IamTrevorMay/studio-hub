@@ -16,7 +16,7 @@
 
 ## Cluster 1: Architecture — the repo map (`architecture/`)
 Read these first to orient before touching anything.
-- [01-app-shell-routing-auth.md](architecture/01-app-shell-routing-auth.md) — Boot sequence, viewport-based layout split, the hand-rolled `activeTab` router, `NAV_ITEMS`, `AuthContext` (retry/degradation/nuke, auth-lock deadlock, visibility reconnect + `refreshKey`), locked portals, Admin/Work mode. **Gotcha: desktop + mobile nav walls are duplicated and hand-synced.**
+- [01-app-shell-routing-auth.md](architecture/01-app-shell-routing-auth.md) — Boot sequence, viewport-based layout split, the **suite routing layer** (launcher / Bridge / Harbor, `src/lib/suite.js`, `suite_last_app`, staff-only gating), the hand-rolled `activeTab` router, `NAV_ITEMS`, `AuthContext` (retry/degradation/nuke, auth-lock deadlock, visibility reconnect + `refreshKey`), locked portals (agency portal REMOVED 2026-07 → public `/deliverables` page), Admin/Work mode. **Gotcha: desktop + mobile nav walls are duplicated and hand-synced.**
 - [02-frontend-conventions.md](architecture/02-frontend-conventions.md) — Inline-style-only rule (+ doc-editor Tailwind exception), the token system, dark palette, DM Sans, useState-heavy state, every custom hook.
 - [03-page-catalog.md](architecture/03-page-catalog.md) — Grouped map of `src/pages/` (keys, labels, sizes, purposes) + the "read line ranges, not whole files" warning + the two render-wall locations.
 - [04-supabase-schema-map.md](architecture/04-supabase-schema-map.md) — Two-project split (main + Triton read-only), table groups by feature with defining migrations, the role model, `is_admin()`/`is_agency()` helpers, the `profiles` FK inconsistency, the `db push` caveat.
@@ -47,7 +47,7 @@ Read these first to orient before touching anything.
 
 ## Cluster 5: Debugging (`debugging/`)
 - [01-root-cause-playbook.md](debugging/01-root-cause-playbook.md) — Reproduce-first discipline, log-location table (browser/edge/pg/Vercel), the 5-step UI→component→query→table/RLS trace, MCP tool inventory, `/verify` + `/run`, desktop+mobile+role reproduction, fix discipline.
-- [02-known-issues-gotchas.md](debugging/02-known-issues-gotchas.md) — **The landmine map.** 11 known gotchas, each symptom→cause→workaround with `file:line`: sync-youtube stale, PT date class, migration divergence, leaked CRON_SECRET, node_modules churn, auth-refresh race, Triton read-only, accounting CSV sign-flip, unused newsletter fns (absent from tree), etc. **Consult this FIRST when debugging.**
+- [02-known-issues-gotchas.md](debugging/02-known-issues-gotchas.md) — **The landmine map.** 12 known gotchas, each symptom→cause→workaround with `file:line`: sync-youtube stale, PT date class, migration divergence, leaked CRON_SECRET, node_modules churn, auth-refresh race, Triton read-only, accounting CSV sign-flip, unused newsletter fns (absent from tree), the `/deliverables` public-page URL shadowing staff reloads, etc. **Consult this FIRST when debugging.**
 - [03-supabase-debug.md](debugging/03-supabase-debug.md) — RLS denials, edge-function failures, realtime/RLS-read-set gotcha, migration-divergence recovery, cron checks; MCP tools named; diagnostic decision tree.
 
 ## Maintenance

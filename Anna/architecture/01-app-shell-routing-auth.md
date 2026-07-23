@@ -1,7 +1,7 @@
 ---
 title: App Shell, Routing & Auth
-last_updated: 2026-07-15
-tags: [architecture, routing, auth, layout, session]
+last_updated: 2026-07-23
+tags: [architecture, routing, auth, layout, session, suite]
 ---
 
 # App Shell, Routing & Auth
@@ -104,6 +104,39 @@ then bump `refreshKey` so every channel-creating `useEffect` re-subscribes on
 the fresh socket. Per-page **data** refresh is handled separately by
 `useVisibilityRefresh` (see `06-realtime-notifications.md`).
 
+## Suite routing layer (added 2026-07-23) — launcher / Bridge / Harbor
+
+The app is now the **Mayday Studio suite**: the classic tab world is branded
+**Bridge**; **Harbor** (podcast & remote recording) has a coming-soon page.
+Suite resolution happens **before** tab resolution, in both layout twins.
+
+- Shared logic: `src/lib/suite.js` — `SUITE_LAST_APP_KEY = 'suite_last_app'`
+  (localStorage), `getSuiteViewFromPath()` (first segment → `'launcher'` |
+  `'harbor'` | `null` = Bridge; bare `/` → launcher unless `suite_last_app
+  === 'bridge'`), `rememberBridge()`.
+- Both layouts hold `suiteView` state next to `activeTab`. Staff only:
+  `isSuiteUser = !isFreelancer && !isPartner` — portal roles are pinned to
+  `suiteView = null` at init and in popstate, so a freelancer deep-linking
+  `/launcher` still gets their portal.
+- Rendering: full-screen early returns (after all hooks, before the sidebar
+  shell) to `pages/SuiteLauncher.js` / `pages/HarborComingSoon.js`.
+- URL sync: the tab→URL effect is guarded — when `suiteView` is set, the suite
+  page owns the URL (`/launcher`, `/harbor`) and tab sync is skipped. popstate
+  re-resolves the suite view first, then falls through to tab resolution.
+- `suite_last_app` is written **only** when Bridge chrome renders (an effect on
+  `suiteView === null`); Harbor and the launcher never write it, so nobody gets
+  stranded on the teaser at next login. Explicit `/launcher` always shows the
+  launcher regardless of the stored value.
+- Branding: staff sidebar header shows **Bridge** + a small "Mayday Studio"
+  suite mark (`logoStack`/`logoSuiteMark` styles; same in `MobileDrawer` via
+  `suiteBrand` prop). `document.title`: launcher "Mayday Studio", Bridge
+  "Bridge · Mayday Studio", Harbor "Harbor · Mayday Studio"; portal roles and
+  auth pages stay "Mayday Studio". Switcher: "Apps" button (grid icon) above
+  the Admin Mode toggle on desktop; "Apps" row above the mode toggle in
+  `MobileDrawer` (`onOpenLauncher` prop).
+- Token note: `fontSizes.displayLg: 28` was added to `styleTokens.js` for the
+  launcher/teaser hero headlines.
+
 ## Routing model — `activeTab` state machine (`src/pages/AppLayout.js`)
 
 There is one string of truth: `activeTab`. It is:
@@ -191,11 +224,17 @@ Items marked `{ external: { url } }` open in a new tab; `{ external: { triton } 
 call `openTritonTool` (`:195-211`) which invokes the `triton-link` edge function
 for a short-lived SSO link into Triton Apex (`https://www.tritonapex.io`).
 
-## Agency portal early return (`AppLayout.js:507-511`, `AppLayoutMobile.js:321`)
+## Agency portal — REMOVED (drift note, 2026-07-23)
 
-`if (isAgency) return <AgencyPortal/>;` — rendered before the sidebar shell, so
-agency accounts get a locked, sidebar-free page. RLS enforces the same isolation
-server-side (see `04-supabase-schema-map.md`, agency section).
+Commit 9b877341 replaced the agency portal with the **public, login-free**
+`pages/public/PublicDeliverables.js`, served before the auth gate in
+`App.js:107-109,126-132` for `/deliverables(\/|$)`. `isAgency`/`AgencyPortal`
+no longer exist anywhere in `src/` (neither layout, nor `rolePermissions.js`,
+nor `AuthContext.js`). The only portal roles inside the layouts today are
+**freelancer** (locked nav + redirect effect) and **partner** (two-item nav).
+**Landmine:** the internal `deliverables` tab still pushes `/deliverables`, so
+a staff reload on that URL lands on the public page — see
+`debugging/02-known-issues-gotchas.md` (l).
 
 ## Mobile layout (`src/pages/AppLayoutMobile.js`, 745 lines)
 
