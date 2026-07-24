@@ -129,6 +129,19 @@ export default function WorkflowsMobile() {
     else setEditingTask(task);
   }
 
+  // Delete straight from the edit modal (mirrors desktop). editingTask is
+  // always a real `tasks` row here.
+  async function deleteEditingTask() {
+    const task = editingTask;
+    if (!task) return;
+    // eslint-disable-next-line no-alert
+    if (!window.confirm(`Delete "${task.title}"? This deletes the task and can't be undone.`)) return;
+    const { error } = await supabase.from('tasks').delete().eq('id', task.id);
+    if (error) { console.error('Delete task failed:', error); return; }
+    setEditingTask(null);
+    fetchProgress();
+  }
+
   return (
     <div style={styles.root}>
       <div style={styles.header}>
@@ -210,6 +223,7 @@ export default function WorkflowsMobile() {
         profiles={profiles}
         onClose={() => setEditingTask(null)}
         onSaved={fetchProgress}
+        onDelete={deleteEditingTask}
       />
     </div>
   );

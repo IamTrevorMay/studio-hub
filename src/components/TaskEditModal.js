@@ -27,7 +27,7 @@ function toDateInput(iso) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-export default function TaskEditModal({ open, task, profiles, onClose, onSaved, showToast }) {
+export default function TaskEditModal({ open, task, profiles, onClose, onSaved, showToast, onDelete }) {
   const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -179,6 +179,9 @@ export default function TaskEditModal({ open, task, profiles, onClose, onSaved, 
         </div>
 
         <div style={styles.footer}>
+          {onDelete && (
+            <button style={styles.deleteBtn} onClick={onDelete} disabled={saving}>Delete task</button>
+          )}
           <button style={styles.cancelBtn} onClick={onClose}>Cancel</button>
           <button
             style={{ ...styles.primaryBtn, opacity: saving ? 0.6 : 1 }}
@@ -218,5 +221,6 @@ const styles = {
   input: { width: '100%', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '8px 12px', color: '#fff', fontSize: 14, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' },
   primaryBtn: { background: colors.accent, color: colors.white, border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   cancelBtn: { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)', borderRadius: 6, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  deleteBtn: { marginRight: 'auto', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171', borderRadius: 6, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
   error: { padding: 10, background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, fontSize: 12 },
 };

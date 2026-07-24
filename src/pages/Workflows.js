@@ -612,6 +612,25 @@ export default function Workflows() {
     fetchProgress();
   };
 
+  // Delete straight from the edit modal (right-click menu is unreliable, so the
+  // edit window carries the destructive action). Same effect as cancel: removes
+  // the row. TaskEditModal only ever holds a real `tasks` row here.
+  const deleteEditingTask = async () => {
+    const task = editingTask;
+    if (!task) return;
+    // eslint-disable-next-line no-alert
+    if (!window.confirm(`Delete "${task.title}"? This deletes the task and can't be undone.`)) return;
+    const { error } = await supabase.from('tasks').delete().eq('id', task.id);
+    if (error) {
+      console.error('Delete task failed:', error);
+      showToast('Failed to delete task', 'error');
+      return;
+    }
+    showToast('Task deleted');
+    setEditingTask(null);
+    fetchProgress();
+  };
+
   useEffect(() => {
     if (!isAdmin) return;
     let cancelled = false;
@@ -711,6 +730,7 @@ export default function Workflows() {
         onClose={() => setEditingTask(null)}
         onSaved={fetchProgress}
         showToast={showToast}
+        onDelete={deleteEditingTask}
       />
 
       {/* ── Drilled into a Flow ── */}
