@@ -406,12 +406,12 @@ export default function FreelancerDashboard({ onNavigate }) {
   }
 
   async function handleMarkNotifRead(notifId) {
-    await supabase.from('notifications').update({ read: true }).eq('id', notifId);
+    await supabase.from('notifications').update({ is_read: true }).eq('id', notifId);
     fetchNotifications();
   }
 
   async function handleMarkAllNotifsRead() {
-    await supabase.from('notifications').update({ read: true }).eq('user_id', profile.id).is('read', false);
+    await supabase.from('notifications').update({ is_read: true }).eq('user_id', profile.id).eq('is_read', false);
     fetchNotifications();
   }
 
