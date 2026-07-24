@@ -59,6 +59,80 @@ export default function DashboardMobile({ onNavigate }) {
 
   const visibleTabs = ALL_TABS;
 
+  // Admin OOO approvals, surfaced as cards in the My Tasks tab (mirrors desktop Dashboard).
+  const [pendingOooRequests, setPendingOooRequests] = useState([]);
+  const [oooProcessingId, setOooProcessingId] = useState(null);
+
+  const fetchOooRequests = useCallback(async () => {
+    if (!isAdmin || !profile?.id) return;
+    const { data } = await supabase
+      .from('ooo_requests')
+      .select('*, requester:profiles!ooo_requests_user_id_fkey(id, full_name)')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true });
+    setPendingOooRequests(data || []);
+  }, [isAdmin, profile?.id]);
+
+  useEffect(() => {
+    if (!isAdmin || !profile?.id) return;
+    fetchOooRequests();
+    const channel = supabase
+      .channel('mobile-ooo-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ooo_requests' }, () => fetchOooRequests())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [isAdmin, profile?.id, fetchOooRequests]);
+
+  async function handleOooDecision(request, decision) {
+    if (!profile?.id || oooProcessingId) return;
+    setOooProcessingId(request.id);
+    try {
+      if (decision === 'approved') {
+        const requesterName = request.requester?.full_name || 'Team member';
+        const { data: calEvent, error: evError } = await supabase.from('calendar_events').insert({
+          title: `${requesterName} — Out of Office`,
+          event_type: 'unavailable',
+          start_date: new Date(`${request.start_date}T00:00:00`).toISOString(),
+          end_date: new Date(`${request.end_date}T23:59:59`).toISOString(),
+          all_day: true,
+          created_by: profile.id,
+        }).select('id').single();
+        if (evError) throw evError;
+        await supabase.from('ooo_requests').update({
+          status: 'approved',
+          reviewed_by: profile.id,
+          reviewed_at: new Date().toISOString(),
+          calendar_event_id: calEvent.id,
+        }).eq('id', request.id);
+        await supabase.from('notifications').insert({
+          user_id: request.user_id,
+          type: 'ooo_request',
+          title: 'Time off approved',
+          body: `Your OOO request (${request.start_date} to ${request.end_date}) was approved.`,
+          created_at: new Date().toISOString(),
+        });
+      } else {
+        await supabase.from('ooo_requests').update({
+          status: 'rejected',
+          reviewed_by: profile.id,
+          reviewed_at: new Date().toISOString(),
+        }).eq('id', request.id);
+        await supabase.from('notifications').insert({
+          user_id: request.user_id,
+          type: 'ooo_request',
+          title: 'Time off declined',
+          body: `Your OOO request (${request.start_date} to ${request.end_date}) was declined.`,
+          created_at: new Date().toISOString(),
+        });
+      }
+      fetchOooRequests();
+    } catch (err) {
+      console.error('Error handling OOO decision:', err);
+    } finally {
+      setOooProcessingId(null);
+    }
+  }
+
   useEffect(() => {
     if (briefingShownRef.current) return;
     if (!profile?.id) return;
@@ -117,7 +191,74 @@ export default function DashboardMobile({ onNavigate }) {
       </div>
 
       {activeTab === 'tasks' && <SprintBoardMobile profile={profile} />}
-      {activeTab === 'mytasks' && <MyTasks onNavigate={onNavigate} embedded />}
+      {activeTab === 'mytasks' && (
+        <>
+          {isAdmin && pendingOooRequests.length > 0 && (
+            <div style={{ padding: '12px 16px 0', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {pendingOooRequests.map(req => {
+                const startFmt = new Date(req.start_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                const endFmt = new Date(req.end_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                return (
+                  <div key={`ooo-${req.id}`} style={{
+                    display: 'flex', alignItems: 'center', gap: '10px',
+                    padding: '10px 12px',
+                    background: 'rgba(249,115,22,0.06)',
+                    border: '1px solid rgba(249,115,22,0.15)',
+                    borderRadius: '8px',
+                  }}>
+                    <div style={{
+                      width: '32px', height: '32px', borderRadius: '50%',
+                      background: 'rgba(249,115,22,0.15)', color: '#f97316',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '13px', fontWeight: 700, flexShrink: 0,
+                    }}>
+                      {req.requester?.full_name?.charAt(0)?.toUpperCase() || '?'}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: '#e2e8f0' }}>
+                        {req.requester?.full_name || 'Unknown'}
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#f97316', fontWeight: 600, marginTop: '2px' }}>
+                        Out of Office request
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)' }}>
+                        {startFmt} {'–'} {endFmt}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleOooDecision(req, 'approved')}
+                      disabled={!!oooProcessingId}
+                      style={{
+                        padding: '6px 10px', borderRadius: '6px',
+                        border: '1px solid rgba(34,197,94,0.3)',
+                        background: 'rgba(34,197,94,0.1)', color: '#22c55e',
+                        fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                        opacity: oooProcessingId ? 0.5 : 1,
+                      }}
+                    >
+                      {oooProcessingId === req.id ? '…' : 'Approve'}
+                    </button>
+                    <button
+                      onClick={() => handleOooDecision(req, 'rejected')}
+                      disabled={!!oooProcessingId}
+                      style={{
+                        padding: '6px 10px', borderRadius: '6px',
+                        border: '1px solid rgba(239,68,68,0.3)',
+                        background: 'rgba(239,68,68,0.1)', color: '#ef4444',
+                        fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                        opacity: oooProcessingId ? 0.5 : 1,
+                      }}
+                    >
+                      Decline
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <MyTasks onNavigate={onNavigate} embedded />
+        </>
+      )}
       {activeTab === 'todo' && <TodoTab profile={profile} />}
       {activeTab === 'today' && <TodayTab profile={profile} isAdmin={isAdmin} onNavigate={onNavigate} />}
       {activeTab === 'checkin' && <CheckinTab profile={profile} />}

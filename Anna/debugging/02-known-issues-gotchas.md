@@ -83,6 +83,13 @@ Every confirmed landmine in Mayday Studio, with symptom → cause → workaround
 - **Cause:** Supabase realtime only emits `postgres_changes` for rows the subscriber can **read** under RLS. If a role is excluded from a table's read policy, it will never receive change events for it.
 - **Canonical example:** The Agency portal cannot read deliverable rows (excluded via `is_agency()`), so it gets **no** `postgres_changes` for them — it falls back to polling every 20s plus realtime only on tables it *can* read (`agency_comments`, own `ad_read_proposals`). See CLAUDE.md → Agency Portal. Full diagnosis in `03-supabase-debug.md`.
 
+## (l) ffmpeg.wasm needs the **ESM** core, not UMD (Video Tools → Remuxer)
+
+- **Symptom:** `ffmpeg.load()` throws `Error: failed to import ffmpeg-core.js` even though the core URL returns HTTP 200 and the wasm downloads fine.
+- **Cause:** `@ffmpeg/ffmpeg@0.12` spawns its worker as a **module** worker (`new Worker(new URL('./worker.js', import.meta.url), { type: 'module' })` — `classes.js:104-113`). In a module worker `importScripts` is unavailable, so `worker.js` falls back to `(await import(coreURL)).default`. The **UMD** core build (`@ffmpeg/core/dist/umd/ffmpeg-core.js`) has no default export → the import yields `undefined` → throw. The many "just use `toBlobURL` from `/dist/umd`" snippets online assume a *classic* worker and are wrong for this package version.
+- **Fix / rule:** Load the core from **`/dist/esm/`** (`export default createFFmpegCore`), not `/dist/umd/`. See `src/pages/tools/postshow/Remuxer.js` (`CORE_BASE = '…/@ffmpeg/core@0.12.9/dist/esm'`). Verified headless (Playwright + core@0.12.9): compat MKV `-c copy` → playable mp4; PCM-audio MKV `-c copy` → `ret=1` (handled, "Re-encode audio to AAC" fallback offered). Single-thread core is used deliberately — the multithread core needs site-wide COOP/COEP (cross-origin isolation), which would break other cross-origin resources; remux is I/O-bound so single-thread is fine.
+- **Also:** `PostShow` (the Video Tools page, key `post_show`) is **only rendered on desktop** — `AppLayoutMobile.js` `renderContent()` has no `post_show` case, so tapping it on mobile falls through to `default: <Dashboard>`. The nav label at `AppLayoutMobile.js:53` is a dead link. Pre-existing; not introduced by the Remuxer work.
+
 ---
 
 ### Quick triage reflexes
@@ -91,5 +98,6 @@ Every confirmed landmine in Mayday Studio, with symptom → cause → workaround
 - UI frozen after tab switch → auth-lock deadlock (f).
 - YouTube not updating for More Mayday → external, check `[DIAG]` log (a).
 - Realtime not firing → RLS read set (k).
+- ffmpeg.wasm "failed to import ffmpeg-core.js" → use the **ESM** core, not UMD (l).
 - Schema change won't apply → use `apply_migration` (c).
 - Weird `node_modules` diff → ignore (e).

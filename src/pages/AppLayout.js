@@ -56,7 +56,7 @@ import { colors } from '../lib/styleTokens';
 
 // Sidebar catalog. Labels listed here are aliased internally — the user
 // refers to Production as "Beat Sheet", Scene Builder as "Custom Visuals",
-// Telestration as "Telestrator", and Post Show as "Clipping Tool". Route
+// Telestration as "Telestrator", and Post Show as "Video Tools". Route
 // keys stay stable to keep existing deep links working.
 const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard', icon: DashboardIcon },
@@ -70,7 +70,7 @@ const NAV_ITEMS = [
   { key: 'broadcast', label: 'Broadcast', icon: ToolsIcon, adminOnly: true },
   { key: 'telestration', label: 'Telestrator', icon: ToolsIcon },
   { key: 'pitch_videos', label: 'Asset Search', icon: CameraIcon },
-  { key: 'post_show', label: 'Clipping Tool', icon: ToolsIcon },
+  { key: 'post_show', label: 'Video Tools', icon: ToolsIcon },
   { key: 'timeline', label: 'Timeline', icon: ToolsIcon, adminOnly: true },
   { key: 'mailer', label: 'Mailer', icon: MailerIcon, adminOnly: true },
   { key: 'graphics', label: 'Graphics', icon: GraphicsIcon, adminOnly: true },

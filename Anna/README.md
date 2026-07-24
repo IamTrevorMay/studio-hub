@@ -47,7 +47,7 @@ Read these first to orient before touching anything.
 
 ## Cluster 5: Debugging (`debugging/`)
 - [01-root-cause-playbook.md](debugging/01-root-cause-playbook.md) — Reproduce-first discipline, log-location table (browser/edge/pg/Vercel), the 5-step UI→component→query→table/RLS trace, MCP tool inventory, `/verify` + `/run`, desktop+mobile+role reproduction, fix discipline.
-- [02-known-issues-gotchas.md](debugging/02-known-issues-gotchas.md) — **The landmine map.** 11 known gotchas, each symptom→cause→workaround with `file:line`: sync-youtube stale, PT date class, migration divergence, leaked CRON_SECRET, node_modules churn, auth-refresh race, Triton read-only, accounting CSV sign-flip, unused newsletter fns (absent from tree), etc. **Consult this FIRST when debugging.**
+- [02-known-issues-gotchas.md](debugging/02-known-issues-gotchas.md) — **The landmine map.** 12 known gotchas, each symptom→cause→workaround with `file:line`: sync-youtube stale, PT date class, migration divergence, leaked CRON_SECRET, node_modules churn, auth-refresh race, Triton read-only, accounting CSV sign-flip, unused newsletter fns (absent from tree), ffmpeg.wasm ESM-core-not-UMD (Remuxer), etc. **Consult this FIRST when debugging.**
 - [03-supabase-debug.md](debugging/03-supabase-debug.md) — RLS denials, edge-function failures, realtime/RLS-read-set gotcha, migration-divergence recovery, cron checks; MCP tools named; diagnostic decision tree.
 
 ## Maintenance

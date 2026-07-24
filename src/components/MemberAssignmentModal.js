@@ -18,7 +18,7 @@ const PAGES = [
   { key: 'screenwriter', label: 'Screenwriter' },
   { key: 'teleprompter', label: 'Teleprompter' },
   { key: 'telestration', label: 'Telestrator' },
-  { key: 'post_show', label: 'Clipping Tool' },
+  { key: 'post_show', label: 'Video Tools' },
   { key: 'timeline', label: 'Timeline' },
   { key: 'reviews', label: 'Reviews' },
   { key: 'organize', label: 'Organize' },

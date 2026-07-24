@@ -50,7 +50,7 @@ const NAV_ITEMS = [
   { key: 'teleprompter', label: 'Teleprompter' },
   { key: 'broadcast', label: 'Broadcast', external: { url: 'https://www.tritonapex.io/broadcast' } },
   { key: 'telestration', label: 'Telestrator' },
-  { key: 'post_show', label: 'Clipping Tool' },
+  { key: 'post_show', label: 'Video Tools' },
   { key: 'reviews', label: 'Reviews' },
   { key: 'organize', label: 'Organize' },
   { key: 'projects', label: 'Projects' },
