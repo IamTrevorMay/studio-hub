@@ -292,32 +292,65 @@ tail chunks); HarborHome shows an "Archived" pill from
 `session.archived_at`. `ENDED_GRACE_MS` (6h) now lives in TWO places to keep
 in sync: `harbor-track/index.ts:57` and `api/harbor/archiver.js`.
 
+### Suite roster expansion — 7 apps + registry (2026-07-24, `claude/harbor`)
+
+- **`src/lib/suiteApps.js` is the app registry** — single source of truth for
+  launcher cards AND the layouts' suite rendering. `SUITE_APPS` entries:
+  `{ key, name, monogram, tagline, description, kind, segment?, href,
+  newTab?, localDefault?, tint }`. Kinds: `internal` (Bridge segment=null,
+  Harbor 'harbor'), `external` (Cast, Drift, Fathom — separate deployments),
+  `coming-soon` (Anchor '/anchor', Radar '/radar' →
+  `pages/SuiteComingSoon.js`, a generic teaser parameterized by registry
+  entry). Exports `SUITE_APP_SEGMENTS` (consumed by `suite.js` to build
+  `SUITE_VIEW_SEGMENTS = {'launcher','harbor','anchor','radar'}`) and
+  `getSuiteAppForSegment()` (used by both layouts for the teaser early
+  return and the generic `document.title` = `"<App> · Mayday Studio"`).
+- **External URLs from CRA env** (build-time): `REACT_APP_CAST_URL` (default
+  `http://localhost:3000`), `REACT_APP_DRIFT_URL` (default
+  `http://localhost:3001`), `REACT_APP_FATHOM_URL` (default
+  `https://cloud.maydaystudio.net`). Unset Cast/Drift env ⇒
+  `localDefault: true` ⇒ "Runs locally" hint on the card. Fathom is
+  `newTab: true` (`target="_blank" rel="noopener noreferrer"`), always.
+- **Cards are real `<a href>`s** (right-click / cmd-click / middle-click
+  natively open a new tab): internal + coming-soon cards preventDefault only
+  on a plain left-click (modifier clicks fall through to the browser) and
+  flip state via the layouts' `onOpenApp(app)` (bridge → `rememberBridge()` +
+  `setSuiteView(null)`; others → `setSuiteView(app.segment)`); external cards
+  never preventDefault — default anchor nav IS the behavior. Bridge's href is
+  `/dashboard` (deterministic; bare `/` depends on `suite_last_app`).
+- **Per-app monogram tints** in the registry, all token-sourced: Bridge steel
+  gradient, Harbor `info`, Cast `danger` (on-air red), Drift `violet` (**new
+  tone triple added to `styleTokens.js`**), Fathom `emerald`, Anchor
+  `warning`, Radar `success`.
 - Shared logic: `src/lib/suite.js` — `SUITE_LAST_APP_KEY = 'suite_last_app'`
-  (localStorage), `getSuiteViewFromPath()` (first segment → `'launcher'` |
-  `'harbor'` | `null` = Bridge; bare `/` → launcher unless `suite_last_app
-  === 'bridge'`), `rememberBridge()`.
+  (localStorage), `getSuiteViewFromPath()` (first segment → a
+  `SUITE_VIEW_SEGMENTS` member | `null` = Bridge; bare `/` → launcher unless
+  `suite_last_app === 'bridge'`), `rememberBridge()`.
 - Both layouts hold `suiteView` state next to `activeTab`. Staff only:
   `isSuiteUser = !isFreelancer && !isPartner` — portal roles are pinned to
   `suiteView = null` at init and in popstate, so a freelancer deep-linking
   `/launcher` still gets their portal.
 - Rendering: full-screen early returns (after all hooks, before the sidebar
-  shell) to `pages/SuiteLauncher.js` / `pages/HarborComingSoon.js`.
+  shell) to `pages/SuiteLauncher.js` / `pages/harbor/HarborApp.js` /
+  `pages/SuiteComingSoon.js`.
 - URL sync: the tab→URL effect is guarded — when `suiteView` is set, the suite
-  page owns the URL (`/launcher`, `/harbor`) and tab sync is skipped. popstate
-  re-resolves the suite view first, then falls through to tab resolution.
+  page owns the URL (`/launcher`, `/harbor`, `/anchor`, `/radar`) and tab sync
+  is skipped. popstate re-resolves the suite view first, then falls through to
+  tab resolution.
 - `suite_last_app` is written **only** when Bridge chrome renders (an effect on
-  `suiteView === null`); Harbor and the launcher never write it, so nobody gets
-  stranded on the teaser at next login. Explicit `/launcher` always shows the
-  launcher regardless of the stored value.
+  `suiteView === null`); Harbor, the teasers, and the launcher never write it,
+  so nobody gets stranded on a teaser at next login. Explicit `/launcher`
+  always shows the launcher regardless of the stored value.
 - Branding: staff sidebar header shows **Bridge** + a small "Mayday Studio"
   suite mark (`logoStack`/`logoSuiteMark` styles; same in `MobileDrawer` via
   `suiteBrand` prop). `document.title`: launcher "Mayday Studio", Bridge
-  "Bridge · Mayday Studio", Harbor "Harbor · Mayday Studio"; portal roles and
-  auth pages stay "Mayday Studio". Switcher: "Apps" button (grid icon) above
-  the Admin Mode toggle on desktop; "Apps" row above the mode toggle in
-  `MobileDrawer` (`onOpenLauncher` prop).
+  "Bridge · Mayday Studio", suite apps/teasers "<App> · Mayday Studio" via
+  `getSuiteAppForSegment`; portal roles and auth pages stay "Mayday Studio".
+  Switcher: "Apps" button (grid icon) above the Admin Mode toggle on desktop;
+  "Apps" row above the mode toggle in `MobileDrawer` (`onOpenLauncher` prop).
 - Token note: `fontSizes.displayLg: 28` was added to `styleTokens.js` for the
-  launcher/teaser hero headlines.
+  launcher/teaser hero headlines; `colors.violet` (bg/border/fg/fgSoft tone
+  triple) was added for Drift's tint.
 
 ## Routing model — `activeTab` state machine (`src/pages/AppLayout.js`)
 

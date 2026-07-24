@@ -53,8 +53,10 @@ import Morty from '../components/Morty';
 import FreelancerTour from '../components/FreelancerTour';
 import PageErrorBoundary from '../components/PageErrorBoundary';
 import SuiteLauncher from './SuiteLauncher';
+import SuiteComingSoon from './SuiteComingSoon';
 import HarborApp from './harbor/HarborApp';
 import { getSuiteViewFromPath, rememberBridge } from '../lib/suite';
+import { getSuiteAppForSegment } from '../lib/suiteApps';
 import { colors, fontSizes, fontWeights } from '../lib/styleTokens';
 
 // Sidebar catalog. Labels listed here are aliased internally — the user
@@ -366,7 +368,8 @@ export default function AppLayout() {
   }
 
   // Persist active tab to localStorage and URL, reset scroll. While a suite
-  // page (launcher / harbor) is showing, it owns the URL instead.
+  // page (launcher / harbor / a coming-soon teaser) is showing, it owns the
+  // URL instead.
   useEffect(() => {
     if (suiteView) {
       const seg = window.location.pathname.replace(/^\/+/, '').split('/')[0];
@@ -388,18 +391,20 @@ export default function AppLayout() {
     if (isSuiteUser && !suiteView) rememberBridge();
   }, [isSuiteUser, suiteView]);
 
-  // Browser-tab title per suite surface. Auth pages keep the index.html
-  // default; portal roles stay plain "Mayday Studio".
+  // Browser-tab title per suite surface ("Harbor · Mayday Studio",
+  // "Anchor · Mayday Studio", …). Auth pages keep the index.html default;
+  // portal roles stay plain "Mayday Studio".
   useEffect(() => {
+    const suiteApp = suiteView ? getSuiteAppForSegment(suiteView) : null;
     document.title = !isSuiteUser ? 'Mayday Studio'
-      : suiteView === 'harbor' ? 'Harbor · Mayday Studio'
+      : suiteApp ? `${suiteApp.name} · Mayday Studio`
       : suiteView === 'launcher' ? 'Mayday Studio'
       : 'Bridge · Mayday Studio';
   }, [isSuiteUser, suiteView]);
 
-  // Handle browser back/forward. Suite segments ('launcher' / 'harbor' / bare
-  // '/') resolve before tab resolution so history works across
-  // launcher ↔ Bridge ↔ Harbor.
+  // Handle browser back/forward. Suite segments ('launcher' / 'harbor' /
+  // 'anchor' / 'radar' / bare '/') resolve before tab resolution so history
+  // works across launcher ↔ Bridge ↔ Harbor ↔ teasers.
   useEffect(() => {
     function handlePopState() {
       if (isSuiteUser) {
@@ -545,17 +550,27 @@ export default function AppLayout() {
 
   // ── Mayday Studio suite pages (staff only; full-screen, no sidebar) ──
   // Rendered after all hooks. Portal roles never reach these (isSuiteUser),
-  // so their locked-portal behavior keeps precedence over /launcher, /harbor.
+  // so their locked-portal behavior keeps precedence over /launcher,
+  // /harbor, /anchor, /radar. Only Bridge writes suite_last_app (via
+  // rememberBridge here + the render effect above); Harbor and the
+  // coming-soon teasers never do. External apps (Cast/Drift/Fathom) are
+  // plain links on the launcher cards — they never set suiteView.
   if (isSuiteUser && suiteView === 'launcher') {
     return (
       <SuiteLauncher
-        onOpenBridge={() => { rememberBridge(); setSuiteView(null); }}
-        onOpenHarbor={() => setSuiteView('harbor')}
+        onOpenApp={(app) => {
+          if (app.key === 'bridge') { rememberBridge(); setSuiteView(null); }
+          else if (app.segment) setSuiteView(app.segment);
+        }}
       />
     );
   }
   if (isSuiteUser && suiteView === 'harbor') {
     return <HarborApp onBackToLauncher={() => setSuiteView('launcher')} />;
+  }
+  const comingSoonApp = isSuiteUser && suiteView ? getSuiteAppForSegment(suiteView) : null;
+  if (comingSoonApp && comingSoonApp.kind === 'coming-soon') {
+    return <SuiteComingSoon app={comingSoonApp} onBackToLauncher={() => setSuiteView('launcher')} />;
   }
 
   return (

@@ -105,6 +105,15 @@ export const colors = {
     fg:     '#38bdf8',
     fgSoft: '#7dd3fc',
   },
+  // Violet — added for the suite launcher's per-app monogram tints (Drift),
+  // where the six existing hues (steel, sky, green, teal, amber, red) run
+  // out. General-purpose tone triple, same shape as the others.
+  violet: {
+    bg:     'rgba(139,92,246,0.15)',
+    border: 'rgba(139,92,246,0.35)',
+    fg:     '#8b5cf6',
+    fgSoft: '#c4b5fd',
+  },
 };
 
 // ─── Spacing scale ─────────────────────────────────────────────

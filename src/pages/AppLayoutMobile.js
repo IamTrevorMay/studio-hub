@@ -37,8 +37,10 @@ import Ops from './OpsMobile';
 import Analytics from './AnalyticsMobile';
 import Tracking from './TrackingMobile';
 import SuiteLauncher from './SuiteLauncher';
+import SuiteComingSoon from './SuiteComingSoon';
 import HarborApp from './harbor/HarborApp';
 import { getSuiteViewFromPath, rememberBridge } from '../lib/suite';
+import { getSuiteAppForSegment } from '../lib/suiteApps';
 import { colors } from '../lib/styleTokens';
 // Goals page is sunset on desktop; mobile mirrors that — import + nav
 // entry + route case removed. Re-add when goals comes back, if ever.
@@ -186,7 +188,8 @@ export default function AppLayoutMobile() {
   const mainRef = React.useRef(null);
 
   // Persist active tab + URL, reset scroll on change. While a suite page
-  // (launcher / harbor) is showing, it owns the URL instead (mirror desktop).
+  // (launcher / harbor / a coming-soon teaser) is showing, it owns the URL
+  // instead (mirror desktop).
   useEffect(() => {
     if (suiteView) {
       const seg = window.location.pathname.replace(/^\/+/, '').split('/')[0];
@@ -209,8 +212,9 @@ export default function AppLayoutMobile() {
 
   // Browser-tab title per suite surface (mirror desktop).
   useEffect(() => {
+    const suiteApp = suiteView ? getSuiteAppForSegment(suiteView) : null;
     document.title = !isSuiteUser ? 'Mayday Studio'
-      : suiteView === 'harbor' ? 'Harbor · Mayday Studio'
+      : suiteApp ? `${suiteApp.name} · Mayday Studio`
       : suiteView === 'launcher' ? 'Mayday Studio'
       : 'Bridge · Mayday Studio';
   }, [isSuiteUser, suiteView]);
@@ -354,16 +358,25 @@ export default function AppLayoutMobile() {
 
   // ── Mayday Studio suite pages (staff only; full-screen, no chrome) ──
   // Rendered after all hooks; portal roles never reach these (isSuiteUser).
+  // Only Bridge writes suite_last_app; Harbor and the coming-soon teasers
+  // never do. External apps (Cast/Drift/Fathom) are plain links on the
+  // launcher cards — they never set suiteView (mirror desktop).
   if (isSuiteUser && suiteView === 'launcher') {
     return (
       <SuiteLauncher
-        onOpenBridge={() => { rememberBridge(); setSuiteView(null); }}
-        onOpenHarbor={() => setSuiteView('harbor')}
+        onOpenApp={(app) => {
+          if (app.key === 'bridge') { rememberBridge(); setSuiteView(null); }
+          else if (app.segment) setSuiteView(app.segment);
+        }}
       />
     );
   }
   if (isSuiteUser && suiteView === 'harbor') {
     return <HarborApp onBackToLauncher={() => setSuiteView('launcher')} />;
+  }
+  const comingSoonApp = isSuiteUser && suiteView ? getSuiteAppForSegment(suiteView) : null;
+  if (comingSoonApp && comingSoonApp.kind === 'coming-soon') {
+    return <SuiteComingSoon app={comingSoonApp} onBackToLauncher={() => setSuiteView('launcher')} />;
   }
 
   const title = TAB_LABELS[activeTab] || 'Mayday Studio';
