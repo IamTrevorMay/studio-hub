@@ -1,63 +1,18 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { toast } from '../contexts/ToastContext';
 import useVisibilityRefresh from '../hooks/useVisibilityRefresh';
-import usePersistedTab from '../hooks/usePersistedTab';
 import { fetchAllRows } from './analytics/utils';
 import backdropDismiss from '../lib/backdropDismiss';
 import { clickableKeyProps } from '../lib/styleRecipes';
 import { colors } from '../lib/styleTokens';
-import {
-  BD_TAGS, BD_STATUSES, BD_STATUS_MAP, computeBdAttention, syncBdTaskToBacklog,
-  bdTodayPT, addDaysToDateStr, WAITING_AGE_DAYS, STALE_ACTIVE_DAYS,
-} from '../lib/bdAttention';
 
 // ════════════════════════════════════════════════════════════
-// Constants
+// Constants — BD Goals (preserved from the previous page)
 // ════════════════════════════════════════════════════════════
-const WORKSTREAMS = [
-  { key: 'facility',   label: 'Facility',          color: '#f59e0b' },
-  { key: 'product',    label: 'Product',           color: '#8b5cf6' },
-  { key: 'marketing',  label: 'Marketing & Brand', color: '#ec4899' },
-  { key: 'sales',      label: 'Sales / BD',        color: '#10b981' },
-  { key: 'operations', label: 'Operations',        color: '#3b82f6' },
-  { key: 'finance',    label: 'Finance',           color: '#22c55e' },
-  { key: 'tech',       label: 'Tech / Systems',    color: '#06b6d4' },
-];
-// Quick-capture bucket — not a real workstream. Rendered as a triage section
-// at the top of each phase card; items get reassigned via the edit form.
-const INBOX_WS = { key: 'inbox', label: 'Inbox', color: colors.gold };
-const WORKSTREAM_MAP = Object.fromEntries([INBOX_WS, ...WORKSTREAMS].map(w => [w.key, w]));
-
-// Tag/status metadata is shared with BusinessDevMobile via src/lib/bdAttention.js.
-const STATUSES = BD_STATUSES;
-const STATUS_MAP = Object.fromEntries(STATUSES.map(s => [s.key, s]));
-const STATUS_ORDER = { active: 0, planned: 1, waiting: 2, ideas: 3, done: 4 };
-
-const TAGS = BD_TAGS;
-const TAG_MAP = Object.fromEntries(TAGS.map(t => [t.key, t]));
-
-const PRIORITIES = [
-  { key: 'high', label: 'High', color: '#ef4444' },
-  { key: 'med',  label: 'Med',  color: '#f59e0b' },
-  { key: 'low',  label: 'Low',  color: '#94a3b8' },
-];
-
-const RECURRENCE_OPTIONS = [
-  { key: '',        label: 'No repeat' },
-  { key: 'daily',   label: 'Daily' },
-  { key: 'weekly',  label: 'Weekly' },
-  { key: 'monthly', label: 'Monthly' },
-];
-
-const PHASE_PALETTE = ['#5b8fc7', '#06b6d4', '#a78bfa', '#22c55e', '#f59e0b', '#ec4899', '#3b82f6', '#10b981'];
-function phaseColor(phaseIdx) { return PHASE_PALETTE[phaseIdx % PHASE_PALETTE.length]; }
-
-const COMPLETED_GRACE_HOURS = 24;
-
 const PLATFORM_META = {
   youtube:   { label: 'YouTube',   color: '#FF0000' },
   facebook:  { label: 'Facebook',  color: '#1877F2' },
@@ -102,7 +57,7 @@ function formatTargetForMetric(key, value) {
 }
 
 // Note ordering still respects legacy stored priorities (higher first), but
-// the 9-level priority picker UI was removed — new notes are text-only.
+// the priority picker UI was removed — new notes are text-only.
 function sortByPriority(items, completedKey = 'checked') {
   return [...items].sort((a, b) => {
     const ac = a[completedKey] ? 1 : 0;
@@ -114,44 +69,6 @@ function sortByPriority(items, completedKey = 'checked') {
     return (a.position ?? 0) - (b.position ?? 0);
   });
 }
-
-// ════════════════════════════════════════════════════════════
-// Helpers
-// ════════════════════════════════════════════════════════════
-function todayStr() { return new Date().toISOString().split('T')[0]; }
-function parseDateLocal(dateStr) { return dateStr ? new Date(dateStr + 'T00:00:00') : null; }
-function daysBetween(a, b) { return Math.round((a - b) / 86400000); }
-
-function formatDate(dateStr) {
-  if (!dateStr) return '';
-  return parseDateLocal(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
-function formatDateShort(dateStr) {
-  if (!dateStr) return '';
-  return parseDateLocal(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-function formatDeadline(dateStr) {
-  if (!dateStr) return null;
-  const d = parseDateLocal(dateStr);
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  const diff = daysBetween(d, now);
-  if (diff < 0)  return { sub: `${Math.abs(diff)}d overdue`, color: '#ef4444' };
-  if (diff === 0) return { sub: 'Due today',                color: '#f59e0b' };
-  if (diff <= 7)  return { sub: `${diff}d left`,            color: '#f59e0b' };
-  return { sub: `${diff}d left`, color: 'rgba(255,255,255,0.4)' };
-}
-function formatBudget(cents) {
-  if (cents == null) return null;
-  const dollars = cents / 100;
-  if (Math.abs(dollars) >= 1000) return `$${(dollars / 1000).toFixed(dollars >= 10000 ? 0 : 1)}k`;
-  return `$${dollars.toLocaleString()}`;
-}
-function isRecentlyCompleted(completedAt) {
-  if (!completedAt) return false;
-  return (Date.now() - new Date(completedAt).getTime()) / 3_600_000 < COMPLETED_GRACE_HOURS;
-}
-function effectiveTag(task, initiative) { return task.tag || initiative?.tag || 'shared'; }
 
 function progressColor(pct) {
   const r = Math.round(0x86 + (0x16 - 0x86) * pct);
@@ -170,16 +87,34 @@ function formatTimeAgo(dateStr) {
 }
 
 // ════════════════════════════════════════════════════════════
-// Empty form templates
+// Constants — Roadmap
 // ════════════════════════════════════════════════════════════
-const EMPTY_PHASE = { name: '', launch_target_date: '', assigned_partners: [] };
-const EMPTY_INITIATIVE = {
-  workstream: 'facility', title: '', description: '', status: 'planned',
-  tag: 'shared', owner_id: null, target_date: '', budget_dollars: '',
-  priority: 'med', phase_id: null,
-};
-const EMPTY_TASK = { title: '', notes: '', tag: '', owner_id: null, due_date: '', recurrence_interval: '', recurrence_count: 1 };
+function parseDateLocal(dateStr) { return dateStr ? new Date(dateStr + 'T00:00:00') : null; }
+function daysBetween(a, b) { return Math.round((a - b) / 86400000); }
+
+function formatDate(dateStr) {
+  if (!dateStr) return '';
+  return parseDateLocal(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function formatDateShort(dateStr) {
+  if (!dateStr) return '';
+  return parseDateLocal(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+function formatDeadline(dateStr) {
+  if (!dateStr) return null;
+  const d = parseDateLocal(dateStr);
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const diff = daysBetween(d, now);
+  if (diff < 0)   return { sub: `${Math.abs(diff)}d overdue`, color: '#ef4444' };
+  if (diff === 0) return { sub: 'Due today',                  color: '#f59e0b' };
+  if (diff <= 14) return { sub: `${diff}d left`,              color: '#f59e0b' };
+  return { sub: `${diff}d left`, color: 'rgba(255,255,255,0.4)' };
+}
+
+const EMPTY_ROADMAP = { name: '', deadline_name: '', deadline_date: '' };
 const EMPTY_MILESTONE = { title: '', target_date: '' };
+const EMPTY_TASK = { title: '', description: '', due_date: '' };
 const EMPTY_BD_GOAL = { title: '', description: '', current_value: '', target_value: '', category: 'quarterly', goal_type: 'manual', metrics: [], platform_account_ids: [] };
 const EMPTY_BD_MONTHLY = { title: '', target_value: '' };
 
@@ -190,49 +125,32 @@ export default function BusinessDev() {
   const { profile, isAdmin, isPartner } = useAuth();
   const confirm = useConfirm();
 
-  // Data
-  const [phases, setPhases] = useState([]);
-  const [initiatives, setInitiatives] = useState([]);
-  const [tasks, setTasks] = useState([]);
-  const [links, setLinks] = useState([]);
+  // ── Roadmap data ──
+  const [roadmaps, setRoadmaps] = useState([]);
   const [milestones, setMilestones] = useState([]);
-  const [admins, setAdmins] = useState([]);
-  const [partners, setPartners] = useState([]);
+  const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // View
-  const [view, setView] = usePersistedTab('business-dev-view', 'phases', ['phases', 'timeline', 'calendar', 'mine']); // phases | timeline | calendar | mine
+  // Expand/collapse
+  const [expandedRoadmaps, setExpandedRoadmaps] = useState({});   // roadmapId -> bool
+  const [expandedMilestones, setExpandedMilestones] = useState({}); // milestoneId -> bool
 
-  // UI state
-  const [expandedPhases, setExpandedPhases] = useState({}); // phaseId -> bool
-  const [collapsedWorkstreams, setCollapsedWorkstreams] = useState({}); // `${phaseId}::${ws}` -> bool
-  const [expandedInitiatives, setExpandedInitiatives] = useState({});
-  const [tagFilters, setTagFilters] = useState({}); // phaseId -> 'all'|'mayday'|'neptune'|'shared'
-  const [hideDones, setHideDones] = useState({});   // phaseId -> bool (default true)
-  const [enabledPhases, setEnabledPhases] = useState({}); // phaseId -> bool (for global views)
+  // Roadmap form (modal)
+  const [showRoadmapForm, setShowRoadmapForm] = useState(false);
+  const [editingRoadmapId, setEditingRoadmapId] = useState(null);
+  const [roadmapForm, setRoadmapForm] = useState(EMPTY_ROADMAP);
 
-  // Forms
-  const [showPhaseForm, setShowPhaseForm] = useState(false);
-  const [editingPhaseId, setEditingPhaseId] = useState(null);
-  const [phaseForm, setPhaseForm] = useState(EMPTY_PHASE);
-
-  const [showInitForm, setShowInitForm] = useState(false);
-  const [editingInitId, setEditingInitId] = useState(null);
-  const [initForm, setInitForm] = useState(EMPTY_INITIATIVE);
-
-  const [taskFormFor, setTaskFormFor] = useState(null);
-  const [editingTaskId, setEditingTaskId] = useState(null);
-  const [taskForm, setTaskForm] = useState(EMPTY_TASK);
-
-  const [milestoneFormFor, setMilestoneFormFor] = useState(null); // phaseId
+  // Milestone inline form (per roadmap)
+  const [milestoneFormFor, setMilestoneFormFor] = useState(null); // roadmapId
   const [editingMilestoneId, setEditingMilestoneId] = useState(null);
   const [milestoneForm, setMilestoneForm] = useState(EMPTY_MILESTONE);
 
-  // Delete-confirm state
-  const [deletingPhase, setDeletingPhase] = useState(null); // phase object
-  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  // Task inline form (per milestone)
+  const [taskFormFor, setTaskFormFor] = useState(null); // milestoneId
+  const [editingTaskId, setEditingTaskId] = useState(null);
+  const [taskForm, setTaskForm] = useState(EMPTY_TASK);
 
-  // BD Goals state
+  // ── BD Goals state (preserved) ──
   const [bdGoalsExpanded, setBdGoalsExpanded] = useState(true);
   const [bdGoals, setBdGoals] = useState([]);
   const [bdMonthlyGoals, setBdMonthlyGoals] = useState([]);
@@ -252,62 +170,30 @@ export default function BusinessDev() {
   const [bdAccounts, setBdAccounts] = useState([]);
   const [bdRollupData, setBdRollupData] = useState({});
 
-  // Quick-capture (inbox) state
-  const [quickAddTitle, setQuickAddTitle] = useState('');
-  const [quickAddPhaseId, setQuickAddPhaseId] = useState(null);
-
   // ─────────────────────────────────────────────
-  // Fetch all
+  // Fetch roadmap tree
   // ─────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [phRes, initRes, taskRes, linkRes, msRes, adminRes, partnerRes] = await Promise.all([
-        supabase.from('bd_phases').select('*').is('archived_at', null).order('position'),
-        fetchAllRows(supabase.from('bd_initiatives').select('*').order('position')),
-        fetchAllRows(supabase.from('bd_tasks').select('*').order('position')),
-        supabase.from('bd_initiative_links').select('*').order('position'),
-        supabase.from('bd_milestones').select('*').is('retired_at', null).order('target_date'),
-        supabase.from('profiles').select('id, full_name, role').in('role', ['admin', 'partner']).order('full_name'),
-        supabase.from('profiles').select('id, full_name').eq('role', 'partner').order('full_name'),
+      const [rmRes, msRes, taskRes] = await Promise.all([
+        supabase.from('roadmaps').select('*').order('position', { ascending: true }).order('created_at', { ascending: true }),
+        fetchAllRows(supabase.from('roadmap_milestones').select('*').order('position', { ascending: true }).order('created_at', { ascending: true })),
+        fetchAllRows(supabase.from('roadmap_tasks').select('*').order('position', { ascending: true }).order('created_at', { ascending: true })),
       ]);
-      const phs = phRes.data || [];
-      setPartners(partnerRes.data || []);
-      setPhases(phs);
-      setInitiatives(initRes || []);
+      const rms = rmRes.data || [];
+      setRoadmaps(rms);
+      setMilestones(msRes || []);
       setTasks(taskRes || []);
-      setLinks(linkRes.data || []);
-      setMilestones(msRes.data || []);
-      setAdmins(adminRes.data || []);
-
-      // Default expanded state on first load: solo phase = expanded, multi = collapsed
-      setExpandedPhases(prev => {
+      // Solo roadmap auto-expands on first load; multi defaults collapsed.
+      setExpandedRoadmaps(prev => {
         if (Object.keys(prev).length > 0) return prev;
         const next = {};
-        if (phs.length === 1) next[phs[0].id] = true;
-        return next;
-      });
-
-      // Default enabledPhases for global views: all on
-      setEnabledPhases(prev => {
-        const next = { ...prev };
-        for (const p of phs) if (next[p.id] === undefined) next[p.id] = true;
-        return next;
-      });
-
-      // Default per-phase filters
-      setTagFilters(prev => {
-        const next = { ...prev };
-        for (const p of phs) if (!next[p.id]) next[p.id] = 'all';
-        return next;
-      });
-      setHideDones(prev => {
-        const next = { ...prev };
-        for (const p of phs) if (next[p.id] === undefined) next[p.id] = true;
+        if (rms.length === 1) next[rms[0].id] = true;
         return next;
       });
     } catch (err) {
-      console.error('BusinessDev fetch error:', err);
+      console.error('Roadmap fetch error:', err);
     } finally {
       setLoading(false);
     }
@@ -320,7 +206,7 @@ export default function BusinessDev() {
   useVisibilityRefresh(fetchAll);
 
   // ─────────────────────────────────────────────
-  // BD Goals fetch & CRUD
+  // BD Goals fetch & CRUD (preserved)
   // ─────────────────────────────────────────────
   const fetchBdRollupData = useCallback(async (metricGoals) => {
     if (!metricGoals.length) { setBdRollupData({}); return; }
@@ -453,16 +339,12 @@ export default function BusinessDev() {
     const reordered = Array.from(group);
     const [moved] = reordered.splice(result.source.index, 1);
     reordered.splice(result.destination.index, 0, moved);
-    // Re-base positions for this category using a contiguous block starting at the
-    // smallest existing position in the group (or 0 if none set yet).
     const baseRaw = Math.min(...group.map(g => (g.position != null ? g.position : Number.POSITIVE_INFINITY)));
     const base = Number.isFinite(baseRaw) ? baseRaw : 0;
     const reindexed = reordered.map((g, idx) => ({ ...g, position: base + idx }));
-    // Optimistic state update: replace just this category's goals.
     setBdGoals(prev => {
       const others = prev.filter(g => g.category !== category);
       const merged = [...others, ...reindexed];
-      // Preserve overall order by position-then-created
       return merged.sort((a, b) => {
         const pa = a.position == null ? Number.POSITIVE_INFINITY : a.position;
         const pb = b.position == null ? Number.POSITIVE_INFINITY : b.position;
@@ -605,596 +487,312 @@ export default function BusinessDev() {
     }
   }
 
-
   // ─────────────────────────────────────────────
   // Derived
   // ─────────────────────────────────────────────
-  const phasesById = useMemo(() => Object.fromEntries(phases.map(p => [p.id, p])), [phases]);
-  const phaseIndexById = useMemo(() => Object.fromEntries(phases.map((p, i) => [p.id, i])), [phases]);
-
-  const tasksByInitiative = useMemo(() => {
+  const milestonesByRoadmap = useMemo(() => {
     const m = {};
-    for (const t of tasks) (m[t.initiative_id] = m[t.initiative_id] || []).push(t);
-    return m;
-  }, [tasks]);
-
-  const linksByInitiative = useMemo(() => {
-    const m = {};
-    for (const l of links) (m[l.initiative_id] = m[l.initiative_id] || []).push(l);
-    return m;
-  }, [links]);
-
-  const initiativesByPhase = useMemo(() => {
-    const m = {};
-    for (const i of initiatives) (m[i.phase_id] = m[i.phase_id] || []).push(i);
-    return m;
-  }, [initiatives]);
-
-  const milestonesByPhase = useMemo(() => {
-    const m = {};
-    for (const ms of milestones) (m[ms.phase_id] = m[ms.phase_id] || []).push(ms);
+    for (const ms of milestones) (m[ms.roadmap_id] = m[ms.roadmap_id] || []).push(ms);
     return m;
   }, [milestones]);
 
-  const attention = useMemo(
-    () => computeBdAttention({ tasks, initiatives, phases }),
-    [tasks, initiatives, phases]
-  );
+  const tasksByMilestone = useMemo(() => {
+    const m = {};
+    for (const t of tasks) (m[t.milestone_id] = m[t.milestone_id] || []).push(t);
+    return m;
+  }, [tasks]);
 
   // ─────────────────────────────────────────────
-  // Phase CRUD
+  // Roadmap CRUD
   // ─────────────────────────────────────────────
-  function openCreatePhase() {
-    setEditingPhaseId(null);
-    setPhaseForm(EMPTY_PHASE);
-    setShowPhaseForm(true);
+  function openCreateRoadmap() {
+    setEditingRoadmapId(null);
+    setRoadmapForm(EMPTY_ROADMAP);
+    setShowRoadmapForm(true);
   }
-  function openEditPhase(phase) {
-    setEditingPhaseId(phase.id);
-    setPhaseForm({ name: phase.name, launch_target_date: phase.launch_target_date || '', assigned_partners: phase.assigned_partners || [] });
-    setShowPhaseForm(true);
+  function openEditRoadmap(rm) {
+    setEditingRoadmapId(rm.id);
+    setRoadmapForm({ name: rm.name, deadline_name: rm.deadline_name || '', deadline_date: rm.deadline_date || '' });
+    setShowRoadmapForm(true);
   }
-  function cancelPhaseForm() {
-    setShowPhaseForm(false);
-    setEditingPhaseId(null);
-    setPhaseForm(EMPTY_PHASE);
+  function cancelRoadmapForm() {
+    setShowRoadmapForm(false);
+    setEditingRoadmapId(null);
+    setRoadmapForm(EMPTY_ROADMAP);
   }
-  async function handlePhaseSubmit(e) {
+  async function handleRoadmapSubmit(e) {
     e.preventDefault();
-    const name = phaseForm.name.trim();
-    if (!name) return;
-    const payload = { name, launch_target_date: phaseForm.launch_target_date || null, assigned_partners: phaseForm.assigned_partners || [] };
-    if (editingPhaseId) {
-      const { error } = await supabase.from('bd_phases').update(payload).eq('id', editingPhaseId);
-      if (error) { toast.error(error.message); return; }
-    } else {
-      const maxPos = Math.max(0, ...phases.map(p => p.position || 0));
-      const { data, error } = await supabase.from('bd_phases').insert({
-        ...payload, position: maxPos + 1, created_by: profile.id,
-      }).select().single();
-      if (error) { toast.error(error.message); return; }
-      // Auto-expand newly created phase
-      setExpandedPhases(prev => ({ ...prev, [data.id]: true }));
-      setEnabledPhases(prev => ({ ...prev, [data.id]: true }));
-      setTagFilters(prev => ({ ...prev, [data.id]: 'all' }));
-      setHideDones(prev => ({ ...prev, [data.id]: true }));
-    }
-    cancelPhaseForm();
-    fetchAll();
-  }
-  function openDeletePhase(phase) {
-    setDeletingPhase(phase);
-    setDeleteConfirmText('');
-  }
-  function cancelDeletePhase() {
-    setDeletingPhase(null);
-    setDeleteConfirmText('');
-  }
-  async function confirmDeletePhase() {
-    if (!deletingPhase) return;
-    if (deleteConfirmText !== deletingPhase.name) return;
-    // Cascade deletes bd_initiatives + bd_tasks, but not the personal_tasks
-    // mirrors keyed on bd_task_id — remove those for every task under the phase.
-    const initIds = new Set(initiatives.filter(i => i.phase_id === deletingPhase.id).map(i => i.id));
-    const taskIds = tasks.filter(t => initIds.has(t.initiative_id)).map(t => t.id);
-    if (taskIds.length) await supabase.from('personal_tasks').delete().in('bd_task_id', taskIds);
-    await supabase.from('bd_phases').delete().eq('id', deletingPhase.id);
-    cancelDeletePhase();
-    fetchAll();
-  }
-  async function handleMovePhase(phase, direction) {
-    const idx = phases.findIndex(p => p.id === phase.id);
-    const newIdx = direction === 'up' ? idx - 1 : idx + 1;
-    if (newIdx < 0 || newIdx >= phases.length) return;
-    const swap = phases[newIdx];
-    await Promise.all([
-      supabase.from('bd_phases').update({ position: swap.position }).eq('id', phase.id),
-      supabase.from('bd_phases').update({ position: phase.position }).eq('id', swap.id),
-    ]);
-    fetchAll();
-  }
-
-  // ─────────────────────────────────────────────
-  // Initiative CRUD
-  // ─────────────────────────────────────────────
-  function openCreateInit(phaseId, workstream) {
-    setEditingInitId(null);
-    setInitForm({ ...EMPTY_INITIATIVE, phase_id: phaseId, workstream: workstream || 'facility' });
-    setShowInitForm(true);
-  }
-  function openEditInit(init) {
-    setEditingInitId(init.id);
-    setInitForm({
-      workstream: init.workstream,
-      title: init.title,
-      description: init.description || '',
-      status: init.status,
-      tag: init.tag,
-      owner_id: init.owner_id || null,
-      target_date: init.target_date || '',
-      budget_dollars: init.budget_cents != null ? String(init.budget_cents / 100) : '',
-      priority: init.priority,
-      phase_id: init.phase_id,
-      _links: linksByInitiative[init.id] || [],
-    });
-    setShowInitForm(true);
-  }
-  function cancelInitForm() {
-    setShowInitForm(false);
-    setEditingInitId(null);
-    setInitForm(EMPTY_INITIATIVE);
-  }
-  async function handleInitSubmit(e) {
-    e?.preventDefault();
-    const title = initForm.title.trim();
-    if (!title || !initForm.phase_id) { toast.error('Title and phase are required.'); return; }
-    const budget_cents = initForm.budget_dollars === '' ? null : Math.round(parseFloat(initForm.budget_dollars) * 100);
-    const status = initForm.status;
-    const original = editingInitId ? initiatives.find(i => i.id === editingInitId) : null;
-    // Only stamp completed_at on the transition into 'done'. Re-stamping on every
-    // save of an already-done initiative reset the 24h auto-archive timer and
-    // clobbered the real completion time.
-    const completed_at = status === 'done'
-      ? ((original?.status === 'done' && original.completed_at) ? original.completed_at : new Date().toISOString())
-      : null;
+    const name = roadmapForm.name.trim();
+    if (!name) { toast.error('Name is required.'); return; }
     const payload = {
-      phase_id: initForm.phase_id,
-      workstream: initForm.workstream,
-      title,
-      description: initForm.description || null,
-      status, tag: initForm.tag,
-      owner_id: initForm.owner_id || null,
-      target_date: initForm.target_date || null,
-      budget_cents,
-      priority: initForm.priority,
-      completed_at,
+      name,
+      deadline_name: roadmapForm.deadline_name.trim() || null,
+      deadline_date: roadmapForm.deadline_date || null,
     };
-
-    let savedId = editingInitId;
-    if (editingInitId) {
-      // Moved to a different phase or workstream → place at the end of the new
-      // group so its old position can't collide with destination siblings.
-      if (original && (original.phase_id !== payload.phase_id || original.workstream !== payload.workstream)) {
-        const dstSiblings = (initiativesByPhase[payload.phase_id] || [])
-          .filter(i => i.workstream === payload.workstream && i.id !== editingInitId);
-        payload.position = Math.max(0, ...dstSiblings.map(i => i.position || 0)) + 1;
-      }
-      const { error } = await supabase.from('bd_initiatives').update(payload).eq('id', editingInitId);
+    if (editingRoadmapId) {
+      const { error } = await supabase.from('roadmaps').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', editingRoadmapId);
       if (error) { toast.error(error.message); return; }
     } else {
-      const siblings = (initiativesByPhase[payload.phase_id] || []).filter(i => i.workstream === payload.workstream);
-      const maxPos = Math.max(0, ...siblings.map(i => i.position || 0));
-      const { data, error } = await supabase.from('bd_initiatives').insert({
-        ...payload, position: maxPos + 1, created_by: profile.id,
-      }).select().single();
+      const nextPos = roadmaps.length > 0 ? Math.max(...roadmaps.map(r => r.position || 0)) + 1 : 0;
+      const { data, error } = await supabase.from('roadmaps').insert({ ...payload, position: nextPos }).select().single();
       if (error) { toast.error(error.message); return; }
-      savedId = data.id;
+      if (data) setExpandedRoadmaps(prev => ({ ...prev, [data.id]: true }));
     }
-
-    // Sync links
-    if (initForm._links !== undefined && savedId) {
-      const desired = initForm._links.filter(l => l.label?.trim() && l.url?.trim());
-      const existing = linksByInitiative[savedId] || [];
-      const desiredIds = new Set(desired.filter(l => l.id).map(l => l.id));
-      for (const l of existing) {
-        if (!desiredIds.has(l.id)) await supabase.from('bd_initiative_links').delete().eq('id', l.id);
-      }
-      for (let i = 0; i < desired.length; i++) {
-        const l = desired[i];
-        if (l.id) {
-          await supabase.from('bd_initiative_links').update({ label: l.label, url: l.url, position: i }).eq('id', l.id);
-        } else {
-          await supabase.from('bd_initiative_links').insert({ initiative_id: savedId, label: l.label, url: l.url, position: i });
-        }
-      }
-    }
-    cancelInitForm();
+    cancelRoadmapForm();
     fetchAll();
   }
-  async function handleDeleteInit(id) {
-    if (!(await confirm('Delete this initiative and all its tasks?'))) return;
-    // bd_tasks cascade in the DB, but the personal_tasks mirror keyed on
-    // bd_task_id does not — drop those mirrors first so they don't orphan in
-    // owners' backlogs.
-    const taskIds = tasks.filter(t => t.initiative_id === id).map(t => t.id);
-    if (taskIds.length) await supabase.from('personal_tasks').delete().in('bd_task_id', taskIds);
-    await supabase.from('bd_initiatives').delete().eq('id', id);
-    fetchAll();
-  }
-  async function handleInitiativeStatusChange(id, newStatus) {
-    const completed_at = newStatus === 'done' ? new Date().toISOString() : null;
-    await supabase.from('bd_initiatives').update({ status: newStatus, completed_at }).eq('id', id);
-    fetchAll();
-  }
-  async function handleMoveInitiative(initiative, direction) {
-    const siblings = initiatives
-      .filter(i => i.phase_id === initiative.phase_id && i.workstream === initiative.workstream)
-      .sort((a, b) => (a.position || 0) - (b.position || 0));
-    const idx = siblings.findIndex(i => i.id === initiative.id);
-    const newIdx = direction === 'up' ? idx - 1 : idx + 1;
-    if (newIdx < 0 || newIdx >= siblings.length) return;
-    const swap = siblings[newIdx];
-    await Promise.all([
-      supabase.from('bd_initiatives').update({ position: swap.position }).eq('id', initiative.id),
-      supabase.from('bd_initiatives').update({ position: initiative.position }).eq('id', swap.id),
-    ]);
-    fetchAll();
-  }
-
-  // ─────────────────────────────────────────────
-  // Drag-and-drop reorder
-  // ─────────────────────────────────────────────
-  async function handleReorderInitiative(draggedId, targetId, phaseId, workstream) {
-    const siblings = initiatives
-      .filter(i => i.phase_id === phaseId && i.workstream === workstream)
-      .sort((a, b) => (a.position || 0) - (b.position || 0));
-    const ordered = siblings.map(i => i.id);
-    const fromIdx = ordered.indexOf(draggedId);
-    if (fromIdx === -1) return;
-    ordered.splice(fromIdx, 1);
-    const toIdx = ordered.indexOf(targetId);
-    if (toIdx === -1) return;
-    ordered.splice(toIdx, 0, draggedId);
-    await Promise.all(ordered.map((id, i) =>
-      supabase.from('bd_initiatives').update({ position: i }).eq('id', id)
-    ));
-    fetchAll();
-  }
-
-  async function handleReorderTask(draggedId, targetId, sourceInitId, destInitId) {
-    // Move task to a different initiative if needed
-    if (sourceInitId !== destInitId) {
-      await supabase.from('bd_tasks').update({ initiative_id: destInitId }).eq('id', draggedId);
-    }
-    // Reorder within the destination initiative
-    const destTasks = tasks
-      .filter(t => t.initiative_id === destInitId && t.id !== draggedId)
-      .sort((a, b) => (a.position || 0) - (b.position || 0));
-    const ordered = destTasks.map(t => t.id);
-    if (targetId) {
-      const toIdx = ordered.indexOf(targetId);
-      if (toIdx !== -1) ordered.splice(toIdx, 0, draggedId);
-      else ordered.push(draggedId);
-    } else {
-      ordered.push(draggedId);
-    }
-    await Promise.all(ordered.map((id, i) =>
-      supabase.from('bd_tasks').update({ position: i }).eq('id', id)
-    ));
-    fetchAll();
-  }
-
-  // ─────────────────────────────────────────────
-  // Task CRUD
-  // ─────────────────────────────────────────────
-  function openCreateTask(initiativeId) {
-    setEditingTaskId(null);
-    setTaskForm(EMPTY_TASK);
-    setTaskFormFor(initiativeId);
-  }
-  function openEditTask(task) {
-    setEditingTaskId(task.id);
-    setTaskForm({
-      title: task.title,
-      notes: task.notes || '',
-      tag: task.tag || '',
-      owner_id: task.owner_id || null,
-      due_date: task.due_date || '',
-      recurrence_interval: task.recurrence_interval || '',
-      recurrence_count: task.recurrence_count || 1,
-    });
-    setTaskFormFor(task.initiative_id);
-  }
-  // The task form is rendered inline inside the Phases view (inside its
-  // initiative card). When edit is clicked from My Stuff (or any non-phases
-  // view), we need to switch views and make sure the parent phase + workstream
-  // are expanded so the form is actually visible.
-  function openEditTaskFromAnywhere(task) {
-    const init = initiatives.find(i => i.id === task.initiative_id);
-    if (init?.phase_id) {
-      setExpandedPhases(prev => ({ ...prev, [init.phase_id]: true }));
-      // Clear filters on the parent phase so the initiative is guaranteed visible.
-      setTagFilters(prev => ({ ...prev, [init.phase_id]: 'all' }));
-      setHideDones(prev => ({ ...prev, [init.phase_id]: false }));
-      if (init.workstream) {
-        const wsKey = `${init.phase_id}::${init.workstream}`;
-        setCollapsedWorkstreams(prev => ({ ...prev, [wsKey]: false }));
-      }
-    }
-    if (init) setExpandedInitiatives(prev => ({ ...prev, [init.id]: true }));
-    if (view !== 'phases') setView('phases');
-    openEditTask(task);
-  }
-  function cancelTaskForm() {
-    setTaskFormFor(null);
-    setEditingTaskId(null);
-    setTaskForm(EMPTY_TASK);
-  }
-  // Backlog mirroring lives in src/lib/bdAttention.js (syncBdTaskToBacklog),
-  // shared with BusinessDevMobile so both twins keep personal_tasks in sync.
-
-  async function handleTaskSubmit(e, initiativeId) {
-    e?.preventDefault();
-    const title = taskForm.title.trim();
-    if (!title) return;
-    const payload = {
-      initiative_id: initiativeId,
-      title,
-      notes: taskForm.notes || null,
-      tag: taskForm.tag || null,
-      owner_id: taskForm.owner_id || null,
-      due_date: taskForm.due_date || null,
-      recurrence_interval: taskForm.recurrence_interval || null,
-      recurrence_count: taskForm.recurrence_interval ? parseInt(taskForm.recurrence_count) || 1 : 1,
-    };
-
-    let savedTask;
-    if (editingTaskId) {
-      const { data, error } = await supabase.from('bd_tasks').update(payload).eq('id', editingTaskId).select().single();
-      if (error) { toast.error(error.message); return; }
-      savedTask = data;
-    } else {
-      const siblings = (tasksByInitiative[initiativeId] || []);
-      const maxPos = Math.max(0, ...siblings.map(t => t.position || 0));
-      const { data, error } = await supabase.from('bd_tasks')
-        .insert({ ...payload, position: maxPos + 1, created_by: profile.id })
-        .select()
-        .single();
-      if (error) { toast.error(error.message); return; }
-      savedTask = data;
-    }
-    await syncBdTaskToBacklog(savedTask, initiatives);
-    cancelTaskForm();
-    fetchAll();
-  }
-
-  async function handleToggleTask(task) {
-    const completed_at = task.completed_at ? null : new Date().toISOString();
-    const { data, error } = await supabase.from('bd_tasks').update({ completed_at }).eq('id', task.id).select().single();
-    if (error) { toast.error(`Could not update task: ${error.message}`); return; }
-    if (data) await syncBdTaskToBacklog(data, initiatives);
-    fetchAll();
-  }
-
-  // One-tap reschedule from the Needs Attention strip. Overdue / due-today
-  // tasks push from *today* (PT); future-dated tasks push from their date.
-  async function handleRedateTask(task, days) {
-    const today = bdTodayPT();
-    const base = task.due_date && task.due_date > today ? task.due_date : today;
-    const due_date = addDaysToDateStr(base, days);
-    const { data, error } = await supabase.from('bd_tasks').update({ due_date }).eq('id', task.id).select().single();
-    if (error) { toast.error(`Could not reschedule: ${error.message}`); return; }
-    if (data) await syncBdTaskToBacklog(data, initiatives);
-    fetchAll();
-  }
-
-  // Quick-capture: title-only insert into the phase's Inbox bucket.
-  async function handleQuickAdd(e) {
-    e.preventDefault();
-    const title = quickAddTitle.trim();
-    const phaseId = quickAddPhaseId || phases[0]?.id;
-    if (!title || !phaseId) return;
-    const siblings = initiatives.filter(i => i.phase_id === phaseId && i.workstream === 'inbox');
-    const maxPos = Math.max(0, ...siblings.map(i => i.position || 0));
-    const { error } = await supabase.from('bd_initiatives').insert({
-      phase_id: phaseId, workstream: 'inbox', title,
-      status: 'ideas', tag: 'shared',
-      position: maxPos + 1, created_by: profile.id,
-    });
+  async function handleDeleteRoadmap(rm) {
+    const msCount = (milestonesByRoadmap[rm.id] || []).length;
+    const msg = msCount
+      ? `Delete "${rm.name}" and its ${msCount} milestone${msCount !== 1 ? 's' : ''} (and all their tasks)? This cannot be undone.`
+      : `Delete "${rm.name}"? This cannot be undone.`;
+    if (!(await confirm(msg))) return;
+    const { error } = await supabase.from('roadmaps').delete().eq('id', rm.id);
     if (error) { toast.error(error.message); return; }
-    setQuickAddTitle('');
-    fetchAll();
-  }
-  async function handleDeleteTask(id) {
-    if (!(await confirm('Delete this task?'))) return;
-    // Drop the personal_tasks mirror first (RLS-permitting; ignore failures
-    // since RLS may scope to the row owner only — the bd_task delete is what
-    // the user actually cares about).
-    await supabase.from('personal_tasks').delete().eq('bd_task_id', id);
-    const { error } = await supabase.from('bd_tasks').delete().eq('id', id);
-    if (error) {
-      toast.error(`Could not delete task: ${error.message}`);
-      return;
-    }
     fetchAll();
   }
 
   // ─────────────────────────────────────────────
-  // Milestone CRUD (per phase)
+  // Milestone CRUD
   // ─────────────────────────────────────────────
-  function openCreateMilestone(phaseId) {
+  function openCreateMilestone(roadmapId) {
     setEditingMilestoneId(null);
     setMilestoneForm(EMPTY_MILESTONE);
-    setMilestoneFormFor(phaseId);
+    setMilestoneFormFor(roadmapId);
   }
   function openEditMilestone(ms) {
     setEditingMilestoneId(ms.id);
     setMilestoneForm({ title: ms.title, target_date: ms.target_date || '' });
-    setMilestoneFormFor(ms.phase_id);
+    setMilestoneFormFor(ms.roadmap_id);
   }
   function cancelMilestoneForm() {
     setMilestoneFormFor(null);
     setEditingMilestoneId(null);
     setMilestoneForm(EMPTY_MILESTONE);
   }
-  async function handleMilestoneSubmit(e, phaseId) {
+  async function handleMilestoneSubmit(e) {
     e.preventDefault();
-    if (!milestoneForm.title.trim()) return;
-    const payload = {
-      phase_id: phaseId,
-      title: milestoneForm.title.trim(),
-      target_date: milestoneForm.target_date || null,
-    };
+    const title = milestoneForm.title.trim();
+    if (!title) return;
+    const payload = { title, target_date: milestoneForm.target_date || null };
     if (editingMilestoneId) {
-      await supabase.from('bd_milestones').update(payload).eq('id', editingMilestoneId);
+      const { error } = await supabase.from('roadmap_milestones').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', editingMilestoneId);
+      if (error) { toast.error(error.message); return; }
     } else {
-      const siblings = milestonesByPhase[phaseId] || [];
-      const maxPos = Math.max(0, ...siblings.map(m => m.position || 0));
-      await supabase.from('bd_milestones').insert({ ...payload, position: maxPos + 1, created_by: profile.id });
+      const siblings = milestonesByRoadmap[milestoneFormFor] || [];
+      const nextPos = siblings.length > 0 ? Math.max(...siblings.map(s => s.position || 0)) + 1 : 0;
+      const { error } = await supabase.from('roadmap_milestones').insert({ ...payload, roadmap_id: milestoneFormFor, position: nextPos });
+      if (error) { toast.error(error.message); return; }
     }
     cancelMilestoneForm();
     fetchAll();
   }
-  async function handleRetireMilestone(id) {
-    if (!(await confirm('Retire this milestone?'))) return;
-    await supabase.from('bd_milestones').update({ retired_at: new Date().toISOString() }).eq('id', id);
+  async function handleToggleMilestone(ms) {
+    if (!isAdmin) return;
+    const done = !!ms.completed_at;
+    const now = new Date().toISOString();
+    const { error } = await supabase.from('roadmap_milestones')
+      .update({ completed_at: done ? null : now, updated_at: now })
+      .eq('id', ms.id);
+    if (error) { toast.error(error.message); return; }
+    // Refetch so the milestone→tasks cascade (server-side trigger) is reflected.
     fetchAll();
+  }
+  async function handleDeleteMilestone(ms) {
+    const tCount = (tasksByMilestone[ms.id] || []).length;
+    const msg = tCount
+      ? `Delete milestone "${ms.title}" and its ${tCount} task${tCount !== 1 ? 's' : ''}?`
+      : `Delete milestone "${ms.title}"?`;
+    if (!(await confirm(msg))) return;
+    const { error } = await supabase.from('roadmap_milestones').delete().eq('id', ms.id);
+    if (error) { toast.error(error.message); return; }
+    fetchAll();
+  }
+
+  // ─────────────────────────────────────────────
+  // Task CRUD
+  // ─────────────────────────────────────────────
+  function openCreateTask(milestoneId) {
+    setEditingTaskId(null);
+    setTaskForm(EMPTY_TASK);
+    setTaskFormFor(milestoneId);
+    setExpandedMilestones(prev => ({ ...prev, [milestoneId]: true }));
+  }
+  function openEditTask(task) {
+    setEditingTaskId(task.id);
+    setTaskForm({ title: task.title, description: task.description || '', due_date: task.due_date || '' });
+    setTaskFormFor(task.milestone_id);
+  }
+  function cancelTaskForm() {
+    setTaskFormFor(null);
+    setEditingTaskId(null);
+    setTaskForm(EMPTY_TASK);
+  }
+  async function handleTaskSubmit(e) {
+    e.preventDefault();
+    const title = taskForm.title.trim();
+    if (!title) return;
+    const payload = {
+      title,
+      description: taskForm.description.trim() || null,
+      due_date: taskForm.due_date || null,
+    };
+    if (editingTaskId) {
+      const { error } = await supabase.from('roadmap_tasks').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', editingTaskId);
+      if (error) { toast.error(error.message); return; }
+    } else {
+      const siblings = tasksByMilestone[taskFormFor] || [];
+      const nextPos = siblings.length > 0 ? Math.max(...siblings.map(s => s.position || 0)) + 1 : 0;
+      const { error } = await supabase.from('roadmap_tasks').insert({ ...payload, milestone_id: taskFormFor, position: nextPos });
+      if (error) { toast.error(error.message); return; }
+    }
+    cancelTaskForm();
+    fetchAll();
+  }
+  async function handleToggleTask(task) {
+    if (!isAdmin) return;
+    const done = !!task.completed_at;
+    const now = new Date().toISOString();
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, completed_at: done ? null : now } : t));
+    const { error } = await supabase.from('roadmap_tasks')
+      .update({ completed_at: done ? null : now, updated_at: now })
+      .eq('id', task.id);
+    if (error) { toast.error(error.message); fetchAll(); }
+  }
+  async function handleDeleteTask(task) {
+    if (!(await confirm('Delete this task?'))) return;
+    const { error } = await supabase.from('roadmap_tasks').delete().eq('id', task.id);
+    if (error) { toast.error(error.message); return; }
+    setTasks(prev => prev.filter(t => t.id !== task.id));
   }
 
   // ─────────────────────────────────────────────
   // Render
   // ─────────────────────────────────────────────
   if (!isAdmin && !isPartner) return <div style={styles.page}><div style={styles.loading}>Access restricted.</div></div>;
-  if (loading)  return <div style={styles.page}><div style={styles.loading}>Loading Roadmap...</div></div>;
+  if (loading) return <div style={styles.page}><div style={styles.loading}>Loading Roadmap...</div></div>;
+
+  const showSidebar = isAdmin; // Goals + Notes are admin-only
 
   return (
     <div style={styles.page}>
       <div style={styles.pageHeader}>
         <div>
           <h1 style={styles.pageTitle}>Roadmap</h1>
-          <p style={styles.pageSubtitle}>Multi-phase program tracker</p>
+          <p style={styles.pageSubtitle}>Roadmaps, milestones & tasks</p>
         </div>
-        {isAdmin && <button onClick={openCreatePhase} style={styles.primaryBtn}>+ Phase</button>}
+        {isAdmin && <button onClick={openCreateRoadmap} style={styles.primaryBtn}>+ Roadmap</button>}
       </div>
 
-      {/* Needs Attention strip (Phases tab) */}
-      {view === 'phases' && (
-        <AttentionStrip
-          attention={attention}
-          isAdmin={isAdmin}
-          onToggleTask={handleToggleTask}
-          onRedateTask={handleRedateTask}
-          onOpenTask={openEditTaskFromAnywhere}
-          onOpenInitiative={openEditInit}
-        />
-      )}
-
-      {/* Goals + Notes row (admin only) */}
-      {isAdmin && (
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px', marginBottom: '16px', alignItems: 'flex-start' }}>
-          <BdGoalsSection
-            goals={bdGoals}
-            monthlyGoals={bdMonthlyGoals}
-            expanded={bdGoalsExpanded}
-            onToggleExpand={() => setBdGoalsExpanded(prev => !prev)}
-            expandedYearly={expandedYearlyBdGoals}
-            setExpandedYearly={setExpandedYearlyBdGoals}
-            onCreateGoal={openCreateBdGoal}
-            onEditGoal={openEditBdGoal}
-            onDeleteGoal={handleDeleteBdGoal}
-            onToggleCheckbox={handleToggleBdGoalCheckbox}
-            onCreateMonthly={openCreateBdMonthly}
-            onEditMonthly={openEditBdMonthly}
-            onDeleteMonthly={handleDeleteBdMonthly}
-            monthlyFormFor={showBdMonthlyForm}
-            editingMonthlyId={editingBdMonthlyId}
-            monthlyForm={bdMonthlyForm}
-            setMonthlyForm={setBdMonthlyForm}
-            onMonthlySubmit={handleBdMonthlySubmit}
-            onCancelMonthlyForm={cancelBdMonthlyForm}
-            accounts={bdAccounts}
-            rollupData={bdRollupData}
-            onDragEnd={handleBdGoalsDragEnd}
-          />
-          <BdNotesSection
-            notes={bdNotes}
-            inputOpen={bdNoteInputOpen}
-            setInputOpen={setBdNoteInputOpen}
-            draft={bdNoteDraft}
-            setDraft={setBdNoteDraft}
-            editingId={bdNoteEditingId}
-            setEditingId={setBdNoteEditingId}
-            editingText={bdNoteEditingText}
-            setEditingText={setBdNoteEditingText}
-            onAdd={addBdNote}
-            onToggle={toggleBdNote}
-            onDelete={deleteBdNote}
-            onSaveEdit={saveBdNoteEdit}
-          />
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: showSidebar ? '2fr 1fr' : '1fr',
+        gap: '16px',
+        alignItems: 'flex-start',
+      }}>
+        {/* ── Left: Roadmaps ── */}
+        <div style={styles.roadmapList}>
+          {roadmaps.length === 0 ? (
+            <div style={styles.empty}>
+              {isAdmin ? 'No roadmaps yet. Click + Roadmap to create one.' : 'No roadmaps yet.'}
+            </div>
+          ) : (
+            roadmaps.map(rm => (
+              <RoadmapCard
+                key={rm.id}
+                roadmap={rm}
+                milestones={milestonesByRoadmap[rm.id] || []}
+                tasksByMilestone={tasksByMilestone}
+                isAdmin={isAdmin}
+                expanded={!!expandedRoadmaps[rm.id]}
+                onToggleExpand={() => setExpandedRoadmaps(prev => ({ ...prev, [rm.id]: !prev[rm.id] }))}
+                expandedMilestones={expandedMilestones}
+                setExpandedMilestones={setExpandedMilestones}
+                onEditRoadmap={() => openEditRoadmap(rm)}
+                onDeleteRoadmap={() => handleDeleteRoadmap(rm)}
+                // milestone
+                milestoneFormFor={milestoneFormFor}
+                editingMilestoneId={editingMilestoneId}
+                milestoneForm={milestoneForm}
+                setMilestoneForm={setMilestoneForm}
+                onOpenCreateMilestone={openCreateMilestone}
+                onOpenEditMilestone={openEditMilestone}
+                onMilestoneSubmit={handleMilestoneSubmit}
+                onCancelMilestoneForm={cancelMilestoneForm}
+                onToggleMilestone={handleToggleMilestone}
+                onDeleteMilestone={handleDeleteMilestone}
+                // task
+                taskFormFor={taskFormFor}
+                editingTaskId={editingTaskId}
+                taskForm={taskForm}
+                setTaskForm={setTaskForm}
+                onOpenCreateTask={openCreateTask}
+                onOpenEditTask={openEditTask}
+                onTaskSubmit={handleTaskSubmit}
+                onCancelTaskForm={cancelTaskForm}
+                onToggleTask={handleToggleTask}
+                onDeleteTask={handleDeleteTask}
+              />
+            ))
+          )}
         </div>
-      )}
 
-      {/* Tab bar */}
-      <div style={styles.tabBar}>
-        {[
-          { key: 'phases',   label: 'Phases' },
-          { key: 'timeline', label: 'Timeline' },
-          { key: 'calendar', label: 'Calendar' },
-          { key: 'mine',     label: 'My Stuff' },
-        ].map(t => (
-          <button key={t.key} onClick={() => setView(t.key)}
-            style={{ ...styles.tabBtn, ...(view === t.key ? styles.tabBtnActive : {}) }}>
-            {t.label}
-          </button>
-        ))}
+        {/* ── Right: Goals + Notes (admin only) ── */}
+        {showSidebar && (
+          <div>
+            <BdGoalsSection
+              goals={bdGoals}
+              monthlyGoals={bdMonthlyGoals}
+              expanded={bdGoalsExpanded}
+              onToggleExpand={() => setBdGoalsExpanded(prev => !prev)}
+              expandedYearly={expandedYearlyBdGoals}
+              setExpandedYearly={setExpandedYearlyBdGoals}
+              onCreateGoal={openCreateBdGoal}
+              onEditGoal={openEditBdGoal}
+              onDeleteGoal={handleDeleteBdGoal}
+              onToggleCheckbox={handleToggleBdGoalCheckbox}
+              onCreateMonthly={openCreateBdMonthly}
+              onEditMonthly={openEditBdMonthly}
+              onDeleteMonthly={handleDeleteBdMonthly}
+              monthlyFormFor={showBdMonthlyForm}
+              editingMonthlyId={editingBdMonthlyId}
+              monthlyForm={bdMonthlyForm}
+              setMonthlyForm={setBdMonthlyForm}
+              onMonthlySubmit={handleBdMonthlySubmit}
+              onCancelMonthlyForm={cancelBdMonthlyForm}
+              accounts={bdAccounts}
+              rollupData={bdRollupData}
+              onDragEnd={handleBdGoalsDragEnd}
+            />
+            <BdNotesSection
+              notes={bdNotes}
+              inputOpen={bdNoteInputOpen}
+              setInputOpen={setBdNoteInputOpen}
+              draft={bdNoteDraft}
+              setDraft={setBdNoteDraft}
+              editingId={bdNoteEditingId}
+              setEditingId={setBdNoteEditingId}
+              editingText={bdNoteEditingText}
+              setEditingText={setBdNoteEditingText}
+              onAdd={addBdNote}
+              onToggle={toggleBdNote}
+              onDelete={deleteBdNote}
+              onSaveEdit={saveBdNoteEdit}
+            />
+          </div>
+        )}
       </div>
 
-      {/* Phase form */}
-      {isAdmin && showPhaseForm && (
-        <PhaseForm
-          form={phaseForm}
-          setForm={setPhaseForm}
-          editing={!!editingPhaseId}
-          onSubmit={handlePhaseSubmit}
-          onCancel={cancelPhaseForm}
-          partners={partners}
+      {/* Roadmap form modal */}
+      {isAdmin && showRoadmapForm && (
+        <RoadmapFormModal
+          form={roadmapForm}
+          setForm={setRoadmapForm}
+          editing={!!editingRoadmapId}
+          onSubmit={handleRoadmapSubmit}
+          onCancel={cancelRoadmapForm}
         />
       )}
-
-      {/* Initiative form (always rendered when active; phase selector lets you move it) */}
-      {isAdmin && showInitForm && (
-        <InitiativeForm
-          form={initForm}
-          setForm={setInitForm}
-          editing={!!editingInitId}
-          phases={phases}
-          admins={admins}
-          existingLinks={editingInitId ? (linksByInitiative[editingInitId] || []) : []}
-          onSubmit={handleInitSubmit}
-          onCancel={cancelInitForm}
-        />
-      )}
-
-      {/* Delete-phase confirm modal */}
-      {deletingPhase && (
-        <DeletePhaseConfirm
-          phase={deletingPhase}
-          counts={{
-            initiatives: (initiativesByPhase[deletingPhase.id] || []).length,
-            tasks: tasks.filter(t => {
-              const init = initiatives.find(i => i.id === t.initiative_id);
-              return init?.phase_id === deletingPhase.id;
-            }).length,
-            milestones: (milestonesByPhase[deletingPhase.id] || []).length,
-          }}
-          confirmText={deleteConfirmText}
-          setConfirmText={setDeleteConfirmText}
-          onCancel={cancelDeletePhase}
-          onConfirm={confirmDeletePhase}
-        />
-      )}
-
-      {/* BD Goals section was here; now rendered above the tab bar */}
 
       {/* BD Goal modal form */}
       {showBdGoalForm && (
@@ -1207,268 +805,360 @@ export default function BusinessDev() {
           accounts={bdAccounts}
         />
       )}
+    </div>
+  );
+}
 
-      {/* Quick-capture bar (Phases tab) */}
-      {view === 'phases' && isAdmin && phases.length > 0 && (
-        <form onSubmit={handleQuickAdd} style={styles.quickAddBar}>
-          <span style={styles.quickAddIcon}>+</span>
-          <input
-            value={quickAddTitle}
-            onChange={e => setQuickAddTitle(e.target.value)}
-            placeholder="Quick add to Inbox — type an idea, hit Enter"
-            style={styles.quickAddInput}
-          />
-          {phases.length > 1 && (
-            <select
-              value={quickAddPhaseId || phases[0].id}
-              onChange={e => setQuickAddPhaseId(e.target.value)}
-              style={styles.select}
-            >
-              {phases.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+// ════════════════════════════════════════════════════════════
+// Roadmap card
+// ════════════════════════════════════════════════════════════
+function RoadmapCard(props) {
+  const {
+    roadmap, milestones, tasksByMilestone, isAdmin,
+    expanded, onToggleExpand, expandedMilestones, setExpandedMilestones,
+    onEditRoadmap, onDeleteRoadmap,
+    milestoneFormFor, editingMilestoneId, milestoneForm, setMilestoneForm,
+    onOpenCreateMilestone, onOpenEditMilestone, onMilestoneSubmit, onCancelMilestoneForm,
+    onToggleMilestone, onDeleteMilestone,
+    taskFormFor, editingTaskId, taskForm, setTaskForm,
+    onOpenCreateTask, onOpenEditTask, onTaskSubmit, onCancelTaskForm,
+    onToggleTask, onDeleteTask,
+  } = props;
+
+  const total = milestones.length;
+  const done = milestones.filter(m => m.completed_at).length;
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  const deadline = formatDeadline(roadmap.deadline_date);
+  const addingMilestone = milestoneFormFor === roadmap.id && !editingMilestoneId;
+
+  return (
+    <div style={styles.roadmapCard}>
+      <div style={styles.roadmapHeader}>
+        <button onClick={onToggleExpand} style={styles.caretBtn} title={expanded ? 'Collapse' : 'Expand'}>
+          <span style={{ display: 'inline-block', transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>{'▶'}</span>
+        </button>
+        <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={onToggleExpand}>
+          <div style={styles.roadmapName}>{roadmap.name}</div>
+          {(roadmap.deadline_name || roadmap.deadline_date) && (
+            <div style={styles.roadmapDeadlineRow}>
+              {roadmap.deadline_name && <span style={styles.roadmapDeadlineName}>{roadmap.deadline_name}</span>}
+              {roadmap.deadline_date && <span style={styles.roadmapDeadlineDate}>{formatDate(roadmap.deadline_date)}</span>}
+              {deadline && <span style={{ ...styles.roadmapCountdown, color: deadline.color }}>{deadline.sub}</span>}
+            </div>
           )}
-          <button type="submit" disabled={!quickAddTitle.trim()}
-            style={{ ...styles.primaryBtn, opacity: quickAddTitle.trim() ? 1 : 0.4 }}>
-            Add
-          </button>
-        </form>
-      )}
+        </div>
+        {total > 0 && (
+          <div style={styles.roadmapPctWrap} title={`${done} of ${total} milestones complete`}>
+            <span style={{ ...styles.roadmapPct, color: progressColor(pct / 100) }}>{pct}%</span>
+            <span style={styles.roadmapPctSub}>{done}/{total}</span>
+          </div>
+        )}
+        {isAdmin && (
+          <div style={styles.rowActions}>
+            <button onClick={onEditRoadmap} style={styles.iconBtn} title="Edit roadmap">{'✎'}</button>
+            <button onClick={onDeleteRoadmap} style={styles.iconBtn} title="Delete roadmap">{'✕'}</button>
+          </div>
+        )}
+      </div>
 
-      {/* Views */}
-      {view === 'phases' && (
-        phases.length === 0 ? (
-          <div style={styles.empty}>No phases yet. Click + Phase to create one.</div>
-        ) : (
-          <div style={styles.phaseList}>
-            {phases.map((phase, idx) => (
-              <PhaseCard
-                key={phase.id}
-                phase={phase}
-                phaseIdx={idx}
-                phaseCount={phases.length}
-                initiatives={initiativesByPhase[phase.id] || []}
-                tasksByInitiative={tasksByInitiative}
-                linksByInitiative={linksByInitiative}
-                milestones={milestonesByPhase[phase.id] || []}
-                admins={admins}
-                isAdmin={isAdmin}
-                expanded={!!expandedPhases[phase.id]}
-                onToggleExpand={() => setExpandedPhases(prev => ({ ...prev, [phase.id]: !prev[phase.id] }))}
-                onEditPhase={() => openEditPhase(phase)}
-                onDeletePhase={() => openDeletePhase(phase)}
-                onMovePhaseUp={idx > 0 ? () => handleMovePhase(phase, 'up') : null}
-                onMovePhaseDown={idx < phases.length - 1 ? () => handleMovePhase(phase, 'down') : null}
-                tagFilter={tagFilters[phase.id] || 'all'}
-                setTagFilter={(v) => setTagFilters(prev => ({ ...prev, [phase.id]: v }))}
-                hideDone={hideDones[phase.id] !== false}
-                setHideDone={(v) => setHideDones(prev => ({ ...prev, [phase.id]: v }))}
-                collapsedWorkstreams={collapsedWorkstreams}
-                setCollapsedWorkstreams={setCollapsedWorkstreams}
-                expandedInitiatives={expandedInitiatives}
-                setExpandedInitiatives={setExpandedInitiatives}
-                taskFormFor={taskFormFor}
-                editingTaskId={editingTaskId}
-                taskForm={taskForm}
-                setTaskForm={setTaskForm}
-                onOpenCreateTask={openCreateTask}
-                onOpenEditTask={openEditTask}
-                onTaskSubmit={handleTaskSubmit}
-                onCancelTaskForm={cancelTaskForm}
-                onToggleTask={handleToggleTask}
-                onDeleteTask={handleDeleteTask}
-                onEditInit={openEditInit}
-                onDeleteInit={handleDeleteInit}
-                onMoveInit={handleMoveInitiative}
-                onReorderInit={handleReorderInitiative}
-                onReorderTask={handleReorderTask}
-                onCreateInit={openCreateInit}
-                onStatusChange={handleInitiativeStatusChange}
-                milestoneFormFor={milestoneFormFor}
-                editingMilestoneId={editingMilestoneId}
-                milestoneForm={milestoneForm}
-                setMilestoneForm={setMilestoneForm}
-                onCreateMilestone={openCreateMilestone}
-                onEditMilestone={openEditMilestone}
-                onMilestoneSubmit={handleMilestoneSubmit}
-                onCancelMilestoneForm={cancelMilestoneForm}
-                onRetireMilestone={handleRetireMilestone}
+      {expanded && (
+        <div style={styles.roadmapBody}>
+          {milestones.length === 0 && !addingMilestone && (
+            <div style={styles.empty}>No milestones yet.</div>
+          )}
+          {milestones.map(ms => (
+            <MilestoneRow
+              key={ms.id}
+              milestone={ms}
+              tasks={tasksByMilestone[ms.id] || []}
+              isAdmin={isAdmin}
+              expanded={!!expandedMilestones[ms.id]}
+              onToggleExpand={() => setExpandedMilestones(prev => ({ ...prev, [ms.id]: !prev[ms.id] }))}
+              onToggle={() => onToggleMilestone(ms)}
+              onEdit={() => onOpenEditMilestone(ms)}
+              onDelete={() => onDeleteMilestone(ms)}
+              isEditingMilestone={editingMilestoneId === ms.id}
+              milestoneForm={milestoneForm}
+              setMilestoneForm={setMilestoneForm}
+              onMilestoneSubmit={onMilestoneSubmit}
+              onCancelMilestoneForm={onCancelMilestoneForm}
+              // task
+              taskFormFor={taskFormFor}
+              editingTaskId={editingTaskId}
+              taskForm={taskForm}
+              setTaskForm={setTaskForm}
+              onOpenCreateTask={onOpenCreateTask}
+              onOpenEditTask={onOpenEditTask}
+              onTaskSubmit={onTaskSubmit}
+              onCancelTaskForm={onCancelTaskForm}
+              onToggleTask={onToggleTask}
+              onDeleteTask={onDeleteTask}
+            />
+          ))}
+
+          {/* Add-milestone inline form */}
+          {addingMilestone ? (
+            <form onSubmit={onMilestoneSubmit} style={styles.inlineForm}>
+              <input
+                value={milestoneForm.title}
+                onChange={e => setMilestoneForm({ ...milestoneForm, title: e.target.value })}
+                placeholder="Milestone title"
+                autoFocus
+                style={{ ...styles.input, flex: 1, minWidth: '160px' }}
               />
-            ))}
+              <input
+                type="date"
+                value={milestoneForm.target_date}
+                onChange={e => setMilestoneForm({ ...milestoneForm, target_date: e.target.value })}
+                style={{ ...styles.input, colorScheme: 'dark' }}
+              />
+              <button type="submit" style={styles.primaryBtn}>Add</button>
+              <button type="button" onClick={onCancelMilestoneForm} style={styles.subtleBtn}>Cancel</button>
+            </form>
+          ) : (
+            isAdmin && (
+              <button onClick={() => onOpenCreateMilestone(roadmap.id)} style={styles.addRowBtn}>+ Milestone</button>
+            )
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════
+// Milestone row
+// ════════════════════════════════════════════════════════════
+function MilestoneRow(props) {
+  const {
+    milestone: ms, tasks, isAdmin, expanded, onToggleExpand,
+    onToggle, onEdit, onDelete,
+    isEditingMilestone, milestoneForm, setMilestoneForm, onMilestoneSubmit, onCancelMilestoneForm,
+    taskFormFor, editingTaskId, taskForm, setTaskForm,
+    onOpenCreateTask, onOpenEditTask, onTaskSubmit, onCancelTaskForm, onToggleTask, onDeleteTask,
+  } = props;
+
+  const isDone = !!ms.completed_at;
+  const doneTasks = tasks.filter(t => t.completed_at).length;
+  const dl = formatDeadline(ms.target_date);
+  const addingTask = taskFormFor === ms.id && !editingTaskId;
+
+  if (isEditingMilestone) {
+    return (
+      <form onSubmit={onMilestoneSubmit} style={styles.inlineForm}>
+        <input
+          value={milestoneForm.title}
+          onChange={e => setMilestoneForm({ ...milestoneForm, title: e.target.value })}
+          placeholder="Milestone title"
+          autoFocus
+          style={{ ...styles.input, flex: 1, minWidth: '160px' }}
+        />
+        <input
+          type="date"
+          value={milestoneForm.target_date}
+          onChange={e => setMilestoneForm({ ...milestoneForm, target_date: e.target.value })}
+          style={{ ...styles.input, colorScheme: 'dark' }}
+        />
+        <button type="submit" style={styles.primaryBtn}>Save</button>
+        <button type="button" onClick={onCancelMilestoneForm} style={styles.subtleBtn}>Cancel</button>
+      </form>
+    );
+  }
+
+  return (
+    <div style={styles.milestoneWrap}>
+      <div style={styles.milestoneRow}>
+        <button
+          onClick={onToggle}
+          disabled={!isAdmin}
+          style={isDone ? styles.bdCheckboxDone : styles.bdCheckbox}
+          title={isAdmin ? (isDone ? 'Mark incomplete' : 'Complete milestone (checks off its tasks)') : undefined}
+        >
+          {isDone ? '✓' : ''}
+        </button>
+        {tasks.length > 0 ? (
+          <button onClick={onToggleExpand} style={styles.caretBtnSm} title={expanded ? 'Collapse' : 'Expand'}>
+            <span style={{ display: 'inline-block', transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>{'▶'}</span>
+          </button>
+        ) : (
+          <span style={{ width: '18px', flexShrink: 0 }} />
+        )}
+        <span
+          onClick={tasks.length > 0 ? onToggleExpand : undefined}
+          style={{
+            flex: 1, minWidth: 0, fontSize: '14px', fontWeight: 600,
+            color: isDone ? 'rgba(255,255,255,0.4)' : '#e2e8f0',
+            textDecoration: isDone ? 'line-through' : 'none',
+            cursor: tasks.length > 0 ? 'pointer' : 'default',
+          }}
+        >
+          {ms.title}
+        </span>
+        {tasks.length > 0 && (
+          <span style={styles.taskCounter}>{doneTasks}/{tasks.length}</span>
+        )}
+        {ms.target_date && dl && (
+          <span style={{ ...styles.dateChip, color: dl.color }} title={formatDate(ms.target_date)}>{formatDateShort(ms.target_date)}</span>
+        )}
+        {isAdmin && (
+          <div style={styles.rowActions}>
+            <button onClick={onEdit} style={styles.iconBtn} title="Edit milestone">{'✎'}</button>
+            <button onClick={onDelete} style={styles.iconBtn} title="Delete milestone">{'✕'}</button>
+          </div>
+        )}
+      </div>
+
+      {expanded && (
+        <div style={styles.taskList}>
+          {tasks.map(t => (
+            editingTaskId === t.id ? (
+              <TaskInlineForm key={t.id} form={taskForm} setForm={setTaskForm} onSubmit={onTaskSubmit} onCancel={onCancelTaskForm} editing />
+            ) : (
+              <RoadmapTaskRow key={t.id} task={t} isAdmin={isAdmin} onToggle={() => onToggleTask(t)} onEdit={() => onOpenEditTask(t)} onDelete={() => onDeleteTask(t)} />
+            )
+          ))}
+          {addingTask ? (
+            <TaskInlineForm form={taskForm} setForm={setTaskForm} onSubmit={onTaskSubmit} onCancel={onCancelTaskForm} />
+          ) : (
+            isAdmin && <button onClick={() => onOpenCreateTask(ms.id)} style={styles.addRowBtnSm}>+ Task</button>
+          )}
+        </div>
+      )}
+      {/* When collapsed but user wants to add first task */}
+      {!expanded && isAdmin && tasks.length === 0 && (
+        addingTask ? (
+          <div style={styles.taskList}>
+            <TaskInlineForm form={taskForm} setForm={setTaskForm} onSubmit={onTaskSubmit} onCancel={onCancelTaskForm} />
+          </div>
+        ) : (
+          <div style={{ paddingLeft: '30px' }}>
+            <button onClick={() => onOpenCreateTask(ms.id)} style={styles.addRowBtnSm}>+ Task</button>
           </div>
         )
       )}
-
-      {view === 'timeline' && (
-        <PhaseChipFilter
-          phases={phases}
-          enabled={enabledPhases}
-          setEnabled={setEnabledPhases}
-        />
-      )}
-      {view === 'timeline' && (
-        <TimelineView
-          phases={phases}
-          phasesById={phasesById}
-          phaseIndexById={phaseIndexById}
-          initiatives={initiatives}
-          milestones={milestones}
-          enabledPhases={enabledPhases}
-        />
-      )}
-
-      {view === 'calendar' && (
-        <PhaseChipFilter
-          phases={phases}
-          enabled={enabledPhases}
-          setEnabled={setEnabledPhases}
-        />
-      )}
-      {view === 'calendar' && (
-        <CalendarView
-          phasesById={phasesById}
-          phaseIndexById={phaseIndexById}
-          initiatives={initiatives}
-          tasks={tasks}
-          milestones={milestones}
-          enabledPhases={enabledPhases}
-        />
-      )}
-
-      {view === 'mine' && (
-        <PhaseChipFilter
-          phases={phases}
-          enabled={enabledPhases}
-          setEnabled={setEnabledPhases}
-        />
-      )}
-      {view === 'mine' && (
-        <MyStuffView
-          profile={profile}
-          phasesById={phasesById}
-          phaseIndexById={phaseIndexById}
-          initiatives={initiatives}
-          tasks={tasks}
-          tasksByInitiative={tasksByInitiative}
-          enabledPhases={enabledPhases}
-          isAdmin={isAdmin}
-          onToggleTask={handleToggleTask}
-          onEditInit={openEditInit}
-          onEditTask={openEditTaskFromAnywhere}
-        />
-      )}
     </div>
   );
 }
 
 // ════════════════════════════════════════════════════════════
-// Needs Attention strip
+// Task row
 // ════════════════════════════════════════════════════════════
-function AttentionTaskRow({ row, isAdmin, onToggleTask, onRedateTask, onOpenTask }) {
-  const { task, initiative, phase } = row;
+function RoadmapTaskRow({ task, isAdmin, onToggle, onEdit, onDelete }) {
+  const isDone = !!task.completed_at;
   const dl = formatDeadline(task.due_date);
-  const open = () => onOpenTask(task);
   return (
-    <div
-      {...(isAdmin ? clickableKeyProps(open) : {})}
-      onClick={isAdmin ? open : undefined}
-      style={{ ...styles.attentionRow, cursor: isAdmin ? 'pointer' : 'default' }}
-    >
-      {isAdmin && (
-        <button onClick={e => { e.stopPropagation(); onToggleTask(task); }} style={styles.checkBtn} title="Mark done">
-          <span style={styles.checkBox} />
-        </button>
-      )}
-      <span style={styles.taskTitle}>{task.title}</span>
-      <span style={styles.attentionContext}>
-        {initiative ? initiative.title : ''}{phase ? ` · ${phase.name}` : ''}
-      </span>
-      <div style={{ flex: 1 }} />
-      {dl && <span style={{ ...styles.metaPill, color: dl.color }}>{formatDateShort(task.due_date)} · {dl.sub}</span>}
-      {isAdmin && (
-        <>
-          <button onClick={e => { e.stopPropagation(); onRedateTask(task, 1); }} style={styles.redateBtn} title="Push out 1 day">+1d</button>
-          <button onClick={e => { e.stopPropagation(); onRedateTask(task, 7); }} style={styles.redateBtn} title="Push out 1 week">+1w</button>
-        </>
-      )}
-    </div>
-  );
-}
-
-function AttentionInitRow({ row, kind, isAdmin, onOpenInitiative }) {
-  const { initiative, phase, ageDays } = row;
-  const ws = WORKSTREAM_MAP[initiative.workstream];
-  const status = STATUS_MAP[initiative.status];
-  const open = () => onOpenInitiative(initiative);
-  return (
-    <div
-      {...(isAdmin ? clickableKeyProps(open) : {})}
-      onClick={isAdmin ? open : undefined}
-      style={{ ...styles.attentionRow, cursor: isAdmin ? 'pointer' : 'default' }}
-    >
-      {status && <span style={{ ...styles.statusBadge, color: status.color, background: status.bg }}>{status.label}</span>}
-      <span style={styles.taskTitle}>{initiative.title}</span>
-      <span style={styles.attentionContext}>
-        {ws ? ws.label : initiative.workstream}{phase ? ` · ${phase.name}` : ''}
-      </span>
-      <div style={{ flex: 1 }} />
-      <span style={{ ...styles.ageChip, ...(kind === 'waiting' ? styles.ageChipWaiting : styles.ageChipStale) }}>
-        {kind === 'waiting' ? `Waiting — ${ageDays}d` : `Untouched — ${ageDays}d`}
-      </span>
-    </div>
-  );
-}
-
-function AttentionStrip({ attention, isAdmin, onToggleTask, onRedateTask, onOpenTask, onOpenInitiative }) {
-  const { overdue, dueSoon, waiting, stale, total } = attention;
-  if (total === 0) {
-    return <div style={styles.attentionAllClear}>✓ Nothing needs attention</div>;
-  }
-  return (
-    <div style={styles.attentionStrip}>
-      <div style={styles.attentionHeader}>
-        <span style={styles.attentionTitle}>Needs Attention</span>
-        <span style={styles.attentionCount}>{total}</span>
+    <div style={styles.taskRow}>
+      <button
+        onClick={onToggle}
+        disabled={!isAdmin}
+        style={{ ...styles.checkBtn, cursor: isAdmin ? 'pointer' : 'default' }}
+        title={isAdmin ? (isDone ? 'Mark incomplete' : 'Mark complete') : undefined}
+      >
+        <span style={{ ...styles.checkBox, ...(isDone ? styles.checkBoxDone : {}) }}>{isDone ? '✓' : ''}</span>
+      </button>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ fontSize: '13px', color: isDone ? 'rgba(255,255,255,0.4)' : '#e2e8f0', textDecoration: isDone ? 'line-through' : 'none' }}>{task.title}</span>
+        {task.description && (
+          <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.45)', marginTop: '2px', whiteSpace: 'pre-wrap', lineHeight: 1.4 }}>{task.description}</div>
+        )}
       </div>
-      {overdue.length > 0 && (
-        <div style={styles.attentionGroup}>
-          <div style={{ ...styles.attentionGroupLabel, color: colors.danger.fgSoft }}>Overdue ({overdue.length})</div>
-          {overdue.map(row => (
-            <AttentionTaskRow key={row.task.id} row={row} isAdmin={isAdmin}
-              onToggleTask={onToggleTask} onRedateTask={onRedateTask} onOpenTask={onOpenTask} />
-          ))}
+      {task.due_date && dl && (
+        <span style={{ ...styles.dateChip, color: dl.color }} title={formatDate(task.due_date)}>{formatDateShort(task.due_date)}</span>
+      )}
+      {isAdmin && (
+        <div style={styles.rowActions}>
+          <button onClick={onEdit} style={styles.iconBtn} title="Edit task">{'✎'}</button>
+          <button onClick={onDelete} style={styles.iconBtn} title="Delete task">{'✕'}</button>
         </div>
       )}
-      {dueSoon.length > 0 && (
-        <div style={styles.attentionGroup}>
-          <div style={{ ...styles.attentionGroupLabel, color: colors.warning.fgSoft }}>Due this week ({dueSoon.length})</div>
-          {dueSoon.map(row => (
-            <AttentionTaskRow key={row.task.id} row={row} isAdmin={isAdmin}
-              onToggleTask={onToggleTask} onRedateTask={onRedateTask} onOpenTask={onOpenTask} />
-          ))}
-        </div>
-      )}
-      {waiting.length > 0 && (
-        <div style={styles.attentionGroup}>
-          <div style={{ ...styles.attentionGroupLabel, color: STATUS_MAP.waiting.color }}>Waiting &gt;{WAITING_AGE_DAYS}d ({waiting.length})</div>
-          {waiting.map(row => (
-            <AttentionInitRow key={row.initiative.id} row={row} kind="waiting" isAdmin={isAdmin} onOpenInitiative={onOpenInitiative} />
-          ))}
-        </div>
-      )}
-      {stale.length > 0 && (
-        <div style={styles.attentionGroup}>
-          <div style={{ ...styles.attentionGroupLabel, color: STATUS_MAP.ideas.color }}>Active, untouched {STALE_ACTIVE_DAYS}d+ ({stale.length})</div>
-          {stale.map(row => (
-            <AttentionInitRow key={row.initiative.id} row={row} kind="stale" isAdmin={isAdmin} onOpenInitiative={onOpenInitiative} />
-          ))}
-        </div>
-      )}
+    </div>
+  );
+}
+
+function TaskInlineForm({ form, setForm, onSubmit, onCancel, editing }) {
+  return (
+    <form onSubmit={onSubmit} style={styles.taskInlineForm}>
+      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <input
+          value={form.title}
+          onChange={e => setForm({ ...form, title: e.target.value })}
+          placeholder="Task title"
+          autoFocus
+          style={{ ...styles.input, flex: 1, minWidth: '160px' }}
+        />
+        <input
+          type="date"
+          value={form.due_date}
+          onChange={e => setForm({ ...form, due_date: e.target.value })}
+          style={{ ...styles.input, colorScheme: 'dark' }}
+        />
+      </div>
+      <textarea
+        value={form.description}
+        onChange={e => setForm({ ...form, description: e.target.value })}
+        placeholder="Description (optional)"
+        rows={2}
+        style={{ ...styles.input, width: '100%', resize: 'vertical', fontFamily: 'inherit' }}
+      />
+      <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+        <button type="button" onClick={onCancel} style={styles.subtleBtn}>Cancel</button>
+        <button type="submit" style={styles.primaryBtn}>{editing ? 'Save' : 'Add'}</button>
+      </div>
+    </form>
+  );
+}
+
+// ════════════════════════════════════════════════════════════
+// Roadmap form modal
+// ════════════════════════════════════════════════════════════
+function RoadmapFormModal({ form, setForm, editing, onSubmit, onCancel }) {
+  return (
+    <div style={styles.modalOverlay} {...backdropDismiss(onCancel)}>
+      <div style={{ ...styles.modal, borderColor: colors.accentA30 }} onClick={e => e.stopPropagation()}>
+        <div style={{ ...styles.modalTitle, color: colors.accentFg }}>{editing ? 'Edit Roadmap' : 'New Roadmap'}</div>
+        <form onSubmit={onSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div>
+            <label style={styles.formLabel}>Name</label>
+            <input
+              value={form.name}
+              onChange={e => setForm({ ...form, name: e.target.value })}
+              placeholder="e.g., Neptune Performance buildout"
+              autoFocus
+              style={{ ...styles.input, width: '100%', marginTop: '4px' }}
+            />
+          </div>
+          <div style={styles.formRow}>
+            <div style={{ flex: 1, minWidth: '160px' }}>
+              <label style={styles.formLabel}>Deadline Name</label>
+              <input
+                value={form.deadline_name}
+                onChange={e => setForm({ ...form, deadline_name: e.target.value })}
+                placeholder="e.g., Grand opening"
+                style={{ ...styles.input, width: '100%', marginTop: '4px' }}
+              />
+            </div>
+            <div>
+              <label style={styles.formLabel}>Deadline Date</label>
+              <input
+                type="date"
+                value={form.deadline_date}
+                onChange={e => setForm({ ...form, deadline_date: e.target.value })}
+                style={{ ...styles.input, marginTop: '4px', colorScheme: 'dark', display: 'block' }}
+              />
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '4px' }}>
+            <button type="button" onClick={onCancel} style={styles.subtleBtn}>Cancel</button>
+            <button type="submit" style={styles.primaryBtn}>{editing ? 'Save' : 'Create'}</button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
 
 // ════════════════════════════════════════════════════════════
-// BD Goals Section
+// BD Goals — preserved verbatim from the previous page
 // ════════════════════════════════════════════════════════════
 function BdGoalsSection({
   goals, monthlyGoals, expanded, onToggleExpand,
@@ -1520,7 +1210,7 @@ function BdGoalsSection({
                                         onClick={() => setExpandedYearly(prev => ({ ...prev, [g.id]: !prev[g.id] }))}
                                         style={{ ...styles.iconBtn, fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}
                                       >
-                                        <span style={{ display: 'inline-block', transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>▶</span>
+                                        <span style={{ display: 'inline-block', transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>{'▶'}</span>
                                         {' '}{children.length} monthly goal{children.length !== 1 ? 's' : ''}
                                       </button>
                                     )}
@@ -1577,7 +1267,7 @@ function BdGoalsSection({
   return (
     <div style={styles.bdGoalsSection}>
       <div {...clickableKeyProps(onToggleExpand)} style={styles.bdGoalsHeader} onClick={onToggleExpand}>
-        <span style={{ ...styles.workstreamCaret, transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
+        <span style={{ ...styles.workstreamCaret, transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>{'▶'}</span>
         <span style={{ fontSize: '14px', fontWeight: 700, color: '#e2e8f0' }}>Goals</span>
         <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', fontWeight: 500 }}>{goals.length}</span>
         <div style={{ flex: 1 }} />
@@ -1668,7 +1358,7 @@ function BdNotesSection({
                   {n.text}
                 </span>
               )}
-              <button onClick={() => onDelete(n.id)} style={{ ...styles.iconBtn, color: colors.danger.fg }} title="Delete">✕</button>
+              <button onClick={() => onDelete(n.id)} style={{ ...styles.iconBtn, color: colors.danger.fg }} title="Delete">{'✕'}</button>
             </div>
           ))}
           {notes.length === 0 && !inputOpen && (
@@ -1714,11 +1404,11 @@ function BdGoalCard({ goal, onEdit, onDelete, onToggleCheckbox, rollupData, acco
     <div style={styles.bdGoalCard}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         {dragHandleProps && (
-          <div {...dragHandleProps} style={{ color: 'rgba(255,255,255,0.2)', fontSize: '14px', cursor: 'grab', userSelect: 'none', lineHeight: 1 }} title="Drag to reorder">\u283f</div>
+          <div {...dragHandleProps} style={{ color: 'rgba(255,255,255,0.2)', fontSize: '14px', cursor: 'grab', userSelect: 'none', lineHeight: 1 }} title="Drag to reorder">{'⠿'}</div>
         )}
         {isCheckbox && (
           <button onClick={() => onToggleCheckbox && onToggleCheckbox(goal)} style={current >= 1 ? styles.bdCheckboxDone : styles.bdCheckbox}>
-            {current >= 1 ? '\u2713' : ''}
+            {current >= 1 ? '✓' : ''}
           </button>
         )}
         <span style={{ fontSize: '13px', fontWeight: 600, color: isCheckbox && current >= 1 ? 'rgba(255,255,255,0.4)' : '#e2e8f0', flex: 1, textDecoration: isCheckbox && current >= 1 ? 'line-through' : 'none' }}>{goal.title}</span>
@@ -1730,8 +1420,8 @@ function BdGoalCard({ goal, onEdit, onDelete, onToggleCheckbox, rollupData, acco
             <span style={{ fontSize: '11px', fontWeight: 600, color: progressColor(pct) }}>{pctDisplay}%</span>
           </>
         )}
-        <button onClick={onEdit} style={styles.iconBtn} title="Edit">{'\u270E'}</button>
-        <button onClick={onDelete} style={styles.iconBtn} title="Delete">{'\u2715'}</button>
+        <button onClick={onEdit} style={styles.iconBtn} title="Edit">{'✎'}</button>
+        <button onClick={onDelete} style={styles.iconBtn} title="Delete">{'✕'}</button>
       </div>
       {goal.description && (
         <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.55)', marginTop: '4px', whiteSpace: 'pre-wrap', lineHeight: 1.4 }}>
@@ -1771,8 +1461,8 @@ function BdMonthlyCard({ mg, onEdit, onDelete }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <span style={{ fontSize: '12px', color: '#e2e8f0', flex: 1 }}>{mg.title}</span>
         <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)' }}>target: {mg.target_value || 0}</span>
-        <button onClick={onEdit} style={styles.iconBtn} title="Edit">✎</button>
-        <button onClick={onDelete} style={styles.iconBtn} title="Delete">✕</button>
+        <button onClick={onEdit} style={styles.iconBtn} title="Edit">{'✎'}</button>
+        <button onClick={onDelete} style={styles.iconBtn} title="Delete">{'✕'}</button>
       </div>
     </div>
   );
@@ -1914,1061 +1604,6 @@ function BdGoalFormModal({ form, setForm, editing, onSubmit, onCancel, accounts 
 }
 
 // ════════════════════════════════════════════════════════════
-// Phase form
-// ════════════════════════════════════════════════════════════
-function PhaseForm({ form, setForm, editing, onSubmit, onCancel, partners }) {
-  function togglePartner(pid) {
-    const cur = form.assigned_partners || [];
-    const next = cur.includes(pid) ? cur.filter(id => id !== pid) : [...cur, pid];
-    setForm({ ...form, assigned_partners: next });
-  }
-  return (
-    <form onSubmit={onSubmit} style={styles.form}>
-      <div style={styles.formLabel}>{editing ? 'Edit Phase' : 'New Phase'}</div>
-      <input
-        value={form.name}
-        onChange={e => setForm({ ...form, name: e.target.value })}
-        placeholder="Phase name (e.g., Mayday Media + Neptune Performance — buildout & ops)"
-        autoFocus
-        style={styles.input}
-      />
-      <div style={styles.formRow}>
-        <label style={styles.formInlineLabel}>Launch target date (optional):</label>
-        <input
-          type="date"
-          value={form.launch_target_date}
-          onChange={e => setForm({ ...form, launch_target_date: e.target.value })}
-          style={styles.input}
-        />
-      </div>
-      {partners && partners.length > 0 && (
-        <div style={{ marginTop: '8px' }}>
-          <label style={styles.formInlineLabel}>Assigned Partners:</label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '4px' }}>
-            {partners.map(p => (
-              <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px', color: 'rgba(255,255,255,0.7)', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={(form.assigned_partners || []).includes(p.id)}
-                  onChange={() => togglePartner(p.id)}
-                />
-                {p.full_name}
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
-      <div style={styles.formRow}>
-        <button type="submit" style={styles.primaryBtn}>{editing ? 'Update' : 'Create Phase'}</button>
-        <button type="button" onClick={onCancel} style={styles.subtleBtn}>Cancel</button>
-      </div>
-    </form>
-  );
-}
-
-// ════════════════════════════════════════════════════════════
-// Delete-phase confirm
-// ════════════════════════════════════════════════════════════
-function DeletePhaseConfirm({ phase, counts, confirmText, setConfirmText, onCancel, onConfirm }) {
-  const matches = confirmText === phase.name;
-  return (
-    <div style={styles.modalOverlay}>
-      <div style={styles.modal}>
-        <div style={styles.modalTitle}>Delete phase</div>
-        <div style={styles.modalBody}>
-          This will permanently delete <strong>{phase.name}</strong> and everything inside it:
-          <ul style={styles.modalList}>
-            <li>{counts.initiatives} initiative{counts.initiatives !== 1 ? 's' : ''}</li>
-            <li>{counts.tasks} task{counts.tasks !== 1 ? 's' : ''}</li>
-            <li>{counts.milestones} milestone{counts.milestones !== 1 ? 's' : ''}</li>
-          </ul>
-          <div style={styles.modalConfirmHint}>
-            Type the phase name exactly to confirm:
-          </div>
-          <div style={styles.modalConfirmName}>{phase.name}</div>
-          <input
-            value={confirmText}
-            onChange={e => setConfirmText(e.target.value)}
-            placeholder="Type phase name here"
-            autoFocus
-            style={styles.input}
-          />
-        </div>
-        <div style={styles.modalActions}>
-          <button onClick={onCancel} style={styles.subtleBtn}>Cancel</button>
-          <button onClick={onConfirm} disabled={!matches}
-            style={{ ...styles.dangerBtn, opacity: matches ? 1 : 0.4, cursor: matches ? 'pointer' : 'not-allowed' }}>
-            Delete Phase
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ════════════════════════════════════════════════════════════
-// Phase card (collapsible per-phase wrapper)
-// ════════════════════════════════════════════════════════════
-function PhaseCard(props) {
-  const {
-    phase, phaseIdx, phaseCount, initiatives, tasksByInitiative, linksByInitiative,
-    milestones, admins, isAdmin,
-    expanded, onToggleExpand, onEditPhase, onDeletePhase, onMovePhaseUp, onMovePhaseDown,
-    tagFilter, setTagFilter, hideDone, setHideDone,
-    collapsedWorkstreams, setCollapsedWorkstreams,
-    expandedInitiatives, setExpandedInitiatives,
-    taskFormFor, editingTaskId, taskForm, setTaskForm,
-    onOpenCreateTask, onOpenEditTask, onTaskSubmit, onCancelTaskForm, onToggleTask, onDeleteTask,
-    onEditInit, onDeleteInit, onMoveInit, onReorderInit, onReorderTask, onCreateInit, onStatusChange,
-    milestoneFormFor, editingMilestoneId, milestoneForm, setMilestoneForm,
-    onCreateMilestone, onEditMilestone, onMilestoneSubmit, onCancelMilestoneForm, onRetireMilestone,
-  } = props;
-  const [dragOverInitId, setDragOverInitId] = useState(null);
-  const [dragOverTaskId, setDragOverTaskId] = useState(null);
-  const [dragOverInitDrop, setDragOverInitDrop] = useState(null); // initiative id receiving a task drop
-
-  const launchCountdown = useMemo(() => {
-    if (!phase.launch_target_date) return null;
-    const target = parseDateLocal(phase.launch_target_date);
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    return daysBetween(target, now);
-  }, [phase.launch_target_date]);
-
-  const taskProgress = useMemo(() => {
-    let total = 0;
-    let done = 0;
-    for (const init of initiatives) {
-      const list = tasksByInitiative[init.id] || [];
-      total += list.length;
-      done += list.filter(t => t.completed_at).length;
-    }
-    return { total, done };
-  }, [initiatives, tasksByInitiative]);
-
-  const initProgress = useMemo(() => ({
-    total: initiatives.length,
-    done: initiatives.filter(i => i.status === 'done').length,
-  }), [initiatives]);
-
-  const filteredInitiatives = useMemo(() =>
-    initiatives.filter(i => {
-      if (tagFilter !== 'all' && i.tag !== tagFilter) return false;
-      if (hideDone && i.status === 'done' && !isRecentlyCompleted(i.completed_at)) return false;
-      return true;
-    }),
-  [initiatives, tagFilter, hideDone]);
-
-  const color = phaseColor(phaseIdx);
-
-  return (
-    <div style={{ ...styles.phaseCard, borderColor: color + '33' }}>
-      {/* Header (always visible) */}
-      <div style={styles.phaseHeaderRow}>
-        <button onClick={onToggleExpand} style={styles.phaseCaretBtn}>
-          <span style={{ display: 'inline-block', transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>▶</span>
-        </button>
-        <span style={{ ...styles.phaseColorDot, background: color }} />
-        <span style={styles.phaseName}>{phase.name}</span>
-
-        {launchCountdown != null && (
-          <span style={styles.phaseHeaderStat}>
-            <span style={{ color }}>{launchCountdown >= 0 ? `${launchCountdown}d` : `${Math.abs(launchCountdown)}d past`}</span>
-            <span style={styles.phaseHeaderStatLabel}>to {formatDateShort(phase.launch_target_date)}</span>
-          </span>
-        )}
-        {phase.launch_target_date == null && (
-          <span style={styles.phaseHeaderStat}>
-            <span style={{ color: 'rgba(255,255,255,0.35)' }}>—</span>
-            <span style={styles.phaseHeaderStatLabel}>no launch date</span>
-          </span>
-        )}
-
-        <span style={styles.phaseHeaderStat}>
-          <span style={{ color: colors.accentFg }}>{initProgress.done}/{initProgress.total}</span>
-          <span style={styles.phaseHeaderStatLabel}>initiatives</span>
-        </span>
-
-        <span style={styles.phaseHeaderStat}>
-          <span style={{ color: colors.success.fgSoft }}>{taskProgress.done}/{taskProgress.total}</span>
-          <span style={styles.phaseHeaderStatLabel}>tasks</span>
-        </span>
-
-        <div style={{ flex: 1 }} />
-
-        {isAdmin && (
-        <div style={styles.phaseActions}>
-          {onMovePhaseUp && <button onClick={onMovePhaseUp} style={styles.iconBtn} title="Move up">▲</button>}
-          {onMovePhaseDown && <button onClick={onMovePhaseDown} style={styles.iconBtn} title="Move down">▼</button>}
-          <button onClick={onEditPhase} style={styles.iconBtn} title="Edit phase">edit</button>
-          {phaseCount > 1 && (
-            <button onClick={onDeletePhase} style={{ ...styles.iconBtn, color: '#fca5a5' }} title="Delete phase">delete</button>
-          )}
-          {phaseCount === 1 && (
-            <button onClick={onDeletePhase} style={{ ...styles.iconBtn, color: '#fca5a5' }} title="Delete phase">delete</button>
-          )}
-        </div>
-        )}
-      </div>
-
-      {expanded && (
-        <div style={styles.phaseBody}>
-          {/* Milestones row (per phase) */}
-          <div style={styles.milestonesRow}>
-            <span style={styles.milestonesLabel}>Milestones:</span>
-            {milestones.map(ms => (
-              <button key={ms.id} onClick={isAdmin ? () => onEditMilestone(ms) : undefined} style={{ ...styles.milestoneChip, cursor: isAdmin ? 'pointer' : 'default' }}
-                title={`${ms.title}${ms.target_date ? ' — ' + formatDate(ms.target_date) : ''}`}>
-                <span style={styles.milestoneTitle}>{ms.title}</span>
-                {ms.target_date && <span style={styles.milestoneDate}>{formatDateShort(ms.target_date)}</span>}
-              </button>
-            ))}
-            {isAdmin && <button onClick={() => onCreateMilestone(phase.id)} style={styles.milestoneAdd}>+</button>}
-          </div>
-
-          {/* Milestone form (per phase) */}
-          {milestoneFormFor === phase.id && (
-            <form onSubmit={e => onMilestoneSubmit(e, phase.id)} style={styles.milestoneForm}>
-              <input
-                value={milestoneForm.title}
-                onChange={e => setMilestoneForm({ ...milestoneForm, title: e.target.value })}
-                placeholder="Milestone title"
-                autoFocus
-                style={{ ...styles.input, flex: 1 }}
-              />
-              <input
-                type="date"
-                value={milestoneForm.target_date}
-                onChange={e => setMilestoneForm({ ...milestoneForm, target_date: e.target.value })}
-                style={styles.input}
-              />
-              <button type="submit" style={styles.primaryBtn}>{editingMilestoneId ? 'Update' : 'Add'}</button>
-              {editingMilestoneId && (
-                <button type="button" onClick={() => onRetireMilestone(editingMilestoneId)} style={styles.dangerBtn}>Retire</button>
-              )}
-              <button type="button" onClick={onCancelMilestoneForm} style={styles.subtleBtn}>Cancel</button>
-            </form>
-          )}
-
-          {/* Filter bar (per phase) */}
-          <div style={styles.filterBar}>
-            <div style={styles.tagPills}>
-              {[{ key: 'all', label: 'All', color: 'rgba(255,255,255,0.4)' }, ...TAGS].map(t => (
-                <button key={t.key} onClick={() => setTagFilter(t.key)}
-                  style={{
-                    ...styles.tagPill,
-                    ...(tagFilter === t.key ? {
-                      background: (t.bg || 'rgba(255,255,255,0.1)'),
-                      color: t.color, borderColor: (t.color || '#fff') + '55',
-                    } : {}),
-                  }}>
-                  {t.label}
-                </button>
-              ))}
-            </div>
-            <label style={styles.toggleLabel}>
-              <input type="checkbox" checked={hideDone} onChange={e => setHideDone(e.target.checked)} />
-              Hide done
-            </label>
-          </div>
-
-          {/* Workstreams (Inbox triage section first, only when it has items) */}
-          {[INBOX_WS, ...WORKSTREAMS].map(ws => {
-            const wsInits = filteredInitiatives.filter(i => i.workstream === ws.key);
-            if (ws.key === 'inbox' && wsInits.length === 0) return null;
-            const totalCount = wsInits.length;
-            const doneCount = wsInits.filter(i => i.status === 'done').length;
-            const wsKey = `${phase.id}::${ws.key}`;
-            const collapsed = collapsedWorkstreams[wsKey];
-            const sorted = [...wsInits].sort((a, b) => {
-              const sa = STATUS_ORDER[a.status] ?? 9;
-              const sb = STATUS_ORDER[b.status] ?? 9;
-              if (sa !== sb) return sa - sb;
-              if (a.target_date && b.target_date) return a.target_date.localeCompare(b.target_date);
-              if (a.target_date) return -1;
-              if (b.target_date) return 1;
-              return (a.position || 0) - (b.position || 0);
-            });
-            const activeRows = [];
-            const completedRows = [];
-            for (const init of sorted) {
-              if (init.status === 'done' && !isRecentlyCompleted(init.completed_at)) completedRows.push(init);
-              else activeRows.push(init);
-            }
-            const showCompleted = !hideDone && completedRows.length > 0;
-
-            return (
-              <div key={ws.key} style={styles.workstreamSection}>
-                <button
-                  onClick={() => setCollapsedWorkstreams(prev => ({ ...prev, [wsKey]: !prev[wsKey] }))}
-                  style={styles.workstreamHeader}
-                >
-                  <span style={{ ...styles.workstreamCaret, transform: collapsed ? 'rotate(0deg)' : 'rotate(90deg)' }}>▶</span>
-                  <span style={{ ...styles.workstreamDot, background: ws.color }} />
-                  <span style={styles.workstreamLabel}>{ws.label}</span>
-                  <span style={styles.workstreamCount}>{doneCount} / {totalCount} done</span>
-                  {isAdmin && <button onClick={(e) => { e.stopPropagation(); onCreateInit(phase.id, ws.key); }} style={styles.workstreamAddBtn}>+</button>}
-                </button>
-
-                {!collapsed && (
-                  <div style={styles.workstreamBody}>
-                    {activeRows.length === 0 && completedRows.length === 0 && (
-                      <div style={styles.empty}>No initiatives yet.</div>
-                    )}
-                    {activeRows.map((init, idx) => (
-                      <InitiativeCard
-                        key={init.id}
-                        initiative={init}
-                        tasks={tasksByInitiative[init.id] || []}
-                        initiativeLinks={linksByInitiative[init.id] || []}
-                        admins={admins}
-                        isAdmin={isAdmin}
-                        expanded={!!expandedInitiatives[init.id]}
-                        onToggleExpand={() => setExpandedInitiatives(prev => ({ ...prev, [init.id]: !prev[init.id] }))}
-                        onEdit={() => onEditInit(init)}
-                        onDelete={() => onDeleteInit(init.id)}
-                        onStatusChange={onStatusChange}
-                        onMoveUp={idx > 0 ? () => onMoveInit(init, 'up') : null}
-                        onMoveDown={idx < activeRows.length - 1 ? () => onMoveInit(init, 'down') : null}
-                        taskFormFor={taskFormFor}
-                        editingTaskId={editingTaskId}
-                        taskForm={taskForm}
-                        setTaskForm={setTaskForm}
-                        onOpenCreateTask={onOpenCreateTask}
-                        onOpenEditTask={onOpenEditTask}
-                        onTaskSubmit={onTaskSubmit}
-                        onCancelTaskForm={onCancelTaskForm}
-                        onToggleTask={onToggleTask}
-                        onDeleteTask={onDeleteTask}
-                        isDragOver={dragOverInitId === init.id}
-                        onInitDragStart={(e) => { e.dataTransfer.setData('bd-init-id', init.id); e.dataTransfer.setData('bd-init-phase', phase.id); e.dataTransfer.setData('bd-init-ws', ws.key); e.dataTransfer.effectAllowed = 'move'; }}
-                        onInitDragOver={(e) => { if (e.dataTransfer.types.includes('bd-init-id')) { e.preventDefault(); setDragOverInitId(init.id); } }}
-                        onInitDragLeave={() => setDragOverInitId(null)}
-                        onInitDrop={(e) => { e.preventDefault(); setDragOverInitId(null); const draggedId = e.dataTransfer.getData('bd-init-id'); const srcPhase = e.dataTransfer.getData('bd-init-phase'); const srcWs = e.dataTransfer.getData('bd-init-ws'); if (draggedId && draggedId !== init.id && srcPhase === phase.id && srcWs === ws.key) onReorderInit(draggedId, init.id, phase.id, ws.key); }}
-                        isTaskDragOver={dragOverInitDrop === init.id}
-                        dragOverTaskId={dragOverTaskId}
-                        onTaskDragStart={(taskId, initId) => (e) => { e.dataTransfer.setData('bd-task-id', taskId); e.dataTransfer.setData('bd-task-src-init', initId); e.dataTransfer.effectAllowed = 'move'; e.stopPropagation(); }}
-                        onTaskDragOver={(taskId, initId) => (e) => { if (e.dataTransfer.types.includes('bd-task-id')) { e.preventDefault(); e.stopPropagation(); setDragOverTaskId(taskId); setDragOverInitDrop(initId); } }}
-                        onTaskDragLeave={() => { setDragOverTaskId(null); setDragOverInitDrop(null); }}
-                        onTaskDrop={(targetTaskId, destInitId) => (e) => { e.preventDefault(); e.stopPropagation(); setDragOverTaskId(null); setDragOverInitDrop(null); const draggedId = e.dataTransfer.getData('bd-task-id'); const srcInit = e.dataTransfer.getData('bd-task-src-init'); if (draggedId && draggedId !== targetTaskId) onReorderTask(draggedId, targetTaskId, srcInit, destInitId); }}
-                        onInitTaskAreaDragOver={(initId) => (e) => { if (e.dataTransfer.types.includes('bd-task-id')) { e.preventDefault(); e.stopPropagation(); setDragOverInitDrop(initId); setDragOverTaskId(null); } }}
-                        onInitTaskAreaDrop={(initId) => (e) => { e.preventDefault(); e.stopPropagation(); setDragOverInitDrop(null); setDragOverTaskId(null); const draggedId = e.dataTransfer.getData('bd-task-id'); const srcInit = e.dataTransfer.getData('bd-task-src-init'); if (draggedId) onReorderTask(draggedId, null, srcInit, initId); }}
-                      />
-                    ))}
-                    {showCompleted && (
-                      <CompletedSection
-                        initiatives={completedRows}
-                        tasksByInitiative={tasksByInitiative}
-                        linksByInitiative={linksByInitiative}
-                        admins={admins}
-                        isAdmin={isAdmin}
-                        onEditInit={onEditInit}
-                        onDeleteInit={onDeleteInit}
-                        onStatusChange={onStatusChange}
-                      />
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CompletedSection({ initiatives, tasksByInitiative, linksByInitiative, admins, isAdmin, onEditInit, onDeleteInit, onStatusChange }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div style={styles.completedWrap}>
-      <button onClick={() => setOpen(o => !o)} style={styles.completedToggle}>
-        <span style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)', display: 'inline-block', transition: 'transform 0.15s' }}>▶</span>
-        {' '}Completed ({initiatives.length})
-      </button>
-      {open && initiatives.map(init => (
-        <InitiativeCard
-          key={init.id}
-          initiative={init}
-          tasks={tasksByInitiative[init.id] || []}
-          initiativeLinks={linksByInitiative[init.id] || []}
-          admins={admins}
-          isAdmin={isAdmin}
-          expanded={false}
-          onToggleExpand={() => {}}
-          onEdit={() => onEditInit(init)}
-          onDelete={() => onDeleteInit(init.id)}
-          onStatusChange={onStatusChange}
-          dimmed
-        />
-      ))}
-    </div>
-  );
-}
-
-// ════════════════════════════════════════════════════════════
-// Initiative card
-// ════════════════════════════════════════════════════════════
-function InitiativeCard(props) {
-  const {
-    initiative, tasks, initiativeLinks, admins, isAdmin,
-    expanded, onToggleExpand, onEdit, onDelete, onStatusChange,
-    onMoveUp, onMoveDown, dimmed,
-    taskFormFor, editingTaskId, taskForm, setTaskForm,
-    onOpenCreateTask, onOpenEditTask, onTaskSubmit, onCancelTaskForm,
-    onToggleTask, onDeleteTask,
-    // drag-and-drop
-    isDragOver, onInitDragStart, onInitDragOver, onInitDragLeave, onInitDrop,
-    isTaskDragOver, dragOverTaskId,
-    onTaskDragStart, onTaskDragOver, onTaskDragLeave, onTaskDrop,
-    onInitTaskAreaDragOver, onInitTaskAreaDrop,
-  } = props;
-
-  const tag = TAG_MAP[initiative.tag];
-  const status = STATUS_MAP[initiative.status];
-  const owner = admins.find(a => a.id === initiative.owner_id);
-  const dl = formatDeadline(initiative.target_date);
-  const totalTasks = tasks.length;
-  const doneTasks = tasks.filter(t => t.completed_at).length;
-  const taskPct = totalTasks ? Math.round((doneTasks / totalTasks) * 100) : 0;
-
-  const sortedTasks = [...tasks].sort((a, b) => {
-    const ac = !!a.completed_at, bc = !!b.completed_at;
-    if (ac !== bc) return ac ? 1 : -1;
-    if (a.due_date && b.due_date) return a.due_date.localeCompare(b.due_date);
-    if (a.due_date) return -1;
-    if (b.due_date) return 1;
-    return (a.position || 0) - (b.position || 0);
-  });
-
-  return (
-    <div
-      style={{ ...styles.initiativeCard, opacity: dimmed ? 0.55 : 1, ...(isDragOver ? { borderColor: '#5b8fc7', background: 'rgba(91, 143, 199,0.06)' } : {}), ...(isTaskDragOver ? { borderColor: '#10b981', background: 'rgba(16,185,129,0.04)' } : {}) }}
-      draggable={isAdmin && !dimmed}
-      onDragStart={onInitDragStart}
-      onDragOver={onInitDragOver}
-      onDragLeave={onInitDragLeave}
-      onDrop={onInitDrop}
-      onDragEnd={() => {}}
-    >
-      <div style={styles.initRowHeader}>
-        <button onClick={onToggleExpand} style={styles.initCaretBtn} title={expanded ? 'Collapse' : 'Expand'}>
-          <span style={{ display: 'inline-block', transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.12s' }}>▶</span>
-        </button>
-        <span style={{ ...styles.statusBadge, color: status.color, background: status.bg }}>{status.label}</span>
-        <span style={{ ...styles.tagBadge, color: tag.color, background: tag.bg }}>{tag.label}</span>
-        <span style={styles.initTitle}>{initiative.title}</span>
-        {initiative.priority === 'high' && <span style={styles.priorityHigh}>★</span>}
-        <div style={{ flex: 1 }} />
-        {owner && <span style={styles.ownerChip} title={owner.full_name}>{owner.full_name?.charAt(0).toUpperCase()}</span>}
-        {initiative.budget_cents != null && <span style={styles.metaPill}>{formatBudget(initiative.budget_cents)}</span>}
-        {dl && <span style={{ ...styles.metaPill, color: dl.color }}>{formatDateShort(initiative.target_date)} · {dl.sub}</span>}
-        {totalTasks > 0 && <span style={styles.taskCounter}>{doneTasks}/{totalTasks}</span>}
-        {isAdmin && (
-        <div style={styles.initActions}>
-          {onMoveUp && <button onClick={onMoveUp} style={styles.iconBtn} title="Move up">▲</button>}
-          {onMoveDown && <button onClick={onMoveDown} style={styles.iconBtn} title="Move down">▼</button>}
-          <select value={initiative.status} onChange={(e) => onStatusChange(initiative.id, e.target.value)}
-            style={styles.miniSelect} onClick={(e) => e.stopPropagation()}>
-            {STATUSES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
-          </select>
-          <button onClick={onEdit} style={styles.iconBtn} title="Edit">edit</button>
-          <button onClick={onDelete} style={styles.iconBtn} title="Delete">×</button>
-        </div>
-        )}
-      </div>
-
-      {totalTasks > 0 && (
-        <div style={styles.barBg}>
-          <div style={{ ...styles.barFill, width: `${taskPct}%`, background: '#22c55e' }} />
-        </div>
-      )}
-
-      {expanded && (
-        <div style={styles.initBody}>
-          {initiative.description && <div style={styles.initDescription}>{initiative.description}</div>}
-          {initiativeLinks.length > 0 && (
-            <div style={styles.linksRow}>
-              {initiativeLinks.map(l => (
-                <a key={l.id} href={l.url} target="_blank" rel="noopener noreferrer" style={styles.linkChip}>↗ {l.label}</a>
-              ))}
-            </div>
-          )}
-          <div style={styles.tasksHeader}>
-            <span>Tasks</span>
-            {isAdmin && taskFormFor !== initiative.id && (
-              <button onClick={() => onOpenCreateTask(initiative.id)} style={styles.subtleBtn}>+ Task</button>
-            )}
-          </div>
-          <div
-            onDragOver={onInitTaskAreaDragOver ? onInitTaskAreaDragOver(initiative.id) : undefined}
-            onDrop={onInitTaskAreaDrop ? onInitTaskAreaDrop(initiative.id) : undefined}
-          >
-          {sortedTasks.map(task => (
-            <TaskRow
-              key={task.id}
-              task={task}
-              admins={admins}
-              isAdmin={isAdmin}
-              initiative={initiative}
-              isEditing={editingTaskId === task.id && taskFormFor === initiative.id}
-              taskForm={taskForm}
-              setTaskForm={setTaskForm}
-              onToggle={() => onToggleTask(task)}
-              onEdit={() => onOpenEditTask(task)}
-              onSubmit={(e) => onTaskSubmit(e, initiative.id)}
-              onCancel={onCancelTaskForm}
-              onDelete={() => onDeleteTask(task.id)}
-              isDragOver={dragOverTaskId === task.id}
-              onDragStart={onTaskDragStart ? onTaskDragStart(task.id, initiative.id) : undefined}
-              onDragOver={onTaskDragOver ? onTaskDragOver(task.id, initiative.id) : undefined}
-              onDragLeave={onTaskDragLeave}
-              onDrop={onTaskDrop ? onTaskDrop(task.id, initiative.id) : undefined}
-            />
-          ))}
-          </div>
-          {isAdmin && taskFormFor === initiative.id && !editingTaskId && (
-            <TaskForm form={taskForm} setForm={setTaskForm} admins={admins}
-              onSubmit={(e) => onTaskSubmit(e, initiative.id)} onCancel={onCancelTaskForm} />
-          )}
-          {sortedTasks.length === 0 && taskFormFor !== initiative.id && (
-            <div style={styles.emptyTasks}>No tasks yet.</div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ════════════════════════════════════════════════════════════
-// Task row
-// ════════════════════════════════════════════════════════════
-function TaskRow({ task, admins, isAdmin, initiative, isEditing, taskForm, setTaskForm, onToggle, onEdit, onSubmit, onCancel, onDelete,
-  isDragOver, onDragStart, onDragOver, onDragLeave, onDrop }) {
-  if (isEditing) return <TaskForm form={taskForm} setForm={setTaskForm} admins={admins} onSubmit={onSubmit} onCancel={onCancel} editing />;
-  const done = !!task.completed_at;
-  const owner = admins.find(a => a.id === task.owner_id);
-  const dl = formatDeadline(task.due_date);
-  const tag = effectiveTag(task, initiative);
-  const tagMeta = TAG_MAP[tag];
-  return (
-    <div
-      style={{ ...styles.taskRow, opacity: done ? 0.55 : 1, ...(isDragOver ? { borderTop: '2px solid #5b8fc7', marginTop: '-2px' } : {}) }}
-      draggable={isAdmin}
-      onDragStart={onDragStart}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-    >
-      {isAdmin ? (
-        <button onClick={onToggle} style={styles.checkBtn}>
-          <span style={{ ...styles.checkBox, ...(done ? styles.checkBoxDone : {}) }}>{done && '✓'}</span>
-        </button>
-      ) : (
-        <span style={{ ...styles.checkBox, ...(done ? styles.checkBoxDone : {}), marginRight: '8px' }}>{done && '✓'}</span>
-      )}
-      <span style={{ ...styles.taskTitle, textDecoration: done ? 'line-through' : 'none' }}>{task.title}</span>
-      {task.recurrence_interval && <span style={styles.recurChip} title={`Repeats ${task.recurrence_interval}`}>↻ {task.recurrence_interval}</span>}
-      {task.tag && task.tag !== initiative.tag && (
-        <span style={{ ...styles.miniTag, color: tagMeta.color, background: tagMeta.bg }}>{tagMeta.label}</span>
-      )}
-      <div style={{ flex: 1 }} />
-      {dl && !done && <span style={{ ...styles.metaPill, color: dl.color }}>{formatDateShort(task.due_date)} · {dl.sub}</span>}
-      {dl && done && <span style={styles.metaPill}>{formatDateShort(task.due_date)}</span>}
-      {owner && <span style={styles.ownerChip} title={owner.full_name}>{owner.full_name?.charAt(0).toUpperCase()}</span>}
-      {isAdmin && <button onClick={(e) => { e.stopPropagation(); onEdit(); }} style={styles.iconBtn}>edit</button>}
-      {isAdmin && <button onClick={(e) => { e.stopPropagation(); onDelete(); }} style={styles.iconBtn}>×</button>}
-    </div>
-  );
-}
-
-// ════════════════════════════════════════════════════════════
-// Initiative form (with phase selector to support cross-phase moves)
-// ════════════════════════════════════════════════════════════
-function InitiativeForm({ form, setForm, editing, phases, admins, existingLinks, onSubmit, onCancel }) {
-  const formRef = useRef(null);
-  useEffect(() => {
-    if (form._links === undefined) {
-      setForm(f => ({ ...f, _links: existingLinks.map(l => ({ id: l.id, label: l.label, url: l.url })) }));
-    }
-  }, []); // eslint-disable-line
-
-  // The form renders near the top of the page while the + button that opened
-  // it may be far down the viewport — bring the form to the user.
-  useEffect(() => {
-    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, []);
-
-  function updateLink(idx, key, val) {
-    const next = [...(form._links || [])];
-    next[idx] = { ...next[idx], [key]: val };
-    setForm({ ...form, _links: next });
-  }
-  function removeLink(idx) {
-    const next = [...(form._links || [])];
-    next.splice(idx, 1);
-    setForm({ ...form, _links: next });
-  }
-  function addLink() {
-    setForm({ ...form, _links: [...(form._links || []), { label: '', url: '' }] });
-  }
-
-  return (
-    <form ref={formRef} onSubmit={onSubmit} style={styles.form}>
-      <div style={styles.formLabel}>{editing ? 'Edit Initiative' : 'New Initiative'}</div>
-
-      <input
-        value={form.title}
-        onChange={e => setForm({ ...form, title: e.target.value })}
-        placeholder="Initiative title"
-        style={styles.input}
-        autoFocus
-      />
-      <textarea
-        value={form.description}
-        onChange={e => setForm({ ...form, description: e.target.value })}
-        placeholder="Description / notes (optional)"
-        style={{ ...styles.input, minHeight: '60px', resize: 'vertical' }}
-      />
-
-      <div style={styles.formRow}>
-        <select value={form.phase_id || ''} onChange={e => setForm({ ...form, phase_id: e.target.value })} style={styles.select}>
-          <option value="">Select phase...</option>
-          {phases.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-        <select value={form.workstream} onChange={e => setForm({ ...form, workstream: e.target.value })} style={styles.select}>
-          {[INBOX_WS, ...WORKSTREAMS].map(w => (
-            <option key={w.key} value={w.key}>{w.key === 'inbox' ? 'Inbox (untriaged)' : w.label}</option>
-          ))}
-        </select>
-      </div>
-
-      <div style={styles.formRow}>
-        <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })} style={styles.select}>
-          {STATUSES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
-        </select>
-        <select value={form.tag} onChange={e => setForm({ ...form, tag: e.target.value })} style={styles.select}>
-          {TAGS.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
-        </select>
-        <select value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })} style={styles.select}>
-          {PRIORITIES.map(p => <option key={p.key} value={p.key}>{p.label} priority</option>)}
-        </select>
-      </div>
-
-      <div style={styles.formRow}>
-        <input type="date" value={form.target_date} onChange={e => setForm({ ...form, target_date: e.target.value })}
-          style={{ ...styles.input, flex: 1 }} />
-        <select value={form.owner_id || ''} onChange={e => setForm({ ...form, owner_id: e.target.value || null })}
-          style={{ ...styles.select, flex: 1 }}>
-          <option value="">No owner</option>
-          {admins.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
-        </select>
-        <input value={form.budget_dollars} onChange={e => setForm({ ...form, budget_dollars: e.target.value })}
-          placeholder="Budget ($)" inputMode="decimal" style={{ ...styles.input, flex: 1 }} />
-      </div>
-
-      <div style={styles.formSubLabel}>Links</div>
-      {(form._links || []).map((l, idx) => (
-        <div key={idx} style={styles.formRow}>
-          <input value={l.label} onChange={e => updateLink(idx, 'label', e.target.value)} placeholder="Label"
-            style={{ ...styles.input, flex: 1 }} />
-          <input value={l.url} onChange={e => updateLink(idx, 'url', e.target.value)} placeholder="https://"
-            style={{ ...styles.input, flex: 2 }} />
-          <button type="button" onClick={() => removeLink(idx)} style={styles.subtleBtn}>×</button>
-        </div>
-      ))}
-      <button type="button" onClick={addLink} style={styles.subtleBtn}>+ Link</button>
-
-      <div style={styles.formRow}>
-        <button type="submit" style={styles.primaryBtn}>{editing ? 'Update' : 'Create'}</button>
-        <button type="button" onClick={onCancel} style={styles.subtleBtn}>Cancel</button>
-      </div>
-    </form>
-  );
-}
-
-// ════════════════════════════════════════════════════════════
-// Task form
-// ════════════════════════════════════════════════════════════
-function TaskForm({ form, setForm, admins, onSubmit, onCancel, editing }) {
-  return (
-    <form onSubmit={onSubmit} style={styles.taskForm}>
-      <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })}
-        placeholder="Task title" autoFocus style={styles.input} />
-      <div style={styles.formRow}>
-        <input type="date" value={form.due_date} onChange={e => setForm({ ...form, due_date: e.target.value })}
-          style={{ ...styles.input, flex: 1 }} />
-        <select value={form.owner_id || ''} onChange={e => setForm({ ...form, owner_id: e.target.value || null })}
-          style={{ ...styles.select, flex: 1 }}>
-          <option value="">No owner</option>
-          {admins.map(a => <option key={a.id} value={a.id}>{a.full_name}</option>)}
-        </select>
-        <select value={form.tag} onChange={e => setForm({ ...form, tag: e.target.value })}
-          style={{ ...styles.select, flex: 1 }}>
-          <option value="">Inherit tag</option>
-          {TAGS.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
-        </select>
-      </div>
-      <div style={styles.formRow}>
-        <select value={form.recurrence_interval} onChange={e => setForm({ ...form, recurrence_interval: e.target.value })}
-          style={{ ...styles.select, flex: 1 }}>
-          {RECURRENCE_OPTIONS.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
-        </select>
-        {form.recurrence_interval && (
-          <input type="number" min="1" value={form.recurrence_count}
-            onChange={e => setForm({ ...form, recurrence_count: e.target.value })}
-            placeholder="Every N" style={{ ...styles.input, width: '90px' }} />
-        )}
-      </div>
-      <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })}
-        placeholder="Notes (optional)" style={{ ...styles.input, minHeight: '50px', resize: 'vertical' }} />
-      <div style={styles.formRow}>
-        <button type="submit" style={styles.primaryBtn}>{editing ? 'Update' : 'Add Task'}</button>
-        <button type="button" onClick={onCancel} style={styles.subtleBtn}>Cancel</button>
-      </div>
-    </form>
-  );
-}
-
-// ════════════════════════════════════════════════════════════
-// Phase chip filter (for global views)
-// ════════════════════════════════════════════════════════════
-function PhaseChipFilter({ phases, enabled, setEnabled }) {
-  if (phases.length <= 1) return null;
-  function toggle(id) { setEnabled(prev => ({ ...prev, [id]: !prev[id] })); }
-  function setAll(val) {
-    const next = {};
-    for (const p of phases) next[p.id] = val;
-    setEnabled(next);
-  }
-  return (
-    <div style={styles.phaseFilterBar}>
-      <span style={styles.phaseFilterLabel}>Phases:</span>
-      {phases.map((p, idx) => {
-        const on = enabled[p.id];
-        const c = phaseColor(idx);
-        return (
-          <button key={p.id} onClick={() => toggle(p.id)}
-            style={{
-              ...styles.phaseChip,
-              ...(on ? { background: c + '22', borderColor: c + '66', color: c } : {}),
-            }}>
-            {on ? '✓ ' : ''}{p.name}
-          </button>
-        );
-      })}
-      <div style={{ flex: 1 }} />
-      <button onClick={() => setAll(true)} style={styles.subtleBtn}>All</button>
-      <button onClick={() => setAll(false)} style={styles.subtleBtn}>None</button>
-    </div>
-  );
-}
-
-// ════════════════════════════════════════════════════════════
-// Timeline view
-// ════════════════════════════════════════════════════════════
-function TimelineView({ phases, phasesById, phaseIndexById, initiatives, milestones, enabledPhases }) {
-  const [monthsAhead, setMonthsAhead] = useState(6);
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const start = new Date(today.getFullYear(), today.getMonth(), 1);
-  const end = new Date(start.getFullYear(), start.getMonth() + monthsAhead, 0);
-  const totalDays = daysBetween(end, start) + 1;
-  const dayWidth = 100 / totalDays;
-
-  function dateOffsetPct(dateStr) {
-    if (!dateStr) return null;
-    const d = parseDateLocal(dateStr);
-    return Math.max(0, daysBetween(d, start) * dayWidth);
-  }
-
-  const months = [];
-  let cursor = new Date(start);
-  while (cursor <= end) {
-    const monthEnd = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0);
-    const monthDays = daysBetween(monthEnd, cursor) + 1;
-    months.push({ label: cursor.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }), widthPct: monthDays * dayWidth });
-    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
-  }
-
-  const visiblePhases = phases.filter(p => enabledPhases[p.id]);
-
-  return (
-    <div style={styles.timelineWrap}>
-      <div style={styles.timelineToolbar}>
-        <span style={styles.timelineLabel}>Range:</span>
-        {[3, 6, 12, 24].map(n => (
-          <button key={n} onClick={() => setMonthsAhead(n)}
-            style={{ ...styles.subtleBtn, ...(monthsAhead === n ? { background: 'rgba(91, 143, 199,0.18)', color: '#8fb4d8' } : {}) }}>
-            {n}mo
-          </button>
-        ))}
-      </div>
-
-      <div style={styles.timelineAxis}>
-        <div style={styles.timelineRowLabel} />
-        <div style={styles.timelineLane}>
-          {months.map((m, idx) => (
-            <div key={idx} style={{ ...styles.timelineMonth, width: `${m.widthPct}%` }}>{m.label}</div>
-          ))}
-        </div>
-      </div>
-
-      <div style={styles.timelineOverlayWrap}>
-        <div style={styles.timelineRowLabel} />
-        <div style={{ ...styles.timelineLane, position: 'relative', height: '20px' }}>
-          <div style={{ ...styles.timelineToday, left: `${dateOffsetPct(todayStr())}%` }} title="Today" />
-          {visiblePhases.map(p => {
-            const offset = dateOffsetPct(p.launch_target_date);
-            if (offset == null) return null;
-            const c = phaseColor(phaseIndexById[p.id]);
-            return (
-              <div key={p.id} style={{ ...styles.timelineLaunch, left: `${offset}%`, color: c }}
-                title={`${p.name} launch: ${formatDate(p.launch_target_date)}`}>🚀</div>
-            );
-          })}
-          {milestones.filter(ms => enabledPhases[ms.phase_id]).map(ms => {
-            const offset = dateOffsetPct(ms.target_date);
-            if (offset == null) return null;
-            return (
-              <div key={ms.id} style={{ ...styles.timelineMilestone, left: `${offset}%` }}
-                title={`${ms.title} (${phasesById[ms.phase_id]?.name || ''}) — ${formatDate(ms.target_date)}`}>◆</div>
-            );
-          })}
-        </div>
-      </div>
-
-      {visiblePhases.length === 0 && <div style={styles.empty}>No phases enabled.</div>}
-
-      {visiblePhases.map(phase => {
-        const phaseInits = initiatives.filter(i => i.phase_id === phase.id);
-        if (phaseInits.length === 0) return null;
-        const c = phaseColor(phaseIndexById[phase.id]);
-        return (
-          <div key={phase.id}>
-            <div style={{ ...styles.timelinePhaseHeader, color: c }}>{phase.name}</div>
-            {WORKSTREAMS.map(ws => {
-              const wsInits = phaseInits.filter(i => i.workstream === ws.key);
-              if (wsInits.length === 0) return null;
-              return (
-                <div key={ws.key}>
-                  <div style={{ ...styles.timelineWsHeader, color: ws.color }}>{ws.label}</div>
-                  {wsInits.map(init => {
-                    const tag = TAG_MAP[init.tag];
-                    const startPct = dateOffsetPct(init.created_at?.substring(0, 10) || todayStr());
-                    const endPct = dateOffsetPct(init.target_date) ?? Math.min(100, startPct + 10);
-                    const width = Math.max(2, endPct - startPct);
-                    return (
-                      <div key={init.id} style={styles.timelineRow}>
-                        <div style={styles.timelineRowLabel} title={init.title}>{init.title}</div>
-                        <div style={styles.timelineLane}>
-                          <div style={{
-                            ...styles.timelineBar,
-                            left: `${startPct}%`, width: `${width}%`,
-                            background: tag.bg,
-                            border: `1px solid ${tag.color}55`,
-                            color: tag.color,
-                          }} title={`${init.title} → ${init.target_date ? formatDate(init.target_date) : 'no date'}`}>
-                            {init.title}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ════════════════════════════════════════════════════════════
-// Calendar view
-// ════════════════════════════════════════════════════════════
-function CalendarView({ phasesById, phaseIndexById, initiatives, tasks, milestones, enabledPhases }) {
-  const [cursor, setCursor] = useState(() => {
-    const d = new Date();
-    return new Date(d.getFullYear(), d.getMonth(), 1);
-  });
-
-  const year = cursor.getFullYear();
-  const month = cursor.getMonth();
-  const firstDay = new Date(year, month, 1);
-  const lastDay = new Date(year, month + 1, 0);
-  const startWeekday = firstDay.getDay();
-  const daysInMonth = lastDay.getDate();
-  const totalCells = Math.ceil((startWeekday + daysInMonth) / 7) * 7;
-
-  function makeKey(d) {
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${d.getFullYear()}-${m}-${day}`;
-  }
-
-  // initiatives lookup by id (for phase resolution on tasks)
-  const initiativesById = Object.fromEntries(initiatives.map(i => [i.id, i]));
-
-  const events = {};
-  function pushEvent(date, ev) { if (!date) return; (events[date] = events[date] || []).push(ev); }
-  for (const t of tasks) {
-    const init = initiativesById[t.initiative_id];
-    if (!init || !enabledPhases[init.phase_id]) continue;
-    const c = phaseColor(phaseIndexById[init.phase_id]);
-    if (t.due_date) pushEvent(t.due_date, { kind: 'task', label: t.title, color: c, done: !!t.completed_at });
-  }
-  for (const i of initiatives) {
-    if (!enabledPhases[i.phase_id]) continue;
-    const c = phaseColor(phaseIndexById[i.phase_id]);
-    if (i.target_date) pushEvent(i.target_date, { kind: 'initiative', label: i.title, color: c });
-  }
-  for (const m of milestones) {
-    if (!enabledPhases[m.phase_id]) continue;
-    if (m.target_date) pushEvent(m.target_date, { kind: 'milestone', label: m.title, color: '#fbbf24' });
-  }
-
-  const todayKey = makeKey(new Date());
-
-  return (
-    <div style={styles.calendarWrap}>
-      <div style={styles.calendarHeader}>
-        <button onClick={() => setCursor(new Date(year, month - 1, 1))} style={styles.subtleBtn}>◀</button>
-        <div style={styles.calendarMonthLabel}>{cursor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</div>
-        <button onClick={() => setCursor(new Date(year, month + 1, 1))} style={styles.subtleBtn}>▶</button>
-        <div style={{ flex: 1 }} />
-        <button onClick={() => { const d = new Date(); setCursor(new Date(d.getFullYear(), d.getMonth(), 1)); }}
-          style={styles.subtleBtn}>Today</button>
-      </div>
-      <div style={styles.calendarGrid}>
-        {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => (
-          <div key={d} style={styles.calendarDayHeader}>{d}</div>
-        ))}
-        {Array.from({ length: totalCells }).map((_, idx) => {
-          const dayNum = idx - startWeekday + 1;
-          if (dayNum < 1 || dayNum > daysInMonth) return <div key={idx} style={styles.calendarCellEmpty} />;
-          const cellDate = new Date(year, month, dayNum);
-          const key = makeKey(cellDate);
-          const dayEvents = events[key] || [];
-          const isToday = key === todayKey;
-          return (
-            <div key={idx} style={{ ...styles.calendarCell, ...(isToday ? styles.calendarCellToday : {}) }}>
-              <div style={styles.calendarCellNum}>{dayNum}</div>
-              <div style={styles.calendarCellEvents}>
-                {dayEvents.slice(0, 4).map((ev, i) => (
-                  <div key={i} style={{
-                    ...styles.calendarEvent,
-                    background: ev.color + '22',
-                    color: ev.color,
-                    textDecoration: ev.done ? 'line-through' : 'none',
-                  }} title={`${ev.kind}: ${ev.label}`}>
-                    {ev.kind === 'milestone' && '◆ '}
-                    {ev.kind === 'initiative' && '▌ '}
-                    {ev.label}
-                  </div>
-                ))}
-                {dayEvents.length > 4 && <div style={styles.calendarMoreEvents}>+{dayEvents.length - 4} more</div>}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ════════════════════════════════════════════════════════════
-// My Stuff view
-// ════════════════════════════════════════════════════════════
-function MyStuffView({ profile, phasesById, phaseIndexById, initiatives, tasks, tasksByInitiative, enabledPhases, isAdmin, onToggleTask, onEditInit, onEditTask }) {
-  const initiativesById = Object.fromEntries(initiatives.map(i => [i.id, i]));
-
-  const myInits = initiatives.filter(i => i.owner_id === profile.id && i.status !== 'done' && enabledPhases[i.phase_id]);
-  const myTasks = tasks.filter(t => {
-    if (t.owner_id !== profile.id || t.completed_at) return false;
-    const init = initiativesById[t.initiative_id];
-    return init && enabledPhases[init.phase_id];
-  });
-
-  myTasks.sort((a, b) => {
-    if (a.due_date && b.due_date) return a.due_date.localeCompare(b.due_date);
-    if (a.due_date) return -1;
-    if (b.due_date) return 1;
-    return 0;
-  });
-  myInits.sort((a, b) => {
-    if (a.target_date && b.target_date) return a.target_date.localeCompare(b.target_date);
-    if (a.target_date) return -1;
-    if (b.target_date) return 1;
-    return 0;
-  });
-
-  return (
-    <div style={styles.mineWrap}>
-      <div style={styles.mineSection}>
-        <h3 style={styles.mineHeader}>My Tasks ({myTasks.length})</h3>
-        {myTasks.length === 0 && <div style={styles.empty}>No open tasks owned by you.</div>}
-        {myTasks.map(task => {
-          const init = initiativesById[task.initiative_id];
-          const phase = init ? phasesById[init.phase_id] : null;
-          const phaseC = phase ? phaseColor(phaseIndexById[phase.id]) : '#666';
-          const dl = formatDeadline(task.due_date);
-          const ws = WORKSTREAM_MAP[init?.workstream];
-          return (
-            <div key={task.id} style={styles.taskRow}>
-              {isAdmin ? (
-                <button onClick={() => onToggleTask(task)} style={styles.checkBtn}>
-                  <span style={styles.checkBox} />
-                </button>
-              ) : (
-                <span style={{ ...styles.checkBox, marginRight: '8px' }} />
-              )}
-              <span style={styles.taskTitle}>{task.title}</span>
-              {phase && <span style={{ ...styles.miniTag, color: phaseC, background: phaseC + '22' }}>{phase.name}</span>}
-              {ws && <span style={{ ...styles.miniTag, color: ws.color, background: ws.color + '22' }}>{ws.label}</span>}
-              {init && <span style={styles.contextLabel}>in {init.title}</span>}
-              <div style={{ flex: 1 }} />
-              {dl && <span style={{ ...styles.metaPill, color: dl.color }}>{formatDateShort(task.due_date)} · {dl.sub}</span>}
-              {isAdmin && <button onClick={() => onEditTask(task)} style={styles.iconBtn}>edit</button>}
-            </div>
-          );
-        })}
-      </div>
-
-      <div style={styles.mineSection}>
-        <h3 style={styles.mineHeader}>My Initiatives ({myInits.length})</h3>
-        {myInits.length === 0 && <div style={styles.empty}>No open initiatives owned by you.</div>}
-        {myInits.map(init => {
-          const dl = formatDeadline(init.target_date);
-          const taskList = tasksByInitiative[init.id] || [];
-          const doneCount = taskList.filter(t => t.completed_at).length;
-          const tag = TAG_MAP[init.tag];
-          const status = STATUS_MAP[init.status];
-          const phase = phasesById[init.phase_id];
-          const phaseC = phase ? phaseColor(phaseIndexById[phase.id]) : '#666';
-          return (
-            <div key={init.id} style={styles.initiativeCard}>
-              <div style={styles.initRowHeader}>
-                <span style={{ ...styles.statusBadge, color: status.color, background: status.bg }}>{status.label}</span>
-                <span style={{ ...styles.tagBadge, color: tag.color, background: tag.bg }}>{tag.label}</span>
-                {phase && <span style={{ ...styles.miniTag, color: phaseC, background: phaseC + '22' }}>{phase.name}</span>}
-                <span style={styles.initTitle}>{init.title}</span>
-                <div style={{ flex: 1 }} />
-                <span style={styles.taskCounter}>{doneCount}/{taskList.length}</span>
-                {dl && <span style={{ ...styles.metaPill, color: dl.color }}>{formatDateShort(init.target_date)} · {dl.sub}</span>}
-                {isAdmin && <button onClick={() => onEditInit(init)} style={styles.iconBtn}>edit</button>}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ════════════════════════════════════════════════════════════
 // Styles
 // ════════════════════════════════════════════════════════════
 const styles = {
@@ -2982,188 +1617,107 @@ const styles = {
   pageTitle: { margin: 0, fontSize: '24px', fontWeight: 700, color: '#fff', letterSpacing: '-0.4px' },
   pageSubtitle: { margin: '4px 0 0', fontSize: '13px', color: 'rgba(255,255,255,0.45)' },
 
-  tabBar: {
-    display: 'flex', gap: '4px', padding: '4px',
-    background: 'rgba(255,255,255,0.03)', borderRadius: '10px',
-    marginBottom: '12px', alignItems: 'center',
-  },
-  tabBtn: {
-    padding: '8px 14px', border: 'none', borderRadius: '8px', background: 'transparent',
-    color: 'rgba(255,255,255,0.55)', fontSize: '13px', fontWeight: 600,
-    cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.12s',
-  },
-  tabBtnActive: { background: colors.accentA15, color: colors.accentFg },
-
-  // Needs Attention strip
-  attentionStrip: {
-    background: colors.whiteA02,
-    border: '1px solid rgba(255,255,255,0.06)',
-    borderLeft: `3px solid ${colors.warning.border}`,
-    borderRadius: '14px', padding: '12px 18px 14px', marginBottom: '12px',
-    display: 'flex', flexDirection: 'column', gap: '10px',
-  },
-  attentionHeader: { display: 'flex', alignItems: 'center', gap: '8px' },
-  attentionTitle: {
-    fontSize: '13px', fontWeight: 700, color: colors.textBright,
-    textTransform: 'uppercase', letterSpacing: '0.5px',
-  },
-  attentionCount: {
-    fontSize: '11px', fontWeight: 700, color: colors.warning.fg,
-    background: colors.warning.bg, border: `1px solid ${colors.warning.border}`,
-    padding: '1px 8px', borderRadius: '999px',
-  },
-  attentionGroup: { display: 'flex', flexDirection: 'column', gap: '2px' },
-  attentionGroupLabel: {
-    fontSize: '11px', fontWeight: 700, textTransform: 'uppercase',
-    letterSpacing: '0.5px', padding: '2px 0',
-  },
-  attentionRow: {
-    display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px',
-    borderRadius: '6px', background: colors.whiteA02,
-  },
-  attentionContext: {
-    fontSize: '11px', color: colors.textDim, whiteSpace: 'nowrap',
-    overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '340px', flexShrink: 1,
-  },
-  ageChip: {
-    fontSize: '11px', fontWeight: 600, padding: '2px 8px',
-    borderRadius: '6px', flexShrink: 0, whiteSpace: 'nowrap',
-  },
-  // Waiting reuses its status color; stale reuses the ideas gray.
-  ageChipWaiting: { color: BD_STATUS_MAP.waiting.color, background: BD_STATUS_MAP.waiting.bg },
-  ageChipStale: { color: BD_STATUS_MAP.ideas.color, background: BD_STATUS_MAP.ideas.bg },
-  redateBtn: {
-    padding: '3px 8px', background: colors.bgInput,
-    border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px',
-    color: colors.textMuted, fontSize: '11px', fontWeight: 600,
-    cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
-  },
-  attentionAllClear: {
-    fontSize: '12px', color: colors.textDim, marginBottom: '12px',
-    display: 'flex', alignItems: 'center', gap: '6px',
-  },
-
-  // Quick-capture bar
-  quickAddBar: {
-    display: 'flex', alignItems: 'center', gap: '8px',
-    background: colors.accentA04, border: '1px solid rgba(91, 143, 199,0.15)',
-    borderRadius: '10px', padding: '8px 12px', marginBottom: '12px',
-  },
-  quickAddIcon: { color: colors.accentFg, fontSize: '15px', fontWeight: 700 },
-  quickAddInput: {
-    flex: 1, background: 'transparent', border: 'none', outline: 'none',
-    color: colors.textBright, fontSize: '13px', fontFamily: 'inherit', padding: '4px 0',
-  },
-
-  // Phase chip filter
-  phaseFilterBar: {
-    display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap',
-    padding: '10px 12px', background: 'rgba(255,255,255,0.02)',
-    border: '1px solid rgba(255,255,255,0.05)', borderRadius: '10px',
-    marginBottom: '10px',
-  },
-  phaseFilterLabel: { fontSize: '11px', color: 'rgba(255,255,255,0.5)', fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase' },
-  phaseChip: {
-    padding: '5px 10px', background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px',
-    color: 'rgba(255,255,255,0.5)', fontSize: '12px', fontWeight: 600,
-    cursor: 'pointer', fontFamily: 'inherit',
-  },
-
-  // Phase card
-  phaseList: { display: 'flex', flexDirection: 'column', gap: '12px' },
-  phaseCard: {
+  // Roadmap list
+  roadmapList: { display: 'flex', flexDirection: 'column', gap: '12px' },
+  roadmapCard: {
     background: 'rgba(255,255,255,0.02)',
     border: '1px solid rgba(255,255,255,0.06)',
     borderRadius: '14px',
     overflow: 'hidden',
   },
-  phaseHeaderRow: {
+  roadmapHeader: {
     display: 'flex', alignItems: 'center', gap: '10px', padding: '14px 18px',
     background: 'rgba(255,255,255,0.025)',
   },
-  phaseCaretBtn: {
+  roadmapName: { fontSize: '15px', fontWeight: 700, color: '#fff', letterSpacing: '-0.2px' },
+  roadmapDeadlineRow: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px', flexWrap: 'wrap' },
+  roadmapDeadlineName: { fontSize: '12px', color: 'rgba(255,255,255,0.6)', fontWeight: 600 },
+  roadmapDeadlineDate: { fontSize: '12px', color: 'rgba(255,255,255,0.45)' },
+  roadmapCountdown: { fontSize: '11px', fontWeight: 600 },
+  roadmapPctWrap: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0 },
+  roadmapPct: { fontSize: '14px', fontWeight: 700 },
+  roadmapPctSub: { fontSize: '10px', color: 'rgba(255,255,255,0.4)', fontWeight: 500 },
+  roadmapBody: { padding: '8px 18px 18px', display: 'flex', flexDirection: 'column', gap: '6px' },
+
+  // Milestone
+  milestoneWrap: {
+    background: 'rgba(255,255,255,0.025)',
+    border: '1px solid rgba(255,255,255,0.05)',
+    borderRadius: '8px', padding: '8px 12px',
+  },
+  milestoneRow: { display: 'flex', alignItems: 'center', gap: '8px' },
+  taskList: { marginTop: '8px', paddingTop: '8px', paddingLeft: '6px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', gap: '4px' },
+  taskRow: { display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '4px 0' },
+  taskCounter: {
+    fontSize: '11px', color: 'rgba(34,197,94,0.8)', fontWeight: 600,
+    background: 'rgba(34,197,94,0.08)', padding: '2px 8px',
+    borderRadius: '6px', flexShrink: 0,
+  },
+  dateChip: {
+    fontSize: '11px', fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap',
+    background: 'rgba(255,255,255,0.04)', padding: '2px 8px', borderRadius: '6px',
+  },
+
+  // Carets / row actions
+  caretBtn: {
     background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.55)',
-    cursor: 'pointer', padding: '4px 6px', fontSize: '11px', fontFamily: 'inherit',
+    cursor: 'pointer', padding: '4px 6px', fontSize: '11px', fontFamily: 'inherit', flexShrink: 0,
   },
-  phaseColorDot: { width: '10px', height: '10px', borderRadius: '50%', flexShrink: 0 },
-  phaseName: { fontSize: '15px', fontWeight: 700, color: '#fff', letterSpacing: '-0.2px' },
-  phaseHeaderStat: {
-    display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
-    fontSize: '13px', fontWeight: 700, marginLeft: '14px',
+  caretBtnSm: {
+    background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)',
+    cursor: 'pointer', padding: '2px 4px', fontSize: '10px', fontFamily: 'inherit', flexShrink: 0,
+    width: '18px',
   },
-  phaseHeaderStatLabel: { fontSize: '10px', fontWeight: 500, color: 'rgba(255,255,255,0.4)' },
-  phaseActions: { display: 'flex', gap: '4px', alignItems: 'center' },
-  phaseBody: { padding: '8px 18px 18px', display: 'flex', flexDirection: 'column', gap: '8px' },
+  rowActions: { display: 'flex', gap: '2px', alignItems: 'center', flexShrink: 0 },
+  iconBtn: {
+    background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)',
+    cursor: 'pointer', padding: '4px 6px', borderRadius: '4px',
+    fontSize: '12px', fontFamily: 'inherit',
+  },
+  addRowBtn: {
+    alignSelf: 'flex-start', marginTop: '2px',
+    background: 'transparent', border: '1px dashed rgba(255,255,255,0.15)',
+    borderRadius: '8px', color: 'rgba(255,255,255,0.5)', fontSize: '12px', fontWeight: 600,
+    cursor: 'pointer', fontFamily: 'inherit', padding: '6px 12px',
+  },
+  addRowBtnSm: {
+    alignSelf: 'flex-start',
+    background: 'transparent', border: 'none',
+    color: colors.accentFg, fontSize: '12px', fontWeight: 600,
+    cursor: 'pointer', fontFamily: 'inherit', padding: '4px 6px',
+  },
 
-  // Milestones (per phase)
-  milestonesRow: {
-    display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center', paddingTop: '4px',
-  },
-  milestonesLabel: {
-    fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 600,
-    letterSpacing: '0.5px', textTransform: 'uppercase', marginRight: '4px',
-  },
-  milestoneChip: {
-    display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 10px',
-    background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)',
-    borderRadius: '8px', color: '#fcd34d', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit',
-  },
-  milestoneTitle: { fontWeight: 600 },
-  milestoneDate: { fontSize: '11px', color: 'rgba(252,211,77,0.6)' },
-  milestoneAdd: {
-    width: '24px', height: '24px', border: '1px dashed rgba(255,255,255,0.2)',
-    borderRadius: '6px', background: 'transparent', color: 'rgba(255,255,255,0.45)',
-    cursor: 'pointer', fontSize: '13px', fontFamily: 'inherit',
-  },
-  milestoneForm: {
+  // Inline forms
+  inlineForm: {
     display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap',
-    padding: '8px 0',
+    background: colors.accentA04, border: '1px solid rgba(91, 143, 199,0.15)',
+    borderRadius: '8px', padding: '10px', marginTop: '2px',
+  },
+  taskInlineForm: {
+    display: 'flex', flexDirection: 'column', gap: '6px',
+    background: colors.accentA04, border: '1px solid rgba(91, 143, 199,0.15)',
+    borderRadius: '8px', padding: '10px', marginTop: '2px',
   },
 
-  // Filter bar
-  filterBar: {
-    display: 'flex', alignItems: 'center', gap: '12px', padding: '4px 0',
+  // Checkboxes (tasks reuse the small square; milestones reuse bdCheckbox)
+  checkBtn: { background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, marginTop: '1px', flexShrink: 0 },
+  checkBox: {
+    width: '16px', height: '16px', border: '1.5px solid rgba(255,255,255,0.3)',
+    borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    color: '#22c55e', fontSize: '12px', fontWeight: 700,
   },
-  tagPills: { display: 'flex', gap: '4px' },
-  tagPill: {
-    padding: '5px 10px', background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px',
-    color: 'rgba(255,255,255,0.5)', fontSize: '11px', fontWeight: 600,
-    cursor: 'pointer', fontFamily: 'inherit',
-  },
-  toggleLabel: {
-    display: 'flex', alignItems: 'center', gap: '6px',
-    fontSize: '12px', color: 'rgba(255,255,255,0.6)', cursor: 'pointer',
-  },
+  checkBoxDone: { background: 'rgba(34,197,94,0.18)', borderColor: '#22c55e' },
 
   // Forms
-  form: {
-    background: colors.accentA04, border: '1px solid rgba(91, 143, 199,0.15)',
-    borderRadius: '12px', padding: '14px', marginBottom: '14px',
-    display: 'flex', flexDirection: 'column', gap: '8px',
-  },
   formLabel: {
     fontSize: '12px', fontWeight: 700, color: colors.accentFg,
     letterSpacing: '0.5px', textTransform: 'uppercase',
   },
-  formSubLabel: { fontSize: '11px', color: 'rgba(255,255,255,0.45)', marginTop: '4px', fontWeight: 600 },
-  formRow: { display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' },
-  formInlineLabel: { fontSize: '12px', color: 'rgba(255,255,255,0.55)' },
+  formRow: { display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'flex-start' },
   input: {
     background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: '8px', padding: '8px 12px', color: '#e2e8f0',
     fontSize: '13px', fontFamily: 'inherit', outline: 'none',
-  },
-  select: {
-    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: '8px', padding: '8px 10px', color: '#e2e8f0',
-    fontSize: '13px', fontFamily: 'inherit', outline: 'none', cursor: 'pointer',
-  },
-  miniSelect: {
-    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: '6px', padding: '3px 6px', color: '#e2e8f0',
-    fontSize: '11px', fontFamily: 'inherit', outline: 'none', cursor: 'pointer',
   },
   primaryBtn: {
     padding: '8px 14px', background: colors.accentSoft,
@@ -3177,12 +1731,7 @@ const styles = {
     color: 'rgba(255,255,255,0.5)', fontSize: '12px', fontWeight: 500,
     cursor: 'pointer', fontFamily: 'inherit',
   },
-  dangerBtn: {
-    padding: '8px 14px', background: 'rgba(239,68,68,0.12)',
-    border: '1px solid rgba(239,68,68,0.35)', borderRadius: '8px',
-    color: '#fca5a5', fontSize: '12px', fontWeight: 600,
-    cursor: 'pointer', fontFamily: 'inherit',
-  },
+  empty: { color: 'rgba(255,255,255,0.3)', fontSize: '12px', fontStyle: 'italic', padding: '8px 10px' },
 
   // Modal
   modalOverlay: {
@@ -3199,229 +1748,8 @@ const styles = {
     fontSize: '15px', fontWeight: 700, color: '#fca5a5',
     textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '12px',
   },
-  modalBody: { fontSize: '13px', color: 'rgba(255,255,255,0.75)', lineHeight: 1.5 },
-  modalList: { margin: '8px 0', paddingLeft: '18px', color: 'rgba(255,255,255,0.6)' },
-  modalConfirmHint: { marginTop: '14px', fontSize: '12px', color: 'rgba(255,255,255,0.5)' },
-  modalConfirmName: {
-    margin: '6px 0 8px', fontSize: '13px', fontWeight: 600,
-    color: '#e2e8f0', background: 'rgba(255,255,255,0.04)',
-    padding: '8px 10px', borderRadius: '6px', wordBreak: 'break-word',
-    fontFamily: 'monospace',
-  },
-  modalActions: {
-    display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '14px',
-  },
 
-  // Workstream / initiative
-  workstreamSection: {
-    background: 'rgba(255,255,255,0.02)',
-    border: '1px solid rgba(255,255,255,0.05)',
-    borderRadius: '10px', overflow: 'hidden',
-  },
-  workstreamHeader: {
-    display: 'flex', width: '100%', alignItems: 'center', gap: '10px',
-    padding: '10px 14px', background: 'rgba(255,255,255,0.02)',
-    border: 'none', color: '#e2e8f0', fontSize: '14px', fontWeight: 600,
-    cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left',
-  },
-  workstreamCaret: { fontSize: '10px', color: 'rgba(255,255,255,0.4)', transition: 'transform 0.15s', display: 'inline-block' },
-  workstreamDot: { width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0 },
-  workstreamLabel: { flex: 1 },
-  workstreamCount: { fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: 500 },
-  workstreamAddBtn: {
-    width: '24px', height: '24px', background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px',
-    color: 'rgba(255,255,255,0.6)', fontSize: '14px', cursor: 'pointer', fontFamily: 'inherit',
-  },
-  workstreamBody: { padding: '4px 10px 10px', display: 'flex', flexDirection: 'column', gap: '4px' },
-  empty: { color: 'rgba(255,255,255,0.3)', fontSize: '12px', fontStyle: 'italic', padding: '8px 10px' },
-  emptyTasks: { color: 'rgba(255,255,255,0.3)', fontSize: '12px', fontStyle: 'italic', padding: '4px 0' },
-
-  // Initiative
-  initiativeCard: {
-    background: 'rgba(255,255,255,0.025)',
-    border: '1px solid rgba(255,255,255,0.05)',
-    borderRadius: '8px', padding: '10px 12px',
-    transition: 'border-color 0.15s',
-  },
-  initRowHeader: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' },
-  initCaretBtn: {
-    background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)',
-    cursor: 'pointer', padding: '2px 4px', fontSize: '10px', fontFamily: 'inherit',
-  },
-  initTitle: { fontSize: '14px', fontWeight: 600, color: '#e2e8f0' },
-  priorityHigh: { color: '#ef4444', fontSize: '14px' },
-  statusBadge: {
-    fontSize: '10px', fontWeight: 700, padding: '2px 8px',
-    borderRadius: '4px', textTransform: 'uppercase',
-    letterSpacing: '0.5px', flexShrink: 0,
-  },
-  tagBadge: {
-    fontSize: '10px', fontWeight: 700, padding: '2px 8px',
-    borderRadius: '4px', textTransform: 'uppercase',
-    letterSpacing: '0.5px', flexShrink: 0,
-  },
-  miniTag: { fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '4px', flexShrink: 0 },
-  ownerChip: {
-    width: '22px', height: '22px', borderRadius: '50%',
-    background: 'linear-gradient(135deg, #5b8fc7, #8fb4d8)',
-    color: '#fff', fontSize: '11px', fontWeight: 700,
-    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-  },
-  metaPill: {
-    fontSize: '11px', color: 'rgba(255,255,255,0.5)',
-    background: 'rgba(255,255,255,0.04)', padding: '2px 8px',
-    borderRadius: '6px', flexShrink: 0, whiteSpace: 'nowrap',
-  },
-  taskCounter: {
-    fontSize: '11px', color: 'rgba(34,197,94,0.8)', fontWeight: 600,
-    background: 'rgba(34,197,94,0.08)', padding: '2px 8px',
-    borderRadius: '6px', flexShrink: 0,
-  },
-  initActions: { display: 'flex', gap: '4px', alignItems: 'center' },
-  iconBtn: {
-    background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)',
-    cursor: 'pointer', padding: '4px 6px', borderRadius: '4px',
-    fontSize: '12px', fontFamily: 'inherit',
-  },
-  barBg: {
-    height: '4px', background: 'rgba(255,255,255,0.06)',
-    borderRadius: '2px', overflow: 'hidden', marginTop: '8px',
-  },
-  barFill: { height: '100%', transition: 'width 0.3s' },
-  initBody: {
-    marginTop: '10px', paddingTop: '10px',
-    borderTop: '1px solid rgba(255,255,255,0.06)',
-    display: 'flex', flexDirection: 'column', gap: '8px',
-  },
-  initDescription: { fontSize: '13px', color: 'rgba(255,255,255,0.65)', lineHeight: 1.5, whiteSpace: 'pre-wrap' },
-  linksRow: { display: 'flex', flexWrap: 'wrap', gap: '6px' },
-  linkChip: {
-    fontSize: '12px', color: colors.accentFg,
-    background: colors.accentA08, border: '1px solid rgba(91, 143, 199,0.18)',
-    padding: '3px 10px', borderRadius: '6px', textDecoration: 'none',
-  },
-  tasksHeader: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    fontSize: '11px', fontWeight: 700, color: 'rgba(255,255,255,0.5)',
-    textTransform: 'uppercase', letterSpacing: '0.5px',
-  },
-  taskRow: { display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 0' },
-  checkBtn: { background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 },
-  checkBox: {
-    width: '16px', height: '16px', border: '1.5px solid rgba(255,255,255,0.3)',
-    borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    color: '#22c55e', fontSize: '12px', fontWeight: 700,
-  },
-  checkBoxDone: { background: 'rgba(34,197,94,0.18)', borderColor: '#22c55e' },
-  taskTitle: { fontSize: '13px', color: '#e2e8f0' },
-  recurChip: {
-    fontSize: '10px', color: '#fbbf24', background: 'rgba(251,191,36,0.08)',
-    padding: '1px 6px', borderRadius: '4px',
-  },
-  contextLabel: { fontSize: '11px', color: 'rgba(255,255,255,0.4)' },
-  taskForm: {
-    display: 'flex', flexDirection: 'column', gap: '6px',
-    background: colors.accentA04, border: '1px solid rgba(91, 143, 199,0.15)',
-    borderRadius: '8px', padding: '10px', marginTop: '4px',
-  },
-  completedWrap: { marginTop: '6px' },
-  completedToggle: {
-    background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.35)',
-    fontSize: '11px', cursor: 'pointer', padding: '4px 0', fontFamily: 'inherit',
-  },
-
-  // Timeline
-  timelineWrap: {
-    display: 'flex', flexDirection: 'column', gap: '4px',
-    border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px',
-    background: 'rgba(255,255,255,0.02)', padding: '14px',
-  },
-  timelineToolbar: { display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '8px' },
-  timelineLabel: { fontSize: '11px', color: 'rgba(255,255,255,0.5)', fontWeight: 600, marginRight: '8px' },
-  timelineAxis: { display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '6px' },
-  timelineRowLabel: {
-    width: '180px', fontSize: '12px', color: 'rgba(255,255,255,0.7)',
-    paddingRight: '10px', flexShrink: 0,
-    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-  },
-  timelineLane: { flex: 1, display: 'flex', position: 'relative', minHeight: '20px' },
-  timelineMonth: {
-    fontSize: '11px', color: 'rgba(255,255,255,0.45)', fontWeight: 600,
-    borderLeft: '1px solid rgba(255,255,255,0.06)', paddingLeft: '4px',
-  },
-  timelineOverlayWrap: { display: 'flex', height: '24px', position: 'relative' },
-  timelineToday: {
-    position: 'absolute', top: '-4px', bottom: 0, width: '2px',
-    background: '#ef4444', zIndex: 2,
-  },
-  timelineLaunch: { position: 'absolute', top: 0, fontSize: '12px', transform: 'translateX(-50%)', zIndex: 3 },
-  timelineMilestone: {
-    position: 'absolute', top: 4, color: '#fbbf24',
-    fontSize: '10px', transform: 'translateX(-50%)', zIndex: 3,
-  },
-  timelinePhaseHeader: {
-    fontSize: '12px', fontWeight: 700,
-    textTransform: 'uppercase', letterSpacing: '0.5px',
-    padding: '12px 0 4px', borderTop: '1px solid rgba(255,255,255,0.06)', marginTop: '6px',
-  },
-  timelineWsHeader: {
-    fontSize: '11px', fontWeight: 700,
-    textTransform: 'uppercase', letterSpacing: '0.5px',
-    padding: '6px 0 2px', paddingLeft: '12px',
-  },
-  timelineRow: { display: 'flex', alignItems: 'center', height: '28px' },
-  timelineBar: {
-    position: 'absolute', height: '20px', borderRadius: '4px',
-    fontSize: '10px', fontWeight: 600, padding: '0 6px',
-    overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
-    display: 'flex', alignItems: 'center',
-  },
-
-  // Calendar
-  calendarWrap: {
-    border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px',
-    background: 'rgba(255,255,255,0.02)', padding: '14px',
-  },
-  calendarHeader: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' },
-  calendarMonthLabel: { fontSize: '15px', fontWeight: 700, color: '#e2e8f0' },
-  calendarGrid: { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px' },
-  calendarDayHeader: {
-    fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.4)',
-    textTransform: 'uppercase', letterSpacing: '0.5px',
-    textAlign: 'center', padding: '4px 0',
-  },
-  calendarCell: {
-    minHeight: '90px', background: 'rgba(255,255,255,0.02)',
-    border: '1px solid rgba(255,255,255,0.05)', borderRadius: '6px',
-    padding: '4px', display: 'flex', flexDirection: 'column', gap: '2px',
-  },
-  calendarCellEmpty: { minHeight: '90px' },
-  calendarCellToday: {
-    background: colors.accentA06,
-    border: '1px solid rgba(91, 143, 199,0.25)',
-  },
-  calendarCellNum: { fontSize: '11px', color: 'rgba(255,255,255,0.5)', fontWeight: 600 },
-  calendarCellEvents: { display: 'flex', flexDirection: 'column', gap: '2px', flex: 1, overflow: 'hidden' },
-  calendarEvent: {
-    fontSize: '10px', padding: '1px 4px', borderRadius: '3px',
-    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-  },
-  calendarMoreEvents: { fontSize: '10px', color: 'rgba(255,255,255,0.4)', padding: '0 4px' },
-
-  // My stuff
-  mineWrap: { display: 'flex', flexDirection: 'column', gap: '20px' },
-  mineSection: {
-    background: 'rgba(255,255,255,0.02)',
-    border: '1px solid rgba(255,255,255,0.06)',
-    borderRadius: '12px', padding: '14px',
-  },
-  mineHeader: {
-    margin: '0 0 10px', fontSize: '13px', fontWeight: 700,
-    color: '#e2e8f0', textTransform: 'uppercase', letterSpacing: '0.5px',
-  },
-
-  // BD Goals
+  // BD Goals (preserved)
   bdGoalsSection: {
     background: 'rgba(255,255,255,0.02)',
     border: '1px solid rgba(255,255,255,0.06)',
@@ -3488,4 +1816,5 @@ const styles = {
   bdChipSelected: {
     background: colors.accentA15, borderColor: colors.accentA40, color: colors.accentFg,
   },
+  workstreamCaret: { fontSize: '10px', color: 'rgba(255,255,255,0.4)', transition: 'transform 0.15s', display: 'inline-block' },
 };

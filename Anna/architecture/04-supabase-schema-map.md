@@ -74,22 +74,36 @@ files).
 - Trends generated daily by `generate-trends`; feeds by `fetch-rss`. Newsletters
   are RSS-only (no Mailgun).
 
-### Business Dev (`bd_*`) — see `CLAUDE.md` for the full spec
+### Roadmap page (`roadmap_*`) — CURRENT model (rebuilt 2026-07-24)
+- `roadmaps` (name, deadline_name, deadline_date, position) →
+  `roadmap_milestones` (roadmap_id, title, target_date, completed_at, position) →
+  `roadmap_tasks` (milestone_id, title, description, due_date, completed_at, position).
+  Migration `20260724170000_roadmap_rebuild.sql`. Cascade FKs delete the tree.
+- **RLS:** read = `is_roadmap_viewer(auth.uid())` (admin-tier **or** `partner`);
+  write (insert/update/delete) = `is_admin(auth.uid())` only. `created_by` is
+  stamped server-side by a BEFORE INSERT trigger (`roadmap_set_created_by`) — the
+  client can't spoof it.
+- **Milestone→tasks cascade lives in the DB:** trigger
+  `roadmap_milestone_cascade` (AFTER UPDATE OF completed_at) auto-completes a
+  milestone's still-open tasks when it's checked off. Un-checking a milestone
+  deliberately leaves tasks as-is (no upward auto-complete). Both `BusinessDev.js`
+  and `BusinessDevMobile.js` just `fetchAll()` after a milestone toggle to reflect it.
+- The page (key `business_dev`, nav label "Roadmap") = 2/3 roadmaps list + 1/3
+  Goals + Notes (admin only; mobile stacks them). Goals still read `goals` /
+  `monthly_goals` (scope='bd') + `platform_daily_metrics` rollups; Notes read
+  `bd_user_notes`. All preserved verbatim from the old page.
+
+### Business Dev (`bd_*`) — DORMANT after the Roadmap rebuild (2026-07-24)
 - `bd_phases`, `bd_initiatives`, `bd_initiative_links`, `bd_tasks`,
   `bd_milestones`, `bd_settings`
-  (`20260503000000_create_business_dev.sql`, `..._phases.sql`).
-- **admin-only RLS** on all `bd_*`. Separate world from the Goals page's
-  `initiatives` table. Also readable by `partner` (Roadmap portal).
-- `bd_initiatives.workstream` CHECK allows `'inbox'` in addition to the 7 real
-  workstreams (`20260723090000_bd_inbox_workstream.sql`) — quick-capture bucket
-  for the Roadmap quick-add; triaged via the initiative edit form. Timeline
-  view deliberately skips `inbox` items (it maps only the 7 real workstreams).
-- Shared client helpers live in `src/lib/bdAttention.js` (tag/status metadata,
-  PT-correct "Needs Attention" buckets, and `syncBdTaskToBacklog` — the
-  `personal_tasks` mirror both `BusinessDev.js` and `BusinessDevMobile.js`
-  must call after any `bd_tasks` write touching completed_at/due_date/owner).
-- Overdue-task notifications via cron
-  (`20260503000001_cron_business_dev_notifications.sql`).
+  (`20260503000000_create_business_dev.sql`, `..._phases.sql`). **Left in the DB
+  intentionally (not dropped), but the rebuilt Roadmap page no longer reads or
+  writes them.** Consider dropping later once confirmed unused.
+- `src/lib/bdAttention.js` (tag/status metadata, PT "Needs Attention" buckets,
+  `syncBdTaskToBacklog` personal_tasks mirror) is now **orphaned** — nothing on the
+  rebuilt page imports it. The `personal_tasks`-backlog integration and the
+  `20260503000001_cron_business_dev_notifications.sql` cron both scan the now-empty
+  `bd_tasks`/`bd_initiatives` — dead but harmless; flagged for cleanup.
 
 ### Automations & workflows
 - `automations` (trigger_type `schedule|event`, `trigger_config` jsonb, `actions`
