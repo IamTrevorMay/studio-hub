@@ -37,7 +37,7 @@ import Ops from './OpsMobile';
 import Analytics from './AnalyticsMobile';
 import Tracking from './TrackingMobile';
 import SuiteLauncher from './SuiteLauncher';
-import HarborComingSoon from './HarborComingSoon';
+import HarborApp from './harbor/HarborApp';
 import { getSuiteViewFromPath, rememberBridge } from '../lib/suite';
 import { colors } from '../lib/styleTokens';
 // Goals page is sunset on desktop; mobile mirrors that — import + nav
@@ -363,7 +363,7 @@ export default function AppLayoutMobile() {
     );
   }
   if (isSuiteUser && suiteView === 'harbor') {
-    return <HarborComingSoon onBackToLauncher={() => setSuiteView('launcher')} />;
+    return <HarborApp onBackToLauncher={() => setSuiteView('launcher')} />;
   }
 
   const title = TAB_LABELS[activeTab] || 'Mayday Studio';

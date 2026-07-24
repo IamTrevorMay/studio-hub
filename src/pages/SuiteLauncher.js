@@ -10,8 +10,8 @@ import { pill } from '../lib/styleRecipes';
 //   Bridge — the classic studio hub (all existing tab routes). Entering it
 //            records suite_last_app='bridge' so bare '/' returns to Bridge
 //            on the next login.
-//   Harbor — podcast & remote recording tool; coming-soon page at '/harbor'.
-//            Deliberately never touches suite_last_app.
+//   Harbor — podcast & remote recording app at '/harbor' (sessions, live
+//            calls). Deliberately never touches suite_last_app.
 
 const APP_TINTS = {
   bridge: {
@@ -53,8 +53,7 @@ export default function SuiteLauncher({ onOpenBridge, onOpenHarbor }) {
           monogram="H"
           name="Harbor"
           tagline="Podcast & remote recording"
-          description="Record the show — and remote guests — in studio quality."
-          comingSoon
+          description="Live calls with remote guests — sessions, tokenized guest links, up to 4 on a call."
           onClick={onOpenHarbor}
         />
       </div>

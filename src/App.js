@@ -98,6 +98,9 @@ function LayoutFallback() {
 const PublicCareers = React.lazy(() => import('./pages/public/PublicCareers'));
 const PublicBrief = React.lazy(() => import('./pages/public/PublicBrief'));
 const PublicDeliverables = React.lazy(() => import('./pages/public/PublicDeliverables'));
+// Harbor guest join — tokenized, login-free call entry (guests never see staff
+// chrome). Must be checked before the layouts ever see the 'harbor' segment.
+const HarborJoin = React.lazy(() => import('./pages/harbor/HarborJoin'));
 function isCareersPath() {
   return /^\/careers(\/|$)/.test(window.location.pathname);
 }
@@ -106,6 +109,9 @@ function isBriefPath() {
 }
 function isDeliverablesPath() {
   return /^\/deliverables(\/|$)/.test(window.location.pathname);
+}
+function isHarborJoinPath() {
+  return /^\/harbor\/join\/[^/]+/.test(window.location.pathname);
 }
 
 export default function App() {
@@ -127,6 +133,13 @@ export default function App() {
     return (
       <Suspense fallback={<LayoutFallback />}>
         <PublicDeliverables />
+      </Suspense>
+    );
+  }
+  if (isHarborJoinPath()) {
+    return (
+      <Suspense fallback={<LayoutFallback />}>
+        <HarborJoin />
       </Suspense>
     );
   }

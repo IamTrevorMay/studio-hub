@@ -53,7 +53,7 @@ import Morty from '../components/Morty';
 import FreelancerTour from '../components/FreelancerTour';
 import PageErrorBoundary from '../components/PageErrorBoundary';
 import SuiteLauncher from './SuiteLauncher';
-import HarborComingSoon from './HarborComingSoon';
+import HarborApp from './harbor/HarborApp';
 import { getSuiteViewFromPath, rememberBridge } from '../lib/suite';
 import { colors, fontSizes, fontWeights } from '../lib/styleTokens';
 
@@ -555,7 +555,7 @@ export default function AppLayout() {
     );
   }
   if (isSuiteUser && suiteView === 'harbor') {
-    return <HarborComingSoon onBackToLauncher={() => setSuiteView('launcher')} />;
+    return <HarborApp onBackToLauncher={() => setSuiteView('launcher')} />;
   }
 
   return (

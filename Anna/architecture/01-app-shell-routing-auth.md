@@ -107,8 +107,37 @@ the fresh socket. Per-page **data** refresh is handled separately by
 ## Suite routing layer (added 2026-07-23) — launcher / Bridge / Harbor
 
 The app is now the **Mayday Studio suite**: the classic tab world is branded
-**Bridge**; **Harbor** (podcast & remote recording) has a coming-soon page.
-Suite resolution happens **before** tab resolution, in both layout twins.
+**Bridge**; **Harbor** (podcast & remote recording) is a real app as of Phase 1
+(same day — the coming-soon teaser lived hours). Suite resolution happens
+**before** tab resolution, in both layout twins.
+
+### Harbor (Phase 1: live calls, `claude/harbor` branch)
+
+- **Staff routes** (inside the suite, both layouts): `'harbor'` segment renders
+  `pages/harbor/HarborApp.js` — a tiny sub-router owning everything after the
+  first segment: `/harbor` → `HarborHome.js` (sessions list, create, copy guest
+  link), `/harbor/room/<session_id>` → `HarborRoom.js` (pre-join screen → call).
+  The layouts' tab→URL effect only compares the FIRST segment, so deeper
+  `/harbor/*` paths pushed by HarborApp are never clobbered. `HarborComingSoon.js`
+  is deleted.
+- **Public guest route**: `/harbor/join/<token>` → `pages/harbor/HarborJoin.js`,
+  served in `App.js` before the auth gate (the `/careers` pattern) — no session,
+  no providers, no staff chrome. Checked before the layouts ever see the
+  `harbor` segment.
+- **Architecture**: P2P WebRTC mesh, max 4 participants, no media server.
+  `src/lib/harbor/mesh.js` (framework-free mesh manager: perfect negotiation,
+  deterministic offerer = lexicographically smaller `client_id`, STUN-only with
+  a marked TURN config point) + `src/lib/harbor/signaling.js` (Supabase Realtime
+  broadcast wrapper + presence; channel = `harbor:<session_id>:<sha256(guest_token)
+  hex[0:16]>` so a session id alone can't find the channel). Shared call UI:
+  `pages/harbor/CallStage.js` (used by both HarborRoom and HarborJoin).
+- **Data**: `harbor_sessions` / `harbor_participants` / `harbor_tracks`
+  (migration `20260723150000_harbor_phase1.sql`). RLS helper `is_harbor_staff()`
+  = admin tier + assistant + member. **NO anon policies** — guests go through
+  the `harbor-join` edge function (service role; token = credential; bad token
+  → 404, capacity 409 at 4, `action:'leave'` stamps `left_at`). `harbor_tracks`
+  is empty until Phase 2 (recording); `participants.state` enum already holds
+  `lobby` for the Phase 3 green-room flow.
 
 - Shared logic: `src/lib/suite.js` — `SUITE_LAST_APP_KEY = 'suite_last_app'`
   (localStorage), `getSuiteViewFromPath()` (first segment → `'launcher'` |
