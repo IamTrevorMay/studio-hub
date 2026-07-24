@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { LOCAL_MEDIA_CONSTRAINTS } from '../../lib/harbor/mesh';
+import { createGuestRecorderTransport } from '../../lib/harbor/recorderTransports';
 import CallStage from './CallStage';
 import { colors, spacing, radii, fontSizes, fontWeights, fontFamily } from '../../lib/styleTokens';
 import { button, input, sectionHeader } from '../../lib/styleRecipes';
@@ -164,6 +165,9 @@ export default function HarborJoin() {
           initialStream={previewStream}
           onLeave={handleLeave}
           onPageUnload={sendLeave}
+          createRecorderTransport={() =>
+            createGuestRecorderTransport({ token, participantId: joinInfo.participantId })
+          }
         />
       </div>
     );
@@ -175,7 +179,10 @@ export default function HarborJoin() {
         <h2 style={sectionHeader(2)}>
           {doneReason === 'ended' ? 'The session has ended' : 'You left the call'}
         </h2>
-        <p style={styles.mutedText}>You can close this tab. Thanks for joining!</p>
+        <p style={styles.mutedText}>
+          Thanks for joining! If your side was being recorded, give this tab a few seconds before
+          closing so the last moments finish saving.
+        </p>
       </Shell>
     );
   }

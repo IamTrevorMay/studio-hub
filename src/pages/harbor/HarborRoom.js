@@ -3,6 +3,8 @@ import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
 import { getDisplayName } from '../../lib/displayName';
 import { deriveHarborChannel } from '../../lib/harbor/signaling';
+import { chunkPath, containerExt, HARBOR_RECORDINGS_BUCKET } from '../../lib/harbor/recorder';
+import { createStaffRecorderTransport } from '../../lib/harbor/recorderTransports';
 import CallStage from './CallStage';
 import { colors, spacing, radii, fontSizes, fontWeights, fontFamily } from '../../lib/styleTokens';
 import { pill, button, sectionHeader } from '../../lib/styleRecipes';
@@ -13,9 +15,51 @@ import { pill, button, sectionHeader } from '../../lib/styleRecipes';
 // 'producer' participant row and mounts the shared CallStage. Staff derive
 // the signaling channel name from guest_token client-side; guests get the
 // same name from the harbor-join edge function.
+//
+// Phase 2: the pre-join screen also hosts the Recordings panel (harbor_tracks
+// for this session — status, size, duration, per-track download). Staff-only
+// by construction: guests never see this page.
 
 const STATUS_TONES = { scheduled: 'info', live: 'success', ended: 'danger' };
 const STATUS_LABELS = { scheduled: 'Scheduled', live: 'Live', ended: 'Ended' };
+
+const TRACK_STATUS_TONES = {
+  recording: 'danger',
+  uploading: 'warning',
+  complete: 'success',
+  failed: 'danger',
+};
+const TRACK_STATUS_LABELS = {
+  recording: 'Recording',
+  uploading: 'Uploading',
+  complete: 'Complete',
+  failed: 'Failed',
+};
+
+function formatBytes(n) {
+  if (!n || n <= 0) return '0 B';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function formatDuration(ms) {
+  if (!ms || ms <= 0) return null;
+  const totalSec = Math.round(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function safeFilePart(s) {
+  return (
+    (s || '')
+      .replace(/[^\w\- ]+/g, '')
+      .trim()
+      .replace(/\s+/g, '-') || 'harbor'
+  );
+}
 
 export default function HarborRoom({ sessionId, onExit }) {
   const { profile } = useAuth();
@@ -156,48 +200,214 @@ export default function HarborRoom({ sessionId, onExit }) {
           onUpdateSessionStatus={updateSessionStatus}
           onLeave={handleLeave}
           onPageUnload={stampLeft}
+          createRecorderTransport={() =>
+            createStaffRecorderTransport({
+              sessionId: session.id,
+              participantId: callInfo.participantId,
+            })
+          }
         />
       </div>
     );
   }
 
-  // Pre-join screen.
+  // Pre-join screen + tracks panel.
   return (
-    <div style={styles.page}>
-      <div style={styles.panel}>
-        <div style={styles.titleRow}>
-          <h1 style={styles.title}>{session.title}</h1>
-          <span style={pill(STATUS_TONES[session.status] || 'info')}>
-            {STATUS_LABELS[session.status] || session.status}
-          </span>
+    <div style={styles.pageScroll}>
+      <div style={styles.column}>
+        <div style={{ ...styles.panel, maxWidth: '100%' }}>
+          <div style={styles.titleRow}>
+            <h1 style={styles.title}>{session.title}</h1>
+            <span style={pill(STATUS_TONES[session.status] || 'info')}>
+              {STATUS_LABELS[session.status] || session.status}
+            </span>
+          </div>
+          {session.status === 'ended' ? (
+            <p style={styles.mutedText}>This session has ended.</p>
+          ) : (
+            <>
+              <p style={styles.mutedText}>
+                Joining starts your camera and microphone. Up to 4 participants (you + 3 guests).
+              </p>
+              {joinError && <p style={styles.errorText}>{joinError}</p>}
+              <div style={styles.actionRow}>
+                <button
+                  type="button"
+                  style={button({ size: 'lg', disabled: joining })}
+                  disabled={joining}
+                  onClick={joinCall}
+                >
+                  {joining ? 'Joining…' : 'Join call'}
+                </button>
+                <button type="button" style={button({ variant: 'ghost' })} onClick={copyGuestLink}>
+                  {copied ? 'Copied!' : 'Copy guest link'}
+                </button>
+              </div>
+            </>
+          )}
+          <button type="button" style={styles.backBtn} onClick={onExit}>
+            &larr; Back to Harbor
+          </button>
         </div>
-        {session.status === 'ended' ? (
-          <p style={styles.mutedText}>This session has ended.</p>
-        ) : (
-          <>
-            <p style={styles.mutedText}>
-              Joining starts your camera and microphone. Up to 4 participants (you + 3 guests).
-            </p>
-            {joinError && <p style={styles.errorText}>{joinError}</p>}
-            <div style={styles.actionRow}>
+        <TracksPanel sessionId={session.id} sessionTitle={session.title} />
+      </div>
+    </div>
+  );
+}
+
+// ── Recordings panel (Phase 2) ───────────────────────────────────
+// Lists harbor_tracks for the session; live via postgres_changes (the Phase 2
+// migration added harbor_tracks to the realtime publication, and staff RLS
+// read makes the events visible) — chosen over polling because progress rows
+// update every ~15s during a recording. Download = fetch chunks in order,
+// concat into one Blob (sequential timeslice chunks of a single MediaRecorder
+// stream concatenate into a valid webm), save as
+// <session-title>-<participant>-<kind>.webm.
+function TracksPanel({ sessionId, sessionTitle }) {
+  const [tracks, setTracks] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [downloading, setDownloading] = useState({}); // trackId → progress label
+  const [dlError, setDlError] = useState(null);
+
+  const fetchTracks = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('harbor_tracks')
+      .select(
+        'id, kind, status, bytes_uploaded, chunk_count, duration_ms, mime_type, storage_prefix, created_at, harbor_participants(display_name, role)',
+      )
+      .eq('session_id', sessionId)
+      .order('created_at', { ascending: true });
+    if (error) {
+      console.error('Harbor: failed to load tracks:', error);
+      return;
+    }
+    setTracks(data || []);
+    setLoaded(true);
+  }, [sessionId]);
+
+  useEffect(() => {
+    fetchTracks();
+    const channel = supabase
+      .channel(`harbor-tracks-${sessionId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'harbor_tracks', filter: `session_id=eq.${sessionId}` },
+        () => fetchTracks(),
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchTracks, sessionId]);
+
+  const downloadTrack = async (track) => {
+    if (downloading[track.id] || !track.storage_prefix) return;
+    setDlError(null);
+    const participantName = track.harbor_participants?.display_name;
+    const ext = containerExt(track.mime_type);
+    const baseMimeType = (track.mime_type || 'video/webm').split(';')[0];
+    const fileName = `${safeFilePart(sessionTitle)}-${safeFilePart(participantName)}-${track.kind}.${ext}`;
+
+    // Long tracks are large (~1.2GB/hour): stream chunks straight to disk via
+    // the File System Access API where available. The Blob-concat fallback
+    // holds the whole track in memory, which OOMs a tab around 1-2GB — warn
+    // before attempting it on big tracks.
+    let writable = null;
+    if (typeof window.showSaveFilePicker === 'function') {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: fileName,
+          types: [{ description: 'Recording', accept: { [baseMimeType]: [`.${ext}`] } }],
+        });
+        writable = await handle.createWritable();
+      } catch (err) {
+        if (err?.name === 'AbortError') return; // user cancelled the picker
+        writable = null; // picker unavailable/failed — fall back to Blob path
+      }
+    }
+    if (!writable && track.bytes_uploaded > 1.2e9) {
+      const proceed = window.confirm(
+        'This recording is large and your browser cannot stream it to disk — the tab may run out of memory. Try Chrome for large tracks. Download anyway?',
+      );
+      if (!proceed) return;
+    }
+
+    setDownloading((prev) => ({ ...prev, [track.id]: 'Preparing…' }));
+    try {
+      const parts = writable ? null : [];
+      for (let i = 0; i < track.chunk_count; i += 1) {
+        const { data, error } = await supabase.storage
+          .from(HARBOR_RECORDINGS_BUCKET)
+          .download(chunkPath(track.storage_prefix, i, ext));
+        if (error) throw error;
+        if (writable) await writable.write(data);
+        else parts.push(data);
+        // eslint-disable-next-line no-loop-func
+        setDownloading((prev) => ({ ...prev, [track.id]: `${i + 1}/${track.chunk_count}` }));
+      }
+      if (writable) {
+        await writable.close();
+        writable = null;
+      } else {
+        const blob = new Blob(parts, { type: baseMimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      }
+    } catch (err) {
+      console.error('Harbor: track download failed:', err);
+      setDlError(`Download failed: ${err.message || 'unknown error'}`);
+      if (writable) await writable.abort().catch(() => {});
+    } finally {
+      setDownloading((prev) => {
+        const next = { ...prev };
+        delete next[track.id];
+        return next;
+      });
+    }
+  };
+
+  if (!loaded || tracks.length === 0) return null; // nothing recorded yet
+
+  return (
+    <div style={styles.tracksPanel}>
+      <h2 style={sectionHeader(3)}>Recordings</h2>
+      {dlError && <p style={styles.errorText}>{dlError}</p>}
+      {tracks.map((track) => {
+        const duration = formatDuration(track.duration_ms);
+        return (
+          <div key={track.id} style={styles.trackRow}>
+            <div style={styles.trackInfo}>
+              <span style={styles.trackName}>
+                {track.harbor_participants?.display_name || 'Unknown'}
+              </span>
+              <span style={styles.trackMeta}>
+                {track.kind} · {formatBytes(track.bytes_uploaded)}
+                {duration ? ` · ${duration}` : ''}
+                {track.status !== 'complete' ? ` · ${track.chunk_count} chunks` : ''}
+              </span>
+            </div>
+            <span style={pill(TRACK_STATUS_TONES[track.status] || 'info')}>
+              {TRACK_STATUS_LABELS[track.status] || track.status}
+            </span>
+            {track.status === 'complete' && track.chunk_count > 0 && (
               <button
                 type="button"
-                style={button({ size: 'lg', disabled: joining })}
-                disabled={joining}
-                onClick={joinCall}
+                style={button({ variant: 'secondary', size: 'sm', disabled: !!downloading[track.id] })}
+                disabled={!!downloading[track.id]}
+                onClick={() => downloadTrack(track)}
               >
-                {joining ? 'Joining…' : 'Join call'}
+                {downloading[track.id] ? `Fetching ${downloading[track.id]}` : 'Download'}
               </button>
-              <button type="button" style={button({ variant: 'ghost' })} onClick={copyGuestLink}>
-                {copied ? 'Copied!' : 'Copy guest link'}
-              </button>
-            </div>
-          </>
-        )}
-        <button type="button" style={styles.backBtn} onClick={onExit}>
-          &larr; Back to Harbor
-        </button>
-      </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -266,5 +476,61 @@ const styles = {
   backBtn: {
     ...button({ variant: 'ghost', size: 'sm' }),
     alignSelf: 'flex-start',
+  },
+  // Pre-join + tracks: same page shell but top-aligned so a long recordings
+  // list scrolls instead of clipping (flex-center overflows at the top).
+  pageScroll: {
+    minHeight: '100vh',
+    background: colors.bg,
+    fontFamily,
+    color: colors.text,
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+    padding: spacing.xxl,
+    boxSizing: 'border-box',
+  },
+  column: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: spacing.lg,
+    width: '100%',
+    maxWidth: 560,
+  },
+  tracksPanel: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: spacing.md,
+    padding: spacing.xxl,
+    background: colors.bgRaised,
+    border: `1px solid ${colors.border}`,
+    borderRadius: radii.xl,
+  },
+  trackRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: `${spacing.sm}px 0`,
+    borderBottom: `1px solid ${colors.border}`,
+    flexWrap: 'wrap',
+  },
+  trackInfo: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: spacing.xs,
+    flex: 1,
+    minWidth: 0,
+  },
+  trackName: {
+    fontSize: fontSizes.md,
+    fontWeight: fontWeights.semibold,
+    color: colors.text,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  trackMeta: {
+    fontSize: fontSizes.sm,
+    color: colors.textSubtle,
   },
 };

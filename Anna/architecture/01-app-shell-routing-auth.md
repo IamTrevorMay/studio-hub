@@ -135,9 +135,50 @@ The app is now the **Mayday Studio suite**: the classic tab world is branded
   (migration `20260723150000_harbor_phase1.sql`). RLS helper `is_harbor_staff()`
   = admin tier + assistant + member. **NO anon policies** — guests go through
   the `harbor-join` edge function (service role; token = credential; bad token
-  → 404, capacity 409 at 4, `action:'leave'` stamps `left_at`). `harbor_tracks`
-  is empty until Phase 2 (recording); `participants.state` enum already holds
-  `lobby` for the Phase 3 green-room flow.
+  → 404, capacity 409 at 4, `action:'leave'` stamps `left_at`).
+  `participants.state` enum already holds `lobby` for the Phase 3 green-room
+  flow.
+
+### Harbor (Phase 2: local recording + progressive upload, `claude/harbor` branch)
+
+- **Model**: every participant records their OWN cam/mic locally
+  (`MediaRecorder`, webm vp9→vp8+opus, 5s timeslice, ~2.5Mbps/128kbps caps) and
+  progressively uploads chunks to the **private** `harbor-recordings` bucket —
+  recording quality never depends on the call. Chunk layout (Phase 4 NAS
+  archive walks then purges): `<session_id>/<participant_id>/<track_id>/<idx
+  6-padded>.webm`.
+- **Engine/transport split**: `src/lib/harbor/recorder.js` (framework-free
+  `HarborRecorder`: in-memory queue, sequential uploads, exponential backoff —
+  unbounded retries while recording, bounded 10/chunk during post-stop flush;
+  `chunkPath()` + `HARBOR_RECORDINGS_BUCKET` live here) +
+  `src/lib/harbor/recorderTransports.js` (staff = direct supabase-js under RLS;
+  guest = `harbor-track` edge fn, token credential, batched signed upload URLs
+  ×60 with low-water background refill; PUTs go straight to storage).
+- **`harbor-track` edge fn** (public, `--no-verify-jwt`, mirrors harbor-join
+  posture): actions `create` / `upload-urls` / `progress` / `finalize`. Create
+  requires a not-ended session; the other three keep working for **6h after
+  session end** (uploads outlive the call). Track ownership checked as
+  session+participant+track triple; uniform 404s.
+- **Producer controls** (CallStage): signaling messages `record`
+  `{action:'start'|'stop', target: client_id|'all'}` — honored only if the
+  sender's **presence-meta role is 'producer'** (the token-derived channel
+  secret is the trust boundary) — and `record-state` rebroadcasts (throttled
+  5s) driving REC/upload-health tile badges. Master Record-all + per-tile
+  toggles are producer-only; guests see their own REC + "Saving — N behind /
+  All safe" state.
+- **Unload semantics changed in CallStage**: `beforeunload` now only WARNS
+  (when chunks are pending); the destructive leave-beacon + `mesh.close()`
+  moved to `pagehide` — teardown-on-beforeunload would have killed the call
+  when a user cancels the dialog.
+- **Tracks panel**: HarborRoom pre-join screen lists `harbor_tracks` live via
+  postgres_changes (table added to the realtime publication in
+  `20260723170000_harbor_phase2_recording.sql`); download = fetch chunks in
+  order + Blob concat (sequential timeslice chunks of one MediaRecorder
+  concatenate into a valid webm).
+- **Storage RLS**: staff select/insert/update/delete on the bucket via
+  `is_harbor_staff()`; zero anon (verified: anon list = `[]`, download 404,
+  PUT 403). Guests only ever write through service-role-minted signed upload
+  URLs (created with `upsert: true` so chunk retries can re-PUT).
 
 - Shared logic: `src/lib/suite.js` — `SUITE_LAST_APP_KEY = 'suite_last_app'`
   (localStorage), `getSuiteViewFromPath()` (first segment → `'launcher'` |

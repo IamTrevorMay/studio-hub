@@ -3,6 +3,7 @@ import { colors, spacing, radii, fontSizes, fontWeights, fontFamily, transitions
 import { pill, button, sectionHeader } from '../../lib/styleRecipes';
 import { HarborMesh } from '../../lib/harbor/mesh';
 import { joinSignalingChannel } from '../../lib/harbor/signaling';
+import { HarborRecorder } from '../../lib/harbor/recorder';
 
 // Shared live-call surface for Harbor — used by both HarborRoom (staff /
 // producer side) and HarborJoin (public guest side). Owns the mesh +
@@ -27,6 +28,38 @@ const CONN_TONES = {
 const STATUS_LABELS = { scheduled: 'Scheduled', live: 'Live', ended: 'Ended' };
 const STATUS_TONES = { scheduled: 'info', live: 'success', ended: 'danger' };
 
+// While recording, 'record-state' rebroadcasts are throttled to this cadence
+// (status transitions always broadcast immediately).
+const REC_BROADCAST_THROTTLE_MS = 5000;
+
+/** Upload-health label for the SELF tile, from a recorder state snapshot. */
+function recHealthLabel(state) {
+  if (!state) return null;
+  switch (state.status) {
+    case 'starting':
+      return 'Starting…';
+    case 'recording':
+      return state.pending > 0 ? `Saving — ${state.pending} behind` : 'All safe';
+    case 'flushing':
+      return `Saving — ${state.pending} to go`;
+    case 'complete':
+      return 'Saved';
+    case 'failed':
+      return 'Recording failed';
+    default:
+      return null;
+  }
+}
+
+/** Upload-health label for a REMOTE tile, from its record-state broadcast. */
+function remoteRecLabel(rec) {
+  if (!rec) return null;
+  if (rec.status === 'failed' || rec.health === 'failed') return 'Recording failed';
+  if (rec.recording) return rec.pending > 0 ? `Saving — ${rec.pending} behind` : 'All safe';
+  if (rec.status === 'complete') return 'Saved';
+  return null;
+}
+
 export default function CallStage({
   channelName,
   clientId,
@@ -38,6 +71,7 @@ export default function CallStage({
   onUpdateSessionStatus, // async (nextStatus) => void — parent writes the DB
   onLeave, // (reason: 'left' | 'ended') => void
   onPageUnload, // best-effort hard-unload hook (guest leave beacon)
+  createRecorderTransport = null, // () => transport (see recorderTransports.js)
 }) {
   const [localStream, setLocalStream] = useState(null);
   const [mediaError, setMediaError] = useState(null);
@@ -45,13 +79,19 @@ export default function CallStage({
   const [sessionStatus, setSessionStatus] = useState(session?.status || 'scheduled');
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
-  // remotes: clientId → { name, role, stream, connState, micOn, camOn }
+  // remotes: clientId → { name, role, stream, connState, micOn, camOn, rec }
   const [remotes, setRemotes] = useState({});
   const [savingStatus, setSavingStatus] = useState(false);
+  const [recState, setRecState] = useState(null); // own recorder snapshot
 
   const meshRef = useRef(null);
   const signalRef = useRef(null);
   const selfStateRef = useRef({ micOn: true, camOn: true });
+  const recorderRef = useRef(null);
+  const transportFactoryRef = useRef(createRecorderTransport);
+  transportFactoryRef.current = createRecorderTransport;
+  const presenceRolesRef = useRef({}); // clientId → presence-verified role
+  const lastRecBroadcastRef = useRef({ at: 0, status: null });
 
   const upsertRemote = useCallback((id, patch) => {
     setRemotes((prev) => ({
@@ -67,6 +107,56 @@ export default function CallStage({
       delete next[id];
       return next;
     });
+  }, []);
+
+  // ── Local recording (Phase 2) ────────────────────────────────
+  // Every client records its OWN camera/mic and uploads through its
+  // transport — recording quality never depends on the call. 'record'
+  // commands arrive over signaling; 'record-state' broadcasts drive the
+  // producer's tile badges (immediate on transitions, throttled while
+  // recording — chunk uploads emit ~every 5s anyway).
+  const broadcastRecState = useCallback((state) => {
+    const last = lastRecBroadcastRef.current;
+    const now = Date.now();
+    const transition = state.status !== last.status;
+    if (!transition && now - last.at < REC_BROADCAST_THROTTLE_MS) return;
+    lastRecBroadcastRef.current = { at: now, status: state.status };
+    signalRef.current?.send('record-state', {
+      recording:
+        state.status === 'starting' || state.status === 'recording' || state.status === 'flushing',
+      trackId: state.trackId,
+      recStatus: state.status,
+      health: state.health,
+      pending: state.pending,
+    });
+  }, []);
+
+  const startRecording = useCallback(async () => {
+    const factory = transportFactoryRef.current;
+    const stream = meshRef.current?.localStream;
+    if (!factory || !stream) return;
+    const current = recorderRef.current?.getState().status;
+    if (current === 'starting' || current === 'recording' || current === 'flushing') return;
+    const recorder = new HarborRecorder({
+      stream,
+      transport: factory(),
+      onState: (state) => {
+        setRecState(state);
+        broadcastRecState(state);
+      },
+    });
+    recorderRef.current = recorder;
+    setRecState(recorder.getState());
+    try {
+      await recorder.start();
+    } catch (err) {
+      console.error('Harbor: recording failed to start:', err);
+    }
+  }, [broadcastRecState]);
+
+  const stopRecording = useCallback(() => {
+    // Flush + finalize continue async — uploads don't need the media stream.
+    recorderRef.current?.stop();
   }, []);
 
   // ── Mesh + signaling lifecycle (mount once) ──────────────────
@@ -108,6 +198,25 @@ export default function CallStage({
             });
           }
           break;
+        case 'record':
+          // Only honor commands from a presence-verified producer, addressed
+          // to us or to the whole room. Presence meta is the role source;
+          // the token-derived channel secret is the trust boundary.
+          if (presenceRolesRef.current[payload.from] !== 'producer') break;
+          if (payload.target !== 'all' && payload.target !== clientId) break;
+          if (payload.action === 'start') startRecording();
+          else if (payload.action === 'stop') stopRecording();
+          break;
+        case 'record-state':
+          upsertRemote(payload.from, {
+            rec: {
+              recording: !!payload.recording,
+              status: payload.recStatus,
+              health: payload.health || 'safe',
+              pending: payload.pending || 0,
+            },
+          });
+          break;
         default:
           break;
       }
@@ -128,6 +237,9 @@ export default function CallStage({
           meta: { name: displayName, role },
           onSignal: handleSignal,
           onPresence: (others) => {
+            const roles = {};
+            for (const o of others) roles[o.clientId] = o.role;
+            presenceRolesRef.current = roles;
             const present = new Set(others.map((o) => o.clientId));
             for (const o of others) {
               upsertRemote(o.clientId, { name: o.name, role: o.role });
@@ -160,7 +272,17 @@ export default function CallStage({
       }
     })();
 
-    const handleUnload = () => {
+    // beforeunload only WARNS (it's cancellable); destructive teardown lives
+    // on pagehide, which fires only when the page is really going away. With
+    // recording in play, teardown-on-beforeunload would kill the call even
+    // when the user cancels the "uploads still saving" dialog.
+    const handleBeforeUnload = (e) => {
+      if (recorderRef.current?.hasPendingUploads()) {
+        e.preventDefault();
+        e.returnValue = ''; // Chrome requires returnValue to show the dialog
+      }
+    };
+    const handlePageHide = () => {
       try {
         signalRef.current?.send('leave');
       } catch {
@@ -169,11 +291,14 @@ export default function CallStage({
       onPageUnload?.();
       mesh.close();
     };
-    window.addEventListener('beforeunload', handleUnload);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pagehide', handlePageHide);
 
     return () => {
       cancelled = true;
-      window.removeEventListener('beforeunload', handleUnload);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handlePageHide);
+      recorderRef.current?.stop(); // flush + finalize continue past unmount
       try {
         signalRef.current?.send('leave');
       } catch {
@@ -191,6 +316,9 @@ export default function CallStage({
   const ended = sessionStatus === 'ended';
   useEffect(() => {
     if (ended) {
+      // Stop the recorder BEFORE killing tracks: MediaRecorder.stop() flushes
+      // its final chunk, and the upload flush doesn't need the stream.
+      recorderRef.current?.stop();
       meshRef.current?.close();
       setRemotes({});
       setLocalStream(null);
@@ -228,6 +356,27 @@ export default function CallStage({
   };
 
   const remoteEntries = Object.entries(remotes);
+
+  // ── Producer record controls ─────────────────────────────────
+  const isProducer = role === 'producer';
+  const canRecord = !!createRecorderTransport;
+  const selfRecording =
+    recState?.status === 'starting' ||
+    recState?.status === 'recording' ||
+    recState?.status === 'flushing';
+  const anyoneRecording = selfRecording || remoteEntries.some(([, r]) => r.rec?.recording);
+
+  const recordAll = () => {
+    signalRef.current?.send('record', { action: 'start', target: 'all' });
+    startRecording();
+  };
+  const stopRecordAll = () => {
+    signalRef.current?.send('record', { action: 'stop', target: 'all' });
+    stopRecording();
+  };
+  const toggleRemoteRecord = (id, isRec) => {
+    signalRef.current?.send('record', { action: isRec ? 'stop' : 'start', target: id }, id);
+  };
 
   if (mediaError) {
     return (
@@ -275,9 +424,28 @@ export default function CallStage({
             <span style={pill('warning')}>signaling: {channelStatus}</span>
           )}
         </div>
-        {canControlSession && (
+        {(canControlSession || (isProducer && canRecord)) && (
           <div style={styles.headerRight}>
-            {sessionStatus === 'scheduled' && (
+            {isProducer && canRecord && (
+              anyoneRecording ? (
+                <button
+                  type="button"
+                  style={button({ variant: 'danger', size: 'sm' })}
+                  onClick={stopRecordAll}
+                >
+                  Stop all recording
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  style={button({ variant: 'secondary', size: 'sm' })}
+                  onClick={recordAll}
+                >
+                  Record all
+                </button>
+              )
+            )}
+            {canControlSession && sessionStatus === 'scheduled' && (
               <button
                 type="button"
                 style={button({ size: 'sm', disabled: savingStatus })}
@@ -287,7 +455,7 @@ export default function CallStage({
                 Start session
               </button>
             )}
-            {sessionStatus === 'live' && (
+            {canControlSession && sessionStatus === 'live' && (
               <button
                 type="button"
                 style={button({ variant: 'danger', size: 'sm', disabled: savingStatus })}
@@ -303,9 +471,27 @@ export default function CallStage({
 
       {/* Tile grid: local preview + up to 3 remote peers, responsive wrap */}
       <div style={styles.grid}>
-        <LocalTile stream={localStream} name={displayName} micOn={micOn} camOn={camOn} />
+        <LocalTile
+          stream={localStream}
+          name={displayName}
+          micOn={micOn}
+          camOn={camOn}
+          recState={recState}
+          onToggleRecord={
+            isProducer && canRecord ? (selfRecording ? stopRecording : startRecording) : null
+          }
+        />
         {remoteEntries.map(([id, peer]) => (
-          <RemoteTile key={id} peer={peer} />
+          <RemoteTile
+            key={id}
+            peer={peer}
+            showRecHealth={isProducer}
+            onToggleRecord={
+              isProducer && canRecord
+                ? () => toggleRemoteRecord(id, !!peer.rec?.recording)
+                : null
+            }
+          />
         ))}
         {remoteEntries.length === 0 && (
           <div style={styles.emptyTile}>
@@ -340,11 +526,18 @@ export default function CallStage({
   );
 }
 
-function LocalTile({ stream, name, micOn, camOn }) {
+function LocalTile({ stream, name, micOn, camOn, recState, onToggleRecord }) {
   const videoRef = useRef(null);
   useEffect(() => {
     if (videoRef.current && stream) videoRef.current.srcObject = stream;
   }, [stream]);
+
+  const recording =
+    recState?.status === 'starting' ||
+    recState?.status === 'recording' ||
+    recState?.status === 'flushing';
+  const healthLabel = recHealthLabel(recState);
+
   return (
     <div style={styles.tile}>
       {/* Local preview is always muted (no echo) and mirrored. */}
@@ -354,6 +547,23 @@ function LocalTile({ stream, name, micOn, camOn }) {
           <span style={styles.camOffText}>Camera off</span>
         </div>
       )}
+      {/* Own recording state — every participant sees this clearly. */}
+      {recState && recState.status !== 'idle' && (
+        <div style={styles.recBadge}>
+          {recording && <span style={styles.recDot} />}
+          {recording && <span style={styles.recText}>REC</span>}
+          {healthLabel && (
+            <span style={recState.status === 'failed' ? styles.recHealthBad : styles.recHealthText}>
+              {healthLabel}
+            </span>
+          )}
+        </div>
+      )}
+      {onToggleRecord && (
+        <button type="button" style={styles.tileRecordBtn} onClick={onToggleRecord}>
+          {recording ? 'Stop rec' : 'Record'}
+        </button>
+      )}
       <div style={styles.nameTag}>
         <span style={styles.nameText}>{name} (you)</span>
         {!micOn && <span style={styles.mutedTag}>muted</span>}
@@ -362,7 +572,7 @@ function LocalTile({ stream, name, micOn, camOn }) {
   );
 }
 
-function RemoteTile({ peer }) {
+function RemoteTile({ peer, showRecHealth, onToggleRecord }) {
   const videoRef = useRef(null);
   const [needsUnmute, setNeedsUnmute] = useState(false);
 
@@ -392,6 +602,7 @@ function RemoteTile({ peer }) {
   };
 
   const connState = peer.connState || 'connecting';
+  const recLabel = remoteRecLabel(peer.rec);
   return (
     <div style={styles.tile}>
       <video ref={videoRef} autoPlay playsInline style={styles.video} />
@@ -399,6 +610,29 @@ function RemoteTile({ peer }) {
         <div style={styles.camOffOverlay}>
           <span style={styles.camOffText}>Camera off</span>
         </div>
+      )}
+      {/* REC is visible to everyone; upload health is producer-only. */}
+      {peer.rec && (peer.rec.recording || (showRecHealth && recLabel)) && (
+        <div style={styles.recBadge}>
+          {peer.rec.recording && <span style={styles.recDot} />}
+          {peer.rec.recording && <span style={styles.recText}>REC</span>}
+          {showRecHealth && recLabel && (
+            <span
+              style={
+                peer.rec.status === 'failed' || peer.rec.health === 'failed'
+                  ? styles.recHealthBad
+                  : styles.recHealthText
+              }
+            >
+              {recLabel}
+            </span>
+          )}
+        </div>
+      )}
+      {onToggleRecord && (
+        <button type="button" style={styles.tileRecordBtn} onClick={onToggleRecord}>
+          {peer.rec?.recording ? 'Stop rec' : 'Record'}
+        </button>
       )}
       {connState !== 'connected' && (
         <span style={{ ...pill(CONN_TONES[connState] || 'warning'), ...styles.connBadge }}>
@@ -529,6 +763,49 @@ const styles = {
     position: 'absolute',
     top: spacing.sm,
     right: spacing.sm,
+  },
+  recBadge: {
+    position: 'absolute',
+    top: spacing.sm,
+    left: spacing.sm,
+    display: 'flex',
+    alignItems: 'center',
+    gap: spacing.xs,
+    padding: `${spacing.xs}px ${spacing.sm}px`,
+    background: colors.bgOverlay,
+    borderRadius: radii.sm,
+    maxWidth: '85%',
+  },
+  recDot: {
+    width: spacing.sm,
+    height: spacing.sm,
+    borderRadius: radii.circle,
+    background: colors.danger.fg,
+    flexShrink: 0,
+  },
+  recText: {
+    fontSize: fontSizes.xxs,
+    fontWeight: fontWeights.bold,
+    color: colors.danger.fgSoft,
+    letterSpacing: 0.5,
+  },
+  recHealthText: {
+    fontSize: fontSizes.xxs,
+    color: colors.textMuted,
+    whiteSpace: 'nowrap',
+  },
+  recHealthBad: {
+    fontSize: fontSizes.xxs,
+    fontWeight: fontWeights.semibold,
+    color: colors.danger.fgSoft,
+    whiteSpace: 'nowrap',
+  },
+  tileRecordBtn: {
+    position: 'absolute',
+    right: spacing.sm,
+    bottom: spacing.sm,
+    ...button({ variant: 'secondary', size: 'sm' }),
+    zIndex: zIndex.base,
   },
   unmuteBtn: {
     position: 'absolute',
