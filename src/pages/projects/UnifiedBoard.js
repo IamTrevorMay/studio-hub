@@ -846,13 +846,18 @@ function ScheduleSection({ projects, onCardClick }) {
 
   const pct = (ms) => `${Math.min(Math.max((ms - axis.min) / axis.span, 0), 1) * 100}%`;
 
-  // Projects whose bar or a pin falls inside the framed window.
+  // Projects whose bar or a pin falls inside the framed window, ordered by due
+  // date (soonest first). A project's due date is its Edit Deadline, or its Film
+  // Date when there's no edit deadline — both never null here since `scheduled`
+  // requires at least one.
   const visible = useMemo(() => {
     const inWin = (ms) => ms != null && ms >= axis.min && ms < axis.max;
+    const dueMs = (r) => (r.edit != null ? r.edit : r.film);
     return scheduled
       .map((p) => ({ project: p, ...projectSchedule(p, todayMs) }))
       .filter((r) => inWin(r.film) || inWin(r.edit)
-        || r.segments.some((seg) => seg.from < axis.max && seg.to > axis.min));
+        || r.segments.some((seg) => seg.from < axis.max && seg.to > axis.min))
+      .sort((a, b) => dueMs(a) - dueMs(b));
   }, [scheduled, todayMs, axis]);
 
   const groups = useMemo(() => {
