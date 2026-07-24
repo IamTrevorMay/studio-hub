@@ -24,6 +24,7 @@ export default function HarborHome({ onOpenRoom, onBackToLauncher }) {
   const [creating, setCreating] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
   const [rotatingId, setRotatingId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
 
   const fetchSessions = useCallback(async () => {
     const { data, error } = await supabase
@@ -101,6 +102,28 @@ export default function HarborHome({ onOpenRoom, onBackToLauncher }) {
       setLoadError(err.message);
     } finally {
       setRotatingId(null);
+    }
+  };
+
+  // Delete a session outright. Cascades to harbor_participants + harbor_tracks
+  // (FK ON DELETE CASCADE), so recording metadata for the session goes too.
+  const deleteSession = async (session) => {
+    if (deletingId) return;
+    // eslint-disable-next-line no-alert
+    const ok = window.confirm(
+      `Delete "${session.title}"? This permanently removes the session and its recording data. This cannot be undone.`,
+    );
+    if (!ok) return;
+    setDeletingId(session.id);
+    try {
+      const { error } = await supabase.from('harbor_sessions').delete().eq('id', session.id);
+      if (error) throw error;
+      setSessions((prev) => prev.filter((s) => s.id !== session.id));
+    } catch (err) {
+      console.error('Harbor: failed to delete session:', err);
+      setLoadError(err.message);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -202,6 +225,14 @@ export default function HarborHome({ onOpenRoom, onBackToLauncher }) {
                     onClick={() => onOpenRoom?.(s.id)}
                   >
                     Open room
+                  </button>
+                  <button
+                    type="button"
+                    style={button({ variant: 'danger', size: 'sm', disabled: deletingId === s.id })}
+                    disabled={deletingId === s.id}
+                    onClick={() => deleteSession(s)}
+                  >
+                    {deletingId === s.id ? 'Deleting…' : 'Delete'}
                   </button>
                 </div>
               </div>
