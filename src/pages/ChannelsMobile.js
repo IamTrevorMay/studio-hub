@@ -7,6 +7,8 @@ import { mobileTokens, mobileTapButton } from '../utils/mobileTokens';
 import { getDisplayName, getDisplayInitial } from '../lib/displayName';
 import { ReactionChips, toggleReaction } from '../components/MessageReactions';
 import { colors } from '../lib/styleTokens';
+import MessageAttachments from '../components/MessageAttachments';
+import { IMAGE_ACCEPT, pickImageFiles, makeImagePreview, revokePreview, uploadMessageImages } from '../lib/messageImages';
 
 // Note: "Channels" here is the Slack-style team-chat channel list, not platform
 // analytics channels. Mobile mirrors the desktop chat UX, slimmed: grouped channel
@@ -561,6 +563,10 @@ function ChannelView({ channel, channels, profileId, teamMembers, refreshKey, on
   const sendingRef = useRef(false);
   const endRef = useRef(null);
   const inputRef = useRef(null);
+  // Pending image attachments for the composer: [{ key, file, url }].
+  const [pendingImages, setPendingImages] = useState([]);
+  const [uploadingImages, setUploadingImages] = useState(false);
+  const attachInputRef = useRef(null);
 
   const fetchPinned = useCallback(async () => {
     const { data } = await supabase
@@ -613,7 +619,7 @@ function ChannelView({ channel, channels, profileId, teamMembers, refreshKey, on
         filter: `channel_id=eq.${channel.id}`,
       }, (payload) => {
         setMessages((prev) => prev.map((m) => m.id === payload.new.id
-          ? { ...m, content: payload.new.content, edited_at: payload.new.edited_at, is_pinned: payload.new.is_pinned, reactions: payload.new.reactions }
+          ? { ...m, content: payload.new.content, edited_at: payload.new.edited_at, is_pinned: payload.new.is_pinned, reactions: payload.new.reactions, attachments: payload.new.attachments }
           : m
         ));
         fetchPinned();
@@ -642,7 +648,8 @@ function ChannelView({ channel, channels, profileId, teamMembers, refreshKey, on
 
   async function send(e) {
     e.preventDefault();
-    if (!text.trim() || sendingRef.current) return; // guard double-submit (Enter + tap)
+    // A message needs text OR at least one image attachment.
+    if ((!text.trim() && pendingImages.length === 0) || sendingRef.current) return; // guard double-submit (Enter + tap)
     sendingRef.current = true;
     const content = text.trim();
     setText('');
@@ -658,12 +665,24 @@ function ChannelView({ channel, channels, profileId, teamMembers, refreshKey, on
       if (member) mentions.push(member.id);
     }
     try {
-      await supabase.from('channel_messages').insert({
+      let attachments = null;
+      if (pendingImages.length > 0) {
+        setUploadingImages(true);
+        attachments = await uploadMessageImages(pendingImages.map(p => p.file), {
+          userId: profileId,
+          scopeId: channel.id,
+        });
+      }
+      const { error } = await supabase.from('channel_messages').insert({
         channel_id: channel.id,
         user_id: profileId,
         content,
         mentions,
+        attachments,
       });
+      if (error) throw error;
+      pendingImages.forEach(revokePreview);
+      setPendingImages([]);
       // Notify mentioned users (mirrors desktop Channels.js)
       const me = teamMembers.find((m) => m.id === profileId);
       const notifs = mentions
@@ -672,17 +691,46 @@ function ChannelView({ channel, channels, profileId, teamMembers, refreshKey, on
           user_id: uid,
           type: 'mention',
           title: `${getDisplayName(me) || 'Someone'} mentioned you in #${channel.name}`,
-          body: content.substring(0, 100),
+          body: content.substring(0, 100) || '📷 Photo',
           link_tab: 'channels',
           link_target: channel.name,
         }));
       if (notifs.length > 0) {
         await supabase.from('notifications').insert(notifs);
       }
+    } catch (err) {
+      console.error('Error sending message with attachments:', err);
+      setText(content);
+      alert('Could not upload image: ' + (err?.message || 'unknown error'));
     } finally {
+      setUploadingImages(false);
       sendingRef.current = false;
     }
   }
+
+  function addPendingImages(fileList) {
+    const { accepted, error } = pickImageFiles(fileList);
+    if (error) alert(error);
+    if (accepted.length) setPendingImages(prev => [...prev, ...accepted.map(makeImagePreview)]);
+  }
+
+  function handleAttachChange(e) {
+    addPendingImages(e.target.files);
+    if (attachInputRef.current) attachInputRef.current.value = '';
+  }
+
+  function removePendingImage(key) {
+    setPendingImages(prev => {
+      const hit = prev.find(p => p.key === key);
+      if (hit) revokePreview(hit);
+      return prev.filter(p => p.key !== key);
+    });
+  }
+
+  // Keep a ref of pending previews so the unmount cleanup sees the latest set.
+  const pendingImagesRef = useRef(pendingImages);
+  pendingImagesRef.current = pendingImages;
+  useEffect(() => () => { pendingImagesRef.current.forEach(revokePreview); }, []);
 
   // Toggle an emoji reaction (tap an existing chip); patch state from the
   // RPC's returned reactions — other viewers get the realtime UPDATE.
@@ -802,8 +850,9 @@ function ChannelView({ channel, channels, profileId, teamMembers, refreshKey, on
                     }}
                   >
                     {m.is_pinned && <span style={chatStyles.pinBadge}>📌</span>}
-                    {formatMessageContent(m.content, channels, onSwitchChannel)}
+                    {m.content?.trim() && formatMessageContent(m.content, channels, onSwitchChannel)}
                     {m.edited_at && <span style={chatStyles.editedTag}>(edited)</span>}
+                    <MessageAttachments attachments={m.attachments} />
                     <ReactionChips reactions={m.reactions} userId={profileId} onToggle={(emoji) => react(m.id, emoji)} />
                   </div>
                 ))}
@@ -816,7 +865,34 @@ function ChannelView({ channel, channels, profileId, teamMembers, refreshKey, on
 
       <form onSubmit={send} style={{ ...chatStyles.composer, paddingBottom: `calc(${mobileTokens.space.md}px + ${mobileTokens.safeBottom})` }}>
         <MobileFormatToolbar targetRef={inputRef} value={text} setValue={setText} />
+        {pendingImages.length > 0 && (
+          <div style={chatStyles.attachPreviewRow}>
+            {pendingImages.map(p => (
+              <div key={p.key} style={chatStyles.attachPreview}>
+                <img src={p.url} alt={p.file.name} style={chatStyles.attachPreviewImg} />
+                <button
+                  type="button"
+                  onClick={() => removePendingImage(p.key)}
+                  style={chatStyles.attachPreviewRemove}
+                  aria-label="Remove image"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <div style={chatStyles.composerRow}>
+          <button
+            type="button"
+            onClick={() => attachInputRef.current?.click()}
+            style={chatStyles.attachBtn}
+            aria-label="Attach images"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+            </svg>
+          </button>
           <textarea
             ref={inputRef}
             rows={1}
@@ -825,10 +901,23 @@ function ChannelView({ channel, channels, profileId, teamMembers, refreshKey, on
             placeholder={`Message #${channel.name}`}
             style={chatStyles.input}
           />
-          <button type="submit" disabled={!text.trim()} style={{ ...chatStyles.sendBtn, opacity: text.trim() ? 1 : 0.4 }} aria-label="Send">
+          <button
+            type="submit"
+            disabled={(!text.trim() && pendingImages.length === 0) || uploadingImages}
+            style={{ ...chatStyles.sendBtn, opacity: (text.trim() || pendingImages.length > 0) && !uploadingImages ? 1 : 0.4 }}
+            aria-label="Send"
+          >
             <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><path d="M2 10l16-7-7 16-2-7-7-2z" /></svg>
           </button>
         </div>
+        <input
+          ref={attachInputRef}
+          type="file"
+          accept={IMAGE_ACCEPT}
+          multiple
+          style={{ display: 'none' }}
+          onChange={handleAttachChange}
+        />
       </form>
     </div>
   );
@@ -1170,5 +1259,42 @@ const chatStyles = {
     justifyContent: 'center',
     fontFamily: 'inherit',
     flexShrink: 0,
+  },
+  attachBtn: {
+    width: mobileTokens.tap,
+    height: mobileTokens.tap,
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '50%',
+    background: 'rgba(255,255,255,0.06)',
+    color: 'rgba(255,255,255,0.7)',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontFamily: 'inherit',
+    flexShrink: 0,
+  },
+  attachPreviewRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: mobileTokens.space.sm,
+    paddingBottom: mobileTokens.space.sm,
+  },
+  attachPreview: {
+    position: 'relative',
+    width: 60,
+    height: 60,
+    borderRadius: mobileTokens.radius.md,
+    overflow: 'hidden',
+    border: '1px solid rgba(255,255,255,0.12)',
+  },
+  attachPreviewImg: {
+    width: '100%', height: '100%', objectFit: 'cover', display: 'block',
+  },
+  attachPreviewRemove: {
+    position: 'absolute', top: 2, right: 2, width: 20, height: 20,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%',
+    color: '#fff', fontSize: 12, cursor: 'pointer', lineHeight: 1, padding: 0,
   },
 };

@@ -9,6 +9,10 @@ import { ReactionChips, ReactionBar, toggleReaction } from '../components/Messag
 import backdropDismiss from '../lib/backdropDismiss';
 import { clickableKeyProps } from '../lib/styleRecipes';
 import { colors } from '../lib/styleTokens';
+import MessageAttachments from '../components/MessageAttachments';
+import AttachmentEditRow from '../components/AttachmentEditRow';
+import useAttachmentEdit from '../lib/useAttachmentEdit';
+import { IMAGE_ACCEPT, pickImageFiles, makeImagePreview, revokePreview, uploadMessageImages, dragHasFiles, deleteMessageAndAttachments, removeMessageImagesByUrl } from '../lib/messageImages';
 
 
 // A conversation is unread when its latest message came from someone else and
@@ -71,6 +75,12 @@ export default function Messages({ onNavigate }) {
   const [renameValue, setRenameValue] = useState('');
   const groupImageInputRef = useRef(null);
   const groupImageConvoRef = useRef(null); // convo whose photo is being set
+  // Pending image attachments for the composer: [{ key, file, url }].
+  const [pendingImages, setPendingImages] = useState([]);
+  const [uploadingImages, setUploadingImages] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const attachInputRef = useRef(null);
+  const dragCounterRef = useRef(0); // ignore dragleave from child elements
 
   const fetchConversations = useCallback(async () => {
     if (!profile?.id) return;
@@ -267,7 +277,7 @@ export default function Messages({ onNavigate }) {
         filter: `conversation_id=eq.${activeConversation.id}`,
       }, (payload) => {
         setMessages(prev => prev.map(m => (m.id === payload.new.id
-          ? { ...m, content: payload.new.content, edited_at: payload.new.edited_at, reactions: payload.new.reactions }
+          ? { ...m, content: payload.new.content, edited_at: payload.new.edited_at, reactions: payload.new.reactions, attachments: payload.new.attachments }
           : m)));
       })
       .on('postgres_changes', {
@@ -294,21 +304,89 @@ export default function Messages({ onNavigate }) {
 
   async function handleSendMessage(e) {
     e.preventDefault();
-    if (!newMessage.trim() || !activeConversation || !profile?.id || sendingRef.current) return;
+    // A message needs text OR at least one image attachment.
+    if ((!newMessage.trim() && pendingImages.length === 0) || !activeConversation || !profile?.id || sendingRef.current) return;
     sendingRef.current = true;
     const content = newMessage.trim();
-    const { error } = await supabase.from('direct_messages').insert({
-      conversation_id: activeConversation.id,
-      user_id: profile.id,
-      content,
-      reply_to_id: replyingTo?.id || null,
-    });
-    if (!error) {
-      setNewMessage(''); // only clear on success — don't silently drop the message
-      setReplyingTo(null);
+    try {
+      let attachments = null;
+      if (pendingImages.length > 0) {
+        setUploadingImages(true);
+        attachments = await uploadMessageImages(pendingImages.map(p => p.file), {
+          userId: profile.id,
+          scopeId: activeConversation.id,
+        });
+      }
+      const { error } = await supabase.from('direct_messages').insert({
+        conversation_id: activeConversation.id,
+        user_id: profile.id,
+        content,
+        reply_to_id: replyingTo?.id || null,
+        attachments,
+      });
+      if (!error) {
+        setNewMessage(''); // only clear on success — don't silently drop the message
+        setReplyingTo(null);
+        pendingImages.forEach(revokePreview);
+        setPendingImages([]);
+      }
+    } catch (err) {
+      console.error('Error sending message with attachments:', err);
+      alert('Could not upload image: ' + (err?.message || 'unknown error'));
+    } finally {
+      setUploadingImages(false);
+      sendingRef.current = false;
     }
-    sendingRef.current = false;
   }
+
+  // Add validated image files to the pending-attachments preview (shared by the
+  // file picker and drag-and-drop).
+  function addPendingImages(fileList) {
+    const { accepted, error } = pickImageFiles(fileList);
+    if (error) alert(error);
+    if (accepted.length) setPendingImages(prev => [...prev, ...accepted.map(makeImagePreview)]);
+  }
+
+  function handleAttachChange(e) {
+    addPendingImages(e.target.files);
+    if (attachInputRef.current) attachInputRef.current.value = '';
+  }
+
+  function removePendingImage(key) {
+    setPendingImages(prev => {
+      const hit = prev.find(p => p.key === key);
+      if (hit) revokePreview(hit);
+      return prev.filter(p => p.key !== key);
+    });
+  }
+
+  function handleDragEnter(e) {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    dragCounterRef.current += 1;
+    setIsDragging(true);
+  }
+  function handleDragOver(e) {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+  }
+  function handleDragLeave(e) {
+    if (!dragHasFiles(e)) return;
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) { dragCounterRef.current = 0; setIsDragging(false); }
+  }
+  function handleDrop(e) {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDragging(false);
+    if (e.dataTransfer.files?.length) addPendingImages(e.dataTransfer.files);
+  }
+
+  // Keep a ref of pending previews so the unmount cleanup sees the latest set.
+  const pendingImagesRef = useRef(pendingImages);
+  pendingImagesRef.current = pendingImages;
+  useEffect(() => () => { pendingImagesRef.current.forEach(revokePreview); }, []);
 
   // Right-click "Reply" on a message: show the quoted bar and focus the composer.
   function startReply(msg) {
@@ -418,24 +496,46 @@ export default function Messages({ onNavigate }) {
     if (groupImageInputRef.current) groupImageInputRef.current.value = '';
   }
 
-  async function handleEditMessage(messageId, newContent) {
+  // Edit a message's text and/or its image attachments. `extras` carries
+  // { keptAttachments, newFiles, removedUrls } from the editor. Uploads any
+  // newly added images, persists the final attachment set, and cleans up removed
+  // objects from storage.
+  async function handleEditMessage(messageId, newContent, extras = {}) {
     const trimmed = newContent.trim();
-    if (!trimmed) return;
-    const editedAt = new Date().toISOString();
-    const { error } = await supabase
-      .from('direct_messages')
-      .update({ content: trimmed, edited_at: editedAt })
-      .eq('id', messageId);
-    if (error) { console.error('Error editing message:', error); return; }
-    setMessages(prev => prev.map(m => (m.id === messageId ? { ...m, content: trimmed, edited_at: editedAt } : m)));
+    const { keptAttachments = [], newFiles = [], removedUrls = [] } = extras;
+    try {
+      let uploaded = [];
+      if (newFiles.length) {
+        uploaded = await uploadMessageImages(newFiles, { userId: profile.id, scopeId: activeConversation.id });
+      }
+      const finalAttachments = [...keptAttachments, ...uploaded];
+      if (!trimmed && finalAttachments.length === 0) return; // nothing left to keep
+      const attachments = finalAttachments.length ? finalAttachments : null;
+      const editedAt = new Date().toISOString();
+      const { error } = await supabase
+        .from('direct_messages')
+        .update({ content: trimmed, edited_at: editedAt, attachments })
+        .eq('id', messageId);
+      if (error) { console.error('Error editing message:', error); return; }
+      setMessages(prev => prev.map(m => (m.id === messageId ? { ...m, content: trimmed, edited_at: editedAt, attachments } : m)));
+      if (removedUrls.length) removeMessageImagesByUrl(removedUrls).catch(err => console.error('Error removing old attachments:', err));
+    } catch (err) {
+      console.error('Error editing message with attachments:', err);
+      alert('Could not update images: ' + (err?.message || 'unknown error'));
+    }
   }
 
   async function handleDeleteMessage(messageId) {
     const ok = await confirm('Delete this message? This cannot be undone.');
     if (!ok) return;
-    const { error } = await supabase.from('direct_messages').delete().eq('id', messageId);
-    if (error) { console.error('Error deleting message:', error); return; }
-    setMessages(prev => prev.filter(m => m.id !== messageId));
+    const message = messages.find(m => m.id === messageId) || { id: messageId };
+    try {
+      await deleteMessageAndAttachments({ table: 'direct_messages', message });
+      setMessages(prev => prev.filter(m => m.id !== messageId));
+    } catch (err) {
+      console.error('Error deleting message:', err);
+      alert('Could not delete message: ' + (err?.message || 'unknown error'));
+    }
   }
 
   async function handleStartConversation() {
@@ -676,8 +776,9 @@ export default function Messages({ onNavigate }) {
                 </div>
                 {convo.lastMessage && (
                   <div style={{ ...styles.convoLastMsg, ...(convo.unread ? styles.convoLastMsgUnread : {}) }}>
-                    {convo.lastMessage.content.substring(0, 40)}
-                    {convo.lastMessage.content.length > 40 ? '...' : ''}
+                    {convo.lastMessage.content?.trim()
+                      ? `${convo.lastMessage.content.substring(0, 40)}${convo.lastMessage.content.length > 40 ? '...' : ''}`
+                      : '📷 Photo'}
                   </div>
                 )}
               </div>
@@ -702,9 +803,23 @@ export default function Messages({ onNavigate }) {
       </div>
 
       {/* Chat Area */}
-      <div style={styles.chatArea}>
+      <div
+        style={{ ...styles.chatArea, position: 'relative' }}
+        onDragEnter={activeConversation ? handleDragEnter : undefined}
+        onDragOver={activeConversation ? handleDragOver : undefined}
+        onDragLeave={activeConversation ? handleDragLeave : undefined}
+        onDrop={activeConversation ? handleDrop : undefined}
+      >
         {activeConversation ? (
           <>
+            {isDragging && (
+              <div style={styles.dropOverlay}>
+                <div style={styles.dropOverlayInner}>
+                  <div style={{ fontSize: '32px', marginBottom: '8px' }}>🖼️</div>
+                  Drop images to attach
+                </div>
+              </div>
+            )}
             <div style={styles.chatHeader}>
               <div style={styles.chatHeaderAvatar}>
                 {activeConversation.is_group && activeConversation.image_url ? (
@@ -760,7 +875,35 @@ export default function Messages({ onNavigate }) {
                   <button onClick={() => setReplyingTo(null)} style={styles.replyBarClose} title="Cancel reply">✕</button>
                 </div>
               )}
+              {pendingImages.length > 0 && (
+                <div style={styles.attachPreviewRow}>
+                  {pendingImages.map(p => (
+                    <div key={p.key} style={styles.attachPreview}>
+                      <img src={p.url} alt={p.file.name} style={styles.attachPreviewImg} />
+                      <button
+                        type="button"
+                        onClick={() => removePendingImage(p.key)}
+                        style={styles.attachPreviewRemove}
+                        title="Remove image"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
               <form onSubmit={handleSendMessage} style={styles.inputForm}>
+                <button
+                  type="button"
+                  onClick={() => attachInputRef.current?.click()}
+                  style={styles.attachBtn}
+                  title="Attach images"
+                  aria-label="Attach images"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                  </svg>
+                </button>
                 <textarea
                   ref={inputRef}
                   value={newMessage}
@@ -783,7 +926,11 @@ export default function Messages({ onNavigate }) {
                   rows={1}
                   style={styles.messageInput}
                 />
-                <button type="submit" style={styles.sendBtn} disabled={!newMessage.trim()}>
+                <button
+                  type="submit"
+                  style={{ ...styles.sendBtn, opacity: uploadingImages ? 0.6 : 1 }}
+                  disabled={(!newMessage.trim() && pendingImages.length === 0) || uploadingImages}
+                >
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M2 21l21-9L2 3v7l15 2-15 2v7z" />
                   </svg>
@@ -858,6 +1005,15 @@ export default function Messages({ onNavigate }) {
         style={{ display: 'none' }}
         onChange={handleGroupImageUpload}
       />
+
+      <input
+        ref={attachInputRef}
+        type="file"
+        accept={IMAGE_ACCEPT}
+        multiple
+        style={{ display: 'none' }}
+        onChange={handleAttachChange}
+      />
     </div>
   );
 }
@@ -868,6 +1024,7 @@ function DmMessage({ msg, isOwn, showAvatar, formatContent, formatTime, onEdit, 
   const [ctxMenu, setCtxMenu] = useState(null); // { x, y } from right-click
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(msg.content);
+  const attachEdit = useAttachmentEdit(msg.attachments);
   const menuRef = useRef(null);
   const editInputRef = useRef(null);
 
@@ -908,15 +1065,20 @@ function DmMessage({ msg, isOwn, showAvatar, formatContent, formatTime, onEdit, 
 
   function handleStartEdit() {
     setEditContent(msg.content);
+    attachEdit.reset();
     setEditing(true);
     setMenuOpen(false);
   }
   function handleSaveEdit() {
-    if (editContent.trim() && editContent.trim() !== msg.content) onEdit(msg.id, editContent);
+    const textChanged = editContent.trim() !== (msg.content || '');
+    if ((editContent.trim() || attachEdit.hasImages) && (textChanged || attachEdit.changed)) {
+      onEdit(msg.id, editContent, attachEdit.buildPayload());
+    }
     setEditing(false);
   }
   function handleCancelEdit() {
     setEditContent(msg.content);
+    attachEdit.reset();
     setEditing(false);
   }
   function handleCopy() {
@@ -1042,6 +1204,7 @@ function DmMessage({ msg, isOwn, showAvatar, formatContent, formatTime, onEdit, 
               onKeyDown={handleEditKeyDown}
               style={styles.msgEditInput}
             />
+            <AttachmentEditRow editState={attachEdit} />
             <div style={styles.msgEditActions}>
               <span style={styles.msgEditHint}>Enter to save · Esc to cancel</span>
               <button onClick={handleCancelEdit} style={styles.msgEditCancel}>Cancel</button>
@@ -1064,10 +1227,13 @@ function DmMessage({ msg, isOwn, showAvatar, formatContent, formatTime, onEdit, 
                 </div>
               )
             )}
-            <div style={styles.msgContent}>
-              {formatContent(msg.content)}
-              {msg.edited_at && <span style={styles.msgEditedTag}>(edited)</span>}
-            </div>
+            {(msg.content?.trim() || !msg.attachments?.length) && (
+              <div style={styles.msgContent}>
+                {formatContent(msg.content)}
+                {msg.edited_at && <span style={styles.msgEditedTag}>(edited)</span>}
+              </div>
+            )}
+            <MessageAttachments attachments={msg.attachments} />
             <ReactionChips reactions={msg.reactions} userId={userId} onToggle={(emoji) => onReact(msg.id, emoji)} />
             <div style={styles.msgTime}>{formatTime(msg.created_at)}</div>
           </>
@@ -1327,7 +1493,39 @@ const styles = {
   sendBtn: {
     width: '42px', height: '42px', display: 'flex', alignItems: 'center',
     justifyContent: 'center', background: colors.accent, border: 'none',
-    borderRadius: '10px', color: '#fff', cursor: 'pointer',
+    borderRadius: '10px', color: '#fff', cursor: 'pointer', flexShrink: 0,
+  },
+  attachBtn: {
+    width: '42px', height: '42px', display: 'flex', alignItems: 'center',
+    justifyContent: 'center', background: 'rgba(255,255,255,0.05)',
+    border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px',
+    color: 'rgba(255,255,255,0.6)', cursor: 'pointer', flexShrink: 0,
+  },
+  attachPreviewRow: {
+    display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '8px',
+  },
+  attachPreview: {
+    position: 'relative', width: '64px', height: '64px', borderRadius: '10px',
+    overflow: 'hidden', border: '1px solid rgba(255,255,255,0.12)',
+  },
+  attachPreviewImg: {
+    width: '100%', height: '100%', objectFit: 'cover', display: 'block',
+  },
+  attachPreviewRemove: {
+    position: 'absolute', top: '2px', right: '2px', width: '18px', height: '18px',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%',
+    color: '#fff', fontSize: '11px', cursor: 'pointer', lineHeight: 1, padding: 0,
+  },
+  dropOverlay: {
+    position: 'absolute', inset: 0, zIndex: 60,
+    background: 'rgba(14,20,32,0.82)',
+    border: `2px dashed ${colors.accentBorder}`, borderRadius: '12px',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    pointerEvents: 'none',
+  },
+  dropOverlayInner: {
+    textAlign: 'center', color: colors.accentFg, fontSize: '15px', fontWeight: 600,
   },
   noChat: {
     display: 'flex', flexDirection: 'column', alignItems: 'center',

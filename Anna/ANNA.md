@@ -60,6 +60,13 @@ them is a defect, not a style choice.
 - **Database changes go through migrations, applied via MCP.** Migration history has diverged — apply
   with the Supabase MCP `apply_migration`, **not** `supabase db push`. Timestamp-prefixed filenames.
   Always write RLS policies. See `Anna/backend/02-migrations-rls.md`.
+- **Ship it live — don't hand Trevor a checklist.** When your work includes a migration, an edge
+  function, or both, you *finish the deploy yourself* as part of the task: **apply the migration**,
+  **deploy the changed edge functions** (`supabase functions deploy <name> --no-verify-jwt`), then
+  **run a smoke test** to confirm the change works end-to-end (drive the real flow / hit the function,
+  not just a build). Report exactly what you applied, deployed, and tested with the results. This is
+  standing authorization from Trevor — do it automatically, do not leave migrations or deploys for him
+  to run. (This does **not** change the commit rule below: infra ships automatically, git does not.)
 - **RLS is the security boundary, never the client.** Never trust the client for `author_id`/ownership
   — enforce it in policies and triggers (see the `agency_comments` BEFORE INSERT trigger pattern).
 - **Edge functions deploy with** `supabase functions deploy <name> --no-verify-jwt` — and any

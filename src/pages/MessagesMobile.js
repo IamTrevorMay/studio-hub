@@ -8,6 +8,9 @@ import { getDisplayName, getDisplayInitial } from '../lib/displayName';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { ReactionChips, ReactionBar, toggleReaction } from '../components/MessageReactions';
 import { colors } from '../lib/styleTokens';
+import MessageAttachments from '../components/MessageAttachments';
+import AttachmentEditRow from '../components/AttachmentEditRow';
+import { IMAGE_ACCEPT, pickImageFiles, makeImagePreview, revokePreview, uploadMessageImages, deleteMessageAndAttachments, removeMessageImagesByUrl } from '../lib/messageImages';
 
 function applyFormatMarker(textareaRef, text, marker, setter) {
   const el = textareaRef.current;
@@ -266,7 +269,11 @@ export default function MessagesMobile({ onNavigate }) {
                   <span style={styles.threadTime}>{formatTime(convo.lastMessage?.created_at || convo.created_at)}</span>
                 </div>
                 <div style={styles.threadPreview}>
-                  {convo.lastMessage?.content || <span style={{ color: 'rgba(255,255,255,0.3)' }}>No messages yet</span>}
+                  {convo.lastMessage?.content?.trim()
+                    ? convo.lastMessage.content
+                    : convo.lastMessage
+                      ? '📷 Photo'
+                      : <span style={{ color: 'rgba(255,255,255,0.3)' }}>No messages yet</span>}
                 </div>
               </div>
             </button>
@@ -410,6 +417,28 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
   const inputRef = useRef(null);
   const editRef = useRef(null);
   const pressTimer = useRef(null);
+  // Pending image attachments for the composer: [{ key, file, url }].
+  const [pendingImages, setPendingImages] = useState([]);
+  const [uploadingImages, setUploadingImages] = useState(false);
+  const attachInputRef = useRef(null);
+  // Attachment edit state for the message currently being edited.
+  const [editKept, setEditKept] = useState([]);
+  const [editPreviews, setEditPreviews] = useState([]);
+  const editAttachState = {
+    kept: editKept,
+    previews: editPreviews,
+    addFiles: (fl) => {
+      const { accepted, error } = pickImageFiles(fl);
+      if (error) alert(error);
+      if (accepted.length) setEditPreviews(p => [...p, ...accepted.map(makeImagePreview)]);
+    },
+    removeKept: (url) => setEditKept(k => k.filter(a => a.url !== url)),
+    removePreview: (key) => setEditPreviews(p => {
+      const hit = p.find(x => x.key === key);
+      if (hit) revokePreview(hit);
+      return p.filter(x => x.key !== key);
+    }),
+  };
   const pressFired = useRef(false);
   const confirm = useConfirm();
 
@@ -452,7 +481,7 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
         filter: `conversation_id=eq.${conversation.id}`,
       }, (payload) => {
         setMessages((prev) => prev.map((m) => (m.id === payload.new.id
-          ? { ...m, content: payload.new.content, edited_at: payload.new.edited_at, reactions: payload.new.reactions }
+          ? { ...m, content: payload.new.content, edited_at: payload.new.edited_at, reactions: payload.new.reactions, attachments: payload.new.attachments }
           : m)));
       })
       .on('postgres_changes', {
@@ -477,20 +506,67 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
 
   async function send(e) {
     e.preventDefault();
-    if (!text.trim() || sendingRef.current) return; // guard double-submit
+    // A message needs text OR at least one image attachment.
+    if ((!text.trim() && pendingImages.length === 0) || sendingRef.current) return; // guard double-submit
     sendingRef.current = true;
     const content = text.trim();
     setText('');
-    const { error } = await supabase.from('direct_messages').insert({
-      conversation_id: conversation.id,
-      user_id: profileId,
-      content,
-      reply_to_id: replyingTo?.id || null,
-    });
-    if (error) setText(content); // restore the typed message on failure instead of silently losing it
-    else setReplyingTo(null);
-    sendingRef.current = false;
+    try {
+      let attachments = null;
+      if (pendingImages.length > 0) {
+        setUploadingImages(true);
+        attachments = await uploadMessageImages(pendingImages.map(p => p.file), {
+          userId: profileId,
+          scopeId: conversation.id,
+        });
+      }
+      const { error } = await supabase.from('direct_messages').insert({
+        conversation_id: conversation.id,
+        user_id: profileId,
+        content,
+        reply_to_id: replyingTo?.id || null,
+        attachments,
+      });
+      if (error) {
+        setText(content); // restore the typed message on failure instead of silently losing it
+      } else {
+        setReplyingTo(null);
+        pendingImages.forEach(revokePreview);
+        setPendingImages([]);
+      }
+    } catch (err) {
+      console.error('Error sending message with attachments:', err);
+      setText(content);
+      alert('Could not upload image: ' + (err?.message || 'unknown error'));
+    } finally {
+      setUploadingImages(false);
+      sendingRef.current = false;
+    }
   }
+
+  function addPendingImages(fileList) {
+    const { accepted, error } = pickImageFiles(fileList);
+    if (error) alert(error);
+    if (accepted.length) setPendingImages(prev => [...prev, ...accepted.map(makeImagePreview)]);
+  }
+
+  function handleAttachChange(e) {
+    addPendingImages(e.target.files);
+    if (attachInputRef.current) attachInputRef.current.value = '';
+  }
+
+  function removePendingImage(key) {
+    setPendingImages(prev => {
+      const hit = prev.find(p => p.key === key);
+      if (hit) revokePreview(hit);
+      return prev.filter(p => p.key !== key);
+    });
+  }
+
+  // Keep a ref of pending previews so the unmount cleanup sees the latest set.
+  const pendingImagesRef = useRef(pendingImages);
+  pendingImagesRef.current = pendingImages;
+  useEffect(() => () => { pendingImagesRef.current.forEach(revokePreview); }, []);
 
   // Focus + size the edit box when editing begins / content changes.
   useEffect(() => {
@@ -537,33 +613,63 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
   function startEdit(m) {
     setActionMsg(null);
     setEditContent(m.content);
+    setEditKept(Array.isArray(m.attachments) ? m.attachments : []);
+    editPreviews.forEach(revokePreview);
+    setEditPreviews([]);
     setEditingId(m.id);
   }
   function cancelEdit() {
+    editPreviews.forEach(revokePreview);
+    setEditPreviews([]);
+    setEditKept([]);
     setEditingId(null);
     setEditContent('');
   }
   async function saveEdit() {
     const trimmed = editContent.trim();
     const target = editingId;
-    if (!trimmed) { cancelEdit(); return; }
-    const editedAt = new Date().toISOString();
-    const { error } = await supabase
-      .from('direct_messages')
-      .update({ content: trimmed, edited_at: editedAt })
-      .eq('id', target);
-    if (error) { console.error('Error editing message:', error); return; }
-    setMessages((prev) => prev.map((m) => (m.id === target ? { ...m, content: trimmed, edited_at: editedAt } : m)));
-    setEditingId(null);
-    setEditContent('');
+    const orig = messages.find(m => m.id === target)?.attachments || [];
+    try {
+      let uploaded = [];
+      if (editPreviews.length) {
+        uploaded = await uploadMessageImages(editPreviews.map(p => p.file), { userId: profileId, scopeId: conversation.id });
+      }
+      const finalAttachments = [...editKept, ...uploaded];
+      if (!trimmed && finalAttachments.length === 0) { cancelEdit(); return; }
+      const attachments = finalAttachments.length ? finalAttachments : null;
+      const editedAt = new Date().toISOString();
+      const { error } = await supabase
+        .from('direct_messages')
+        .update({ content: trimmed, edited_at: editedAt, attachments })
+        .eq('id', target);
+      if (error) { console.error('Error editing message:', error); return; }
+      setMessages((prev) => prev.map((m) => (m.id === target ? { ...m, content: trimmed, edited_at: editedAt, attachments } : m)));
+      const keptUrls = new Set(editKept.map(a => a.url));
+      const removedUrls = orig.map(a => a.url).filter(u => !keptUrls.has(u));
+      if (removedUrls.length) removeMessageImagesByUrl(removedUrls).catch(err => console.error('Error removing old attachments:', err));
+    } catch (err) {
+      console.error('Error editing message with attachments:', err);
+      alert('Could not update images: ' + (err?.message || 'unknown error'));
+    } finally {
+      editPreviews.forEach(revokePreview);
+      setEditPreviews([]);
+      setEditKept([]);
+      setEditingId(null);
+      setEditContent('');
+    }
   }
   async function deleteMsg(id) {
     setActionMsg(null);
     const ok = await confirm('Delete this message? This cannot be undone.');
     if (!ok) return;
-    const { error } = await supabase.from('direct_messages').delete().eq('id', id);
-    if (error) { console.error('Error deleting message:', error); return; }
-    setMessages((prev) => prev.filter((m) => m.id !== id));
+    const message = messages.find(m => m.id === id) || { id };
+    try {
+      await deleteMessageAndAttachments({ table: 'direct_messages', message });
+      setMessages((prev) => prev.filter((m) => m.id !== id));
+    } catch (err) {
+      console.error('Error deleting message:', err);
+      alert('Could not delete message: ' + (err?.message || 'unknown error'));
+    }
   }
 
   function formatInline(text) {
@@ -674,6 +780,7 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
                         rows={1}
                         style={convoStyles.editInput}
                       />
+                      <AttachmentEditRow editState={editAttachState} />
                       <div style={convoStyles.editActions}>
                         <button onClick={cancelEdit} style={convoStyles.editCancel}>Cancel</button>
                         <button onClick={saveEdit} style={convoStyles.editSave}>Save</button>
@@ -701,10 +808,13 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
                           )}
                         </div>
                       )}
-                      <div>
-                        {renderContent(m.content)}
-                        {m.edited_at && <span style={convoStyles.editedTag}> (edited)</span>}
-                      </div>
+                      {(m.content?.trim() || !m.attachments?.length) && (
+                        <div>
+                          {renderContent(m.content)}
+                          {m.edited_at && <span style={convoStyles.editedTag}> (edited)</span>}
+                        </div>
+                      )}
+                      <MessageAttachments attachments={m.attachments} />
                       <ReactionChips reactions={m.reactions} userId={profileId} onToggle={(emoji) => react(m.id, emoji)} />
                       <div style={{ ...convoStyles.bubbleTime, color: mine ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.4)' }}>
                         {formatTime(m.created_at)}
@@ -744,7 +854,34 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
             </button>
           </div>
         )}
+        {pendingImages.length > 0 && (
+          <div style={convoStyles.attachPreviewRow}>
+            {pendingImages.map(p => (
+              <div key={p.key} style={convoStyles.attachPreview}>
+                <img src={p.url} alt={p.file.name} style={convoStyles.attachPreviewImg} />
+                <button
+                  type="button"
+                  onClick={() => removePendingImage(p.key)}
+                  style={convoStyles.attachPreviewRemove}
+                  aria-label="Remove image"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <div style={convoStyles.composerRow}>
+          <button
+            type="button"
+            onClick={() => attachInputRef.current?.click()}
+            style={convoStyles.attachBtn}
+            aria-label="Attach images"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+            </svg>
+          </button>
           <textarea
             ref={inputRef}
             value={text}
@@ -767,12 +904,25 @@ function ConversationView({ conversation, profileId, refreshKey, onNavigate }) {
             rows={1}
             style={convoStyles.input}
           />
-          <button type="submit" disabled={!text.trim()} style={{ ...convoStyles.sendBtn, opacity: text.trim() ? 1 : 0.4 }} aria-label="Send">
+          <button
+            type="submit"
+            disabled={(!text.trim() && pendingImages.length === 0) || uploadingImages}
+            style={{ ...convoStyles.sendBtn, opacity: (text.trim() || pendingImages.length > 0) && !uploadingImages ? 1 : 0.4 }}
+            aria-label="Send"
+          >
             <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
               <path d="M2 10l16-7-7 16-2-7-7-2z" />
             </svg>
           </button>
         </div>
+        <input
+          ref={attachInputRef}
+          type="file"
+          accept={IMAGE_ACCEPT}
+          multiple
+          style={{ display: 'none' }}
+          onChange={handleAttachChange}
+        />
         <div style={convoStyles.formatHint}>
           <strong>**bold**</strong>  <em>*italic*</em>  - bullet
         </div>
@@ -1128,6 +1278,43 @@ const convoStyles = {
     justifyContent: 'center',
     fontFamily: 'inherit',
     flexShrink: 0,
+  },
+  attachBtn: {
+    width: mobileTokens.tap,
+    height: mobileTokens.tap,
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '50%',
+    background: 'rgba(255,255,255,0.06)',
+    color: 'rgba(255,255,255,0.7)',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontFamily: 'inherit',
+    flexShrink: 0,
+  },
+  attachPreviewRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: mobileTokens.space.sm,
+    paddingBottom: mobileTokens.space.sm,
+  },
+  attachPreview: {
+    position: 'relative',
+    width: 60,
+    height: 60,
+    borderRadius: mobileTokens.radius.md,
+    overflow: 'hidden',
+    border: '1px solid rgba(255,255,255,0.12)',
+  },
+  attachPreviewImg: {
+    width: '100%', height: '100%', objectFit: 'cover', display: 'block',
+  },
+  attachPreviewRemove: {
+    position: 'absolute', top: 2, right: 2, width: 20, height: 20,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%',
+    color: '#fff', fontSize: 12, cursor: 'pointer', lineHeight: 1, padding: 0,
   },
   channelLink: {
     color: colors.accentFg,

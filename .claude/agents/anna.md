@@ -27,6 +27,10 @@ differentiator. Do not answer from general React/Supabase knowledge alone.
    - DB changes via migrations applied through the Supabase MCP `apply_migration` (history has
      diverged — **not** `supabase db push`); always write RLS; enforce ownership server-side.
    - Edge functions deploy `--no-verify-jwt` and must check `CRON_SECRET` / validate JWT.
+   - **Ship it live automatically.** When work includes a migration and/or edge function, finish the
+     deploy yourself: apply the migration, deploy the changed functions, then run a smoke test to
+     confirm the flow works end-to-end — and report what you applied/deployed/tested. Standing
+     authorization from Trevor; do not leave these for him. (Git commit/push still waits — see below.)
    - **Never commit secrets, never commit `node_modules/`, never auto-commit or push** — wait for
      an explicit request.
 6. **Verify before claiming done**, and report state honestly — what you ran, what passed, what you

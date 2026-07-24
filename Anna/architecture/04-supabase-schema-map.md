@@ -21,6 +21,10 @@ the feature when you need exact columns.
   `src/tritonClient.js` (`REACT_APP_TRITON_SUPABASE_URL` /
   `_ANON_KEY`) — **null if the env vars are unset**, so guard with
   `if (tritonSupabase)`. SSO into Triton is via the `triton-link` edge function.
+  The `briefs` table lives in the **"Triton Tools"** project
+  (`xgzxfsqwtemlcosglhzr`), *not* "Triton Shared" (`ovplsvsxteowscghjteb`) —
+  `tritonClient` points at Triton Tools. Row shape: `{ date (date), title,
+  summary, content (HTML, ~700KB), metadata }`, one per calendar day.
 
 ## Finding a table's definition
 
@@ -120,6 +124,24 @@ files).
 - `conversations`, `conversation_participants`, `direct_messages` (with
   `reply_to`, reactions). DMs don't create `notifications` rows (would flood the
   bell); mobile push comes from a `forward_dm_to_push` trigger.
+- **Image attachments** (`20260723000000_message_attachments.sql`): nullable
+  `attachments jsonb` on both `channel_messages` and `direct_messages` — array of
+  `{ url, name, width?, height? }`. `content` is `text NOT NULL` (no CHECK), so
+  attachment-only messages send `content: ''`. Uploads go to the public
+  `message-attachments` bucket at `${uid}/${convoOrChannelId}/${ts}-${name}`
+  (INSERT RLS `foldername[1]=auth.uid()::text`, mirroring `avatars`). Shared
+  client modules: `src/lib/messageImages.js` (validate PNG/JPG + 10MB cap,
+  client-side canvas **compression** to ~2048px longest edge, upload, preview
+  URLs, `dragHasFiles`, storage cleanup), `src/lib/useAttachmentEdit.js` (edit
+  add/remove), `src/components/MessageAttachments.js` (inline render + in-app
+  lightbox), `src/components/AttachmentEditRow.js` — used by all four chat twins.
+  **Delete cleanup:** edge fn `cleanup-message-attachments` (`--no-verify-jwt`,
+  validates the caller JWT) deletes the row through a *caller-scoped* client so
+  the table's own DELETE RLS authorizes (DM = owner; channel = owner or
+  `is_channel_admin()`), then service-role-removes the storage objects — the only
+  way to clean up when a channel admin deletes another user's image (client-side
+  `storage.remove` would fail the per-user storage DELETE policy). Messages with
+  no attachments still delete directly client-side.
 - `notifications` — the bell system. `announcements` / `announcement_reads`.
 - `get_notification_summary(p_user_id, p_role, p_dashboard_last_seen)` RPC
   returns all badge counts in one call. See `06-realtime-notifications.md`.

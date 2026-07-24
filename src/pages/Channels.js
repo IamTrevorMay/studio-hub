@@ -10,6 +10,10 @@ import { getDisplayName, getDisplayInitial } from '../lib/displayName';
 import { ReactionChips, ReactionBar, toggleReaction } from '../components/MessageReactions';
 import backdropDismiss from '../lib/backdropDismiss';
 import { colors } from '../lib/styleTokens';
+import MessageAttachments from '../components/MessageAttachments';
+import AttachmentEditRow from '../components/AttachmentEditRow';
+import useAttachmentEdit from '../lib/useAttachmentEdit';
+import { IMAGE_ACCEPT, pickImageFiles, makeImagePreview, revokePreview, uploadMessageImages, dragHasFiles, deleteMessageAndAttachments, removeMessageImagesByUrl } from '../lib/messageImages';
 
 // Roles that can be individually granted channel access via the admin
 // "Set Permissions" menu. Admin-tier roles (admin, director_creative,
@@ -342,6 +346,13 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
   const inputRef = useRef(null);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [loading, setLoading] = useState(true);
+  // Pending image attachments for the composer: [{ key, file, url }].
+  const [pendingImages, setPendingImages] = useState([]);
+  const [uploadingImages, setUploadingImages] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const attachInputRef = useRef(null);
+  const dragCounterRef = useRef(0); // ignore dragleave from child elements
+  const sendingRef = useRef(false);
 
   const groupById = useMemo(() => {
     const m = {};
@@ -498,7 +509,7 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
       }, (payload) => {
         if (!mounted) return;
         setMessages(prev => prev.map(m => m.id === payload.new.id
-          ? { ...m, content: payload.new.content, edited_at: payload.new.edited_at, is_pinned: payload.new.is_pinned, reactions: payload.new.reactions }
+          ? { ...m, content: payload.new.content, edited_at: payload.new.edited_at, is_pinned: payload.new.is_pinned, reactions: payload.new.reactions, attachments: payload.new.attachments }
           : m
         ));
         fetchPinnedMessages(activeChannel.id);
@@ -565,22 +576,45 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
     );
   }
 
-  async function handleEditMessage(messageId, newContent) {
-    if (!newContent.trim()) return;
-    await supabase.from('channel_messages').update({
-      content: newContent.trim(),
-      edited_at: new Date().toISOString(),
-    }).eq('id', messageId);
-    setMessages(prev => prev.map(m => m.id === messageId
-      ? { ...m, content: newContent.trim(), edited_at: new Date().toISOString() }
-      : m
-    ));
+  // Edit a message's text and/or its image attachments. `extras` carries
+  // { keptAttachments, newFiles, removedUrls } from the editor.
+  async function handleEditMessage(messageId, newContent, extras = {}) {
+    const trimmed = newContent.trim();
+    const { keptAttachments = [], newFiles = [], removedUrls = [] } = extras;
+    try {
+      let uploaded = [];
+      if (newFiles.length) {
+        uploaded = await uploadMessageImages(newFiles, { userId: profile.id, scopeId: activeChannel.id });
+      }
+      const finalAttachments = [...keptAttachments, ...uploaded];
+      if (!trimmed && finalAttachments.length === 0) return;
+      const attachments = finalAttachments.length ? finalAttachments : null;
+      const editedAt = new Date().toISOString();
+      const { error } = await supabase.from('channel_messages').update({
+        content: trimmed, edited_at: editedAt, attachments,
+      }).eq('id', messageId);
+      if (error) throw error;
+      setMessages(prev => prev.map(m => m.id === messageId
+        ? { ...m, content: trimmed, edited_at: editedAt, attachments }
+        : m
+      ));
+      if (removedUrls.length) removeMessageImagesByUrl(removedUrls).catch(err => console.error('Error removing old attachments:', err));
+    } catch (err) {
+      console.error('Error editing message with attachments:', err);
+      toast.error('Could not update images: ' + (err?.message || 'unknown error'));
+    }
   }
 
   async function handleDeleteMessage(messageId) {
-    await supabase.from('channel_messages').delete().eq('id', messageId);
-    setMessages(prev => prev.filter(m => m.id !== messageId));
-    if (activeChannel) fetchPinnedMessages(activeChannel.id);
+    const message = messages.find(m => m.id === messageId) || { id: messageId };
+    try {
+      await deleteMessageAndAttachments({ table: 'channel_messages', message });
+      setMessages(prev => prev.filter(m => m.id !== messageId));
+      if (activeChannel) fetchPinnedMessages(activeChannel.id);
+    } catch (err) {
+      console.error('Error deleting message:', err);
+      toast.error('Could not delete message: ' + (err?.message || 'unknown error'));
+    }
   }
 
   // Toggle an emoji reaction; patch state from the RPC's returned reactions so
@@ -821,12 +855,15 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
 
   async function handleSendMessage(e) {
     e.preventDefault();
-    if (!newMessage.trim() || !activeChannel || !profile?.id) return;
+    // A message needs text OR at least one image attachment.
+    if ((!newMessage.trim() && pendingImages.length === 0) || !activeChannel || !profile?.id || sendingRef.current) return;
+    sendingRef.current = true;
 
+    const content = newMessage.trim();
     const mentionRegex = /@(\w+(?:\s\w+)?)/g;
     const mentions = [];
     let match;
-    while ((match = mentionRegex.exec(newMessage)) !== null) {
+    while ((match = mentionRegex.exec(content)) !== null) {
       const needle = match[1].toLowerCase();
       const mentioned = teamMembers.find(m =>
         (m.nickname || '').toLowerCase().includes(needle)
@@ -835,31 +872,100 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
       if (mentioned) mentions.push(mentioned.id);
     }
 
-    await supabase.from('channel_messages').insert({
-      channel_id: activeChannel.id,
-      user_id: profile.id,
-      content: newMessage.trim(),
-      mentions,
-    });
-    // Notify mentioned users
-    if (mentions.length > 0) {
-      const notifs = mentions
-        .filter(uid => uid !== profile.id)
-        .map(uid => ({
-          user_id: uid,
-          type: 'mention',
-          title: `${getDisplayName(profile)} mentioned you in #${activeChannel.name}`,
-          body: newMessage.trim().substring(0, 100),
-          link_tab: 'channels',
-          link_target: activeChannel.name,
-        }));
-      if (notifs.length > 0) {
-        await supabase.from('notifications').insert(notifs);
+    try {
+      let attachments = null;
+      if (pendingImages.length > 0) {
+        setUploadingImages(true);
+        attachments = await uploadMessageImages(pendingImages.map(p => p.file), {
+          userId: profile.id,
+          scopeId: activeChannel.id,
+        });
       }
+      const { error } = await supabase.from('channel_messages').insert({
+        channel_id: activeChannel.id,
+        user_id: profile.id,
+        content,
+        mentions,
+        attachments,
+      });
+      if (error) throw error;
+      // Notify mentioned users
+      if (mentions.length > 0) {
+        const notifs = mentions
+          .filter(uid => uid !== profile.id)
+          .map(uid => ({
+            user_id: uid,
+            type: 'mention',
+            title: `${getDisplayName(profile)} mentioned you in #${activeChannel.name}`,
+            body: content.substring(0, 100) || '📷 Photo',
+            link_tab: 'channels',
+            link_target: activeChannel.name,
+          }));
+        if (notifs.length > 0) {
+          await supabase.from('notifications').insert(notifs);
+        }
+      }
+      setNewMessage('');
+      setShowMentions(false);
+      pendingImages.forEach(revokePreview);
+      setPendingImages([]);
+    } catch (err) {
+      console.error('Error sending message with attachments:', err);
+      toast.error('Could not upload image: ' + (err?.message || 'unknown error'));
+    } finally {
+      setUploadingImages(false);
+      sendingRef.current = false;
     }
-    setNewMessage('');
-    setShowMentions(false);
   }
+
+  // Add validated image files to the pending-attachments preview (shared by the
+  // file picker and drag-and-drop).
+  function addPendingImages(fileList) {
+    const { accepted, error } = pickImageFiles(fileList);
+    if (error) toast.error(error);
+    if (accepted.length) setPendingImages(prev => [...prev, ...accepted.map(makeImagePreview)]);
+  }
+
+  function handleAttachChange(e) {
+    addPendingImages(e.target.files);
+    if (attachInputRef.current) attachInputRef.current.value = '';
+  }
+
+  function removePendingImage(key) {
+    setPendingImages(prev => {
+      const hit = prev.find(p => p.key === key);
+      if (hit) revokePreview(hit);
+      return prev.filter(p => p.key !== key);
+    });
+  }
+
+  function handleDragEnter(e) {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    dragCounterRef.current += 1;
+    setIsDragging(true);
+  }
+  function handleDragOver(e) {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+  }
+  function handleDragLeave(e) {
+    if (!dragHasFiles(e)) return;
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) { dragCounterRef.current = 0; setIsDragging(false); }
+  }
+  function handleDrop(e) {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDragging(false);
+    if (e.dataTransfer.files?.length) addPendingImages(e.dataTransfer.files);
+  }
+
+  // Keep a ref of pending previews so the unmount cleanup sees the latest set.
+  const pendingImagesRef = useRef(pendingImages);
+  pendingImagesRef.current = pendingImages;
+  useEffect(() => () => { pendingImagesRef.current.forEach(revokePreview); }, []);
 
   async function handleCreateChannel(e) {
     e.preventDefault();
@@ -1335,9 +1441,23 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
       )}
 
       {/* Chat Area */}
-      <div style={styles.chatArea}>
+      <div
+        style={{ ...styles.chatArea, position: 'relative' }}
+        onDragEnter={activeChannel ? handleDragEnter : undefined}
+        onDragOver={activeChannel ? handleDragOver : undefined}
+        onDragLeave={activeChannel ? handleDragLeave : undefined}
+        onDrop={activeChannel ? handleDrop : undefined}
+      >
         {activeChannel ? (
           <>
+            {isDragging && (
+              <div style={styles.dropOverlay}>
+                <div style={styles.dropOverlayInner}>
+                  <div style={{ fontSize: '32px', marginBottom: '8px' }}>🖼️</div>
+                  Drop images to attach
+                </div>
+              </div>
+            )}
             {/* Chat Header */}
             <div style={styles.chatHeader}>
               <span style={styles.chatHeaderHash}>#</span>
@@ -1485,7 +1605,35 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
                 </div>
               )}
               <FormatToolbar targetRef={inputRef} value={newMessage} setValue={setNewMessage} />
+              {pendingImages.length > 0 && (
+                <div style={styles.attachPreviewRow}>
+                  {pendingImages.map(p => (
+                    <div key={p.key} style={styles.attachPreview}>
+                      <img src={p.url} alt={p.file.name} style={styles.attachPreviewImg} />
+                      <button
+                        type="button"
+                        onClick={() => removePendingImage(p.key)}
+                        style={styles.attachPreviewRemove}
+                        title="Remove image"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
               <form onSubmit={handleSendMessage} style={styles.inputForm}>
+                <button
+                  type="button"
+                  onClick={() => attachInputRef.current?.click()}
+                  style={styles.attachBtn}
+                  title="Attach images"
+                  aria-label="Attach images"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                  </svg>
+                </button>
                 <textarea
                   ref={inputRef}
                   rows={1}
@@ -1495,12 +1643,24 @@ export default function Channels({ initialChannelName, onChannelOpened }) {
                   placeholder={`Message #${activeChannel.name}... (type @ to mention)`}
                   style={styles.messageInput}
                 />
-                <button type="submit" style={styles.sendBtn} disabled={!newMessage.trim()}>
+                <button
+                  type="submit"
+                  style={{ ...styles.sendBtn, opacity: uploadingImages ? 0.6 : 1 }}
+                  disabled={(!newMessage.trim() && pendingImages.length === 0) || uploadingImages}
+                >
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M2 21l21-9L2 3v7l15 2-15 2v7z" />
                   </svg>
                 </button>
               </form>
+              <input
+                ref={attachInputRef}
+                type="file"
+                accept={IMAGE_ACCEPT}
+                multiple
+                style={{ display: 'none' }}
+                onChange={handleAttachChange}
+              />
               <div style={styles.formatHint}>
                 <span><strong>**bold**</strong>  <em>*italic*</em>  - bullet</span>
                 <span style={{ marginLeft: '12px' }}>Shift+Enter for new line</span>
@@ -1660,6 +1820,7 @@ function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, onReact,
   const [ctxMenu, setCtxMenu] = useState(null); // { x, y } from right-click — emoji reaction bar
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(msg.content);
+  const attachEdit = useAttachmentEdit(msg.attachments);
   const menuRef = useRef(null);
   const editInputRef = useRef(null);
 
@@ -1711,19 +1872,22 @@ function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, onReact,
 
   function handleStartEdit() {
     setEditContent(msg.content);
+    attachEdit.reset();
     setEditing(true);
     setMenuOpen(false);
   }
 
   function handleSaveEdit() {
-    if (editContent.trim() && editContent.trim() !== msg.content) {
-      onEdit(msg.id, editContent);
+    const textChanged = editContent.trim() !== (msg.content || '');
+    if ((editContent.trim() || attachEdit.hasImages) && (textChanged || attachEdit.changed)) {
+      onEdit(msg.id, editContent, attachEdit.buildPayload());
     }
     setEditing(false);
   }
 
   function handleCancelEdit() {
     setEditContent(msg.content);
+    attachEdit.reset();
     setEditing(false);
   }
 
@@ -1793,6 +1957,7 @@ function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, onReact,
             onKeyDown={handleEditKeyDown}
             style={msgStyles.editInput}
           />
+          <AttachmentEditRow editState={attachEdit} />
           <div style={msgStyles.editActions}>
             <span style={msgStyles.editHint}>Shift+Enter for new line. Enter to save, Esc to cancel</span>
             <button onClick={handleCancelEdit} style={msgStyles.editCancelBtn}>Cancel</button>
@@ -1803,8 +1968,9 @@ function MessageRow({ msg, isAdmin, profileId, onPin, onEdit, onDelete, onReact,
         <>
           <div style={msgStyles.text}>
             {msg.is_pinned && <span style={msgStyles.pinBadge}>📌</span>}
-            {formatContent(msg.content)}
+            {msg.content?.trim() && formatContent(msg.content)}
             {msg.edited_at && <span style={msgStyles.editedTag}>(edited)</span>}
+            <MessageAttachments attachments={msg.attachments} />
             <ReactionChips reactions={msg.reactions} userId={profileId} onToggle={(emoji) => onReact(msg.id, emoji)} />
           </div>
           <div style={{ position: 'relative', flexShrink: 0 }}>
@@ -2244,7 +2410,39 @@ const styles = {
     width: '42px', height: '42px', display: 'flex',
     alignItems: 'center', justifyContent: 'center',
     background: colors.accent, border: 'none', borderRadius: '10px',
-    color: '#fff', cursor: 'pointer', transition: 'opacity 0.15s',
+    color: '#fff', cursor: 'pointer', transition: 'opacity 0.15s', flexShrink: 0,
+  },
+  attachBtn: {
+    width: '42px', height: '42px', display: 'flex', alignItems: 'center',
+    justifyContent: 'center', background: 'rgba(255,255,255,0.05)',
+    border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px',
+    color: 'rgba(255,255,255,0.6)', cursor: 'pointer', flexShrink: 0,
+  },
+  attachPreviewRow: {
+    display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '8px',
+  },
+  attachPreview: {
+    position: 'relative', width: '64px', height: '64px', borderRadius: '10px',
+    overflow: 'hidden', border: '1px solid rgba(255,255,255,0.12)',
+  },
+  attachPreviewImg: {
+    width: '100%', height: '100%', objectFit: 'cover', display: 'block',
+  },
+  attachPreviewRemove: {
+    position: 'absolute', top: '2px', right: '2px', width: '18px', height: '18px',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%',
+    color: '#fff', fontSize: '11px', cursor: 'pointer', lineHeight: 1, padding: 0,
+  },
+  dropOverlay: {
+    position: 'absolute', inset: 0, zIndex: 60,
+    background: 'rgba(14,20,32,0.82)',
+    border: `2px dashed ${colors.accentBorder}`, borderRadius: '12px',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    pointerEvents: 'none',
+  },
+  dropOverlayInner: {
+    textAlign: 'center', color: colors.accentFg, fontSize: '15px', fontWeight: 600,
   },
   noChannel: {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
