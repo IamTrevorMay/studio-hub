@@ -54,6 +54,7 @@ Deno.serve(async (req: Request) => {
     const yesterday = ptDayString(new Date(Date.now() - 86400000));
     const sevenDaysAgo = ptDayString(new Date(Date.now() - 7 * 86400000));
     const twoDaysAgo = ptDayString(new Date(Date.now() - 2 * 86400000));
+    const fourteenDaysAgo = ptDayString(new Date(Date.now() - 14 * 86400000));
 
     // Get all active accounts
     const { data: accounts } = await supabase
@@ -65,9 +66,32 @@ Deno.serve(async (req: Request) => {
     }
 
     const findings: string[] = [];
+    const skipped: string[] = [];
     const missingByAccount: Array<{ accountId: string; dates: string[] }> = [];
 
     for (const acct of accounts) {
+      // Only flag a data type this account actually produced in the prior
+      // 14 days. Chronically-absent types (dead syncs, platforms that never
+      // emit a type — e.g. Threads has no PDM, Simplecast no snapshots)
+      // would otherwise re-alert every day and drown real regressions.
+      const { data: pdmRecent } = await supabase
+        .from("platform_daily_metrics")
+        .select("id")
+        .eq("platform_account_id", acct.id)
+        .gte("date", fourteenDaysAgo)
+        .lte("date", twoDaysAgo)
+        .limit(1)
+        .maybeSingle();
+
+      const { data: audRecent } = await supabase
+        .from("audience_snapshots")
+        .select("id")
+        .eq("platform_account_id", acct.id)
+        .gte("date", fourteenDaysAgo)
+        .lte("date", twoDaysAgo)
+        .limit(1)
+        .maybeSingle();
+
       // Check platform_daily_metrics for yesterday
       const { data: pdmYesterday } = await supabase
         .from("platform_daily_metrics")
@@ -77,8 +101,12 @@ Deno.serve(async (req: Request) => {
         .maybeSingle();
 
       if (!pdmYesterday) {
-        findings.push(`Missing PDM for ${acct.account_name} (${acct.platform}) on ${yesterday}`);
-        missingByAccount.push({ accountId: acct.id, dates: [yesterday] });
+        if (pdmRecent) {
+          findings.push(`Missing PDM for ${acct.account_name} (${acct.platform}) on ${yesterday}`);
+          missingByAccount.push({ accountId: acct.id, dates: [yesterday] });
+        } else {
+          skipped.push(`PDM chronically absent for ${acct.account_name} (${acct.platform})`);
+        }
       }
 
       // Check audience_snapshots for yesterday
@@ -90,7 +118,11 @@ Deno.serve(async (req: Request) => {
         .maybeSingle();
 
       if (!audYesterday) {
-        findings.push(`Missing audience snapshot for ${acct.account_name} (${acct.platform}) on ${yesterday}`);
+        if (audRecent) {
+          findings.push(`Missing audience snapshot for ${acct.account_name} (${acct.platform}) on ${yesterday}`);
+        } else {
+          skipped.push(`Snapshots chronically absent for ${acct.account_name} (${acct.platform})`);
+        }
       }
 
       // Trailing 7-day average views vs yesterday
@@ -164,12 +196,13 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    console.log(`Data integrity check: ${findings.length} findings, ${totalEnqueued} backfills enqueued, ${notified} notifications sent`);
+    console.log(`Data integrity check: ${findings.length} findings, ${skipped.length} chronic skips, ${totalEnqueued} backfills enqueued, ${notified} notifications sent`);
 
     return jsonResponse({
       ok: true,
       findings_count: findings.length,
       findings,
+      skipped_chronic: skipped,
       backfills_enqueued: totalEnqueued,
       notifications_sent: notified,
     });
