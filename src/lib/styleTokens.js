@@ -159,6 +159,9 @@ export const fontWeights = {
 
 export const fontFamily = '"DM Sans", system-ui, -apple-system, sans-serif';
 
+// Monospace — file paths, IDs, code-ish values (e.g. Harbor NAS paths).
+export const fontFamilyMono = '"SF Mono", Menlo, Consolas, "Liberation Mono", monospace';
+
 // ─── Shadows ──────────────────────────────────────────────────
 
 export const shadows = {

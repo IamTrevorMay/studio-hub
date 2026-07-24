@@ -276,6 +276,22 @@ The app is now the **Mayday Studio suite**: the classic tab world is branded
   while the owner's calls still 200; wrong-key leave leaves left_at null,
   correct-key leave stamps it.
 
+**Harbor Phase 4 — NAS archival (2026-07-23).** Supabase = capture buffer,
+NAS = permanent home. Migration `20260723230000_harbor_phase4_archival.sql`:
+`harbor_tracks.archived_at`/`.nas_path` + status gains `'archived'`;
+`harbor_sessions.archived_at`. The archiver is NOT an edge function — it
+lives in the **api/ Express layer** (`api/harbor/archiver.js` +
+`trackPipeline.js` + `naming.js`, started from `api/server.js`, opt-in via
+`HARBOR_ARCHIVE_ENABLED=1`) because only the always-on Mac can write
+`ASSETS_ROOT`. See `Anna/backend/06-api-express-serverless.md` for the state
+machine. Frontend: HarborRoom tracks panel renders `archived` as a neutral
+pill + copyable mono `nas_path` (token `fontFamilyMono`, added to
+styleTokens.js) with download hidden (chunks purged); `failed` rows with
+`chunk_count > 0` stay downloadable ("Download partial", tolerant of missing
+tail chunks); HarborHome shows an "Archived" pill from
+`session.archived_at`. `ENDED_GRACE_MS` (6h) now lives in TWO places to keep
+in sync: `harbor-track/index.ts:57` and `api/harbor/archiver.js`.
+
 - Shared logic: `src/lib/suite.js` — `SUITE_LAST_APP_KEY = 'suite_last_app'`
   (localStorage), `getSuiteViewFromPath()` (first segment → `'launcher'` |
   `'harbor'` | `null` = Bridge; bare `/` → launcher unless `suite_last_app

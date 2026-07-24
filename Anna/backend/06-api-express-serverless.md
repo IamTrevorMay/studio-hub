@@ -1,7 +1,7 @@
 ---
 title: The api/ Layer — Express Dev Server + Vercel Serverless Functions
-last_updated: 2026-07-15
-tags: [backend, api, express, vercel, serverless, triton, broadcast]
+last_updated: 2026-07-23
+tags: [backend, api, express, vercel, serverless, triton, broadcast, harbor]
 ---
 
 # The `api/` Layer
@@ -115,6 +115,39 @@ function that mutates data or proxies privileged Triton access must validate the
 passed in the `Authorization` header, or a shared secret) inside the handler. Treat an ungated
 mutating `api/` endpoint as a **BLOCKER**, same as an ungated edge function
 (`Anna/review/02-security-review.md`).
+
+## Harbor NAS archiver (Phase 4, 2026-07-23)
+
+`api/harbor/` — a background poller inside the Express process (NOT a Vercel
+function, NOT an edge function): only the always-on Mac can write
+`ASSETS_ROOT` (`/Volumes/May Server`), and that box runs `node api/server.js`
+long-lived (it's what `CLOUD_API_URL=https://assets.maydaystudio.net` fronts —
+the `cloud-folders` edge fn calls it with `Authorization: Bearer
+CLOUD_API_KEY`).
+
+- `archiver.js` — poller (opt-in `HARBOR_ARCHIVE_ENABLED=1`, default 5-min
+  tick, module-level lock, one session/track at a time), straggler finalize,
+  session sweep + `archived_at` stamp. CLI: `--dry-run` (read-only plan,
+  usable from any machine with `api/.env`) / `--once`. Duplicates
+  `ENDED_GRACE_MS` (6h) from `harbor-track/index.ts` — keep in sync.
+- `trackPipeline.js` — list chunks (paginated; listing is truth, not
+  chunk_count) → stream to `<final>.partial` → `ffmpeg -c copy` remux when on
+  PATH else rename → verify (contiguous 0..n-1 + size ≥95% bytes_uploaded) →
+  row `archived` + `nas_path` (RELATIVE to ASSETS_ROOT, nas_access_logs
+  convention) → purge chunks → `nas_access_logs` action `'harbor_archive'`.
+  Verify-fail = row `failed`, file kept for forensics, chunks NOT purged.
+  Client-finalized `failed` tracks are never touched (chunks stay
+  downloadable in-app); their prefixes are protected from the session sweep.
+- `naming.js` — `sanitizeSegment` (name-level sibling of nas.js's
+  `sanitizePath`), PT date stamp (`en-CA` + America/Los_Angeles), target
+  `<root>/Harbor/<yyyy-mm-dd> <title>/<name>-<kind>-<id8>[-PARTIAL].<ext>`.
+- `routes/harbor.js` — `GET /api/harbor/archive-status`, **bearer
+  CLOUD_API_KEY, timing-safe, fails closed** (503 no key / 401 bad bearer).
+  First api/ route with an in-route gate — new routes should copy it, not
+  the ungated nas.js pattern.
+- Known leftover: 19-byte Phase 2 smoke object under bucket prefix
+  `18d14b3d-…` whose session row was deleted — session-scoped sweep can
+  never reach it; manual cleanup.
 
 ## Gotchas
 

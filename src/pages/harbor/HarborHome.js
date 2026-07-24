@@ -28,7 +28,7 @@ export default function HarborHome({ onOpenRoom, onBackToLauncher }) {
   const fetchSessions = useCallback(async () => {
     const { data, error } = await supabase
       .from('harbor_sessions')
-      .select('id, title, status, guest_token, scheduled_at, started_at, ended_at, created_at')
+      .select('id, title, status, guest_token, scheduled_at, started_at, ended_at, archived_at, created_at')
       .order('created_at', { ascending: false })
       .limit(50);
     if (error) {
@@ -54,7 +54,7 @@ export default function HarborHome({ onOpenRoom, onBackToLauncher }) {
     const { data, error } = await supabase
       .from('harbor_sessions')
       .insert({ title: newTitle.trim() || 'Untitled session', created_by: profile?.id })
-      .select('id, title, status, guest_token, scheduled_at, started_at, ended_at, created_at')
+      .select('id, title, status, guest_token, scheduled_at, started_at, ended_at, archived_at, created_at')
       .single();
     if (error) {
       console.error('Harbor: failed to create session:', error);
@@ -160,6 +160,14 @@ export default function HarborHome({ onOpenRoom, onBackToLauncher }) {
                     <span style={pill(STATUS_TONES[s.status] || 'info')}>
                       {STATUS_LABELS[s.status] || s.status}
                     </span>
+                    {s.archived_at && (
+                      <span
+                        style={pill('default')}
+                        title="Recordings archived to NAS — cloud chunks purged"
+                      >
+                        Archived
+                      </span>
+                    )}
                   </div>
                   <span style={styles.sessionMeta}>
                     Created {new Date(s.created_at).toLocaleDateString()}

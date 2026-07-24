@@ -7,7 +7,7 @@ import { rotateGuestToken, guestJoinLink } from '../../lib/harbor/session';
 import { chunkPath, containerExt, HARBOR_RECORDINGS_BUCKET } from '../../lib/harbor/recorder';
 import { createStaffRecorderTransport } from '../../lib/harbor/recorderTransports';
 import CallStage from './CallStage';
-import { colors, spacing, radii, fontSizes, fontWeights, fontFamily } from '../../lib/styleTokens';
+import { colors, spacing, radii, fontSizes, fontWeights, fontFamily, fontFamilyMono } from '../../lib/styleTokens';
 import { pill, button, sectionHeader } from '../../lib/styleRecipes';
 
 // Staff-side call room at /harbor/room/<session_id>. Loads the session under
@@ -35,12 +35,14 @@ const TRACK_STATUS_TONES = {
   uploading: 'warning',
   complete: 'success',
   failed: 'danger',
+  archived: 'default', // neutral outline pill — terminal, calm
 };
 const TRACK_STATUS_LABELS = {
   recording: 'Recording',
   uploading: 'Uploading',
   complete: 'Complete',
   failed: 'Failed',
+  archived: 'Archived',
 };
 
 function formatBytes(n) {
@@ -338,12 +340,13 @@ function TracksPanel({ sessionId, sessionTitle }) {
   const [loaded, setLoaded] = useState(false);
   const [downloading, setDownloading] = useState({}); // trackId → progress label
   const [dlError, setDlError] = useState(null);
+  const [copiedPathId, setCopiedPathId] = useState(null); // trackId of last-copied NAS path
 
   const fetchTracks = useCallback(async () => {
     const { data, error } = await supabase
       .from('harbor_tracks')
       .select(
-        'id, kind, status, bytes_uploaded, chunk_count, duration_ms, mime_type, storage_prefix, created_at, harbor_participants(display_name, role)',
+        'id, kind, status, bytes_uploaded, chunk_count, duration_ms, mime_type, storage_prefix, nas_path, archived_at, created_at, harbor_participants(display_name, role)',
       )
       .eq('session_id', sessionId)
       .order('created_at', { ascending: true });
@@ -405,15 +408,32 @@ function TracksPanel({ sessionId, sessionTitle }) {
     setDownloading((prev) => ({ ...prev, [track.id]: 'Preparing…' }));
     try {
       const parts = writable ? null : [];
+      let savedChunks = 0;
       for (let i = 0; i < track.chunk_count; i += 1) {
         const { data, error } = await supabase.storage
           .from(HARBOR_RECORDINGS_BUCKET)
           .download(chunkPath(track.storage_prefix, i, ext));
-        if (error) throw error;
+        if (error) {
+          // Failed tracks are partial by nature — chunk_count can overstate
+          // what actually landed. Save the contiguous prefix instead of
+          // bailing, and tell the user exactly how much they're getting.
+          if (track.status === 'failed' && i > 0) {
+            console.warn(`Harbor: chunk ${i} missing on failed track — saving ${i} chunks`);
+            break;
+          }
+          throw error;
+        }
         if (writable) await writable.write(data);
         else parts.push(data);
+        savedChunks = i + 1;
         // eslint-disable-next-line no-loop-func
         setDownloading((prev) => ({ ...prev, [track.id]: `${i + 1}/${track.chunk_count}` }));
+      }
+      if (savedChunks < track.chunk_count) {
+        const secs = Math.round((savedChunks * 5000) / 1000);
+        setDlError(
+          `Partial recovery: ${savedChunks} of ${track.chunk_count} chunks were saved (~${secs}s of recording). The rest never reached storage.`,
+        );
       }
       if (writable) {
         await writable.close();
@@ -442,6 +462,17 @@ function TracksPanel({ sessionId, sessionTitle }) {
     }
   };
 
+  const copyNasPath = async (track) => {
+    try {
+      await navigator.clipboard.writeText(track.nas_path);
+      setCopiedPathId(track.id);
+      setTimeout(() => setCopiedPathId((cur) => (cur === track.id ? null : cur)), 2000);
+    } catch (err) {
+      console.error('Harbor: clipboard write failed:', err);
+      window.prompt('Copy the NAS path:', track.nas_path); // eslint-disable-line no-alert
+    }
+  };
+
   if (!loaded || tracks.length === 0) return null; // nothing recorded yet
 
   return (
@@ -450,6 +481,11 @@ function TracksPanel({ sessionId, sessionTitle }) {
       {dlError && <p style={styles.errorText}>{dlError}</p>}
       {tracks.map((track) => {
         const duration = formatDuration(track.duration_ms);
+        // Archived tracks live on the NAS — cloud chunks are purged, so no
+        // download; the NAS path is the pointer. Failed tracks keep whatever
+        // chunks landed (partial recovery).
+        const canDownload =
+          (track.status === 'complete' || track.status === 'failed') && track.chunk_count > 0;
         return (
           <div key={track.id} style={styles.trackRow}>
             <div style={styles.trackInfo}>
@@ -459,20 +495,41 @@ function TracksPanel({ sessionId, sessionTitle }) {
               <span style={styles.trackMeta}>
                 {track.kind} · {formatBytes(track.bytes_uploaded)}
                 {duration ? ` · ${duration}` : ''}
-                {track.status !== 'complete' ? ` · ${track.chunk_count} chunks` : ''}
+                {track.status !== 'complete' && track.status !== 'archived'
+                  ? ` · ${track.chunk_count} chunks`
+                  : ''}
               </span>
+              {track.status === 'archived' && track.nas_path && (
+                <span style={styles.nasPathRow} title="Archived to NAS — cloud chunks purged">
+                  <span style={styles.nasPath}>{track.nas_path}</span>
+                  <button
+                    type="button"
+                    style={button({ variant: 'ghost', size: 'sm' })}
+                    onClick={() => copyNasPath(track)}
+                  >
+                    {copiedPathId === track.id ? 'Copied!' : 'Copy path'}
+                  </button>
+                </span>
+              )}
             </div>
-            <span style={pill(TRACK_STATUS_TONES[track.status] || 'info')}>
+            <span
+              style={pill(TRACK_STATUS_TONES[track.status] || 'info')}
+              title={track.status === 'archived' ? 'Archived to NAS' : undefined}
+            >
               {TRACK_STATUS_LABELS[track.status] || track.status}
             </span>
-            {track.status === 'complete' && track.chunk_count > 0 && (
+            {canDownload && (
               <button
                 type="button"
                 style={button({ variant: 'secondary', size: 'sm', disabled: !!downloading[track.id] })}
                 disabled={!!downloading[track.id]}
                 onClick={() => downloadTrack(track)}
               >
-                {downloading[track.id] ? `Fetching ${downloading[track.id]}` : 'Download'}
+                {downloading[track.id]
+                  ? `Fetching ${downloading[track.id]}`
+                  : track.status === 'failed'
+                    ? 'Download partial'
+                    : 'Download'}
               </button>
             )}
           </div>
@@ -602,5 +659,18 @@ const styles = {
   trackMeta: {
     fontSize: fontSizes.sm,
     color: colors.textSubtle,
+  },
+  nasPathRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexWrap: 'wrap',
+  },
+  nasPath: {
+    fontSize: fontSizes.sm,
+    fontFamily: fontFamilyMono,
+    color: colors.textMuted,
+    wordBreak: 'break-all',
+    userSelect: 'all', // one click selects the whole path
   },
 };
