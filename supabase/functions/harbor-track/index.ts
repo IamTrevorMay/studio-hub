@@ -6,7 +6,11 @@
 // the session guest_token is the credential (mirrors harbor-join's posture —
 // uniform 404s, length gates, generic errors, open CORS).
 //
-// Actions (POST { action, token, participant_id, ... }):
+// Actions (POST { action, token, participant_id, resume_key, ... }) — every
+// action requires the participant's resume_key (Phase 3b): participant_id is
+// visible to the whole channel via presence, so token + pid alone must not
+// authorize touching a guest's recording. Uniform 404 on mismatch.
+//
 //   create      { kind, mime_type }            → insert harbor_tracks row
 //                 (status 'recording'), returns { track_id, storage_prefix }
 //   upload-urls { track_id, from_index, count } → batch of signed upload URLs
@@ -19,7 +23,10 @@
 //
 // Sessions: create requires a not-ended session. upload-urls / progress /
 // finalize stay valid for ENDED_GRACE_MS after the session ends — uploads
-// outlive the call (guest closes the laptop; the flush keeps going).
+// outlive the call (guest closes the laptop; the flush keeps going). Removed
+// participants (Phase 3) get the same treatment: create is rejected outright,
+// but the flush of a recording already in flight gets ENDED_GRACE_MS from
+// left_at, so a removed guest's recording up to the removal still lands.
 //
 // Chunk layout (Phase 4 NAS archival walks this tree, then purges):
 //   <session_id>/<participant_id>/<track_id>/<chunk_index 6-padded>.webm
@@ -74,10 +81,15 @@ Deno.serve(async (req: Request) => {
     const action = typeof body.action === "string" ? body.action : "";
     const token = typeof body.token === "string" ? body.token.trim() : "";
     const participantId = typeof body.participant_id === "string" ? body.participant_id.trim() : "";
+    const resumeKey = typeof body.resume_key === "string" ? body.resume_key.trim() : "";
     // Length/format gates keep junk out of the queries; bad credentials are
     // indistinguishable from missing sessions (uniform 404).
     if (!token || token.length > 128) return jsonResp({ error: "Not found" }, 404);
     if (!UUID_RE.test(participantId)) return jsonResp({ error: "Not found" }, 404);
+    // participant_id is broadcast in channel presence, so it is NOT a
+    // credential on its own — every action also requires the participant's
+    // resume_key (returned only by harbor-join to the joining client).
+    if (!resumeKey || resumeKey.length > 128) return jsonResp({ error: "Not found" }, 404);
 
     const { data: session, error: sessionErr } = await admin
       .from("harbor_sessions")
@@ -96,13 +108,25 @@ Deno.serve(async (req: Request) => {
 
     const { data: participant, error: participantErr } = await admin
       .from("harbor_participants")
-      .select("id, state")
+      .select("id, state, left_at, resume_key")
       .eq("id", participantId)
       .eq("session_id", session.id)
       .maybeSingle();
     if (participantErr) throw participantErr;
-    if (!participant || participant.state === "removed") {
-      return jsonResp({ error: "Not found" }, 404);
+    if (!participant) return jsonResp({ error: "Not found" }, 404);
+    // Wrong key looks identical to a missing participant.
+    if (participant.resume_key !== resumeKey) return jsonResp({ error: "Not found" }, 404);
+
+    if (participant.state === "removed") {
+      // Product call (Phase 3): a removed guest can't START anything new, but
+      // their in-flight recording flush must still land — the recording up to
+      // the moment of removal is kept. Mirror the ended-session grace window,
+      // anchored on left_at (stamped by the producer's remove action).
+      if (action === "create") return jsonResp({ error: "Not found" }, 404);
+      const leftAt = participant.left_at ? new Date(participant.left_at).getTime() : 0;
+      if (!leftAt || Date.now() - leftAt > ENDED_GRACE_MS) {
+        return jsonResp({ error: "Not found" }, 404);
+      }
     }
 
     // ── create ─────────────────────────────────────────────────

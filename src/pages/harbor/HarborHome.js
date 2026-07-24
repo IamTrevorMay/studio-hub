@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
+import { rotateGuestToken, guestJoinLink } from '../../lib/harbor/session';
 import useVisibilityRefresh from '../../hooks/useVisibilityRefresh';
 import { colors, spacing, radii, fontSizes, fontWeights, fontFamily } from '../../lib/styleTokens';
 import { pill, button, input, card, sectionHeader } from '../../lib/styleRecipes';
@@ -22,6 +23,7 @@ export default function HarborHome({ onOpenRoom, onBackToLauncher }) {
   const [newTitle, setNewTitle] = useState('');
   const [creating, setCreating] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
+  const [rotatingId, setRotatingId] = useState(null);
 
   const fetchSessions = useCallback(async () => {
     const { data, error } = await supabase
@@ -65,7 +67,7 @@ export default function HarborHome({ onOpenRoom, onBackToLauncher }) {
   };
 
   const copyGuestLink = async (session) => {
-    const link = `${window.location.origin}/harbor/join/${session.guest_token}`;
+    const link = guestJoinLink(session.guest_token);
     try {
       await navigator.clipboard.writeText(link);
       setCopiedId(session.id);
@@ -74,6 +76,31 @@ export default function HarborHome({ onOpenRoom, onBackToLauncher }) {
       console.error('Harbor: clipboard write failed:', err);
       // Fallback so the link is still obtainable.
       window.prompt('Copy the guest link:', link); // eslint-disable-line no-alert
+    }
+  };
+
+  // Rotate the guest link: old links 404 immediately in harbor-join; the
+  // live signaling channel (named from channel_secret) and any connected
+  // guests are untouched — only future joins need the new link.
+  const rotateLink = async (session) => {
+    if (rotatingId) return;
+    // eslint-disable-next-line no-alert
+    const ok = window.confirm(
+      `Generate a new guest link for "${session.title}"? The old link stops working immediately. Guests already connected are not affected.`,
+    );
+    if (!ok) return;
+    setRotatingId(session.id);
+    try {
+      const newToken = await rotateGuestToken(session.id);
+      setSessions((prev) =>
+        prev.map((s) => (s.id === session.id ? { ...s, guest_token: newToken } : s)),
+      );
+      setCopiedId((cur) => (cur === session.id ? null : cur)); // stale "Copied!" would lie
+    } catch (err) {
+      console.error('Harbor: guest link rotation failed:', err);
+      setLoadError(err.message);
+    } finally {
+      setRotatingId(null);
     }
   };
 
@@ -148,6 +175,16 @@ export default function HarborHome({ onOpenRoom, onBackToLauncher }) {
                       onClick={() => copyGuestLink(s)}
                     >
                       {copiedId === s.id ? 'Copied!' : 'Copy guest link'}
+                    </button>
+                  )}
+                  {s.status !== 'ended' && (
+                    <button
+                      type="button"
+                      style={button({ variant: 'ghost', size: 'sm', disabled: rotatingId === s.id })}
+                      disabled={rotatingId === s.id}
+                      onClick={() => rotateLink(s)}
+                    >
+                      {rotatingId === s.id ? 'Rotating…' : 'New guest link'}
                     </button>
                   )}
                   <button

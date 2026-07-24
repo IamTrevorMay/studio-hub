@@ -89,8 +89,11 @@ export function createStaffRecorderTransport({ sessionId, participantId }) {
   };
 }
 
-// ── Guest: harbor-track edge function, token = credential ──────
-export function createGuestRecorderTransport({ token, participantId }) {
+// ── Guest: harbor-track edge function ──────────────────────────
+// Credentials: session token + participant_id + resume_key. The pid alone is
+// NOT a credential (it's visible to the whole channel via presence meta) —
+// resume_key is the per-participant secret harbor-join returned at join.
+export function createGuestRecorderTransport({ token, participantId, resumeKey }) {
   let trackId = null;
   const urlPool = new Map(); // chunk index → signed upload URL
   let highestFetched = -1;
@@ -100,7 +103,13 @@ export function createGuestRecorderTransport({ token, participantId }) {
     const res = await fetch(TRACK_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, token, participant_id: participantId, ...extra }),
+      body: JSON.stringify({
+        action,
+        token,
+        participant_id: participantId,
+        resume_key: resumeKey,
+        ...extra,
+      }),
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {

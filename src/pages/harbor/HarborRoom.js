@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../contexts/AuthContext';
 import { getDisplayName } from '../../lib/displayName';
-import { deriveHarborChannel } from '../../lib/harbor/signaling';
+import { harborChannelName } from '../../lib/harbor/signaling';
+import { rotateGuestToken, guestJoinLink } from '../../lib/harbor/session';
 import { chunkPath, containerExt, HARBOR_RECORDINGS_BUCKET } from '../../lib/harbor/recorder';
 import { createStaffRecorderTransport } from '../../lib/harbor/recorderTransports';
 import CallStage from './CallStage';
@@ -12,13 +13,19 @@ import { pill, button, sectionHeader } from '../../lib/styleRecipes';
 // Staff-side call room at /harbor/room/<session_id>. Loads the session under
 // RLS, shows a pre-join screen (so media only starts on an explicit click —
 // which also satisfies autoplay-with-audio policies), then registers a
-// 'producer' participant row and mounts the shared CallStage. Staff derive
-// the signaling channel name from guest_token client-side; guests get the
-// same name from the harbor-join edge function.
+// 'producer' participant row and mounts the shared CallStage. Staff build
+// the signaling channel name from channel_secret (read under RLS); guests
+// get the same name from the harbor-join edge function. The channel is NOT
+// derived from guest_token, so rotating the guest link ("New guest link")
+// never disturbs a live call.
 //
 // Phase 2: the pre-join screen also hosts the Recordings panel (harbor_tracks
 // for this session — status, size, duration, per-track download). Staff-only
 // by construction: guests never see this page.
+//
+// Phase 3: staff joins stay auto-admitted (state 'admitted' on insert). The
+// green room / moderation DB writes live here (admit/remove callbacks passed
+// to CallStage) so the shared stage stays free of supabase imports.
 
 const STATUS_TONES = { scheduled: 'info', live: 'success', ended: 'danger' };
 const STATUS_LABELS = { scheduled: 'Scheduled', live: 'Live', ended: 'Ended' };
@@ -69,12 +76,13 @@ export default function HarborRoom({ sessionId, onExit }) {
   const [joining, setJoining] = useState(false);
   const [callInfo, setCallInfo] = useState(null); // { channelName, clientId, participantId }
   const [copied, setCopied] = useState(false);
+  const [rotating, setRotating] = useState(false);
   const participantIdRef = useRef(null);
 
   const fetchSession = useCallback(async () => {
     const { data, error } = await supabase
       .from('harbor_sessions')
-      .select('id, title, status, guest_token, scheduled_at, started_at, ended_at')
+      .select('id, title, status, guest_token, channel_secret, scheduled_at, started_at, ended_at')
       .eq('id', sessionId)
       .maybeSingle();
     if (error) console.error('Harbor: failed to load session:', error);
@@ -94,7 +102,7 @@ export default function HarborRoom({ sessionId, onExit }) {
     setJoinError(null);
     try {
       const clientId = crypto.randomUUID();
-      const channelName = await deriveHarborChannel(session.id, session.guest_token);
+      const channelName = harborChannelName(session.id, session.channel_secret);
       const { data: participant, error } = await supabase
         .from('harbor_participants')
         .insert({
@@ -151,9 +159,38 @@ export default function HarborRoom({ sessionId, onExit }) {
     [sessionId],
   );
 
+  // Green-room admit: lobby → admitted under staff RLS. The 'lobby' guard
+  // makes double-admits (two producers clicking at once) a no-op.
+  const admitParticipant = useCallback(
+    async (participantId) => {
+      const { error } = await supabase
+        .from('harbor_participants')
+        .update({ state: 'admitted' })
+        .eq('id', participantId)
+        .eq('session_id', sessionId)
+        .eq('state', 'lobby');
+      if (error) throw error;
+    },
+    [sessionId],
+  );
+
+  // Remove: state → removed + left_at stamped (frees the seat and anchors
+  // harbor-track's post-removal upload grace window).
+  const removeParticipant = useCallback(
+    async (participantId) => {
+      const { error } = await supabase
+        .from('harbor_participants')
+        .update({ state: 'removed', left_at: new Date().toISOString() })
+        .eq('id', participantId)
+        .eq('session_id', sessionId);
+      if (error) throw error;
+    },
+    [sessionId],
+  );
+
   const copyGuestLink = async () => {
     if (!session) return;
-    const link = `${window.location.origin}/harbor/join/${session.guest_token}`;
+    const link = guestJoinLink(session.guest_token);
     try {
       await navigator.clipboard.writeText(link);
       setCopied(true);
@@ -161,6 +198,28 @@ export default function HarborRoom({ sessionId, onExit }) {
     } catch (err) {
       console.error('Harbor: clipboard write failed:', err);
       window.prompt('Copy the guest link:', link); // eslint-disable-line no-alert
+    }
+  };
+
+  // Rotate the guest link: old links 404 immediately; the live channel and
+  // connected guests are untouched (channel_secret is a separate column).
+  const rotateLink = async () => {
+    if (!session || rotating) return;
+    // eslint-disable-next-line no-alert
+    const ok = window.confirm(
+      'Generate a new guest link? The old link stops working immediately. Guests already connected are not affected.',
+    );
+    if (!ok) return;
+    setRotating(true);
+    try {
+      const newToken = await rotateGuestToken(session.id);
+      setSession((prev) => (prev ? { ...prev, guest_token: newToken } : prev));
+      setCopied(false); // the old "Copied!" would now be a lie
+    } catch (err) {
+      console.error('Harbor: guest link rotation failed:', err);
+      setJoinError(err.message || 'Could not rotate the guest link.');
+    } finally {
+      setRotating(false);
     }
   };
 
@@ -196,8 +255,11 @@ export default function HarborRoom({ sessionId, onExit }) {
           displayName={displayName}
           role="producer"
           session={session}
+          participantId={callInfo.participantId}
           canControlSession
           onUpdateSessionStatus={updateSessionStatus}
+          onAdmitParticipant={admitParticipant}
+          onRemoveParticipant={removeParticipant}
           onLeave={handleLeave}
           onPageUnload={stampLeft}
           createRecorderTransport={() =>
@@ -241,6 +303,14 @@ export default function HarborRoom({ sessionId, onExit }) {
                 </button>
                 <button type="button" style={button({ variant: 'ghost' })} onClick={copyGuestLink}>
                   {copied ? 'Copied!' : 'Copy guest link'}
+                </button>
+                <button
+                  type="button"
+                  style={button({ variant: 'ghost', disabled: rotating })}
+                  disabled={rotating}
+                  onClick={rotateLink}
+                >
+                  {rotating ? 'Rotating…' : 'New guest link'}
                 </button>
               </div>
             </>

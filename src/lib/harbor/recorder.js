@@ -86,12 +86,19 @@ export class HarborRecorder {
    * @param {object} opts.transport         see contract above
    * @param {'video'|'audio'} [opts.kind]   'video' = combined A/V webm (v1)
    * @param {(state: object) => void} [opts.onState]  snapshot on every change
+   * @param {MediaStreamTrack[]} [opts.ownedTracks]
+   *        tracks the recorder OWNS (clones taken for mute-proof recording —
+   *        see CallStage.startRecording). Stopped the moment MediaRecorder
+   *        fully stops, on start failure, and on the failure path, so cloned
+   *        mic tracks never outlive the recording (no mic-light leaks). The
+   *        flush/upload phase doesn't need them.
    */
-  constructor({ stream, transport, kind = 'video', onState }) {
+  constructor({ stream, transport, kind = 'video', onState, ownedTracks = [] }) {
     this.stream = stream;
     this.transport = transport;
     this.kind = kind;
     this.onState = onState;
+    this.ownedTracks = ownedTracks;
 
     this.status = 'idle';
     this.trackId = null;
@@ -184,9 +191,22 @@ export class HarborRecorder {
     } catch (err) {
       this.status = 'failed';
       this.error = err?.message || 'Could not start recording';
+      this._releaseOwnedTracks();
       this._emit();
       throw err;
     }
+  }
+
+  /** Stop tracks the recorder owns (mute-proof mic clones). Idempotent. */
+  _releaseOwnedTracks() {
+    for (const track of this.ownedTracks) {
+      try {
+        track.stop();
+      } catch {
+        /* already stopped */
+      }
+    }
+    this.ownedTracks = [];
   }
 
   /** Stop → flush remaining chunks → finalize. Idempotent; resolves when the
@@ -219,6 +239,10 @@ export class HarborRecorder {
         console.warn('harbor recorder: stop failed', err);
       }
     }
+
+    // MediaRecorder is fully stopped (final dataavailable already fired) —
+    // owned clone tracks are no longer needed; the flush is upload-only.
+    this._releaseOwnedTracks();
 
     await this._drain();
     if (this.status === 'failed') return; // flush gave up — already finalized
@@ -314,6 +338,7 @@ export class HarborRecorder {
     } catch {
       /* already stopping */
     }
+    this._releaseOwnedTracks();
     this._emit();
     try {
       await this.transport.finalize({

@@ -128,9 +128,12 @@ The app is now the **Mayday Studio suite**: the classic tab world is branded
   `src/lib/harbor/mesh.js` (framework-free mesh manager: perfect negotiation,
   deterministic offerer = lexicographically smaller `client_id`, STUN-only with
   a marked TURN config point) + `src/lib/harbor/signaling.js` (Supabase Realtime
-  broadcast wrapper + presence; channel = `harbor:<session_id>:<sha256(guest_token)
-  hex[0:16]>` so a session id alone can't find the channel). Shared call UI:
-  `pages/harbor/CallStage.js` (used by both HarborRoom and HarborJoin).
+  broadcast wrapper + presence; channel = `harbor:<session_id>:
+  <channel_secret[0:16]>` so a session id alone can't find the channel — Phase 3
+  moved the secret from a sha256(guest_token) derivation to a dedicated
+  `harbor_sessions.channel_secret` column so guest links rotate without moving
+  the channel). Shared call UI: `pages/harbor/CallStage.js` (used by both
+  HarborRoom and HarborJoin).
 - **Data**: `harbor_sessions` / `harbor_participants` / `harbor_tracks`
   (migration `20260723150000_harbor_phase1.sql`). RLS helper `is_harbor_staff()`
   = admin tier + assistant + member. **NO anon policies** — guests go through
@@ -179,6 +182,99 @@ The app is now the **Mayday Studio suite**: the classic tab world is branded
   `is_harbor_staff()`; zero anon (verified: anon list = `[]`, download 404,
   PUT 403). Guests only ever write through service-role-minted signed upload
   URLs (created with `upsert: true` so chunk retries can re-PUT).
+
+### Harbor (Phase 3: green room, moderation, link rotation, `claude/harbor` branch)
+
+- **Channel decoupled from the token** (migration
+  `20260723200000_harbor_phase3_green_room.sql`): `harbor_sessions.channel_secret`
+  (same double-`gen_random_uuid` 64-hex default as guest_token; the VOLATILE
+  default forced a table rewrite so existing rows each got a distinct secret —
+  verified). Channel = `harborChannelName()` in `signaling.js` /
+  `channelName()` in harbor-join = `harbor:<session_id>:<channel_secret[0:16]>`.
+  The sha256(guest_token) derivation is deleted on both sides. Also flipped
+  `harbor_participants.state` default to `'lobby'` (fail-closed).
+- **Green room**: harbor-join inserts guests as `state:'lobby'` and returns
+  `state` + channel. Lobby clients subscribe to signaling (presence meta
+  `{name, role, state, participant_id}`) with camera warm but are excluded
+  from the mesh in four places (documented at the top of CallStage.js): no
+  hello / no connectTo from the lobby side, incoming offer/answer/ice dropped
+  while in lobby, admitted peers skip connectTo for presence-lobby peers, and
+  offers from known-lobby senders are dropped. `hello` marks its sender
+  admitted in `presenceMetaRef` immediately — gating offers on possibly-stale
+  lobby presence would stall the post-admit mesh. Producer lobby panel
+  (warning-toned, per-guest Admit) does the RLS write via HarborRoom's
+  `admitParticipant` (guarded `.eq('state','lobby')` so double-admits no-op),
+  then sends targeted `admit`; the guest flips presence via
+  `signal.updatePresence({state:'admitted'})` + broadcasts hello = Phase 1
+  late-joiner path.
+- **Refresh survival + resume_key (Phase 3b security fix)**: presence meta
+  broadcasts every participant's `participant_id` (the producer's
+  admit/remove UI needs the clientId → row mapping), so the pid is NOT a
+  credential — without a gate, a lobby lurker could read an admitted guest's
+  pid from presence and re-join as them (green-room bypass) or drive
+  harbor-track against their track. Fix: `harbor_participants.resume_key`
+  (migration `20260723210000_harbor_phase3b_resume_key.sql`, same
+  double-uuid volatile default). harbor-join returns it ONLY in the direct
+  join response; it must never appear in presence/broadcasts (grep-verified:
+  no `resume_key` in CallStage.js or signaling.js). HarborJoin keeps
+  `{participantId, resumeKey, name}` in sessionStorage
+  (`harbor:join:<token>`). Re-join requires pid + matching key → SAME row,
+  state preserved (admitted guest skips lobby), client_id/display_name
+  updated, left_at cleared, capacity rechecked only when reactivating a left
+  row; wrong/missing key on a well-formed pid → hard uniform 404 (no
+  fresh-join fallthrough for hijack attempts). Removed rows → 404. Malformed
+  ids fall through to a fresh join. `leave` also requires the key
+  (`.eq('resume_key', …)` in the WHERE — mismatch no-ops silently, closing
+  the left_at-griefing softness). ALL harbor-track actions require the key
+  (guest transport passes it; staff transport is direct-RLS and unaffected).
+- **Lost-admit recovery**: if the targeted `admit` signal is lost after the
+  RLS write, the lobby guest self-heals — CallStage polls
+  `onCheckAdmission()` every 15s while in lobby (`ADMIT_POLL_MS`);
+  HarborJoin implements it as the idempotent harbor-join re-join call (same
+  client_id so presence/mesh keying can't drift, authenticated by
+  resume_key). `state:'admitted'` → the SAME `admitSelfRef` transition the
+  signal path uses, synchronously guarded on `pStateRef` so signal + poll
+  landing together can't double-fire. Poll errors return null and are
+  ignored (a rotated token 404s the poll but the signal path still admits);
+  interval cleared on admit/removal/unmount.
+- **Moderation signals** (all honored only from a presence-verified producer,
+  same trust model as `record`): `mute` (targeted; recipient gates its
+  OUTGOING audio via `applyMic(false)` + toast), `request-unmute` (targeted;
+  banner with an Unmute button — never forced), `remove` (room-wide with
+  `target`: the target does full teardown — recorder stop/flush/finalize,
+  channel left, tracks stopped, "You were removed" end screen — everyone else
+  prunes that peer). Remove button only on guest tiles; mute/ask on any
+  remote tile.
+- **Mute-proof recording** (explicit product decision): CallStage's
+  `startRecording` hands the recorder a `new MediaStream([...videoTracks,
+  ...audioClones])` where the audio tracks are `clone()`d (and force-enabled —
+  clone copies the `enabled` flag) so `track.enabled=false` mute (self or
+  producer) never silences the recording. Video deliberately stays the shared
+  track ("Cam off" = privacy, blanks the recording). The recorder OWNS the
+  clones (`ownedTracks` option in `HarborRecorder`) and stops them the moment
+  MediaRecorder fully stops / start fails / failure path — no mic-light leaks.
+  UI hint "Recording stays live while muted" sits by the mic button while
+  recording.
+- **Removed-guest upload grace**: harbor-track rejects `create` for removed
+  participants but allows upload-urls/progress/finalize for `ENDED_GRACE_MS`
+  (6h) from `left_at` — the removal stamps left_at, and the recording up to
+  that point must land. (Deliberate deviation from "reject removed on all
+  track actions": the two Phase 3 requirements conflicted; the product call
+  won.)
+- **Link rotation**: `src/lib/harbor/session.js` — `generateGuestToken()`
+  (32 `crypto.getRandomValues` bytes → 64 hex, 256 bits) +
+  `rotateGuestToken()` (staff RLS update). "New guest link" buttons on
+  HarborHome rows + HarborRoom pre-join, `window.confirm`-gated. Old links
+  404 instantly; channel/connected guests untouched. Known accepted gap: a
+  removed guest can rejoin fresh with an unrotated link — rotation is the fix.
+- **Smoke-verified live** (2026-07-23): lobby insert, re-join same-row w/
+  state preservation, removed → 404 on re-join + create, grace-window
+  progress/finalize 200 then 404 past 6h, rotation kills old token while
+  channel string stays identical. Phase 3b: fresh join returns a 64-hex
+  resume_key; re-join with wrong/missing key → 404 (lobby AND admitted
+  rows); harbor-track upload-urls/finalize with wrong/missing key → 404
+  while the owner's calls still 200; wrong-key leave leaves left_at null,
+  correct-key leave stamps it.
 
 - Shared logic: `src/lib/suite.js` — `SUITE_LAST_APP_KEY = 'suite_last_app'`
   (localStorage), `getSuiteViewFromPath()` (first segment → `'launcher'` |

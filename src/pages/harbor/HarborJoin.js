@@ -23,16 +23,44 @@ function getTokenFromPath() {
   return null;
 }
 
+// Refresh survival for anonymous guests: sessionStorage (tab-scoped, not
+// durable user data) keeps { participantId, resumeKey, name } per token so a
+// reload re-joins the SAME participant row via harbor-join — an admitted
+// guest who refreshes skips the green room instead of inserting a fresh
+// lobby row. resumeKey is the per-participant secret proving this tab owns
+// the row (participant_id alone is channel-visible via presence); it never
+// goes anywhere except harbor-join / harbor-track request bodies.
+const STORAGE_PREFIX = 'harbor:join:';
+
+function readStoredJoin(token) {
+  try {
+    const raw = window.sessionStorage.getItem(STORAGE_PREFIX + token);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredJoin(token, data) {
+  try {
+    window.sessionStorage.setItem(STORAGE_PREFIX + token, JSON.stringify(data));
+  } catch {
+    /* storage may be unavailable (private mode) — refresh just re-lobbies */
+  }
+}
+
 export default function HarborJoin() {
   const token = getTokenFromPath();
   const [phase, setPhase] = useState('setup'); // setup | call | done
-  const [doneReason, setDoneReason] = useState('left'); // left | ended
-  const [name, setName] = useState('');
+  const [doneReason, setDoneReason] = useState('left'); // left | ended | removed
+  const [name, setName] = useState(() => (token && readStoredJoin(token)?.name) || '');
   const [previewStream, setPreviewStream] = useState(null);
   const [mediaError, setMediaError] = useState(null);
   const [joinError, setJoinError] = useState(null);
   const [joining, setJoining] = useState(false);
-  const [joinInfo, setJoinInfo] = useState(null); // { session, participantId, channel, clientId }
+  const [joinInfo, setJoinInfo] = useState(null); // { session, participantId, state, channel, clientId }
   const previewVideoRef = useRef(null);
   const streamRef = useRef(null);
   const handedOffRef = useRef(false); // stream ownership moved to CallStage's mesh
@@ -83,10 +111,22 @@ export default function HarborJoin() {
     setJoinError(null);
     try {
       const clientId = crypto.randomUUID();
+      // Re-join with the stored participant_id + resume_key (refresh
+      // survival) — harbor-join returns the SAME row with state preserved,
+      // or 404s if we were removed or the key doesn't match.
+      const stored = readStoredJoin(token);
+      const rejoin = stored?.participantId && stored?.resumeKey;
       const res = await fetch(JOIN_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, display_name: name.trim(), client_id: clientId }),
+        body: JSON.stringify({
+          token,
+          display_name: name.trim(),
+          client_id: clientId,
+          ...(rejoin
+            ? { participant_id: stored.participantId, resume_key: stored.resumeKey }
+            : {}),
+        }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -95,10 +135,17 @@ export default function HarborJoin() {
         else setJoinError(body.error || 'Could not join the session. Try again.');
         return;
       }
+      writeStoredJoin(token, {
+        participantId: body.participant_id,
+        resumeKey: body.resume_key,
+        name: name.trim(),
+      });
       handedOffRef.current = true;
       setJoinInfo({
         session: body.session,
         participantId: body.participant_id,
+        resumeKey: body.resume_key,
+        state: body.state || 'admitted',
         channel: body.channel,
         clientId,
       });
@@ -112,12 +159,14 @@ export default function HarborJoin() {
   };
 
   // Best-effort left_at stamp; guests can't touch the table directly.
+  // resume_key required server-side (a presence-read pid can't grief us).
   const sendLeave = useCallback(() => {
     if (!joinInfo) return;
     const payload = JSON.stringify({
       token,
       action: 'leave',
       participant_id: joinInfo.participantId,
+      resume_key: joinInfo.resumeKey,
     });
     // Raw string body: an application/json Blob needs a CORS preflight, which
     // sendBeacon can't do — Chrome returns false with no throw. text/plain is
@@ -144,6 +193,35 @@ export default function HarborJoin() {
     setPhase('done');
   };
 
+  // Lost-admit recovery: while CallStage sits in the lobby it polls this.
+  // The harbor-join re-join path is idempotent (same row back, same
+  // client_id, left_at already null) and authenticated by resume_key, so
+  // it doubles as a state read: if the DB says 'admitted' but the targeted
+  // admit signal got lost, the poll flips the guest into the call. Errors
+  // return null (no info) — a rotated token 404s here but the signal path
+  // still works, so the lobby never tears down on a failed poll.
+  const checkAdmission = useCallback(async () => {
+    if (!joinInfo?.participantId || !joinInfo?.resumeKey) return null;
+    try {
+      const res = await fetch(JOIN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token,
+          display_name: name.trim(),
+          client_id: joinInfo.clientId, // SAME id — presence/mesh keying must not drift
+          participant_id: joinInfo.participantId,
+          resume_key: joinInfo.resumeKey,
+        }),
+      });
+      if (!res.ok) return null;
+      const body = await res.json().catch(() => ({}));
+      return body.state || null;
+    } catch {
+      return null; // transient network noise — keep waiting
+    }
+  }, [joinInfo, token, name]);
+
   if (!token) {
     return (
       <Shell>
@@ -162,11 +240,18 @@ export default function HarborJoin() {
           displayName={name.trim()}
           role="guest"
           session={joinInfo.session}
+          participantId={joinInfo.participantId}
+          initialParticipantState={joinInfo.state}
           initialStream={previewStream}
           onLeave={handleLeave}
           onPageUnload={sendLeave}
+          onCheckAdmission={checkAdmission}
           createRecorderTransport={() =>
-            createGuestRecorderTransport({ token, participantId: joinInfo.participantId })
+            createGuestRecorderTransport({
+              token,
+              participantId: joinInfo.participantId,
+              resumeKey: joinInfo.resumeKey,
+            })
           }
         />
       </div>
@@ -177,11 +262,16 @@ export default function HarborJoin() {
     return (
       <Shell>
         <h2 style={sectionHeader(2)}>
-          {doneReason === 'ended' ? 'The session has ended' : 'You left the call'}
+          {doneReason === 'removed'
+            ? 'You were removed from this session'
+            : doneReason === 'ended'
+              ? 'The session has ended'
+              : 'You left the call'}
         </h2>
         <p style={styles.mutedText}>
-          Thanks for joining! If your side was being recorded, give this tab a few seconds before
-          closing so the last moments finish saving.
+          {doneReason === 'removed'
+            ? 'If your side was being recorded, give this tab a few seconds before closing so the last moments finish saving.'
+            : 'Thanks for joining! If your side was being recorded, give this tab a few seconds before closing so the last moments finish saving.'}
         </p>
       </Shell>
     );
