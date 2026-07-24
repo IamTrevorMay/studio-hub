@@ -105,6 +105,15 @@ export const colors = {
     fg:     '#38bdf8',
     fgSoft: '#7dd3fc',
   },
+  // Violet — added for the suite launcher's per-app monogram tints (Drift),
+  // where the six existing hues (steel, sky, green, teal, amber, red) run
+  // out. General-purpose tone triple, same shape as the others.
+  violet: {
+    bg:     'rgba(139,92,246,0.15)',
+    border: 'rgba(139,92,246,0.35)',
+    fg:     '#8b5cf6',
+    fgSoft: '#c4b5fd',
+  },
 };
 
 // ─── Spacing scale ─────────────────────────────────────────────
@@ -147,6 +156,7 @@ export const fontSizes = {
   xl:  16,   // page subsections
   xxl: 18,   // page titles
   display: 22,
+  displayLg: 28,  // hero headlines (suite launcher, coming-soon pages); pairs with mobileTokens.font.title
 };
 
 export const fontWeights = {
@@ -157,6 +167,9 @@ export const fontWeights = {
 };
 
 export const fontFamily = '"DM Sans", system-ui, -apple-system, sans-serif';
+
+// Monospace — file paths, IDs, code-ish values (e.g. Harbor NAS paths).
+export const fontFamilyMono = '"SF Mono", Menlo, Consolas, "Liberation Mono", monospace';
 
 // ─── Shadows ──────────────────────────────────────────────────
 

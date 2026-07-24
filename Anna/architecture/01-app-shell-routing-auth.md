@@ -1,7 +1,7 @@
 ---
 title: App Shell, Routing & Auth
-last_updated: 2026-07-15
-tags: [architecture, routing, auth, layout, session]
+last_updated: 2026-07-23
+tags: [architecture, routing, auth, layout, session, suite]
 ---
 
 # App Shell, Routing & Auth
@@ -104,6 +104,254 @@ then bump `refreshKey` so every channel-creating `useEffect` re-subscribes on
 the fresh socket. Per-page **data** refresh is handled separately by
 `useVisibilityRefresh` (see `06-realtime-notifications.md`).
 
+## Suite routing layer (added 2026-07-23) — launcher / Bridge / Harbor
+
+The app is now the **Mayday Studio suite**: the classic tab world is branded
+**Bridge**; **Harbor** (podcast & remote recording) is a real app as of Phase 1
+(same day — the coming-soon teaser lived hours). Suite resolution happens
+**before** tab resolution, in both layout twins.
+
+### Harbor (Phase 1: live calls, `claude/harbor` branch)
+
+- **Staff routes** (inside the suite, both layouts): `'harbor'` segment renders
+  `pages/harbor/HarborApp.js` — a tiny sub-router owning everything after the
+  first segment: `/harbor` → `HarborHome.js` (sessions list, create, copy guest
+  link), `/harbor/room/<session_id>` → `HarborRoom.js` (pre-join screen → call).
+  The layouts' tab→URL effect only compares the FIRST segment, so deeper
+  `/harbor/*` paths pushed by HarborApp are never clobbered. `HarborComingSoon.js`
+  is deleted.
+- **Public guest route**: `/harbor/join/<token>` → `pages/harbor/HarborJoin.js`,
+  served in `App.js` before the auth gate (the `/careers` pattern) — no session,
+  no providers, no staff chrome. Checked before the layouts ever see the
+  `harbor` segment.
+- **Architecture**: P2P WebRTC mesh, max 4 participants, no media server.
+  `src/lib/harbor/mesh.js` (framework-free mesh manager: perfect negotiation,
+  deterministic offerer = lexicographically smaller `client_id`, STUN-only with
+  a marked TURN config point) + `src/lib/harbor/signaling.js` (Supabase Realtime
+  broadcast wrapper + presence; channel = `harbor:<session_id>:
+  <channel_secret[0:16]>` so a session id alone can't find the channel — Phase 3
+  moved the secret from a sha256(guest_token) derivation to a dedicated
+  `harbor_sessions.channel_secret` column so guest links rotate without moving
+  the channel). Shared call UI: `pages/harbor/CallStage.js` (used by both
+  HarborRoom and HarborJoin).
+- **Data**: `harbor_sessions` / `harbor_participants` / `harbor_tracks`
+  (migration `20260723150000_harbor_phase1.sql`). RLS helper `is_harbor_staff()`
+  = admin tier + assistant + member. **NO anon policies** — guests go through
+  the `harbor-join` edge function (service role; token = credential; bad token
+  → 404, capacity 409 at 4, `action:'leave'` stamps `left_at`).
+  `participants.state` enum already holds `lobby` for the Phase 3 green-room
+  flow.
+
+### Harbor (Phase 2: local recording + progressive upload, `claude/harbor` branch)
+
+- **Model**: every participant records their OWN cam/mic locally
+  (`MediaRecorder`, webm vp9→vp8+opus, 5s timeslice, ~2.5Mbps/128kbps caps) and
+  progressively uploads chunks to the **private** `harbor-recordings` bucket —
+  recording quality never depends on the call. Chunk layout (Phase 4 NAS
+  archive walks then purges): `<session_id>/<participant_id>/<track_id>/<idx
+  6-padded>.webm`.
+- **Engine/transport split**: `src/lib/harbor/recorder.js` (framework-free
+  `HarborRecorder`: in-memory queue, sequential uploads, exponential backoff —
+  unbounded retries while recording, bounded 10/chunk during post-stop flush;
+  `chunkPath()` + `HARBOR_RECORDINGS_BUCKET` live here) +
+  `src/lib/harbor/recorderTransports.js` (staff = direct supabase-js under RLS;
+  guest = `harbor-track` edge fn, token credential, batched signed upload URLs
+  ×60 with low-water background refill; PUTs go straight to storage).
+- **`harbor-track` edge fn** (public, `--no-verify-jwt`, mirrors harbor-join
+  posture): actions `create` / `upload-urls` / `progress` / `finalize`. Create
+  requires a not-ended session; the other three keep working for **6h after
+  session end** (uploads outlive the call). Track ownership checked as
+  session+participant+track triple; uniform 404s.
+- **Producer controls** (CallStage): signaling messages `record`
+  `{action:'start'|'stop', target: client_id|'all'}` — honored only if the
+  sender's **presence-meta role is 'producer'** (the token-derived channel
+  secret is the trust boundary) — and `record-state` rebroadcasts (throttled
+  5s) driving REC/upload-health tile badges. Master Record-all + per-tile
+  toggles are producer-only; guests see their own REC + "Saving — N behind /
+  All safe" state.
+- **Unload semantics changed in CallStage**: `beforeunload` now only WARNS
+  (when chunks are pending); the destructive leave-beacon + `mesh.close()`
+  moved to `pagehide` — teardown-on-beforeunload would have killed the call
+  when a user cancels the dialog.
+- **Tracks panel**: HarborRoom pre-join screen lists `harbor_tracks` live via
+  postgres_changes (table added to the realtime publication in
+  `20260723170000_harbor_phase2_recording.sql`); download = fetch chunks in
+  order + Blob concat (sequential timeslice chunks of one MediaRecorder
+  concatenate into a valid webm).
+- **Storage RLS**: staff select/insert/update/delete on the bucket via
+  `is_harbor_staff()`; zero anon (verified: anon list = `[]`, download 404,
+  PUT 403). Guests only ever write through service-role-minted signed upload
+  URLs (created with `upsert: true` so chunk retries can re-PUT).
+
+### Harbor (Phase 3: green room, moderation, link rotation, `claude/harbor` branch)
+
+- **Channel decoupled from the token** (migration
+  `20260723200000_harbor_phase3_green_room.sql`): `harbor_sessions.channel_secret`
+  (same double-`gen_random_uuid` 64-hex default as guest_token; the VOLATILE
+  default forced a table rewrite so existing rows each got a distinct secret —
+  verified). Channel = `harborChannelName()` in `signaling.js` /
+  `channelName()` in harbor-join = `harbor:<session_id>:<channel_secret[0:16]>`.
+  The sha256(guest_token) derivation is deleted on both sides. Also flipped
+  `harbor_participants.state` default to `'lobby'` (fail-closed).
+- **Green room**: harbor-join inserts guests as `state:'lobby'` and returns
+  `state` + channel. Lobby clients subscribe to signaling (presence meta
+  `{name, role, state, participant_id}`) with camera warm but are excluded
+  from the mesh in four places (documented at the top of CallStage.js): no
+  hello / no connectTo from the lobby side, incoming offer/answer/ice dropped
+  while in lobby, admitted peers skip connectTo for presence-lobby peers, and
+  offers from known-lobby senders are dropped. `hello` marks its sender
+  admitted in `presenceMetaRef` immediately — gating offers on possibly-stale
+  lobby presence would stall the post-admit mesh. Producer lobby panel
+  (warning-toned, per-guest Admit) does the RLS write via HarborRoom's
+  `admitParticipant` (guarded `.eq('state','lobby')` so double-admits no-op),
+  then sends targeted `admit`; the guest flips presence via
+  `signal.updatePresence({state:'admitted'})` + broadcasts hello = Phase 1
+  late-joiner path.
+- **Refresh survival + resume_key (Phase 3b security fix)**: presence meta
+  broadcasts every participant's `participant_id` (the producer's
+  admit/remove UI needs the clientId → row mapping), so the pid is NOT a
+  credential — without a gate, a lobby lurker could read an admitted guest's
+  pid from presence and re-join as them (green-room bypass) or drive
+  harbor-track against their track. Fix: `harbor_participants.resume_key`
+  (migration `20260723210000_harbor_phase3b_resume_key.sql`, same
+  double-uuid volatile default). harbor-join returns it ONLY in the direct
+  join response; it must never appear in presence/broadcasts (grep-verified:
+  no `resume_key` in CallStage.js or signaling.js). HarborJoin keeps
+  `{participantId, resumeKey, name}` in sessionStorage
+  (`harbor:join:<token>`). Re-join requires pid + matching key → SAME row,
+  state preserved (admitted guest skips lobby), client_id/display_name
+  updated, left_at cleared, capacity rechecked only when reactivating a left
+  row; wrong/missing key on a well-formed pid → hard uniform 404 (no
+  fresh-join fallthrough for hijack attempts). Removed rows → 404. Malformed
+  ids fall through to a fresh join. `leave` also requires the key
+  (`.eq('resume_key', …)` in the WHERE — mismatch no-ops silently, closing
+  the left_at-griefing softness). ALL harbor-track actions require the key
+  (guest transport passes it; staff transport is direct-RLS and unaffected).
+- **Lost-admit recovery**: if the targeted `admit` signal is lost after the
+  RLS write, the lobby guest self-heals — CallStage polls
+  `onCheckAdmission()` every 15s while in lobby (`ADMIT_POLL_MS`);
+  HarborJoin implements it as the idempotent harbor-join re-join call (same
+  client_id so presence/mesh keying can't drift, authenticated by
+  resume_key). `state:'admitted'` → the SAME `admitSelfRef` transition the
+  signal path uses, synchronously guarded on `pStateRef` so signal + poll
+  landing together can't double-fire. Poll errors return null and are
+  ignored (a rotated token 404s the poll but the signal path still admits);
+  interval cleared on admit/removal/unmount.
+- **Moderation signals** (all honored only from a presence-verified producer,
+  same trust model as `record`): `mute` (targeted; recipient gates its
+  OUTGOING audio via `applyMic(false)` + toast), `request-unmute` (targeted;
+  banner with an Unmute button — never forced), `remove` (room-wide with
+  `target`: the target does full teardown — recorder stop/flush/finalize,
+  channel left, tracks stopped, "You were removed" end screen — everyone else
+  prunes that peer). Remove button only on guest tiles; mute/ask on any
+  remote tile.
+- **Mute-proof recording** (explicit product decision): CallStage's
+  `startRecording` hands the recorder a `new MediaStream([...videoTracks,
+  ...audioClones])` where the audio tracks are `clone()`d (and force-enabled —
+  clone copies the `enabled` flag) so `track.enabled=false` mute (self or
+  producer) never silences the recording. Video deliberately stays the shared
+  track ("Cam off" = privacy, blanks the recording). The recorder OWNS the
+  clones (`ownedTracks` option in `HarborRecorder`) and stops them the moment
+  MediaRecorder fully stops / start fails / failure path — no mic-light leaks.
+  UI hint "Recording stays live while muted" sits by the mic button while
+  recording.
+- **Removed-guest upload grace**: harbor-track rejects `create` for removed
+  participants but allows upload-urls/progress/finalize for `ENDED_GRACE_MS`
+  (6h) from `left_at` — the removal stamps left_at, and the recording up to
+  that point must land. (Deliberate deviation from "reject removed on all
+  track actions": the two Phase 3 requirements conflicted; the product call
+  won.)
+- **Link rotation**: `src/lib/harbor/session.js` — `generateGuestToken()`
+  (32 `crypto.getRandomValues` bytes → 64 hex, 256 bits) +
+  `rotateGuestToken()` (staff RLS update). "New guest link" buttons on
+  HarborHome rows + HarborRoom pre-join, `window.confirm`-gated. Old links
+  404 instantly; channel/connected guests untouched. Known accepted gap: a
+  removed guest can rejoin fresh with an unrotated link — rotation is the fix.
+- **Smoke-verified live** (2026-07-23): lobby insert, re-join same-row w/
+  state preservation, removed → 404 on re-join + create, grace-window
+  progress/finalize 200 then 404 past 6h, rotation kills old token while
+  channel string stays identical. Phase 3b: fresh join returns a 64-hex
+  resume_key; re-join with wrong/missing key → 404 (lobby AND admitted
+  rows); harbor-track upload-urls/finalize with wrong/missing key → 404
+  while the owner's calls still 200; wrong-key leave leaves left_at null,
+  correct-key leave stamps it.
+
+**Harbor Phase 4 — NAS archival (2026-07-23).** Supabase = capture buffer,
+NAS = permanent home. Migration `20260723230000_harbor_phase4_archival.sql`:
+`harbor_tracks.archived_at`/`.nas_path` + status gains `'archived'`;
+`harbor_sessions.archived_at`. The archiver is NOT an edge function — it
+lives in the **api/ Express layer** (`api/harbor/archiver.js` +
+`trackPipeline.js` + `naming.js`, started from `api/server.js`, opt-in via
+`HARBOR_ARCHIVE_ENABLED=1`) because only the always-on Mac can write
+`ASSETS_ROOT`. See `Anna/backend/06-api-express-serverless.md` for the state
+machine. Frontend: HarborRoom tracks panel renders `archived` as a neutral
+pill + copyable mono `nas_path` (token `fontFamilyMono`, added to
+styleTokens.js) with download hidden (chunks purged); `failed` rows with
+`chunk_count > 0` stay downloadable ("Download partial", tolerant of missing
+tail chunks); HarborHome shows an "Archived" pill from
+`session.archived_at`. `ENDED_GRACE_MS` (6h) now lives in TWO places to keep
+in sync: `harbor-track/index.ts:57` and `api/harbor/archiver.js`.
+
+### Suite roster expansion — 7 apps + registry (2026-07-24, `claude/harbor`)
+
+- **`src/lib/suiteApps.js` is the app registry** — single source of truth for
+  launcher cards AND the layouts' suite rendering. `SUITE_APPS` entries:
+  `{ key, name, monogram, tagline, description, kind, segment?, href,
+  newTab?, localDefault?, tint }`. Kinds: `internal` (Bridge segment=null,
+  Harbor 'harbor'), `external` (Cast, Drift, Fathom — separate deployments),
+  `coming-soon` (Anchor '/anchor', Radar '/radar' →
+  `pages/SuiteComingSoon.js`, a generic teaser parameterized by registry
+  entry). Exports `SUITE_APP_SEGMENTS` (consumed by `suite.js` to build
+  `SUITE_VIEW_SEGMENTS = {'launcher','harbor','anchor','radar'}`) and
+  `getSuiteAppForSegment()` (used by both layouts for the teaser early
+  return and the generic `document.title` = `"<App> · Mayday Studio"`).
+- **External URLs from CRA env** (build-time): `REACT_APP_CAST_URL` (default
+  `http://localhost:3000`), `REACT_APP_DRIFT_URL` (default
+  `http://localhost:3001`), `REACT_APP_FATHOM_URL` (default
+  `https://cloud.maydaystudio.net`). Unset Cast/Drift env ⇒
+  `localDefault: true` ⇒ "Runs locally" hint on the card. Fathom is
+  `newTab: true` (`target="_blank" rel="noopener noreferrer"`), always.
+- **Cards are real `<a href>`s** (right-click / cmd-click / middle-click
+  natively open a new tab): internal + coming-soon cards preventDefault only
+  on a plain left-click (modifier clicks fall through to the browser) and
+  flip state via the layouts' `onOpenApp(app)` (bridge → `rememberBridge()` +
+  `setSuiteView(null)`; others → `setSuiteView(app.segment)`); external cards
+  never preventDefault — default anchor nav IS the behavior. Bridge's href is
+  `/dashboard` (deterministic; bare `/` depends on `suite_last_app`).
+- **Per-app monogram tints** in the registry, all token-sourced: Bridge steel
+  gradient, Harbor `info`, Cast `danger` (on-air red), Drift `violet` (**new
+  tone triple added to `styleTokens.js`**), Fathom `emerald`, Anchor
+  `warning`, Radar `success`.
+- Shared logic: `src/lib/suite.js` — `SUITE_LAST_APP_KEY = 'suite_last_app'`
+  (localStorage), `getSuiteViewFromPath()` (first segment → a
+  `SUITE_VIEW_SEGMENTS` member | `null` = Bridge; bare `/` → launcher unless
+  `suite_last_app === 'bridge'`), `rememberBridge()`.
+- Both layouts hold `suiteView` state next to `activeTab`. Staff only:
+  `isSuiteUser = !isFreelancer && !isPartner` — portal roles are pinned to
+  `suiteView = null` at init and in popstate, so a freelancer deep-linking
+  `/launcher` still gets their portal.
+- Rendering: full-screen early returns (after all hooks, before the sidebar
+  shell) to `pages/SuiteLauncher.js` / `pages/harbor/HarborApp.js` /
+  `pages/SuiteComingSoon.js`.
+- URL sync: the tab→URL effect is guarded — when `suiteView` is set, the suite
+  page owns the URL (`/launcher`, `/harbor`, `/anchor`, `/radar`) and tab sync
+  is skipped. popstate re-resolves the suite view first, then falls through to
+  tab resolution.
+- `suite_last_app` is written **only** when Bridge chrome renders (an effect on
+  `suiteView === null`); Harbor, the teasers, and the launcher never write it,
+  so nobody gets stranded on a teaser at next login. Explicit `/launcher`
+  always shows the launcher regardless of the stored value.
+- Branding: staff sidebar header shows **Bridge** + a small "Mayday Studio"
+  suite mark (`logoStack`/`logoSuiteMark` styles; same in `MobileDrawer` via
+  `suiteBrand` prop). `document.title`: launcher "Mayday Studio", Bridge
+  "Bridge · Mayday Studio", suite apps/teasers "<App> · Mayday Studio" via
+  `getSuiteAppForSegment`; portal roles and auth pages stay "Mayday Studio".
+  Switcher: "Apps" button (grid icon) above the Admin Mode toggle on desktop;
+  "Apps" row above the mode toggle in `MobileDrawer` (`onOpenLauncher` prop).
+- Token note: `fontSizes.displayLg: 28` was added to `styleTokens.js` for the
+  launcher/teaser hero headlines; `colors.violet` (bg/border/fg/fgSoft tone
+  triple) was added for Drift's tint.
+
 ## Routing model — `activeTab` state machine (`src/pages/AppLayout.js`)
 
 There is one string of truth: `activeTab`. It is:
@@ -191,11 +439,17 @@ Items marked `{ external: { url } }` open in a new tab; `{ external: { triton } 
 call `openTritonTool` (`:195-211`) which invokes the `triton-link` edge function
 for a short-lived SSO link into Triton Apex (`https://www.tritonapex.io`).
 
-## Agency portal early return (`AppLayout.js:507-511`, `AppLayoutMobile.js:321`)
+## Agency portal — REMOVED (drift note, 2026-07-23)
 
-`if (isAgency) return <AgencyPortal/>;` — rendered before the sidebar shell, so
-agency accounts get a locked, sidebar-free page. RLS enforces the same isolation
-server-side (see `04-supabase-schema-map.md`, agency section).
+Commit 9b877341 replaced the agency portal with the **public, login-free**
+`pages/public/PublicDeliverables.js`, served before the auth gate in
+`App.js:107-109,126-132` for `/deliverables(\/|$)`. `isAgency`/`AgencyPortal`
+no longer exist anywhere in `src/` (neither layout, nor `rolePermissions.js`,
+nor `AuthContext.js`). The only portal roles inside the layouts today are
+**freelancer** (locked nav + redirect effect) and **partner** (two-item nav).
+**Landmine:** the internal `deliverables` tab still pushes `/deliverables`, so
+a staff reload on that URL lands on the public page — see
+`debugging/02-known-issues-gotchas.md` (l).
 
 ## Mobile layout (`src/pages/AppLayoutMobile.js`, 745 lines)
 

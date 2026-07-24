@@ -5,6 +5,9 @@ const fs = require('fs');
 const path = require('path');
 
 const nasRouter = require('./routes/nas');
+const harborRouter = require('./routes/harbor');
+const requireCloudKey = require('./middleware/requireCloudKey');
+const { startHarborArchiver } = require('./harbor/archiver');
 
 // Optional route modules — load if present
 function tryRequire(mod) { try { return require(mod); } catch { return null; } }
@@ -28,7 +31,11 @@ if (videosRouter) app.use('/api/videos', videosRouter);
 if (driveRouter) app.use('/api/drive', driveRouter);
 if (discordRouter) app.use('/api/discord', discordRouter);
 if (kanbanRouter) app.use('/api/kanban', kanbanRouter);
-app.use('/api/nas', nasRouter);
+// The NAS routes front the raw filesystem — bearer-gated. Every legitimate
+// caller (cloud-folders / invite-user edge functions) already sends the key;
+// this server is reachable from the internet at assets.maydaystudio.net.
+app.use('/api/nas', requireCloudKey, nasRouter);
+app.use('/api/harbor', harborRouter); // harbor.js self-gates with the same key
 
 // Pitch video archive proxy (Vercel-style handler at api/pitch-video.js).
 // Mounted here so local dev can exercise it; needs TRITON_PITCH_VIDEO_KEY
@@ -75,3 +82,7 @@ app.listen(PORT, () => {
   console.log(`\nMayday Post-Show API running on http://localhost:${PORT}`);
   console.log(`Health: http://localhost:${PORT}/health\n`);
 });
+
+// Harbor Phase 4: NAS archival poller — no-op unless HARBOR_ARCHIVE_ENABLED=1
+// (only the always-on Mac with ASSETS_ROOT mounted should set it).
+startHarborArchiver();

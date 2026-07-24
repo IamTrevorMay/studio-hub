@@ -52,7 +52,12 @@ import Ops from './Ops';
 import Morty from '../components/Morty';
 import FreelancerTour from '../components/FreelancerTour';
 import PageErrorBoundary from '../components/PageErrorBoundary';
-import { colors } from '../lib/styleTokens';
+import SuiteLauncher from './SuiteLauncher';
+import SuiteComingSoon from './SuiteComingSoon';
+import HarborApp from './harbor/HarborApp';
+import { getSuiteViewFromPath, rememberBridge } from '../lib/suite';
+import { getSuiteAppForSegment } from '../lib/suiteApps';
+import { colors, fontSizes, fontWeights } from '../lib/styleTokens';
 
 // Sidebar catalog. Labels listed here are aliased internally — the user
 // refers to Production as "Beat Sheet", Scene Builder as "Custom Visuals",
@@ -257,6 +262,16 @@ const NAV_ICON_MAP = {
 
 export default function AppLayout() {
   const { profile, signOut, isAdmin, isStrictAdmin, isAssistant, isPartner, isFreelancer, restrictedNavKeys } = useAuth();
+  // Suite gating: the app launcher + Bridge branding + Harbor are ADMIN-ONLY
+  // for now (Trevor's call at merge time, 2026-07-24). This single flag gates
+  // the launcher landing, the suite URL deep-links (/launcher, /harbor,
+  // /anchor, /radar), the Bridge brand mark, and the Apps button. Non-admins
+  // — including non-admin staff and the freelancer/partner portal roles —
+  // keep the classic "Mayday Studio" tab app exactly as it was pre-suite:
+  // bare '/' resolves to Bridge (see src/lib/suite.js) so they land on their
+  // usual page, never in the launcher. Widen this back to
+  // `!isFreelancer && !isPartner` to reopen the suite to all staff.
+  const isSuiteUser = isAdmin;
   const { unreadAnnouncementCount, markDashboardSeen, unreadMentionChannelIds, unreadNotificationCount, pendingProposalCount, unsignedDocCount, newAssignmentCount, myTaskCount, stuckCommentCount, flCommentCount, unreadMessageCount, refreshNotifications } = useNotifications();
   const { getResolvedNav, saveConfig, saving } = useNavConfig();
   const [activeTab, setActiveTab] = useState(() => {
@@ -269,6 +284,10 @@ export default function AppLayout() {
     return 'dashboard';
   });
   const [mode, setMode] = useState(() => localStorage.getItem('studio-hub-mode') === 'admin' ? 'admin' : 'work');
+  // Suite surface: 'launcher' | 'harbor' | null (null = Bridge, the classic
+  // tab world). Resolved from the URL before tab resolution; bare '/' goes to
+  // the last-used app or the launcher on first login (see src/lib/suite.js).
+  const [suiteView, setSuiteView] = useState(() => (isSuiteUser ? getSuiteViewFromPath() : null));
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [navTarget, setNavTarget] = useState(() => getSubPathFromURL());
   const [adminInitialTab, setAdminInitialTab] = useState(null);
@@ -354,8 +373,15 @@ export default function AppLayout() {
     setFolderCollapseState(prev => ({ ...prev, [folderId]: !prev[folderId] }));
   }
 
-  // Persist active tab to localStorage and URL, reset scroll
+  // Persist active tab to localStorage and URL, reset scroll. While a suite
+  // page (launcher / harbor / a coming-soon teaser) is showing, it owns the
+  // URL instead.
   useEffect(() => {
+    if (suiteView) {
+      const seg = window.location.pathname.replace(/^\/+/, '').split('/')[0];
+      if (seg !== suiteView) window.history.pushState({}, '', '/' + suiteView);
+      return;
+    }
     localStorage.setItem('studio-hub-tab', activeTab);
     const tabPath = TAB_KEY_TO_PATH[activeTab] || activeTab;
     const segments = window.location.pathname.replace(/^\/+/, '').split('/');
@@ -363,24 +389,49 @@ export default function AppLayout() {
       window.history.pushState({}, '', '/' + tabPath);
     }
     if (mainContentRef.current) mainContentRef.current.scrollTop = 0;
-  }, [activeTab]);
+  }, [activeTab, suiteView]);
 
-  // Handle browser back/forward
+  // Entering Bridge (rendering its chrome) records it as the last-used suite
+  // app. The launcher and Harbor deliberately never write this key.
+  useEffect(() => {
+    if (isSuiteUser && !suiteView) rememberBridge();
+  }, [isSuiteUser, suiteView]);
+
+  // Browser-tab title per suite surface ("Harbor · Mayday Studio",
+  // "Anchor · Mayday Studio", …). Auth pages keep the index.html default;
+  // portal roles stay plain "Mayday Studio".
+  useEffect(() => {
+    const suiteApp = suiteView ? getSuiteAppForSegment(suiteView) : null;
+    document.title = !isSuiteUser ? 'Mayday Studio'
+      : suiteApp ? `${suiteApp.name} · Mayday Studio`
+      : suiteView === 'launcher' ? 'Mayday Studio'
+      : 'Bridge · Mayday Studio';
+  }, [isSuiteUser, suiteView]);
+
+  // Handle browser back/forward. Suite segments ('launcher' / 'harbor' /
+  // 'anchor' / 'radar' / bare '/') resolve before tab resolution so history
+  // works across launcher ↔ Bridge ↔ Harbor ↔ teasers.
   useEffect(() => {
     function handlePopState() {
+      if (isSuiteUser) {
+        const view = getSuiteViewFromPath();
+        setSuiteView(view);
+        if (view) return; // suite page owns the URL; leave tab state alone
+      }
       const tab = getTabFromPath();
       if (tab) setActiveTab(tab);
       setNavTarget(getSubPathFromURL());
     }
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  }, [isSuiteUser]);
 
   // Handle Google Calendar OAuth redirect
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('gcal_connected') === 'true' || params.get('gcal_error')) {
       setAdminInitialTab('google');
+      setSuiteView(null); // OAuth returns to bare '/' — land in Bridge, not the launcher
       setActiveTab('admin');
       // Clean up URL
       window.history.replaceState({}, '', window.location.pathname);
@@ -503,6 +554,31 @@ export default function AppLayout() {
   }, [showNotifications]);
 
 
+  // ── Mayday Studio suite pages (staff only; full-screen, no sidebar) ──
+  // Rendered after all hooks. Portal roles never reach these (isSuiteUser),
+  // so their locked-portal behavior keeps precedence over /launcher,
+  // /harbor, /anchor, /radar. Only Bridge writes suite_last_app (via
+  // rememberBridge here + the render effect above); Harbor and the
+  // coming-soon teasers never do. External apps (Cast/Drift/Fathom) are
+  // plain links on the launcher cards — they never set suiteView.
+  if (isSuiteUser && suiteView === 'launcher') {
+    return (
+      <SuiteLauncher
+        onOpenApp={(app) => {
+          if (app.key === 'bridge') { rememberBridge(); setSuiteView(null); }
+          else if (app.segment) setSuiteView(app.segment);
+        }}
+      />
+    );
+  }
+  if (isSuiteUser && suiteView === 'harbor') {
+    return <HarborApp onBackToLauncher={() => setSuiteView('launcher')} />;
+  }
+  const comingSoonApp = isSuiteUser && suiteView ? getSuiteAppForSegment(suiteView) : null;
+  if (comingSoonApp && comingSoonApp.kind === 'coming-soon') {
+    return <SuiteComingSoon app={comingSoonApp} onBackToLauncher={() => setSuiteView('launcher')} />;
+  }
+
   return (
     <div style={styles.layout}>
       {/* Sidebar */}
@@ -510,12 +586,19 @@ export default function AppLayout() {
         ...styles.sidebar,
         width: sidebarCollapsed ? '72px' : '240px',
       }}>
-        {/* Logo */}
+        {/* Logo — staff see the Bridge app brand with the suite mark under it */}
         <div style={styles.logoArea}>
           <div style={styles.logoIcon}>
             <img src="/logo.png" alt="Mayday Studio" width="28" height="28" />
           </div>
-          {!sidebarCollapsed && <span style={styles.logoText}>Mayday Studio</span>}
+          {!sidebarCollapsed && (isSuiteUser ? (
+            <div style={styles.logoStack}>
+              <span style={styles.logoText}>Bridge</span>
+              <span style={styles.logoSuiteMark}>Mayday Studio</span>
+            </div>
+          ) : (
+            <span style={styles.logoText}>Mayday Studio</span>
+          ))}
         </div>
 
         {/* Navigation */}
@@ -728,6 +811,22 @@ export default function AppLayout() {
             )}
           </svg>
         </button>
+
+        {/* App switcher — back to the Mayday Studio suite launcher (admin-only) */}
+        {isAdmin && (
+          <button
+            onClick={() => setSuiteView('launcher')}
+            style={{
+              ...styles.navItem,
+              justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+              marginTop: '8px',
+            }}
+            title={sidebarCollapsed ? 'Apps — Mayday Studio suite' : 'Open the app launcher'}
+          >
+            <AppsIcon active={false} />
+            {!sidebarCollapsed && <span>Apps</span>}
+          </button>
+        )}
 
         {/* Admin Mode toggle - between collapse toggle and user area */}
         {isAdmin && (
@@ -1330,6 +1429,17 @@ function GeraldIcon({ active }) {
   );
 }
 
+function AppsIcon({ active }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
+      <rect x="3" y="3" width="6" height="6" rx="1.5" />
+      <rect x="11" y="3" width="6" height="6" rx="1.5" />
+      <rect x="3" y="11" width="6" height="6" rx="1.5" />
+      <rect x="11" y="11" width="6" height="6" rx="1.5" />
+    </svg>
+  );
+}
+
 function PreProductionIcon({ active }) {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={active ? '#8fb4d8' : '#6b7280'} strokeWidth="1.5">
@@ -1490,6 +1600,18 @@ const styles = {
     fontWeight: 500,
     color: 'rgba(255,255,255,0.45)',
     letterSpacing: '0.5px',
+  },
+  logoStack: {
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  logoSuiteMark: {
+    fontSize: fontSizes.xxs,
+    fontWeight: fontWeights.semibold,
+    color: colors.textDim,
+    letterSpacing: '0.6px',
+    textTransform: 'uppercase',
+    lineHeight: 1.4,
   },
   nav: {
     flex: 1,

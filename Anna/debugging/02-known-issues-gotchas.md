@@ -1,6 +1,6 @@
 ---
 title: Known Issues & Gotchas — The Landmine Map
-last_updated: 2026-07-15
+last_updated: 2026-07-23
 tags: [debugging, gotchas, known-issues, landmines]
 ---
 
@@ -89,6 +89,12 @@ Every confirmed landmine in Mayday Studio, with symptom → cause → workaround
 - **Cause:** `@ffmpeg/ffmpeg@0.12` spawns its worker as a **module** worker (`new Worker(new URL('./worker.js', import.meta.url), { type: 'module' })` — `classes.js:104-113`). In a module worker `importScripts` is unavailable, so `worker.js` falls back to `(await import(coreURL)).default`. The **UMD** core build (`@ffmpeg/core/dist/umd/ffmpeg-core.js`) has no default export → the import yields `undefined` → throw. The many "just use `toBlobURL` from `/dist/umd`" snippets online assume a *classic* worker and are wrong for this package version.
 - **Fix / rule:** Load the core from **`/dist/esm/`** (`export default createFFmpegCore`), not `/dist/umd/`. See `src/pages/tools/postshow/Remuxer.js` (`CORE_BASE = '…/@ffmpeg/core@0.12.9/dist/esm'`). Verified headless (Playwright + core@0.12.9): compat MKV `-c copy` → playable mp4; PCM-audio MKV `-c copy` → `ret=1` (handled, "Re-encode audio to AAC" fallback offered). Single-thread core is used deliberately — the multithread core needs site-wide COOP/COEP (cross-origin isolation), which would break other cross-origin resources; remux is I/O-bound so single-thread is fine.
 - **Also:** `PostShow` (the Video Tools page, key `post_show`) is **only rendered on desktop** — `AppLayoutMobile.js` `renderContent()` has no `post_show` case, so tapping it on mobile falls through to `default: <Dashboard>`. The nav label at `AppLayoutMobile.js:53` is a dead link. Pre-existing; not introduced by the Remuxer work.
+
+## (m) `/deliverables` URL is shadowed by the public page — staff reload lands on the read-only view
+
+- **Symptom:** A staff member on the internal Deliverables tab reloads the browser and gets the public, login-free "Upcoming Deliverables" page instead of the app.
+- **Cause:** Commit 9b877341 replaced the agency portal with `src/pages/public/PublicDeliverables.js`, gated in `App.js:107-109` by `isDeliverablesPath()` (`/^\/deliverables(\/|$)/`) **before** the auth gate. But the internal tab key `deliverables` still pushes `/deliverables` to history (`AppLayout.js` URL-sync effect), so a full reload on that path never reaches the authed app. In-app navigation is unaffected (no reload).
+- **Status:** Pre-existing, observed 2026-07-23 during the suite-launcher build; not yet fixed. Fix options: alias the internal tab to a different path (like `business_dev` → `/roadmap` via `TAB_KEY_TO_PATH`), or move the public page to `/deliverables-public`.
 
 ---
 

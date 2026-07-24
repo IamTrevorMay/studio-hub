@@ -27,6 +27,8 @@ export default function MobileDrawer({
   isAdmin,
   mode,
   onToggleMode,
+  suiteBrand,      // staff only: show "Bridge" + Mayday Studio suite mark
+  onOpenLauncher,  // staff only: "Apps" row → suite launcher
 }) {
   const [folderState, setFolderState] = useState(() =>
     JSON.parse(localStorage.getItem('nav-folder-state') || '{}')
@@ -86,7 +88,14 @@ export default function MobileDrawer({
       <aside style={styles.drawer} onClick={(e) => e.stopPropagation()}>
         <div style={{ ...styles.logoArea, paddingTop: `calc(${mobileTokens.space.lg}px + ${mobileTokens.safeTop})` }}>
           <img src="/logo.png" alt="Mayday Studio" width="28" height="28" />
-          <span style={styles.logoText}>Mayday Studio</span>
+          {suiteBrand ? (
+            <div style={styles.logoStack}>
+              <span style={styles.logoText}>Bridge</span>
+              <span style={styles.logoSuiteMark}>Mayday Studio</span>
+            </div>
+          ) : (
+            <span style={styles.logoText}>Mayday Studio</span>
+          )}
         </div>
 
         <nav style={styles.nav}>
@@ -124,6 +133,20 @@ export default function MobileDrawer({
           })}
 
         </nav>
+
+        {onOpenLauncher && (
+          <div style={styles.appsArea}>
+            <button onClick={onOpenLauncher} style={styles.appsBtn}>
+              <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <rect x="3" y="3" width="6" height="6" rx="1.5" />
+                <rect x="11" y="3" width="6" height="6" rx="1.5" />
+                <rect x="3" y="11" width="6" height="6" rx="1.5" />
+                <rect x="11" y="11" width="6" height="6" rx="1.5" />
+              </svg>
+              <span>Apps</span>
+            </button>
+          </div>
+        )}
 
         {isAdmin && onToggleMode && (
           <div style={styles.modeToggleArea}>
@@ -230,6 +253,35 @@ const styles = {
     fontWeight: 700,
     color: '#fff',
     letterSpacing: '-0.3px',
+  },
+  logoStack: {
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  logoSuiteMark: {
+    fontSize: mobileTokens.font.xs,
+    fontWeight: 600,
+    color: colors.textDim,
+    letterSpacing: '0.6px',
+    textTransform: 'uppercase',
+    lineHeight: 1.3,
+  },
+  appsArea: {
+    padding: `${mobileTokens.space.sm}px ${mobileTokens.space.lg}px`,
+    borderTop: `1px solid ${colors.border}`,
+    flexShrink: 0,
+  },
+  appsBtn: {
+    ...mobileTapButton,
+    justifyContent: 'flex-start',
+    gap: mobileTokens.space.md,
+    width: '100%',
+    padding: `${mobileTokens.space.sm}px ${mobileTokens.space.md}px`,
+    borderRadius: mobileTokens.radius.md,
+    color: colors.textMuted,
+    fontSize: mobileTokens.font.md,
+    fontWeight: 600,
+    textAlign: 'left',
   },
   nav: {
     flex: 1,

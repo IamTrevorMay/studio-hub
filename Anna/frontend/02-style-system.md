@@ -70,8 +70,12 @@ indigo `#6366f1`.
 | `colors.accentBorder` | `rgba(99,102,241,0.35)` | accent border |
 
 **Semantic tones** — each is a `{ bg, border, fg, fgSoft }` triple (`:41-64`), for badges/pills:
-`colors.success` (green `#22c55e`), `colors.warning` (amber `#eab308`),
-`colors.danger` (red `#ef4444`), `colors.info` (sky `#38bdf8`). Example:
+`colors.success` (green `#22c55e`), `colors.emerald` (teal `#10b981`),
+`colors.warning` (amber `#eab308`), `colors.danger` (red `#ef4444`),
+`colors.info` (sky `#38bdf8`), `colors.violet` (violet `#8b5cf6` — added
+2026-07-24 for the suite launcher's Drift tint). Note `toneFor()` in
+styleRecipes only maps success/warning/danger/info — emerald/violet are used
+directly, not via `pill('violet')`. Example:
 `{ background: colors.success.bg, border: `1px solid ${colors.success.border}`, color: colors.success.fg }`.
 
 ### spacing (`:73-82`) — 4px base
