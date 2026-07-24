@@ -69,7 +69,7 @@ export default function AuthPageMobile() {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const { data: invitation } = await supabase.from('invitations')
-          .select('role, title, payment_type, rate, contract_storage_path, contract_file_name, invited_by, assigned_drive_folder_id, assigned_drive_folder_name')
+          .select('role, title, payment_type, rate, contract_storage_path, contract_file_name, invited_by, assigned_drive_folder_id, assigned_drive_folder_name, retainer_enabled, retainer_min_hours, overtime_enabled, overtime_max_hours, overtime_multiplier')
           .eq('email', user.email.toLowerCase())
           .is('accepted_at', null)
           .order('created_at', { ascending: false })
@@ -90,10 +90,19 @@ export default function AuthPageMobile() {
         if (profileError) throw profileError;
 
         if (assignedRole === 'freelancer') {
+          // Retainer/overtime come off the invitation. The
+          // fl_profile_set_payment_from_invitation trigger re-asserts these
+          // server-side on insert, so these client values can't be spoofed —
+          // they're passed for admin-initiated inserts and older invitations.
           await supabase.from('freelancer_profiles').upsert({
             id: user.id,
             payment_type: invitation?.payment_type || null,
             rate: invitation?.rate != null ? Number(invitation.rate) : null,
+            retainer_enabled: invitation?.retainer_enabled ?? false,
+            retainer_min_hours: invitation?.retainer_min_hours != null ? Number(invitation.retainer_min_hours) : null,
+            overtime_enabled: invitation?.overtime_enabled ?? false,
+            overtime_max_hours: invitation?.overtime_max_hours != null ? Number(invitation.overtime_max_hours) : null,
+            overtime_multiplier: invitation?.overtime_multiplier != null ? Number(invitation.overtime_multiplier) : 1.5,
           });
 
           // If a contract was uploaded at invite time, move it to the user's folder

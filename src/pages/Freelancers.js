@@ -46,6 +46,11 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
   const [inviteTitle, setInviteTitle] = useState('');
   const [invitePaymentType, setInvitePaymentType] = useState('hourly');
   const [inviteRate, setInviteRate] = useState('');
+  const [inviteRetainerEnabled, setInviteRetainerEnabled] = useState(false);
+  const [inviteRetainerMin, setInviteRetainerMin] = useState('');
+  const [inviteOvertimeEnabled, setInviteOvertimeEnabled] = useState(false);
+  const [inviteOvertimeMax, setInviteOvertimeMax] = useState('');
+  const [inviteOvertimeMult, setInviteOvertimeMult] = useState('1.5');
   const [inviteContractFile, setInviteContractFile] = useState(null);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteMsg, setInviteMsg] = useState(null);
@@ -325,6 +330,14 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
           title: inviteTitle,
           payment_type: invitePaymentType,
           rate: parseFloat(inviteRate),
+          retainer_enabled: invitePaymentType === 'hourly' ? inviteRetainerEnabled : false,
+          retainer_min_hours: invitePaymentType === 'hourly' && inviteRetainerEnabled && inviteRetainerMin
+            ? parseFloat(inviteRetainerMin) : null,
+          overtime_enabled: invitePaymentType === 'hourly' ? inviteOvertimeEnabled : false,
+          overtime_max_hours: invitePaymentType === 'hourly' && inviteOvertimeEnabled && inviteOvertimeMax
+            ? parseFloat(inviteOvertimeMax) : null,
+          overtime_multiplier: invitePaymentType === 'hourly' && inviteOvertimeMult
+            ? parseFloat(inviteOvertimeMult) : 1.5,
           contract_storage_path: contractStoragePath,
           contract_file_name: contractFileName,
           blocked_folders: [...blockedFolders],
@@ -339,6 +352,11 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
       setInviteTitle('');
       setInvitePaymentType('hourly');
       setInviteRate('');
+      setInviteRetainerEnabled(false);
+      setInviteRetainerMin('');
+      setInviteOvertimeEnabled(false);
+      setInviteOvertimeMax('');
+      setInviteOvertimeMult('1.5');
       setInviteContractFile(null);
       setBlockedFolders(new Set());
       setSelectedDriveFolder(null);
@@ -792,6 +810,81 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
                       />
                     </div>
                   </div>
+
+                  {/* Hourly Payroll Settings (retainer + overtime) */}
+                  {invitePaymentType === 'hourly' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: colors.accentFg, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                        Hourly Payroll Settings
+                      </div>
+                      {/* Retainer */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: '#fff' }}>
+                          <input
+                            type="checkbox"
+                            checked={inviteRetainerEnabled}
+                            onChange={e => setInviteRetainerEnabled(e.target.checked)}
+                            style={{ accentColor: '#5b8fc7' }}
+                          />
+                          Retainer (guaranteed minimum)
+                        </label>
+                        {inviteRetainerEnabled && (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>min hrs / retainer week</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.25"
+                              value={inviteRetainerMin}
+                              onChange={e => setInviteRetainerMin(e.target.value)}
+                              style={{ ...styles.input, width: 90 }}
+                            />
+                          </span>
+                        )}
+                      </div>
+                      {/* Overtime */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: '#fff' }}>
+                          <input
+                            type="checkbox"
+                            checked={inviteOvertimeEnabled}
+                            onChange={e => setInviteOvertimeEnabled(e.target.checked)}
+                            style={{ accentColor: '#5b8fc7' }}
+                          />
+                          Overtime (needs approval)
+                        </label>
+                        {inviteOvertimeEnabled && (
+                          <>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>after (hrs)</span>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.25"
+                                value={inviteOvertimeMax}
+                                onChange={e => setInviteOvertimeMax(e.target.value)}
+                                style={{ ...styles.input, width: 90 }}
+                              />
+                            </span>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>× rate</span>
+                              <input
+                                type="number"
+                                min="1"
+                                step="0.1"
+                                value={inviteOvertimeMult}
+                                onChange={e => setInviteOvertimeMult(e.target.value)}
+                                style={{ ...styles.input, width: 70 }}
+                              />
+                            </span>
+                          </>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', lineHeight: 1.5 }}>
+                        Retainer weeks split each pay period: 1–7, 8–15, 16–22, 23–EOM. The floor is guaranteed per week; the overtime cap resets each week. Over-cap hours pay at the multiplier only after an admin or Director of Creative approves.
+                      </div>
+                    </div>
+                  )}
 
                   {/* Contract Upload */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>

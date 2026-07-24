@@ -112,8 +112,15 @@ files).
 - **Hourly payroll (retainer + overtime), `20260724120000_hourly_payroll_retainer_overtime.sql`:**
   `freelancer_profiles` gained `retainer_enabled`/`retainer_min_hours`,
   `overtime_enabled`/`overtime_max_hours`/`overtime_multiplier` (admin-set on the
-  Freelancers→Team edit form; the `fl_profile_lock_admin_fields` BEFORE-UPDATE
-  trigger was extended to block contractors from self-editing these). Pay math is
+  Freelancers→Team edit form **and the invite form** — hourly-gated; the
+  `fl_profile_lock_admin_fields` BEFORE-UPDATE trigger was extended to block
+  contractors from self-editing these). **Invite flow
+  (`20260724160000_invite_retainer_overtime.sql`):** the same 5 settings are flat
+  columns on `invitations` (mirroring `payment_type`/`rate`); `invite-user` writes
+  them, and the `fl_profile_set_payment_from_invitation` BEFORE-INSERT trigger was
+  extended to hard-set them onto `freelancer_profiles` from the invitation at accept
+  time (AuthPage/AuthPageMobile setup) — so the setup client cannot spoof them
+  (defaults: disabled + 1.5x when the invitation didn't set them). Pay math is
   a **single source of truth**: `compute_freelancer_pay(freelancer, p_start, p_end)`
   (SECURITY DEFINER, self-or-admin gated, returns per-retainer-window JSON breakdown;
   the admin Hours tab + mobile HoursDetail render it). Each bi-weekly pay period

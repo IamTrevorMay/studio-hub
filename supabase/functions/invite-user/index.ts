@@ -52,7 +52,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // Parse the request body
-    const { email, role, title, payment_type, rate, contract_storage_path, contract_file_name, contract_needs_signing, blocked_folders, assigned_drive_folder_id, assigned_drive_folder_name } = await req.json();
+    const { email, role, title, payment_type, rate, contract_storage_path, contract_file_name, contract_needs_signing, blocked_folders, assigned_drive_folder_id, assigned_drive_folder_name, retainer_enabled, retainer_min_hours, overtime_enabled, overtime_max_hours, overtime_multiplier } = await req.json();
     if (!email) {
       return new Response(JSON.stringify({ error: "Email is required" }), {
         status: 400,
@@ -61,6 +61,17 @@ Deno.serve(async (req: Request) => {
     }
     const inviteRole = role || "member";
     const normalizedEmail = email.toLowerCase().trim();
+
+    // Hourly retainer/overtime settings — only meaningful for hourly payment.
+    // Sanitize: keep the numeric floor/cap only when its toggle is on.
+    const isHourly = payment_type === "hourly";
+    const retainerOn = isHourly && retainer_enabled === true;
+    const overtimeOn = isHourly && overtime_enabled === true;
+    const inviteRetainerEnabled = retainerOn;
+    const inviteRetainerMin = retainerOn && retainer_min_hours != null ? Number(retainer_min_hours) : null;
+    const inviteOvertimeEnabled = overtimeOn;
+    const inviteOvertimeMax = overtimeOn && overtime_max_hours != null ? Number(overtime_max_hours) : null;
+    const inviteOvertimeMult = isHourly && overtime_multiplier != null ? Number(overtime_multiplier) : (isHourly ? 1.5 : null);
 
     // Create an admin client with the service role key to invite users
     const adminClient = createClient(
@@ -103,6 +114,11 @@ Deno.serve(async (req: Request) => {
       contract_needs_signing: contract_needs_signing != null ? contract_needs_signing : null,
       assigned_drive_folder_id: assigned_drive_folder_id || null,
       assigned_drive_folder_name: assigned_drive_folder_name || null,
+      retainer_enabled: inviteRetainerEnabled,
+      retainer_min_hours: inviteRetainerMin,
+      overtime_enabled: inviteOvertimeEnabled,
+      overtime_max_hours: inviteOvertimeMax,
+      overtime_multiplier: inviteOvertimeMult,
     });
     if (inviteLogError) {
       console.error("Failed to log invitation:", inviteLogError);
