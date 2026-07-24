@@ -11,6 +11,9 @@ import React from 'react';
 //   - onTaskClick(task, person, groupKey) — fired when a pending/done
 //     row's title is clicked. Mirror rows (id starts with "progress-")
 //     are skipped (no underlying tasks row to edit).
+//   - onTaskContextMenu(task, person, groupKey, {x, y}) — fired on
+//     right-click of an actionable row (same mirror-row gating as click);
+//     non-actionable rows keep the browser's native menu.
 //   - showHeader: when true, wrap in the rounded card + Progress h2
 //     (matches the main view). Set false when the parent already supplies
 //     a section header.
@@ -44,6 +47,7 @@ const tdBase = { padding: '10px 12px', verticalAlign: 'top', borderBottom: '1px 
 export default function ProgressTable({
   groups,
   onTaskClick,
+  onTaskContextMenu,
   sprintActiveTaskIds,
   sprintHoldingTaskIds,
   sprintDoneTaskIds,
@@ -85,6 +89,7 @@ export default function ProgressTable({
                     data={g.byAssignee?.[p.id]}
                     groupKey={g.key}
                     onTaskClick={onTaskClick}
+                    onTaskContextMenu={onTaskContextMenu}
                     sprintActiveTaskIds={sprintActiveTaskIds}
                     sprintHoldingTaskIds={sprintHoldingTaskIds}
                     sprintDoneTaskIds={sprintDoneTaskIds}
@@ -107,7 +112,7 @@ export default function ProgressTable({
   );
 }
 
-function PersonRow({ person, data, groupKey, onTaskClick, sprintActiveTaskIds, sprintHoldingTaskIds, sprintDoneTaskIds }) {
+function PersonRow({ person, data, groupKey, onTaskClick, onTaskContextMenu, sprintActiveTaskIds, sprintHoldingTaskIds, sprintDoneTaskIds }) {
   const d = data || { pending: [], done: [] };
   const rawPending = d.pending || [];
   const rawDone = d.done || [];
@@ -167,6 +172,14 @@ function PersonRow({ person, data, groupKey, onTaskClick, sprintActiveTaskIds, s
   function handleClick(task) {
     if (!clickable(task)) return;
     onTaskClick(task, person, groupKey);
+  }
+
+  function handleContextMenu(e, task) {
+    // Same mirror-row gating as click; without a handler (or on a
+    // pseudo-task) fall through to the browser's native menu.
+    if (!onTaskContextMenu || !clickable(task)) return;
+    e.preventDefault();
+    onTaskContextMenu(task, person, groupKey, { x: e.clientX, y: e.clientY });
   }
 
   return (

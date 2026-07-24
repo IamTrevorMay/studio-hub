@@ -8,7 +8,7 @@ import TaskEditModal from '../components/TaskEditModal';
 import ProgressTable from '../components/workflows/ProgressTable';
 import { fetchAllRows } from './analytics/utils';
 import backdropDismiss from '../lib/backdropDismiss';
-import { colors } from '../lib/styleTokens';
+import { colors, radii, shadows, zIndex } from '../lib/styleTokens';
 
 // ─── Component ───────────────────────────────────────────────
 export default function Workflows() {
@@ -69,6 +69,8 @@ export default function Workflows() {
   // ── Progress edit modals ──
   const [editingTask, setEditingTask] = useState(null);
   const [editingContractorAssign, setEditingContractorAssign] = useState(null);
+  // Right-click context menu on Progress rows: { task, person, groupKey, x, y }
+  const [taskMenu, setTaskMenu] = useState(null);
 
   // Set of tasks.id whose admin assignee has the linked sprint card in
   // the "In Progress" column. Forces the "active" pill in ProgressTable.
@@ -578,6 +580,37 @@ export default function Workflows() {
   }, [isAdmin, profile?.id]);
 
   useEffect(() => { fetchProgress(); }, [fetchProgress]);
+
+  // Open the right editor for a Progress row. Pseudo-tasks (sprint-*/
+  // progress-card-*) have synthetic ids — the editor save would error/no-op.
+  const openProgressTaskEditor = (task, groupKey) => {
+    if (!task || typeof task.id !== 'string') return;
+    if (task.id.startsWith('sprint-') || task.id.startsWith('progress-card-')) return;
+    if (groupKey === 'contractors') {
+      // Contractor rows store freelancer_assignments shape — the row
+      // already has the columns ContractorAssignmentModal expects.
+      setEditingContractorAssign(task);
+    } else {
+      setEditingTask(task);
+    }
+  };
+
+  // Cancel = delete the row outright (Trevor's call — no 'cancelled' status).
+  const cancelProgressTask = async ({ task, person, groupKey }) => {
+    setTaskMenu(null);
+    const who = person?.name ? ` for ${person.name}` : '';
+    // eslint-disable-next-line no-alert
+    if (!window.confirm(`Cancel "${task.title}"${who}? This deletes the task.`)) return;
+    const table = groupKey === 'contractors' ? 'freelancer_assignments' : 'tasks';
+    const { error } = await supabase.from(table).delete().eq('id', task.id);
+    if (error) {
+      console.error('Cancel task failed:', error);
+      showToast('Failed to cancel task', 'error');
+      return;
+    }
+    showToast('Task cancelled');
+    fetchProgress();
+  };
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -1265,20 +1298,50 @@ export default function Workflows() {
         sprintActiveTaskIds={sprintActiveTaskIds}
         sprintHoldingTaskIds={sprintHoldingTaskIds}
         sprintDoneTaskIds={sprintDoneTaskIds}
-        onTaskClick={(task, person, groupKey) => {
-          // Skip synthesized pseudo-tasks (sprint-*/progress-card-*) — their
-          // ids aren't real DB uuids, so the editor save would error/no-op.
+        onTaskClick={(task, person, groupKey) => openProgressTaskEditor(task, groupKey)}
+        onTaskContextMenu={(task, person, groupKey, pos) => {
           if (!task || typeof task.id !== 'string') return;
           if (task.id.startsWith('sprint-') || task.id.startsWith('progress-card-')) return;
-          if (groupKey === 'contractors') {
-            // Contractor rows store freelancer_assignments shape — the row
-            // already has the columns ContractorAssignmentModal expects.
-            setEditingContractorAssign(task);
-          } else {
-            setEditingTask(task);
-          }
+          setTaskMenu({ task, person, groupKey, x: pos.x, y: pos.y });
         }}
       />
+
+      {/* ── Progress row context menu (admin: edit / cancel any task) ── */}
+      {taskMenu && (
+        <div
+          style={styles.taskMenuBackdrop}
+          onMouseDown={() => setTaskMenu(null)}
+          onContextMenu={(e) => { e.preventDefault(); setTaskMenu(null); }}
+        >
+          <div
+            style={{
+              ...styles.taskMenu,
+              left: Math.min(taskMenu.x, window.innerWidth - 200),
+              top: Math.min(taskMenu.y, window.innerHeight - 96),
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div style={styles.taskMenuLabel}>
+              {taskMenu.task.title} · {taskMenu.person?.name}
+            </div>
+            <button
+              style={styles.taskMenuItem}
+              onClick={() => {
+                openProgressTaskEditor(taskMenu.task, taskMenu.groupKey);
+                setTaskMenu(null);
+              }}
+            >
+              Edit task
+            </button>
+            <button
+              style={{ ...styles.taskMenuItem, color: colors.danger.fg }}
+              onClick={() => cancelProgressTask(taskMenu)}
+            >
+              Cancel task…
+            </button>
+          </div>
+        </div>
+      )}
       </>
       )}
 
@@ -1533,6 +1596,47 @@ const styles = {
     fontWeight: 600,
     zIndex: 9999,
     boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+  },
+
+  // Progress row right-click menu
+  taskMenuBackdrop: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: zIndex.popover,
+  },
+  taskMenu: {
+    position: 'fixed',
+    minWidth: 180,
+    maxWidth: 260,
+    background: colors.bgModal,
+    border: `1px solid ${colors.borderStrong}`,
+    borderRadius: radii.md,
+    padding: 4,
+    boxShadow: shadows.lg,
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  taskMenuLabel: {
+    padding: '6px 10px',
+    fontSize: 11,
+    color: colors.textSubtle,
+    borderBottom: `1px solid ${colors.border}`,
+    marginBottom: 4,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  taskMenuItem: {
+    background: 'transparent',
+    border: 'none',
+    textAlign: 'left',
+    padding: '8px 10px',
+    borderRadius: radii.sm,
+    fontSize: 13,
+    fontWeight: 600,
+    color: colors.text,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
   },
 
   // Loading
