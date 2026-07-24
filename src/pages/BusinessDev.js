@@ -667,6 +667,40 @@ export default function BusinessDev() {
   }
 
   // ─────────────────────────────────────────────
+  // Drag-and-drop reorder (within-parent only; admin only)
+  // Optimistic reorder + reindex the affected siblings' position columns.
+  // ─────────────────────────────────────────────
+  async function handleReorderMilestones(roadmapId, fromIdx, toIdx) {
+    const group = milestones.filter(m => m.roadmap_id === roadmapId);
+    const reordered = Array.from(group);
+    const [moved] = reordered.splice(fromIdx, 1);
+    if (!moved) return;
+    reordered.splice(toIdx, 0, moved);
+    const reindexed = reordered.map((m, i) => ({ ...m, position: i }));
+    // Optimistic: grouping (milestonesByRoadmap) re-derives from array order,
+    // so keep this roadmap's rows contiguous in the new order.
+    setMilestones(prev => [...prev.filter(m => m.roadmap_id !== roadmapId), ...reindexed]);
+    const results = await Promise.all(reindexed.map(m =>
+      supabase.from('roadmap_milestones').update({ position: m.position }).eq('id', m.id)
+    ));
+    if (results.find(r => r.error)) { console.error('Milestone reorder failed'); fetchAll(); }
+  }
+
+  async function handleReorderTasks(milestoneId, fromIdx, toIdx) {
+    const group = tasks.filter(t => t.milestone_id === milestoneId);
+    const reordered = Array.from(group);
+    const [moved] = reordered.splice(fromIdx, 1);
+    if (!moved) return;
+    reordered.splice(toIdx, 0, moved);
+    const reindexed = reordered.map((t, i) => ({ ...t, position: i }));
+    setTasks(prev => [...prev.filter(t => t.milestone_id !== milestoneId), ...reindexed]);
+    const results = await Promise.all(reindexed.map(t =>
+      supabase.from('roadmap_tasks').update({ position: t.position }).eq('id', t.id)
+    ));
+    if (results.find(r => r.error)) { console.error('Task reorder failed'); fetchAll(); }
+  }
+
+  // ─────────────────────────────────────────────
   // Render
   // ─────────────────────────────────────────────
   if (!isAdmin && !isPartner) return <div style={styles.page}><div style={styles.loading}>Access restricted.</div></div>;
@@ -734,6 +768,8 @@ export default function BusinessDev() {
                 onCancelTaskForm={cancelTaskForm}
                 onToggleTask={handleToggleTask}
                 onDeleteTask={handleDeleteTask}
+                onReorderMilestones={handleReorderMilestones}
+                onReorderTasks={handleReorderTasks}
               />
             ))
           )}
@@ -825,6 +861,7 @@ function RoadmapCard(props) {
     taskFormFor, editingTaskId, taskForm, setTaskForm,
     onOpenCreateTask, onOpenEditTask, onTaskSubmit, onCancelTaskForm,
     onToggleTask, onDeleteTask,
+    onReorderMilestones, onReorderTasks,
   } = props;
 
   const total = milestones.length;
@@ -832,6 +869,23 @@ function RoadmapCard(props) {
   const pct = total ? Math.round((done / total) * 100) : 0;
   const deadline = formatDeadline(roadmap.deadline_date);
   const addingMilestone = milestoneFormFor === roadmap.id && !editingMilestoneId;
+
+  // One DnD context per roadmap card handles both the milestone list (type
+  // 'milestone') and each milestone's task list (type 'task'). The distinct
+  // types keep them isolated; we reject cross-milestone task moves.
+  function handleDragEnd(result) {
+    const { destination, source, type } = result;
+    if (!destination) return;
+    if (type === 'milestone') {
+      if (destination.index === source.index) return;
+      onReorderMilestones(roadmap.id, source.index, destination.index);
+    } else if (type === 'task') {
+      if (destination.droppableId !== source.droppableId) return; // within-milestone only
+      if (destination.index === source.index) return;
+      const milestoneId = source.droppableId.slice('task-'.length);
+      onReorderTasks(milestoneId, source.index, destination.index);
+    }
+  }
 
   return (
     <div style={styles.roadmapCard}>
@@ -868,35 +922,51 @@ function RoadmapCard(props) {
           {milestones.length === 0 && !addingMilestone && (
             <div style={styles.empty}>No milestones yet.</div>
           )}
-          {milestones.map(ms => (
-            <MilestoneRow
-              key={ms.id}
-              milestone={ms}
-              tasks={tasksByMilestone[ms.id] || []}
-              isAdmin={isAdmin}
-              expanded={!!expandedMilestones[ms.id]}
-              onToggleExpand={() => setExpandedMilestones(prev => ({ ...prev, [ms.id]: !prev[ms.id] }))}
-              onToggle={() => onToggleMilestone(ms)}
-              onEdit={() => onOpenEditMilestone(ms)}
-              onDelete={() => onDeleteMilestone(ms)}
-              isEditingMilestone={editingMilestoneId === ms.id}
-              milestoneForm={milestoneForm}
-              setMilestoneForm={setMilestoneForm}
-              onMilestoneSubmit={onMilestoneSubmit}
-              onCancelMilestoneForm={onCancelMilestoneForm}
-              // task
-              taskFormFor={taskFormFor}
-              editingTaskId={editingTaskId}
-              taskForm={taskForm}
-              setTaskForm={setTaskForm}
-              onOpenCreateTask={onOpenCreateTask}
-              onOpenEditTask={onOpenEditTask}
-              onTaskSubmit={onTaskSubmit}
-              onCancelTaskForm={onCancelTaskForm}
-              onToggleTask={onToggleTask}
-              onDeleteTask={onDeleteTask}
-            />
-          ))}
+          <DragDropContext onDragEnd={handleDragEnd}>
+            <Droppable droppableId={`ms-${roadmap.id}`} type="milestone">
+              {(dp) => (
+                <div ref={dp.innerRef} {...dp.droppableProps} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {milestones.map((ms, idx) => (
+                    <Draggable key={ms.id} draggableId={ms.id} index={idx} isDragDisabled={!isAdmin || editingMilestoneId === ms.id}>
+                      {(prov, snap) => (
+                        <div ref={prov.innerRef} {...prov.draggableProps}
+                          style={{ ...prov.draggableProps.style, ...(snap.isDragging ? { boxShadow: '0 4px 16px rgba(0,0,0,0.3)', opacity: 0.97 } : {}) }}>
+                          <MilestoneRow
+                            milestone={ms}
+                            tasks={tasksByMilestone[ms.id] || []}
+                            isAdmin={isAdmin}
+                            expanded={!!expandedMilestones[ms.id]}
+                            onToggleExpand={() => setExpandedMilestones(prev => ({ ...prev, [ms.id]: !prev[ms.id] }))}
+                            onToggle={() => onToggleMilestone(ms)}
+                            onEdit={() => onOpenEditMilestone(ms)}
+                            onDelete={() => onDeleteMilestone(ms)}
+                            isEditingMilestone={editingMilestoneId === ms.id}
+                            milestoneForm={milestoneForm}
+                            setMilestoneForm={setMilestoneForm}
+                            onMilestoneSubmit={onMilestoneSubmit}
+                            onCancelMilestoneForm={onCancelMilestoneForm}
+                            dragHandleProps={isAdmin ? prov.dragHandleProps : null}
+                            // task
+                            taskFormFor={taskFormFor}
+                            editingTaskId={editingTaskId}
+                            taskForm={taskForm}
+                            setTaskForm={setTaskForm}
+                            onOpenCreateTask={onOpenCreateTask}
+                            onOpenEditTask={onOpenEditTask}
+                            onTaskSubmit={onTaskSubmit}
+                            onCancelTaskForm={onCancelTaskForm}
+                            onToggleTask={onToggleTask}
+                            onDeleteTask={onDeleteTask}
+                          />
+                        </div>
+                      )}
+                    </Draggable>
+                  ))}
+                  {dp.placeholder}
+                </div>
+              )}
+            </Droppable>
+          </DragDropContext>
 
           {/* Add-milestone inline form */}
           {addingMilestone ? (
@@ -938,6 +1008,7 @@ function MilestoneRow(props) {
     isEditingMilestone, milestoneForm, setMilestoneForm, onMilestoneSubmit, onCancelMilestoneForm,
     taskFormFor, editingTaskId, taskForm, setTaskForm,
     onOpenCreateTask, onOpenEditTask, onTaskSubmit, onCancelTaskForm, onToggleTask, onDeleteTask,
+    dragHandleProps,
   } = props;
 
   const isDone = !!ms.completed_at;
@@ -970,6 +1041,9 @@ function MilestoneRow(props) {
   return (
     <div style={styles.milestoneWrap}>
       <div style={styles.milestoneRow}>
+        {dragHandleProps && (
+          <div {...dragHandleProps} style={styles.dragHandle} title="Drag to reorder">{'⠿'}</div>
+        )}
         <button
           onClick={onToggle}
           disabled={!isAdmin}
@@ -1011,20 +1085,32 @@ function MilestoneRow(props) {
       </div>
 
       {expanded && (
-        <div style={styles.taskList}>
-          {tasks.map(t => (
-            editingTaskId === t.id ? (
-              <TaskInlineForm key={t.id} form={taskForm} setForm={setTaskForm} onSubmit={onTaskSubmit} onCancel={onCancelTaskForm} editing />
-            ) : (
-              <RoadmapTaskRow key={t.id} task={t} isAdmin={isAdmin} onToggle={() => onToggleTask(t)} onEdit={() => onOpenEditTask(t)} onDelete={() => onDeleteTask(t)} />
-            )
-          ))}
-          {addingTask ? (
-            <TaskInlineForm form={taskForm} setForm={setTaskForm} onSubmit={onTaskSubmit} onCancel={onCancelTaskForm} />
-          ) : (
-            isAdmin && <button onClick={() => onOpenCreateTask(ms.id)} style={styles.addRowBtnSm}>+ Task</button>
+        <Droppable droppableId={`task-${ms.id}`} type="task">
+          {(dp) => (
+            <div ref={dp.innerRef} {...dp.droppableProps} style={styles.taskList}>
+              {tasks.map((t, i) => (
+                <Draggable key={t.id} draggableId={t.id} index={i} isDragDisabled={!isAdmin || editingTaskId === t.id}>
+                  {(pr, sn) => (
+                    <div ref={pr.innerRef} {...pr.draggableProps}
+                      style={{ ...pr.draggableProps.style, ...(sn.isDragging ? { boxShadow: '0 3px 12px rgba(0,0,0,0.3)', opacity: 0.97 } : {}) }}>
+                      {editingTaskId === t.id ? (
+                        <TaskInlineForm form={taskForm} setForm={setTaskForm} onSubmit={onTaskSubmit} onCancel={onCancelTaskForm} editing />
+                      ) : (
+                        <RoadmapTaskRow task={t} isAdmin={isAdmin} onToggle={() => onToggleTask(t)} onEdit={() => onOpenEditTask(t)} onDelete={() => onDeleteTask(t)} dragHandleProps={isAdmin ? pr.dragHandleProps : null} />
+                      )}
+                    </div>
+                  )}
+                </Draggable>
+              ))}
+              {dp.placeholder}
+              {addingTask ? (
+                <TaskInlineForm form={taskForm} setForm={setTaskForm} onSubmit={onTaskSubmit} onCancel={onCancelTaskForm} />
+              ) : (
+                isAdmin && <button onClick={() => onOpenCreateTask(ms.id)} style={styles.addRowBtnSm}>+ Task</button>
+              )}
+            </div>
           )}
-        </div>
+        </Droppable>
       )}
       {/* When collapsed but user wants to add first task */}
       {!expanded && isAdmin && tasks.length === 0 && (
@@ -1045,11 +1131,14 @@ function MilestoneRow(props) {
 // ════════════════════════════════════════════════════════════
 // Task row
 // ════════════════════════════════════════════════════════════
-function RoadmapTaskRow({ task, isAdmin, onToggle, onEdit, onDelete }) {
+function RoadmapTaskRow({ task, isAdmin, onToggle, onEdit, onDelete, dragHandleProps }) {
   const isDone = !!task.completed_at;
   const dl = formatDeadline(task.due_date);
   return (
     <div style={styles.taskRow}>
+      {dragHandleProps && (
+        <div {...dragHandleProps} style={{ ...styles.dragHandle, marginTop: '1px' }} title="Drag to reorder">{'⠿'}</div>
+      )}
       <button
         onClick={onToggle}
         disabled={!isAdmin}
@@ -1671,6 +1760,7 @@ const styles = {
     width: '18px',
   },
   rowActions: { display: 'flex', gap: '2px', alignItems: 'center', flexShrink: 0 },
+  dragHandle: { color: 'rgba(255,255,255,0.25)', fontSize: '14px', cursor: 'grab', userSelect: 'none', lineHeight: 1, flexShrink: 0, padding: '0 2px' },
   iconBtn: {
     background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.4)',
     cursor: 'pointer', padding: '4px 6px', borderRadius: '4px',
