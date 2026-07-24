@@ -678,10 +678,12 @@ export default function BusinessDev() {
     <div style={styles.page}>
       <div style={styles.pageHeader}>
         <div>
-          <h1 style={styles.pageTitle}>Roadmap</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <h1 style={styles.pageTitle}>Roadmap</h1>
+            {isAdmin && <button onClick={openCreateRoadmap} style={styles.primaryBtn}>+ Roadmap</button>}
+          </div>
           <p style={styles.pageSubtitle}>Roadmaps, milestones & tasks</p>
         </div>
-        {isAdmin && <button onClick={openCreateRoadmap} style={styles.primaryBtn}>+ Roadmap</button>}
       </div>
 
       <div style={{
