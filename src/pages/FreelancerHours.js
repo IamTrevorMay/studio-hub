@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { colors } from '../lib/styleTokens';
+import { ptDayKey } from '../lib/ptDate';
 
 // Build YYYY-MM-DD from local parts (m is 0-based). toISOString() converts to
 // UTC, which lands period boundaries on the wrong day for UTC+ users.
@@ -46,6 +47,10 @@ export default function FreelancerHours() {
   const [loading, setLoading] = useState(true);
   const [formState, setFormState] = useState({});
   const [submitting, setSubmitting] = useState(null);
+  // Auto-computed hours per period, keyed by `${start}_${end}` →
+  // { hours, count }. Prefilled from the sum of hours_spent on assignments
+  // completed within the period (attributed by completed_at, PT).
+  const [autoByPeriod, setAutoByPeriod] = useState({});
 
   const periods = getPayPeriods(6);
 
@@ -58,6 +63,30 @@ export default function FreelancerHours() {
       .eq('freelancer_id', profile.id)
       .order('period_start', { ascending: false });
     setRecords(data || []);
+
+    // Auto-sum hours_spent from completed assignments, bucketed by the pay
+    // period their completed_at (PT calendar day) falls into.
+    const { data: asgs } = await supabase
+      .from('freelancer_assignments')
+      .select('hours_spent, completed_at')
+      .eq('freelancer_id', profile.id)
+      .not('hours_spent', 'is', null)
+      .not('completed_at', 'is', null);
+    const auto = {};
+    for (const p of getPayPeriods(6)) {
+      const key = p.start + '_' + p.end;
+      let sum = 0;
+      let count = 0;
+      for (const a of asgs || []) {
+        const day = ptDayKey(a.completed_at); // 'YYYY-MM-DD' in PT
+        if (day >= p.start && day <= p.end) {
+          sum += Number(a.hours_spent) || 0;
+          count += 1;
+        }
+      }
+      if (count > 0) auto[key] = { hours: Math.round(sum * 100) / 100, count };
+    }
+    setAutoByPeriod(auto);
     setLoading(false);
   }, [profile?.id]);
 
@@ -86,7 +115,11 @@ export default function FreelancerHours() {
   async function handleSubmit(period) {
     const key = period.start + '_' + period.end;
     const record = getRecord(period);
-    const hours = getFormValue(key, 'hours') ?? (record ? record.total_hours : '');
+    // Total is always the PT-bucketed sum of completed-assignment hours for the
+    // period — never a hand-typed number. Submitting is an attestation that
+    // snapshots that derived value.
+    const auto = autoByPeriod[key];
+    const totalHours = auto ? auto.hours : 0;
     const notes = getFormValue(key, 'notes') ?? (record ? record.notes : '');
 
     setSubmitting(key);
@@ -94,7 +127,7 @@ export default function FreelancerHours() {
       freelancer_id: profile.id,
       period_start: period.start,
       period_end: period.end,
-      total_hours: parseFloat(hours) || 0,
+      total_hours: totalHours,
       notes: notes || null,
       submitted_at: new Date().toISOString(),
     }, { onConflict: 'freelancer_id,period_start,period_end' });
@@ -104,7 +137,7 @@ export default function FreelancerHours() {
         recipient_id: '__all_admins__',
         context: {
           person_name: profile.full_name,
-          hours: parseFloat(hours) || 0,
+          hours: totalHours,
           period: `${period.start} – ${period.end}`,
         },
       },
@@ -134,7 +167,7 @@ export default function FreelancerHours() {
     <div style={styles.container}>
       <div style={styles.header}>
         <h1 style={styles.title}>Hours</h1>
-        <p style={styles.subtitle}>Submit your hours for each pay period</p>
+        <p style={styles.subtitle}>Review and confirm your assignment-reported hours for each pay period</p>
       </div>
 
       {periods.map((period, idx) => {
@@ -142,7 +175,11 @@ export default function FreelancerHours() {
         const record = getRecord(period);
         const isCurrent = idx === 0;
         const isReviewed = record && record.reviewed_at;
-        const hours = getFormValue(key, 'hours') ?? (record ? String(record.total_hours ?? '') : '');
+        const auto = autoByPeriod[key];
+        // The pay-period total is always the PT-bucketed sum of completed
+        // assignments in the period — read-only, never hand-typed.
+        const computedHours = auto ? auto.hours : 0;
+        const assignmentCount = auto ? auto.count : 0;
         const notes = getFormValue(key, 'notes') ?? (record ? record.notes || '' : '');
 
         return (
@@ -192,17 +229,12 @@ export default function FreelancerHours() {
               </div>
             ) : (
               <div style={styles.formRow}>
-                <div style={styles.hoursField}>
-                  <label style={styles.fieldLabel}>Hours</label>
-                  <input
-                    type="number"
-                    step="0.25"
-                    min="0"
-                    value={hours}
-                    onChange={e => setFormValue(key, 'hours', e.target.value)}
-                    placeholder="0"
-                    style={styles.input}
-                  />
+                <div style={styles.computedField}>
+                  <span style={styles.fieldLabel}>Total Hours</span>
+                  <div style={styles.computedTotal}>{computedHours}h</div>
+                  <span style={styles.computedCaption}>
+                    From {assignmentCount} completed assignment{assignmentCount === 1 ? '' : 's'} this period
+                  </span>
                 </div>
                 <div style={styles.notesField}>
                   <label style={styles.fieldLabel}>Notes</label>
@@ -223,7 +255,7 @@ export default function FreelancerHours() {
                       ...(submitting === key ? styles.submitBtnDisabled : {}),
                     }}
                   >
-                    {submitting === key ? 'Saving...' : record ? 'Update' : 'Submit'}
+                    {submitting === key ? 'Saving...' : record ? 'Update' : 'Confirm'}
                   </button>
                 </div>
               </div>
@@ -390,6 +422,24 @@ const styles = {
   submitBtnDisabled: {
     opacity: 0.5,
     cursor: 'not-allowed',
+  },
+  computedField: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
+    flex: '0 0 200px',
+    minWidth: 160,
+  },
+  computedTotal: {
+    fontSize: 22,
+    fontWeight: 700,
+    color: colors.text,
+    lineHeight: 1.1,
+  },
+  computedCaption: {
+    fontSize: 11,
+    color: colors.accentFg,
+    lineHeight: 1.4,
   },
   readOnlyRow: {
     display: 'flex',

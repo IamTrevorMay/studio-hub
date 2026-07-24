@@ -40,6 +40,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
   const [expandedFreelancer, setExpandedFreelancer] = useState(null);
   const [flAssignments, setFlAssignments] = useState([]);
   const [flHoursSummary, setFlHoursSummary] = useState([]);
+  const [payBreakdowns, setPayBreakdowns] = useState({}); // { [hoursEntryId]: compute_freelancer_pay result }
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteTitle, setInviteTitle] = useState('');
@@ -56,7 +57,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
   const [driveFoldersLoading, setDriveFoldersLoading] = useState(false);
   const [selectedDriveFolder, setSelectedDriveFolder] = useState(null);
   const [editingContractor, setEditingContractor] = useState(null);
-  const [editForm, setEditForm] = useState({ full_name: '', title: '', payment_type: 'hourly', rate: '', assigned_drive_folder_id: '', assigned_drive_folder_name: '' });
+  const [editForm, setEditForm] = useState({ full_name: '', title: '', payment_type: 'hourly', rate: '', assigned_drive_folder_id: '', assigned_drive_folder_name: '', retainer_enabled: false, retainer_min_hours: '', overtime_enabled: false, overtime_max_hours: '', overtime_multiplier: '1.5' });
   const [editSaving, setEditSaving] = useState(false);
   const [deleteConfirming, setDeleteConfirming] = useState(null);
 
@@ -190,6 +191,28 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
   useEffect(() => {
     if (expandedAssignment) fetchComments(expandedAssignment);
   }, [expandedAssignment, fetchComments]);
+
+  // Pay breakdown (retainer/overtime) per submitted hours entry, for hourly
+  // contractors only. Uses the server-side compute_freelancer_pay so the
+  // money math shown here matches the single source of truth.
+  useEffect(() => {
+    if (!isAdmin) return;
+    const hourly = (hours || []).filter(h => flProfiles[h.freelancer_id]?.payment_type === 'hourly');
+    if (hourly.length === 0) { setPayBreakdowns({}); return; }
+    let cancelled = false;
+    (async () => {
+      const results = await Promise.all(hourly.map(async (h) => {
+        const { data, error } = await supabase.rpc('compute_freelancer_pay', {
+          p_freelancer: h.freelancer_id,
+          p_start: h.period_start,
+          p_end: h.period_end,
+        });
+        return [h.id, error ? null : data];
+      }));
+      if (!cancelled) setPayBreakdowns(Object.fromEntries(results));
+    })();
+    return () => { cancelled = true; };
+  }, [hours, flProfiles, isAdmin]);
 
   // Deep-link from a notification (bell / dashboard card): open the assignment.
   useEffect(() => {
@@ -401,6 +424,11 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
       rate: fp.rate != null ? String(fp.rate) : '',
       assigned_drive_folder_id: fl.assigned_drive_folder_id || '',
       assigned_drive_folder_name: fl.assigned_drive_folder_name || '',
+      retainer_enabled: !!fp.retainer_enabled,
+      retainer_min_hours: fp.retainer_min_hours != null ? String(fp.retainer_min_hours) : '',
+      overtime_enabled: !!fp.overtime_enabled,
+      overtime_max_hours: fp.overtime_max_hours != null ? String(fp.overtime_max_hours) : '',
+      overtime_multiplier: fp.overtime_multiplier != null ? String(fp.overtime_multiplier) : '1.5',
     });
   };
 
@@ -418,6 +446,14 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
         id: flId,
         payment_type: editForm.payment_type,
         rate: editForm.rate ? parseFloat(editForm.rate) : null,
+        retainer_enabled: editForm.retainer_enabled,
+        retainer_min_hours: editForm.retainer_enabled && editForm.retainer_min_hours
+          ? parseFloat(editForm.retainer_min_hours) : null,
+        overtime_enabled: editForm.overtime_enabled,
+        overtime_max_hours: editForm.overtime_enabled && editForm.overtime_max_hours
+          ? parseFloat(editForm.overtime_max_hours) : null,
+        overtime_multiplier: editForm.overtime_multiplier
+          ? parseFloat(editForm.overtime_multiplier) : 1.5,
       }, { onConflict: 'id' });
 
       setEditingContractor(null);
@@ -1057,6 +1093,77 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
                                   step="0.01"
                                 />
                               </div>
+                              {editForm.payment_type === 'hourly' && (
+                                <div style={{ ...styles.formField, gridColumn: '1 / -1', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: 14, gap: 12 }}>
+                                  <div style={{ fontSize: 12, fontWeight: 700, color: colors.accentFg, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                                    Hourly Payroll Settings
+                                  </div>
+                                  {/* Retainer */}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: '#fff' }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={editForm.retainer_enabled}
+                                        onChange={e => setEditForm(p => ({ ...p, retainer_enabled: e.target.checked }))}
+                                      />
+                                      Retainer (guaranteed minimum)
+                                    </label>
+                                    {editForm.retainer_enabled && (
+                                      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>min hrs / retainer week</span>
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          step="0.25"
+                                          value={editForm.retainer_min_hours}
+                                          onChange={e => setEditForm(p => ({ ...p, retainer_min_hours: e.target.value }))}
+                                          style={{ ...styles.input, width: 90 }}
+                                        />
+                                      </span>
+                                    )}
+                                  </div>
+                                  {/* Overtime */}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: '#fff' }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={editForm.overtime_enabled}
+                                        onChange={e => setEditForm(p => ({ ...p, overtime_enabled: e.target.checked }))}
+                                      />
+                                      Overtime (needs approval)
+                                    </label>
+                                    {editForm.overtime_enabled && (
+                                      <>
+                                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>after (hrs)</span>
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            step="0.25"
+                                            value={editForm.overtime_max_hours}
+                                            onChange={e => setEditForm(p => ({ ...p, overtime_max_hours: e.target.value }))}
+                                            style={{ ...styles.input, width: 90 }}
+                                          />
+                                        </span>
+                                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>× rate</span>
+                                          <input
+                                            type="number"
+                                            min="1"
+                                            step="0.1"
+                                            value={editForm.overtime_multiplier}
+                                            onChange={e => setEditForm(p => ({ ...p, overtime_multiplier: e.target.value }))}
+                                            style={{ ...styles.input, width: 70 }}
+                                          />
+                                        </span>
+                                      </>
+                                    )}
+                                  </div>
+                                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', lineHeight: 1.5 }}>
+                                    Retainer weeks split each pay period: 1–7, 8–15, 16–22, 23–EOM. The floor is guaranteed per week; the overtime cap resets each week. Over-cap hours pay at the multiplier only after an admin or Director of Creative approves.
+                                  </div>
+                                </div>
+                              )}
                               <div style={{ ...styles.formField, gridColumn: '1 / -1' }}>
                                 <label style={styles.label}>Assigned Drive Folder</label>
                                 {driveFoldersLoading ? (
@@ -1121,6 +1228,23 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
                                   <div style={styles.fieldLabel}>Rate</div>
                                   <div style={{ color: '#fff', fontSize: 13, marginTop: 2 }}>
                                     ${Number(fp.rate).toFixed(2)}{fp.payment_type === 'hourly' ? '/hr' : '/proj'}
+                                  </div>
+                                </div>
+                              )}
+                              {fp.payment_type === 'hourly' && (fp.retainer_enabled || fp.overtime_enabled) && (
+                                <div style={{ gridColumn: '1 / -1' }}>
+                                  <div style={styles.fieldLabel}>Payroll Rules</div>
+                                  <div style={{ color: '#fff', fontSize: 13, marginTop: 2, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                    {fp.retainer_enabled && (
+                                      <span style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 5, padding: '2px 8px' }}>
+                                        Retainer floor {fp.retainer_min_hours != null ? `${fp.retainer_min_hours}h/wk` : '—'}
+                                      </span>
+                                    )}
+                                    {fp.overtime_enabled && (
+                                      <span style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 5, padding: '2px 8px' }}>
+                                        OT &gt; {fp.overtime_max_hours != null ? `${fp.overtime_max_hours}h/wk` : '—'} @ {Number(fp.overtime_multiplier || 1.5)}×
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
                               )}
@@ -1779,6 +1903,9 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
                       )}
                     </div>
                   </div>
+                  {payBreakdowns[h.id] && payBreakdowns[h.id].payment_type === 'hourly' && (
+                    <PayBreakdown data={payBreakdowns[h.id]} />
+                  )}
                 </div>
               ))}
             </div>
@@ -1946,6 +2073,70 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
     </div>
   );
 }
+
+/* ─────────────────────────────────────────── */
+/*  Pay breakdown (admin reviewer)             */
+/* ─────────────────────────────────────────── */
+
+function PayBreakdown({ data }) {
+  if (!data || !Array.isArray(data.windows)) return null;
+  const money = (n) => `$${Number(n || 0).toFixed(2)}`;
+  const fmtDay = (s) => {
+    if (!s) return '';
+    const [y, m, d] = String(s).split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+  const computedHours = Number(data.total_hours || 0);
+  return (
+    <div style={pbStyles.wrap}>
+      <div style={pbStyles.header}>
+        <span style={pbStyles.title}>Computed pay</span>
+        <span style={pbStyles.total}>{money(data.total_pay)}</span>
+      </div>
+      <div style={pbStyles.subline}>
+        Rate {money(data.rate)}/hr · {computedHours}h from completed assignments
+      </div>
+      <div style={pbStyles.grid}>
+        {data.windows.map((w, i) => (
+          <div key={i} style={pbStyles.window}>
+            <div style={pbStyles.winHead}>
+              {fmtDay(w.window_start)}–{fmtDay(w.window_end)}
+              <span style={pbStyles.winPay}>{money(w.pay)}</span>
+            </div>
+            <div style={pbStyles.winMeta}>
+              <span>{Number(w.hours)}h logged</span>
+              {w.floor_applied && <span style={pbStyles.floorTag}>retainer floor {Number(w.retainer_min)}h</span>}
+              {Number(w.overtime_hours) > 0 && (
+                <span style={pbStyles.otTag}>
+                  {Number(w.overtime_hours)}h OT × {Number(w.overtime_multiplier)}{w.approved ? '' : ' (unapproved)'}
+                </span>
+              )}
+              {w.overtime_max != null && Number(w.hours) > Number(w.overtime_max) && !w.approved && (
+                <span style={pbStyles.pendingTag}>over cap — OT not approved</span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const pbStyles = {
+  wrap: { marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` },
+  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' },
+  title: { fontSize: 11, fontWeight: 700, color: colors.accentFg, textTransform: 'uppercase', letterSpacing: 0.5 },
+  total: { fontSize: 16, fontWeight: 700, color: colors.text },
+  subline: { fontSize: 12, color: colors.textSubtle, marginTop: 4 },
+  grid: { display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 },
+  window: { flex: '1 1 200px', background: colors.bgInput, borderRadius: 8, padding: '8px 12px' },
+  winHead: { display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 600, color: colors.textMuted },
+  winPay: { color: colors.text },
+  winMeta: { display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4, fontSize: 11, color: colors.textDim },
+  floorTag: { color: colors.accentFg },
+  otTag: { color: colors.emerald.fgSoft },
+  pendingTag: { color: colors.gold },
+};
 
 /* ─────────────────────────────────────────── */
 /*  Styles                                     */

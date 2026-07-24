@@ -109,6 +109,31 @@ files).
   `freelancer_documents` (`20260505000000_freelancer_studio.sql` +
   follow-ups). `freelancer_profiles` has an INSERT policy so a freelancer can
   create their own row during setup (`20260601120000_freelancer_profiles_insert_policy.sql`).
+- **Hourly payroll (retainer + overtime), `20260724120000_hourly_payroll_retainer_overtime.sql`:**
+  `freelancer_profiles` gained `retainer_enabled`/`retainer_min_hours`,
+  `overtime_enabled`/`overtime_max_hours`/`overtime_multiplier` (admin-set on the
+  Freelancers→Team edit form; the `fl_profile_lock_admin_fields` BEFORE-UPDATE
+  trigger was extended to block contractors from self-editing these). Pay math is
+  a **single source of truth**: `compute_freelancer_pay(freelancer, p_start, p_end)`
+  (SECURITY DEFINER, self-or-admin gated, returns per-retainer-window JSON breakdown;
+  the admin Hours tab + mobile HoursDetail render it). Each bi-weekly pay period
+  splits into two **retainer weeks** (1–7, 8–15, 16–22, 23–EOM) via the pure helper
+  `fl_retainer_window(date)`; retainer floor is guaranteed per week and the overtime
+  cap resets per week; hours attributed by `completed_at` in **PT**
+  (`(completed_at at time zone 'America/Los_Angeles')::date`). Overtime multiplier
+  applies **only if approved**: `freelancer_overtime_approvals` (one row per
+  freelancer+window). Trigger `fl_overtime_check_on_start` (AFTER UPDATE on
+  `freelancer_assignments`, status→`in_progress`) opens an approval + `confirm_overtime`
+  tasks for all admins + `director_creative` when accumulated window hours ≥ cap−5
+  (fail-open: wrapped in EXCEPTION so it never blocks the status change). Completing
+  any one of those tasks (via the normal `workflow-complete-task` path) fires
+  `fl_overtime_task_completed` (AFTER UPDATE on `tasks`, guarded by
+  `related_entity_type='overtime_approval'`) which flips the approval to `approved`
+  and auto-clears the sibling tasks. Both trigger fns have EXECUTE revoked from
+  public/anon/authenticated (trigger-only). **The FreelancerHours page (contractor)
+  prefills the pay-period total from the PT-bucketed sum of assignment `hours_spent`,
+  editable/overridable.** No mobile twin for FreelancerHours or the Team tab
+  (FreelancersMobile has only Assignments+Hours tabs).
 
 ### Agency portal
 - `agency_comments` (polymorphic: `entity_type` deliverable|proposal; BEFORE

@@ -370,6 +370,20 @@ function HoursPane({ currentUserId, onOpen }) {
 
 function HoursDetail({ entry, currentUserId, onReviewed }) {
   const [working, setWorking] = useState(false);
+  const [pay, setPay] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase.rpc('compute_freelancer_pay', {
+        p_freelancer: entry.freelancer_id,
+        p_start: entry.period_start,
+        p_end: entry.period_end,
+      });
+      if (!cancelled) setPay(error ? null : data);
+    })();
+    return () => { cancelled = true; };
+  }, [entry.freelancer_id, entry.period_start, entry.period_end]);
 
   async function approve() {
     if (working || entry.reviewed_at) return;
@@ -402,6 +416,28 @@ function HoursDetail({ entry, currentUserId, onReviewed }) {
         <DetailMeta label="Status" value={entry.reviewed_at ? `Reviewed ${fmtShortDate(entry.reviewed_at)}` : 'Pending'} />
         {entry.notes && <DetailMeta label="Notes" value={entry.notes} />}
       </div>
+
+      {pay && pay.payment_type === 'hourly' && Array.isArray(pay.windows) && (
+        <div style={otStyles.wrap}>
+          <div style={otStyles.header}>
+            <span style={otStyles.title}>Computed pay</span>
+            <span style={otStyles.total}>${Number(pay.total_pay || 0).toFixed(2)}</span>
+          </div>
+          <div style={otStyles.sub}>
+            ${Number(pay.rate || 0).toFixed(2)}/hr · {Number(pay.total_hours || 0)}h from completed assignments
+          </div>
+          {pay.windows.map((w, i) => (
+            <div key={i} style={otStyles.row}>
+              <span>{fmtShortDate(w.window_start)}–{fmtShortDate(w.window_end)} · {Number(w.hours)}h</span>
+              <span style={otStyles.rowPay}>${Number(w.pay || 0).toFixed(2)}</span>
+              {Number(w.overtime_hours) > 0 && (
+                <span style={{ color: colors.emerald.fgSoft }}>{Number(w.overtime_hours)}h OT×{Number(w.overtime_multiplier)}{w.approved ? '' : ' (unapproved)'}</span>
+              )}
+              {w.floor_applied && <span style={{ color: colors.accentFg }}>floor {Number(w.retainer_min)}h</span>}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div style={detailStyles.actions}>
         {!entry.reviewed_at && (
@@ -475,6 +511,16 @@ const styles = {
     boxShadow: '0 8px 22px rgba(91, 143, 199,0.45)',
     display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50,
   },
+};
+
+const otStyles = {
+  wrap: { display: 'flex', flexDirection: 'column', gap: 8, padding: '12px 0', borderTop: `1px solid ${colors.border}` },
+  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' },
+  title: { fontSize: 11, fontWeight: 700, color: colors.accentFg, textTransform: 'uppercase', letterSpacing: 0.5 },
+  total: { fontSize: 16, fontWeight: 700, color: colors.text },
+  sub: { fontSize: 12, color: colors.textSubtle },
+  row: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'baseline', fontSize: 12, color: colors.textMuted, background: colors.bgInput, borderRadius: 8, padding: '6px 8px' },
+  rowPay: { color: colors.text, fontWeight: 600, marginLeft: 'auto' },
 };
 
 const detailStyles = {
