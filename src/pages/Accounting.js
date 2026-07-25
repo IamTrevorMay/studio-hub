@@ -7,7 +7,7 @@ import { fetchAllRows } from './analytics/utils';
 import BankAccountsTab from '../components/accounting/BankAccountsTab';
 import TransactionsTab from '../components/accounting/TransactionsTab';
 import MonthlyReportsTab from '../components/accounting/MonthlyReportsTab';
-import { colors } from '../lib/styleTokens';
+import { colors, spacing, radii, fontSizes, fontWeights, zIndex } from '../lib/styleTokens';
 
 // Revenue (income) categories the Tiller sync writes into revenue_transactions.
 // Mirrors INCOME_CATEGORIES + the meta map that used to live in Analytics.js.
@@ -188,7 +188,7 @@ export default function Accounting({ initialTab, onTabOpened }) {
       // is_duplicate=false: same for rows resolved as duplicates in the
       // Transactions tab's Duplicates view.
       fetchAllRows(supabase.from('revenue_transactions')
-        .select('date, description, category, amount_cents, account, business')
+        .select('id, date, description, category, amount_cents, account, business, notes')
         .eq('is_transfer', false).eq('is_duplicate', false)
         .gte('date', start).lte('date', end).order('date', { ascending: false })),
       fetchAllRows(supabase.from('revenue_transactions')
@@ -196,7 +196,7 @@ export default function Accounting({ initialTab, onTabOpened }) {
         .eq('is_transfer', false).eq('is_duplicate', false)
         .gte('date', prevStart).lt('date', start).order('date', { ascending: false })),
       fetchAllRows(supabase.from('expense_transactions')
-        .select('date, description, category, amount_cents, account, business')
+        .select('id, date, description, category, amount_cents, account, business, notes')
         .eq('is_transfer', false).eq('is_duplicate', false)
         .gte('date', start).lte('date', end).order('date', { ascending: false })),
       fetchAllRows(supabase.from('expense_transactions')
@@ -526,18 +526,32 @@ function OverviewTab({ revenue, revenuePrev, expenses, expensesPrev }) {
 }
 
 // ── Revenue / Expenses Tab ──────────────────────────────────────────────────
-function LedgerTab({ mode, data, prevData, meta, accentColor, headlineLabel, headerNode }) {
+function LedgerTab({ mode, data: rawData, prevData, meta, accentColor, headlineLabel, headerNode }) {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [sortBy, setSortBy] = useState('date_desc');
   const [tableOpen, setTableOpen] = useState(false);
   const [trendMode, setTrendMode] = useState('daily');
+  // Saved edits overlaid locally until the next full reload re-reads the table.
+  const [patches, setPatches] = useState({});
+  const [editTxn, setEditTxn] = useState(null);
+
+  const data = useMemo(
+    () => (Object.keys(patches).length === 0
+      ? rawData
+      : rawData.map(r => (r.id && patches[r.id] ? { ...r, ...patches[r.id] } : r))),
+    [rawData, patches],
+  );
 
   const total     = useMemo(() => data.reduce((s, t) => s + (t.amount_cents || 0), 0), [data]);
   const prevTotal = useMemo(() => prevData.reduce((s, t) => s + (t.amount_cents || 0), 0), [prevData]);
   const delta = pctDelta(total, prevTotal);
 
   const byCategory = useMemo(() => groupByCategory(data, meta), [data, meta]);
+  const categoryOptions = useMemo(
+    () => [...new Set([...Object.keys(meta || {}), ...data.map(t => t.category)])].filter(Boolean).sort(),
+    [meta, data],
+  );
   const byDay      = useMemo(() => buildDaily(data), [data]);
   const trendData  = useMemo(
     () => (trendMode === 'cumulative' ? toCumulative(byDay, ['total']) : byDay),
@@ -674,6 +688,7 @@ function LedgerTab({ mode, data, prevData, meta, accentColor, headlineLabel, hea
                     <th style={styles.th}>Description</th>
                     <th style={styles.th}>Account</th>
                     <th style={{ ...styles.th, textAlign: 'right' }}>Amount</th>
+                    <th style={{ ...styles.th, width: 36 }} />
                   </tr>
                 </thead>
                 <tbody>
@@ -686,7 +701,7 @@ function LedgerTab({ mode, data, prevData, meta, accentColor, headlineLabel, hea
                     const sign  = isCredit ? '+' : '−';
                     const abs   = Math.abs(t.amount_cents);
                     return (
-                      <tr key={`${t.date}-${i}`} style={styles.tr}>
+                      <tr key={t.id || `${t.date}-${i}`} style={styles.tr}>
                         <td style={styles.td}>{t.date}</td>
                         <td style={styles.td}>
                           <span style={{
@@ -698,10 +713,23 @@ function LedgerTab({ mode, data, prevData, meta, accentColor, headlineLabel, hea
                             {m?.label || t.category}
                           </span>
                         </td>
-                        <td style={{ ...styles.td, color: 'rgba(255,255,255,0.85)' }}>{t.description || '—'}</td>
+                        <td style={{ ...styles.td, ...styles.tdDescription }}>
+                          {t.description || '—'}
+                          {t.notes && <span title={t.notes} style={styles.notesIcon}>📝</span>}
+                        </td>
                         <td style={{ ...styles.td, color: 'rgba(255,255,255,0.55)' }}>{t.account || '—'}</td>
                         <td style={{ ...styles.td, textAlign: 'right', color, fontWeight: 600 }}>
                           {sign}{formatMoney(abs)}
+                        </td>
+                        <td style={{ ...styles.td, textAlign: 'right' }}>
+                          {t.id && (
+                            <button
+                              type="button"
+                              title="Edit category / notes"
+                              onClick={() => setEditTxn(t)}
+                              style={styles.editRowBtn}
+                            >✎</button>
+                          )}
                         </td>
                       </tr>
                     );
@@ -712,7 +740,82 @@ function LedgerTab({ mode, data, prevData, meta, accentColor, headlineLabel, hea
           </>
         )}
       </div>
+      {editTxn && (
+        <EditTxnModal
+          txn={editTxn}
+          mode={mode}
+          categories={categoryOptions}
+          onClose={() => setEditTxn(null)}
+          onSaved={(id, patch) => {
+            setPatches(p => ({ ...p, [id]: patch }));
+            setEditTxn(null);
+          }}
+        />
+      )}
     </>
+  );
+}
+
+// Admin edit of the classification fields (category + notes) on one
+// transaction. Amount/date/description stay sync-owned. RLS: the
+// *_admin_update policies allow this for admin-tier roles only.
+function EditTxnModal({ txn, mode, categories, onClose, onSaved }) {
+  const [category, setCategory] = useState(txn.category || '');
+  const [notes, setNotes] = useState(txn.notes || '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function save() {
+    const cat = category.trim();
+    if (!cat) { setError('Category is required.'); return; }
+    setSaving(true);
+    setError(null);
+    const table = mode === 'revenue' ? 'revenue_transactions' : 'expense_transactions';
+    const patch = { category: cat, notes: notes.trim() || null };
+    const { error: err } = await supabase.from(table)
+      .update(cat !== txn.category
+        ? { ...patch, categorized_by: 'manual', review_status: 'confirmed' }
+        : patch)
+      .eq('id', txn.id);
+    setSaving(false);
+    if (err) { setError(err.message); return; }
+    onSaved(txn.id, patch);
+  }
+
+  return (
+    <div style={styles.editOverlay} onClick={onClose}>
+      <div style={styles.editModal} onClick={(e) => e.stopPropagation()}>
+        <div style={styles.editTitle}>Edit transaction</div>
+        <div style={styles.editContext}>
+          {txn.date} · {txn.description || '—'} · {formatMoney(Math.abs(txn.amount_cents))}
+        </div>
+        <label style={styles.editLabel}>Category</label>
+        <input
+          list="ledger-edit-categories"
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          style={styles.editInput}
+        />
+        <datalist id="ledger-edit-categories">
+          {categories.map(c => <option key={c} value={c} />)}
+        </datalist>
+        <label style={styles.editLabel}>Notes</label>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          rows={3}
+          placeholder="Optional"
+          style={styles.editTextarea}
+        />
+        {error && <div style={styles.editError}>{error}</div>}
+        <div style={styles.editBtnRow}>
+          <button type="button" onClick={onClose} disabled={saving} style={styles.editCancelBtn}>Cancel</button>
+          <button type="button" onClick={save} disabled={saving} style={styles.editSaveBtn}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1123,6 +1226,58 @@ function CategoryDonut({ data, total }) {
 
 // ── Styles ──────────────────────────────────────────────────────────────────
 const styles = {
+  notesIcon: { marginLeft: spacing.xs, cursor: 'default', fontSize: fontSizes.sm },
+  // Pre-existing ledger description color, extracted unchanged from the JSX.
+  tdDescription: { color: 'rgba(255,255,255,0.85)' }, // style-lint-ignore
+  editRowBtn: {
+    background: 'transparent', border: `1px solid ${colors.border}`,
+    color: colors.textSubtle, borderRadius: radii.sm,
+    width: 26, height: 26, cursor: 'pointer', fontSize: fontSizes.md, lineHeight: 1,
+    fontFamily: 'inherit',
+  },
+  editOverlay: {
+    position: 'fixed', inset: 0, background: colors.bgOverlay,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    zIndex: zIndex.modal, padding: spacing.xl,
+  },
+  editModal: {
+    background: colors.bgModal, border: `1px solid ${colors.borderStrong}`,
+    borderRadius: radii.lg, padding: spacing.xxl, width: '100%', maxWidth: 440,
+    display: 'flex', flexDirection: 'column',
+  },
+  editTitle: { fontSize: fontSizes.xl, fontWeight: fontWeights.bold, marginBottom: spacing.xs },
+  editContext: { fontSize: fontSizes.sm, color: colors.textSubtle, marginBottom: spacing.lg },
+  editLabel: {
+    fontSize: fontSizes.xs, fontWeight: fontWeights.semibold, textTransform: 'uppercase', letterSpacing: 0.5,
+    color: colors.textSubtle, marginBottom: spacing.xs,
+  },
+  editInput: {
+    background: colors.bgInput, border: `1px solid ${colors.border}`,
+    color: colors.text, borderRadius: radii.sm, padding: `${spacing.sm}px ${spacing.md}px`,
+    fontSize: fontSizes.md, fontFamily: 'inherit', marginBottom: spacing.md,
+  },
+  editTextarea: {
+    background: colors.bgInput, border: `1px solid ${colors.border}`,
+    color: colors.text, borderRadius: radii.sm, padding: `${spacing.sm}px ${spacing.md}px`,
+    fontSize: fontSizes.md, fontFamily: 'inherit', resize: 'vertical', marginBottom: spacing.md,
+  },
+  editError: {
+    background: colors.danger.bg, border: `1px solid ${colors.danger.border}`,
+    color: colors.danger.fgSoft, borderRadius: radii.sm, padding: `${spacing.sm}px ${spacing.md}px`,
+    fontSize: fontSizes.sm, marginBottom: spacing.md,
+  },
+  editBtnRow: { display: 'flex', justifyContent: 'flex-end', gap: spacing.sm },
+  editCancelBtn: {
+    background: 'transparent', border: `1px solid ${colors.border}`,
+    color: colors.textMuted, borderRadius: radii.sm, padding: `${spacing.sm}px ${spacing.lg}px`,
+    fontSize: fontSizes.md, cursor: 'pointer', fontFamily: 'inherit',
+  },
+  editSaveBtn: {
+    background: colors.accent, border: 'none', color: colors.white,
+    borderRadius: radii.sm, padding: `${spacing.sm}px ${spacing.lg}px`,
+    fontSize: fontSizes.md, fontWeight: fontWeights.semibold,
+    cursor: 'pointer', fontFamily: 'inherit',
+  },
   page: {
     padding: '36px 40px 64px',
     maxWidth: '1500px',
