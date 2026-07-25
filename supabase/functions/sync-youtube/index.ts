@@ -160,13 +160,19 @@ async function fetchDailyViewsByContentType(
   }
   const data = await res.json();
   const byDate = new Map<string, { shorts: number; long: number }>();
+  const typeTotals = new Map<string, number>();
   for (const row of data.rows || []) {
     const [date, contentType, views] = row as [string, string, number];
+    const type = String(contentType).toUpperCase();
+    typeTotals.set(type, (typeTotals.get(type) || 0) + (views || 0));
     const entry = byDate.get(date) || { shorts: 0, long: 0 };
-    if (contentType === "SHORTS") entry.shorts += views || 0;
+    if (type === "SHORTS") entry.shorts += views || 0;
     else entry.long += views || 0;   // VIDEO_ON_DEMAND + LIVE_STREAM + POST
     byDate.set(date, entry);
   }
+  // Diagnostic: shows which creatorContentType values the API actually returns
+  // (guards against silent enum drift that would zero out the shorts column).
+  console.log(`contentType split ${startDate}..${endDate}: ${JSON.stringify(Object.fromEntries(typeTotals))} (${(data.rows || []).length} rows, headers: ${JSON.stringify((data.columnHeaders || []).map((h: any) => h.name))})`);
   return byDate;
 }
 
