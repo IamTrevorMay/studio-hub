@@ -138,6 +138,38 @@ async function fetchDailyAnalytics(
   }));
 }
 
+// Daily views split by content format (SHORTS / VIDEO_ON_DEMAND / LIVE_STREAM /
+// POST) via the creatorContentType dimension. Feeds the shorts-vs-long-form
+// goal metrics on the Tracking page. The dimension is newer than the channels'
+// history — old date ranges can come back empty or unsplit, so callers must
+// treat missing dates as "split unknown" (null columns), never as zero.
+async function fetchDailyViewsByContentType(
+  accessToken: string,
+  channelId: string,
+  startDate: string,
+  endDate: string
+): Promise<Map<string, { shorts: number; long: number }>> {
+  const url = `${YT_ANALYTICS_API}?ids=channel==${channelId}&startDate=${startDate}&endDate=${endDate}&metrics=views&dimensions=day,creatorContentType&sort=day`;
+  const res = await fetchWithRetry(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error(`YouTube content-type Analytics API error: ${res.status} ${errText}`);
+    return new Map();
+  }
+  const data = await res.json();
+  const byDate = new Map<string, { shorts: number; long: number }>();
+  for (const row of data.rows || []) {
+    const [date, contentType, views] = row as [string, string, number];
+    const entry = byDate.get(date) || { shorts: 0, long: 0 };
+    if (contentType === "SHORTS") entry.shorts += views || 0;
+    else entry.long += views || 0;   // VIDEO_ON_DEMAND + LIVE_STREAM + POST
+    byDate.set(date, entry);
+  }
+  return byDate;
+}
+
 async function fetchAllVideoIds(uploadsPlaylistId: string, apiKey: string): Promise<string[]> {
   const allVideoIds: string[] = [];
   let pageToken: string | undefined = undefined;
@@ -608,6 +640,7 @@ serve(async (req) => {
                 console.log(`Daily analytics ${account.account_name}: ${csStr} to ${ceStr}`);
 
                 const dailyData = await fetchDailyAnalytics(accessToken, channelId, csStr, ceStr);
+                const splitByDate = await fetchDailyViewsByContentType(accessToken, channelId, csStr, ceStr);
                 totalDailyDays += dailyData.length;
 
                 if (dailyData.length > 0) {
@@ -629,16 +662,23 @@ serve(async (req) => {
                   if (dailyErr) console.error(`Daily analytics upsert error: ${dailyErr.message}`);
 
                   // Also upsert into platform_daily_metrics so Goals page can track views
-                  const pdmBatch = dailyData.map(day => ({
-                    platform_account_id: account.id,
-                    date: day.date,
-                    views: day.views,
-                    watch_time_seconds: day.estimatedMinutesWatched * 60,
-                    likes: 0,
-                    comments: 0,
-                    shares: 0,
-                    metadata: { source: "youtube-analytics" },
-                  }));
+                  const pdmBatch = dailyData.map(day => {
+                    const split = splitByDate.get(day.date);
+                    return {
+                      platform_account_id: account.id,
+                      date: day.date,
+                      views: day.views,
+                      // Null when the API returned no split for this date (old
+                      // history) — goal rollups skip nulls rather than count 0.
+                      views_shorts: split ? split.shorts : null,
+                      views_long: split ? split.long : null,
+                      watch_time_seconds: day.estimatedMinutesWatched * 60,
+                      likes: 0,
+                      comments: 0,
+                      shares: 0,
+                      metadata: { source: "youtube-analytics" },
+                    };
+                  });
                   const { error: pdmErr } = await supabase
                     .from("platform_daily_metrics")
                     .upsert(pdmBatch, { onConflict: "platform_account_id,date" });

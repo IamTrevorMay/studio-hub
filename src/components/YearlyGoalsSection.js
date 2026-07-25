@@ -27,6 +27,11 @@ const PLATFORM_META = {
 
 const METRIC_OPTIONS = [
   { key: 'views',              label: 'Views' },
+  // YouTube-only: daily split from the Analytics API creatorContentType
+  // dimension (views_shorts / views_long on platform_daily_metrics). Rows
+  // without a split (old history, other platforms) are null → count as 0.
+  { key: 'views_long',         label: 'Views — Long-form (YT)' },
+  { key: 'views_shorts',       label: 'Views — Shorts (YT)' },
   { key: 'likes',              label: 'Likes' },
   { key: 'comments',           label: 'Comments' },
   { key: 'shares',             label: 'Shares' },
