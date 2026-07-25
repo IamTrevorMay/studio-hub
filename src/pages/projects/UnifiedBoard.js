@@ -27,6 +27,9 @@ const SELECT = `
   project_stage_assignments(id, stage, user_id, profile:profiles(id, full_name, nickname, title, role))
 `;
 
+// Resting shadow shared by all board cards (drag state swaps in a deeper one).
+const CARD_SHADOW = '0 1px 3px rgba(0,0,0,0.35)';
+
 function sortByDueDate(a, b) {
   if (!a.deadline && !b.deadline) return a.name.localeCompare(b.name);
   if (!a.deadline) return 1;
@@ -626,7 +629,7 @@ function Column({ stage, projects, canDragProject, onCardClick, onCardContextMen
                       ...s.card,
                       cursor: 'pointer',
                       opacity: canDragProject(p) ? 1 : 0.65,
-                      boxShadow: dragSnap.isDragging ? '0 8px 20px rgba(0,0,0,0.4)' : 'none',
+                      boxShadow: dragSnap.isDragging ? '0 8px 20px rgba(0,0,0,0.4)' : CARD_SHADOW,
                     }}
                   >
                     <KanbanCard project={p} taskPlannedDates={taskPlannedDates} />
@@ -702,7 +705,7 @@ function QueueColumn({ projects, canDragProject, onCardClick, onCardContextMenu,
                               ...s.card,
                               cursor: 'pointer',
                               opacity: canDragProject(p) ? 1 : 0.65,
-                              boxShadow: dragSnap.isDragging ? '0 8px 20px rgba(0,0,0,0.4)' : 'none',
+                              boxShadow: dragSnap.isDragging ? '0 8px 20px rgba(0,0,0,0.4)' : CARD_SHADOW,
                             }}
                           >
                             <KanbanCard project={p} taskPlannedDates={taskPlannedDates} priorityNumber={idx + 1} />
@@ -1124,18 +1127,18 @@ function BacklogSection({ projects, canDragProject, onCardClick, onCardContextMe
                       ...s.backlog.card,
                       cursor: 'pointer',
                       opacity: canDragProject(p) ? 1 : 0.65,
-                      boxShadow: dragSnap.isDragging ? '0 8px 20px rgba(0,0,0,0.4)' : 'none',
+                      boxShadow: dragSnap.isDragging ? '0 8px 20px rgba(0,0,0,0.4)' : CARD_SHADOW,
                     }}
                   >
+                    <TypeBar type={p.type} />
                     <div style={s.cardTitle}>{p.name}</div>
-                    <div style={s.cardMeta}>
-                      <span style={{ ...s.typeTag, color: typeColors(p.type).fg, background: typeColors(p.type).bg, borderColor: typeColors(p.type).border }}>{typeLabel(p.type)}</span>
-                      {p.deadline && (
+                    {p.deadline && (
+                      <div style={s.cardDates}>
                         <span style={s.dueDate}>
-                          {new Date(p.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          🕐 {new Date(p.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                         </span>
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </Draggable>
@@ -1166,15 +1169,15 @@ function ArchivedExpander({ expanded, loading, projects, onToggle }) {
             <div style={s.archived.empty}>No recent published cards</div>
           ) : projects.map((p) => (
             <div key={p.id} style={s.archived.card}>
+              <TypeBar type={p.type} dim />
               <div style={{ ...s.cardTitle, fontSize: fontSizes.sm }}>{p.name}</div>
-              <div style={{ ...s.cardMeta, fontSize: 10 }}>
-                <span style={{ ...s.typeTag, color: typeColors(p.type).fg, background: typeColors(p.type).bg, borderColor: typeColors(p.type).border }}>{typeLabel(p.type)}</span>
-                {p.archived_at && (
+              {p.archived_at && (
+                <div style={{ ...s.cardDates, fontSize: 10 }}>
                   <span style={s.archived.date}>
                     {new Date(p.archived_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </span>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -1185,59 +1188,91 @@ function ArchivedExpander({ expanded, loading, projects, onToggle }) {
 
 // ─── KanbanCard ──────────────────────────────────────────────────
 
+const AVATAR_COLORS = ['#6366f1', '#f87171', '#34d399', '#fbbf24', '#c084fc', '#38bdf8', '#fb923c', '#f472b6'];
+
+function avatarColor(seed) {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+
+function initialsFor(name) {
+  const parts = name.trim().split(/\s+/);
+  return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase();
+}
+
+function AvatarStack({ assignments, planned }) {
+  const withNames = assignments.filter((a) => getDisplayName(a.profile));
+  if (withNames.length === 0) return null;
+  const visible = withNames.slice(0, 3);
+  const extra = withNames.length - visible.length;
+  return (
+    <div style={s.avatarStack}>
+      {visible.map((a, i) => {
+        const name = getDisplayName(a.profile);
+        const pd = planned?.[a.user_id];
+        return (
+          <span
+            key={a.id}
+            title={pd ? `${name} — planned ${fmtShort(pd)}` : name}
+            style={{ ...s.avatar, background: avatarColor(a.user_id || name), marginLeft: i === 0 ? 0 : -6 }}
+          >
+            {initialsFor(name)}
+          </span>
+        );
+      })}
+      {extra > 0 && (
+        <span title={`+${extra} more`} style={{ ...s.avatar, background: colors.bgRaised, color: colors.textMuted, marginLeft: -6 }}>
+          +{extra}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function TypeBar({ type, dim }) {
+  return (
+    <span
+      title={typeLabel(type)}
+      style={{ ...s.typeBar, background: typeColors(type).fg, opacity: dim ? 0.7 : 1 }}
+    />
+  );
+}
+
 function KanbanCard({ project, taskPlannedDates, priorityNumber }) {
   const stageAssignments = (project.project_stage_assignments || [])
     .filter((a) => a.stage === project.status);
-  const assignees = stageAssignments.map((a) => getDisplayName(a.profile)).filter(Boolean);
   const projectPlanned = taskPlannedDates?.[project.id];
+  const hasDates = project.deadline || project.film_date || project.edit_deadline;
   return (
     <>
+      <TypeBar type={project.type} />
       <div style={s.cardTitle}>
         {priorityNumber != null && (
           <span style={s.priorityBadge}>#{priorityNumber}</span>
         )}
         {project.name}
       </div>
-      <div style={s.cardMeta}>
-        <span style={{ ...s.typeTag, color: typeColors(project.type).fg, background: typeColors(project.type).bg, borderColor: typeColors(project.type).border }}>{typeLabel(project.type)}</span>
-        {project.deadline && (
-          <span style={s.dueDate}>
-            {new Date(project.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-          </span>
-        )}
-      </div>
-      {(project.film_date || project.edit_deadline) && (
-        <div style={s.scheduleDates}>
-          {project.film_date && (
-            <span style={{ ...s.scheduleDate, color: STAGE_COLORS.film }}>
-              🎬 {fmtShort(project.film_date)}
-            </span>
-          )}
-          {project.edit_deadline && (
-            <span style={{ ...s.scheduleDate, color: STAGE_COLORS.edit }}>
-              ✂ {fmtShort(project.edit_deadline)}
-            </span>
-          )}
-        </div>
-      )}
-      {assignees.length > 0 && (
-        <div style={s.assigneeRow}>
-          {stageAssignments.slice(0, 3).map((a, i) => {
-            const name = getDisplayName(a.profile);
-            if (!name) return null;
-            const pd = projectPlanned?.[a.user_id];
-            return (
-              <span key={a.id}>
-                {i > 0 && ' · '}
-                {name}
-                {pd && (
-                  <span style={s.plannedBadge}>
-                    {new Date(pd + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  </span>
-                )}
+      {(hasDates || stageAssignments.length > 0) && (
+        <div style={s.cardFooter}>
+          <div style={s.cardDates}>
+            {project.deadline && (
+              <span style={s.dueDate}>
+                🕐 {new Date(project.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
               </span>
-            );
-          })}
+            )}
+            {project.film_date && (
+              <span style={{ ...s.scheduleDate, color: STAGE_COLORS.film }}>
+                🎬 {fmtShort(project.film_date)}
+              </span>
+            )}
+            {project.edit_deadline && (
+              <span style={{ ...s.scheduleDate, color: STAGE_COLORS.edit }}>
+                ✂ {fmtShort(project.edit_deadline)}
+              </span>
+            )}
+          </div>
+          <AvatarStack assignments={stageAssignments} planned={projectPlanned} />
         </div>
       )}
     </>
@@ -1312,20 +1347,19 @@ function MobileBoard({
                 <div style={s.mobile.empty}>No cards</div>
               ) : list.map((p) => (
                 <div key={p.id} {...clickableKeyProps(() => stage === 'hold' ? null : onCardTap(p))} onClick={() => stage === 'hold' ? null : onCardTap(p)} style={s.mobile.card}>
-                  <div style={s.cardTitle}>{p.name}</div>
-                  <div style={s.cardMeta}>
-                    <span style={{ ...s.typeTag, color: typeColors(p.type).fg, background: typeColors(p.type).bg, borderColor: typeColors(p.type).border }}>{typeLabel(p.type)}</span>
-                    {p.deadline && (
-                      <span style={s.dueDate}>
-                        {new Date(p.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                      </span>
-                    )}
-                  </div>
-                  {stage === 'hold' && p.hold_reason && (
-                    <div style={s.holdReason}>{p.hold_reason}</div>
-                  )}
-                  {stage === 'hold' && isAdmin && (
-                    <button onClick={(e) => { e.stopPropagation(); onUnhold(p); }} style={s.smallBtn}>Unhold</button>
+                  {stage === 'hold' ? (
+                    <>
+                      <TypeBar type={p.type} />
+                      <div style={s.cardTitle}>{p.name}</div>
+                      {p.hold_reason && (
+                        <div style={s.holdReason}>{p.hold_reason}</div>
+                      )}
+                      {isAdmin && (
+                        <button onClick={(e) => { e.stopPropagation(); onUnhold(p); }} style={s.smallBtn}>Unhold</button>
+                      )}
+                    </>
+                  ) : (
+                    <KanbanCard project={p} />
                   )}
                 </div>
               ))}
@@ -1412,6 +1446,7 @@ function HoldLane({ projects, isAdmin, onUnhold }) {
       ) : (
         projects.map((p) => (
           <div key={p.id} style={{ ...s.card, opacity: 0.85 }}>
+            <TypeBar type={p.type} />
             <div style={s.cardTitle}>{p.name}</div>
             {p.hold_reason && (
               <div style={s.holdReason}>{p.hold_reason}</div>
@@ -2179,41 +2214,60 @@ const s = {
   columnsRow: {
     display: 'grid', gridTemplateColumns: `repeat(${CANONICAL_STAGES.length}, minmax(170px, 1fr))`,
     gap: spacing.md, flex: 1, minWidth: 0,
+    // Columns hug their content instead of stretching to the tallest one.
+    alignItems: 'start',
   },
   column: {
     background: colors.bgRaised, border: `1px solid ${colors.border}`,
-    borderRadius: radii.md, padding: spacing.sm,
-    display: 'flex', flexDirection: 'column', minHeight: 400,
+    borderRadius: radii.lg, padding: spacing.sm,
+    display: 'flex', flexDirection: 'column',
   },
   columnHeader: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     fontSize: fontSizes.xs, fontWeight: fontWeights.bold, letterSpacing: 1,
-    paddingBottom: spacing.sm, marginBottom: spacing.sm,
-    borderBottom: `1px solid ${colors.border}`,
+    padding: `${spacing.xs}px ${spacing.xs}px ${spacing.sm}px`,
+    marginBottom: spacing.xs,
   },
   columnTitle: {},
   columnCount: { color: colors.textDim, fontWeight: fontWeights.regular },
   columnBody: {
     display: 'flex', flexDirection: 'column', gap: spacing.sm,
-    flex: 1, borderRadius: radii.sm, padding: spacing.xs, minHeight: 100,
+    flex: 1, borderRadius: radii.sm, padding: spacing.xs, minHeight: 60,
   },
   card: {
     background: colors.bgModal, border: `1px solid ${colors.border}`,
-    borderRadius: radii.md, padding: spacing.md,
+    borderRadius: radii.lg, padding: `${spacing.md}px ${spacing.md}px ${spacing.sm}px`,
     fontSize: fontSizes.md, cursor: 'grab',
+    boxShadow: CARD_SHADOW,
   },
   cardTitle: {
     color: colors.text, fontWeight: fontWeights.semibold,
-    fontSize: fontSizes.md, marginBottom: spacing.xs,
+    fontSize: fontSizes.md, marginBottom: spacing.sm,
+    lineHeight: 1.35,
   },
-  cardMeta: {
+  typeBar: {
+    display: 'block', width: 36, height: 6,
+    borderRadius: radii.pill, marginBottom: spacing.sm,
+  },
+  cardFooter: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    gap: spacing.sm, marginBottom: spacing.xs, minHeight: 24,
+  },
+  cardDates: {
+    display: 'flex', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap',
     fontSize: fontSizes.xs,
   },
   typeTag: {
     textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: fontWeights.semibold,
     padding: '1px 6px', borderRadius: radii.sm,
     border: '1px solid transparent',
+  },
+  avatarStack: { display: 'flex', alignItems: 'center', flexShrink: 0 },
+  avatar: {
+    width: 24, height: 24, borderRadius: radii.circle,
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: 10, fontWeight: fontWeights.bold, color: '#fff',
+    border: `2px solid ${colors.bgModal}`, boxSizing: 'border-box',
   },
   priorityBadge: {
     fontSize: fontSizes.xs,
@@ -2229,10 +2283,6 @@ const s = {
     padding: `${spacing.xs}px ${spacing.xs}px 2px`,
   },
   dueDate: { color: colors.textMuted, fontWeight: fontWeights.medium },
-  scheduleDates: {
-    display: 'flex', gap: spacing.sm, marginTop: spacing.xs,
-    fontSize: fontSizes.xs, flexWrap: 'wrap',
-  },
   scheduleDate: { fontWeight: fontWeights.medium, fontVariantNumeric: 'tabular-nums' },
   folderLink: {
     color: colors.accentFg, fontSize: fontSizes.sm, fontWeight: fontWeights.medium,
@@ -2240,13 +2290,6 @@ const s = {
     padding: `${spacing.sm}px ${spacing.md}px`,
     border: `1px solid ${colors.accentBorder}`, borderRadius: radii.sm,
     background: colors.accentSoft,
-  },
-  assigneeRow: {
-    marginTop: spacing.xs, color: colors.textSubtle, fontSize: fontSizes.xs,
-  },
-  plannedBadge: {
-    fontSize: 9, color: '#facc15', background: 'rgba(250,204,21,0.12)',
-    borderRadius: 3, padding: '1px 4px', marginLeft: 4, fontWeight: 600,
   },
   holdLane: {
     width: 240, flexShrink: 0,
@@ -2381,7 +2424,8 @@ const s = {
     },
     card: {
       background: colors.bgModal, border: `1px solid ${colors.border}`,
-      borderRadius: radii.md, padding: spacing.md,
+      borderRadius: radii.lg, padding: `${spacing.md}px ${spacing.md}px ${spacing.sm}px`,
+      boxShadow: CARD_SHADOW,
       cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
     },
     sheetOverlay: {
@@ -2589,8 +2633,9 @@ const s = {
     card: {
       background: colors.bg,
       border: `1px solid ${colors.border}`,
-      borderRadius: radii.sm,
-      padding: spacing.sm,
+      borderRadius: radii.lg,
+      padding: `${spacing.md}px ${spacing.md}px ${spacing.sm}px`,
+      boxShadow: CARD_SHADOW,
       minWidth: 220,
       maxWidth: 280,
       flex: '0 1 240px',
