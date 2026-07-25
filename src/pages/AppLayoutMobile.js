@@ -42,6 +42,7 @@ import HarborApp from './harbor/HarborApp';
 import { getSuiteViewFromPath, rememberBridge } from '../lib/suite';
 import { getSuiteAppForSegment } from '../lib/suiteApps';
 import { colors } from '../lib/styleTokens';
+import MortyChat from '../components/MortyChat';
 // Goals page is sunset on desktop; mobile mirrors that — import + nav
 // entry + route case removed. Re-add when goals comes back, if ever.
 
@@ -439,6 +440,8 @@ export default function AppLayoutMobile() {
       {showSubmitModal && (
         <SubmitModalMobile onClose={() => setShowSubmitModal(false)} />
       )}
+
+      {!isFreelancer && !isPartner && profile?.assistant_enabled !== false && <MortyChat />}
     </div>
   );
 }

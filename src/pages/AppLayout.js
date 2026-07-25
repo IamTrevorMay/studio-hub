@@ -50,6 +50,7 @@ import Jobs from './Jobs';
 import Workflows from './Workflows';
 import Ops from './Ops';
 import Morty from '../components/Morty';
+import MortyChat from '../components/MortyChat';
 import FreelancerTour from '../components/FreelancerTour';
 import PageErrorBoundary from '../components/PageErrorBoundary';
 import SuiteLauncher from './SuiteLauncher';
@@ -984,6 +985,7 @@ export default function AppLayout() {
         </div>
       </main>
       {profile?.mascot_enabled !== false && <Morty />}
+      {!isFreelancer && !isPartner && profile?.assistant_enabled !== false && <MortyChat />}
       {showTour && (
         <FreelancerTour
           onComplete={handleTourComplete}

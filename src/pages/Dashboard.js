@@ -2108,6 +2108,18 @@ export default function Dashboard({ onNavigate }) {
               />
             </div>
 
+            {/* Morty Chat */}
+            <div style={styles.settingsRow}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={styles.settingsLabel}>Morty Chat</div>
+                <div style={styles.settingsCaption}>Assistant chat for app questions (bottom right)</div>
+              </div>
+              <ToggleSwitch
+                on={profile?.assistant_enabled !== false}
+                onClick={() => updateProfile({ assistant_enabled: profile?.assistant_enabled === false ? true : false })}
+              />
+            </div>
+
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: spacing.xl }}>
               <button
                 onClick={() => setShowSettingsModal(false)}
