@@ -44,6 +44,11 @@ function toDateInput(v) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+function toTimeInput(v) {
+  // `time` column comes back as 'HH:MM:SS' — <input type="time"> wants 'HH:MM'.
+  return (v || '').slice(0, 5);
+}
+
 export default function ContractorAssignmentModal({
   open, onClose, onCreated, onSaved, showToast, currentUserId, existing,
 }) {
@@ -52,7 +57,7 @@ export default function ContractorAssignmentModal({
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     freelancer_id: '', title: '', description: '', asset_url: '',
-    due_date: '', pay_amount: '', status: 'assigned', submit_folder: '',
+    due_date: '', due_time: '', pay_amount: '', status: 'assigned', submit_folder: '',
   });
 
   const fetchFreelancers = useCallback(async () => {
@@ -74,6 +79,7 @@ export default function ContractorAssignmentModal({
         description: existing.description || '',
         asset_url: existing.asset_url || '',
         due_date: toDateInput(existing.due_date),
+        due_time: toTimeInput(existing.due_time),
         pay_amount: existing.pay_amount != null ? String(existing.pay_amount) : '',
         status: existing.status || 'assigned',
         submit_folder: existing.submit_folder_id || '',
@@ -81,7 +87,7 @@ export default function ContractorAssignmentModal({
     } else {
       setForm({
         freelancer_id: '', title: '', description: '', asset_url: '',
-        due_date: '', pay_amount: '', status: 'assigned', submit_folder: '',
+        due_date: '', due_time: '', pay_amount: '', status: 'assigned', submit_folder: '',
       });
     }
   }, [open, isEdit, existing, fetchFreelancers]);
@@ -98,6 +104,7 @@ export default function ContractorAssignmentModal({
         description: form.description.trim() || null,
         asset_url: form.asset_url.trim() || null,
         due_date: form.due_date || null,
+        due_time: form.due_time || null,
         pay_amount: form.pay_amount ? parseFloat(form.pay_amount) : null,
         submit_folder_id: parseDriveFolderId(form.submit_folder) || null,
       };
@@ -259,6 +266,15 @@ export default function ContractorAssignmentModal({
                 type="date"
                 value={form.due_date}
                 onChange={e => setForm(p => ({ ...p, due_date: e.target.value }))}
+                style={styles.input}
+              />
+            </div>
+            <div style={styles.formField}>
+              <label style={styles.label}>Due Time</label>
+              <input
+                type="time"
+                value={form.due_time}
+                onChange={e => setForm(p => ({ ...p, due_time: e.target.value }))}
                 style={styles.input}
               />
             </div>

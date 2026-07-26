@@ -47,6 +47,13 @@ function formatDueDate(dateString) {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+// due_time is a bare `time` column ('HH:MM:SS') → '3:30 PM'
+function formatDueTime(timeString) {
+  if (!timeString) return '';
+  const [h, m] = timeString.split(':').map(Number);
+  return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
 function getDueDateStatus(dateString) {
   if (!dateString) return 'none';
   const today = new Date();
@@ -663,7 +670,7 @@ export default function FreelancerDashboard({ onNavigate }) {
                             : dueDateStatus === 'today' ? '#fbbf24'
                             : 'rgba(255,255,255,0.45)',
                         }}>
-                          Due {formatDueDate(a.due_date)}
+                          Due {formatDueDate(a.due_date)}{a.due_time ? ` · ${formatDueTime(a.due_time)}` : ''}
                         </span>
                       )}
                     </div>

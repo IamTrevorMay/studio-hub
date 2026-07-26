@@ -77,7 +77,7 @@ export default function WorkflowsMobile() {
     const cutoff = new Date(Date.now() - SEVEN_DAYS_MS).toISOString();
     const TASK_COLS = 'id, title, description, assignee_id, due_date, status, snoozed_until, hold_reason, planned_date, workflow_instance_id, automation_id, created_at';
     const TASK_DONE_COLS = TASK_COLS + ', completed_at';
-    const FL_COLS = 'id, title, description, freelancer_id, status, due_date, pay_amount, asset_url, completed_at, created_at, created_by';
+    const FL_COLS = 'id, title, description, freelancer_id, status, due_date, due_time, pay_amount, asset_url, completed_at, created_at, created_by';
     try {
       const [pend, { data: completed }, { data: flPendData }, { data: flDoneData }, { data: sprintRows }] = await Promise.all([
         fetchAllRows(supabase.from('tasks').select(TASK_COLS).in('status', ['active', 'pending', 'on_hold']).not('assignee_id', 'is', null).order('created_at', { ascending: true }).order('id', { ascending: true })),

@@ -13,12 +13,17 @@ const STATUS_COLORS = { assigned: '#60a5fa', in_progress: '#fbbf24', completed: 
 
 const TYPE_ICONS = { edit: '✂️', design: '🎨', write: '✍️', other: '📋' };
 
-function fmtDue(iso) {
+function fmtDue(iso, time) {
   if (!iso) return null;
   const d = new Date(iso + 'T00:00:00');
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const diff = Math.round((d - today) / 86400000);
-  const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  let label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (time) {
+    // bare `time` column ('HH:MM:SS') → '3:30 PM'
+    const [h, m] = time.split(':').map(Number);
+    label += ` · ${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+  }
   if (diff < 0) return { label, sub: `${Math.abs(diff)}d overdue`, color: '#ef4444' };
   if (diff === 0) return { label, sub: 'Today', color: '#fbbf24' };
   if (diff <= 3) return { label, sub: `${diff}d left`, color: '#fcd34d' };
@@ -117,7 +122,7 @@ export default function FreelancerDashboardMobile() {
         <ul style={styles.list}>
           {visible.map((a) => {
             const accent = STATUS_COLORS[a.status] || '#94a3b8';
-            const due = fmtDue(a.due_date);
+            const due = fmtDue(a.due_date, a.due_time);
             return (
               <li key={a.id}>
                 <button onClick={() => setSelectedId(a.id)} style={styles.card}>
@@ -269,7 +274,7 @@ function AssignmentDetail({ assignmentId, assignment, profile, onChanged }) {
 
   if (!assignment) return null;
   const accent = STATUS_COLORS[assignment.status] || '#94a3b8';
-  const due = fmtDue(assignment.due_date);
+  const due = fmtDue(assignment.due_date, assignment.due_time);
 
   return (
     <div style={detailStyles.root}>

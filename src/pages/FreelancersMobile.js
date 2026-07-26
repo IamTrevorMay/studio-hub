@@ -31,6 +31,12 @@ function fmtShortDate(d) {
   const dt = new Date(d.length === 10 ? d + 'T00:00:00' : d);
   return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
+// bare `time` column ('HH:MM:SS') → '3:30 PM'
+function fmtTime(t) {
+  if (!t) return '';
+  const [h, m] = t.split(':').map(Number);
+  return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+}
 
 export default function FreelancersMobile() {
   const { profile, isAdmin } = useAuth();
@@ -174,7 +180,7 @@ function AssignmentsPane({ onOpen, onEdit }) {
                   )}
                   <span style={{ flex: 1 }} />
                   {a.due_date && (
-                    <span style={styles.dueText}>Due {fmtShortDate(a.due_date)}</span>
+                    <span style={styles.dueText}>Due {fmtShortDate(a.due_date)}{a.due_time ? ` · ${fmtTime(a.due_time)}` : ''}</span>
                   )}
                 </div>
                 <div style={styles.rowTitle}>{a.title || 'Untitled'}</div>
@@ -246,7 +252,7 @@ function AssignmentDetail({ assignment, currentUserId, onEdit, onClose }) {
         {assignment.description && <p style={detailStyles.desc}>{assignment.description}</p>}
         <div style={detailStyles.metaGrid}>
           <DetailMeta label="Status" value={STATUS_LABELS[assignment.status] || assignment.status} />
-          <DetailMeta label="Due" value={fmtDate(assignment.due_date)} />
+          <DetailMeta label="Due" value={`${fmtDate(assignment.due_date)}${assignment.due_time ? ` · ${fmtTime(assignment.due_time)}` : ''}`} />
           <DetailMeta label="Pay" value={assignment.pay_amount ? `$${Number(assignment.pay_amount).toLocaleString()}` : '—'} />
           <DetailMeta label="Created" value={fmtDate(assignment.created_at)} />
         </div>

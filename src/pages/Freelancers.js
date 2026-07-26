@@ -83,7 +83,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
   // New assignment form
   const [newAssign, setNewAssign] = useState({
     freelancer_id: '', title: '', description: '', asset_url: '',
-    due_date: '', pay_amount: '', content_type: 'video',
+    due_date: '', due_time: '', pay_amount: '', content_type: 'video',
   });
 
   /* ── Hours state ── */
@@ -379,6 +379,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
         description: newAssign.description.trim() || null,
         asset_url: newAssign.asset_url.trim() || null,
         due_date: newAssign.due_date || null,
+        due_time: newAssign.due_time || null,
         pay_amount: newAssign.pay_amount ? parseFloat(newAssign.pay_amount) : null,
         content_type: newAssign.content_type,
         created_by: profile.id,
@@ -396,7 +397,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
         link_target: null,
       });
 
-      setNewAssign({ freelancer_id: '', title: '', description: '', asset_url: '', due_date: '', pay_amount: '', content_type: 'video' });
+      setNewAssign({ freelancer_id: '', title: '', description: '', asset_url: '', due_date: '', due_time: '', pay_amount: '', content_type: 'video' });
       setShowNewAssignment(false);
       fetchAssignments();
     } finally {
@@ -406,12 +407,13 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
 
   const handleUpdateAssignment = async () => {
     if (!editingAssignment) return;
-    const { id, title, description, asset_url, assignment_type, content_type, due_date, pay_amount, status } = editingAssignment;
+    const { id, title, description, asset_url, assignment_type, content_type, due_date, due_time, pay_amount, status } = editingAssignment;
     const updates = {
       title, description: description || null,
       asset_url: (asset_url || '').trim() || null,
       assignment_type, content_type: content_type || 'video',
       due_date: due_date || null,
+      due_time: due_time || null,
       pay_amount: pay_amount ? parseFloat(pay_amount) : null,
       status,
       completed_at: status === 'completed' ? new Date().toISOString() : null,
@@ -611,6 +613,13 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
     if (!ts) return '';
     const dt = new Date(ts);
     return dt.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  };
+
+  // due_time is a bare `time` column ('HH:MM:SS') → '3:30 PM'
+  const formatDueTime = (t) => {
+    if (!t) return '';
+    const [h, m] = t.split(':').map(Number);
+    return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
   };
 
   const avatarLetter = (name) => (name || '?')[0].toUpperCase();
@@ -1108,7 +1117,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
                                   </span>
                                 )}
                                 <span style={{ color: '#fff', fontSize: 13, flex: 1 }}>{a.title}</span>
-                                {a.due_date && <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>Due {formatDate(a.due_date)}</span>}
+                                {a.due_date && <span style={{ fontSize: 12, color: colors.textDim }}>Due {formatDate(a.due_date)}{a.due_time ? ` · ${formatDueTime(a.due_time)}` : ''}</span>}
                               </div>
                             ))}
                           </div>
@@ -1533,6 +1542,15 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
                   />
                 </div>
                 <div style={styles.formField}>
+                  <label style={styles.label}>Due Time</label>
+                  <input
+                    type="time"
+                    value={newAssign.due_time}
+                    onChange={e => setNewAssign(p => ({ ...p, due_time: e.target.value }))}
+                    style={styles.input}
+                  />
+                </div>
+                <div style={styles.formField}>
                   <label style={styles.label}>Pay Amount ($)</label>
                   <input
                     type="number"
@@ -1596,7 +1614,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
                             </span>
                             {a.due_date && (
                               <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>
-                                Due {formatDate(a.due_date)}
+                                Due {formatDate(a.due_date)}{a.due_time ? ` · ${formatDueTime(a.due_time)}` : ''}
                               </span>
                             )}
                             {a.pay_amount && (
@@ -1678,7 +1696,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
                         )}
                         {a.due_date && (
                           <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
-                            Due {formatDate(a.due_date)}
+                            Due {formatDate(a.due_date)}{a.due_time ? ` · ${formatDueTime(a.due_time)}` : ''}
                           </span>
                         )}
                         {a.pay_amount && (
@@ -1759,6 +1777,7 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
                                 assignment_type: a.assignment_type,
                                 content_type: a.content_type || 'video',
                                 due_date: a.due_date || '',
+                                due_time: (a.due_time || '').slice(0, 5),
                                 pay_amount: a.pay_amount || '',
                                 status: a.status,
                               })}
@@ -1823,6 +1842,15 @@ function Freelancers({ initialAssignmentId, onAssignmentOpened } = {}) {
                                   type="date"
                                   value={editingAssignment.due_date}
                                   onChange={e => setEditingAssignment(p => ({ ...p, due_date: e.target.value }))}
+                                  style={styles.input}
+                                />
+                              </div>
+                              <div style={styles.formField}>
+                                <label style={styles.label}>Due Time</label>
+                                <input
+                                  type="time"
+                                  value={editingAssignment.due_time}
+                                  onChange={e => setEditingAssignment(p => ({ ...p, due_time: e.target.value }))}
                                   style={styles.input}
                                 />
                               </div>
