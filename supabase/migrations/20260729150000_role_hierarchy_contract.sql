@@ -19,7 +19,7 @@ update public.profiles set role = 'director'
 -- Backstop: any director still missing a sub_role defaults to communications.
 update public.profiles set sub_role = 'communications'
   where role = 'director' and sub_role is null;
-alter public.profiles enable trigger profiles_lock_admin_fields;
+alter table public.profiles enable trigger profiles_lock_admin_fields;
 
 -- 2. Hard-delete the external partner user (cascades profile + owned data).
 delete from auth.users where id = 'b88d48bd-46bf-404a-a9fe-c52753235753';
